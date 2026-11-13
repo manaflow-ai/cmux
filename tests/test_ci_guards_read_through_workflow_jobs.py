@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """No guard under tests/ reads a job's runs-on, environment, env or secrets raw: it reads them through
-tests/workflow_jobs.py (resolve, runs_on_cells, environment_values, effective_env, effective_secrets).
+tests/workflow_jobs.py (resolve, runs_on_cells, environment_values, effective_env, effective_secrets). A guard
+that holds self-hosted jobs to a rule picks them with workflow_jobs.may_run_self_hosted; raw runs-on reads
+remain confined to workflow_jobs, with its written-text accessor reserved for callers that need that form.
 
 A raw read fails open. `job["runs-on"]` is one string, so `${{ matrix.runner }}` hides every cell from a
 route guard; `job["environment"]` is compared as written, so `Release` is not `release`; `job["env"]` misses
@@ -15,6 +17,10 @@ The detector parses every Python file under tests/ and names, by file and line:
 - a copy of a job by `{**job}` or `dict(job)`, which drops the workflow env and document a workflow_jobs.Job
   carries (copy with workflow_jobs.copy_job).
 Writes (`job["runs-on"] = ...` in a fixture) are not reads. workflow_jobs.py itself is where the reads live.
+
+Every name a file under tests/ or scripts/ takes from workflow_jobs (`from workflow_jobs import X`, `workflow_jobs.X`,
+a `patch("workflow_jobs.X")` target) must exist in it: a public attribute is removed only with all its callers
+(#41133 BLOCK at aa1c6f09: `runs_on` went while two suites still called it).
 
 ALLOWED is for a read that is not a guard's; each entry gives its reason, and an entry that no longer matches a
 read fails. It also checks workflow_jobs.UNRESOLVED_MATRICES: an entry whose job is gone, or whose matrix now
@@ -300,9 +306,90 @@ def matrix_audit_failures() -> list[str]:
     return out
 
 
+PATCH_TARGET = re.compile(r"^workflow_jobs\.([A-Za-z_][A-Za-z0-9_]*)$")
+
+
+def module_names(source: str) -> list[tuple[int, str]]:
+    """Every name SOURCE takes from workflow_jobs, by line: `from workflow_jobs import X`, a load of `M.X` where
+    `import workflow_jobs [as M]` binds M, and a `patch("workflow_jobs.X")` target. A name bound otherwise (a local
+    `workflow_jobs = jobs(...)` dict) is not the module and is not read."""
+    tree = ast.parse(source)
+    aliases: set[str] = set()
+    found: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            aliases |= {alias.asname or alias.name for alias in node.names if alias.name == "workflow_jobs"}
+        elif isinstance(node, ast.ImportFrom) and node.module == "workflow_jobs" and not node.level:
+            found += [(node.lineno, alias.name) for alias in node.names if alias.name != "*"]
+    def shadowed(scope: ast.AST) -> set[str]:
+        """The aliases a function or lambda binds itself (an argument or an assignment), where they are not the module."""
+        names = {arg.arg for arg in ast.walk(scope.args) if isinstance(arg, ast.arg)}
+        names |= {node.id for node in ast.walk(scope) if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store)}
+        return names & aliases
+
+    def visit(node: ast.AST, live: set[str]) -> None:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            live = live - shadowed(node)
+        if (isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Load) and isinstance(node.value, ast.Name)
+                and node.value.id in live):
+            found.append((node.lineno, node.attr))
+        for child in ast.iter_child_nodes(node):
+            visit(child, live)
+
+    visit(tree, aliases)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and _text(node.func).split(".")[-1].startswith("patch"):
+            for arg in node.args[:1]:
+                match = PATCH_TARGET.match(arg.value) if isinstance(arg, ast.Constant) and isinstance(arg.value, str) else None
+                if match:
+                    found.append((node.lineno, match.group(1)))
+    return sorted(set(found))
+
+
+def caller_files() -> list[Path]:
+    """Every Python file under tests/ and scripts/ but workflow_jobs.py itself."""
+    return sorted(path for base in (TESTS, ROOT / "scripts") for path in base.rglob("*.py")
+                  if "__pycache__" not in path.parts and path != TESTS / "workflow_jobs.py")
+
+
+def missing_names(files: Iterable[Path], module: object = workflow_jobs) -> list[str]:
+    """A name a file takes from workflow_jobs that the module lacks: removing a public attribute without migrating
+    every caller (#41133 BLOCK at aa1c6f09: `runs_on` went, two suites still called it)."""
+    out = []
+    for path in files:
+        source = path.read_text(encoding="utf-8")
+        if "workflow_jobs" not in source:
+            continue
+        for line, name in module_names(source):
+            if not hasattr(module, name):
+                out.append(f"{path.relative_to(ROOT).as_posix()}:{line}: workflow_jobs has no {name!r}")
+    return out
+
+
 class GuardsReadThroughWorkflowJobs(unittest.TestCase):
     def test_no_guard_reads_a_job_field_raw(self) -> None:
         self.assertEqual(failures(tree_reads(python_files())), [])
+
+    def test_every_name_a_caller_takes_from_workflow_jobs_exists(self) -> None:
+        files = caller_files()
+        self.assertGreater(sum("workflow_jobs" in path.read_text(encoding="utf-8") for path in files), 50)
+        self.assertEqual(missing_names(files), [])
+
+    def test_a_missing_workflow_jobs_name_is_named(self) -> None:
+        source = (
+            "import workflow_jobs\nimport workflow_jobs as wj\nfrom workflow_jobs import holds_secret, gone_a\n"
+            "workflow_jobs.runs_on_cells(job)\nworkflow_jobs.gone_b(job)\nwj.gone_c\n"
+            "patch('workflow_jobs.gone_d')\npatch.object(workflow_jobs, 'x')\n"
+            "def f():\n    workflow_jobs = jobs(p)\n    return workflow_jobs.items()\n"
+        )
+        self.assertEqual([(line, name) for line, name in module_names(source) if not hasattr(workflow_jobs, name)],
+                         [(3, "gone_a"), (5, "gone_b"), (6, "gone_c"), (7, "gone_d")])
+
+    def test_runs_on_is_named_against_a_module_without_it(self) -> None:
+        # The #41133 BLOCK at aa1c6f09: workflow_jobs.runs_on was removed while two suites still called it.
+        source = "import workflow_jobs\nworkflow_jobs.runs_on(job)\nworkflow_jobs.runs_on_cells(job)\n"
+        without_runs_on = type("WithoutRunsOn", (), {"runs_on_cells": object()})
+        self.assertEqual([name for _, name in module_names(source) if not hasattr(without_runs_on, name)], ["runs_on"])
 
     def test_every_audited_matrix_is_still_unresolved(self) -> None:
         self.assertEqual(matrix_audit_failures(), [])

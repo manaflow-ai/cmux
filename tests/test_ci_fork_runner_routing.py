@@ -230,9 +230,9 @@ def trusted_runner_route_errors(texts: dict[str, str]) -> dict[tuple[str, str], 
         if body is None:
             errors[(workflow, job)] = f"{workflow} has no job {job}"
             continue
-        runs_on = workflow_jobs.runs_on(body)
-        if not TRUSTED_RUNNER_LINE.match(f"runs-on: {runs_on}"):
-            errors[(workflow, job)] = f"runs-on is not the trusted selector: {runs_on}"
+        cells = workflow_jobs.runs_on_cells(body)  # each matrix cell must be the selector, not the text as written
+        if not cells or any(not TRUSTED_RUNNER_LINE.match(f"runs-on: {cell}") for cell in cells):
+            errors[(workflow, job)] = f"runs-on is not the trusted selector: {cells}"
     return errors
 
 

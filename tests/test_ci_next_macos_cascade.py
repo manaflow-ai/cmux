@@ -1799,7 +1799,7 @@ class CarriedPlacement(unittest.TestCase):
 
     def test_a_rerun_with_a_carried_placement_never_waits_on_an_owned_label(self):
         mac_jobs = [name for name, job in self.jobs.items()
-                    if "needs.macos-placement" in workflow_jobs.runs_on(job)]
+                    if any("needs.macos-placement" in cell for cell in workflow_jobs.runs_on_cells(job) or ())]
         self.assertTrue(set(CASCADED) | set(GUI_JOBS) <= set(mac_jobs))
         for name in mac_jobs:
             runs_on = runs_on_of(self.jobs[name])

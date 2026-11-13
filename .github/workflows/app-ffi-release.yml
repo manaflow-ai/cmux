@@ -114,7 +114,7 @@ jobs:
   # concurrency group for an older build starts on that reading.
   placement:
     name: place the build
-    if: github.ref == 'refs/heads/feat-cmux-next' && github.repository_owner == 'manaflow-ai'
+    if: github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.repository_owner == 'manaflow-ai'
     runs-on: ${{ vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     # The routing App's read-only key, in the environment cmux-next's placement uses.

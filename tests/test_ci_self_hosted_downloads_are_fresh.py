@@ -16,7 +16,10 @@ exact-files check fails on a stale file, or a publish step ships it. Only these 
   `dist`.
 
 Every download-artifact step of a job on a self-hosted selector must write to one of them. Hosted and Blacksmith
-runners are one-shot VMs and are not held to this.
+runners are one-shot VMs and are not held to this. Which jobs those are comes from workflow_jobs.may_run_self_hosted,
+not the runs-on text (#41133 F3): `${{ matrix.runner }}` with `runner: [self-hosted]` names no selector as written, so
+every matrix cell is read (include entries and a fromJSON matrix of a literal too), and a runs-on part nothing
+resolves counts as self-hosted.
 
 The other side of that move (#40846 F2): a container action (`uses: docker://...`, a local action whose action.yml
 says `runs.using: docker`, or a remote one in KNOWN_CONTAINER_ACTIONS) mounts the workspace but not the runner's
@@ -39,15 +42,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
 import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 WORKFLOWS = ROOT / ".github/workflows"
-SELF_HOSTED = re.compile(r"vars\.|RUNNER_POOLS|self-hosted", re.IGNORECASE)
 FRESH_PATH = re.compile(r"^\$\{\{\s*(runner\.temp|steps\.[A-Za-z0-9_-]+\.outputs\.[A-Za-z0-9_-]+)\s*\}\}")
 
 
-def on_self_hosted_selector(job: Mapping[str, Any]) -> bool:
-    """Whether any matrix cell of the job's runs-on (workflow_jobs.runs_on_cells) names a self-hosted selector. A
-    matrix nothing resolves counts as self-hosted (#40784 F2: `${{ matrix.runner }}` named no selector)."""
-    cells = workflow_jobs.runs_on_cells(job)
-    return cells is None or any(SELF_HOSTED.search(cell) for cell in cells)
+def on_self_hosted_selector(job: Mapping[str, Any], workflow: str | None = None,
+                            workflows: workflow_jobs.Workflows | None = None) -> bool:
+    return workflow_jobs.may_run_self_hosted(job, workflow, workflows)
 
 
 def _without_workspace(path: str) -> str:
@@ -174,9 +174,10 @@ def stale_downloads(job: Mapping[str, Any]) -> list[str]:
 
 def problems(documents: Mapping[str, Mapping[str, Any]]) -> list[str]:
     found = []
+    workflows = workflow_jobs.Workflows(documents)
     for workflow, document in documents.items():
         for name, job in workflow_jobs.jobs(document).items():
-            if on_self_hosted_selector(job):
+            if on_self_hosted_selector(job, workflow, workflows):
                 found += [f"{workflow} {name}: {why}" for why in stale_downloads(job)]
     return found
 
@@ -248,8 +249,11 @@ def load_all() -> dict[str, dict]:
     return {path.name: workflow_jobs.document(path) for path in sorted(WORKFLOWS.glob("*.y*ml"))}
 
 
-def fixture(runs_on: str, steps: list[dict]) -> dict:
-    return {"jobs": {"j": {"runs-on": runs_on, "steps": steps}}}
+def fixture(runs_on: Any, steps: list[dict], matrix: Any = None) -> dict:
+    job = {"runs-on": runs_on, "steps": steps}
+    if matrix is not None:
+        job["strategy"] = {"matrix": matrix}
+    return {"jobs": {"j": job}}
 
 
 POOL = "${{ vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}"
@@ -332,9 +336,53 @@ class SelfHostedDownloads(unittest.TestCase):
         self.assertEqual(len(problems({"w.yml": fixture(POOL, [first, elsewhere, download])})), 1)
 
     def test_a_one_shot_runner_is_not_held_to_it(self) -> None:
-        for runs_on in ("ubuntu-24.04", "blacksmith-4vcpu-ubuntu-2404"):
+        for runs_on in ("ubuntu-24.04", "blacksmith-4vcpu-ubuntu-2404", "blacksmith-6vcpu-macos-latest"):
             document = fixture(runs_on, [{"uses": DOWNLOAD, "with": {"name": "a", "path": "dist"}}])
             self.assertEqual(problems({"w.yml": document}), [])
+
+    def test_a_self_hosted_matrix_cell_is_held_to_it(self) -> None:
+        # #41133 F3: runs-on read as text let `${{ matrix.runner }}` with `runner: [self-hosted]` through.
+        download = [{"uses": DOWNLOAD, "with": {"name": "a", "path": "dist"}}]
+        cells = {
+            "a matrix list": ("${{ matrix.runner }}", {"runner": ["ubuntu-24.04", "self-hosted"]}),
+            "a matrix include": ("${{ matrix['runner'] }}",
+                                 {"os": ["linux"], "include": [{"os": "linux", "runner": "glaeda-linux"}]}),
+            "a fromJSON matrix of a literal": ("${{ matrix.runner }}",
+                                               """${{ fromJSON('{"runner": ["self-hosted"]}') }}"""),
+            "a label list from the matrix": (["${{ matrix.runner }}", "linux"], {"runner": ["self-hosted"]}),
+            "a nested expression": ("${{ github.event_name == 'push' && matrix.runner || 'ubuntu-24.04' }}",
+                                    {"runner": ["self-hosted"]}),
+            "a matrix value that is an expression": ("${{ matrix.runner }}",
+                                                     {"runner": ["${{ vars.FLEET_RUNNER }}"]}),
+            "an expression nothing resolves": ("${{ needs.pick.outputs.runner }}", None),
+            "a matrix key nothing gives": ("${{ matrix.runner }}", {"os": ["ubuntu-24.04"]}),
+        }
+        for case, (runs_on, matrix) in cells.items():
+            with self.subTest(case=case):
+                self.assertEqual(len(problems({"w.yml": fixture(runs_on, download, matrix)})), 1)
+
+    def test_a_hosted_only_matrix_is_not_held_to_it(self) -> None:
+        download = [{"uses": DOWNLOAD, "with": {"name": "a", "path": "dist"}}]
+        cells = {
+            "a matrix list": ("${{ matrix.runner }}", {"runner": ["ubuntu-24.04", "blacksmith-4vcpu-ubuntu-2404",
+                                                                 "macos-26", "blacksmith-6vcpu-macos-26"]}),
+            "a matrix include": ("${{ matrix.runner }}", {"include": [{"runner": "windows-2025"},
+                                                                      {"runner": "ubuntu-24.04-arm"}]}),
+            "literal branches": ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                                 "'blacksmith-4vcpu-ubuntu-2404' }}", None),
+        }
+        for case, (runs_on, matrix) in cells.items():
+            with self.subTest(case=case):
+                self.assertEqual(problems({"w.yml": fixture(runs_on, download, matrix)}), [])
+
+    def test_a_reusable_workflow_runner_input_is_read_through_its_callers(self) -> None:
+        download = [{"uses": DOWNLOAD, "with": {"name": "a", "path": "dist"}}]
+        called = fixture("${{ inputs.runner }}", download)
+        for runner, count in (("self-hosted", 1), ("ubuntu-24.04", 0)):
+            with self.subTest(runner=runner):
+                caller = {"jobs": {"c": {"uses": "./.github/workflows/called.yml", "with": {"runner": runner}}}}
+                self.assertEqual(len(problems({"called.yml": called, "caller.yml": caller})), count)
+        self.assertEqual(len(problems({"called.yml": called})), 1)  # no caller: nothing resolves the input
 
     def test_a_matrix_runner_that_resolves_to_self_hosted_is_held_to_it(self) -> None:
         # Codex (#40784 F2, BLOCK at 341c7c1b): `${{ matrix.runner }}` named no selector, so the guard skipped the

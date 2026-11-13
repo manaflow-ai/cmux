@@ -8,6 +8,17 @@ A caller asks one of two questions and the two fail closed in opposite direction
   guarded / run"): a command it cannot be sure of is assumed to run. An Invocation with `any_program` may run
   programs the words do not name (eval, xargs, `bash -c`, a function, an unlexable tail), so a may_run caller asking
   "might PROGRAM run" uses may_run_program(), which counts those.
+- may_run_nested(run): may_run's commands plus the ones inside each that runs others (eval text, `bash -c` text,
+  the argv tails of xargs, find -exec, sudo ...), with [] for executable content it cannot read (a heredoc into a
+  shell, eval of a variable, a sourced file). Use it where a script is blamed for what a command may do
+  (tests/test_ci_release_publish_tag_gate.py: "may this publish"), and count [] as yes.
+- gh_api_request(args): the method and endpoint `gh api` sends, read the way gh reads its flags.
+- first_operand(args, options): where a tool's subcommand is, read with its option grammar, so an option's value is
+  never taken for a subcommand.
+
+What an expansion's body runs (`${..}`, `$((..))`, an array subscript, an unquoted heredoc body) is read by the
+shared parser tests/shell_tree.py, to any depth; a body it cannot read stops the lexer, so what follows may run
+anything.
 
 An Invocation is `certain` only when nothing in or before the simple command is beyond this lexer: a command or
 process substitution (`$(..)`, backticks, `<(..)`), an arithmetic or parameter expansion in its program word, a
@@ -42,6 +53,8 @@ from __future__ import annotations
 
 import re
 from typing import NamedTuple
+
+import shell_tree  # the shared parser (tests/shell_tree.py): what an expansion's body runs is read from its tree
 
 # Longest first: the first operator in this list that matches at a position is the one read there.
 _OPERATORS = ("<<<", "<<-", "<<", "<&", "<>", "<", ">>", "&>>", "&>", ">&", ">|", ">", "&&", "&", "||", "|&", "|",
@@ -99,7 +112,7 @@ _WRAPPERS: dict[str, _Wrapper] = {
                        certain=False),
     "builtin": _Wrapper(certain=False),
 }
-_SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
+_SHELLS = {"bash", "sh", "zsh", "dash", "ksh", "fish"}
 # Shell options that keep "run the first operand as a script": the rest (-c text, -s stdin, -i interactive,
 # -n noexec, -t one command, -r restricted, -l login profile, -D, -o/-O NAME, --rcfile FILE ...) are uncertain.
 _SHELL_FLAGS = frozenset("abefhkmpuvxBCEHPT")
@@ -133,7 +146,7 @@ class Token(NamedTuple):
 class Lexed(NamedTuple):
     tokens: list[Token]
     complete: bool  # False: the lexer stopped at something it could not finish; later text is unread
-    heredoc_subs: list[str]  # scripts of `$(..)` and backticks in unquoted heredoc bodies
+    heredoc_subs: list[str]  # scripts of `$(..)` and backticks in unquoted heredoc bodies and arithmetic commands
 
 
 class Invocation(NamedTuple):
@@ -203,12 +216,26 @@ def _match_close(text: str, index: int, opener: str) -> int | None:
             depth += 1
             i += 2
             continue
+        # A substitution inside a parameter expansion (`${x:-$(a)}`), or a parameter expansion inside a substitution
+        # (`$(echo ${x:-)})`), closes on its own bracket: a `)` or `}` in it does not close this one.
+        if text.startswith("$(", i) and close == "}" or text.startswith("${", i) and close == ")":
+            end = _match_close(text, i, text[i:i + 2])
+            if end is None:
+                return None
+            i = end
+            continue
+        if c == "`" and close == "}":
+            end = _backtick_close(text, i)
+            if end is None:
+                return None
+            i = end
+            continue
         if c == "(" and close == ")":
             depth += 1
         elif c == close:
             depth -= 1
             if depth == 0:
-                return i + 1
+                return None if cases else i + 1
         i += 1
     return None
 
@@ -240,61 +267,150 @@ def _backtick_close(text: str, index: int) -> int | None:
     return None
 
 
-def _body_subs(body: str) -> list[str] | None:
-    """The scripts of the `$(..)` and backtick substitutions an unquoted heredoc body expands; None if one is
-    unfinished."""
-    found = []
-    i = 0
-    while i < len(body):
-        if body[i] == "\\":
-            i += 2
-        elif body.startswith("$((", i):
-            end = _match_close(body, i, "$(")
-            if end is None:
+def _backtick_script(body: str) -> str:
+    """The script a backtick substitution runs: inside backticks a backslash before $, ` or another backslash is
+    removed first, so `` `echo \\$(a)` `` runs $(a)."""
+    return re.sub(r"\\([$`\\])", r"\1", body)
+
+
+def _arithmetic_body(text: str) -> str | None:
+    """The body of a ``$((..))`` or legacy ``$[..]`` arithmetic expansion, or None for another expansion."""
+    if text.startswith("$(("):
+        return text[3:-2]
+    if text.startswith("$["):
+        return text[2:-1]
+    return None
+
+
+def _legacy_arithmetic_subs(text: str) -> list[str] | None:
+    """The substitutions inside every legacy `$[ ]` arithmetic expansion in TEXT, including one nested in a
+    parameter expansion that shell_tree reads as literal text."""
+    found: list[str] = []
+    at = 0
+    while True:
+        at = text.find("$[", at)
+        if at < 0:
+            return found
+        end = _bracket_close(text, at)
+        if end is None:
+            return None
+        inner = _body_subs(text[at + 2:end - 1])
+        if inner is None:
+            return None
+        found.extend(script for script in inner if script not in found)
+        at = end
+
+
+def _tree_subs(source: str, words: list) -> list[str] | None:
+    """The scripts of the command and process substitutions in WORDS (shell_tree Words of SOURCE), at any depth of
+    parameter expansion, arithmetic and array subscript; one inside another is in its outer script. None when a
+    ${..@P} (prompt expansion, which runs the substitutions in a variable's value) is among them."""
+    found: list[str] = []
+    for word in words:
+        if word is None:
+            continue
+        legacy = _legacy_arithmetic_subs(source[word.start:word.end])
+        if legacy is None:
+            return None
+        found.extend(script for script in legacy if script not in found)
+        for sub in shell_tree.subs(word.parts):
+            if sub.form == "`":
+                found.append(_backtick_script(source[sub.start + 1:sub.end - 1]))
+            else:
+                found.append(source[sub.start + 2:sub.end - 1])
+        for part in _expansions(word.parts):
+            if isinstance(part, shell_tree.Param) and re.search(r"@P\}$", source[part.start:part.end]):
                 return None
-            inside = _body_subs(body[i + 3:end - 2])  # `$(( $(cmd) + 1 ))` runs cmd
-            if inside is None:
-                return None
-            found.extend(inside)
-            i = end
-        elif body.startswith("$(", i):
-            end = _match_close(body, i, "$(")
-            if end is None:
-                return None
-            found.append(body[i + 2:end - 1])
-            i = end
-        elif body[i] == "`":
-            end = _backtick_close(body, i)
-            if end is None:
-                return None
-            found.append(body[i + 1:end - 1])
-            i = end
-        else:
-            i += 1
+            # bash reads an arithmetic body as double-quoted text, wherever the $(( )) or $[ ] is; shell_tree reads
+            # a ${ } inside one unquoted, so `$(( ${x:-'$(a)'} ))` is read again as bash does (a shorter text each time).
+            if isinstance(part, shell_tree.Arith):
+                body = _arithmetic_body(source[part.start:part.end])
+                if body is None:
+                    continue
+                inner = _body_subs(body)
+                if inner is None:
+                    return None
+                found.extend(script for script in inner if script not in found)
     return found
 
 
-def _expansion_subs(inner: str) -> list[str] | None:
-    """The scripts of every command and process substitution inside a parameter or arithmetic expansion's text
-    (`X:-$(cmd)` of `${X:-$(cmd)}`), nested expansions included; None if one is unfinished. Quotes inside are not
-    read: a `'$(cmd)'` there may or may not run (it depends on the expansion's own quoting), so it counts as one
-    that may, and every command found is reported nested, never certain."""
-    found = _body_subs(inner)
-    if found is None:
+def _expansions(parts: list):
+    for part in parts:
+        if isinstance(part, (shell_tree.Param, shell_tree.Arith)):
+            yield part
+            yield from _expansions(part.parts)
+
+
+def _expansion_subs(text: str, in_double: bool) -> list[str] | None:
+    """The scripts of the substitutions a `${..}`, `$((..))` or `$[..]` expansion (TEXT, whole) may run, read by shell_tree.
+    Both readings count, because a context this lexer does not track can change which applies: unquoted, and as
+    bash reads it inside double quotes or arithmetic, where a ${ }'s single quote is literal (`(( ${x:-'`a`'} ))`
+    runs a). An arithmetic body is also read the way bash reads it, as double-quoted text. None when either reading
+    fails: the caller then stops, so whatever follows may run anything (fail closed)."""
+    found = _read_expansion(text, in_double)
+    arithmetic_body = _arithmetic_body(text)
+    other = _body_subs(arithmetic_body) if arithmetic_body is not None else _read_expansion(text, not in_double)
+    if found is None or other is None:
         return None
-    i = 0
-    while i < len(inner):
-        if inner[i] == "\\":
+    return found + [script for script in other if script not in found]
+
+
+def _read_expansion(text: str, in_double: bool) -> list[str] | None:
+    source = f'"{text}"' if in_double else text
+    try:
+        script = shell_tree.parse(source)
+    except shell_tree.Unparsed:
+        return None
+    if len(script.commands) != 1 or len(script.commands[0].words) != 1 or script.commands[0].redirects:
+        return None
+    return _tree_subs(source, script.commands[0].words)
+
+
+def _body_subs(body: str) -> list[str] | None:
+    """The scripts of the substitutions an unquoted heredoc body expands, at any depth of expansion, read by
+    shell_tree as a here-document; None if it cannot read one."""
+    lines = body.split("\n")
+    delimiter = "SHELL_INVOCATIONS_EOF"
+    while delimiter in lines:
+        delimiter += "_"
+    source = f": <<{delimiter}\n{body}\n{delimiter}\n"
+    try:
+        script = shell_tree.parse(source)
+    except shell_tree.Unparsed:
+        return None
+    return _tree_subs(source, [redirect.body for command in script.commands for redirect in command.redirects])
+
+
+def _bracket_close(text: str, index: int) -> int | None:
+    """The index just past the `]` closing the `$[` at `index`; None if it never closes. Substitutions and parameter
+    expansions inside are skipped whole."""
+    depth = 1
+    i = index + 2
+    while i < len(text):
+        c = text[i]
+        if c == "\\":
             i += 2
-        elif inner[i] in "<>" and inner.startswith("(", i + 1):
-            end = _match_close(inner, i, inner[i] + "(")
+            continue
+        if text.startswith(("$(", "${"), i):
+            end = _match_close(text, i, text[i:i + 2])
             if end is None:
                 return None
-            found.append(inner[i + 2:end - 1])
             i = end
-        else:
-            i += 1
-    return found
+            continue
+        if c == "`":
+            end = _backtick_close(text, i)
+            if end is None:
+                return None
+            i = end
+            continue
+        if c == "[":
+            depth += 1
+        elif c == "]":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    return None
 
 
 def _skip_heredoc_bodies(text: str, index: int, pending: list[tuple[str, bool, bool]],
@@ -386,18 +502,19 @@ def lex(text: str) -> Lexed:
             if end is None:
                 return None
             dynamic = True
-            subs.append(text[at + 1:end - 1])
+            subs.append(_backtick_script(text[at + 1:end - 1]))
             buf.append("\x00")
             return end
         if text.startswith("$((", at):
             end = _match_close(text, at, "$(")
             if end is None:
                 return None
-            inside = _expansion_subs(text[at + 3:end - 2])  # `$(( $(cmd) + 1 ))` runs cmd
-            if inside is None:
+            # `$(( $(a) + 1 ))` runs `a` (#41398 review F1): the substitutions inside arithmetic are commands.
+            inner = _expansion_subs(text[at:end], in_double)
+            if inner is None:
                 return None
+            subs.extend(inner)
             dynamic = True
-            subs.extend(inside)
             buf.append("\x00")
             return end
         if text.startswith("$(", at):
@@ -412,15 +529,24 @@ def lex(text: str) -> Lexed:
             end = _match_close(text, at, "${")
             if end is None:
                 return None
-            # `${X:-$(cmd)}`, `${X:=..}`, `${X:+`cmd`}`, `${X/$(cmd)/}`, `${X:$(cmd)}`, `${X:-${Y:-$(cmd)}}`: the
-            # word, pattern or offset of a parameter expansion may run a command.
-            inside = _expansion_subs(text[at + 2:end - 1])
-            if inside is None:
+            # `${x:-$(a)}` runs `a` (#41133 review F2), and so does `${x:-$(( $(a) ))}` or `${arr[$(a)]}` (#41398
+            # review F1): every substitution inside a parameter expansion, at any depth, is a command.
+            inner = _expansion_subs(text[at:end], in_double)
+            if inner is None:
                 return None
+            subs.extend(inner)
             dynamic = True
-            subs.extend(inside)
             buf.append(text[at:end])
             return end
+        if text.startswith("$[", at):
+            # `$[ .. ]`, bash's old arithmetic, reads its body as double-quoted text: its substitutions run whatever
+            # quotes surround them. The words go on to be read as usual too.
+            end = _bracket_close(text, at)
+            inner = None if end is None else _body_subs(text[at + 2:end - 1])
+            if inner is None:
+                return None
+            subs.extend(inner)
+            dynamic = True
         if _DOLLAR_NAME.match(text[at + 1:at + 2] or " "):
             dynamic = True
         buf.append("$")
@@ -525,7 +651,7 @@ def lex(text: str) -> Lexed:
             # `(( expr ))` and `for (( a; b; c ))`: an arithmetic expression, no commands and no redirections (`<<`
             # is a shift, not a heredoc). Only its substitutions run; they are reported nested. A `((` that does not
             # close as `))` is two subshells, as bash reads it.
-            inside = _expansion_subs(text[i + 2:end - 2])
+            inside = _expansion_subs("$" + text[i:end], False)
             if inside is None:
                 return Lexed(tokens, False, heredoc_subs)
             heredoc_subs.extend(inside)
@@ -533,6 +659,15 @@ def lex(text: str) -> Lexed:
             i = end
         elif c in ";&|()<>":
             end_word(i)
+            if text.startswith("((", i):
+                # An arithmetic command `(( .. ))` or `for (( .. ))` reads its body as double-quoted text, so a
+                # substitution inside runs whatever quotes surround it; its words are read as usual too.
+                end = _match_close(text, i, "$(")
+                if end is not None and text[end:end + 1] == ")":
+                    inner = _body_subs(text[i + 2:end - 1])
+                    if inner is None:
+                        return Lexed(tokens, False, heredoc_subs)
+                    heredoc_subs.extend(inner)
             operator = next(op for op in _OPERATORS if text.startswith(op, i))
             if operator in _HEREDOCS:
                 expect_delimiter = operator == "<<-"
@@ -555,6 +690,7 @@ class _Command(NamedTuple):
     dynamic: bool  # some word, or a redirection target, holds a substitution or expansion
     nested: bool  # it runs inside a substitution
     reached: bool = False  # bash runs it whenever the script runs to its end (_Flow); False unless shown
+    stdin: bool = False  # input redirection may feed executable content to an interpreter
 
 
 # Compound commands: the keyword that opens one, and the one that closes it.
@@ -629,6 +765,11 @@ class _Flow:
                     self.lost = True
                 else:
                     self.frames.pop()
+            elif text == "function":
+                # A function's body runs only where it is called: fail closed, nothing after it is reached.
+                self.lost = True
+                index += 2
+                continue
             elif text != "!":
                 break
             index += 1
@@ -683,6 +824,7 @@ def _commands(run: str, nested: bool, defined: set[str]) -> tuple[list[_Command]
     complete = lexed.complete
     words: list[Token] = []
     dynamic = False
+    stdin = False
     skip_target = False
     previous: Token | None = None
     tokens = lexed.tokens
@@ -703,12 +845,12 @@ def _commands(run: str, nested: bool, defined: set[str]) -> tuple[list[_Command]
     def case_reached() -> bool:
         return all(case_body_active)
 
-    def close(command_words: list[Token], command_dynamic: bool) -> None:
+    def close(command_words: list[Token], command_dynamic: bool, command_stdin: bool) -> None:
         # The keywords that open, continue or close a construct (and a `for`/`case` header) are no command.
         start = flow.keywords(command_words)
         if start < len(command_words):
             found.append(_Command(command_words[start:], command_dynamic, nested,
-                                  not nested and flow.reached() and case_reached()))
+                                  not nested and flow.reached() and case_reached(), command_stdin))
         flow.ended(command_words, start)
 
     def at_command_start() -> bool:
@@ -725,7 +867,7 @@ def _commands(run: str, nested: bool, defined: set[str]) -> tuple[list[_Command]
         if in_conditional:
             if token.kind == "word" and token.text == "]]" and not token.quoted:
                 in_conditional = False
-                words, dynamic = [], False
+                words, dynamic, stdin = [], False, False
             elif token.kind == "word":
                 nested_subs(token)  # `[[ $(cmd) ]]` runs cmd, unless an operator short-cuts it: nested
             previous = token
@@ -769,7 +911,7 @@ def _commands(run: str, nested: bool, defined: set[str]) -> tuple[list[_Command]
                 and token.text in ("case", "esac", "[["):
             if words:
                 flow.keywords(words)
-                words, dynamic = [], False
+                words, dynamic, stdin = [], False, False
             if token.text == "[[":
                 in_conditional = True
                 previous = token
@@ -782,6 +924,7 @@ def _commands(run: str, nested: bool, defined: set[str]) -> tuple[list[_Command]
                 case_fallthrough.append(False)
                 case_matched.append(False)
                 case_retest.append(False)
+                words, dynamic, stdin = [], False, False
                 previous = token
                 continue
             if token.text == "esac" and cases:
@@ -792,12 +935,13 @@ def _commands(run: str, nested: bool, defined: set[str]) -> tuple[list[_Command]
                 case_fallthrough.pop()
                 case_matched.pop()
                 case_retest.pop()
+                words, dynamic, stdin = [], False, False
                 previous = token
                 continue
         if cases and token.kind == "op" and token.text in (";;", ";&", ";;&"):
             if words:
-                close(words, dynamic)
-            words, dynamic, skip_target = [], False, False
+                close(words, dynamic, stdin)
+            words, dynamic, stdin, skip_target = [], False, False, False
             cases[-1] = "pattern"
             case_pattern_matches[-1] = False
             if case_body_active[-1]:
@@ -847,13 +991,14 @@ def _commands(run: str, nested: bool, defined: set[str]) -> tuple[list[_Command]
             if words and words[-1] is previous and previous.end == token.start and not previous.quoted \
                     and previous.text.isdigit():
                 words.pop()
+            stdin = stdin or token.text in {"<", "<<", "<<-", "<<<", "<&"}
             skip_target = True
         else:
             skip_target = False
             starts_command = not words
             if words:
-                close(words, dynamic)
-            words, dynamic = [], False
+                close(words, dynamic, stdin)
+            words, dynamic, stdin = [], False, False
             if token.kind == "nl":
                 if not joined:
                     flow.operator("\n", starts_command)
@@ -864,7 +1009,7 @@ def _commands(run: str, nested: bool, defined: set[str]) -> tuple[list[_Command]
             joined = False
         previous = token
     if words:
-        close(words, dynamic or not lexed.complete)  # a command cut short is not certain
+        close(words, dynamic or not lexed.complete, stdin)  # a command cut short is not certain
     if cases or in_conditional:
         complete = False  # an unclosed `case` or `[[`: bash refuses the script
     for sub in lexed.heredoc_subs:
@@ -892,6 +1037,41 @@ def _is_assignment(word: Token) -> bool:
     if match.group(2) is None:
         return word.plain >= match.end()
     return word.plain > len(match.group(1)) and word.equal_unquoted  # `X["k y"]=v`: the subscript may be quoted, NAME[ and = may not
+
+
+def _program_name(text: str) -> str:
+    """The name a program word is matched on: an absolute path by its basename (`/usr/bin/env` is env, `/bin/bash`
+    is bash); anything else as written (`./bash` is a script of that name, not the shell)."""
+    return text.rsplit("/", 1)[-1] if text.startswith("/") else text
+
+
+# An option that hands a program its command as text, as a shell's -c does: on an absolute program this does not
+# know, the program may run anything.
+_TEXT_OPTION = re.compile(r"-[A-Za-z]*c")
+_INTERPRETER_NAMES = frozenset({
+    "node", "nodejs", "perl", "ruby", "php", "pwsh", "powershell", "deno", "bun", "lua", "luajit",
+    "fish", "csh", "tcsh", "ash", "busybox", "tclsh", "wish", "gjs", "qjs", "quickjs", "osascript",
+})
+_INLINE_CODE_OPTIONS = frozenset({"-c", "-e", "-E", "-r", "--eval", "--execute", "--command"})
+
+
+def _is_interpreter(name: str) -> bool:
+    return name in _INTERPRETER_NAMES or name.startswith(("python", "pypy", "perl", "ruby", "php"))
+
+
+def _has_inline_interpreter_code(name: str, args: list[Token], stdin: bool) -> bool:
+    """Whether an interpreter is being handed executable text or input we cannot inspect."""
+    if not _is_interpreter(name) or name in _SHELLS:
+        return False
+    if stdin or any(word.text == "-" for word in args):
+        return True
+    for word in args:
+        text = word.text
+        if text in _INLINE_CODE_OPTIONS or text.startswith(("--eval=", "--execute=", "--command=")):
+            return True
+        if text.startswith("-") and not text.startswith("--") and any(option in text[1:] for option in "ceEr"):
+            return True
+    return False
 
 
 def _unwrap(words: list[Token], index: int, wrapper: _Wrapper) -> tuple[int | None, bool]:
@@ -975,17 +1155,14 @@ def _shell_script(words: list[Token], index: int) -> tuple[int | None, bool]:
                 certain = False
             i += 1
             continue
-        taken = False
-        for at, letter in enumerate(text[1:], start=1):
-            if letter in "cs":
-                return None, False  # `bash -c TEXT` runs TEXT; `bash -s` reads its script from stdin
-            if letter in "oO":
-                certain = False
-                taken = at == len(text) - 1
-                break
-            if letter not in _SHELL_FLAGS:
-                certain = False
-        i += 2 if taken else 1
+        letters = text[1:]
+        if any(letter in "cs" for letter in letters):
+            return None, False  # `bash -c TEXT` runs TEXT; `bash -s` reads its script from stdin; anywhere in a cluster
+        # Each o or O in a cluster takes the next word as its value (`-oc pipefail`, `-euo pipefail`), as bash reads it.
+        values = sum(letter in "oO" for letter in letters)
+        if values or any(letter not in _SHELL_FLAGS for letter in letters):
+            certain = False
+        i += 1 + values
     if i >= len(words):
         return None, False  # no operand: the shell reads its script from stdin
     return i, certain
@@ -1005,17 +1182,20 @@ def _classify(command: _Command, defined: set[str]) -> Invocation | None:
             # Quoting or escaping before an assignment-looking operator changes bash's grammar. Do not model the
             # assignment further: nothing is certain, while may_run() must still allow the real program.
             return Invocation([w.text for w in words[start:]], False, True)
-        if not _is_assignment(words[start]):
+        if _is_assignment(words[start]):
+            had_prefix_assignment = True
+            start += 1
+        elif not had_prefix_assignment and words[start].text == "function" and not words[start].quoted:
+            # Preserve function-body detection, but a keyword after an assignment is a program (#42175).
+            start += 2
+        else:
             break
-        # a keyword after an assignment is a program
-        had_prefix_assignment = True
-        start += 1
     certain = not command.dynamic and not command.nested and command.reached
     any_program = False
     wrappers: list[str] = []
     wrapper_assignment = False
     while start < len(words) and not _opaque(words[start]):
-        name = words[start].text
+        name = _program_name(words[start].text)
         if name in _WRAPPERS and (name != "time" or not words[start].quoted):
             program, sure = _unwrap(words, start, _WRAPPERS[name])
         elif name in _SHELLS and not words[start].quoted:
@@ -1044,10 +1224,16 @@ def _classify(command: _Command, defined: set[str]) -> Invocation | None:
     if start >= len(words):
         return None  # only assignments and redirections: nothing is run (a substitution's commands are separate)
     program = words[start]
+    name = _program_name(program.text)
     if _opaque(program) or program.text.startswith("$"):
         certain, any_program = False, True
-    if program.text in _RUNS_ARGUMENTS or program.text in defined:
+    if _has_inline_interpreter_code(name, words[start + 1:], command.stdin):
         certain, any_program = False, True
+    if name in _RUNS_ARGUMENTS or program.text in defined:
+        certain, any_program = False, True
+    if program.text.startswith("/") and name not in _SHELLS and name not in _WRAPPERS \
+            and any(_TEXT_OPTION.fullmatch(word.text) for word in words[start + 1:]):
+        certain, any_program = False, True  # an absolute program this does not know, given -c: it may run anything
     return Invocation([program.text.removeprefix("./"), *(w.text for w in words[start + 1:])], certain, any_program)
 
 
@@ -1096,3 +1282,289 @@ def may_run_program(run: str, program: str) -> bool:
     run any program. Use this where a script is blamed for running something."""
     return any(invocation.any_program or (invocation.words and invocation.words[0] == program)
                for invocation in may_run(run))
+
+
+class GhApiRequest(NamedTuple):
+    """How `gh api` reads its arguments (the words after `api`): the method it sends and the endpoint it calls."""
+    method: str | None  # upper case; None when the words do not say for certain (a variable, an option gh may add)
+    endpoint: str | None  # None when absent (xargs feeds it) or not readable (a variable or substitution)
+
+    @property
+    def writes(self) -> bool:
+        """Whether it may send anything but a read. A method it cannot read may be a write."""
+        return self.method not in ("GET", "HEAD")
+
+
+# gh api's options (`gh api --help`): those that take a value, the boolean ones, and the field flags that turn the
+# default method from GET into POST (as does --input).
+_GH_API_VALUES = {"-X": "--method", "-f": "--raw-field", "-F": "--field", "-H": "--header", "-q": "--jq",
+                  "-t": "--template", "-p": "--preview"}
+_GH_API_LONG_VALUES = frozenset(_GH_API_VALUES.values()) | {"--input", "--hostname", "--cache"}
+_GH_API_BOOLEANS = {"-i": "--include"}
+_GH_API_LONG_BOOLEANS = frozenset(_GH_API_BOOLEANS.values()) | {"--paginate", "--silent", "--verbose", "--slurp"}
+_GH_API_POST = frozenset({"--raw-field", "--field", "--input"})
+
+
+def _unreadable(text: str) -> bool:
+    """A word whose text bash only knows at run time (a variable or a substitution)."""
+    return "$" in text or "\x00" in text or "`" in text
+
+
+def gh_api_request(args: list[str]) -> GhApiRequest:
+    """The method and endpoint of `gh api ARGS`, read the way gh reads them: a field flag (-f, -F, --field,
+    --raw-field) or --input makes it a POST unless -X/--method names another; flags come spaced, attached
+    (-XPOST, -ftag=v1, --method=POST) or clustered (-iXPOST).
+
+    Writes first: a write method anywhere wins over a GET or HEAD anywhere else (`-X POST -X GET` is a write), and
+    --input, a request body, makes even a GET a write. An option gh does not document, a method held in a
+    variable, or more than one endpoint leaves the method or endpoint unknown, which a caller counts as a write
+    (`writes`) or as possibly any path. Only a read method with no write marker is a read; with no method, field
+    flags alone (-f, -F with -X GET) are query parameters."""
+    methods: list[str | None] = []
+    posts = False
+    body = False
+    unknown = False
+    endpoints: list[str | None] = []
+
+    def take(name: str, value: str | None) -> None:
+        nonlocal posts, body
+        if name == "--method":
+            methods.append(None if value is None or _unreadable(value) else value.upper())
+        elif name in _GH_API_POST:
+            posts = True
+            body = body or name == "--input"
+
+    index = 0
+    while index < len(args):
+        word = args[index]
+        index += 1
+        if word == "--":
+            endpoints.extend(None if _unreadable(rest) else rest for rest in args[index:])
+            break
+        if word.startswith("--"):
+            name, joined, value = word.partition("=")
+            if name in _GH_API_LONG_VALUES:
+                if not joined:
+                    value = args[index] if index < len(args) else None
+                    index += 1
+                take(name, value)
+            elif name not in _GH_API_LONG_BOOLEANS:
+                unknown = True
+            continue
+        if word.startswith("-") and len(word) > 1:
+            for at in range(1, len(word)):
+                option = "-" + word[at]
+                if option in _GH_API_BOOLEANS:
+                    continue
+                if option in _GH_API_VALUES:
+                    value = word[at + 1:] or None
+                    if value is None:
+                        value = args[index] if index < len(args) else None
+                        index += 1
+                    take(_GH_API_VALUES[option], value)
+                    break
+                unknown = True
+                break
+            continue
+        endpoints.append(None if _unreadable(word) else word)
+    endpoint = endpoints[0] if len(endpoints) == 1 else None
+    if unknown or None in methods:
+        return GhApiRequest(None, endpoint)
+    written = [method for method in methods if method not in ("GET", "HEAD")]
+    if written:
+        return GhApiRequest(written[0], endpoint)
+    if methods:
+        return GhApiRequest(None if body else methods[-1], endpoint)  # a GET with a request body is no read
+    return GhApiRequest("POST" if posts else "GET", endpoint)
+
+
+class Options(NamedTuple):
+    """A tool's option grammar before its subcommand: the options that take a value (`-p X`, `-pX`, `--package X`,
+    `--package=X`) and those that take none. Short ones may cluster (`-vq`, `-Ro/r`)."""
+    values: frozenset[str] = frozenset()
+    flags: frozenset[str] = frozenset()
+
+
+def first_operand(args: list[str], options: Options) -> int | None:
+    """The index in ARGS of the first operand (the subcommand), read with OPTIONS: an option's value is never an
+    operand, and `--` ends the options. len(ARGS) when there is none; None when an option before it is one the
+    grammar does not know, or a word bash only knows at run time, so its position cannot be read (fail closed)."""
+    index = 0
+    while index < len(args):
+        word = args[index]
+        if _unreadable(word):
+            return None
+        if word == "--":
+            return index + 1
+        if word == "-" or not word.startswith("-"):
+            return index
+        if word in options.flags:
+            index += 1
+            continue
+        if word in options.values:
+            index += 2
+            continue
+        if word.startswith("--"):
+            if "=" in word and word.split("=", 1)[0] in options.values:
+                index += 1
+                continue
+            return None
+        for at in range(1, len(word)):
+            option = "-" + word[at]
+            if option in options.values:
+                index += 1 if at < len(word) - 1 else 2
+                break
+            if option not in options.flags:
+                return None
+        else:
+            index += 1
+    return len(args)
+
+
+# Past this many levels of one command running another, what it runs counts as unreadable.
+_NEST_LIMIT = 4
+_SOURCES = {"source", "."}
+# Replacement mode (-I/--replace) can turn input into executable text, even inside a literal shell argument.
+# Optional-value options (--eof/--max-lines) are not this grammar's required-value options. Leave both unreadable.
+_XARGS_OPTIONS = Options(
+    values=_options("-a", "-d", "-E", "-L", "-n", "-P", "-s", "--arg-file", "--delimiter",
+                    "--max-args", "--max-procs", "--max-chars",
+                    "--process-slot-var"),
+    flags=_options("-0", "-r", "-t", "-p", "-x", "--null", "--no-run-if-empty", "--verbose",
+                   "--interactive", "--exit"),
+)
+
+
+def may_run_nested(run: str) -> list[list[str]]:
+    """Every command that might run, wrapped ones included, as word lists (program first). For a command that may
+    run programs its words do not name, the commands inside it follow its own words: the text an eval or a shell's
+    -c runs, a text argument (`su -c '..'`, `ssh host '..'`, `env -S '..'`), and each tail of its words a runner
+    (xargs, find -exec, flock, a wrapper with options this does not model) may run as a command. An empty list
+    stands for executable content this cannot read: a heredoc or stdin into a shell, eval or -c of text held in a
+    variable or substitution (even without literal whitespace), a sourced file, an unlexable tail, nesting past
+    _NEST_LIMIT. Runner text this cannot resolve fails closed; a known argv command's data arguments do not become
+    executable text (`xargs rm "$path"`). A variable program
+    (`"$python" -m x`) is read by its argument tails like any runner, so its arguments still count. A caller
+    asking "may this publish" counts an empty list as yes; a function's body is listed where it is defined."""
+    found: list[list[str]] = []
+    _nested(run, set(), 0, found)
+    return found
+
+
+def _nested(run: str, defined: set[str], depth: int, found: list[list[str]]) -> None:
+    commands, complete = _commands(run, depth > 0, defined)
+    for command in commands:
+        invocation = _classify(command, defined)
+        if invocation is not None:
+            _expand(invocation, defined, depth, found)
+    if not complete:
+        found.append([])
+
+
+def _shell_text(args: list[str]) -> str | None:
+    """The command text `bash -c TEXT` runs; None when the shell reads stdin or a script instead, or -c has no text.
+
+    bash reads every option first, wherever -c sits among them, and each `o` or `O` in an option word (`-o NAME`,
+    `+O NAME`, or clustered: `-co pipefail`, `-euco pipefail`, `-coo a b`) takes the next word as its value. The
+    text is the first word after the options and their values (or after `--`). #41133 F2: `bash -co pipefail TEXT`
+    read pipefail as the text."""
+    index = 0
+    command = False
+    while index < len(args):
+        word = args[index]
+        index += 1
+        if word == "--":
+            break
+        if word.startswith("--"):
+            index += 1 if word in ("--rcfile", "--init-file") else 0
+            continue
+        if word[:1] not in ("-", "+") or len(word) < 2:
+            return word if command else None
+        letters = word[1:]
+        command = command or (word[0] == "-" and "c" in letters)
+        index += sum(letter in "oO" for letter in letters)
+    return args[index] if command and index < len(args) else None
+
+
+def _word_token(text: str) -> Token:
+    # Synthetic argv tails are parsed as shell words, so wrapper recognition (notably `sh -c`) must see them as
+    # unquoted command words; dynamic text still remains opaque through the token's dynamic bit.
+    return Token("word", text, False, dynamic=_unreadable(text))
+
+
+def _expand(invocation: Invocation, defined: set[str], depth: int, found: list[list[str]]) -> None:
+    words = invocation.words
+    found.append(words)
+    if not words or not invocation.any_program:
+        return
+    program, args = _program_name(words[0]), words[1:]
+    if words[0] in defined:
+        return
+    if depth >= _NEST_LIMIT or program in _SOURCES:
+        found.append([])
+        return
+    if program == "eval":
+        if args[:1] == ["--"]:
+            args = args[1:]
+        text = " ".join(args)
+        if _unreadable(text):
+            found.append([])
+        else:
+            _nested(text, defined, depth + 1, found)
+        return
+    if program in _SHELLS:
+        if program == "fish":
+            found.append([])
+            return
+        text = _shell_text(args)
+        if text is None or _unreadable(text):
+            found.append([])
+        else:
+            _nested(text, defined, depth + 1, found)
+        return
+    if not _unreadable(program) and program not in _RUNS_ARGUMENTS and program not in _WRAPPERS:
+        found.append([])  # a script a shell runs in a mode this does not model
+        return
+    if program == "find":
+        # Search roots and predicate values are data. Only the argv following a command-running action is code.
+        for index, word in enumerate(args):
+            if word not in ("-exec", "-execdir", "-ok", "-okdir"):
+                continue
+            end = index + 1
+            while end < len(args) and args[end] not in (";", "+"):
+                end += 1
+            target = args[index + 1:end]
+            if not target or _opaque(_word_token(target[0])) or any(_unreadable(word) for word in target[1:]):
+                found.append([])
+            else:
+                tail = _classify(_Command([_word_token(text) for text in target], False, True), defined)
+                if tail is not None:
+                    _expand(tail, defined, depth + 1, found)
+        return
+    if program == "xargs":
+        # Unlike a text runner, xargs passes data arguments to one command. Locate that command before deciding
+        # which expansions are executable: -n's value is not a program, and rm's variable path is not code.
+        target = first_operand(args, _XARGS_OPTIONS)
+        if target is None or target < len(args) and _opaque(_word_token(args[target])):
+            found.append([])
+        elif target < len(args):
+            tail = _classify(_Command([_word_token(text) for text in args[target:]], False, True), defined)
+            if tail is not None:
+                _expand(tail, defined, depth + 1, found)
+        return
+    for word in args:
+        if (program in _RUNS_ARGUMENTS or program in _WRAPPERS) and _unreadable(word):
+            found.append([])  # env -S "$CMD", su -c "$CMD", ssh host "$CMD": runtime text may run anything
+        elif (program in _RUNS_ARGUMENTS or program in _WRAPPERS) and word.startswith("-") and re.search(r"\s", word):
+            found.append([])  # env -S'cmd' / su --command='cmd': an attached option value is executable text
+        elif re.search(r"\s", word):
+            _nested(word, defined, depth + 1, found)
+    operand_seen = False
+    for index in range(1, len(words)):
+        word = words[index]
+        # A variable may be the program only where the runner's first operand is; later it is an argument.
+        if not (_unreadable(word) and operand_seen):
+            tail = _classify(_Command([_word_token(text) for text in words[index:]], False, True), defined)
+            if tail is not None:
+                _expand(tail, defined, depth + 1, found)
+        operand_seen = operand_seen or not word.startswith("-")

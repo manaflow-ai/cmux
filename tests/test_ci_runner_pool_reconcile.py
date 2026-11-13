@@ -170,12 +170,14 @@ class SecretRouteBoundary(unittest.TestCase):
             "on: push\njobs:\n  base: &base\n    runs-on: ubuntu-24.04\n    steps:\n      - run: true\n"
             "  derived:\n    <<: *base\n    runs-on: ubuntu-latest\n"
         )
-        self.assertEqual(workflow_jobs.runs_on(workflow_jobs.jobs(text)["derived"]), "ubuntu-latest")
+        self.assertEqual(workflow_jobs.runs_on_cells(workflow_jobs.jobs(text)["derived"]), ["ubuntu-latest"])
 
     def test_backend_migration_push_guard_keeps_the_secretless_fleet_route(self):
         path = WORKFLOW_ROOT / ".github/workflows/backend.yml"
-        route = workflow_jobs.runs_on(workflow_jobs.jobs(path)["migrations-push-guard"])
-        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", route)
+        cells = workflow_jobs.runs_on_cells(workflow_jobs.jobs(path)["migrations-push-guard"])
+        self.assertTrue(cells, "migrations-push-guard: runs-on reads a matrix value nothing resolves, or is missing")
+        for route in cells:
+            self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", route)
 
 
 @unittest.skipUnless(POLICY_ROOT, "set RUNNER_POOL_POLICY_ROOT to main's checked-out policy")
