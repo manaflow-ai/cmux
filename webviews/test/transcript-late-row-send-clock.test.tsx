@@ -9,6 +9,7 @@ import { afterAll, expect, mock, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { installJsdomScroller } from "./support/jsdomScroller";
+import { settleReact } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -38,6 +39,10 @@ const replacements: Record<string, unknown> = {
   requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
   cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
   IS_REACT_ACT_ENVIRONMENT: true,
+  // The send's rise and the arrival step are the chase's, which the blocks follow arm plays; the slim
+  // `send` arm (the product's) moves every pass's rows at once and plays neither (VirtualTranscript
+  // `slimFollow`; Leo, 2026-11-09: "the scroll up is extremely sluggish").
+  cmuxExperiments: { "follow-motion": "blocks" },
 };
 for (const key of Object.getOwnPropertyNames(dom.window))
   if (/^(HTML|SVG|CSS|Shadow|Document|Mutation)/.test(key) && !(key in scope))
@@ -79,7 +84,8 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   if (ownNow) Object.defineProperty(performance, "now", ownNow);
   else delete (performance as unknown as Record<string, unknown>).now;
   dom.window.close();

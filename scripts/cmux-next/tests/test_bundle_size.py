@@ -5,9 +5,12 @@ from __future__ import annotations
 
 import json
 import os
+import plistlib
+import struct
 import subprocess
 import sys
 import tempfile
+import zlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -221,6 +224,60 @@ def test_tree_counts_fat_headers_and_padding(tmp: Path) -> None:
         assert b["parts"]["code and data"] == 2000 and b["parts"]["unwind tables"] == 400, b
         assert sum(b["parts"].values()) == b["bytes"], b  # the fat header and padding are counted
     assert not any(x["path"].endswith("Thing.class") for x in data["binaries"]), data["binaries"]
+
+
+def symbol_map(functions: list[tuple[str, int]]) -> bytes:
+    """A cmux-symbols.bin (write-app-symbol-map.py's format) of (name, size) functions, in order."""
+    def leb(n: int) -> bytes:
+        out = bytearray()
+        while True:
+            byte, n = n & 0x7F, n >> 7
+            out.append(byte | (0x80 if n else 0))
+            if not n:
+                return bytes(out)
+    names = [name for name, _ in functions] + [""]
+    deltas, previous, at = [], 0, 0x1000
+    for _, size in functions + [("", 0)]:
+        deltas.append(leb(at - previous))
+        previous, at = at, at + size
+    payload = struct.pack("<I", len(names)) + b"".join(deltas) + b"\0".join(n.encode() for n in names)
+    raw = zlib.compressobj(9, zlib.DEFLATED, -15)
+    body = raw.compress(payload) + raw.flush()
+    return b"CMXSYM1\0" + struct.pack("<I", 1) + b"\x11" * 16 + struct.pack("<I", len(body)) + body
+
+
+def test_tree_splits_the_app_code_by_language(tmp: Path) -> None:
+    app = make_app(tmp)
+    (app / "Contents/Info.plist").write_bytes(plistlib.dumps({"CFBundleExecutable": "cmux"}))
+    # Names as write-app-symbol-map.py stores them: Mach-O's leading underscore dropped, so
+    # `__ZN...` (C++ and legacy Rust) and `__RN...` (Rust v0) read `_ZN...` and `_RN...`, and
+    # `_$s...` (Swift) reads `$s...`. These are the forms in nightly 4328833946401's map.
+    (app / "Contents/Resources/cmux-symbols.bin").write_bytes(symbol_map([
+        ("$s10CmuxNextApp4mainyyF", 700),
+        ("_ZN4core3fmt5write17h0123456789abcdefE", 200),
+        ("_RNvCsfLfy6EI15iL_7___rustc12___rust_alloc", 50),
+        ("cmux_layout_reducer_apply", 30),
+        ("ghostty_surface_new", 40),
+        ("_ZN11spirv_cross8Compiler4compileEv", 25),
+        ("sqlite3_prepare_v2", 15),
+        ("objectdestroyTm", 10),
+    ]))
+    out = tmp / "t.json"
+    r = run("tree", str(app), "--json", str(out), "--jobs", "1")
+    assert r.returncode == 0, r.stderr
+    lang = json.loads(out.read_text())["code_by_language"]
+    assert lang["binary"] == "Contents/MacOS/cmux", lang
+    assert lang["bytes"] == {"Swift": 710, "Rust": 280, "Zig": 40, "C++": 25, "C and other": 15}, lang["bytes"]
+    assert "| Swift | 0.0 | 66.4% |" in r.stdout, r.stdout
+
+
+def test_tree_without_a_symbol_map_has_no_language_split(tmp: Path) -> None:
+    app = make_app(tmp)
+    (app / "Contents/Resources/cmux-symbols.bin").write_bytes(b"CMXSYM1\0garbage")
+    out = tmp / "t.json"
+    r = run("tree", str(app), "--json", str(out), "--jobs", "1")
+    assert r.returncode == 0, r.stderr
+    assert "code_by_language" not in json.loads(out.read_text())
 
 
 def main() -> int:
