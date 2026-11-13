@@ -24,8 +24,7 @@ fn v2_surfaces_round_trip_without_writing_the_empty_default() {
     let empty = serde_json::to_value(Config::default()).unwrap();
     assert!(empty.get("acpmux.v2").is_none());
 
-    let mut config = Config::default();
-    config.acpmux_v2 = V2Surfaces(vec!["peers".into()]);
+    let config = Config { acpmux_v2: V2Surfaces(vec!["peers".into()]), ..Config::default() };
     let saved = serde_json::to_value(&config).unwrap();
     assert_eq!(saved["acpmux.v2"], serde_json::json!(["peers"]));
     let parsed: Config = serde_json::from_value(saved).unwrap();

@@ -41,14 +41,6 @@ pub(super) async fn rebind(
 pub(super) async fn serve(
     hub: Arc<crate::hub::Hub>,
     listener: UnixListener,
-    swap: mpsc::Receiver<UnixListener>,
-) -> anyhow::Result<()> {
-    serve_with_v2(hub, listener, swap, None).await
-}
-
-pub(super) async fn serve_with_v2(
-    hub: Arc<crate::hub::Hub>,
-    listener: UnixListener,
     mut swap: mpsc::Receiver<UnixListener>,
     v2: Option<Arc<acpmux_core::life::V2>>,
 ) -> anyhow::Result<()> {

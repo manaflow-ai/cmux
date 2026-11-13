@@ -748,12 +748,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     #[cfg(unix)]
     let (rebound_tx, rebound_rx) = tokio::sync::mpsc::channel(1);
     #[cfg(unix)]
-    let unix = tokio::spawn(socket_rebind::serve_with_v2(
-        hub.clone(),
-        unix_listener,
-        rebound_rx,
-        v2.clone(),
-    ));
+    let unix =
+        tokio::spawn(socket_rebind::serve(hub.clone(), unix_listener, rebound_rx, v2.clone()));
     #[cfg(not(unix))]
     let unix = tokio::spawn(crate::server::serve_unix(hub.clone(), unix_listener));
     let local_app_file = local_app.as_ref().map(|a| a.path().to_owned());
