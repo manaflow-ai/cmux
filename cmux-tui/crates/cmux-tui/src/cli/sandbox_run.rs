@@ -34,6 +34,7 @@ const WAIT_SLICE_MS: u64 = 10_000;
 /** The app's `runs.cancel` deadline is 65 s: it destroys the VM before it answers. */
 const CANCEL_TIMEOUT: Duration = Duration::from_secs(70);
 /** What an app call may take past its budget and probe (connecting, the thread handoff). */
+// timeout: a margin added to each call's own bound, never a deadline of its own.
 const CALL_MARGIN: Duration = Duration::from_secs(1);
 /** The pause after a wait that got no answer, doubling to `RETRY_PAUSE_MAX`, never past the deadline. */
 const RETRY_PAUSE_MIN: Duration = Duration::from_millis(500);
