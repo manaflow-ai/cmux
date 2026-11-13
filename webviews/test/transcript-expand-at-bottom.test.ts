@@ -1,4 +1,5 @@
 // l10n-allow-file: the gallery fixture supplies the transcript's messages.
+// cmux-web-test-timeout: 300
 // Opening a line with the transcript at its very bottom grows down, as Codex opens a call at the end
 // of a chat (Lucas, 2026-11-06, Codex parity; it replaces the bottom pin on open, Leo 2026-11-02): the
 // line and the text above it stay on their pixels, what opens goes under the composer, and the view
@@ -316,6 +317,131 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
       await page.close();
       if (engine !== browser) await engine.close();
     });
+
+  // VEHICLE, NEVER MERGES (TIP REDS 4, for #42351). A measure, not a test: it asserts nothing about
+  // the motion. It closes the inline run at the very bottom 10 times with this head's CSS and 10 times
+  // with the 2 rules of #42351 switched off (the base's CSS form on the head's tree), the two sides
+  // in turn on one Chromium page, and prints the place of EVERY read, the late ones marked. The count
+  // is the one the case above asserts for "close": reads more than 1 px from the start and from the end.
+  test("VEHICLE chromium: the inline run closes 10 times on each side, every read printed", async () => {
+    const SIDES = [
+      ["head", "this head's CSS"],
+      ["off", "the base's CSS form on the head's tree"],
+    ] as const;
+    const FRAME_MS = 1000 / 60;
+    const page = await open(VARIANT, GROUP, browser!, { "run-scroll": "inline" });
+    await page.addStyleTag({
+      content: [
+        "html.vehicle-off .cv-tools > * + .cv-fold { margin-top: 0 !important; }",
+        "html.vehicle-off .cv-tools > * + .cv-fold::before { display: none !important; }",
+      ].join("\n"),
+    });
+    await page.locator(".acpmux-scroll").evaluate((node, selector) => {
+      node.querySelector<HTMLElement>(selector)!.dataset.glideProbe = "true";
+      node.scrollTop = node.scrollHeight;
+    }, GROUP);
+    await settled(page);
+    const PROBE = "[data-glide-probe]";
+    const place = () =>
+      page.evaluate(
+        (selector) =>
+          document.querySelector<HTMLElement>(selector)!.closest<HTMLElement>(".acpmux-row")!.getBoundingClientRect()
+            .top,
+        PROBE,
+      );
+    type Read = { t: number; lag: number; line: number; fromEnd: number };
+    const tally = {
+      head: { between: 0, three: 0, inTime: 0, inside: 0, stays: 0 },
+      off: { between: 0, three: 0, inTime: 0, inside: 0, stays: 0 },
+    };
+    for (let attempt = 1; attempt <= 10; attempt += 1)
+      for (const [side] of SIDES) {
+        await page.evaluate((off) => document.documentElement.classList.toggle("vehicle-off", off), side === "off");
+        await settled(page);
+        if ((await page.locator(PROBE).getAttribute("aria-expanded")) !== "true") {
+          await clickLine(page, PROBE);
+          await settled(page);
+        }
+        await page.locator(".acpmux-scroll").evaluate((node) => {
+          node.scrollTop = node.scrollHeight;
+        });
+        await settled(page);
+        const form = await page.evaluate((selector) => {
+          const row = document.querySelector<HTMLElement>(selector)!.closest<HTMLElement>(".acpmux-row")!;
+          const fold = row.querySelector<HTMLElement>(".cv-fold");
+          if (!fold) return "no .cv-fold box";
+          const before = getComputedStyle(fold, "::before");
+          const drawn =
+            before.display === "none" || before.content === "none" ? "not drawn" : `height ${before.height}`;
+          return `parent .${fold.parentElement!.className.trim().split(/\s+/).join(".")}, margin-top ${getComputedStyle(fold).marginTop}, ::before ${drawn}`;
+        }, PROBE);
+        const start = await place();
+        const watching = page.evaluate(
+          ({ selector, duration }) =>
+            new Promise<Read[]>((resolve) => {
+              const reads: Read[] = [];
+              const began = performance.now();
+              window.cmuxAfterPaint((t) => {
+                const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+                const row = document.querySelector<HTMLElement>(selector)!.closest<HTMLElement>(".acpmux-row")!;
+                reads.push({
+                  t,
+                  lag: performance.now() - t,
+                  line: row.getBoundingClientRect().top,
+                  fromEnd: scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop,
+                });
+                if (performance.now() - began < duration) return;
+                resolve(reads);
+                return false;
+              });
+            }),
+          { selector: PROBE, duration: 700 },
+        );
+        await clickLine(page, PROBE);
+        const reads = await watching;
+        await settled(page);
+        const end = await place();
+        const first = reads[0]?.t ?? 0;
+        const away = (read: Read, by: number) => Math.abs(read.line - start) > by && Math.abs(read.line - end) > by;
+        const late = (read: Read) => read.lag > FRAME_MS;
+        const between = reads.filter((read) => away(read, 1));
+        const inTime = between.filter((read) => !late(read));
+        const inside = reads.filter((read) => away(read, 6));
+        let run = 0;
+        let longest = 0;
+        for (const read of reads) {
+          const short = end - read.line;
+          run = short >= 3 && short <= 5 ? run + 1 : 0;
+          longest = Math.max(longest, run);
+        }
+        const totals = tally[side];
+        if (between.length) totals.between += 1;
+        if (between.length >= 3) totals.three += 1;
+        if (inTime.length) totals.inTime += 1;
+        if (inside.length) totals.inside += 1;
+        if (longest >= 3) totals.stays += 1;
+        console.log(
+          `VEHICLE expand close | side=${side} | try ${attempt} | fold: ${form} | start ${start.toFixed(1)} end ${end.toFixed(1)} | ` +
+            `reads (ms:place, L = a late read): ${reads
+              .filter((read) => read.t - first <= 450)
+              .map((read) => `${(read.t - first).toFixed(0)}${late(read) ? "L" : ""}:${read.line.toFixed(1)}`)
+              .join(" ")} | ` +
+            `reads with a place between (more than 1 px from the start and from the end): ${between.length}, of them in time: ${inTime.length} | ` +
+            `reads more than 6 px from the start and from the end: ${inside.length} | ` +
+            `longest row of reads 3 to 5 px before the end: ${longest}`,
+        );
+      }
+    for (const [side, name] of SIDES) {
+      const totals = tally[side];
+      console.log(
+        `VEHICLE expand close verdict | side=${side} (${name}) | tries with a place between: ${totals.between} of 10 | ` +
+          `tries with 3 or more reads between (the count that the case above asserts): ${totals.three} of 10 | ` +
+          `by in-time reads only: ${totals.inTime} of 10 | tries with a read more than 6 px from the start and from the end: ${totals.inside} of 10 | ` +
+          `tries with 3 or more reads in a row 3 to 5 px before the end: ${totals.stays} of 10`,
+      );
+    }
+    await page.close();
+  }, 240_000);
 
   /// The scene's own plays (ExpandAtBottom.gallery.ts) check where the bottom and the clicked line
   /// end up; each throws, and the stage reports it, when they are off. Leo, 2026-11-03: "it's weird

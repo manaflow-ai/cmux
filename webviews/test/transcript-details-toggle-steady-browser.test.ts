@@ -1,4 +1,5 @@
 // l10n-allow-file: test fixture prompts, answers and agent names, not shipped UI.
+// cmux-web-test-timeout: 300
 // Opening and closing a row at the very bottom of a running turn never jitters (Leo, 2026-11-05:
 // "simply STOP JITTERING IT").
 //
@@ -518,4 +519,125 @@ await requireBrowserLane("transcript-details-toggle-steady-browser.test.ts", asy
       await page.close();
     });
   }
+
+  // VEHICLE, NEVER MERGES (TIP REDS 4, for #42351). A measure, not a test: it asserts nothing about
+  // the motion. It closes the run of commands at the latest row 10 times with this head's CSS and 10
+  // times with the 2 rules of #42351 switched off (the base's CSS form on the head's tree), the two
+  // sides in turn on one Chromium page, and prints the place of EVERY read, the late ones marked.
+  const VEHICLE_OFF_CSS = [
+    "html.vehicle-off .cv-tools > * + .cv-fold { margin-top: 0 !important; }",
+    "html.vehicle-off .cv-tools > * + .cv-fold::before { display: none !important; }",
+  ].join("\n");
+  const VEHICLE_SIDES = [
+    ["head", "this head's CSS"],
+    ["off", "the base's CSS form on the head's tree"],
+  ] as const;
+  /// As clickAndWatch, but no read is left out: a late read keeps its place and its lag.
+  const vehicleWatch = async (page: Page, selector: string, ms = 700) => {
+    const point = await page.evaluate((query) => {
+      const node = document.querySelector<HTMLElement>(query);
+      if (!node) throw new Error(`nothing matches ${query}`);
+      document.querySelector("[data-probe]")?.removeAttribute("data-probe");
+      node.dataset.probe = "true";
+      const box = node.getBoundingClientRect();
+      return { x: box.left + Math.min(24, box.width / 2), y: box.top + box.height / 2 };
+    }, selector);
+    const place = () =>
+      page.evaluate(() => document.querySelector<HTMLElement>("[data-probe]")!.getBoundingClientRect().top);
+    const start = await place();
+    const watching = page.evaluate(
+      (duration) =>
+        new Promise<Frame[]>((resolve) => {
+          const began = performance.now();
+          const frames: Frame[] = [];
+          window.cmuxAfterPaint((t) => {
+            const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+            const rows: Record<string, number> = {};
+            for (const node of scroller.querySelectorAll<HTMLElement>("article.acpmux-row"))
+              if (node.getBoundingClientRect().height > 0) rows[node.dataset.rowId!] = node.getBoundingClientRect().top;
+            const line = document.querySelector<HTMLElement>("[data-probe]");
+            frames.push({
+              t,
+              rows,
+              line: line?.getBoundingClientRect().top ?? Number.NaN,
+              scrollTop: scroller.scrollTop,
+              lag: performance.now() - t,
+            });
+            if (performance.now() - began < duration) return;
+            resolve(frames);
+            return false;
+          });
+        }),
+      ms,
+    );
+    await page.mouse.click(point.x, point.y);
+    const frames = await watching;
+    await settle(page);
+    return { start, frames, end: await place() };
+  };
+  test("VEHICLE chromium: the run of commands closes 10 times on each side, every read printed", async () => {
+    browser = browsers.chromium;
+    const page = await open(true);
+    await page.addStyleTag({ content: VEHICLE_OFF_CSS });
+    const tally = {
+      head: { between: 0, inTime: 0, inside: 0, stays: 0 },
+      off: { between: 0, inTime: 0, inside: 0, stays: 0 },
+    };
+    for (let attempt = 1; attempt <= 10; attempt += 1)
+      for (const [side] of VEHICLE_SIDES) {
+        await page.evaluate((off) => document.documentElement.classList.toggle("vehicle-off", off), side === "off");
+        await settle(page);
+        if (!(await expanded(page, RUN_B))) {
+          await page.click(RUN_B);
+          await settle(page);
+        }
+        if (!(await atLatest(page))) await toLatest(page);
+        const form = await page.evaluate(() => {
+          const fold = document.querySelector<HTMLElement>('[data-row-id="run-b"] .cv-fold');
+          if (!fold) return "no .cv-fold box";
+          const before = getComputedStyle(fold, "::before");
+          const drawn =
+            before.display === "none" || before.content === "none" ? "not drawn" : `height ${before.height}`;
+          return `parent .${fold.parentElement!.className.trim().split(/\s+/).join(".")}, margin-top ${getComputedStyle(fold).marginTop}, ::before ${drawn}`;
+        });
+        const { start, frames, end } = await vehicleWatch(page, RUN_B);
+        const first = frames[0]?.t ?? 0;
+        const away = (frame: Frame, by: number) => Math.abs(frame.line - start) > by && Math.abs(frame.line - end) > by;
+        const late = (frame: Frame) => frame.lag! > FRAME_MS;
+        const between = frames.filter((frame) => away(frame, 1));
+        const inTime = between.filter((frame) => !late(frame));
+        const inside = frames.filter((frame) => away(frame, 6));
+        let run = 0;
+        let longest = 0;
+        for (const frame of frames) {
+          const short = end - frame.line;
+          run = short >= 3 && short <= 5 ? run + 1 : 0;
+          longest = Math.max(longest, run);
+        }
+        const totals = tally[side];
+        if (between.length) totals.between += 1;
+        if (inTime.length) totals.inTime += 1;
+        if (inside.length) totals.inside += 1;
+        if (longest >= 3) totals.stays += 1;
+        console.log(
+          `VEHICLE steady close | side=${side} | try ${attempt} | fold: ${form} | start ${start.toFixed(1)} end ${end.toFixed(1)} | ` +
+            `reads (ms:place, L = a late read): ${frames
+              .filter((frame) => frame.t - first <= 450)
+              .map((frame) => `${(frame.t - first).toFixed(0)}${late(frame) ? "L" : ""}:${frame.line.toFixed(1)}`)
+              .join(" ")} | ` +
+            `reads with a place between (more than 1 px from the start and from the end): ${between.length}, of them in time: ${inTime.length} | ` +
+            `reads more than 6 px from the start and from the end: ${inside.length} | ` +
+            `longest row of reads 3 to 5 px before the end: ${longest}`,
+        );
+      }
+    for (const [side, name] of VEHICLE_SIDES) {
+      const totals = tally[side];
+      console.log(
+        `VEHICLE steady close verdict | side=${side} (${name}) | tries with a place between: ${totals.between} of 10 | ` +
+          `by in-time reads only: ${totals.inTime} of 10 | tries with a read more than 6 px from the start and from the end: ${totals.inside} of 10 | ` +
+          `tries with 3 or more reads in a row 3 to 5 px before the end: ${totals.stays} of 10`,
+      );
+    }
+    await page.close();
+  }, 240_000);
 });
