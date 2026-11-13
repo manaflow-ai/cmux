@@ -425,6 +425,76 @@ fn a_foreign_origin_is_refused_even_with_the_token() {
     assert_eq!(get(addr, "GET", "/", &host, nav).status, 401);
 }
 
+/// The production page imports React from the same-origin runtime. Exercise
+/// the real authenticated Rust handler with the six generated files staged
+/// beside the test executable (the packaged app uses its Resources tree).
+#[test]
+fn shared_runtime_assets_are_authenticated_and_path_safe() {
+    let root = std::env::current_exe()
+        .unwrap()
+        .parent()
+        .and_then(|p| p.parent())
+        .unwrap()
+        .join("__runtime");
+    std::fs::create_dir_all(&root).unwrap();
+    let files = [
+        "react-runtime.js",
+        "react.js",
+        "react-dom.js",
+        "react-dom-client.js",
+        "react-jsx-runtime.js",
+        "react-compiler-runtime.js",
+    ];
+    for file in files {
+        std::fs::write(root.join(file), format!("/* fixture: {file} */\n")).unwrap();
+    }
+    let h = harness(true, 2);
+    let token = http::new_secret().unwrap();
+    let running =
+        http::start(inspector(&h), "127.0.0.1:0".parse().unwrap(), token.clone()).unwrap();
+    let host = format!("127.0.0.1:{}", running.addr.port());
+    let bearer = format!("Authorization: Bearer {token}\r\n");
+    for file in files {
+        let response = get(
+            running.addr,
+            "GET",
+            &format!("/__runtime/{file}"),
+            &host,
+            &bearer,
+        );
+        assert_eq!(response.status, 200, "{file}");
+        assert!(response.headers.contains("text/javascript"));
+        assert!(response.body.contains(file));
+        assert_eq!(
+            get(
+                running.addr,
+                "GET",
+                &format!("/__runtime/{file}"),
+                &host,
+                ""
+            )
+            .status,
+            401,
+            "{file} requires the token"
+        );
+    }
+    for path in [
+        "/__runtime/../react.js",
+        "/__runtime/react.js/child",
+        "/__runtime/not-a-runtime.js",
+    ] {
+        assert_eq!(
+            get(running.addr, "GET", path, &host, &bearer).status,
+            404,
+            "{path}"
+        );
+    }
+    for file in files {
+        let _ = std::fs::remove_file(root.join(file));
+    }
+    let _ = std::fs::remove_dir(&root);
+}
+
 /// Every endpoint, called on a quiet memory, leaves the database as it was.
 #[test]
 fn the_api_never_writes_the_memory() {
