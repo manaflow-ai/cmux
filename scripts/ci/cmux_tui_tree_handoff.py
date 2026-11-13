@@ -25,7 +25,8 @@ green job, and no run built the tree; the nightly that waited for it gave up):
 - when a call is refused for the rate limit and GH_TOKEN_SPARE holds another
   token, the hand-off moves to that token for the rest of its calls; and
 - a hand-off that could not run exits 1 with an error annotation, and its
-  step fails the job.
+  step fails the job. A hand-off that re-ran a run and then could not delete
+  its marker did run: that is a warning, and the step passes.
 
 usage: cmux_tui_tree_handoff.py --repo OWNER/NAME --run-id ID --key KEY
 Needs GH_TOKEN with actions: write (job logs are read with actions access).
@@ -51,6 +52,8 @@ MAX_ATTEMPT = 3
 ATTEST_STEP = re.compile(r"^(?:Attest raw binary subjects(?: \((?:try \d+|last try)\))?|Retry the attestation\b.*)$")
 RATE_LIMIT_TEXT = re.compile(
     r"rate limit exceeded|secondary rate limit|too many requests|\bHTTP 429\b|status(?: code)?:? 429", re.IGNORECASE)
+# gh's answer for an artifact that no longer exists.
+MARKER_GONE = re.compile(r"\bNot Found\b|\bHTTP 404\b")
 # Jobs that only follow a failure: they never make an owner's failure their own.
 REPORTING_JOBS = frozenset({"report an unpublished cmux-tui tree to cmux-next"})
 
@@ -156,11 +159,14 @@ def handoff(repo: str, run_id: int, key: str) -> None:
             continue
         print(f"Re-ran run {deferred} ({branch}, {why}), which deferred to this one, to build tree {key}.")
         # The marker is used once. If it cannot be deleted, a later owner may re-run this run again, but only
-        # up to MAX_ATTEMPT: the cap is read from the run itself, not from the marker.
+        # up to MAX_ATTEMPT: the cap is read from the run itself, not from the marker. The key was handed on,
+        # so the step passes. Right after the re-run the delete can answer 404: the marker is gone already
+        # (2026-11-13: run 43364473890 re-ran its deferred run and went red on that 404).
         deleted = _gh("api", "-X", "DELETE", f"repos/{repo}/actions/artifacts/{artifact}")
-        if deleted.returncode != 0:
+        if deleted.returncode != 0 and MARKER_GONE.search(deleted.stderr):
+            print(f"Deferred marker {artifact} of run {deferred} was already gone.")
+        elif deleted.returncode != 0:
             print(f"::warning::could not delete deferred marker {artifact} of run {deferred}: {deleted.stderr.strip()}")
-            raise SystemExit(1)
         return
     print(f"::warning::no run that deferred tree {key} to this one could be re-run")
 

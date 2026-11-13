@@ -51,7 +51,9 @@ if args[:2] == ["run", "rerun"]:
     sys.exit(0 if args[2] not in state.get("rerun_fails", []) else 1)
 path = next(a for a in args[1:] if a.startswith("repos/"))
 if "-X" in args:
-    sys.exit(1 if state.get("delete_fails") else 0)
+    if state.get("delete_fails"):
+        print(state["delete_fails"], file=sys.stderr); sys.exit(1)
+    sys.exit(0)
 if path.endswith("/logs"):
     job = path.split("/")[-2]
     if job in state.get("log_errors", []):
@@ -239,13 +241,24 @@ class CommandTests(unittest.TestCase):
         self.assertNotIn("hand-off token", result.stdout)
         self.assertEqual(set(self.tokens), {"t"})
 
-    def test_delete_failure_warns_and_fails_the_step(self):
-        state = {"jobs_pages": [[job(1, "build", "failure", "cargo build")]], "delete_fails": True,
+    def test_delete_failure_warns_and_passes_the_step_since_the_key_was_handed_on(self):
+        state = {"jobs_pages": [[job(1, "build", "failure", "cargo build")]], "delete_fails": "HTTP 502",
                  "artifacts": [marker(31, 12)], "runs": {"12": {"status": "completed", "run_attempt": 1}}}
         result, _ = self.run_handoff(state)
-        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("Re-ran run 12", result.stdout)
         self.assertIn("::warning::could not delete deferred marker 31", result.stdout)
+        self.assertNotIn("::error", result.stdout)
+
+    def test_a_marker_the_rerun_already_took_away_is_no_warning(self):
+        # Run 43364473890 (2026-11-13): it re-ran its deferred run, and the marker's delete answered 404.
+        state = {"jobs_pages": [[job(1, "build", "failure", "cargo build")]], "delete_fails": "gh: Not Found (HTTP 404)",
+                 "artifacts": [marker(31, 12)], "runs": {"12": {"status": "completed", "run_attempt": 1}}}
+        result, calls = self.run_handoff(state)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(["run", "rerun", "12", "--repo", "o/r"], calls)
+        self.assertIn("Deferred marker 31 of run 12 was already gone.", result.stdout)
+        self.assertNotIn("::warning", result.stdout)
 
     def test_unreadable_log_run_and_rerun_failures_warn(self):
         state = {"jobs_pages": [[job(2, "publish to R2", "failure", "Upload to R2")]], "log_errors": ["2"],
