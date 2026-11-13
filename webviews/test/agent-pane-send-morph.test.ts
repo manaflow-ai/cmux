@@ -369,6 +369,7 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
       for (const frame of seen) expect(frame.ghosts, `no copy flies at ${frame.at} ms`).toEqual([]);
       const drawn = seen.filter((frame) => frame.bubble);
       expect(drawn.length, "the sent row was never drawn").toBeGreaterThan(2);
+      console.log(`PROBE scrolled ${JSON.stringify(seen.slice(0, 12).map((f) => ({ at: f.at, typed: f.typed.length, b: f.bubble && { shown: f.bubble.shown, ink: f.bubble.ink, top: Math.round(f.bubble.top) } })))}`); // PROBE
       expect(drawn[0]!.bubble!.shown, "the bubble draws in its place").toBe(true);
       expect(drawn[0]!.bubble!.ink, "the bubble fades in in place").toBeLessThan(0.6);
       expect(drawn.at(-1)!.bubble!.ink).toBeGreaterThan(0.99);
@@ -401,7 +402,9 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
   });
 
   test("a short chat that fits, sent from its latest row, morphs", async () => {
-    const page = await browser!.newPage({ viewport: { width: 900, height: 620 } });
+    // Tall enough for one turn under Codex's composer (the default since #42247): its 96 px box and
+    // the Codex turn spacing put the first turn about 100 px past a 620 px pane.
+    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     try {
       await openChat(page, ["first question"]);
       expect(
