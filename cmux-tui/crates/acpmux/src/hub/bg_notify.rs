@@ -184,7 +184,7 @@ comes to you."
             class: Some(crate::prompt_class::PromptClass::Result),
             // Taken (or a duplicate of one taken): never sent again.
             on_accepted: Some(Box::new(move |_| {
-                if let Err(e) = std::fs::write(&mark, b"") {
+                if let Err(e) = crate::home_fs::write(&mark, b"") {
                     tracing::warn!(mark = %mark.display(), "a sent task end was not marked: {e}");
                 }
             })),
@@ -227,7 +227,7 @@ impl Hub {
         if !self.subagent_notice_leave(session, sub, &prompt_id, &left) {
             return false;
         }
-        if let Err(e) = std::fs::write(bg_run::notified_path(dir, &record.id), b"") {
+        if let Err(e) = crate::home_fs::write(bg_run::notified_path(dir, &record.id), b"") {
             tracing::warn!(task = %record.id, "a task end left for a subagent was not marked: {e}");
         }
         true
@@ -256,7 +256,7 @@ impl Hub {
         else {
             return;
         };
-        let _ = std::fs::remove_file(bg_run::notified_path(&dir, id));
+        let _ = crate::home_fs::remove_file(bg_run::notified_path(&dir, id));
         if self.stopping.load(Ordering::SeqCst)
             || session.closing.load(Ordering::SeqCst)
             || session.purged.load(Ordering::SeqCst)
@@ -302,7 +302,9 @@ fn notice_body(dir: &Path, record: &Record) -> String {
 #[cfg(unix)]
 fn wait_unlocked(path: &Path) {
     use std::os::fd::AsRawFd;
-    let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).open(path) else { return };
+    let Ok(file) = crate::home_fs::OpenOptions::new().read(true).write(true).open(path) else {
+        return;
+    };
     loop {
         // SAFETY: flock on a descriptor this function owns; it blocks until the runner let go.
         if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0 {
