@@ -146,7 +146,9 @@ impl AppVerbs {
         command
             .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .stderr(Stdio::piped())
+            // It leads a group of its own: a cancel or a timeout ends what it started too.
+            .process_group(0);
         let mut child = match command.spawn() {
             Ok(child) => child,
             Err(error) => return failed(error.to_string()),
@@ -157,7 +159,7 @@ impl AppVerbs {
         }
         let (stdout, stderr) = (child.stdout.take(), child.stderr.take());
         // The pipe readers belong to this call: the scope joins them before it returns.
-        std::thread::scope(|scope| {
+        std::thread::scope(move |scope| {
             let read = |pipe: Option<Box<dyn std::io::Read + Send>>| {
                 scope.spawn(move || {
                     let mut text = String::new();
@@ -178,9 +180,10 @@ impl AppVerbs {
                 }
                 let cancelled = cancel.is_some_and(|flag| flag.load(Ordering::Acquire));
                 if cancelled || began.elapsed() >= bound {
-                    // Our own child, by its handle.
-                    let _ = child.kill();
-                    let _ = child.wait();
+                    // Our own child's group, by its handle: dropped unreaped, it signals the
+                    // group, then kills what is left after the grace and reaps the child
+                    // (cmux_process::Child). Its pipes end with the group.
+                    drop(child);
                     break None;
                 }
             };
