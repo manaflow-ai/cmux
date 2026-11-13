@@ -210,13 +210,22 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
             await drain()
             #expect(cloud.dials(vm) == 0, "\(status)")
         }
-        // It starts: now it is dialed; it pauses again: its link closes, its rows stay as last known.
+        // It starts: now it is dialed; it pauses again: its link closes, its rows stay as last known,
+        // and its session stays (as an offline Mac's does), so an open terminal can reattach on it.
         live.applyCloudMachines([machine(.running)])
         await settle { store.macDataPhase(vm) == .live }
+        let session = live.sessions[vm]
         live.applyCloudMachines([machine(.paused)])
         await drain()
-        #expect(live.sessions[vm] == nil)
+        #expect(live.sessions[vm] === session, "the session stays")
+        #expect(live.sessions[vm]?.link.target == nil, "its link closed")
+        #expect(live.sessions[vm]?.terminalsOffline == true, "its terminals say it is offline")
         #expect(store.workspaces.contains { $0.macID == vm })
+        // It runs again: the same session dials again.
+        live.applyCloudMachines([machine(.running)])
+        await settle { store.macDataPhase(vm) == .live }
+        #expect(live.sessions[vm] === session)
+        #expect(cloud.dials(vm) == 2)
         // Gone from the list (deleted): its rows go too.
         live.applyCloudMachines([])
         #expect(!store.workspaces.contains { $0.macID == vm })
