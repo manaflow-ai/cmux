@@ -23,6 +23,9 @@ on:
       - "scripts/lint-namespace-types-baseline.txt"
       - "scripts/swift_source_mask.py"
       - "scripts/tests/test_ios_package_conventions.py"
+      - "scripts/lint_ios_theme_tokens.py"
+      - "scripts/lint-ios-theme-tokens-baseline.txt"
+      - "scripts/tests/test_lint_ios_theme_tokens.py"
       - "scripts/ci/ios_runner_pool.py"
       - "scripts/ci/select_ios_simulator.py"
       - ".github/workflows/test-ios.yml"
@@ -381,7 +384,7 @@ jobs:
           fi
           # The conventions lint (free-function ban, namespace-type rule, ...)
           # covers every package, so it runs for any Packages/ change too.
-          if grep -Eq '^(ios/|Packages/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$|scripts/lint-ios-package-conventions-baseline\.txt$|scripts/lint-namespace-types-baseline\.txt$)' /tmp/changed-files.txt; then
+          if grep -Eq '^(ios/|Packages/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$|scripts/lint-ios-package-conventions-baseline\.txt$|scripts/lint-namespace-types-baseline\.txt$|scripts/lint_ios_theme_tokens\.py$|scripts/lint-ios-theme-tokens-baseline\.txt$|scripts/tests/test_lint_ios_theme_tokens\.py$)' /tmp/changed-files.txt; then
             echo "should_lint=true" >> "$GITHUB_OUTPUT"
           else
             echo "No package-owned files changed; skipping conventions lint."
@@ -404,10 +407,13 @@ jobs:
       - name: Lint iOS package conventions
         run: |
           python3 scripts/tests/test_ios_package_conventions.py
+          python3 scripts/tests/test_lint_ios_theme_tokens.py
           # Mechanical enforcement of the modular-refactor conventions over the
           # iOS line (no singletons / Combine / locks / timer hacks / KVO /
           # namespace-enums) plus the repo-wide namespace-type rule (no
-          # all-static "namespace" types in any package). Exits non-zero on any
+          # all-static "namespace" types in any package) and the theme-token
+          # rule (no literal colors or font sizes in view code,
+          # docs/ios-theme-tokens.md). Exits non-zero on any
           # unjustified ERROR; sanctioned exceptions carry a lint:allow /
           # TRANSITIONAL / carve-out marker, and pre-existing debt is
           # grandfathered in the lint baseline files under scripts/.
