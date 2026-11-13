@@ -190,7 +190,7 @@
    "optional": "debug.appearance is DEBUG only"
   },
   {
-   "title": "Light, Default density: Codex rows, soft titles, Workspaces heading, dimmed sidebar",
+   "title": "Light, Default density: Codex rows, soft titles, no heading under the pins, dimmed sidebar",
    "wait": 2
   },
   {
