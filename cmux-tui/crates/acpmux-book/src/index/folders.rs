@@ -287,22 +287,23 @@ impl Folders {
         max_bytes: usize,
         filter: Option<&ListFilter>,
     ) -> io::Result<FolderPage> {
-        self.read_page_visible(cursor, side, inclusive, limit, max_bytes, filter, |_| true)
+        self.read_page_visible(cursor, side, inclusive, (limit, max_bytes), filter, |_| true)
     }
 
     /// Reads a page while applying an additional visibility predicate to each
     /// candidate. Hidden rows consume the candidate bound and continuation but
-    /// no response bytes, matching the list's origin-removal rule.
+    /// no response bytes, matching the list's origin-removal rule. `bounds`
+    /// contains the candidate limit and encoded row byte budget.
     pub fn read_page_visible(
         &self,
         cursor: Option<&FolderCursor>,
         side: FolderReadSide,
         inclusive: bool,
-        limit: usize,
-        max_bytes: usize,
+        bounds: (usize, usize),
         filter: Option<&ListFilter>,
         visible: impl Fn(&FolderRow) -> bool,
     ) -> io::Result<FolderPage> {
+        let (limit, max_bytes) = bounds;
         Self::validate_page_bound(limit, max_bytes)?;
         let anchor = cursor.map(FolderCursor::sort_key);
         let (start, end) = match (anchor.as_ref(), side) {

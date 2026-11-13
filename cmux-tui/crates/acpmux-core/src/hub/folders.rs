@@ -60,8 +60,10 @@ impl Hub {
                 anchor.as_ref(),
                 side,
                 true,
-                validate_window(sub)?,
-                crate::wire::MAX_PAGE_BYTES.saturating_sub(8192 + sub.sid.len()),
+                (
+                    validate_window(sub)?,
+                    crate::wire::MAX_PAGE_BYTES.saturating_sub(8192 + sub.sid.len()),
+                ),
                 sub.filter.as_ref(),
                 |row| visible(&index, row),
             )
@@ -189,8 +191,7 @@ impl Hub {
                     anchor.as_ref(),
                     side,
                     false,
-                    MAX_WINDOW_ROWS,
-                    budget,
+                    (MAX_WINDOW_ROWS, budget),
                     request.filter.as_ref(),
                     |row| visible(&index, row),
                 )
