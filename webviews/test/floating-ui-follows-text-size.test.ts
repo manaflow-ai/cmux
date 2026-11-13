@@ -17,6 +17,7 @@ import {
   computePopoverStyle,
   popoverWidth,
 } from "../src/branchBasePopover";
+import { headerToolPreviewPlacement } from "../src/agent-session/acpmux/header/HeaderToolPreview";
 import { locationMenuHeights, locationMenuSide } from "../src/agent-session/acpmux/locationPopover";
 import { INTERFACE_SCALE_EVENT, interfaceScale, onInterfaceScaleChange, scaledPx } from "../src/ui/interfaceScale";
 import { tooltipScale } from "../src/ui/tooltipTokens";
@@ -103,6 +104,21 @@ test("the Base picker places again when the scale changes while it is open", () 
   setScale(view, 1.5);
   stop();
   expect(placed.left).toBe(1024 - 480 - 12);
+});
+
+test("the tool preview stays inside the window on both sides as it grows with Text Size", () => {
+  // At 12 pt under an icon ending at x=220 in a 400 px window, it lines up with the icon.
+  const left = ({ width, right }: { width: number; right: number }) => 400 - right - width;
+  expect(headerToolPreviewPlacement(400, 220, 1)).toEqual({ width: 176, right: 180 });
+  // At 18 pt it is 264 px wide: lined up with the icon, its left edge would be at x=-44.
+  const grown = headerToolPreviewPlacement(400, 220, 1.5);
+  expect(grown.width).toBe(264);
+  expect(left(grown)).toBe(12);
+  // Under an icon at the window's right edge it keeps its room from that edge.
+  expect(headerToolPreviewPlacement(400, 398, 1.5).right).toBe(12);
+  // A window narrower than the preview shrinks it to fit between both edges.
+  const narrow = headerToolPreviewPlacement(200, 150, 1.5);
+  expect(narrow).toEqual({ width: 176, right: 12 });
 });
 
 test("the location menu's side-picking heights follow the rows; the folder list's cap does not", () => {

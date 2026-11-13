@@ -28,14 +28,28 @@ const PREVIEW_EDGE = 8;
 /** How long the pointer rests on an icon before its preview shows (a hover intent, not a motion). */
 export const PREVIEW_INTENT_DELAY = 350;
 
+/** The preview's width and its `right` (CSS px from the window's right edge) under a button whose
+ * box ends at `boxRight`, at Text Size `scale`. Its right edge lines up with the button's, and it
+ * stays `PREVIEW_EDGE` inside the window on both sides: grown with Text Size under a left-side
+ * icon, it would otherwise run past the window's left edge. */
+export function headerToolPreviewPlacement(
+  viewport: number,
+  boxRight: number,
+  scale: number,
+): { width: number; right: number } {
+  const edge = PREVIEW_EDGE * scale;
+  const width = Math.min(PREVIEW_WIDTH * scale, Math.max(0, viewport - 2 * edge));
+  const right = Math.min(Math.max(edge, viewport - boxRight), Math.max(edge, viewport - width - edge));
+  return { width, right };
+}
+
 export function HeaderToolPreview({ target }: { target: HeaderToolPreviewTarget }) {
   const doc = typeof document === "undefined" ? undefined : document;
   if (!doc) return null;
   // Its frame follows Text Size as its name and key do (ui/interfaceScale.ts); it shows for one
   // hover, so it reads the scale as it renders. The stylesheet bounds it to the window.
   const scale = interfaceScale(doc.defaultView);
-  const width = PREVIEW_WIDTH * scale;
-  const right = Math.max(PREVIEW_EDGE * scale, doc.documentElement.clientWidth - target.box.right);
+  const { width, right } = headerToolPreviewPlacement(doc.documentElement.clientWidth, target.box.right, scale);
   const down = target.id === "splitDown";
   return createPortal(
     <div
