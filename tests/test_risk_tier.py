@@ -1036,6 +1036,31 @@ class SameAccountReceiptTests(unittest.TestCase):
         self.assertIsNone(self.signed(other, block, body=no_agent))
         self.assertEqual(self.signed(other, body=no_agent), "review (codex)")
 
+    def test_the_agent_session_footer_names_the_author_agent(self):
+        # #42066: a lane PR body ends with `agent-identity footer`'s line and no Author-agent line. leo-workspace
+        # review_model.py read the footer's aid as the author, this gate did not, so the review service's SHIP was
+        # refused here after merge_hold had counted it.
+        author = "aid-98f665da0f19e1e599c6"
+        footer = f"## Summary\nx\n\nAgent session: [agent session](https://cmux.com/deeplink/agent?id={author})"
+        other = self.comment(f"Review (codex gpt-6-astra high, next-review, started by aid-dfce4beb7b68dc153e48): "
+                             f"SHIP at {HEAD}")
+        self.assertEqual(self.signed(other, body=footer),
+                         "review (codex gpt-6-astra high, next-review, started by aid-dfce4beb7b68dc153e48)")
+        self.assertIsNone(self.signed(self.comment(f"Review (codex, router-review, started by {author}): SHIP at {HEAD}"),
+                                      body=footer))
+        # Case does not hide it, and a later query parameter keeps the id.
+        upper = footer.replace(f"?id={author}", f"?id={author.upper()}&x=1")
+        self.assertIsNone(self.signed(self.comment(f"Review (codex, router-review, started by {author}): SHIP at {HEAD}"),
+                                      body=upper))
+        # Inside an HTML comment, or with a longer id, the footer names nobody, as Author-agent does.
+        for hidden in (f"## Summary\nx\n<!-- Agent session: [s](https://cmux.com/deeplink/agent?id={author}) -->",
+                       footer.replace(author, author + "0")):
+            self.assertIsNone(self.signed(other, body=hidden), hidden)
+        # The session form (`?harness=..&session=..&host=..`) carries no aid, so it names nobody either.
+        session = "Agent session: [lane](https://cmux.com/deeplink/agent?harness=claude&session=616eb19f&host=lane-6)"
+        self.assertEqual(risk.author_agents(session), set())
+        self.assertEqual(risk.author_agents(f"Author-agent: Claude-Author\n{footer}"), {"claude-author", author})
+
     # The review service an author lane asks for (`router-review OWNER/REPO N --request`): next-review reviews the
     # head and the cmux-bot App posts its receipt, so the author neither starts the reviewer nor writes the line.
     def bot(self, body, at="2026-10-21T20:00:00Z", node_id="BOT_kgDOFMYsLQ", login="cmux-bot[bot]", kind="Bot"):

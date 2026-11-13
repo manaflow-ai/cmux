@@ -246,6 +246,11 @@ path = "tests/test_guard_hooks_from_base.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_guard_logs_survive_closed_pipe.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Checks that a shell guard's message before its kill never skips the kill when nobody reads its output (SIGPIPE), and scans scripts/ for a message before a kill not in the safe form; run python3 -I tests/test_guard_logs_survive_closed_pipe.py yourself after adding or changing a shell guard that logs before it kills (about 30 s; bash, curl and procps)."
+
+[[test]]
 path = "tests/test_guards_new_reds.py"
 lane = "linux-guard"
 
@@ -575,6 +580,11 @@ lane = "legacy"
 [[test]]
 path = "tests/test_recovery_app_archive.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_refuse_stray_processes.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks scripts/ci/refuse_stray_processes.py, which nightly-next-one runs before its signing and publication secrets: the runner and the check's own tree pass, a detached process with the job's RUNNER_TRACKING_ID or a cwd under the runner fails; run python3 tests/test_refuse_stray_processes.py yourself after changing it (under 1 s, no Mac)."
 
 [[test]]
 path = "tests/test_reload_build_only_app_path_readers.py"

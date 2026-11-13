@@ -77,7 +77,10 @@ thread."
 
 - **Jump to latest**: a glass control on the composer's center line while the reader is scrolled up.
 - **Jump up** stands one control and one gap above it (`jumpPair.css`): the same look, size, glass, focus and
-  fade, its arrow up. The two read as one column, and neither moves for the other.
+  fade, its arrow up. Only one of the two shows at a time: while Jump to latest shows, Jump up waits (Leo,
+  2026-11-12: "after clicking the jump to bottom button, this appears... and then it appears again when you
+  went up. which is cute, but... maybe a bit extra?"). A press of Jump to latest is the reader's own act, so
+  Jump up never comes up just because of it.
 - **The look** is the `jump-pair-look` experiment (`jumpPair.experiment.ts`; gallery
   `agent-pane.jump-pair-look`, view Compare arms). Leo, 2026-11-12, of the fisheye disc: "I feel like this
   jump to top button is a little bit strange-looking, no?" Prior art: the common chat apps draw a small
@@ -88,16 +91,27 @@ thread."
   - `labeled`: the same glass as a rounded rectangle with the arrow and its words, the Needs you pill's
     shape and type.
   - `stacked`: frosted rounded squares in the Needs you pill's radius, a hairline (`--ds-space-1`) apart.
+  - `single`: the frosted disc alone, no Jump up. Leo, 2026-11-12, of Jump up showing after a jump to the
+    bottom and again on the way up: "which is cute, but... maybe a bit extra?" When Jump up shows is `jumpUp.ts`'s idle
+    gating (#41831); this arm only drops the button.
   - `lens`: the fisheye disc before (Leo, 2026-10-21: "I want more fisheye!"); gallery
     `agent-pane.jump-latest-lens` keeps its strengths and glass levels.
   Every arm keeps the glass (never opaque; Lens and Spectrum glass keep their own tint), the 32 px height
   (so Jump up stands over the Needs you pill as over Jump to latest), the center line, the fade in place
   and the behavior. Try one in the app: `cmux.experiments` = `{"jump-pair-look":"labeled"}` in the pane's
   web inspector, then reload.
-- It goes to where the reader left off (`jumpUp.ts`): the New line while it is unread, else the newer of the
-  person's last sent prompt and where they last stopped scrolling by hand.
+- It goes to where the reader left off (`jumpUp.ts`): the New line while it is unread, else where their view was
+  when they went idle, once a full screen of new content came in below it (Leo, 2026-11-12: "it's more so,
+  like, idle detection... when you have, like, at least one full screen of idleness, that's when it starts
+  having that"). An idle stretch starts only at the reader's own acts: a scroll by hand (a third down the
+  view) or a send (the prompt's row). A scroll by hand is a wheel, a touch moving, a scroll key, the scrollbar
+  or a drag; a click on text is not, so the view moving under it keeps the mark and the way back. Once set,
+  the mark stays until they act again: restarts, reconnects,
+  app updates, hot reloads, the view's own moves and notice rows never move it. It is kept per chat across
+  reloads.
 - It shows only while that place is off screen.
-- Pressed, it holds where the view was and points down: a second press, or Esc, goes back there. A scroll by
+- Pressed, it holds where the view was: Esc goes back there (Jump to latest, which shows once the view is
+  up, goes to the latest message). A scroll by
   hand lets go of the way back. Esc that something else takes (the composer's Stop, a menu) is left to it.
 
 ## Putting a waiting card away

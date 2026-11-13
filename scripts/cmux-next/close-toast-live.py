@@ -201,7 +201,7 @@ try:
         before = pane_tabs(pane)
         # Idle means the shell owns the terminal: its startup (prompt hooks) may still run a program.
         idle = wait(lambda: foreground(value["terminal_id"]) in SHELLS, 15)
-        print("idle foreground:", foreground(value["terminal_id"]), flush=True)
+        safe_print("idle foreground:", foreground(value["terminal_id"]), flush=True)
         check("idle-shell-idle", idle, foreground(value["terminal_id"]))
         reply = close_tab(value["tab_id"])
         check("idle-close-ran", reply.get("performed"), reply)
@@ -242,7 +242,7 @@ try:
     made = cli("workspace", "create", "--name", "ct-others", "--json")
     first = (json.loads(made).get("value") or {}) if made.startswith("{") else {}
     p0 = first.get("pane_id")
-    print("others workspace:", made[:300], flush=True)
+    safe_print("others workspace:", made[:300], flush=True)
     if p0:
         rpc("action.run", {"action": "tab.focus", "target": "tab:%s" % first.get("tab_id"), "focus": True, "wait": True})
         known = {p0}
@@ -284,7 +284,7 @@ try:
     if value.get("tab_id"):
         cli("terminal", value["terminal_id"], "write", "--text", "sleep 1000\n")
         made = cli("tab", "group", "create", "--tabs", value["tab_id"], "--name", "busy", "--json")
-        print("group:", made[:300], flush=True)
+        safe_print("group:", made[:300], flush=True)
         group = (json.loads(made).get("value") or {}).get("id") if made.startswith("{") else None
         check("group-created", group, made)
         time.sleep(2)  # test harness: sleep becomes the foreground program
@@ -311,7 +311,7 @@ finally:
     time.sleep(3)  # test harness: let daemons exit before the leftover check
     ps = subprocess.run(["ps", "-axo", "pid=,ppid=,command="], capture_output=True, text=True).stdout
     left = [line for line in ps.splitlines() if (APP + "/") in line and "close-toast-live" not in line]
-    print("leftovers of this bundle: %d" % len(left), flush=True)
+    safe_print("leftovers of this bundle: %d" % len(left), flush=True)
 failed = [name for name, ok in results if not ok]
 print("RESULT pass=%d fail=%d %s" % (len(results) - len(failed), len(failed), " ".join(failed)), flush=True)
 sys.exit(1 if failed else 0)
