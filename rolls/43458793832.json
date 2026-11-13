@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43458793832",
+  "recorded_at": "2026-11-13T16:10:25Z",
+  "reason": "cmux-tui 77c7f5b9fd96 changes the image's cmux-tui (pinned 48fb8e4d4cde)",
+  "dry_run": false,
+  "cmux_tui": "77c7f5b9fd96df9cb99e74fd99087dde8bc98331",
+  "fixes": [
+    {
+      "sha": "77c7f5b9fd96df9cb99e74fd99087dde8bc98331",
+      "mergedAt": "2026-11-13T07:37:07-08:00",
+      "subject": "settings.edit: several settings edits in one publish, with set_unset and reset_unchanged (#42538)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-13T16:10:25Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
