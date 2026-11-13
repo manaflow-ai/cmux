@@ -32,15 +32,38 @@ pub(super) fn lasting_identity() -> Result<StaticIdentity, String> {
 }
 
 /// The device's carrier identity.
+///
+/// A DEV build whose Keychain refuses the shared item (a locally built,
+/// ad-hoc signed `cmux` is a new app to the Keychain after each rebuild, and
+/// an unanswered prompt is `-128`) dials with a key made for this one dial,
+/// as a Linux dial does, instead of failing the handshake. The key is never
+/// written down. Release builds keep failing, so they never drift off their
+/// lasting device key.
 pub(super) fn device_identity() -> Result<StaticIdentity, String> {
     #[cfg(target_os = "macos")]
     {
-        keychain::load_or_create(SERVICE, ACCOUNT).map(StaticIdentity::from_private)
+        match keychain::load_or_create(SERVICE, ACCOUNT) {
+            Ok(key) => Ok(StaticIdentity::from_private(key)),
+            Err(why) if is_dev_build() => {
+                eprintln!("cmux carrier: {why}; this DEV build dials with a key made for this dial");
+                StaticIdentity::generate().map_err(|e| format!("no Noise key: {e}"))
+            }
+            Err(why) => Err(why),
+        }
     }
     #[cfg(not(target_os = "macos"))]
     {
         StaticIdentity::generate().map_err(|e| format!("no Noise key: {e}"))
     }
+}
+
+/// Whether this process belongs to a DEV build (`com.cmuxterm.app.debug[.<tag>]`).
+#[cfg(target_os = "macos")]
+fn is_dev_build() -> bool {
+    let exe = std::env::current_exe().ok();
+    crate::app_identity::AppIdentity::detect(|key| std::env::var(key).ok(), exe.as_deref())
+        .and_then(|identity| identity.bundle_id)
+        .is_some_and(|id| crate::app_identity::is_debug_bundle(&id))
 }
 
 #[cfg(target_os = "macos")]
