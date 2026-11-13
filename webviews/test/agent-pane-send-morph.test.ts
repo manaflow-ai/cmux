@@ -404,6 +404,7 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 620 } });
     try {
       await openChat(page, ["first question"]);
+      console.log(`PROBE fits ${JSON.stringify(await page.evaluate(() => { const s = document.querySelector(".acpmux-scroll")!; const b = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect(); return { sh: s.scrollHeight, ch: s.clientHeight, box: b.height, look: document.querySelector(".acpmux-composer")?.getAttribute("data-composer-look"), rows: [...s.querySelectorAll(".acpmux-row")].map((r) => Math.round(r.getBoundingClientRect().height)) }; }))}`); // PROBE
       expect(
         await page.locator(".acpmux-scroll").evaluate((scroll) => scroll.scrollHeight <= scroll.clientHeight + 1),
         "one turn fits the pane",

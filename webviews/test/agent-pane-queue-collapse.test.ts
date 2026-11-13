@@ -210,6 +210,7 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
     seq = opening.length + queuedRecords().length;
     edits.length = 0;
     const page = await browser!.newPage({ viewport });
+    await page.addInitScript(() => localStorage.setItem("cmux.composer.look", "claude")); // PROBE
     await installPaintedFrames(page);
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;

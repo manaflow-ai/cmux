@@ -6,7 +6,7 @@
 // fades it in and every time and count keeps its box, with no two drawn over each other.
 //
 // Real Chromium from Playwright on the gallery scene `agent-pane.background-hint`, variant
-// "long-hovered" (a long command, its own time, the turn's time and its tokens).
+// "long-hovered" (a long command, its own time and the turn's time).
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
@@ -52,17 +52,21 @@ await requireBrowserLane("background-hint-hover-still.test.ts", async () => {
     test(`at ${width}px, hovering a running command's live line moves and overlaps none of its counts`, async () => {
       const port = (vite!.httpServer!.address() as { port: number }).port;
       const page = await browser!.newPage({ viewport: { width, height: 360 } });
-      // The line keeps the turn's time and tokens, which this file checks for overlap.
-      await pinArms(page, CLOCK_ON_LINE);
+      // The line keeps the command's own time and the turn's, which this file checks for overlap: the
+      // live line draws no token count since #42247 (Thinking.tsx), and its default arm since #41213
+      // shows the turn's clock alone, so the labelled arm keeps two times on the line.
+      await pinArms(page, { ...CLOCK_ON_LINE, "live-line-times": "labelled" });
       await page.addInitScript(() => localStorage.clear());
       await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant: VARIANT })}`);
       await page.locator(`${LINE} .cv-command__bg`).waitFor({ state: "attached", timeout: 30_000 });
-      await page.locator(`${LINE} .cv-worked__count`).last().waitFor({ timeout: 30_000 });
+      await page.locator(`${LINE} .cv-worked__time`).last().waitFor({ timeout: 30_000 });
       const read = () =>
         page.evaluate((line) => {
           const node = document.querySelector<HTMLElement>(line)!;
           const boxes = [
-            ...node.querySelectorAll<HTMLElement>(".cv-worked__time, .cv-worked__own, .cv-worked__count"),
+            ...node.querySelectorAll<HTMLElement>(
+              ".cv-worked__own, .cv-worked__time, .cv-worked__count:not(.cv-worked__total)",
+            ),
           ].map((each) => {
             // Where its words draw, which spill past a squeezed box.
             const range = document.createRange();

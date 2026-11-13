@@ -185,6 +185,7 @@ await requireBrowserLane("composer-inline-caret-gap.browser.test.ts", async () =
           deviceScaleFactor: 4,
         });
         const page = await context.newPage();
+        await page.addInitScript(() => localStorage.setItem("cmux.composer.look", "claude")); // PROBE
         try {
           // Two screenshots at the end of the text, side by side: the caret after the last one, then
           // between the two.
