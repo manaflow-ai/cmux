@@ -1,6 +1,8 @@
 public import AppKit
 public import WebKit
 import CmuxNextDesign
+import CmuxNextPages
+import UniformTypeIdentifiers
 
 /// Hosts the Activity renderer in a web view while keeping socket and native
 /// operation ownership in ``AgentActivityModel`` and its injected source.
@@ -36,7 +38,16 @@ public final class AgentActivityHostView: NSView {
         configuration.userContentController.addUserScript(
             WKUserScript(source: Self.theme(.app).applyScript, injectionTime: .atDocumentStart,
                          forMainFrameOnly: true))
-        // webview-allow: fallback only; the app shows the Activity page on the page host (CmuxNextApp AgentActivityPageTab)
+        // webview-allow: fallback only; the app shows the Activity page on the page host (CmuxNextApp AgentActivityPageTab).
+        // Keep the fallback on a scheme too: its external React imports must resolve to the same
+        // app-level runtime as the page-host path; a file URL would resolve `/__runtime` at the
+        // filesystem root.
+        if let page = Self.bundledPage {
+            configuration.setURLSchemeHandler(AgentActivitySchemeHandler(
+                root: page.deletingLastPathComponent(),
+                runtimeRoot: Bundle.main.resourceURL.map(PageDescriptor.sharedRuntimeRoot(inAppResources:))),
+                forURLScheme: "cmux-agent-activity")
+        }
         let webView = WKWebView(frame: .zero, configuration: configuration)
         self.webView = webView
         super.init(frame: .zero)
@@ -50,7 +61,7 @@ public final class AgentActivityHostView: NSView {
         bridge.view = self
         model.onChange = { [weak self] in self?.scheduleStatePush() }
         addSubview(webView)
-        if let page = Self.bundledPage { webView.loadFileURL(page, allowingReadAccessTo: page.deletingLastPathComponent()) }
+        if Self.bundledPage != nil, let url = URL(string: "cmux-agent-activity://page/index.html") { webView.load(URLRequest(url: url)) }
     }
 
     /// Compatibility initializer for prototype snapshot callers.
@@ -112,6 +123,63 @@ public final class AgentActivityHostView: NSView {
         let state = AgentActivityRequests(model: model, source: source).state()
         guard JSONSerialization.isValidJSONObject(state), let data = try? JSONSerialization.data(withJSONObject: state), let json = String(data: data, encoding: .utf8) else { return }
         webView.evaluateJavaScript("window.cmuxActivityReceive && window.cmuxActivityReceive(\(json));", completionHandler: nil)
+    }
+}
+
+/// Serves the Activity fallback's own files and the shared React runtime under a constrained
+/// origin. The regular app path uses PageSchemeHandler; this exists only when that host is absent.
+private final class AgentActivitySchemeHandler: NSObject, WKURLSchemeHandler {
+    let root: URL
+    let runtimeRoot: URL?
+    private var active: Set<ObjectIdentifier> = []
+
+    init(root: URL, runtimeRoot: URL?) {
+        self.root = root.standardizedFileURL.resolvingSymlinksInPath()
+        self.runtimeRoot = runtimeRoot?.standardizedFileURL.resolvingSymlinksInPath()
+    }
+
+    func webView(_ webView: WKWebView, start task: any WKURLSchemeTask) {
+        guard task.request.httpMethod.map({ $0 == "GET" }) ?? true,
+              let url = task.request.url, url.scheme == "cmux-agent-activity",
+              url.host == "page", let file = file(for: url) else {
+            task.didFailWithError(URLError(.fileDoesNotExist)); return
+        }
+        let id = ObjectIdentifier(task)
+        active.insert(id)
+        // main-hop-allow: this scheme callback only delivers one already-read resource to WebKit.
+        Task { @MainActor [weak self] in
+            let data = await Self.read(file)
+            guard let self, self.active.remove(id) != nil else { return }
+            guard let data else {
+                task.didFailWithError(URLError(.fileDoesNotExist)); return
+            }
+            let type = UTType(filenameExtension: file.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+            let response = URLResponse(url: url, mimeType: type, expectedContentLength: data.count, textEncodingName: nil)
+            task.didReceive(response); task.didReceive(data); task.didFinish()
+        }
+    }
+
+    func webView(_ webView: WKWebView, stop task: any WKURLSchemeTask) { active.remove(ObjectIdentifier(task)) }
+
+    @concurrent nonisolated static func read(_ file: URL) async -> Data? {
+        // concurrency-allow: the fallback must not map a runtime or HTML file on the main actor
+        try? Data(blockingContentsOf: file, options: .mappedIfSafe)
+    }
+
+    private func file(for url: URL) -> URL? {
+        let components = url.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        guard !components.isEmpty, !components.contains(where: { $0 == "." || $0 == ".." }) else { return nil }
+        let base: URL
+        let path: [String]
+        if components.first == "__runtime" {
+            guard let runtimeRoot, components.count == 2, components[1].hasSuffix(".js") else { return nil }
+            base = runtimeRoot; path = Array(components.dropFirst())
+        } else {
+            base = root; path = components
+        }
+        let resolved = path.reduce(base) { $0.appendingPathComponent($1) }.standardizedFileURL.resolvingSymlinksInPath()
+        let checkedBase = base.standardizedFileURL.resolvingSymlinksInPath()
+        return resolved.path.hasPrefix(checkedBase.path + "/") ? resolved : nil
     }
 }
 

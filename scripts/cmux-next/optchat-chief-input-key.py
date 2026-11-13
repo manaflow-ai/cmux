@@ -45,7 +45,8 @@ ROOT = Path(__file__).resolve().parents[2]
 CRATE = "Native/OptChat/optchat-chief"
 SCRIPTS = ("scripts/cmux-next/build-optchat-chief.sh", "scripts/cmux-next/optchat-chief-input-key.py")
 # Variables cargo, rustc or build.rs read that change the binary. The build
-# script sets OPTCHAT_BUILD_COMMIT and OPTCHAT_REQUIRE_INSPECTOR_PAGE itself.
+# script sets OPTCHAT_BUILD_COMMIT, OPTCHAT_REQUIRE_INSPECTOR_PAGE and the
+# inspector page variant itself.
 ENV_EXACT = ("CC", "CXX", "AR", "CFLAGS", "CXXFLAGS", "LDFLAGS", "CPPFLAGS", "RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS", "RUSTC", "RUSTC_WRAPPER", "MACOSX_DEPLOYMENT_TARGET", "SDKROOT", "DEVELOPER_DIR")
 ENV_PREFIXES = ("CC_", "CXX_", "AR_", "CFLAGS_", "CXXFLAGS_", "TARGET_CC", "TARGET_CFLAGS", "CARGO_PROFILE_", "CARGO_BUILD_", "CARGO_TARGET_AARCH64_APPLE_DARWIN_", "CARGO_TARGET_X86_64_APPLE_DARWIN_")
 ENV_SKIP_PREFIX = ("OPTCHAT_BUILD_COMMIT", "OPTCHAT_REQUIRE_INSPECTOR_PAGE")
@@ -60,7 +61,10 @@ PORTABLE_PATHS = (
     "scripts/webviews_bun_version.py",
     "scripts/cmux-next/build-optchat-inspector-web.sh",
 )
-GENERATED_INSPECTOR = "Native/OptChat/optchat-chief/inspector/index.html"
+GENERATED_INSPECTOR = (
+    "Native/OptChat/optchat-chief/inspector/index.html",
+    "Native/OptChat/optchat-chief/inspector/index.shared.html",
+)
 
 
 class InputError(Exception):
@@ -266,7 +270,9 @@ def environment_lines(archs: str, toolchain: str) -> list[str]:
     # and its --from install only compare it), so hashing it before the web
     # bundle step records what the binary embeds. tests/test_nightly_chief_cache_repair.py
     # keeps that true.
-    lines.append(f"inspector {file_digest(GENERATED_INSPECTOR)}")
+    for inspector in GENERATED_INSPECTOR:
+        lines.append(f"inspector {inspector} {file_digest(inspector)}")
+    lines.append(f"inspector-shared {os.environ.get('CMUX_NEXT_OPTCHAT_CHIEF_APP_SHARED_RUNTIME', '0')}")
     for name in sorted(os.environ):
         if name.startswith(ENV_SKIP_PREFIX):
             continue
@@ -310,7 +316,7 @@ def key(archs: str, toolchain: str, *, portable: bool = False) -> str:
     else:
         lines.append(f"sdk {sdk_identity()}")
     for directory in crates:
-        lines += tree_state(directory, omit={GENERATED_INSPECTOR} if portable else None)
+        lines += tree_state(directory, omit=set(GENERATED_INSPECTOR) if portable else None)
     for path in outside_includes(crates):
         lines.append(f"include {path} {file_digest(path)}")
     if portable:

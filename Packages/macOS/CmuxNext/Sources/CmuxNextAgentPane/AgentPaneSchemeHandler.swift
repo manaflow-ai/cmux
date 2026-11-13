@@ -15,12 +15,16 @@ import WebKit
 /// `__media/` in byte ranges, and the chart library from `__lib/vega.js`.
 final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
     let root: URL
+    /// The app-level React runtime mounted at `/__runtime` for this origin.
+    let sharedRuntimeRoot: URL?
     /// The markdown viewer's bundled libraries (the chart library's files).
     let libraries: URL?
 
-    init(root: URL, libraries: URL? = Bundle.main.resourceURL.map(PageDescriptor.markdownLibraries(inAppResources:))) {
+    init(root: URL, libraries: URL? = Bundle.main.resourceURL.map(PageDescriptor.markdownLibraries(inAppResources:)),
+         sharedRuntimeRoot: URL? = Bundle.main.resourceURL.map(PageDescriptor.sharedRuntimeRoot(inAppResources:))) {
         self.root = root.standardizedFileURL.resolvingSymlinksInPath()
         self.libraries = libraries
+        self.sharedRuntimeRoot = sharedRuntimeRoot?.standardizedFileURL.resolvingSymlinksInPath()
     }
 
     /// Tasks started and not yet answered or stopped; a stopped task must not be answered.
@@ -58,6 +62,29 @@ final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
         if task.request.httpMethod.map({ $0 == "GET" }) ?? true, let url = task.request.url,
            let server = WebProjection.shared.override(for: webView).server, let remote = Self.devServerURL(for: url, server: server) {
             return serveDevServer(remote, server: server, url: url, task: task)
+        }
+        if task.request.httpMethod.map({ $0 == "GET" }) ?? true, let url = task.request.url,
+           let runtimeRoot = sharedRuntimeRoot, let file = Self.runtimeFileURL(for: url, root: runtimeRoot) {
+            let id = ObjectIdentifier(task)
+            active.insert(id)
+            WebBundleServedViews.shared.add(webView)
+            // main-hop-allow: one bounded runtime resource response must be delivered to WebKit's task.
+            Task { @MainActor [weak self] in
+                let served = await WebBundleServedViews.shared.root(for: runtimeRoot, in: webView)
+                let actual = Self.runtimeFileURL(for: url, root: served) ?? file
+                let data = await Self.read(actual)
+                guard let self, self.active.remove(id) != nil else { return }
+                guard let data else {
+                    task.didFailWithError(URLError(.fileDoesNotExist))
+                    return
+                }
+                let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1",
+                                               headerFields: Self.headers(for: actual, length: data.count))
+                task.didReceive(response ?? URLResponse(url: url, mimeType: "text/javascript", expectedContentLength: data.count, textEncodingName: nil))
+                task.didReceive(data)
+                task.didFinish()
+            }
+            return
         }
         guard task.request.httpMethod.map({ $0 == "GET" }) ?? true,
               let url = task.request.url,
@@ -114,6 +141,17 @@ final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
         let file = components.reduce(base) { $0.appendingPathComponent($1) }.standardizedFileURL.resolvingSymlinksInPath()
         guard file.path.hasPrefix(base.path + "/") else { return nil }
         return file
+    }
+
+    /// The runtime mount accepts only `/__runtime/<file>.js`; it never exposes another app file.
+    nonisolated static func runtimeFileURL(for url: URL, root: URL) -> URL? {
+        guard url.scheme?.lowercased() == AgentPaneSource.bundledScheme,
+              url.host?.lowercased() == AgentPaneSource.bundledHost else { return nil }
+        let components = url.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        guard components.count == 2, components[0] == "__runtime", components[1].hasSuffix(".js") else { return nil }
+        let base = root.standardizedFileURL.resolvingSymlinksInPath()
+        let file = base.appendingPathComponent(components[1]).standardizedFileURL.resolvingSymlinksInPath()
+        return file.path.hasPrefix(base.path + "/") ? file : nil
     }
 
     nonisolated static func mimeType(forExtension pathExtension: String) -> String {

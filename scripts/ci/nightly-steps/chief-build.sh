@@ -38,7 +38,8 @@ ensure_rust_toolchain "$toolchain" --profile minimal >/dev/null
 ensure_rust_targets --toolchain "$toolchain" aarch64-apple-darwin x86_64-apple-darwin >/dev/null
 (cd cmux-next-ios/rust && ensure_rust_targets aarch64-apple-darwin x86_64-apple-darwin >/dev/null)
 python3 scripts/ci/background_build.py start --state "$RUNNER_TEMP/nightly-helper-builds" optchat-chief -- \
-  nice -n 10 env CMUX_NEXT_OPTCHAT_CHIEF_ARCHS="$NIGHTLY_COMPILE_ARCHS" scripts/cmux-next/build-optchat-chief.sh --output "$chief_bin"
+  nice -n 10 env CMUX_NEXT_OPTCHAT_CHIEF_ARCHS="$NIGHTLY_COMPILE_ARCHS" \
+  CMUX_NEXT_OPTCHAT_CHIEF_APP_SHARED_RUNTIME=1 scripts/cmux-next/build-optchat-chief.sh --output "$chief_bin"
 echo "CMUX_NEXT_OPTCHAT_CHIEF_PENDING_BIN=$chief_bin" >> "$GITHUB_ENV"
 # The built-in full uBlock Origin must be in every nightly-next build (bundle-ublock.sh).
 echo "CMUX_NEXT_REQUIRE_UBLOCK=1" >> "$GITHUB_ENV"

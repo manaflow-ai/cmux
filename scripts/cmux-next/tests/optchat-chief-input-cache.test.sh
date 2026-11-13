@@ -3,7 +3,7 @@
 # binary of an earlier commit whose Chief inputs were the same, and rebuilds
 # when any input changed: a local crate in its path-dependency closure (also
 # through `workspace = true`), the workspace manifest it inherits from, a
-# regenerated tracked file (the inspector page) or the architectures. Without
+# regenerated tracked files (the inspector pages) or the architectures. Without
 # the variable every commit builds, as before. A nightly-next build rebuilt the
 # Chief on every push (about 90 s of the warm build slot).
 # Fake cargo and rustup stand in for the toolchain.
@@ -37,6 +37,7 @@ cmux-chief = { path = "../../../cmux-tui/crates/cmux-chief" }
 unrelated = { path = "../../../cmux-tui/crates/unrelated" }
 EOF
 echo 'page one' > "$chief/inspector/index.html"
+echo 'page one' > "$chief/inspector/index.shared.html"
 mkdir -p "$chief/src" "$chief/tests" "$src/schemas/chief-profile" "$src/mux"
 printf 'include!("../../../../schemas/chief-profile/generated.rs");\nconst TOOL: &str = include_str!("../../../../schemas/chief-profile/tool.json");\nconst PAGE: &str = include_str!(concat!(env!("OUT_DIR"), "/inspector.html"));\n' > "$chief/src/lib.rs"
 printf 'const CASES: &str = include_str!("../../../../mux/cases.json");\n' > "$chief/tests/corpus.rs"
@@ -140,8 +141,9 @@ keyed; n=$((n + 1)); expect_builds "$n" "a new source file did not rebuild the C
 # build-web-bundles.sh rewrites the tracked inspector page in place: the
 # working-tree content is the input, not the committed one.
 echo 'page two' > "$chief/inspector/index.html"
+echo 'page two' > "$chief/inspector/index.shared.html"
 keyed; n=$((n + 1)); expect_builds "$n" "a regenerated inspector page did not rebuild the Chief"
-git -C "$src" checkout -q -- Native/OptChat/optchat-chief/inspector/index.html
+git -C "$src" checkout -q -- Native/OptChat/optchat-chief/inspector/index.html Native/OptChat/optchat-chief/inspector/index.shared.html
 keyed; expect_builds "$n" "restoring the committed page did not reuse its binary"
 # Another architecture set is another binary.
 ARCHS_UNDER_TEST=x86_64 keyed; n=$((n + 1)); expect_builds "$n" "another architecture reused the arm64 binary"
