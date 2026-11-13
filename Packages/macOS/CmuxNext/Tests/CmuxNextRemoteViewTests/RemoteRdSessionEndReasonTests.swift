@@ -5,6 +5,50 @@ import Testing
 /// Why an rd session ended reaches its status (`endReason`, read by `cmux app remote-views`): the
 /// carrier's close reason, nil while the session is live.
 @Suite struct RemoteRdSessionEndReasonTests {
+    private nonisolated final class RecordedCarrier: RemoteRdByteCarrier {
+        let packets: [Data]
+        init(_ messages: [RemoteRdControl]) throws {
+            packets = try messages.map { try RemoteRdCore.streamFrame($0.json(), control: true) }
+        }
+        func start(queue: DispatchQueue, events: @escaping @Sendable (RemoteRdCarrierEvent) -> Void) {
+            events(.ready)
+            for packet in packets { events(.data(packet)) }
+            events(.closed(reason: "recording ended"))
+        }
+        func send(_ bytes: Data) {}
+        func cancel() {}
+    }
+
+    @Test(arguments: ["rd_wg", "link", "future_carrier"])
+    func selectedCarrierComesFromAcceptedWelcomeAndEndsWithSession(_ carrierName: String) async throws {
+        let welcome = RemoteRdWelcome(encoder: "h264", width: 100, height: 100,
+                                      maxDatagram: 1126, carrier: carrierName, service: "desktop")
+        let carrier = try RecordedCarrier([.welcome(welcome), .started(session: 1), .ended(reason: "done")])
+        let transport = try #require(RemoteRdStreamTransport(carrier: carrier,
+            hello: .cloudDesktop(install: "test"), startKey: "k"))
+        let statuses = transport.statusUpdates()
+        transport.connect()
+        var seen: [RemoteViewStatus] = []
+        for await status in statuses { seen.append(status) }
+        #expect(seen.first?.carrier == nil)
+        #expect(seen.first(where: { $0.state == .streaming })?.carrier == carrierName)
+        #expect(seen.last?.carrier == nil)
+    }
+
+    @Test func mismatchedServiceCannotAttestACarrier() async throws {
+        let welcome = RemoteRdWelcome(encoder: "h264", width: 100, height: 100,
+                                      maxDatagram: 1126, carrier: "rd_wg", service: "other")
+        let carrier = try RecordedCarrier([.welcome(welcome), .started(session: 1)])
+        let transport = try #require(RemoteRdStreamTransport(carrier: carrier,
+            hello: .cloudDesktop(install: "test"), startKey: "k"))
+        let statuses = transport.statusUpdates()
+        transport.connect()
+        for await status in statuses {
+            #expect(status.carrier == nil)
+            #expect(status.state != .streaming)
+        }
+    }
+
     private struct NoLink: Error, CustomStringConvertible {
         var description: String { "no link to the machine" }
     }

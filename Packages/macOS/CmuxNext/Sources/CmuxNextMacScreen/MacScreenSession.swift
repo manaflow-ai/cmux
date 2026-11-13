@@ -57,6 +57,13 @@ public final class MacScreenSession {
     }
     /// This approach never reconnects on its own: Try Again asks the hub again.
     public var isReconnecting: Bool { false }
+    private var rdCarrier: String?
+    /// Actual live transport for measurement tools. rd values come from the host's
+    /// accepted Welcome, never from our offer or a generic direct/relay path label.
+    public var selectedTransport: String? {
+        guard phase == .connected else { return nil }
+        return fallback == nil ? rdCarrier : "webrtc"
+    }
     public var preferences: ScreenPreferences
     /// The viewer display's refresh rate; the next session asks for up to it.
     @ObservationIgnored public var displayMaximumFrameRate: Int?
@@ -143,6 +150,7 @@ public final class MacScreenSession {
         tasks.removeAll()
         fallback?.close()
         fallback = nil
+        rdCarrier = nil
         transport?.stop()
         transport = nil
         process?.stop()
@@ -246,6 +254,7 @@ public final class MacScreenSession {
                 let fallback = MacScreenFallback(title: title, preferences: preferences, signaling: signaling,
                                                  relayOnly: relayOnly, refresh: displayMaximumFrameRate, display: wantedDisplay)
                 self.fallback = fallback
+                rdCarrier = nil
                 fallback.session.onVideoTrack = { [weak self, weak fallback] track in
                     guard let self, let fallback, self.fallback === fallback else { return }
                     onVideoTrack?(track)
@@ -343,6 +352,7 @@ public final class MacScreenSession {
                 guard let self, self.transport === transport, !Task.isCancelled else { return }
                 switch status.state {
                 case .streaming:
+                    rdCarrier = status.carrier
                     if !askedKeyframe {
                         askedKeyframe = true
                         transport.requestKeyframe()
