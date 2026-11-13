@@ -129,7 +129,10 @@ struct CloudBringBackTests {
                 #expect(controller.showsOnScreen(local.id, in: localPane), "the window does not draw the chat that came back")
                 return
             }
-            #expect(controller.state.workspaceID == shown, "the bring back changed the window's workspace")
+            // A workspace the chat had alone (the machine's, under a top page) closes with it: the window keeps its page over another.
+            if shown.map({ services.machines.workspace(id: $0) != nil }) ?? true {
+                #expect(controller.state.workspaceID == shown, "the bring back changed the window's workspace")
+            }
             #expect(controller.state.page == page, "the bring back changed the window's top page")
             if let screen { #expect(controller.content?.layoutModel.activeScreenID == screen, "the bring back changed the window's screen") }
         }
