@@ -89,7 +89,11 @@ test("a stall only counts while nothing waits on the person, and only for its ow
 test("a start whose pushes repeat the same progress stalls; one that moves does not", () => {
   const { armed, schedule } = manualSchedule();
   const t0 = 1_000_000;
-  const copying = { key: "k-1", step: "folder", clone: { state: "running", phase: "copy", progress: { files_done: 0, files_total: 46_516 } } };
+  const copying = {
+    key: "k-1",
+    step: "folder",
+    clone: { state: "running", phase: "copy", progress: { files_done: 0, files_total: 46_516 } },
+  };
   let current = cloudStartPushed(begun(), copying, t0);
   expect(current?.advancedAt).toBe(t0);
   // Four minutes of the same line: no movement, so the start's clock does not reset.
@@ -107,7 +111,10 @@ test("a start whose pushes repeat the same progress stalls; one that moves does 
   watchCloudStartStall(current, () => undefined, CLOUD_START_STALL_MS, schedule, t0 + 300_000);
   expect(armed.at(-1)!.ms).toBe(CLOUD_START_STALL_MS);
   // A new phase moves it too.
-  const folders = { ...copying, clone: { state: "running", phase: "folders", progress: { objects: 10, objects_total: 4706 } } };
+  const folders = {
+    ...copying,
+    clone: { state: "running", phase: "folders", progress: { objects: 10, objects_total: 4706 } },
+  };
   expect(cloudStartPushed(current, folders, t0 + 310_000)?.advancedAt).toBe(t0 + 310_000);
 });
 
