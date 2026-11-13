@@ -270,10 +270,19 @@ async fn upgrade_is_only_the_first_line_and_preserves_v1_eof() {
     let upgrade = upgrade_line(json!(["list"]));
     client.write_all(format!("{{}}\n{upgrade}tail").as_bytes()).await.unwrap();
     client.shutdown().await.unwrap();
-    assert!(read_lines(server, tx, last, LIMITS, Some(&v2)).await.is_none());
-    assert_eq!(rx.recv().await.as_deref(), Some("{}"));
-    assert_eq!(rx.recv().await.as_deref(), Some(upgrade.trim_end()));
-    assert_eq!(rx.recv().await.as_deref(), Some("tail"));
+    tokio::time::timeout(WAIT, async {
+        // The later upgrade exceeds `small`: the reader waits for the first
+        // line to be consumed before admitting it, just as on a v1 connection.
+        let (handoff, ()) = tokio::join!(read_lines(server, tx, last, LIMITS, Some(&v2)), async {
+            assert_eq!(rx.recv().await.as_deref(), Some("{}"));
+            assert_eq!(rx.recv().await.as_deref(), Some(upgrade.trim_end()));
+            assert_eq!(rx.recv().await.as_deref(), Some("tail"));
+            assert!(rx.recv().await.is_none());
+        });
+        assert!(handoff.is_none());
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
@@ -375,9 +384,16 @@ async fn trigger_admission_cannot_be_followed_by_an_upgrade() {
     let upgrade = upgrade_line(json!(["list"]));
     client.write_all(format!("{trigger}{upgrade}").as_bytes()).await.unwrap();
     client.shutdown().await.unwrap();
-    assert!(read_lines(server, tx, last, LIMITS, Some(&v2)).await.is_none());
-    assert_eq!(rx.recv().await.as_deref(), Some(trigger.trim_end()));
-    assert_eq!(rx.recv().await.as_deref(), Some(upgrade.trim_end()));
+    tokio::time::timeout(WAIT, async {
+        let (handoff, ()) = tokio::join!(read_lines(server, tx, last, LIMITS, Some(&v2)), async {
+            assert_eq!(rx.recv().await.as_deref(), Some(trigger.trim_end()));
+            assert_eq!(rx.recv().await.as_deref(), Some(upgrade.trim_end()));
+            assert!(rx.recv().await.is_none());
+        });
+        assert!(handoff.is_none());
+    })
+    .await
+    .unwrap();
 }
 
 #[test]

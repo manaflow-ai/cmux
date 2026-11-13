@@ -40,3 +40,10 @@ Returning a transport from an I/O task changes its drop lifetime. A v1 writer
 must still drop its half when its last line finishes, even while request handlers
 hold the outbound sender. The stream writer regressions cover that behavior;
 the upgrade retains a write half only to hand it to the framed connection.
+
+A bounded-channel reader test must drive its consumer concurrently. A line over
+the small-line threshold waits for every previous line to be consumed; awaiting
+the reader before draining its channel deadlocks even when that channel has free
+slots. Linux run 43388909141 exposed this in both later-upgrade tests. Their
+detectors now join the reader with the ordered line assertions under a ten-second
+deadline, including the final EOF assertion; production backpressure stays intact.
