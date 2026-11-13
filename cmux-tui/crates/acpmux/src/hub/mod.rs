@@ -1506,7 +1506,7 @@ impl Hub {
             hub.watch_recaps();
             if start_peers {
                 let peers = hub.clone();
-                tokio::spawn(async move { peers.start_saved_peers().await });
+                hub.scope.spawn_named("peer-start", async move { peers.start_saved_peers().await });
             }
         }
         hub

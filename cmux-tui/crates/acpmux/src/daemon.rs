@@ -822,7 +822,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // the socket is already ready.
     {
         let peers = hub.clone();
-        tokio::spawn(async move {
+        hub.scope.spawn_named("peer-start-gate", async move {
             tokio::select! {
                 _ = peers.wait_local_ready() => {}
                 _ = tokio::time::sleep(Duration::from_secs(2)) => {}
