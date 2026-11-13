@@ -262,10 +262,10 @@ fn open_of_a_url_names_the_agent_chat_or_the_chief_turn() {
     assert_eq!(call["params"]["caller"], json!({"home_chat": true}), "{call}");
 }
 
-/// `browser right` is the column right of the caller: the app can pick it
-/// only when the request says who calls.
+/// Guard (it passed before the own-workspace change too): `browser.page.right`
+/// carries the caller, which the app needs to pick the caller's column.
 #[test]
-fn browser_right_names_its_caller_so_the_app_picks_the_callers_column() {
+fn guard_browser_page_right_carries_the_caller() {
     for (env, caller) in [
         (("CMUX_TUI_TERMINAL_ID", CALLER_TERMINAL), json!({"terminal_id": CALLER_TERMINAL})),
         (("CMUX_AGENT_SESSION", AGENT_SESSION), json!({"agent_session": AGENT_SESSION})),

@@ -70,11 +70,11 @@ fn an_agent_naming_another_session_sends_its_agent_session_as_caller() {
     assert_eq!(open["params"]["caller"], json!({"agent_session": AGENT_SESSION}), "{open}");
 }
 
-/// An app action tool that names no target must still say who calls, or the
-/// app opens its tab where the person looks (a diff viewer in the focused
-/// workspace, in the reported case) instead of beside the caller.
+/// Guard (it passed before the own-workspace change too): an app action tool
+/// that names no target carries the caller, which the app needs to place the
+/// run in the caller's own workspace.
 #[test]
-fn an_app_action_tool_with_no_target_names_its_caller() {
+fn guard_an_app_action_tool_with_no_target_carries_the_caller() {
     let run = serve_call(Some(AGENT_SESSION), DIFF_TOOL, json!({}));
     assert_eq!(run.result["isError"], false, "{}", run.result);
     let diff = run.action(DIFF_ACTION);
@@ -88,10 +88,10 @@ fn an_app_action_tool_with_no_target_names_its_caller() {
     assert_eq!(diff["params"]["caller"], json!({"terminal_id": PERSON_TERMINAL}), "{diff}");
 }
 
-/// A browser tab with no place in the caller's own session: the app places
-/// it by the caller the run names, and the server names no pane.
+/// Guard (it passed before the own-workspace change too): a browser tab with
+/// no place in the caller's own session carries the agent and no target.
 #[test]
-fn an_agents_browser_tab_with_no_place_names_the_agent_and_no_target() {
+fn guard_an_agents_browser_tab_with_no_place_carries_the_agent_and_no_target() {
     let run = serve_call(Some(AGENT_SESSION), "tab_create_browser", json!({"url": URL}));
     assert_eq!(run.result["isError"], false, "{}", run.result);
     let open = run.open_browser();

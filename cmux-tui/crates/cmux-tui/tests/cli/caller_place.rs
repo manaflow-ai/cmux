@@ -104,7 +104,7 @@ fn mcp_exec(server: &HeadlessServer, who: &Who<'_>, script: &str) -> Value {
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    if who.app.is_none() {
+    if who.app.is_none() && who.relayed_app.is_none() {
         // No app answers in this session.
         command.env("CMUX_SOCKET_PATH", server.dir.join("no-app.sock"));
     }
@@ -154,6 +154,26 @@ fn screen_of_pane(server: &HeadlessServer, pane: &str) -> String {
 /// The `pane_id` of a creation's answer (`{value: {pane_id}}`).
 fn created_pane(created: &Value) -> &str {
     created["value"]["pane_id"].as_str().unwrap_or_else(|| panic!("no pane: {created}"))
+}
+
+/// How many tabs `pane` holds, and how many panes the session has.
+fn tabs_and_panes(server: &HeadlessServer, pane: &str) -> (usize, usize) {
+    let snapshot = state_cli_topology(server);
+    let tabs = snapshot["tabs"].as_array().unwrap_or_else(|| panic!("{snapshot}"));
+    let panes = snapshot["panes"].as_array().unwrap_or_else(|| panic!("{snapshot}"));
+    (tabs.iter().filter(|tab| tab["pane_id"] == pane).count(), panes.len())
+}
+
+/// The app's answer once the column right of the chat is there and holds
+/// tabs of `kind`.
+fn with_column(caller: &Value, column: &str, kind: &str) -> Value {
+    json!({"caller": caller, "beside": {"pane": column, "placement": "existing_column",
+        "panes": [{"id": column, "kinds": [kind]}]}})
+}
+
+/// The app's answer while no column is right of the chat.
+fn without_column(caller: &Value) -> Value {
+    json!({"caller": caller, "beside": {"pane": null, "placement": "new_column"}})
 }
 
 /// The person's focus never moved: `beta` is still the focused workspace.
@@ -213,6 +233,16 @@ impl FakeApp {
             }
         });
         Self { socket, done, received, listener: Some(handle) }
+    }
+
+    /// The methods the app was asked, in order.
+    fn methods(&self) -> Vec<String> {
+        self.received
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|request| request["method"].as_str().map(str::to_owned))
+            .collect()
     }
 
     /// The `caller` of every `system.identify` the app got.
@@ -533,6 +563,155 @@ fn agents_terminal_split_splits_the_callers_pane_not_the_focused_one() {
     assert_eq!(receipt["result"]["value"]["workspace_id"], alpha.as_str(), "{receipt}");
     assert!(app.identify_callers().contains(&json!({"home_chat": true})), "the app was not asked");
     assert_beta_still_focused(server, beta);
+}
+
+/// The placement is decided again on every try, and the first try changes
+/// the layout it reads: it made the column, so a retry found the column and
+/// opened a second terminal in it with a key the daemon had never seen.
+#[test]
+fn a_retry_with_the_same_key_opens_no_second_terminal() {
+    let split = caller_in_alpha_beta_focused("place-retry-terminal");
+    let Split { server, pane, .. } = &split;
+    let caller = caller_in(&split, &screen_of_pane(server, pane));
+    let create = |app: &FakeApp, key: &str| {
+        run(
+            server,
+            &Who::agent().with_app(app),
+            &["tab", "create", "terminal", "--name", "dev", "--idempotency-key", key],
+        )
+    };
+
+    // The first try makes the column; its answer is lost, and the retry sees
+    // the column.
+    let first = create(&FakeApp::start(server, "retry-a1", without_column(&caller)), "retry-key-1");
+    let column = created_pane(&first).to_owned();
+    let before = tabs_and_panes(server, &column);
+    let again = create(
+        &FakeApp::start(server, "retry-a2", with_column(&caller, &column, "terminal")),
+        "retry-key-1",
+    );
+    assert_eq!(again["value"]["tab_id"], first["value"]["tab_id"], "{again}");
+    assert_eq!(again["replayed"], true, "{again}");
+    assert_eq!(tabs_and_panes(server, &column), before, "the retry opened something");
+
+    // The other way round: the first try opens a tab in the column, and the
+    // retry sees no column (the person closed or moved it).
+    let first = create(
+        &FakeApp::start(server, "retry-b1", with_column(&caller, &column, "terminal")),
+        "retry-key-2",
+    );
+    assert_eq!(created_pane(&first), column, "{first}");
+    let before = tabs_and_panes(server, &column);
+    let again = create(&FakeApp::start(server, "retry-b2", without_column(&caller)), "retry-key-2");
+    assert_eq!(again["value"]["tab_id"], first["value"]["tab_id"], "{again}");
+    assert_eq!(tabs_and_panes(server, &column), before, "the retry opened something");
+}
+
+#[test]
+fn a_retry_with_the_same_key_opens_no_second_profile_browser_tab() {
+    let split = caller_in_alpha_beta_focused("place-retry-profile");
+    let Split { server, pane, .. } = &split;
+    let caller = caller_in(&split, &screen_of_pane(server, pane));
+    let open = |app: &FakeApp| {
+        run(
+            server,
+            &Who::agent().with_app(app),
+            &[
+                "browser",
+                "profile",
+                "open",
+                "https://example.com/",
+                "--profile",
+                "default",
+                "--engine",
+                "webkit",
+                "--idempotency-key",
+                "retry-page-1",
+            ],
+        )
+    };
+    let first = open(&FakeApp::start(server, "retry-p1", without_column(&caller)));
+    let column = created_pane(&first).to_owned();
+    let before = tabs_and_panes(server, &column);
+    assert_eq!(before.0, 1, "the pane holds the browser tab alone");
+    let again = open(&FakeApp::start(server, "retry-p2", with_column(&caller, &column, "browser")));
+    assert_eq!(again["value"]["tab_id"], first["value"]["tab_id"], "{again}");
+    assert_eq!(tabs_and_panes(server, &column), before, "the retry opened something");
+}
+
+#[test]
+fn an_mcp_retry_with_the_same_key_opens_no_second_terminal() {
+    let split = caller_in_alpha_beta_focused("place-retry-mcp");
+    let Split { server, pane, .. } = &split;
+    let caller = caller_in(&split, &screen_of_pane(server, pane));
+    let script =
+        "return await cmux.tab_create_terminal({name: 'dev', idempotency_key: 'mcp-retry-1'});";
+
+    let app = FakeApp::start(server, "retry-m1", without_column(&caller));
+    let first = mcp_exec(server, &Who::agent().with_app(&app), script);
+    drop(app);
+    let column = created_pane(&first).to_owned();
+    let before = tabs_and_panes(server, &column);
+    let app = FakeApp::start(server, "retry-m2", with_column(&caller, &column, "terminal"));
+    let again = mcp_exec(server, &Who::agent().with_app(&app), script);
+    assert_eq!(again["value"]["tab_id"], first["value"]["tab_id"], "{again}");
+    assert_eq!(tabs_and_panes(server, &column), before, "the retry opened something");
+}
+
+/// A Chief turn's own place is the Home workspace, which the app draws as a
+/// page: a pane or a screen made there may never be seen. They keep the
+/// daemon's default; only its tabs go beside the Home chat.
+#[test]
+fn a_chief_turns_pane_and_screen_keep_the_daemon_default() {
+    let split = caller_in_alpha_beta_focused("place-chief-pane");
+    let Split { server, pane, alpha, beta, .. } = &split;
+    let caller = caller_in(&split, &screen_of_pane(server, pane));
+    let app = FakeApp::start(server, "app-chief", without_column(&caller));
+    let chief = Who { home_chat: true, app: Some(&app.socket), ..Who::default() };
+
+    let new_pane = run(server, &chief, &["pane", "create"]);
+    assert_eq!(new_pane["value"]["workspace_id"], beta.as_str(), "{new_pane}");
+    let new_screen = run(server, &chief, &["screen", "create"]);
+    assert_eq!(new_screen["value"]["workspace_id"], beta.as_str(), "{new_screen}");
+    // Its terminal still opens beside the Home chat.
+    let tab = run(server, &chief, &["tab", "create", "terminal"]);
+    assert_eq!(tab["value"]["workspace_id"], alpha.as_str(), "{tab}");
+}
+
+/// The MCP server asks only the app that owns its daemon where a caller is,
+/// for every caller kind, as the CLI does: a relayed app (the person's Mac
+/// app, reached from a Cloud machine) would answer with ids of its own
+/// daemon.
+#[test]
+fn the_mcp_server_never_asks_an_app_that_does_not_own_its_daemon() {
+    let split = caller_in_alpha_beta_focused("place-mcp-relayed");
+    let Split { server, terminal, pane, alpha, .. } = &split;
+    let caller = caller_in(&split, &screen_of_pane(server, pane));
+    let script = "const tab = await cmux.tab_create_terminal({}); \
+         const page = await cmux.browser_profile_open({url: 'https://example.com/', \
+             profile: 'default', engine: 'webkit'}); \
+         let link = 'opened'; \
+         try { await cmux.workspace_open_url({url: 'https://example.com/'}); } \
+         catch (error) { link = String(error); } \
+         return {tab, page, link};";
+    let key = workspace_key(server, alpha);
+    for (name, who) in [
+        ("relay-agent", Who { workspace_key: Some(&key), ..Who::agent() }),
+        ("relay-terminal", Who::terminal(terminal)),
+    ] {
+        let app = FakeApp::start(server, name, without_column(&caller));
+        let who = Who { relayed_app: Some(&app.socket), ..who };
+        let made = mcp_exec(server, &who, script);
+        let asked = app.methods();
+        for method in ["system.identify", "browser.open_split", "action.run"] {
+            assert!(!asked.iter().any(|asked| asked == method), "{name}: {method} in {asked:?}");
+        }
+        // The daemon places both tabs: in the caller's own workspace.
+        assert_eq!(made["tab"]["value"]["workspace_id"], alpha.as_str(), "{name}: {made}");
+        let page_pane =
+            made["page"]["value"]["pane_id"].as_str().unwrap_or_else(|| panic!("{made}"));
+        assert_eq!(workspace_of_pane(server, page_pane), *alpha, "{name}: {made}");
+    }
 }
 
 /// The MCP server follows the same rule as the CLI: a pane, a screen and a

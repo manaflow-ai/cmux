@@ -138,6 +138,29 @@ fn a_terminal_the_app_does_not_place_opens_the_tab_in_its_own_pane() {
 }
 
 #[test]
+fn a_terminal_the_daemon_no_longer_shows_opens_the_tab_at_the_default_place() {
+    // A script that outlived its tab: `tab create terminal` from it keeps the
+    // daemon's default, and `browser open` failed on the terminal lookup.
+    // Both now name no place.
+    let stale = "term_00000000000000000000000000000000";
+    let run = Run::new(true).cli(&["--json", "browser", "open", URL], Some(stale));
+    assert!(run.output.status.success(), "{}", run.stderr());
+    let [call] = run.runs()[..] else { panic!("one app run expected: {:?}", run.app) };
+    assert!(call["params"].get("target").is_none(), "{call}");
+
+    let run = Run::new(false).cli(&["--json", "browser", "open", URL], Some(stale));
+    assert!(run.output.status.success(), "{}", run.stderr());
+    let create = run
+        .daemon
+        .iter()
+        .find(|request| request["operation"] == "tab.create_browser")
+        .unwrap_or_else(|| panic!("no tab.create_browser: {:?}", run.daemon));
+    for scope in ["workspace", "screen", "pane"] {
+        assert!(create["params"].get(scope).is_none(), "{scope} was named: {create}");
+    }
+}
+
+#[test]
 fn without_an_app_a_terminals_browser_tab_opens_in_its_own_pane() {
     // A plain cmux-tui session or a Cloud machine: the daemon's active pane
     // follows the person's focus, so the CLI names the caller's own pane.
