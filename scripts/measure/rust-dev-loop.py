@@ -47,6 +47,17 @@ def pct(xs: list[float], p: float) -> float:
     return xs[lo] + (xs[hi] - xs[lo]) * (k - lo)
 
 
+def tree_usage(path: Path) -> dict[str, int]:
+    logical = allocated = 0
+    if path.is_dir():
+        for p in path.rglob("*"):
+            if p.is_file() and not p.is_symlink():
+                st = p.stat()
+                logical += st.st_size
+                allocated += st.st_blocks * 512
+    return {"logical_bytes": logical, "allocated_bytes": allocated}
+
+
 def find_lld(tools: Path) -> str | None:
     """A Mach-O lld: Homebrew's, or the toolchain's own rust-lld under the ld64.lld name."""
     if platform.system() != "Darwin":
@@ -294,8 +305,12 @@ def edit(path: Path, n: int, scenario: str) -> None:
         insert = MARK_BEGIN + f"    let _measurement_marker = {n}u32;\n    let _ = _measurement_marker;\n" + MARK_END
     elif scenario == "shared_struct":
         needle = "pub struct Formula {\n"
-        insert = MARK_BEGIN + "    pub measurement_marker: u32,\n" + MARK_END
-        text = text.replace("            load1_per_core: 1.0,\n", "            load1_per_core: 1.0,\n            measurement_marker: 0,\n", 1)
+        insert = MARK_BEGIN + f"    #[serde(skip)]\n    pub measurement_marker: [u8; {n}],\n" + MARK_END
+        text = text.replace(
+            "            load1_per_core: 1.0,\n",
+            f"            load1_per_core: 1.0,\n            measurement_marker: [0; {n}],\n",
+            1,
+        )
     elif scenario == "test_only":
         needle = "mod tests {\n    use super::*;\n"
         insert = MARK_BEGIN + f"    const _: u32 = {n};\n" + MARK_END
@@ -315,7 +330,7 @@ def restore(path: Path) -> None:
     if end < 0:
         raise RuntimeError(f"measurement edit end marker missing: {path}")
     text = text[:start] + text[end + len(MARK_END):]
-    text = text.replace("            measurement_marker: 0,\n", "", 1)
+    text = re.sub(r"            measurement_marker: \[0; \d+\],\n", "", text, count=1)
     path.write_text(text)
 
 
@@ -326,7 +341,7 @@ def main() -> int:
     ap.add_argument("--variants", default="base")
     ap.add_argument("--n", type=int, default=8)
     ap.add_argument("--clean-n", type=int, default=1, help="clean builds per variant (the first warms it)")
-    ap.add_argument("--scenarios", default="core,tui,acpmux,switch")
+    ap.add_argument("--scenarios", default="acpmux_leaf,shared_struct,test_only")
     ap.add_argument("--tests", default="", help="packages to time cargo test vs cargo nextest on (base variant)")
     ap.add_argument("--custom", action="append", default=[],
                     help="NAME:CONFIG[;CONFIG...] a variant of cargo --config entries (repeatable)")
@@ -382,6 +397,10 @@ def main() -> int:
     log(f"DEVLOOP-HOST {json.dumps(host)}")
     samples: list[dict] = []
     scen = [s for s in a.scenarios.split(",") if s]
+    unknown = sorted(set(scen) - set(EDITS) - {"switch"})
+    if not scen or unknown or not any(s in EDITS for s in scen):
+        raise SystemExit(f"scenarios must include an edit from {','.join(EDITS)}; unknown={unknown}")
+    disk_records: dict[str, dict] = {"clean": {}, "final": {}}
 
     def rec(variant: str, scenario: str, dt: float, rc: int, compiled: int, i: int) -> None:
         smp = {"variant": variant, "scenario": scenario, "seconds": round(dt, 3), "exit": rc,
@@ -424,14 +443,16 @@ def main() -> int:
             rec(k, "clean-check", dt, rc, comp, c)
             dt, rc, comp = cargo(spec, targets[k], BUILD, out / f"{targets[k].name}.log")
             rec(k, "clean", dt, rc, comp, c)
+            if rc == 0:
+                disk_records["clean"][k] = tree_usage(targets[k])
             if rc != 0:
                 log(f"DEVLOOP-FAIL {k} clean build exit {rc}; dropped (log {targets[k].name}.log)")
                 spec["skip"] = "clean build failed"
         chosen = {k: s for k, s in chosen.items() if not s.get("skip")}
 
-    if "base" in chosen:
-        dt, rc, comp = cargo(chosen["base"], targets["base"], TEST, out / f"{targets['base'].name}.log")
-        rec("base", "baseline-test", dt, rc, comp, 0)
+    for k, spec in chosen.items():
+        dt, rc, comp = cargo(spec, targets[k], TEST, out / f"{targets[k].name}.log")
+        rec(k, "baseline-test", dt, rc, comp, 0)
 
     try:
         # Round -> scenario -> variant: one edit, then every variant builds it, so each target
@@ -439,6 +460,8 @@ def main() -> int:
         # variants share this source tree).
         for i in range(a.n):
             for s in scen:
+                for p in set(EDITS.values()):
+                    restore(ws / p)
                 if s in EDITS:
                     edit(ws / EDITS[s], i + 1, s)
                 for k, spec in chosen.items():
@@ -456,6 +479,8 @@ def main() -> int:
                             rec(k, f"switch-{pk}", dt, rc, comp, i)
                         dt, rc, comp = cargo(spec, targets[k], BUILD, lp)
                         rec(k, "switch-back", dt, rc, comp, i)
+                for p in set(EDITS.values()):
+                    restore(ws / p)
     finally:
         for p in EDITS.values():
             restore(ws / p)
@@ -477,9 +502,12 @@ def main() -> int:
         cargo({}, env_t, BUILD, out / "timings.log")  # the restored tree, untimed
         for s_name, rel in EDITS.items():
             edit(ws / rel, 9999, s_name)
-            cargo({}, env_t, [*BUILD, "--timings"], out / "timings.log")
-            html = sorted((env_t / "cargo-timings").glob("cargo-timing-*.html"))
-            restore(ws / rel)
+            html = []
+            try:
+                cargo({}, env_t, [*BUILD, "--timings"], out / "timings.log")
+                html = sorted((env_t / "cargo-timings").glob("cargo-timing-*.html"))
+            finally:
+                restore(ws / rel)
             cargo({}, env_t, BUILD, out / "timings.log")  # so the next report holds only its own edit
             if not html:
                 log(f"DEVLOOP-UNIT {s_name} no timing report")
@@ -525,14 +553,11 @@ def main() -> int:
     # Every timed command is part of the acceptance result, including test-only edits and
     # baseline tests. A failed test edit must never disappear from the harness exit status.
     disk = shutil.disk_usage(out)
-    target_bytes = sum(
-        p.stat().st_size
-        for p in troot.rglob("*")
-        if p.is_file() and not p.is_symlink()
-    ) if troot.is_dir() else 0
+    for k, target in targets.items():
+        disk_records["final"][k] = tree_usage(target)
     disk_record = {
-        "out_bytes": sum(p.stat().st_size for p in out.rglob("*") if p.is_file() and not p.is_symlink()),
-        "target_bytes": target_bytes,
+        "out": tree_usage(out),
+        "variants": disk_records,
         "filesystem_free_bytes": disk.free,
     }
     log(f"DEVLOOP-DISK {json.dumps(disk_record, sort_keys=True)}")
