@@ -116,6 +116,9 @@ import Testing
         // A declared exemption (a family member, the default engine's twin, a focus move) names the
         // palette row that covers it; debug actions are palette rows behind Internal Developer Mode.
         if descriptor.surfacePlan.palette.exemption != nil || descriptor.isDebugOnly { return nil }
+        // A feature or setting that is off (Labs for the App Store) hides the row from menus too
+        // (`ActionRegistry+Menus`), so neither surface offers it.
+        if registry.disabledFeature(for: id) != nil || registry.settingOffReason(id) != nil { return nil }
         // The palette itself.
         if id == "commandPalette" { return nil }
         return "\(id) is not a palette row"
