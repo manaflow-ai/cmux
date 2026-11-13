@@ -215,6 +215,7 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
             let fromChat = source.map { services.agentTabs.isAgentTab($0) } ?? false
             services.linkOpener.openWeb(url, from: pane, background: background, reusesTab: fromChat)
         }
+        router.openProgramLink = { [weak services] url, source in services?.linkOpener.source(tab: source).map { $0.services.linkOpener.openWeb(url, from: $0, background: true, revealing: true) } ?? false }
     }
 
     /// The tab showing `session`, or nil (the focused pane) for a surface the

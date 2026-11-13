@@ -33,6 +33,10 @@ jobs:
     # pool reconciler marked that size dead. Either way every webview shard and the verdict waited.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
+    # actions: read: a pull request's handoff below reads the base's webview test history (an artifact of its newest push).
+    permissions:
+      contents: read
+      actions: read
     outputs:
       db: ${{ steps.scope.outputs.db }}
       diff_sidecar: ${{ steps.scope.outputs.diff_sidecar }}
@@ -75,13 +79,27 @@ jobs:
           key: webviews-test-durations-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: webviews-test-durations-
 
+      # A pull request's shards also get the names red on the base's newest recorded push (base-reds.json): a head
+      # file whose every first-run red is one of them skips its alone retry (run-webviews-tests.sh,
+      # CMUX_WEB_TEST_BASE_REDS) and react-apps-base-check judges it as before. Read once here for the whole run (the
+      # history's list and download, two requests), and best effort: without the file every red file is retried.
       - name: Hand the duration manifest to the shards
         if: ${{ steps.scope.outputs.react_apps == 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ github.event_name == 'pull_request' && github.token || '' }}
+          BASE_REF: ${{ github.base_ref }}
         run: |
           manifest="$RUNNER_TEMP/webviews-durations/manifest.json"
           mkdir -p "$(dirname "$manifest")"
           [ -s "$manifest" ] || printf '{}\n' > "$manifest"
           echo "duration manifest: $(grep -c '": ' "$manifest" || true) files"
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            history="$RUNNER_TEMP/webviews-base-history.json"
+            { timeout 90 python3 scripts/ci/webviews_test_history.py fetch "$history" --repo "$GITHUB_REPOSITORY" --branch "$BASE_REF" --need-read &&
+              python3 scripts/ci/webviews_test_history.py known-reds "$history" --before "$(git log -1 --format=%ct HEAD^1)" \
+                --out "$RUNNER_TEMP/webviews-durations/base-reds.json"; } ||
+              { rm -f "$RUNNER_TEMP/webviews-durations/base-reds.json"; echo "the base's webview reds are unread: every red file is retried"; }
+          fi
 
       - name: Upload the duration manifest
         if: ${{ steps.scope.outputs.react_apps == 'true' }}
@@ -90,7 +108,9 @@ jobs:
           name: webviews-test-durations
           # A re-run of the whole run uploads it again; the run's attempts share artifact names.
           overwrite: true
-          path: ${{ runner.temp }}/webviews-durations/manifest.json
+          path: |
+            ${{ runner.temp }}/webviews-durations/manifest.json
+            ${{ runner.temp }}/webviews-durations/base-reds.json
           if-no-files-found: error
           # A same-run handoff: the cache keeps the manifest between runs.
           retention-days: 1
@@ -320,6 +340,11 @@ jobs:
     # 8 shards halve each shard's dev-server files for about 2 min more setup
     # and Vite warm-up per added shard (Leo, 2026-10-31: a straightforward fix
     # lands within the hour).
+    # 12 shards: at 8 the split balanced every shard to about 1000 s of tests
+    # (runs 43338660731 to 43342364793: Test webviews 849-1072 s on a shard with
+    # no retries, about 130 s of setup), so the verdict could not come 20 min
+    # after a push. The same split over run 43342256133's manifest gives 690 s a
+    # shard at 12, for about 9% more runner minutes (12 x 820 s against 8 x 1133 s).
     timeout-minutes: 40
     name: react-apps-check (${{ matrix.shard }})
     strategy:
@@ -327,21 +352,29 @@ jobs:
       matrix:
         include:
           - shard: 1
-            shard_count: 8
+            shard_count: 12
           - shard: 2
-            shard_count: 8
+            shard_count: 12
           - shard: 3
-            shard_count: 8
+            shard_count: 12
           - shard: 4
-            shard_count: 8
+            shard_count: 12
           - shard: 5
-            shard_count: 8
+            shard_count: 12
           - shard: 6
-            shard_count: 8
+            shard_count: 12
           - shard: 7
-            shard_count: 8
+            shard_count: 12
           - shard: 8
-            shard_count: 8
+            shard_count: 12
+          - shard: 9
+            shard_count: 12
+          - shard: 10
+            shard_count: 12
+          - shard: 11
+            shard_count: 12
+          - shard: 12
+            shard_count: 12
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -498,19 +531,27 @@ jobs:
       # A pull request fails only on tests red on it and not on its base (the merge
       # parent): the red files run again there, and the base's reds are warnings
       # (scripts/ci/webviews-tests-new-reds.sh). A push keeps every red.
+      # A shard whose engines did not install skips its tests: the browser-lane files fail
+      # without them, so the shard was red either way, only 15-25 min later, after the whole suite
+      # ran (run 43337871244). The gate step below names the engine step as the red.
       - name: Test webviews
         id: webview-tests
         continue-on-error: ${{ github.event_name == 'pull_request' }}
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.engines.outcome != 'failure' }}
         working-directory: webviews
         env:
           CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
           CMUX_WEB_TEST_SHARD: ${{ matrix.shard }}
           CMUX_WEB_TEST_SHARD_COUNT: ${{ matrix.shard_count }}
+          # Shard 1 runs the shard-independent checks above first (107-132 s in runs 43338660731
+          # to 43342364793); the split gives it that much less test work (webviews_test_shards.py).
+          CMUX_WEB_TEST_SHARD_HEAD_START: "1:120"
           CMUX_WEB_TEST_RESULTS: ${{ runner.temp }}/webviews-head-results/webviews-head-results.json
           CMUX_WEB_TEST_RAW_LOG_DIR: ${{ runner.temp }}/webviews-head-results/raw-logs
           CMUX_WEB_TEST_SKIP_BASE: ${{ github.event_name == 'pull_request' && '1' || '0' }}
           CMUX_WEB_TEST_DURATIONS: ${{ runner.temp }}/webviews-durations/manifest.json
+          # From web-subarea-scope's handoff (pull requests only): a file red on the base's push gets no alone retry.
+          CMUX_WEB_TEST_BASE_REDS: ${{ github.event_name == 'pull_request' && format('{0}/webviews-durations/base-reds.json', runner.temp) || '' }}
           CMUX_WEB_TEST_DURATIONS_OUT: ${{ runner.temp }}/webviews-durations-out/shard${{ matrix.shard }}.json
           BASE_REF: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
           FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
@@ -559,7 +600,7 @@ jobs:
           ../scripts/ci/webviews-tests-new-reds.sh "$BASE_REF"
 
       - name: Upload head webview results
-        if: ${{ always() && github.event_name == 'pull_request' }}
+        if: ${{ always() && github.event_name == 'pull_request' && steps.webview-tests.outcome != 'skipped' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           # Artifact names are stable across failed-job reruns: the rerun keeps
@@ -682,6 +723,10 @@ jobs:
           - shard: 6
           - shard: 7
           - shard: 8
+          - shard: 9
+          - shard: 10
+          - shard: 11
+          - shard: 12
     steps:
       # The base is the merge commit's first parent, the commit the head shards
       # were merged onto (their prScope diff is HEAD^1 too). pull_request.base.sha
@@ -1145,6 +1190,18 @@ jobs:
           path: ${{ runner.temp }}/webviews-test-history/history.json
           if-no-files-found: ignore
           retention-days: 3
+
+      # A base red is excused on every pull request, so nothing made it anyone's: react-apps-check was red on every
+      # completed push run from 2026-11-11 16:59 UTC to 2026-11-13 and model-picker-scaling on 62 recorded pushes in
+      # a row before anyone read the failures (cmuxterm-hq#10383). This names each file red on the last 10 pushes it
+      # ran on, with the commits it went red between (one ::error a range, a table in the job summary), and turns
+      # this push-only job red. Pull requests never run this job, so it holds none of them. After the save: the
+      # history is kept whatever this says.
+      - name: Name webview reds stuck on the base
+        if: ${{ steps.history-record.outcome == 'success' }}
+        run: |
+          python3 scripts/ci/webviews_test_history.py stuck "$RUNNER_TEMP/webviews-test-history/history.json" \
+            --repo "$GITHUB_REPOSITORY" --summary "$GITHUB_STEP_SUMMARY" --fail
 
   diff-sidecar-check:
     # Generated protocol checks and the sidecar tests only run for their owned inputs.

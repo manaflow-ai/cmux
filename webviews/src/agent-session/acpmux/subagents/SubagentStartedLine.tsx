@@ -9,6 +9,7 @@ import { foreignHarness, SUBAGENT_FALLBACK } from "./agentIdentityModel";
 import { useSenderIconLook } from "./senderIconLook";
 import { SubagentHarnessContext, SubagentNavContext, SubagentPaneContext } from "./subagentGroupModel";
 import { subagentTaskLabel } from "./subsessions";
+import "./SubagentStartedLine.css";
 
 export function SubagentStartedLine({ row }: { row: AcpmuxRow }) {
   const t = useT();
@@ -45,6 +46,9 @@ export function SubagentStartedLine({ row }: { row: AcpmuxRow }) {
         {at > 0 && identity(at)}
         <AgentTag
           name={part.value}
+          // A name that opens the sentence ("{name} started working") starts its words on the rows'
+          // text column, its chip's inset hanging into the gap after the icon (SubagentStartedLine.css).
+          className={at === 0 && !before ? "cv-subagent-started__lead" : undefined}
           ariaLabel={t("subagents.open", { name: part.value })}
           onClick={open && (() => open(agent.id))}
         />
