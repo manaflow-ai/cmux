@@ -3206,7 +3206,15 @@ function TranscriptView({
     for (let index = Math.max(0, rows.length - ARRIVAL_TAIL); index < rows.length; index += 1) indexes.add(index);
     for (const index of indexes) {
       const row = rows[index];
-      if (pending > 0 && row?.kind === "user" && !isLineRow(row) && row.id !== previous[index]?.id) {
+      // A later send can arrive before the row snapshot changes. A prompt already matched to
+      // an earlier send must not consume that later send's pending slot again.
+      if (
+        pending > 0 &&
+        row?.kind === "user" &&
+        !isLineRow(row) &&
+        row.id !== previous[index]?.id &&
+        !promptIds.has(row.id)
+      ) {
         if (promptIds === sentPromptIds) promptIds = new Set(sentPromptIds);
         rememberSentPromptId(promptIds, row.id);
         pending -= 1;

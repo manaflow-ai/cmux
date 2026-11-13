@@ -284,6 +284,22 @@ test("a sent thinking row keeps its instant marker across finished activity rows
     ];
     await render(rows, 1);
     expect(container.querySelector('.acpmux-thinking[data-send-thinking="true"]')).not.toBeNull();
+
+    // A second send first renders the same rows. The first prompt must not consume its pending
+    // slot, or the asynchronously registered second prompt loses its instant thinking marker.
+    await render(rows, 2);
+    const secondPrompt = row("second-marker-prompt", "user", "Another question");
+    await render(
+      [
+        ...rows,
+        secondPrompt,
+        row("second-working-marker", "working", "Working for"),
+        row("second-finished-marker", "activity", "Ran a command"),
+        { ...row("second-thinking-marker", "thinking", "Thinking"), verbKey: secondPrompt.id, below: true },
+      ],
+      2,
+    );
+    expect(container.querySelector('[data-row-id="second-thinking-marker"][data-send-thinking="true"]')).not.toBeNull();
   } finally {
     await act(async () => root.unmount());
     container.remove();
