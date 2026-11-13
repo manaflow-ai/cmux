@@ -49,6 +49,8 @@ mod keymap;
 mod mac;
 mod marker;
 mod permissions;
+#[cfg(feature = "bench")]
+mod observe;
 mod selftest;
 #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
 mod serve;
@@ -79,7 +81,7 @@ pub type Res<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 pub fn run_cli(args: &[String]) -> i32 {
     let Some(cmd) = args.first() else {
         eprintln!(
-            "usage: cmux-rd host|bench|testapp|serve|connect|permissions|encode-selftest|openh264-install [--key value ...]"
+            "usage: cmux-rd host|bench|observe|testapp|serve|connect|permissions|encode-selftest|openh264-install [--key value ...]"
         );
         return 2;
     };
@@ -99,6 +101,8 @@ pub fn run_cli(args: &[String]) -> i32 {
         "host" => host::run(&opts),
         #[cfg(feature = "bench")]
         "bench" => bench::run(&opts),
+        #[cfg(all(target_os = "macos", feature = "bench"))]
+        "observe" => mac::observe::run(&opts),
         #[cfg(target_os = "linux")]
         "testapp" => testapp::run(&opts),
         #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
