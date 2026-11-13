@@ -1892,7 +1892,7 @@ tail"#;
     }
 
     #[test]
-    fn live_mirror_emits_left_for_closed_and_malformed_rows() {
+    fn live_mirror_emits_left_for_closed_and_summary_rows() {
         let mut client = Client::<Value>::connected_v2();
         let hello = Frame::json(
             FrameKind::Hello,
