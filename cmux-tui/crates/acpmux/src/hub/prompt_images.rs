@@ -221,6 +221,28 @@ fn keep_indexed(blocks: &[Value]) -> Vec<(usize, Value)> {
         .collect()
 }
 
+/// Sets a prompt record's `inlineParts` to `parts`, unless they say nothing its `text` does not:
+/// none, or one plain text part (no paste, file or display fields) whose text is the record's
+/// `text`. Every reader falls back to `text` without them, as for a record from before
+/// `inlineParts` (`retry_turn.rs` `prompt_blocks`, `fork_before.rs`, the web and iOS
+/// transcripts), and that one part was the prompt's whole text a second time in the record, in
+/// the journal and in the log's kind index (cmuxterm-hq#9263).
+pub(super) fn set_inline_parts(msg: &mut Value, parts: Vec<Value>) {
+    let only_text = match parts.as_slice() {
+        [] => true,
+        [part] => {
+            part.as_object().is_some_and(|fields| {
+                fields.len() == 2 && fields.get("kind").and_then(Value::as_str) == Some("text")
+            }) && part.get("text").and_then(Value::as_str).is_some()
+                && part.get("text") == msg.get("text")
+        }
+        _ => false,
+    };
+    if !only_text {
+        msg.set("inlineParts", Value::Array(parts));
+    }
+}
+
 /// Writes a new file only its owner reads (0600 on Unix).
 fn write_owner_only(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
@@ -527,9 +549,7 @@ impl Hub {
             msg.get("images").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default(),
             display_parts,
         );
-        if !ordered.is_empty() {
-            msg.set("inlineParts", Value::Array(ordered));
-        }
+        set_inline_parts(&mut msg, ordered);
         super::session::mark_pasted(&mut msg, blocks);
         // The immutable cmux snapshot is saved in metadata and can be appended again
         // by turns.rs. Only unrecorded client context prevents Retry/restart replay.
@@ -543,6 +563,10 @@ impl Hub {
             .any(|block| crate::prompt_context::is_context(block) && !saved_context.contains(block))
         {
             msg.set("hiddenContext", Value::Bool(true));
+        }
+        // Purged once its creator is done: the log keeps no long body (`ephemeral.rs`).
+        if session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner).throwaway {
+            super::ephemeral::leave_out_body(&mut msg);
         }
         // A turn Claude Code started on its own and still runs: the rest is this prompt's turn.
         self.end_background_turn(session, "prompt");

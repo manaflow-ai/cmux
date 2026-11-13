@@ -52,7 +52,7 @@ struct SidebarFirstItemInItsWindowTests {
         /// New Window as the person runs it (Cmd-Shift-N, `newWindow`): on a new space.
         case newSpace
         /// Move Workspace to New Window (`moveWorkspaceToNewWindow`, the journey's set-up): a workspace of window A
-        /// moves into a new window, on window A's space.
+        /// moves into a new window, which takes a space of its own (`WindowOwnSpace.give`).
         case movedWorkspace
 
         var testDescription: String { rawValue }
@@ -60,7 +60,7 @@ struct SidebarFirstItemInItsWindowTests {
 
     @Test(arguments: Entry.allCases, Opening.allCases)
     func theFirstSidebarItemShowsInTheWindowItWasAskedIn(_ entry: Entry, opening: Opening) async throws {
-        let newSpace = opening == .newSpace
+        let newSpace = opening != .sameSpace
         try await PasswordManagerRouteTests.withApp { services, connection in
             let keyWindow = services.keyWindowSource
             defer { services.keyWindowSource = keyWindow }

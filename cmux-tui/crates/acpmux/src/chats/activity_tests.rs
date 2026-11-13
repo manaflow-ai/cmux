@@ -299,18 +299,20 @@ fn activity_batch_does_not_keep_expired_parent_relationship() {
 fn closed_snapshot_does_not_publish_a_session_reopened_during_build() {
     let hub =
         make_hub(vec![row("closed", json!({"status": "closed", "preview": "before reopen"}))]);
-    let entered = Arc::new(std::sync::Barrier::new(2));
-    let release = Arc::new(std::sync::Barrier::new(2));
-    hub.chat_activity_cache.test_pause_next_build(entered.clone(), release.clone());
+    let (entered_tx, entered) = std::sync::mpsc::channel();
+    let (release, release_rx) = std::sync::mpsc::channel();
+    hub.chat_activity_cache.test_pause_next_build(entered_tx, release_rx);
     hub.chat_activity_cache.test_reset_builds();
 
     let building = {
         let hub = hub.clone();
         thread::spawn(move || hub.chat_activity())
     };
-    entered.wait();
+    entered
+        .recv_timeout(std::time::Duration::from_secs(30))
+        .expect("the activity build never reached its pause");
     assert!(hub.test_reopen("closed"));
-    release.wait();
+    release.send(()).unwrap();
     let _stale = building.join().unwrap();
 
     assert_eq!(hub.chat_activity_cache.test_builds(), 1);

@@ -46,6 +46,7 @@ on:
       - scripts/cmux-next/bundle-*.sh
       - scripts/sign-cmux-bundle-helpers.sh
       - scripts/cmux-next/embed-cef.sh
+      - scripts/cmux-next/cef-pak-drop.py
       - scripts/cmux-next/fetch-ublock.sh
       - scripts/build-diff-sidecar.sh
       - Packages/macOS/CmuxNext/**
@@ -124,6 +125,7 @@ on:
       - tests/fixtures/cua-helper-signatures/**
       - scripts/whats-new/fixtures/**
       - scripts/ci/cmux_next_route.py
+      - scripts/ci/gh_expressions.py
       - scripts/ci/swiftpm_build_metrics.py
       - scripts/ci/build_metrics.py
       - tests/test_ci_swiftpm_build_metrics.py
@@ -147,6 +149,8 @@ on:
       - .github/actions/setup-cmux-tui-rust/**
       - .github/actions/runner-cargo-home/**
       - cmux-tui/**
+      # No tracked file is here: these start the run whose check-no-swift-cli.sh
+      # step fails when a main sync brings the Swift CLI back.
       - CLI/**
       - cmuxCLITests/**
       - cmuxCLITestSupport/**
@@ -301,7 +305,6 @@ on:
       - TunnelExtension/**
       - cmuxTests/**
       - cmuxUITests/**
-      - CLI/**
       - daemon/**
       - cmux-tui/**
       - Assets.xcassets/**
@@ -388,6 +391,7 @@ on:
       - scripts/cmux-next/bundle-*.sh
       - scripts/sign-cmux-bundle-helpers.sh
       - scripts/cmux-next/embed-cef.sh
+      - scripts/cmux-next/cef-pak-drop.py
       - scripts/cmux-next/fetch-ublock.sh
       - scripts/build-diff-sidecar.sh
       - Packages/macOS/CmuxNext/**
@@ -460,6 +464,7 @@ on:
       - tests/fixtures/cua-helper-signatures/**
       - scripts/whats-new/fixtures/**
       - scripts/ci/cmux_next_route.py
+      - scripts/ci/gh_expressions.py
       - scripts/ci/swiftpm_build_metrics.py
       - scripts/ci/build_metrics.py
       - tests/test_ci_swiftpm_build_metrics.py
@@ -483,6 +488,8 @@ on:
       - .github/actions/setup-cmux-tui-rust/**
       - .github/actions/runner-cargo-home/**
       - cmux-tui/**
+      # No tracked file is here: these start the run whose check-no-swift-cli.sh
+      # step fails when a main sync brings the Swift CLI back.
       - CLI/**
       - cmuxCLITests/**
       - cmuxCLITestSupport/**
@@ -1362,7 +1369,7 @@ jobs:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-112
       fresh_runner: ${{ steps.place.outputs.fresh_runner }}
       fresh_jobs: ${{ steps.place.outputs.fresh_jobs }}
-      # Why: docs/ci/cmux-next-workflow-notes.md#note-347
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-348
       light_runner: ${{ steps.place.outputs.light_runner }}
       light_jobs: ${{ steps.place.outputs.light_jobs }}
       # Why: docs/ci/cmux-next-workflow-notes.md#note-18
@@ -1469,7 +1476,7 @@ jobs:
           # Why: docs/ci/cmux-next-workflow-notes.md#note-23
           FRESH_LABEL: ${{ vars.CI_DEV_COMPILE_RUNNER || 'glaeda-dev-std-xcode-26.6' }}
           FRESH_SLOT_JOBS: cmux-scheme-compile release-compile
-          # Why: docs/ci/cmux-next-workflow-notes.md#note-347
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-348
           LIGHT_SPILL_JOBS: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && 'swift-canary daemon-test generated-files' || '' }}
           # The build-fleet compiles' gateway, taken (or a wider class of it) only while a runner is
           # idle (gateway_runner). With none idle, swift-canary-fleet does not run and swift-canary
@@ -1796,6 +1803,10 @@ jobs:
             python3 scripts/cmux-next/tests/count-swift-code-lines.test.py
             bash scripts/cmux-next/tests/check-app-size.test.sh
             python3 -I scripts/cmux-next/tests/test_bundle_size.py
+            python3 -I scripts/cmux-next/tests/test_bundle_size_pr.py
+            python3 -I scripts/cmux-next/tests/test_fetch_nightly_dmg.py
+            python3 -I scripts/cmux-next/tests/test_cef_pak_drop.py
+            bash scripts/cmux-next/tests/bundle-ublock-locales.test.sh
             bash tests/test_strip_release_bundle_atom_info.sh
             bash scripts/cmux-next/tests/version-surfaces.test.sh
             bash scripts/cmux-next/tests/ratchet-tiers.test.sh
@@ -1832,6 +1843,10 @@ jobs:
             python3 -I scripts/cmux-next/tests/test_rj_update.py
             # The fleet sidebar benches emit receipts; this portable test keeps their validator deterministic.
             python3 -I scripts/cmux-next/tests/test_sidebar_perf_validate.py
+            # Parallel history tests share one fetch under a lock; a git lock is a retry (tests/git_history.py).
+            python3 -I tests/test_git_history.py
+            # A skip against an issue fails from its checked-in date on (tests/known_red.py).
+            python3 -I tests/test_known_red.py
             bash scripts/cef/tests/test-embedder-step.test.sh
             [web-bundle-key-inputs]
             bash tests/test_web_bundle_key_inputs.sh
@@ -2761,7 +2776,7 @@ jobs:
         with:
           name: cmux-next-tree-wait-${{ steps.unavailable.outputs.key }}
           path: ${{ steps.unavailable.outputs.marker }}
-          retention-days: 7
+          retention-days: 3
           overwrite: true
 
   # The build fleet's compile verdict for the Swift canary. Opt-in: with the
@@ -4115,6 +4130,8 @@ jobs:
         id: settings
         if: ${{ env.CMUX_NEXT_FOLD_GENERATED == 'true' && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
+        env:
+          CMUX_NEXT_JOB_BUILT: plain
         run: scripts/cmux-next/check-settings-exports.sh
 
       - name: Compile string catalogs into the resource bundles
@@ -4692,6 +4709,8 @@ jobs:
         id: settings
         if: ${{ env.CMUX_NEXT_FOLD_GENERATED == 'true' }}
         continue-on-error: true
+        env:
+          CMUX_NEXT_JOB_BUILT: plain
         run: scripts/cmux-next/check-settings-exports.sh
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-258
@@ -4702,6 +4721,7 @@ jobs:
         timeout-minutes: 10
         env:
           CMUX_STRINGS_BEST_EFFORT: "1"
+          CMUX_NEXT_JOB_BUILT: plain
         run: |
           set -euo pipefail
           # A dispatch packs only as the base tier run (its base_tier input, read from the event so this
@@ -4729,7 +4749,7 @@ jobs:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-57
       - name: Clean generated layout-reducer FFI lockfile
         run: |
-          lock=cmux-tui/crates/cmux-layout-reducer-ffi/Cargo.lock
+          lock=cmux-tui/crates/cmux-app-ffi/Cargo.lock
           if git ls-files --error-unmatch "$lock" >/dev/null 2>&1; then
             git checkout -- "$lock"
           else
@@ -5163,6 +5183,8 @@ jobs:
         id: settings
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
+        env:
+          CMUX_NEXT_JOB_BUILT: plain
         run: scripts/cmux-next/check-settings-exports.sh
 
       # The base autofix's action and settings exports, made on this build instead of a second Mac
@@ -5180,6 +5202,7 @@ jobs:
         timeout-minutes: 10
         env:
           CMUX_STRINGS_BEST_EFFORT: "1"
+          CMUX_NEXT_JOB_BUILT: plain
         run: |
           set -euo pipefail
           # A dispatch packs only as the base tier run (its base_tier input, read from the event so this
@@ -6999,10 +7022,27 @@ jobs:
           ref: feat-cmux-next
           fetch-depth: 200
 
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-347
+      - name: Mint the cmux-bot read token
+        id: read-token
+        if: ${{ vars.CMUX_BOT_APP_ID != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-actions: read
+          permission-contents: read
+          permission-pull-requests: read
+
       - name: Find the one merge to revert
         id: find
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_READ_TOKEN: ${{ steps.read-token.outputs.token }}
         run: |
           python3 scripts/ci/cmux_next_compile_revert.py --repo "$GITHUB_REPOSITORY" --run-id "$GITHUB_RUN_ID" \
             --sha "$GITHUB_SHA" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"

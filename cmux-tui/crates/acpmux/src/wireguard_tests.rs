@@ -27,6 +27,81 @@ async fn pair(
     pair_on(UdpSocket::bind("127.0.0.1:0").await.unwrap(), target, wrong_key).await
 }
 
+#[test]
+fn aliases_of_one_wireguard_key_share_one_mesh_peer() {
+    runtime().block_on(async {
+        let home = tempfile::tempdir().unwrap();
+        let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let settings = StaticConfig {
+            listen: socket.local_addr().unwrap(),
+            address: "10.77.0.1:4100".parse().unwrap(),
+        };
+        let key = base64::engine::general_purpose::STANDARD.encode([7; 32]);
+        let first =
+            peer(key.clone(), "127.0.0.1:4101".parse().unwrap(), "10.77.0.2:4100".parse().unwrap());
+        let second =
+            peer(key, "127.0.0.1:4102".parse().unwrap(), "10.77.0.2:4100".parse().unwrap());
+        let configured =
+            BTreeMap::from([("host".into(), first.clone()), ("alias".into(), second.clone())]);
+        let lock = KeyHolder::acquire(home.path()).unwrap();
+        let transport = Transport::from_socket(
+            &settings,
+            &configured,
+            home.path(),
+            "127.0.0.1:4103".parse().unwrap(),
+            socket,
+            lock,
+        )
+        .await
+        .expect("two names for the same authenticated host must start");
+        assert_eq!(transport.peers.len(), 1, "one cryptographic identity, one session");
+        assert_eq!(transport.peers[0].candidates.len(), 2, "both aliases' endpoint paths survive");
+        assert_eq!(
+            transport.route_for("host", first.wireguard.as_ref().unwrap()),
+            Some("10.77.0.2:4100".parse().unwrap())
+        );
+        assert_eq!(
+            transport.route_for("alias", second.wireguard.as_ref().unwrap()),
+            Some("10.77.0.2:4100".parse().unwrap())
+        );
+        transport.shutdown(tokio::time::Instant::now() + BOUND).await;
+    });
+}
+
+#[test]
+fn different_wireguard_keys_cannot_claim_one_overlay_address() {
+    runtime().block_on(async {
+        let home = tempfile::tempdir().unwrap();
+        let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let settings = StaticConfig {
+            listen: socket.local_addr().unwrap(),
+            address: "10.77.0.1:4100".parse().unwrap(),
+        };
+        let configured = BTreeMap::from([7u8, 8].map(|id| {
+            (
+                format!("host-{id}"),
+                peer(
+                    base64::engine::general_purpose::STANDARD.encode([id; 32]),
+                    "127.0.0.1:4101".parse().unwrap(),
+                    "10.77.0.2:4100".parse().unwrap(),
+                ),
+            )
+        }));
+        let lock = KeyHolder::acquire(home.path()).unwrap();
+        let result = Transport::from_socket(
+            &settings,
+            &configured,
+            home.path(),
+            "127.0.0.1:4103".parse().unwrap(),
+            socket,
+            lock,
+        )
+        .await;
+        let error = result.err().expect("different identities must not share an overlay address");
+        assert!(error.to_string().contains("overlap"), "{error}");
+    });
+}
+
 /// A pair whose `a` side runs on `a_socket`.
 async fn pair_on(
     a_socket: UdpSocket,
