@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import struct
 from pathlib import Path
 import re
 import sys
@@ -23,6 +24,15 @@ THIN = b"\xcf\xfa\xed\xfe\x0c\x00\x00\x01" + b"\0" * 24
 FAT = b"\xca\xfe\xba\xbe\x00\x00\x00\x02" + b"\0" * 24
 JAVA_CLASS = b"\xca\xfe\xba\xbe\x00\x00\x00\x41" + b"\0" * 24
 
+
+
+def thin_with_uuid(uuid: bytes, tail: bytes = b"") -> bytes:
+    """A 64-bit arm64 Mach-O header with one LC_UUID load command, then <tail>."""
+    header = struct.pack("<IiiIIIII", 0xFEEDFACF, 0x0100000C, 0, 2, 1, 24, 0, 0)
+    return header + struct.pack("<II", 0x1B, 24) + uuid + tail
+
+
+RUSTC_1_95 = "59807616e1fa2540724bfbac14d7976d7e4a3860"
 GHOSTTY_REVISION = "b" * 40
 TREE = "Contents/Resources/ghostty-licenses"
 NEXT_TREE = "Contents/Resources/ghostty-next-licenses"
@@ -349,6 +359,45 @@ class CheckBundleNoticesTest(unittest.TestCase):
         errors = checker.check(self.app, bundle_map)
         for section in self.SCREEN_DETECTION_SECTIONS:
             self.assertIn(f"{self.SCREEN_DETECTION}: missing notice section:{section}", errors)
+
+    # The remote browser host and its five helper apps ------------------------
+
+    RB_HOST = "Contents/Helpers/cmux-remote-browser-host.app/Contents/MacOS/cmux-remote-browser-host"
+    RB_HELPERS = tuple(
+        f"Contents/Helpers/cmux-remote-browser-host.app/Contents/Frameworks/cmux-remote-browser-host Helper{s}.app"
+        f"/Contents/MacOS/cmux-remote-browser-host Helper{s}"
+        for s in ("", " (GPU)", " (Renderer)", " (Plugin)", " (Alerts)")
+    )
+    CEF_RESOURCES = "Contents/Frameworks/Chromium Embedded Framework.framework/Resources"
+
+    def rb_host_app(self, helper: bytes) -> dict:
+        """The fake bundle: the Rust host (rustc 1.95.0 std), five helper apps
+        that run <helper>, CEF's notice files, the reviewed toolchain texts and
+        the committed THIRD_PARTY_LICENSES.md."""
+        sys.path.insert(0, str(ROOT / "cmux-tui/build-support/notices/toolchains"))
+        import toolchain_notices
+        toolchain_notices.install(toolchain_notices.load(), self.app / "Contents/Resources")
+        (self.app / "Contents/MacOS/app").unlink()
+        for name in ("CREDITS.html", "LICENSE.txt"):
+            (self.app / self.CEF_RESOURCES).mkdir(parents=True, exist_ok=True)
+            (self.app / self.CEF_RESOURCES / name).write_text("CEF\n")
+        host = self.app / self.RB_HOST
+        host.parent.mkdir(parents=True)
+        host.write_bytes(thin_with_uuid(b"H" * 16, f"/rustc/{RUSTC_1_95}/library/std/src/lib.rs".encode()))
+        for index, rel in enumerate(self.RB_HELPERS):
+            path = self.app / rel
+            path.parent.mkdir(parents=True)
+            # Each helper is signed under its own identifier, so its bytes differ.
+            path.write_bytes(helper + f"signature {index}".encode())
+        (self.app / "Contents/Resources/THIRD_PARTY_LICENSES.md").write_text((ROOT / "THIRD_PARTY_LICENSES.md").read_text())
+        return json.loads((HERE / "bundle-map.json").read_text())
+
+    def test_rb_host_small_helpers_pass_with_the_committed_map_and_notices(self) -> None:
+        # Sign run 43387981953: since cmux#42201 the helpers run
+        # cmux-rb-host-helper (Objective-C++ and CEF's wrapper, no Rust), and the
+        # map still asked each for the host's rust-std notice.
+        bundle_map = self.rb_host_app(thin_with_uuid(b"S" * 16))
+        self.assertEqual(checker.check(self.app, bundle_map), [])
 
     def test_map_requirements_are_well_formed(self) -> None:
         bundle_map = json.loads((HERE / "bundle-map.json").read_text())
