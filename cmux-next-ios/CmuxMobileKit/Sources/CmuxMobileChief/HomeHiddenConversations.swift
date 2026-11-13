@@ -12,6 +12,8 @@ public final class HomeHiddenConversations {
 
     /// Each hidden conversation and the activity time it was hidden at, for the current account.
     public private(set) var hidden: [String: Date] = [:]
+    /// Moves with every change of ``hidden`` (Home's list memo keys on it with the rows).
+    public private(set) var revision = 0
     @ObservationIgnored private var account: String?
     @ObservationIgnored private let defaults: UserDefaults
 
@@ -25,6 +27,7 @@ public final class HomeHiddenConversations {
     public func use(account: String?) {
         guard account != self.account else { return }
         self.account = account
+        revision &+= 1
         guard let account, let stored = defaults.dictionary(forKey: Self.key(account)) as? [String: Double] else {
             hidden = [:]
             return
@@ -51,12 +54,14 @@ public final class HomeHiddenConversations {
     /// Delete Conversation from List.
     public func hide(_ row: MacHomeRow) {
         hidden[row.id] = row.activityAt
+        revision &+= 1
         save()
     }
 
     /// Show Hidden Conversations: every hidden conversation lists again.
     public func showAll() {
         hidden = [:]
+        revision &+= 1
         save()
     }
 

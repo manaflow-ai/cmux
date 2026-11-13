@@ -23,3 +23,9 @@ toml = "0.8"
 # unreleased SDK in this source tree; a standalone checkout must keep a matching
 # SDK checkout at this path or remove `path` after the SDK release.
 [workspace]
+
+# The cmux-next app and the npm packages ship this binary, so it is built for
+# size the way cmux-tui's release profile is: fat LTO, one codegen unit.
+[profile.release]
+lto = "fat"
+codegen-units = 1

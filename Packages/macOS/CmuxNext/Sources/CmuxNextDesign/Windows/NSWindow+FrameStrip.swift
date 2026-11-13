@@ -57,7 +57,7 @@ extension NSWindow {
             // Neither the content before the key nor the settled one; blank: flat too (an empty terminal is flat).
             let isContentBlank = content != nil
                 && WindowFrame.PaneMeasure.isBlank(flatness: m.flatness, vsBefore: insideBefore, vsFinal: insideFinal,
-                                                   settledInk: m.settledInk, tolerance: tolerance)
+                                                   settledInk: m.settledInk, inkKept: m.inkKept, tolerance: tolerance)
             // Every pane's content area too: a split or close may blank a pane that is not the focused one.
             let blankPanes = m.panes.count(where: { $0.isBlank(tolerance: tolerance) })
             let isBlank = isContentBlank || blankPanes > 0

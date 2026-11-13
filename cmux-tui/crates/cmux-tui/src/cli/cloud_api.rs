@@ -9,8 +9,12 @@
 //! ```json
 //! {"call": "vm.domains", "api": "https://cmux.com", "auth": "stack|owner|worker",
 //!  "credential": "…", "refresh": "…", "team": "…", "app_version": "…", "local_only": false,
-//!  "args": {…}}
+//!  "args": {…}, "classic": {"api": "…", "access": "…", "refresh": "…", "team": "…"}}
 //! ```
+//!
+//! `classic` (or `classic_unread: true` when the app could not read it) is the app's classic Cloud
+//! session beside a Runs call: `cmux_cloud_api::classic_runs::attach` decides whether the call
+//! takes it (a wait, a cancel, an incognito create), and `answered` reads the daemon's answer.
 //!
 //! `owner.acpmux_keyed_start` sends the person key after that object: the JSON, one `\n`, then
 //! exactly `args.key_length` bytes.
@@ -62,7 +66,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     if !cmux_cloud_api::CALLS.contains(&request.call.as_str()) {
         return refuse(&mut stdout, &format!("no cloud api call {:?}", request.call));
     }
-    let result = call(&global, &request, &tail);
+    let result = cmux_cloud_api::classic_runs::answered(&request, call(&global, &request, &tail));
     let line = scrub(answer_line(&result), &request);
     if writeln!(stdout, "{line}").and_then(|()| stdout.flush()).is_err() {
         return Some(1);
@@ -189,6 +193,8 @@ fn failure(value: Value) -> Option<Failure> {
             message: text("message"),
             action: text("action"),
             trace_id: text("trace_id"),
+            retryable: value.get("retryable").and_then(Value::as_bool),
+            retry_after_s: value.get("retry_after_s").and_then(Value::as_u64),
         },
         "plan_required" => Failure::PlanRequired {
             message: text("message"),

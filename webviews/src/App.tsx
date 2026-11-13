@@ -76,6 +76,11 @@ import {
 } from "./diff-viewer/state";
 import { FileHeader } from "./diff-viewer/FileHeader";
 import { diffGitSource, useDiffStageAction } from "./diff-viewer/git";
+import {
+  PullRequestActionButton,
+  PullRequestActionStatus,
+  usePullRequestAction,
+} from "./diff-viewer/PullRequestAction";
 import { diffRevertSource, revertScopeOf } from "./diff-viewer/revert";
 import {
   DIFF_BULK_BAR_ROOM,
@@ -115,6 +120,8 @@ import { useDiffComments } from "./diff-viewer/useDiffComments";
 import { InlinePreview, isPreviewAnnotation, previewItemFor, type PreviewCache } from "./diff-viewer/InlinePreview";
 import { revealItemId, useRevealPath } from "./diff-viewer/reveal";
 import { DIFF_PAGE_BRIEF_OP, useReviewBrief } from "./diff-viewer/useReviewBrief";
+import { usePlainEnglish } from "./diff-viewer/usePlainEnglish";
+import { PlainEnglishView } from "./diff-viewer/PlainEnglishView";
 import { spotTarget, type BriefSpot } from "./review-brief/model";
 import { ReviewBriefStrip, type ReviewBriefLabels } from "./review-brief/ReviewBrief";
 import {
@@ -721,6 +728,25 @@ export function App({ config, initialStatus }: ConfigProps) {
     generation: state.renderGeneration,
   });
   const [briefOpen, setBriefOpen] = useState(false);
+  // Plain English (diff-viewer/PlainEnglishView.tsx): the diff read as one sentence per hunk.
+  const plainEnglish = usePlainEnglish({
+    config: config as DiffPageConfig,
+    items: visibleItems,
+    onOpenInDiff: (itemId, lineNumber, side) => {
+      if (latestState.current.items.some((item) => item.id === itemId && item.collapsed)) revealItem(itemId);
+      // The code view is still there under the sentences: it scrolls once they are gone.
+      requestAnimationFrame(() =>
+        codeViewRef.current?.scrollTo({
+          type: "line",
+          id: itemId,
+          lineNumber,
+          side,
+          align: "center",
+          behavior: "instant",
+        }),
+      );
+    },
+  });
   const briefLabels = useMemo<ReviewBriefLabels>(
     () => ({
       title: label("briefTitle"),
@@ -876,6 +902,8 @@ export function App({ config, initialStatus }: ConfigProps) {
     if (op === "commit") setCommitOpen(false);
     if (op !== "push") refreshRef.current();
   });
+  const pullRequestAction = usePullRequestAction(gitSource);
+  const pullRequestDisabled = commitOpen || git.state?.phase === "busy" || git.status?.detached === true;
   const stageAction = useDiffStageAction(
     gitSource,
     resolvedSessionSource ?? activeSessionSource,
@@ -988,7 +1016,9 @@ export function App({ config, initialStatus }: ConfigProps) {
                   git={git}
                   formOpen={commitOpen}
                   onToggleForm={() => setCommitOpen((open) => !open)}
+                  disabled={pullRequestAction.busy}
                 />
+                <PullRequestActionButton action={pullRequestAction} disabled={pullRequestDisabled} />
               </span>
             ) : null}
             <DiffPill
@@ -1017,6 +1047,8 @@ export function App({ config, initialStatus }: ConfigProps) {
               onReload={refresh}
               onSetLayout={setLayout}
               onSetOption={setOption}
+              plainEnglish={plainEnglish.pill}
+              onTogglePlainEnglish={plainEnglish.toggle}
               state={state}
             />
           </>
@@ -1029,7 +1061,13 @@ export function App({ config, initialStatus }: ConfigProps) {
             instead of the pill's Commit and Push below 600 px. */}
         {gitTools ? (
           <span className="diff-git-tools diff-git-tools-row">
-            <GitToolbarButtons git={git} formOpen={commitOpen} onToggleForm={() => setCommitOpen((open) => !open)} />
+            <GitToolbarButtons
+              git={git}
+              formOpen={commitOpen}
+              onToggleForm={() => setCommitOpen((open) => !open)}
+              disabled={pullRequestAction.busy}
+            />
+            <PullRequestActionButton action={pullRequestAction} disabled={pullRequestDisabled} />
           </span>
         ) : null}
         {(filesChanged || machineUnavailable) && (
@@ -1040,10 +1078,12 @@ export function App({ config, initialStatus }: ConfigProps) {
             </button>
           </output>
         )}
+        {gitTools && <PullRequestActionStatus action={pullRequestAction} />}
         <GitWriteBar
           git={git}
           formOpen={commitOpen}
           onCloseForm={() => setCommitOpen(false)}
+          disabled={pullRequestAction.busy}
           reloadKey={state.renderGeneration}
         />
         {reviewBrief ? (
@@ -1082,6 +1122,7 @@ export function App({ config, initialStatus }: ConfigProps) {
         <main
           id="viewer"
           ref={viewerRef}
+          data-plain-english={plainEnglish.on || undefined}
           aria-label={label("diffViewer")}
           // Cmd-click on a line number opens the file; it must not also select lines (Pierre).
           onPointerDownCapture={(event) => {
@@ -1144,6 +1185,16 @@ export function App({ config, initialStatus }: ConfigProps) {
                       renderCommentAnnotation(annotation as CommentAnnotation, item as DiffItem)
                     )
                   }
+                />
+              ) : null}
+              {/* Over the code view, which stays as it was beneath: Open in diff lands on its hunk. */}
+              {plainEnglish.on && state.items.length > 0 ? (
+                <PlainEnglishView
+                  files={plainEnglish.files}
+                  store={plainEnglish.store}
+                  label={label}
+                  codeOptions={renderedCodeViewOptions as Record<string, unknown>}
+                  onOpenInDiff={plainEnglish.openInDiff}
                 />
               ) : null}
             </WorkerPoolContextProvider>

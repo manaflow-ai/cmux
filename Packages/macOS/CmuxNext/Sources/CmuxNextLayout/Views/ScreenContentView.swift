@@ -23,6 +23,10 @@ final class ScreenContentView: NSView {
     var geometry: ScreenGeometry
     internal(set) var paneFrames: [PaneID: AnimatedFrame] = [:]
     private(set) var dividerViews: [DividerHandleView.Kind: DividerHandleView] = [:]
+    /// The screen's splits whose divider draws no line (``LayoutScreen/hiddenDividers``); set by the root before each update.
+    var hiddenDividers: Set<SplitID> = [] {
+        didSet { if hiddenDividers != oldValue { hiddenDividersDidChange(from: oldValue) } }
+    }
     /// The hover and resize cursor of those handles from one tracking area (`ScreenDividerPointer`).
     private(set) lazy var dividerPointer = ScreenDividerPointer(screen: self)
     internal(set) var dividerFrames: [DividerHandleView.Kind: AnimatedFrame] = [:]
@@ -40,7 +44,7 @@ final class ScreenContentView: NSView {
     /// scroll takes the camera back to the scroll spring.
     var scrollRidesFrames = false
     /// A keyboard resize press moves this screen (`LayoutRootView.keyboardResizeWillChange`): until its spring lands,
-    /// every pane keeps its content at its size, clipped, and lays it out once at the landing (``PaneHostView``).
+    /// every pane is on the key hold (``PaneHostView``): content with a hold area follows its pane in every frame.
     var holdsContentForKeyResize = false
     /// A close waits for `syncScroll` to place its camera, then takes its first frame (`leadIfPending`).
     var leadsFrame = false
@@ -403,6 +407,10 @@ final class ScreenContentView: NSView {
             } else {
                 view = DividerHandleView(kind: kind, axis: target.axis)
                 view.onDrag = { [weak self] event in self?.handleDrag(kind: kind, event: event) }
+                if case let .split(split) = kind {
+                    view.contextMenu = { [weak self] in self?.context.dividerMenu?(split) }
+                    view.isLineHidden = hiddenDividers.contains(split)
+                }
                 addSubview(view)
                 dividerViews[kind] = view
             }

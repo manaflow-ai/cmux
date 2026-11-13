@@ -10981,6 +10981,32 @@
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "永不浮動顯示隱藏的側邊欄"}}
       }
     },
+    "action.sidebar.custom.toggle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تبديل الشريط الجانبي المخصص"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Uključi/isključi prilagođenu bočnu traku"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Slå tilpasset sidepanel til/fra"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Eigene Seitenleiste ein-/ausblenden"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Toggle Custom Sidebar"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Mostrar u ocultar barra lateral personalizada"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Afficher ou masquer la barre latérale personnalisée"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Mostra/nascondi barra laterale personalizzata"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "カスタムサイドバーを切り替え"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បិទ/បើករបារចំហៀងផ្ទាល់ខ្លួន"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "사용자 지정 사이드바 전환"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Slå egendefinert sidepanel av/på"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Przełącz własny pasek boczny"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Alternar barra lateral personalizada"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Показать или скрыть свою боковую панель"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "สลับแถบด้านข้างแบบกำหนดเอง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Özel kenar çubuğunu aç/kapat"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Показати або сховати власну бічну панель"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Bật/tắt thanh bên tùy chỉnh"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "切换自定义边栏"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "切換自訂側邊欄"}}
+      }
+    },
     "action.sidebar.controlsOnHover.on": {
       "extractionState": "manual",
       "localizations": {

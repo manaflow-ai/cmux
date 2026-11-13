@@ -5,6 +5,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -39,12 +40,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 type Comment = import("../src/comments/types").DiffCommentRecord;
@@ -175,6 +173,59 @@ test("a retry of the same comments sends the same prompt id, so the chat gets th
     expect(sends[0]!.opid).toBeDefined();
     expect(sends[1]!.opid).toBe(sends[0]!.opid);
     expect(sends[1]!.ids).toEqual(["c1"]);
+    act(() => probe.unmount());
+  } finally {
+    installPageDiffComments(null);
+    (window as unknown as { webkit: unknown }).webkit = savedWebkit;
+  }
+});
+
+test("an edit during an unsettled retry reuses the original request", async () => {
+  const { installPageDiffComments } = await import("../src/comments/bridge");
+  const { createRoot } = await import("react-dom/client");
+  const { useDiffComments } = await import("../src/diff-viewer/useDiffComments");
+  const { initialAppState } = await import("../src/diff-viewer/state");
+  const sends: Array<{ ids: unknown; opid?: string }> = [];
+  let first = true;
+  installPageDiffComments({
+    call: async (_op: string, body: { params: Record<string, unknown> }, options?: { opid?: string }) => {
+      sends.push({ ids: body.params.ids, opid: options?.opid });
+      if (first) {
+        first = false;
+        throw Object.assign(new Error("store busy"), { code: "operation.failed" });
+      }
+      return { cleared: body.params.ids };
+    },
+  } as never);
+  const savedWebkit = (window as unknown as { webkit: unknown }).webkit;
+  (window as unknown as { webkit: unknown }).webkit = undefined;
+  try {
+    type Hook = ReturnType<typeof useDiffComments>;
+    const state = {
+      current: { ...initialAppState({ payload: {} } as never, "ready" as never), comments: [] as Comment[] },
+    };
+    state.current.comments = [comment("c1", "a.ts", 1), comment("c2", "a.ts", 2)];
+    let hook!: Hook;
+    function Probe() {
+      hook = useDiffComments({
+        bridgeAvailable: true,
+        canSend: true,
+        dispatch: (() => {}) as never,
+        latestState: state as never,
+        repoRoot: "/repo",
+      });
+      return null;
+    }
+    const probe = createRoot(document.createElement("div"));
+    act(() => probe.render(<Probe />));
+    await act(async () => hook.send());
+    const originalOpid = sends[0]!.opid;
+    state.current.comments = [
+      { ...comment("c1", "a.ts", 1), message: "edited", updatedAt: "2026-11-07T00:01:00.000Z" },
+      comment("c2", "a.ts", 2),
+    ];
+    await act(async () => hook.send());
+    expect(sends[1]).toEqual({ ids: ["c1", "c2"], opid: originalOpid });
     act(() => probe.unmount());
   } finally {
     installPageDiffComments(null);

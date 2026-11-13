@@ -140,6 +140,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "route",
     "senderHarness",
     "senderHarnessChecked",
+    "senderToken",
     "spawnToolCallId",
     "startLater",
     "steer",
@@ -150,6 +151,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "tags",
     "teamMessage",
     "throughSeq",
+    "throwaway",
     "topic",
     "via",
     "vmBoundary",
@@ -184,6 +186,8 @@ keyed! {
     BookmarkSetParams: ["sessionId", "seq", "bookmarked"];
     /// `_acpmux/memory_resolve`.
     MemoryResolveParams: ["sessionId", "offerId", "file", "accept", "dismiss"];
+    /// `_acpmux/prompt_coach`.
+    PromptCoachParams: ["sessionId", "coachId"];
     /// `_acpmux/btw`.
     BtwParams: ["sessionId", "question", "model", "inline", "targetHarness"];
     /// `_acpmux/chat/route.set`.
@@ -215,7 +219,7 @@ keyed! {
     /// `initialize`.
     InitializeParams: ["protocolVersion", "clientCapabilities", "clientInfo"];
     /// `_acpmux/kill`.
-    KillParams: ["sessionId", "purge", "cancelFork", "cancelToken"];
+    KillParams: ["sessionId", "purge", "cancelFork", "cancelToken", "ifIdle", "expectRevision"];
     /// `_acpmux/mcp/reconnect`.
     McpReconnectParams: ["sessionId", "server"];
     /// `_acpmux/models`.

@@ -35,7 +35,7 @@ fn set_aside_copied_pending(current: Option<&str>) -> Result<bool> {
     let Some(p) = read()? else { return Ok(false) };
     let copied = matches!((p.host_fingerprint.as_deref(), current), (Some(made), Some(here)) if made != here);
     if copied {
-        std::fs::rename(state_dir().join(FILE), state_dir().join(COPIED))
+        crate::home_fs::rename(state_dir().join(FILE), state_dir().join(COPIED))
             .map_err(|_| store_error())?;
         sync_ancestors(&state_dir()).map_err(|_| store_error())?;
     }
@@ -86,7 +86,6 @@ pub(super) fn write_durable(path: &Path, bytes: &[u8], replace: bool) -> Result<
 
 #[cfg(unix)]
 fn write_with_temp(path: &Path, bytes: &[u8], replace: bool, temp: &Path) -> Result<()> {
-    use std::os::unix::fs::OpenOptionsExt;
     let parent = path.parent().ok_or_else(store_error)?;
     crate::config::private_state_dir(parent)?;
     match std::fs::symlink_metadata(path) {
@@ -97,7 +96,7 @@ fn write_with_temp(path: &Path, bytes: &[u8], replace: bool, temp: &Path) -> Res
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(e.into()),
     }
-    let mut file = std::fs::OpenOptions::new()
+    let mut file = crate::home_fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(0o600)
@@ -117,14 +116,14 @@ fn write_with_temp(path: &Path, bytes: &[u8], replace: bool, temp: &Path) -> Res
             Err(e) => return Err(e.into()),
         }
         if replace {
-            std::fs::rename(temp, path)?;
+            crate::home_fs::rename(temp, path)?;
         } else {
-            std::fs::hard_link(temp, path)?;
+            crate::home_fs::hard_link(temp, path)?;
         }
         sync_ancestors(parent)?;
         Ok(())
     })();
-    let _ = std::fs::remove_file(temp); // only the file this call created
+    let _ = crate::home_fs::remove_file(temp); // only the file this call created
     result
 }
 #[cfg(not(unix))]
@@ -244,7 +243,7 @@ fn complete(p: &Pending, record: &MachineCredential, json_out: bool) -> Result<(
     configure_mesh_relay(&p.hub).map_err(|_| store_error())?;
     // Remove the immutable recovery proof only after final + relay are durable.
     crate::config::private_state_file(&state_dir().join(FILE)).map_err(|_| store_error())?;
-    std::fs::remove_file(state_dir().join(FILE)).map_err(|_| store_error())?;
+    crate::home_fs::remove_file(state_dir().join(FILE)).map_err(|_| store_error())?;
     sync_ancestors(&state_dir()).map_err(|_| store_error())?;
     warn_existing_helpers();
     if json_out {

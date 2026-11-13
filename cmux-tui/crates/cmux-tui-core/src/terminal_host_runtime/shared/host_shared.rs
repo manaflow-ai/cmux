@@ -248,10 +248,10 @@ impl HostShared {
                 let (response, applied) = sync_channel(1);
                 if self
                     .parser_commands
-                    .send(ParserCommand::ClearHistory {
+                    .send(ParserCommand::ClearHistory(Box::new(ParserClearHistory {
                         fallback_key: fallback_key.cloned(),
                         response,
-                    })
+                    })))
                     .is_err()
                 {
                     return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(

@@ -3,11 +3,14 @@ import Testing
 
 @Suite("Terminal environment")
 struct TerminalEnvironmentTests {
+    /// `echo $TERM_PROGRAM` in a cmux terminal says `cmux` (user, 2026-11-11).
+    /// The daemon adds cmux's `TERM_PROGRAM_VERSION` at spawn, so the app's
+    /// identity carries no version, least of all libghostty's.
     @Test
-    func ghosttyIdentityDoesNotAdvertiseNativeSelectionVersion() {
+    func terminalIdentityIsCmuxWithoutAGhosttyVersion() {
         let environment = TerminalEnvironment.instance.ghostty(resourcesDirectory: nil, version: "1.2.0")
 
-        #expect(environment["TERM_PROGRAM"] == "ghostty")
+        #expect(environment["TERM_PROGRAM"] == "cmux")
         #expect(environment["TERM_PROGRAM_VERSION"] == nil)
     }
 

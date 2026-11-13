@@ -2,7 +2,7 @@
 // 2026-10-29: "i like these kinds of settings from claude code desktop..."). As in Claude Code
 // desktop, Thinking and Verbose show a finished turn's work: its "Worked for" fold opens, so the
 // thoughts and commands those views open are on screen. Normal is the reader's own folds, as before.
-import { WORKED } from "./turns";
+import { CLOSED_TURN_FOLD, WORKED } from "./turns";
 import type { TranscriptView } from "./transcriptView";
 
 /// What the transcript asks of its open folds (turns.ts, subagentRows.ts, the fold animation).
@@ -20,7 +20,12 @@ export const isWorkedFold = (id: string): boolean => id.startsWith(`${WORKED}-`)
 export function viewFolds(view: TranscriptView, expanded: ReadonlySet<string>, toggled: ReadonlySet<string>): Folds {
   if (view === "normal") return expanded;
   return {
-    has: (id) => (isWorkedFold(id) ? !toggled.has(id) : expanded.has(id)),
+    has: (id) =>
+      isWorkedFold(id)
+        ? !toggled.has(id)
+        : id.startsWith(CLOSED_TURN_FOLD) && isWorkedFold(id.slice(CLOSED_TURN_FOLD.length))
+          ? toggled.has(id.slice(CLOSED_TURN_FOLD.length))
+          : expanded.has(id),
     // Never empty: each finished turn's fold is open (openFolds in turns.ts reads size first).
     size: expanded.size + 1,
   };

@@ -85,7 +85,7 @@ extension HomeStore {
         var state = HomeCacheState()
         state.me = mirror.me ?? me
         state.conversations = mirror.conversations
-        state.windows = mirror.windows.compactMapValues { $0.messages.isEmpty ? nil : $0.messages }
+        state.windows = mirror.cachedWindows
         state.sends = log.entries.compactMap(HomeCachedSend.init)
         return state
     }

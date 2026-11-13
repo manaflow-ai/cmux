@@ -269,7 +269,6 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
                 Part::Question(question) => {
                     !is_agent || question.state != crate::question::QuestionState::Pending
                 }
-                Part::Widget(_) => !is_agent,
                 _ => false,
             };
             if parts.iter().any(bad_question) {
@@ -691,11 +690,6 @@ pub fn validate_parts(parts: &[Part]) -> Result<(), Reject> {
                 }
             }
             Part::Question(question) => crate::question::validate(question)?,
-            Part::Widget(widget) => {
-                if !crate::widget::valid_widget(widget) {
-                    return Err(Reject::InvalidParts);
-                }
-            }
             Part::Unknown(_) => return Err(Reject::InvalidParts),
         }
     }

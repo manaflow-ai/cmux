@@ -56,6 +56,12 @@ public final class SidebarModel {
         access(keyPath: \.sections)
         return structureRevision
     }
+    /// On until the home session's owner serves (the app sets it): a structural set keeps the order drawn so far.
+    @ObservationIgnored public var holdsLaunchOrder = false {
+        didSet { if oldValue != holdsLaunchOrder { holdsLaunchOrder ? startLaunchOrderHold() : endLaunchOrderHold() } }
+    }
+    /// What the hold keeps (`SidebarModel+LaunchOrder`).
+    @ObservationIgnored var launchOrder = LaunchOrderLists()
     /// Where each group sits in `sections` (section, node); prepared with the sections, before a header click.
     @ObservationIgnored private var groupPaths: [GroupID: (section: Int, node: Int)] = [:]
     /// Told each group `setGroupCollapsed` folded or opened (the list splices that group's rows).
@@ -128,6 +134,8 @@ public final class SidebarModel {
     @ObservationIgnored public var onRowsPatchedWithPrevious: (([SidebarNeedsYou.RowPatch]) -> Void)?
     /// The workspace rows as the list draws them, top to bottom (its folder sort and filter applied; empty with no list).
     @ObservationIgnored public var drawnWorkspaceOrder: () -> [WorkspaceID] = { [] }
+    /// The pick after the shown workspace closed, for a model alone (the mock, a test): by position among the drawn rows.
+    @ObservationIgnored public var closeSuccessor = SidebarCloseSuccessor()
     /// Every workspace a selection can hold, as drawn: the pinned tiles too (`SidebarListView.selectionOrder`).
     @ObservationIgnored public var drawnSelectionOrder: () -> [WorkspaceID] = { [] }
     /// Multi-selection (Cmd/Shift-click). Always contains `activeWorkspaceID`
@@ -151,7 +159,7 @@ public final class SidebarModel {
     /// The focused workspace is always listed (sidebar-focused-visible): a
     /// new workspace selection opens the collapsed sections that hide it
     /// (`expandSections(hiding:)`), and the list scrolls it into view
-    /// (`ListViewport.settle`). Every selection path (a click, Cmd-P, a link,
+    /// (`ListViewportChange.settle`). Every selection path (a click, Cmd-P, a link,
     /// the CLI, an agent's focus, a new workspace) sets this one property.
     public var selectedItem: SidebarItem? {
         didSet {
@@ -240,7 +248,7 @@ public final class SidebarModel {
     public var showsTimestamps = false
     /// `sidebar.showColors` (off: no workspace or group color) and `workspaceColors.indicatorStyle`.
     public var showsColors = true
-    public var colorIndicator: WorkspaceColorIndicatorStyle = .dot
+    public var colorIndicator: WorkspaceColorIndicatorStyle = .leftRail
     /// This Mac's rows carry its machine mark too (`sidebar.showLocalMachine`, off by default).
     public var showsLocalMachine = false
     /// What a collapsed group header shows beside its loading spinner (`sidebar.groupHeader.*`,
@@ -463,24 +471,70 @@ public final class SidebarModel {
     /// collapsed sections applied; assigns only when something changed.
     public func setSections(_ new: [SidebarSection]) {
         SidebarPerfCounters.add(.sectionSets) // each set arranges and compares every row
+        SidebarPerfCounters.add(.rowsWalked, new.reduce(0) { $0 + $1.nodes.count })
         // The sidebar document places every item: links in machine lists, Pinned and custom groups in their own list sections.
         let shown = docDrag.flatMap { drag in drag.document?.shown.map { $0.arrange(new, drag: drag) } } ?? new
         arrangedSorts = docDrag?.document?.shown?.groupSorts ?? [:]
         arrangedArchived = docDrag?.document?.shown?.archived ?? []
         arrangedSectionIDs = docDrag?.document?.shown?.layout.sections.map(\.id) ?? []
-        let next = Self.folding(Self.hidingItems(hiddenItemRefs, in: shown), collapsedSections).map { $0.resolvingGroupDepths() }
+        let next = holdingLaunchOrder(Self.folding(Self.hidingItems(hiddenItemRefs, in: shown), collapsedSections).map { $0.resolvingGroupDepths() })
         if writesRowsInPlace(next) { return }
         // A set that only adds one loose workspace row (Cmd-N's stand-in, a scripted create): the list splices that row
         // into the layout it shows (`rowInsertion`, SIDEBAR INSERT 2), no layout of every row.
         let from = sectionsRevision
         let added = filterText.isEmpty ? SidebarSection.looseInsertion(from: storedSections, to: next) : nil
+        // A set that only closes or moves one loose workspace row: the list takes it out (and puts it back) the same way.
+        let removal = splicesRemovals && filterText.isEmpty && added == nil ? looseRemoval(to: next) : nil
         sections = next // the setter skips an unchanged list
         rowInsertion = added.map { SidebarRowInsertion(from: from, to: sectionsRevision, content: contentRevision, section: storedSections[$0.section], node: $0.node) }
+        rowRemoval = removal.map { removal in
+            let insertion = removal.insertion.map {
+                SidebarRowInsertion(from: from, to: sectionsRevision, content: contentRevision, section: $0.section, node: $0.node)
+            }
+            return SidebarRowRemoval(from: from, to: sectionsRevision, content: contentRevision, section: removal.section,
+                                     node: removal.node, workspace: removal.workspace, insertion: insertion)
+        }
+    }
+
+    /// Whether `sections` list workspace `id` once (a scan that stops at a second listing; no index is built).
+    private static func listsOnce(_ id: WorkspaceID, in sections: [SidebarSection]) -> Bool {
+        var seen = 0
+        for section in sections {
+            for node in section.nodes {
+                switch node {
+                case let .workspace(ws): if ws.id == id { seen += 1 }
+                case let .group(group): seen += group.workspaces.lazy.filter { $0.id == id }.count
+                case .item: break
+                }
+                if seen > 1 { return false }
+            }
+        }
+        return seen == 1
+    }
+
+    /// The one loose workspace row `next` takes out of the stored sections, or moves, with nothing else changed: the
+    /// section the removal leaves, the row's old node index, its workspace, and for a move its section and node in
+    /// `next`. Nil for any other change, or for a workspace listed more than once (another listing would take its row).
+    private func looseRemoval(to next: [SidebarSection])
+        -> (section: SidebarSection, node: Int, workspace: SidebarWorkspace, insertion: (section: SidebarSection, node: Int)?)? {
+        let old = storedSections
+        if let gone = SidebarSection.looseRemoval(from: old, to: next), case let .workspace(ws) = old[gone.section].nodes[gone.node],
+           Self.listsOnce(ws.id, in: old) {
+            return (next[gone.section], gone.node, ws, nil)
+        }
+        guard let move = SidebarSection.looseMove(from: old, to: next),
+              case let .workspace(ws) = old[move.removal.section].nodes[move.removal.node],
+              Self.listsOnce(ws.id, in: old) else { return nil }
+        return (move.middle[move.removal.section], move.removal.node, ws, (next[move.insertion.section], move.insertion.node))
     }
 
     /// The last structural set when it only added one loose workspace row (`setSections`); the list reads it at the
     /// reload that shows that set (its `to` is the current `sectionsRevision`).
     @ObservationIgnored public private(set) var rowInsertion: SidebarRowInsertion?
+    /// The last structural set when it only closed or moved one loose workspace row (`setSections`), read as `rowInsertion`.
+    @ObservationIgnored public private(set) var rowRemoval: SidebarRowRemoval?
+    /// Off, a close or a move lays the list out in full as before the removal splice (a bench's before numbers).
+    @ObservationIgnored var splicesRemovals = true
 
     /// Writes `next` when it changes only listed rows' content, every row in its place (a create's stand-in row
     /// becoming its workspace's row, SIDEBAR INSERT): in place and told to `onRowsPatched`, as `patchWorkspaces` does,
@@ -592,7 +646,7 @@ public final class SidebarModel {
         selection.subtract(closed)
         if let oldActive, closed.contains(oldActive) {
             let surviving = allWorkspaces.map(\.id)
-            let next = FocusAfterClose.workspace(shown: oldActive, old: oldOrder, surviving: surviving, orders: [drawnWorkspaceOrder()])
+            let next = closeSuccessor(shown: oldActive, old: oldOrder, surviving: surviving, drawn: drawnWorkspaceOrder())
             activeWorkspaceID = next
             selection = next.map { [$0] } ?? []
         }

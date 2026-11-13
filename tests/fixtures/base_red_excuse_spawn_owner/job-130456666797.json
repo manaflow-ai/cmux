@@ -1,0 +1,449 @@
+{
+ "id": 130456666797,
+ "run_id": 43000928251,
+ "workflow_name": "cmux-next guards",
+ "head_branch": "feat-cmux-next",
+ "head_sha": "83cfd4d7e998b01b6fd31b45fee39658ed1f079f",
+ "html_url": "https://github.com/manaflow-ai/cmux/actions/runs/43000928251/job/130456666797",
+ "status": "completed",
+ "conclusion": "success",
+ "created_at": "2026-11-11T10:07:37Z",
+ "started_at": "2026-11-11T10:07:38Z",
+ "completed_at": "2026-11-11T10:13:10Z",
+ "name": "tooling-tests",
+ "steps": [
+  {
+   "name": "Set up job",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 1,
+   "started_at": "2026-11-11T10:07:39Z",
+   "completed_at": "2026-11-11T10:07:39Z"
+  },
+  {
+   "name": "Set up runner",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 2,
+   "started_at": "2026-11-11T10:07:39Z",
+   "completed_at": "2026-11-11T10:07:39Z"
+  },
+  {
+   "name": "Checkout",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 3,
+   "started_at": "2026-11-11T10:07:39Z",
+   "completed_at": "2026-11-11T10:07:50Z"
+  },
+  {
+   "name": "Drop stale submodule checkouts (self-hosted reused workspace)",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 4,
+   "started_at": "2026-11-11T10:07:50Z",
+   "completed_at": "2026-11-11T10:07:50Z"
+  },
+  {
+   "name": "Prepare tooling-test Python (PyYAML)",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 5,
+   "started_at": "2026-11-11T10:07:50Z",
+   "completed_at": "2026-11-11T10:07:52Z"
+  },
+  {
+   "name": "nightly-next's App ID and profile through the ASC API",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 6,
+   "started_at": "2026-11-11T10:07:52Z",
+   "completed_at": "2026-11-11T10:07:52Z"
+  },
+  {
+   "name": "A rebuilt cmux-tui commit reuses its earlier publication",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 7,
+   "started_at": "2026-11-11T10:07:52Z",
+   "completed_at": "2026-11-11T10:08:05Z"
+  },
+  {
+   "name": "verify-cmux-tui-hosted.sh leaves its hosted run alone when the wait ends",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 8,
+   "started_at": "2026-11-11T10:08:05Z",
+   "completed_at": "2026-11-11T10:08:37Z"
+  },
+  {
+   "name": "The crash ratchet is judged against the base",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 9,
+   "started_at": "2026-11-11T10:08:37Z",
+   "completed_at": "2026-11-11T10:08:41Z"
+  },
+  {
+   "name": "The spawn-owner ratchet's rules (cmuxterm-hq#9096)",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 10,
+   "started_at": "2026-11-11T10:08:41Z",
+   "completed_at": "2026-11-11T10:08:43Z"
+  },
+  {
+   "name": "The red-checks line of the PR status comment",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 11,
+   "started_at": "2026-11-11T10:08:43Z",
+   "completed_at": "2026-11-11T10:09:04Z"
+  },
+  {
+   "name": "The backdrop art catalog and brightness range",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 12,
+   "started_at": "2026-11-11T10:09:04Z",
+   "completed_at": "2026-11-11T10:09:04Z"
+  },
+  {
+   "name": "Remote Powerlevel10k prompt reset compatibility",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 13,
+   "started_at": "2026-11-11T10:09:04Z",
+   "completed_at": "2026-11-11T10:09:10Z"
+  },
+  {
+   "name": "The fast gates workflow and its merge and gate script",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 14,
+   "started_at": "2026-11-11T10:09:10Z",
+   "completed_at": "2026-11-11T10:09:33Z"
+  },
+  {
+   "name": "A scheduled dispatch runs the whole Swift suite on the feat-cmux-next tip",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 15,
+   "started_at": "2026-11-11T10:09:33Z",
+   "completed_at": "2026-11-11T10:09:33Z"
+  },
+  {
+   "name": "A quit scheduled on the run loop never exits a test process",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 16,
+   "started_at": "2026-11-11T10:09:33Z",
+   "completed_at": "2026-11-11T10:09:33Z"
+  },
+  {
+   "name": "Every check path a merger reads matches a tracked file",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 17,
+   "started_at": "2026-11-11T10:09:33Z",
+   "completed_at": "2026-11-11T10:09:33Z"
+  },
+  {
+   "name": "A toast's button never opens Settings as a stand-in",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 18,
+   "started_at": "2026-11-11T10:09:33Z",
+   "completed_at": "2026-11-11T10:09:34Z"
+  },
+  {
+   "name": "The crash-class rules fast gate fails only on findings the pull request adds",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 19,
+   "started_at": "2026-11-11T10:09:34Z",
+   "completed_at": "2026-11-11T10:09:34Z"
+  },
+  {
+   "name": "The localization debt ratchet",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 20,
+   "started_at": "2026-11-11T10:09:34Z",
+   "completed_at": "2026-11-11T10:09:35Z"
+  },
+  {
+   "name": "A stacked cmux NEXT pull request skips ci.yml's legacy lanes",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 21,
+   "started_at": "2026-11-11T10:09:35Z",
+   "completed_at": "2026-11-11T10:09:35Z"
+  },
+  {
+   "name": "The per-file webviews test runner (scripts/ci/run-webviews-tests.sh)",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 22,
+   "started_at": "2026-11-11T10:09:35Z",
+   "completed_at": "2026-11-11T10:10:52Z"
+  },
+  {
+   "name": "The TAP test-health classifier and base-red evidence",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 23,
+   "started_at": "2026-11-11T10:10:52Z",
+   "completed_at": "2026-11-11T10:10:53Z"
+  },
+  {
+   "name": "Every Python test runs on a pull request lane, or is a reviewed exemption",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 24,
+   "started_at": "2026-11-11T10:10:53Z",
+   "completed_at": "2026-11-11T10:10:59Z"
+  },
+  {
+   "name": "The Python test registry, and the tests no pull request runs",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 25,
+   "started_at": "2026-11-11T10:10:59Z",
+   "completed_at": "2026-11-11T10:11:03Z"
+  },
+  {
+   "name": "Setup Bun",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 26,
+   "started_at": "2026-11-11T10:11:03Z",
+   "completed_at": "2026-11-11T10:11:03Z"
+  },
+  {
+   "name": "The web lint pre-push hook",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 27,
+   "started_at": "2026-11-11T10:11:03Z",
+   "completed_at": "2026-11-11T10:12:06Z"
+  },
+  {
+   "name": "The app-linked crate license gate (check_app_crate_licenses.py)",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 28,
+   "started_at": "2026-11-11T10:12:06Z",
+   "completed_at": "2026-11-11T10:12:06Z"
+  },
+  {
+   "name": "The selector check's fleet step wrapper refuses other arguments (check-objc-selectors.sh)",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 29,
+   "started_at": "2026-11-11T10:12:06Z",
+   "completed_at": "2026-11-11T10:12:22Z"
+  },
+  {
+   "name": "The package lane's prebuild-one compiles or fails (package-test-lane.sh)",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 30,
+   "started_at": "2026-11-11T10:12:22Z",
+   "completed_at": "2026-11-11T10:12:23Z"
+  },
+  {
+   "name": "The iOS simulator step runs the declared runtime, never just the newest (ios_sim_runtime.py)",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 31,
+   "started_at": "2026-11-11T10:12:23Z",
+   "completed_at": "2026-11-11T10:12:23Z"
+  },
+  {
+   "name": "The iOS simulator step reuses a verified FFI build, and a broken cache only warns (ios_ffi_cache.py)",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 32,
+   "started_at": "2026-11-11T10:12:23Z",
+   "completed_at": "2026-11-11T10:12:25Z"
+  },
+  {
+   "name": "The iOS Chief benchmark repeats one simulator and requires retained measurements",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 33,
+   "started_at": "2026-11-11T10:12:25Z",
+   "completed_at": "2026-11-11T10:12:25Z"
+  },
+  {
+   "name": "The cmux-next-ios App Store listing names only screens the app has, in every locale",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 34,
+   "started_at": "2026-11-11T10:12:25Z",
+   "completed_at": "2026-11-11T10:12:26Z"
+  },
+  {
+   "name": "The cmux-next-ios App Review notes and Support URL sync (asc_review_package.py)",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 35,
+   "started_at": "2026-11-11T10:12:26Z",
+   "completed_at": "2026-11-11T10:12:30Z"
+  },
+  {
+   "name": "The display suite list matches the suites' display skip traits (display_suites.py)",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 36,
+   "started_at": "2026-11-11T10:12:30Z",
+   "completed_at": "2026-11-11T10:12:49Z"
+  },
+  {
+   "name": "The exact-run SwiftPM test product transport (swiftpm_test_product.py)",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 37,
+   "started_at": "2026-11-11T10:12:49Z",
+   "completed_at": "2026-11-11T10:12:50Z"
+  },
+  {
+   "name": "The String Catalog compile of the CmuxNext test bundles",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 38,
+   "started_at": "2026-11-11T10:12:50Z",
+   "completed_at": "2026-11-11T10:12:51Z"
+  },
+  {
+   "name": "The deferred DEV publication notifier (cmux_next_tree_notify.py)",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 39,
+   "started_at": "2026-11-11T10:12:51Z",
+   "completed_at": "2026-11-11T10:12:52Z"
+  },
+  {
+   "name": "The cmux-tui tree publication (publish-cmux-tui-tree.py)",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 40,
+   "started_at": "2026-11-11T10:12:52Z",
+   "completed_at": "2026-11-11T10:12:53Z"
+  },
+  {
+   "name": "The tour media publisher's extra windows (media/publish.py)",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 41,
+   "started_at": "2026-11-11T10:12:53Z",
+   "completed_at": "2026-11-11T10:12:53Z"
+  },
+  {
+   "name": "The Mach-O filter of the app thinning (list-macho-candidates.py)",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 42,
+   "started_at": "2026-11-11T10:12:53Z",
+   "completed_at": "2026-11-11T10:12:53Z"
+  },
+  {
+   "name": "The cross build's macOS link stubs and Mach-O parity verdict",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 43,
+   "started_at": "2026-11-11T10:12:53Z",
+   "completed_at": "2026-11-11T10:12:53Z"
+  },
+  {
+   "name": "Set up Rust for the tailnet build-script fixture",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 44,
+   "started_at": "2026-11-11T10:12:53Z",
+   "completed_at": "2026-11-11T10:13:00Z"
+  },
+  {
+   "name": "The tailnet target selection and job-local Go installer",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 45,
+   "started_at": "2026-11-11T10:13:00Z",
+   "completed_at": "2026-11-11T10:13:01Z"
+  },
+  {
+   "name": "The cmux-browser-host release package",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 46,
+   "started_at": "2026-11-11T10:13:01Z",
+   "completed_at": "2026-11-11T10:13:01Z"
+  },
+  {
+   "name": "install-zig-ci.sh installs only a reviewed Zig",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 47,
+   "started_at": "2026-11-11T10:13:01Z",
+   "completed_at": "2026-11-11T10:13:01Z"
+  },
+  {
+   "name": "The Xcode project normalizer of the commit hook and merge driver (normalize-pbxproj.py)",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 48,
+   "started_at": "2026-11-11T10:13:01Z",
+   "completed_at": "2026-11-11T10:13:02Z"
+  },
+  {
+   "name": "The web verdict of feat-cmux-next pushes and web routing (web_validation.py)",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 49,
+   "started_at": "2026-11-11T10:13:02Z",
+   "completed_at": "2026-11-11T10:13:06Z"
+  },
+  {
+   "name": "The per-push tip test compile (tip-test-compile.sh)",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 50,
+   "started_at": "2026-11-11T10:13:06Z",
+   "completed_at": "2026-11-11T10:13:08Z"
+  },
+  {
+   "name": "Post Setup Bun",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 98,
+   "started_at": "2026-11-11T10:13:08Z",
+   "completed_at": "2026-11-11T10:13:08Z"
+  },
+  {
+   "name": "Post Checkout",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 99,
+   "started_at": "2026-11-11T10:13:08Z",
+   "completed_at": "2026-11-11T10:13:08Z"
+  },
+  {
+   "name": "Complete runner",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 100,
+   "started_at": "2026-11-11T10:13:08Z",
+   "completed_at": "2026-11-11T10:13:08Z"
+  },
+  {
+   "name": "Complete job",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 101,
+   "started_at": "2026-11-11T10:13:08Z",
+   "completed_at": "2026-11-11T10:13:08Z"
+  }
+ ],
+ "run_attempt": 1
+}
