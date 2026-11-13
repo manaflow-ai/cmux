@@ -942,6 +942,10 @@ mod tests {
         let subscription = hub.subscribe(&Sub::new("resume", "list").from_cursor(0)).unwrap();
         writer.apply(summary("same", 2)).unwrap();
         match subscription.receiver.recv().await.unwrap() {
+            ListItem::Summary(event) => assert_eq!(event.seq, 1),
+            other => panic!("expected replayed summary, got {other:?}"),
+        }
+        match subscription.receiver.recv().await.unwrap() {
             ListItem::Summary(event) => assert_eq!(event.seq, 2),
             other => panic!("expected newer summary, got {other:?}"),
         }

@@ -189,7 +189,11 @@ async fn byte_history_resumes_recent_changes_and_windows_after_eviction() {
     let recent = hub.subscribe(&request).unwrap();
     let window: Window<Summary> = recent.window.decode_json().unwrap();
     assert_eq!(window.cursor, seq - 2);
-    // The queue coalesces the summary and gone for the same composite key.
+    // The byte ring preserves each wire operation; the summary precedes the gone.
+    match recent.receiver.recv().await.unwrap() {
+        ListItem::Summary(event) => assert_eq!(event.seq, seq - 1),
+        other => panic!("expected replayed summary, got {other:?}"),
+    }
     match recent.receiver.recv().await.unwrap() {
         ListItem::Gone { seq: got, origin, chat_id } => {
             assert_eq!(got, seq);
