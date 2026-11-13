@@ -41,8 +41,7 @@ extension HoverCardCoordinator {
         let again = owned?.id == id
         owned = HoverCardOwned(id: id, ended: ended)
         send(.owned(true))
-        let panel = panel ?? HoverCardPanel()
-        self.panel = panel
+        let panel = cardWindow(for: cardKey(group, in: parent))
         panel.present(body: body.view, anchor: anchor, placement: body.placement, parent: parent, themeAnchor: body.themeAnchor,
                       sliding: !again, interactive: interactive, cornerRadius: body.cornerRadius, applyTheme: body.applyTheme)
     }
