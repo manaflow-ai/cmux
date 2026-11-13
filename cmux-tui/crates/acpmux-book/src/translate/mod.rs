@@ -673,11 +673,14 @@ impl State {
         }
         self.reserve_prompt(key, None, out)?;
         if let Some(prompt) = self.prompts.get_mut(&hash) {
+            let was_read = prompt.read;
             if !prompt.read {
                 prompt.row.turn = self.turn;
             }
             prompt.read = true;
-            self.fold.extra(prompt.row.id);
+            if !was_read {
+                self.fold.extra(prompt.row.id);
+            }
             if prompt.row.field("state", "sent") {
                 self.cut_fields = self.cut_fields.saturating_add(1);
             }
