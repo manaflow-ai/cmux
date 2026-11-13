@@ -72,6 +72,15 @@ fn every_row_is_judged_as_it_says() {
     );
 }
 
+/// #41567 review F1: a `refused` row names the finding its source holds, so one more finding
+/// (another line, or other words) fails it.
+#[test]
+fn a_refused_row_fails_on_a_finding_it_does_not_name() {
+    let two = "pub static A: std::sync::OnceLock<fn(bool)> = std::sync::OnceLock::new();\npub static B: std::sync::OnceLock<fn(bool)> = std::sync::OnceLock::new();\n";
+    let why = judge_row("refused text.rs 1 closure", two);
+    assert!(why.as_deref().is_some_and(|w| w.contains("text.rs:2:")), "B went unnamed: {why:?}");
+}
+
 /// The property, run by hand: ACPMUX_TEST_HOOKS_CHAINS names a directory of generated chains,
 /// `N.rs` each with `N.base` holding 1 when the python check refused it. Writes `N.new` (1 when
 /// this check refuses) and fails on a chain the python check refused that this one passes.

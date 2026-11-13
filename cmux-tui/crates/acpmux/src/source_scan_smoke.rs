@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use cmux_source_scan::nextest::FileTests;
 use cmux_source_scan::test_hooks::judge_source;
-use cmux_source_scan::timing_ratio::{KNOWN_MISSES, scan_text, scan_with, spread_bounds};
+use cmux_source_scan::timing_ratio::{KNOWN_MISSES, Scan, scan_text, scan_with, spread_bounds};
 
 const ROWS: &str = include_str!("source_scan_smoke_rows.txt");
 const HOOKS_REL: &str = "cmux-tui/crates/acpmux/src/smoke.rs";
@@ -130,25 +130,87 @@ fn each_known_miss_of_the_timing_check_stays_a_miss() {
     }
 }
 
+/// What is wrong with the tree's scan against the KNOWN_MISSES sites marked `in_tree`: one line
+/// each, none when the scan holds exactly them.
+fn tree_drift(scan: &Scan, known: &BTreeSet<String>) -> Vec<String> {
+    let sites: BTreeSet<String> =
+        scan.found.iter().map(|f| format!("{} {} {}", f.rel, f.test, f.text)).collect();
+    let new: Vec<&String> = sites.difference(known).collect();
+    let gone: Vec<&String> = known.difference(&sites).collect();
+    let mut out = Vec::new();
+    if !new.is_empty() {
+        out.push(format!(
+            "a new instance of a shape the timing check misses (KNOWN_MISSES in \
+             cmux-source-scan/src/timing_ratio.rs): bound a timing the check reads, or move the \
+             bound to an #[ignore]d test: {new:?}"
+        ));
+    }
+    if !gone.is_empty() {
+        out.push(format!(
+            "these KNOWN_MISSES sites are gone from the tree; set their in_tree to false: {gone:?}"
+        ));
+    }
+    out
+}
+
 #[test]
 fn the_tree_holds_no_new_instance_of_a_known_miss() {
     let checkout = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
     let roots: Vec<PathBuf> = vec![checkout.join("cmux-tui/crates")];
     let scan = scan_with(&checkout, &roots, spread_bounds).expect("cmux-tui/crates scans");
-    let sites: BTreeSet<String> =
-        scan.found.iter().map(|f| format!("{} {} {}", f.rel, f.test, f.text)).collect();
     let known: BTreeSet<String> =
         KNOWN_MISSES.iter().filter(|m| m.in_tree).map(|m| m.site.to_string()).collect();
-    let new: Vec<&String> = sites.difference(&known).collect();
-    let gone: Vec<&String> = known.difference(&sites).collect();
-    assert!(
-        new.is_empty(),
-        "a new instance of a shape the timing check misses (KNOWN_MISSES in \
-         cmux-source-scan/src/timing_ratio.rs): bound a timing the check reads, or move the bound \
-         to an #[ignore]d test: {new:?}"
+    let drift = tree_drift(&scan, &known);
+    assert!(drift.is_empty(), "{}", drift.join("\n"));
+}
+
+fn row(check: &str, verdict: &str, what: &str, words: &str, source: &str) -> Row {
+    Row {
+        check: check.to_string(),
+        verdict: verdict.to_string(),
+        what: what.to_string(),
+        words: words.to_string(),
+        title: "a fixture".to_string(),
+        source: source.to_string(),
+    }
+}
+
+/// #41567 review F1: a row names the one finding its source holds, so a finding it does not
+/// name fails it, as a missing one does.
+#[test]
+fn a_row_fails_on_a_finding_it_does_not_name() {
+    let hooks = row(
+        "test_hooks",
+        "refused",
+        "H",
+        "closure",
+        "type A = Mutex<Option<B>>;\ntype B = Box<dyn Fn()>;\nstatic H: A = Mutex::new(None);\nstatic G: A = Mutex::new(None);\n",
     );
-    assert!(
-        gone.is_empty(),
-        "these KNOWN_MISSES sites are gone from the tree; set their in_tree to false: {gone:?}"
+    let why = judge(&hooks);
+    assert!(why.as_deref().is_some_and(|w| w.contains(": G: ")), "G went unnamed: {why:?}");
+    let timing = row(
+        "timing",
+        "flagged",
+        "p95 < BUDGET_MS",
+        "percentile bound",
+        "#[test]\nfn two_bounds() {\n    let p95 = helper();\n    assert!(p95 < BUDGET_MS);\n    let (busy, idle) = (helper(), helper());\n    assert!(busy < idle * 4);\n}\n",
     );
+    let why = judge(&timing);
+    assert!(
+        why.as_deref().is_some_and(|w| w.contains("busy < idle * 4")),
+        "busy < idle * 4 went unnamed: {why:?}"
+    );
+}
+
+/// #41567 review F2: a file the scan could not parse was judged no further, so the tree check
+/// fails naming it rather than reading it as clean.
+#[test]
+fn the_tree_check_fails_on_a_file_it_could_not_parse() {
+    let scan = Scan {
+        unparsed: vec!["cmux-tui/crates/demo/src/broken.rs: expected `;`".to_string()],
+        files: 1,
+        ..Scan::default()
+    };
+    let drift = tree_drift(&scan, &BTreeSet::new());
+    assert!(drift.iter().any(|d| d.contains("demo/src/broken.rs")), "drift: {drift:?}");
 }
