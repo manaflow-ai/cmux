@@ -33,13 +33,13 @@ sha2 = "0.10"
 cmux-app-manifest = { path = "../../../cmux-tui/crates/cmux-app-manifest" }
 
 # The cmux-next app ships this binary as Contents/Resources/bin/cmux-cloud, so it is
-# built for size like cmux-tui's release profile: fat LTO, one codegen unit, and no
-# symbol table (nothing reads it: no panic-log backtraces, no dSYM). panic stays
-# "unwind": the server recovers poisoned locks and reports a reader thread's panic.
+# built for size like cmux-tui's release profile: fat LTO, one codegen unit. No
+# `strip` here: scripts/strip-release-bundle.sh keeps a helper's global symbols so
+# its crash reports name functions. panic stays "unwind": the server recovers
+# poisoned locks and reports a reader thread's panic.
 [profile.release]
 lto = "fat"
 codegen-units = 1
-strip = true
 
 [lints.rust]
 unsafe_code = "forbid"
