@@ -1527,9 +1527,6 @@ where
                 }
             }
         }
-        if let Some(cursor) = value.get("cursor").and_then(Value::as_u64) {
-            self.advance(&sid, cursor);
-        }
         if !emitted {
             self.charge_frame_now(Some(&sid), frame_bytes);
         }

@@ -23,6 +23,7 @@ impl Held {
 }
 struct Task {
     view: Option<crate::wire::ListView>,
+    window_out: Arc<AtomicBool>,
     held: Arc<Held>,
     resume: watch::Sender<Cursor>,
     join: tokio::task::JoinHandle<()>,
@@ -66,67 +67,65 @@ impl HubSource {
 }
 
 impl Source for HubSource {
-    fn ready<'a>(&'a self, request: &'a crate::wire::Request) -> super::ReadyFuture<'a> {
-        Box::pin(async move {
-            let folders = match request {
-                crate::wire::Request::Sub(sub) => sub.view == Some(crate::wire::ListView::Folders),
-                crate::wire::Request::Page(page) => {
-                    page.view == Some(crate::wire::ListView::Folders)
-                }
-                _ => false,
-            };
-            if folders {
-                self.hub.wait_hydrated().await?;
-            }
-            Ok(())
-        })
-    }
-
     fn subscribe(
         &self,
         sub: &Sub,
         _person: Option<&[u8]>,
         sink: Arc<dyn OfferSink>,
     ) -> Result<(), ConnError> {
-        let delivery = open(&self.hub, sub)?;
         if let Ok(mut metrics) = self.metrics.lock() {
             *metrics = Some(sink.metrics());
         }
-        let (resume, rx) = watch::channel(delivery.cursor);
-        // The window (or first replay frame) is queued before a task can offer live data.
-        if !matches!(sink.offer(&sub.sid, delivery.first, delivery.cursor), Offer::Taken) {
-            return Ok(());
-        }
-        delivery.receiver.reposition(delivery.cursor.0);
+        let (resume, rx) = watch::channel(Cursor(0));
+        let held = Arc::new(Held::default());
+        let window_out = Arc::new(AtomicBool::new(false));
+        let folders = sub.view == Some(crate::wire::ListView::Folders);
+        let join = if folders {
+            let hub = self.hub.clone();
+            let sub = sub.clone();
+            let sink = sink.clone();
+            let held = held.clone();
+            let window_out = window_out.clone();
+            self.scope.spawn(folder_task(hub, sub, sink, rx, held, window_out))
+        } else {
+            let delivery = open(&self.hub, sub)?;
+            // The window (or first replay frame) is queued before a task can offer live data.
+            if !matches!(sink.offer(&sub.sid, delivery.first, delivery.cursor), Offer::Taken) {
+                return Ok(());
+            }
+            delivery.receiver.reposition(delivery.cursor.0);
+            let mut resumed = sub.clone();
+            resumed.anchor = None;
+            self.scope.spawn(pump(
+                self.hub.clone(),
+                resumed,
+                sink,
+                delivery.receiver,
+                delivery.mode,
+                rx,
+                held.clone(),
+            ))
+        };
         let mut tasks = self
             .tasks
             .lock()
             .map_err(|_| ConnError::InvalidRequest("list source poisoned".into()))?;
-        let held = Arc::new(Held::default());
-        // The anchor selects only the initial viewport. Every later resume
-        // has no anchor; if retained history is insufficient it opens the head.
-        let mut resumed = sub.clone();
-        resumed.anchor = None;
-        let join = self.scope.spawn(pump(
-            self.hub.clone(),
-            resumed,
-            sink,
-            delivery.receiver,
-            delivery.mode,
-            rx,
-            held.clone(),
-        ));
-        tasks.insert(sub.sid.clone(), Task { view: sub.view, resume, join, held });
+        tasks.insert(sub.sid.clone(), Task { view: sub.view, window_out, resume, join, held });
         Ok(())
     }
     fn page(&self, page: &Page, _person: Option<&[u8]>) -> Result<Frame, ConnError> {
-        let held_view = self
+        let task = self
             .tasks
             .lock()
             .map_err(|_| ConnError::InvalidRequest("list source poisoned".into()))?
             .get(&page.sid)
-            .map(|task| task.view)
             .ok_or_else(|| ConnError::UnknownSubscription(page.sid.clone()))?;
+        if task.view == Some(crate::wire::ListView::Folders)
+            && !task.window_out.load(Ordering::Acquire)
+        {
+            return Err(ConnError::InvalidRequest("folder window is not ready".into()));
+        }
+        let held_view = task.view;
         Ok(self.hub.page_for_view(page, held_view)?)
     }
 
@@ -165,6 +164,44 @@ struct Delivery {
     mode: Mode,
 }
 
+async fn folder_task(
+    hub: Arc<Hub>,
+    mut sub: Sub,
+    sink: Arc<dyn OfferSink>,
+    mut resume: watch::Receiver<Cursor>,
+    held: Arc<Held>,
+    window_out: Arc<AtomicBool>,
+) {
+    if hub.wait_hydrated().await.is_err() {
+        sink.fail(&sub.sid);
+        return;
+    }
+    loop {
+        let Ok(delivery) = open(&hub, &sub) else {
+            sink.fail(&sub.sid);
+            return;
+        };
+        match held.offer(sink.as_ref(), &sub.sid, delivery.first, delivery.cursor) {
+            Offer::Taken => {
+                window_out.store(true, Ordering::Release);
+                delivery.receiver.reposition(delivery.cursor.0);
+                sub.anchor = None;
+                pump(hub, sub, sink, delivery.receiver, delivery.mode, resume, held).await;
+                return;
+            }
+            Offer::NotFed => {
+                held.paused.store(true, Ordering::Release);
+                if resume.changed().await.is_err() {
+                    return;
+                }
+                sub.cursor = Some(*resume.borrow_and_update());
+                sub.edition = Some(0);
+            }
+            Offer::Dropped { .. } | Offer::UnknownSubscription => return,
+        }
+    }
+}
+
 fn open(hub: &Hub, sub: &Sub) -> Result<Delivery, ConnError> {
     if sub.view != Some(crate::wire::ListView::Folders)
         && sub.edition.is_none_or(|edition| edition == 0 || edition == hub.snapshot().edition())
@@ -175,7 +212,7 @@ fn open(hub: &Hub, sub: &Sub) -> Result<Delivery, ConnError> {
         if target == cursor.0 {
             return Ok(Delivery {
                 receiver,
-                first: raw_frame(&sub.sid, Some(ReplayMark::End), &[], cursor.0)?
+                first: raw_frame(&sub.sid, Some(ReplayMark::End), &[])?
                     .map_err(ConnError::InvalidRequest)?,
                 cursor,
                 mode: Mode::Live,
@@ -186,8 +223,8 @@ fn open(hub: &Hub, sub: &Sub) -> Result<Delivery, ConnError> {
             let final_frame = span.last_seq >= target;
             let mode = if final_frame { Mode::Live } else { Mode::Replay(target) };
             let mark = final_frame.then_some(ReplayMark::End).or(Some(ReplayMark::Replay));
-            let frame = raw_frame(&sub.sid, mark, &span.bytes, span.last_seq)?
-                .map_err(ConnError::InvalidRequest)?;
+            let frame =
+                raw_frame(&sub.sid, mark, &span.bytes)?.map_err(ConnError::InvalidRequest)?;
             return Ok(Delivery { receiver, first: frame, cursor: Cursor(span.last_seq), mode });
         }
     }
@@ -202,11 +239,7 @@ fn open(hub: &Hub, sub: &Sub) -> Result<Delivery, ConnError> {
     })
 }
 
-fn raw_parts(
-    sid: &str,
-    replay: Option<ReplayMark>,
-    cursor: u64,
-) -> Result<(Vec<u8>, Vec<u8>), ConnError> {
+fn raw_parts(sid: &str, replay: Option<ReplayMark>) -> Result<(Vec<u8>, Vec<u8>), ConnError> {
     let encoded_sid = serde_json::to_vec(sid)
         .map_err(|error| ConnError::InvalidRequest(format!("invalid list sid: {error}")))?;
     let mut prefix = br#"{"sid":"#.to_vec();
@@ -217,13 +250,12 @@ fn raw_parts(
         prefix.extend_from_slice(br#","replay":"#);
         prefix.extend_from_slice(&encoded_replay);
     }
-    prefix.extend_from_slice(format!(",\"cursor\":{cursor}").as_bytes());
     prefix.extend_from_slice(br#","ops":["#);
     Ok((prefix, b"]}".to_vec()))
 }
 
 fn raw_budget(sid: &str, replay: Option<ReplayMark>) -> Result<usize, ConnError> {
-    let (prefix, suffix) = raw_parts(sid, replay, u64::MAX)?;
+    let (prefix, suffix) = raw_parts(sid, replay)?;
     Ok(crate::wire::MAX_REPLAY_FRAME_BYTES
         .saturating_sub(5)
         .saturating_sub(prefix.len())
@@ -234,10 +266,9 @@ fn raw_frame(
     sid: &str,
     replay: Option<ReplayMark>,
     ops: &[u8],
-    cursor: u64,
 ) -> Result<Result<Frame, String>, ConnError> {
     let replay_present = replay.is_some();
-    let (prefix, suffix) = raw_parts(sid, replay, cursor)?;
+    let (prefix, suffix) = raw_parts(sid, replay)?;
     let mut payload = Vec::with_capacity(prefix.len() + ops.len() + suffix.len());
     payload.extend_from_slice(&prefix);
     payload.extend_from_slice(ops);
@@ -352,7 +383,7 @@ async fn pump(
                     _ => None,
                 };
                 let next = if final_frame { Mode::Live } else { mode };
-                raw_frame(&sub.sid, replay, &span.bytes, span.last_seq)
+                raw_frame(&sub.sid, replay, &span.bytes)
                     .and_then(|frame| frame.map_err(ConnError::InvalidRequest))
                     .map(|frame| (frame, Cursor(span.last_seq), next))
             }
