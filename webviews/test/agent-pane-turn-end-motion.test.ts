@@ -393,9 +393,7 @@ await requireBrowserLane("agent-pane-turn-end-motion.test.ts", async () => {
             const face = row.querySelector<HTMLElement>(".acpmux-row__message-presentation") ?? row;
             if (w.__frames > 2 && w.__step !== "before" && inside && drawnOpacity(face) > 0.95) {
               step.pops.push(label(row));
-              note(
-                `pop ${label(row)} class=${row.className} hold=${row.hasAttribute("data-entrance-held")} anim=${getComputedStyle(row).animationName}/${getComputedStyle(row).animationDuration} opacity=${drawnOpacity(row)}`,
-              );
+              note(`pop ${label(row)}`);
             }
             seen.set(row, { top: rect.top, dir: 0, travel: 0 });
             continue;
