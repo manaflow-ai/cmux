@@ -44,7 +44,7 @@
     "browser": ["importFromBrowser", "browser.extensions.manage", "browser.extensions.webStore", "browser.extensions.loadUnpacked"],
     "home": ["chief.importMemories", "diagnostics.viewHangReport"],
     "keyboard": ["keybindings.open", "palette.searchShortcuts"],
-    "notifications": [],
+    "notifications": ["toasts.showHidden"],
     "accounts": ["accounts.refresh", "palette.mobileConnect"],
     "rooms": ["space.new", "space.switch", "space.rename", "space.setTheme", "space.clearTheme"],
     "machines": ["device.add", "remote.connect", "newCloudMachine", "palette.auth.signIn"],
@@ -208,14 +208,7 @@
           "symbol": "plus.square",
           "groups": [
             {"title": {"key": "settings.pageGroup.newTabPage", "text": "New Tab Page"}, "keys": [
-              "tabs.newTabTemplate", "tabs.nativeNewTabPage", "sidebar.showChats", "tabs.newTabNowPlaying",
-              "tabs.newTabWidgets.greeting", "tabs.newTabWidgets.warmGreeting", "tabs.newTabWidgets.styleDots",
-              "tabs.newTabWidgets.order"
-            ]},
-            {"title": {"key": "settings.pageGroup.newTabWidgets", "text": "New Tab Widgets"}, "keys": [
-              "tabs.newTabWidgets.projects", "tabs.newTabWidgets.actions", "tabs.newTabWidgets.chats",
-              "tabs.newTabWidgets.machines", "tabs.newTabWidgets.weather", "tabs.newTabWidgets.weatherCity",
-              "tabs.newTabWidgets.clock", "tabs.newTabWidgets.timer", "tabs.newTabWidgets.quote"
+              "tabs.newTabTemplate", "tabs.nativeNewTabPage", "sidebar.showChats", "tabs.newTabNowPlaying"
             ]}
           ]
         }
