@@ -900,6 +900,15 @@ def ci_helper_areas(
                         and not (is_test_registry_path(runner) and _registry_lane_is_inert(root, referrer))
                         and not (runner.startswith("tests/") and runner.endswith(".py")
                                  and _python_runner_names(root, runner, referrer) is False)
+                        # A test that runs this test is judged by the rule for a
+                        # test that names the helper: a Linux guard test, or a
+                        # manual-lane test nothing runs or imports, reaches no
+                        # Mac job (tests/test_script_module_loads.py, #41175,
+                        # runs tests/test_cmux_next_route.py by hand).
+                        and not (runner.startswith("tests/") and (
+                            is_guard_only_test(runner, test_references)
+                            or (is_unrouted_test(runner, test_references)
+                                and _nothing_imports_test(root, runner))))
                     ]
                     if not runners and _nothing_imports_test(root, referrer):
                         # Nothing runs it or imports it: a manual-lane test

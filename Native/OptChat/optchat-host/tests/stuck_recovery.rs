@@ -144,3 +144,71 @@ fn a_transient_failure_past_its_tries_recovers_when_the_route_answers_again() {
     assert!(status.recovered, "{status:?}");
     assert_eq!(status.unbuilt, 0, "{status:?}");
 }
+
+/// A stuck node waits for its next try (`STUCK_RETRY`) without holding one of the `JOBS`
+/// model-call slots. It held one: once `JOBS` merges were stuck (acpmux kept their session
+/// names taken, so every try failed at once), no new message was ever summarized, and the
+/// Chief's view showed thousands of "(not summarized yet)" lines (default Chief, Nov 2026).
+#[test]
+fn stuck_merges_never_starve_new_messages_of_model_slots() {
+    let dir = tempfile::tempdir().unwrap();
+    let model: Arc<dyn CompactModel> = Arc::new(Fake(|r: &CompactRequest, _: &[Followup]| {
+        if r.node.l > 0 {
+            // The error a merge's session start gave for days.
+            return Err(ModelError::setup(format!(
+                "starting a compactor session: session/new: session name \"optchat-compact-test-{}\" is taken",
+                r.node.name()
+            )));
+        }
+        Ok(Reply::text(summary(r.node, 120)))
+    }));
+    let clock = Arc::new(ManualClock::new());
+    // A budget the messages pass many times over: every pair of leaves wants its merge.
+    let chat = OptChat::open_with(dir.path(), config(2_000).0, model, clock.clone()).unwrap();
+    let jobs = optchat_core::JOBS as u64;
+    let mut next = 0;
+    // Enough messages for more stuck merges than there are slots.
+    while (chat.status().stuck.len() as u64) < jobs + 4 && next < 8 * jobs {
+        chat.append(Kind::User, &long(next)).unwrap();
+        next += 1;
+        wait_settled(&chat);
+    }
+    assert!(
+        chat.status().stuck.len() as u64 >= jobs,
+        "the precondition: at least JOBS stuck merges, got {}",
+        chat.status().stuck.len()
+    );
+    // New messages after that: each is summarized, though no clock tick ends a stuck wait.
+    for _ in 0..3 {
+        chat.append(Kind::User, &long(next)).unwrap();
+        next += 1;
+    }
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    while !leaves_built(&chat, next) && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(
+        leaves_built(&chat, next),
+        "new messages stayed unsummarized behind stuck merges: {:?}",
+        chat.status()
+    );
+}
+
+/// Every message's own node is built (its line is no placeholder).
+fn leaves_built(chat: &OptChat, t: u64) -> bool {
+    let view = chat.render_compact_view().text;
+    (t.saturating_sub(3)..t).all(|i| !view.contains(&format!("{i}+1|(not summarized yet")))
+        && chat.status().unbuilt == 0
+}
+
+/// Waits until nothing runs but stuck nodes waiting for their next try.
+fn wait_settled(chat: &OptChat) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        let s = chat.status();
+        if s.busy.iter().all(|n| s.stuck.contains(n)) || std::time::Instant::now() > deadline {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}

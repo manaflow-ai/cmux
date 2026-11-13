@@ -33,6 +33,7 @@ import argparse, json, os, plistlib, socket, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -312,8 +313,8 @@ try:
     window = ((quiet_wait(lambda: (rpc("debug.focus") or {}).get("windows"), 60, step=0.2) or [{}])[0]).get("id")
     rpc("debug.window_frame", {"window": window, "frame": [40, 40, 1100, 700]})
     activate()
-    print(f"app pid {APP_PID}, input {opts.input}, window {window}: {(main_window() or {}).get('frame')}, active {app_active()}",
-          flush=True)
+    safe_print(f"app pid {APP_PID}, input {opts.input}, window {window}: {(main_window() or {}).get('frame')}, active {app_active()}",
+               flush=True)
     # Two workspaces and two tabs in the selected one.
     for attempt in range(3):
         if len(row_points()) >= 3:
@@ -321,15 +322,15 @@ try:
         run = subprocess.run([os.path.join(HERE, "..", "cmux-debug-cli.sh"), "--app-socket", SOCKET, "workspace", "create",
                               "--name", f"hover-{attempt + 2}", "--json"], env=dict(os.environ, CMUX_TAG=opts.tag),
                              capture_output=True, text=True, timeout=60)
-        print(f"   cmux workspace create: exit {run.returncode} {(run.stdout + run.stderr).strip()[-160:]}", flush=True)
+        safe_print(f"   cmux workspace create: exit {run.returncode} {(run.stdout + run.stderr).strip()[-160:]}", flush=True)
         quiet_wait(lambda: len(row_points()) >= attempt + 2, 10, step=0.2)
     for attempt in range(3):
         if len(tab_points()) >= 2:
             break
-        print("   newSurface:", (rpc("action.run", {"action": "newSurface", "origin": "script"}) or {}), flush=True)
+        safe_print("   newSurface:", (rpc("action.run", {"action": "newSurface", "origin": "script"}) or {}), flush=True)
         quiet_wait(lambda: len(tab_points()) >= 2, 10, step=0.2)
     rows, tabs = row_points(), tab_points()
-    print(f"rows {rows}\ntabs {tabs}", flush=True)
+    safe_print(f"rows {rows}\ntabs {tabs}", flush=True)
     check(len(rows) >= 2, f"two workspace rows to hover ({len(rows)})")
     check(len(tabs) >= 2, f"two tabs to hover ({len(tabs)})")
     report = cards()
@@ -339,7 +340,7 @@ try:
     for kind in ("rows", "tabs"):
         # Fresh frames: tabs settle their widths a moment after they are added.
         points = row_points() if kind == "rows" else tab_points()
-        print(f"{kind} now {points}", flush=True)
+        safe_print(f"{kind} now {points}", flush=True)
         if len(points) < 2:
             continue
         first = cold(kind, points[0][1], DEFAULT_DELAY_MS)

@@ -264,7 +264,7 @@ pub fn write_system_prompt(presets: &Path, name: &str, text: &str) -> io::Result
             .open(&tmp)?;
         file.write_all(text.as_bytes())?;
         file.sync_all()?;
-        crate::home_fs::rename(&tmp, &dir.join(SYSTEM_PROMPT_FILE))
+        crate::home_fs::rename(&tmp, dir.join(SYSTEM_PROMPT_FILE))
     })();
     if written.is_err() {
         let _ = crate::home_fs::remove_file(&tmp);
@@ -292,7 +292,7 @@ pub fn remove_preset_dir(presets: &Path, name: &str) -> io::Result<()> {
         return Ok(());
     }
     // From the folder this daemon holds (`home_fs`), never the new home's.
-    match crate::home_fs::remove_dir_all(&preset_dir(presets, name)) {
+    match crate::home_fs::remove_dir_all(preset_dir(presets, name)) {
         Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
         _ => Ok(()),
     }

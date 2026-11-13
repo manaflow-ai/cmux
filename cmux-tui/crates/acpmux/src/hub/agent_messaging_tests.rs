@@ -176,8 +176,11 @@ async fn a_prompt_queued_behind_the_ending_turn_is_work_coming() {
     };
     tokio::time::timeout(WAIT, running).await.expect("the first turn started");
     let second = run("p-b", "hello");
+    // In the queue, as its `queued` acceptance says: the `queued` count goes up first (under
+    // `admit`), and the prompt joins the queue only after it, so the count alone does not mean
+    // there is a prompt in the queue yet.
     let queued = async {
-        while s.queued() == 0 {
+        while s.queue().is_empty() {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     };

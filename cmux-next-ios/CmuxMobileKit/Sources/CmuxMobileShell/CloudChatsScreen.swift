@@ -223,7 +223,8 @@ private struct CloudMachineChatsScreen: View {
             if relay?.isRetired == true {
                 ContentUnavailableView("Chat unavailable", systemImage: "bubble.left")
             } else if let relay, relay.hub.isReady {
-                if let preferredSession, !openedPreferred, relay.hub.sessions[preferredSession] == nil {
+                // Until the whole list is read (it comes in pages, CMUX-563) an older chat may still be on its way.
+                if let preferredSession, !openedPreferred, relay.hub.listWhole, relay.hub.sessions[preferredSession] == nil {
                     ContentUnavailableView("Chat unavailable", systemImage: "bubble.left",
                                            description: Text("This chat is no longer listed on this Cloud machine."))
                 } else {
@@ -301,8 +302,9 @@ private struct CloudMachineChatsScreen: View {
             }
         }
         .overlay { if starting { CmuxSpinner(label: Text("Starting chat…")) } }
-        .onChange(of: relay?.hub.isReady, initial: true) { _, ready in
-            guard ready == true, !openedPreferred, let preferredSession,
+        // The preferred chat opens once it is listed: with the first page, or with a later one.
+        .onChange(of: relay?.hub.isReady == true && preferredSession.flatMap { relay?.hub.sessions[$0] } != nil, initial: true) { _, ready in
+            guard ready, !openedPreferred, let preferredSession,
                   relay?.hub.sessions[preferredSession]?.peer == nil,
                   relay?.hub.sessions[preferredSession] != nil else { return }
             openedPreferred = true

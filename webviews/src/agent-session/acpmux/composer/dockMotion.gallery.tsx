@@ -107,12 +107,12 @@ export default componentEntry<Record<string, never>>({
     "grown-overlay": {
       props: {},
       play: typeLines,
-      note: "Selected (overlay): three lines typed, the transcript where it was; the composer's glass covers its foot.",
+      note: "Selected (overlay): three lines typed at the latest row; the transcript rose with the composer, the last answer above it.",
     },
     "grown-reached": {
       props: {},
       play: typeAndReach,
-      note: "Overlay, then a wheel past the end: the room takes the composer's growth at once and the last row scrolls into view.",
+      note: "Overlay, then a wheel past the end: the last row stays in view above the grown composer.",
     },
     "sent-overlay": {
       props: {},
