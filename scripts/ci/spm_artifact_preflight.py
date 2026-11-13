@@ -65,7 +65,8 @@ def manifest(package_dir: Path) -> str:
 
 def strip_comments(text: str) -> str:
     text = re.sub(r'/\*.*?\*/', '', text, flags=re.S)
-    return re.sub(r'(?m)//.*$', '', text)
+    # Whole-line comments only: a trailing `//` match would cut a URL ("https://...") in half.
+    return re.sub(r'(?m)^\s*//.*$', '', text)
 
 
 def binary_targets(package_dir: Path) -> list[tuple[str, str, str]]:

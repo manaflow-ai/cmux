@@ -119,7 +119,8 @@ class SpmArtifactPreflight(unittest.TestCase):
         webrtc = app / 'Packages/Shared/CmuxVNCWebRTC'
         webrtc.mkdir(parents=True)
         (webrtc / 'Package.swift').write_text(
-            'let package = Package(targets: [\n        .binaryTarget(\n            name: "WebRTC",\n'
+            'let package = Package(targets: [\n        // .binaryTarget(name: "Retired", url: "https://x/R.zip", checksum: "0"),\n'
+            '        .binaryTarget(\n            name: "WebRTC",\n'
             '            url: "https://github.com/stasel/WebRTC/releases/download/154.0.0/WebRTC-M154.xcframework.zip",\n'
             '            checksum: "a2"\n        ),\n'
             '        .binaryTarget(name: "LocalKit", path: "Frameworks/LocalKit.xcframework"),\n])\n')
