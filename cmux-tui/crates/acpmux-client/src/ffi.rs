@@ -287,6 +287,10 @@ pub unsafe extern "C" fn acpmux_client_subscribe(
 /// Subscribes a mirror from `{ "sub": ..., "held": [...], "whole": bool }`.
 /// The caller owns the returned sid buffer and frees it with
 /// [`acpmux_client_bytes_free`].
+///
+/// # Safety
+/// `handle`, `request`, and `out` must satisfy the pointer and length contract
+/// for the duration of this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn acpmux_client_subscribe_mirror(
     handle: *mut c_void,
@@ -315,6 +319,10 @@ pub unsafe extern "C" fn acpmux_client_subscribe_mirror(
 }
 
 /// Adds mirror wanted keys from `{ "sid": ..., "keys": [...] }`.
+///
+/// # Safety
+/// `handle` and `request` must satisfy the pointer and length contract for the
+/// duration of this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn acpmux_client_want(
     handle: *mut c_void,
@@ -341,6 +349,10 @@ pub unsafe extern "C" fn acpmux_client_want(
 }
 
 /// Removes mirror wanted keys from `{ "sid": ..., "keys": [...] }`.
+///
+/// # Safety
+/// `handle` and `request` must satisfy the pointer and length contract for the
+/// duration of this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn acpmux_client_unwant(
     handle: *mut c_void,

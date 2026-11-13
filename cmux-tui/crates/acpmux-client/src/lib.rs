@@ -892,13 +892,11 @@ where
                             if matches!(state.purpose, PagePurpose::Wanted) {
                                 if let Some(sub) = self.subscriptions.get_mut(sid)
                                     && let Some(mirror) = sub.mirror.as_mut()
+                                    && let Some(request) = state.request
+                                    && let Some(keys) = request.keys
                                 {
-                                    if let Some(request) = state.request
-                                        && let Some(keys) = request.keys
-                                    {
-                                        for key in keys.into_iter().rev() {
-                                            mirror.pending_wanted.push_front(key);
-                                        }
+                                    for key in keys.into_iter().rev() {
+                                        mirror.pending_wanted.push_front(key);
                                     }
                                 }
                                 retry_wanted = Some(sid.to_owned());
@@ -2141,7 +2139,7 @@ tail"#;
         client.subscribe_mirror(Sub::new("m", "list"), std::iter::empty(), true).unwrap();
         let _ = client.take_send();
         let key = ListKey { last_activity: 1, chat_id: "a".into(), origin: "local".into() };
-        client.want("m", [key.clone()]).unwrap();
+        client.want("m", [key]).unwrap();
         let _ = client.take_send().expect("wanted page");
         let error = Frame::json(
             FrameKind::Error,
