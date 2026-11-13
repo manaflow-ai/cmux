@@ -477,6 +477,7 @@ mod tests {
         assert!(text.contains("\"key\""));
         assert!(!text.contains("private"));
         assert!(parse_control(&offer).is_some());
+        assert!(negotiation.offer().is_none(), "an offer is sent once per session");
         assert!(parse_control(br#"{"t":"offer","version":1}"#).is_none());
     }
 
