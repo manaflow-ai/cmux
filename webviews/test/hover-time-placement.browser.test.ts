@@ -40,7 +40,7 @@ await requireBrowserLane("hover-time-placement.browser.test.ts", async () => {
           const port = (vite.httpServer!.address() as { port: number }).port;
           await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { variant, width, height: 620 })}`);
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-          await page.locator(".cv-worked-row .cv-worked").first().hover();
+          await page.locator(".cv-worked-row").first().hover();
           await page.waitForFunction(
             () => {
               const time = document.querySelector(".cv-worked-row .cv-turn-time");
