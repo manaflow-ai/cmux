@@ -50,9 +50,16 @@ on:
 
 permissions: {}
 
-concurrency:
-  group: cmux-next-cua-helper-dev-sign
-  cancel-in-progress: false
+# No workflow-level concurrency group. The publish job waits for a person in
+# cef-publish, and a run waiting there never times out (timeout-minutes counts
+# from the job's start). Under one workflow group, run 42677635673 sat at that
+# approval from 2026-11-09 and held the group: every later dispatch waited, and
+# each newer one cancelled the pending one (43374466637). So only the macOS
+# build and sign serialize, per helper, in job-level groups; publish has no
+# group (its upload is content-addressed and write-once, an identical object is
+# accepted), and pin-pr serializes per helper after it. A run that waits for
+# approval holds no group, and the sdk job names any run still waiting.
+# scripts/ci/check_workflow_concurrency.py refuses the old shape.
 
 jobs:
   sdk:
@@ -61,12 +68,37 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions:
+      actions: read
       contents: read
       pull-requests: read
     outputs:
       sha: ${{ steps.resolve.outputs.sha }}
       source_pr: ${{ steps.resolve.outputs.source_pr }}
     steps:
+      # Says so when an older run still waits for a cef-publish reviewer. This
+      # run does not wait behind it (no shared group), but its own publish
+      # needs the same approval, and an approval left for hours is how the
+      # 2026-11-09 run held every dispatch until 11-13. Best effort: a failed
+      # read only skips the notice.
+      - name: Name runs still waiting for a publish approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -uo pipefail
+          waiting="$(gh api "repos/$GH_REPO/actions/workflows/cmux-next-cua-helper-dev-sign.yml/runs?status=waiting&per_page=20" \
+            --jq ".workflow_runs[] | select(.id != $RUN_ID) | \"\\(.id) \\(.created_at) \\(.html_url)\"" 2>/dev/null)" || exit 0
+          now="$(date -u +%s)"
+          while read -r id created url; do
+            [[ -n "$id" ]] || continue
+            hours=$(( (now - $(date -u -d "$created" +%s)) / 3600 ))
+            msg="run $id ($url) has waited ${hours}h for a cef-publish reviewer (teamleaderleo or lawrencecchen): approve or reject it there. This run does not wait behind it."
+            if (( hours >= 6 )); then echo "::warning title=Stale publish approval::$msg"; else echo "::notice title=Publish approval pending::$msg"; fi
+            echo "- $msg" >> "$GITHUB_STEP_SUMMARY"
+          done <<<"$waiting"
+          exit 0
+
       # Only main code runs in this job, which holds the R2 key: the
       # feat-cmux-next commit is read through the API, and its SDK pin as JSON.
       - name: Checkout main's R2 helper
@@ -169,6 +201,9 @@ jobs:
   build:
     name: Build the unsigned helper
     needs: sdk
+    concurrency:
+      group: cmux-next-cua-helper-dev-sign-build-${{ inputs.helper || 'computer-use' }}
+      cancel-in-progress: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS || '{}').macos_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
     permissions:
@@ -235,6 +270,11 @@ jobs:
     name: Sign and publish the helper
     needs: build
     environment: release
+    # release has no required reviewer (only a branch policy), so this job
+    # never waits for a person while it holds the group.
+    concurrency:
+      group: cmux-next-cua-helper-dev-sign-sign-${{ inputs.helper || 'computer-use' }}
+      cancel-in-progress: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
     permissions:
@@ -342,6 +382,8 @@ jobs:
   publish:
     name: Publish the helper
     needs: sign
+    # Waits for a cef-publish reviewer, so it holds no concurrency group: a
+    # wait nobody answers must never queue another dispatch.
     environment: cef-publish
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
@@ -407,6 +449,9 @@ jobs:
     # only an ancestor build may open a separate pin PR into feat-cmux-next.
     if: needs.sdk.outputs.source_pr == ''
     needs: [sdk, build, sign, publish]
+    concurrency:
+      group: cmux-next-cua-helper-dev-sign-pin-pr-${{ inputs.helper || 'computer-use' }}
+      cancel-in-progress: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions:
