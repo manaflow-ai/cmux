@@ -703,3 +703,131 @@ fn a_plan_writes_a_workspace_row_as_the_projection_states_it() {
         let _ = mux.close_surface(surface.id);
     }
 }
+
+// NOT FOR MERGE (a measure branch). Wall-clock ms of the commits around a lost journal fold at
+// 60 and 826 workspaces, in a file session with the journal writer thread, the debug
+// cross-check off. A debug test build with placeholder terminals and one terminal for each
+// workspace: a LOWER BOUND of a person's session, and a ratio between the two commits.
+
+fn measure_ms<T>(run: impl FnOnce() -> T) -> (f64, T) {
+    let start = std::time::Instant::now();
+    let value = without_crosscheck(run);
+    (start.elapsed().as_secs_f64() * 1000.0, value)
+}
+
+/// The ms of one full projection commit (the prepare and the mark are not in the time).
+fn measure_full_projection(mux: &Arc<Mux>, key: &str) -> f64 {
+    let operation = "test.measure";
+    let fingerprint = serde_json::json!({"operation": operation, "fixture": key});
+    let expected_revision = mux.with_state(|state| state.resource_revision);
+    mux.prepare_resource_effect(
+        &WorkspaceMutation::daemon(key, "test").unwrap(),
+        operation,
+        &fingerprint,
+        &serde_json::json!({}),
+        None,
+        Some(expected_revision),
+    )
+    .unwrap();
+    mux.mark_resource_effect_executing(key, operation, &fingerprint).unwrap();
+    measure_ms(|| {
+        mux.commit_full_resource_effect_projection(
+            key,
+            operation,
+            &fingerprint,
+            serde_json::json!({}),
+        )
+        .unwrap();
+    })
+    .0
+}
+
+fn measure_print(workspaces: usize, rows: BTreeMap<&'static str, Vec<f64>>) {
+    for (name, values) in rows {
+        let mut sorted = values.clone();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        eprintln!(
+            "MEASURE ms at {workspaces} workspaces, {name}: median {:.2}, min {:.2}, max {:.2}, in order {values:.2?}",
+            sorted[sorted.len() / 2],
+            sorted[0],
+            sorted[sorted.len() - 1],
+        );
+    }
+}
+
+#[test]
+fn measure_ms_of_the_commits_around_a_lost_fold() {
+    for workspaces in [60usize, 826] {
+        let session = file_session(workspaces);
+        let mux = session.mux.clone();
+        let pane = session.target_pane();
+        let first = mux.with_state(|state| state.workspaces[0].id);
+        let lose = || mux.workspace_registry.lock().unwrap().abandon_effect_commit();
+        let new_tab = || mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        let mut created = Vec::new();
+        let mut rows: BTreeMap<&'static str, Vec<f64>> = BTreeMap::new();
+        for rep in 0..7 {
+            let (ms, surface) = measure_ms(new_tab);
+            created.push(surface);
+            rows.entry("1 new tab, the fold held").or_default().push(ms);
+
+            lose();
+            let (ms, surface) = measure_ms(new_tab);
+            created.push(surface);
+            rows.entry("2 new tab, the first commit after a lost fold").or_default().push(ms);
+            let (ms, surface) = measure_ms(new_tab);
+            created.push(surface);
+            rows.entry("3 new tab, the second commit after a lost fold").or_default().push(ms);
+
+            lose();
+            let (ms, renamed) = measure_ms(|| mux.rename_workspace(first, format!("m {rep} a")));
+            assert!(renamed);
+            rows.entry("4 workspace rename, the first workspace commit after a lost fold")
+                .or_default()
+                .push(ms);
+            let (ms, renamed) = measure_ms(|| mux.rename_workspace(first, format!("m {rep} b")));
+            assert!(renamed);
+            rows.entry("5 workspace rename, the second workspace commit after a lost fold")
+                .or_default()
+                .push(ms);
+
+            lose();
+            let ms = measure_full_projection(&mux, &format!("measure-{workspaces}-{rep}-lost"));
+            rows.entry("6 full projection commit, after a lost fold").or_default().push(ms);
+            let ms = measure_full_projection(&mux, &format!("measure-{workspaces}-{rep}-held"));
+            rows.entry("7 full projection commit, the fold held").or_default().push(ms);
+        }
+        measure_print(workspaces, rows);
+        drop(mux);
+        session.end(created);
+    }
+}
+
+#[test]
+fn measure_ms_of_a_start_and_its_first_create() {
+    for workspaces in [60usize, 826] {
+        let FileSession { mux, root, target } = file_session(workspaces);
+        target.kill();
+        drop(target);
+        mux.shutdown();
+        drop(mux);
+
+        let (open_ms, mux) = measure_ms(|| open_persistent_test_mux("create-commit-cost", &root));
+        mux.stop_journal_maintenance();
+        assert_eq!(mux.with_state(|state| state.workspaces.len()), workspaces);
+        let workspace = mux.with_state(|state| state.workspaces[0].id);
+        let create = || {
+            mux.create_terminal_in_workspace(workspace, None, None, None, Some((80, 24))).unwrap();
+        };
+        let full = mux.resource_projection_stats().full_projections;
+        let (first_ms, ()) = measure_ms(create);
+        let first_full = mux.resource_projection_stats().full_projections - full;
+        let (second_ms, ()) = measure_ms(create);
+        eprintln!(
+            "MEASURE ms at {workspaces} workspaces, a start: the open {open_ms:.2}, the first create {first_ms:.2} ({first_full} full projections), the second create {second_ms:.2}"
+        );
+        mux.shutdown();
+        drop(mux);
+        let _ = std::fs::remove_dir_all(root);
+    }
+}
