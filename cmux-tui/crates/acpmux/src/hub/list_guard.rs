@@ -317,6 +317,15 @@ impl Events {
         }
     }
 
+    /// Marks every local row when a global setting changes a field in every
+    /// summary (for example usage warning thresholds). The mark still stays
+    /// inside `Events`, so callers cannot publish a stale v2 row accidentally.
+    pub(super) fn mark_all_tee(&self, ids: impl IntoIterator<Item = String>) {
+        for id in ids {
+            self.mark_tee(&id);
+        }
+    }
+
     /// Sends `event`, stamped with the list position of the row it changes, if any.
     fn stamped(&self, mut event: HubEvent) -> Result<usize, broadcast::error::SendError<HubEvent>> {
         let Some((key, gone)) = super::row_log::row_change(&event) else {
@@ -429,7 +438,11 @@ impl Events {
         event: HubEvent,
     ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
         session.summary_gen.fetch_add(1, Ordering::SeqCst);
-        self.mark_tee(&session.id);
+        if crate::server::session_change_kind(&event.record.kind).is_some()
+            || event.record.kind == "purged"
+        {
+            self.mark_tee(&session.id);
+        }
         if super::row_log::row_change(&event).is_none() {
             self.stamp_own(&session.id);
         }
