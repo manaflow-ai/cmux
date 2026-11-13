@@ -8,7 +8,10 @@
 //!
 //! Only content changes of the watched files count: a create, a delete, a
 //! rename, a close after a write and a metadata change of a watched name
-//! (or a missing directory on the way to one appearing or vanishing).
+//! (or a missing directory on the way to one appearing or vanishing). A
+//! metadata change of a watched name that is not a regular file (a folder,
+//! a socket) hints by itself on Linux; on macOS it hints with the next
+//! change of an entry of its directory.
 //! Opens, reads and read-only closes never count: the reload a hint
 //! triggers reads the watched file, and a watched ancestor such as /etc
 //! sees an open on every process start. Events that arrive within
