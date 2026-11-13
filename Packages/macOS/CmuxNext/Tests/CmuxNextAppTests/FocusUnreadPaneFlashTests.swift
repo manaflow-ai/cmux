@@ -140,4 +140,28 @@ struct FocusUnreadPaneFlashTests {
     private static func dismissFlashPlays(in layer: CALayer) -> Bool {
         layer.animationKeys()?.contains("attention-dismiss") == true || (layer.sublayers ?? []).contains { dismissFlashPlays(in: $0) }
     }
+
+    /// A Claude Code terminal with background shells or a monitor still running: its agent keeps
+    /// asking for the person (tab-attention-v1) on a pane that also holds an unread notification.
+    /// Focusing the pane clears its ring, and a new request while the person looks at it draws none.
+    @Test func aTerminalWithBackgroundWorkClearsItsRingOnFocus() async throws {
+        let fixture = try await Self.open()
+        defer {
+            fixture.controller.teardown()
+            fixture.window.close()
+        }
+        let pane = LayoutPaneID(fixture.unread.id)
+        let tab = try #require(fixture.unread.tabs.first)
+        let workspace = try #require(fixture.services.machines.local.store.workspaces.first)
+        func ask(_ at: UInt64) -> SessionStateMirror.TabRecord {
+            SessionStateMirror.TabRecord(attention: TabAttention(reason: "1 shell, 1 monitor", atMs: at, requestID: String(format: "%032llx", at)))
+        }
+        tab.applyState(ask(1_000), progress: nil)
+        fixture.content.layoutModel.focus(pane, source: .keyboard)
+        try await PinnedPageTests.until({ fixture.content.layoutModel.attention[pane] == nil },
+                                        report: { "focusing the terminal left its ring" })
+        tab.applyState(ask(2_000), progress: nil)
+        #expect(fixture.services.notifications.attentionMarks(for: workspace)[pane] == nil,
+                "a new request on the pane the person is looking at rang")
+    }
 }
