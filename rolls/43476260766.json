@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43476260766",
+  "recorded_at": "2026-11-13T17:53:33Z",
+  "reason": "cmux-tui eec483fb0f0c changes the image's cmux-tui (pinned 9d9f4c3f5ca2)",
+  "dry_run": false,
+  "cmux_tui": "eec483fb0f0c88f94a6e840f9a66e60e714f48df",
+  "fixes": [
+    {
+      "sha": "eec483fb0f0c88f94a6e840f9a66e60e714f48df",
+      "mergedAt": "2026-11-13T09:19:21-08:00",
+      "subject": "agent service v2: standalone folders projection and wire vocabulary (5f) (#42606)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-13T17:53:33Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
