@@ -5,8 +5,6 @@ use crate::session_identity::SessionReceipt;
 use acpmux_book::index::OriginState;
 use cmux_json::JsonSet as _;
 
-const ORIGIN_STALE_GRACE_MS: u64 = 10_000;
-
 pub(super) fn peer_origin_state(peer: &crate::peer::Peer) -> OriginState {
     match peer.state() {
         crate::peer_link::PeerState::Connected | crate::peer_link::PeerState::Degraded => {
@@ -14,7 +12,8 @@ pub(super) fn peer_origin_state(peer: &crate::peer::Peer) -> OriginState {
         }
         _ if peer.outage_ended.load(std::sync::atomic::Ordering::Acquire)
             || peer.link().down_since.is_some_and(|at| {
-                crate::store::now_ms().saturating_sub(at) >= ORIGIN_STALE_GRACE_MS
+                crate::store::now_ms().saturating_sub(at)
+                    >= super::peer_grace::DROP_GRACE.as_millis() as u64
             }) =>
         {
             OriginState::Stale

@@ -4,7 +4,7 @@ use super::*;
 use crate::peer::PeerNotice;
 use tokio::time::{Duration, Instant};
 
-const DROP_GRACE: Duration = Duration::from_secs(10);
+pub(super) const DROP_GRACE: Duration = Duration::from_secs(10);
 
 /// The row deadline of each peer instance's pending outage. Failed retries never
 /// extend or re-arm it. A row, list, ready or restart notice ends it; removal or
