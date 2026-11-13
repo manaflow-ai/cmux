@@ -28,6 +28,7 @@ public final class WorkspaceSync {
     @ObservationIgnored public var onNotification: (@MainActor (NotificationPost) -> Void)?
     @ObservationIgnored private var client: DaemonClient?
     @ObservationIgnored private var eventTask: Task<Void, Never>?
+    @ObservationIgnored private var setupTask: Task<[Result<DaemonClient.ReceivedLine, any Error>], Never>?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var updateTask: Task<Void, Never>?
     @ObservationIgnored private var projection = WorkspaceProjection()
@@ -85,16 +86,29 @@ public final class WorkspaceSync {
     /// activity seen yet".
     public func bind(_ channel: (any LinkChannel)?, macID: String, cached: [Workspace] = []) async {
         stopUpdates()
+        let oldClient = client
         client = nil
         connectionSerial += 1
+        let serial = connectionSerial
         activity = [:]
         titles = [:]
-        guard let channel else {
+        if channel == nil {
             lastError = nil
             identity = nil
+        }
+        if let oldClient { await oldClient.close() }
+        guard let channel else { return }
+        guard connectionSerial == serial, !Task.isCancelled else {
+            await channel.close(code: "eof", reason: "binding superseded")
             return
         }
-        await bind(Self.prepare(channel, deviceID: deviceID, deviceName: deviceName), macID: macID, cached: cached)
+        let prepared = await Self.prepare(channel, deviceID: deviceID, deviceName: deviceName)
+        guard connectionSerial == serial, !Task.isCancelled else {
+            prepared.replies.cancel()
+            await prepared.client.close()
+            return
+        }
+        await bind(prepared, macID: macID, cached: cached)
     }
 
     /// A `daemon` channel whose client is reading and whose setup batch is on
@@ -110,7 +124,11 @@ public final class WorkspaceSync {
     /// agents, list workspaces. The daemon answers a connection's lines in
     /// order; events after the subscribe wait in the client's stream. Does not
     /// wait for the answers (a Mac that pairs holds them until `auth` passes).
-    public nonisolated static func prepare(_ channel: any LinkChannel, deviceID: String, deviceName: String) async -> Prepared {
+    public nonisolated static func prepare(
+        _ channel: any LinkChannel, deviceID: String, deviceName: String,
+        authorizationTimeout: Duration = LinkPairing.authorizationTimeout,
+        replyTimeout: Duration = DaemonClient.defaultDeadline
+    ) async -> Prepared {
         let client = DaemonClient(channel: channel, orderedEvents: true)
         await client.start()
         let replies = Task.detached { () -> [Result<DaemonClient.ReceivedLine, any Error>] in
@@ -124,7 +142,9 @@ public final class WorkspaceSync {
                 ("subscribe", ["tree_events": "deltas"]),
                 ("list-agents", [:]),
                 ("list-workspaces", [:]),
-            ])
+            ], deadline: authorizationTimeout + replyTimeout)
+            // This eager batch can be held behind auth's human approval. Only
+            // setup gets that grace; subsequent daemon reads keep their normal bound.
             ConnectTimeline.shared.mark("first_daemon_response")
             return replies
         }
@@ -135,6 +155,7 @@ public final class WorkspaceSync {
     /// when the setup answers arrive.
     public func bind(_ prepared: Prepared, macID: String, cached: [Workspace] = []) async {
         stopUpdates()
+        let oldClient = client
         initializing = true
         projection = WorkspaceProjection()
         let projection = projection
@@ -146,6 +167,7 @@ public final class WorkspaceSync {
         self.macID = macID
         let client = prepared.client
         self.client = client
+        setupTask = prepared.replies
         connectionSerial += 1
         let events = client.orderedEvents
         eventTask = Task.detached { [weak self] in
@@ -155,12 +177,39 @@ public final class WorkspaceSync {
                 await self?.receive(event, sequence: line.sequence, from: client)
             }
         }
-        let replies = await prepared.replies.value
+        // Publish the new owner before closing the old one; close can suspend
+        // while another bind arrives. Stale cleanup must never replace that owner.
+        if let oldClient, oldClient !== client { await oldClient.close() }
+        let replies = await withTaskCancellationHandler {
+            await prepared.replies.value
+        } onCancel: {
+            prepared.replies.cancel()
+        }
         // Bound again meanwhile (another link or Mac): this answer is stale.
-        guard self.client === client else { return }
+        guard self.client === client, !Task.isCancelled else {
+            await closeFailedClient(client)
+            return
+        }
+        setupTask = nil
+        // A missing transport reply invalidates the subscription. A server's
+        // explicit rejection is different: keep its live channel so a later
+        // workspace event can recover the baseline without another bind.
+        let transportError = replies.compactMap { result -> (any Error)? in
+            if case .failure(let error) = result { return error }
+            return nil
+        }.first
+        if let error = transportError {
+            lastError = LinkController.reason(error)
+            identity = nil
+            await closeFailedClient(client)
+            return
+        }
         do {
             let setup = try await Task.detached { try Self.decodeSetup(replies.map { $0.map(\.data) }) }.value
-            guard self.client === client else { return }
+            guard self.client === client, !Task.isCancelled else {
+                await closeFailedClient(client)
+                return
+            }
             identity = setup.identity
             // A reconnect's list counts a prompt only by its own time (a turn already running
             // when the link came back is not a new prompt at the moment it is seen).
@@ -173,7 +222,10 @@ public final class WorkspaceSync {
             let next = try await projection.reset(snapshot: snapshot.data, macID: macID,
                                                   previous: known.isEmpty ? cached : known,
                                                   agents: agents, activity: activity, arrangement: arrangement)
-            guard self.client === client else { return }
+            guard self.client === client, !Task.isCancelled else {
+                await closeFailedClient(client)
+                return
+            }
             // Setup subscribed before its list. Replay every setup event;
             // reply arrival is not a watermark for the captured snapshot.
             discardBeforeSnapshot()
@@ -188,7 +240,10 @@ public final class WorkspaceSync {
                 await refresh()
             }
         } catch {
-            guard self.client === client else { return }
+            guard self.client === client, !Task.isCancelled else {
+                await closeFailedClient(client)
+                return
+            }
             initializing = false
             lastError = LinkController.reason(error)
             log.error("daemon bind failed: \(String(describing: error), privacy: .public)")
@@ -210,6 +265,8 @@ public final class WorkspaceSync {
     }
 
     private func stopUpdates() {
+        setupTask?.cancel()
+        setupTask = nil
         eventTask?.cancel()
         refreshTask?.cancel()
         updateTask?.cancel()
@@ -222,6 +279,17 @@ public final class WorkspaceSync {
         pendingChanged = false
         initializing = false
         dirty = false
+    }
+
+    /// Setup can fail after the client has started its reader. Clear the
+    /// current owner before awaiting close so a retry cannot inherit the
+    /// failed reader or its queued events.
+    private func closeFailedClient(_ candidate: DaemonClient) async {
+        if self.client === candidate {
+            self.client = nil
+            stopUpdates()
+        }
+        await candidate.close()
     }
 
     private func receive(_ event: DaemonEvent, sequence: UInt64, from client: DaemonClient) {

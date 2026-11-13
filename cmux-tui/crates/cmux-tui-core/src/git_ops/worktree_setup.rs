@@ -612,10 +612,18 @@ fn hold(_git_dir: &Path) -> Option<File> {
 /// holds the lock of the worktree whose git folder is `git_dir`.
 #[cfg(unix)]
 fn held(git_dir: &Path) -> bool {
-    use std::os::fd::AsRawFd as _;
     let Ok(file) = File::open(git_dir.join(LOCK_FILE)) else { return false };
-    // SAFETY: a live descriptor; a lock taken here goes with the file.
-    unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) != 0 }
+    held_on(file)
+}
+
+/// [`held`] on the lock file opened as `file`.
+/// The look never leaves a lock behind (the next `start` must take the run's lock, also while a
+/// child the server forked meanwhile has this descriptor). A look that fails reads as held, as
+/// before.
+#[cfg(unix)]
+fn held_on(file: File) -> bool {
+    use cmux_file_lock::{FileLock, Kind};
+    FileLock::held_elsewhere(&file, Kind::Shared).unwrap_or(true)
 }
 
 #[cfg(not(unix))]
@@ -667,10 +675,20 @@ mod ports {
     use super::*;
 
     /// This process's lock, then the file lock every session host's
-    /// allocation for the repository takes (released when it closes).
+    /// allocation for the repository takes. The drop unlocks the file before
+    /// it closes (a child another thread forked meanwhile shares it until it
+    /// execs), then lets go of this process's lock.
     struct Lock {
         _guard: std::sync::MutexGuard<'static, ()>,
-        _file: Option<File>,
+        file: Option<File>,
+    }
+
+    impl Drop for Lock {
+        fn drop(&mut self) {
+            if let Some(file) = &self.file {
+                let _ = file.unlock();
+            }
+        }
     }
 
     fn lock(path: &Path) -> Lock {
@@ -691,7 +709,7 @@ mod ports {
                 libc::flock(file.as_raw_fd(), libc::LOCK_EX);
             }
         }
-        Lock { _guard: guard, _file: file }
+        Lock { _guard: guard, file }
     }
 
     /// The repository's port list, in its shared git folder (`git_dir` is a
@@ -720,6 +738,26 @@ mod ports {
 
     fn key(root: &Path) -> String {
         root.to_string_lossy().into_owned()
+    }
+
+    #[cfg(all(test, unix))]
+    mod lock_tests {
+        use super::*;
+
+        /// An allocation lets go of the repository's port lock, also while a child the server
+        /// forked meanwhile has the descriptor: else every other session host's allocation for
+        /// the repository waits for that child.
+        #[test]
+        fn a_dropped_port_lock_is_free_while_a_forked_child_keeps_its_descriptor() {
+            let dir = crate::fork_tests::Scratch::new("worktree_ports");
+            let path = dir.path().join("cmux-worktree-ports.json");
+            let held = lock(&path);
+            let keeper = crate::fork_tests::Keeper::fork();
+            drop(held);
+            let free = crate::fork_tests::free(&path.with_extension("lock"));
+            drop(keeper);
+            assert!(free, "a dropped port lock stayed held through a forked child's copy");
+        }
     }
 
     pub(super) fn lookup(git_dir: &Path, root: &Path) -> Option<u16> {
@@ -861,5 +899,26 @@ mod tests {
         assert!(matches!(outcome, Outcome::Exited(None)));
         assert!(started.elapsed() < Duration::from_secs(10), "{:?}", started.elapsed());
         fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(all(test, unix))]
+mod lock_probe_tests {
+    use super::*;
+
+    /// A `held` look at a free run lock leaves it free, also while a child the server forked
+    /// meanwhile has the look's descriptor: else the next `start` cannot take the run's lock
+    /// and runs the setup without it (no fd 7 for the shell).
+    #[test]
+    fn a_held_look_leaves_the_run_lock_free_while_a_forked_child_keeps_its_descriptor() {
+        let dir = crate::fork_tests::Scratch::new("worktree_setup");
+        fs::write(dir.path().join(LOCK_FILE), b"").unwrap();
+        let look = File::open(dir.path().join(LOCK_FILE)).unwrap();
+        let keeper = crate::fork_tests::Keeper::fork();
+        let looked = held_on(look);
+        let run = hold(dir.path());
+        drop(keeper);
+        assert!(!looked, "a free run lock read as held");
+        assert!(run.is_some(), "the look left the run lock held");
     }
 }

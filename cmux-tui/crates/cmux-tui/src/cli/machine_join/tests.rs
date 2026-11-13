@@ -739,9 +739,12 @@ fn the_platforms_row_shape_reads_with_mesh_identity_and_a_null_label() {
     assert_eq!(machine.state(now_ms()), "offline");
     assert_eq!(entries(json!({"machines": [row]})).map(|rows| rows.len()), Some(1));
     // Its unavailable store answers 503 machine.join.unavailable: joining is off there too.
-    let failure =
-        CallError::Status { status: 503, code: known_code(Some("machine.join.unavailable")) }
-            .failure("the join token");
+    let failure = CallError::Status {
+        status: 503,
+        code: known_code(Some("machine.join.unavailable")),
+        facts: None,
+    }
+    .failure("the join token");
     assert_eq!(failure.message, "joining isn't available on this server yet (it answered 503)");
 }
 
@@ -750,6 +753,27 @@ fn the_platforms_row_shape_reads_with_mesh_identity_and_a_null_label() {
 #[test]
 fn a_plan_refusal_keeps_its_code() {
     assert_eq!(known_code(Some("cloud.plan.required")), "cloud.plan.required");
+}
+
+/// Every code of cmux-platform's refusal table (cmux-platform#1192) is one this CLI keeps, so a
+/// cap, a rate limit or a machine's state reaches the person by name, not as a bare status.
+#[test]
+fn every_platform_refusal_code_is_known() {
+    for row in refusals::PLATFORM {
+        assert_eq!(known_code(Some(row.code)), row.code);
+    }
+    // A cap's refusal names its limit and what holds it.
+    let facts = refusals::Facts { limit: Some(20), used: Some(20), ..Default::default() };
+    let failure =
+        CallError::Status { status: 403, code: "cloud.quota.vm_limit", facts: Some(facts) }
+            .failure("the machine");
+    assert!(
+        failure.message.contains(
+            "403 cloud.quota.vm_limit: this team is at its Cloud machine limit (20 of 20 machines)"
+        ),
+        "{}",
+        failure.message
+    );
 }
 
 #[test]

@@ -17,6 +17,7 @@ import {
   SIDEWAYS_INK,
   SIDEWAYS_SCROLLER_ATTRIBUTE,
 } from "../../../scrollers";
+import { MORE_BELOW, moreBelow } from "./moreBelow";
 
 /// On a sideways scroller while content lies past its right edge.
 export const MORE_RIGHT = MORE_RIGHT_ATTRIBUTE;
@@ -66,6 +67,8 @@ export function watchSideways(container: HTMLElement): () => void {
     const update = () => {
       markSidewaysEdges(box);
       box.toggleAttribute(SIDEWAYS_ATTRIBUTE, sideways(box));
+      // A Pierre box cut to its block's preview scrolls down itself; its bottom fades while more lies under it.
+      if (box.hasAttribute("data-code")) box.toggleAttribute(MORE_BELOW, moreBelow(box));
     };
     const sized = [box, ...box.children];
     // A page-side sideways box (a table, a Shell body) fades its thumb in and out by script: WebKit
@@ -164,11 +167,19 @@ export function watchSideways(container: HTMLElement): () => void {
 
 /// Added to the `unsafeCSS` of Pierre's diff and code in a transcript block: a wrapped line hangs
 /// under its first row (the continuation starts two characters further in), an unwrapped row
-/// that runs past the right edge fades out there while it does, and a block cut to its preview
-/// (`--cv-block-cut`, conversation.css) cuts the code box too, so the box's sideways scrollbar
-/// sits at the cut's bottom, in view, rather than under the last line past it.
+/// that runs past the right edge fades out there while it does, and a long block (`--cv-block-cut`,
+/// conversation.css) cuts the code box too, which then scrolls down itself, so the box's sideways
+/// scrollbar sits at the cut's bottom, in view, rather than under the last line past it. Its bottom
+/// fades above that scrollbar's lane while more lines lie under it (`MORE_BELOW`).
 export const PIERRE_BLOCK_CSS = /* css */ `
 [data-overflow="wrap"] [data-line] { padding-inline-start: 4ch; text-indent: -2ch; }
 [data-code][${MORE_RIGHT}] { mask-image: linear-gradient(to left, transparent, #000 32px); }
-[data-code] { max-height: var(--cv-block-cut, none); }
+[data-code] { max-height: var(--cv-block-cut, none); overflow-y: auto; }
+[data-code][${MORE_BELOW}] {
+  mask-image:
+    linear-gradient(to bottom, #000 calc(100% - 28px - var(--cv-lane, 0px)), transparent calc(100% - var(--cv-lane, 0px)), #000 calc(100% - var(--cv-lane, 0px))),
+    linear-gradient(to left, transparent, #000 var(--cv-more-right-fade, 0px));
+  mask-composite: intersect;
+}
+[data-code][${MORE_BELOW}][${MORE_RIGHT}] { --cv-more-right-fade: 32px; }
 `;

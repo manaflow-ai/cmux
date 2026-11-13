@@ -5,6 +5,7 @@
 
 use super::MessageWriter;
 use super::OPEN_DEVICE_KINDS_CAPABILITY;
+use super::ResourceWorkerAdmissionError;
 use super::SHARED_SIZING_CAPABILITY;
 use super::machine_usage_json;
 use super::size_state_event_json;
@@ -52,6 +53,22 @@ pub(super) fn subscribe_command(
         "deltas" => true,
         other => anyhow::bail!("bad request: unsupported tree_events {other:?}"),
     };
+    // Its thread holds the permit until the stream ends (the connection
+    // closed or the stream overflowed), so a client that sends `subscribe`
+    // in a loop gets refusals, not a thread and a mailbox per line.
+    let admission = &mux.control_clients.event_subscription_admission;
+    let permit = admission.try_reserve(client).map_err(|error| match error {
+        ResourceWorkerAdmissionError::ClientCapacity => anyhow::anyhow!(
+            "too many event subscriptions are open on this connection (limit {}); \
+             subscribe was not executed",
+            admission.per_client_capacity
+        ),
+        ResourceWorkerAdmissionError::ServerCapacity => anyhow::anyhow!(
+            "too many event subscriptions are open on this daemon (limit {}); \
+             subscribe was not executed",
+            admission.server_capacity
+        ),
+    })?;
     let events = match surface {
         Some(surface) => mux
             .subscribe_surface_session(surface)
@@ -83,6 +100,7 @@ pub(super) fn subscribe_command(
     let writer = writer.clone();
     let outbound_stream = writer.start_stream(&subscription_overflow_json())?;
     std::thread::Builder::new().name("mux-events-out".into()).spawn(move || {
+        let _permit = permit;
         let mut transport_overflow = false;
         for challenge in pending_pairings {
             let value = json!({
