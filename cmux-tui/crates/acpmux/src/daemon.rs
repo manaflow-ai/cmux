@@ -1432,7 +1432,12 @@ async fn take_over_holder(socket: &std::path::Path) {
         pid = status.get("pid").and_then(serde_json::Value::as_u64),
         "another daemon of this home serves its socket; asking it to hand over"
     );
-    let _ = client.request(crate::rpc::method::MUX_SHUTDOWN, serde_json::json!({})).await;
+    let _ = client
+        .request(
+            crate::rpc::method::MUX_SHUTDOWN,
+            serde_json::json!({"reason": "handover: another daemon of this home starts"}),
+        )
+        .await;
 }
 
 /// Whether two paths name the same file: equal, or equal once canonical (a missing file through
