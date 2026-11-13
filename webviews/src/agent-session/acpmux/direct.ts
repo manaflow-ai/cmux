@@ -5821,24 +5821,45 @@ export class AcpmuxDirectClient {
     );
   }
 
-  /// "New since you looked" above the first unseen row (jumpControl.ts), placed when the chat opens
-  /// and when the reader comes back to it; it stays while they read, as before. Nothing unseen at an
-  /// open: no line. One binary search and a short scan, never per frame.
-  private placeUnseenSince(sessionId: string, opening = true): void {
+  /// "New since you looked" above the first unseen row (jumpControl.ts), placed when the chat opens,
+  /// while the page is hidden (`placeLineWhileHidden`) and when the reader comes back to it; it stays
+  /// while they read, as before. Nothing unseen at an open: no line. One binary search and a short
+  /// scan, never per frame. True when an unseen row has the line over it.
+  private placeUnseenSince(sessionId: string, opening = true): boolean {
     const cursor = this.readCursor;
-    if (cursor?.sessionId !== sessionId || this.selectedSessionId !== sessionId) return;
+    if (cursor?.sessionId !== sessionId || this.selectedSessionId !== sessionId) return false;
     const rows = this.rows.sorted().filter((row) => row.kind !== SINCE_DIVIDER);
     const first = firstUnseen(rows, cursor.seq, { current: emptyUnseenScan() }, this.presence.selfId);
     const row = first >= 0 ? rows[first] : undefined;
     if (!row || row.seq === undefined) {
       if (opening && this.since?.sessionId === sessionId) this.since = undefined;
       if (opening) this.placeSince();
-      return;
+      return false;
     }
     const seq = Math.max(cursor.seq, row.seq - 1);
-    if (this.since?.sessionId === sessionId && this.since.seq === seq) return;
-    this.since = { sessionId, seq, turns: unseenTurns(rows, first) };
+    const turns = unseenTurns(rows, first);
+    if (this.since?.sessionId === sessionId && this.since.seq === seq && this.since.turns === turns) return true;
+    this.since = { sessionId, seq, turns };
     this.placeSince();
+    return true;
+  }
+
+  /// The chat whose hidden stretch already has "New since you looked" over its first unseen row.
+  private hiddenLine?: string;
+  /// While the page is hidden, the line goes over the first row the reader did not see as soon as it
+  /// lands, so the hidden page lays it out and the first frame back draws the rows where they rest.
+  /// Placed only on the switch back (after `_acpmux/view` answers), it pushed every row under it
+  /// down in the frames after the reader came back (agent-pane-reveal-in-place.chromium.test.ts).
+  /// Once per hidden stretch: the cursor does not move while hidden. A shown page that the reader
+  /// left idle gets its line on their return, as before: nobody watches it appear.
+  private placeLineWhileHidden(): void {
+    const sessionId = this.selectedSessionId;
+    if (pageShown()) {
+      this.hiddenLine = undefined;
+      return;
+    }
+    if (!sessionId || this.hiddenLine === sessionId) return;
+    if (this.placeUnseenSince(sessionId, false)) this.hiddenLine = sessionId;
   }
 
   private cameOnline = (): void => {
@@ -10416,6 +10437,7 @@ export class AcpmuxDirectClient {
 
   private emitNow(connection: string): void {
     if (this.closed && !this.replayMode && !(this.fedMode && !this.disposed)) return;
+    this.placeLineWhileHidden();
     if (this.snapshotHold) {
       this.snapshotHold.connection = connection;
       // The release draws everything since: no frame-batched snapshot is left waiting.
