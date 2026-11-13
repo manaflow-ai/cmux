@@ -97,6 +97,18 @@ public final class MacPaneMockSession: TerminalSession {
 
     public func stop() { handler = nil }
 
+    /// A full-screen app (vim-style) opens on the alternate screen.
+    public func openFullScreen() {
+        programName = "vim"
+        isAlternateScreen = true
+        handler?(.output(Data(("\u{1B}[?1049h" + fullScreen()).utf8)))
+    }
+
+    private func fullScreen() -> String {
+        "\u{1B}[H\u{1B}[2J" + (1..<ptyGrid.rows).map { "\u{1B}[\($0);1H~" }.joined()
+            + "\u{1B}[\(ptyGrid.rows);1H\"notes.md\" \(ptyGrid.columns)x\(ptyGrid.rows)\u{1B}[1;1H"
+    }
+
     /// "Fit the smallest viewer": the claiming phone's grid where it is smaller.
     private var wantedGrid: (columns: Int, rows: Int) {
         guard claims, let asked else { return paneGrid }
@@ -125,6 +137,8 @@ public final class MacPaneMockSession: TerminalSession {
         var out = ""
         for line in transcript { out += line + "\r\n" }
         out += Self.prompt + line
+        // The full-screen app's screen at the new grid, as the vt-state replay has it.
+        if isAlternateScreen { out += "\u{1B}[?1049h" + fullScreen() }
         return Data(out.utf8)
     }
 
