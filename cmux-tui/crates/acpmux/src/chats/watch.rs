@@ -10,11 +10,17 @@
 //!
 //! - A root whose adapter names its session folders (`cmux_chat_index::session_folders`, Codex)
 //!   is watched as those folders, whole, plus the root's own entries and the root-level files
-//!   the index reads (`classify_path`), each by a kqueue vnode watch (`record_watch::DirWatch`,
-//!   macOS): a write to another file of the root never reaches the daemon. A change of the
-//!   root's entries (a store file or a session folder created, renamed or removed) arms the
-//!   watch again for what the root holds now.
-//! - Every other root, and every root on Linux, is watched whole: it may hold thousands of
+//!   the index reads (`classify_path`). macOS: each by a kqueue vnode watch
+//!   (`record_watch::DirWatch`). Linux: the root's entries by an inotify watch that asks for
+//!   entry changes only (`record_watch::DirWatch`), and each root-level file by an inotify watch
+//!   of its own with its writes (`cmux_config::Watcher::start_with_writes`); notify's recursive
+//!   inotify watch of the whole root woke its thread for every write to Codex's logs. Either way
+//!   a write to another file of the root never reaches the daemon. A change of the root's
+//!   entries (a store file or a session folder created, renamed or removed) arms the watch again
+//!   for what the root holds now, and the index scans the root again: a session folder made
+//!   later is watched before that scan, so a rollout written into it at once is found by the
+//!   scan (inotify gives a folder made later no watch of its own in time for it).
+//! - Every other root is watched whole: it may hold thousands of
 //!   transcripts, too many for a watch per file. The callback drops each path the index does
 //!   not read before anything is handed on: those paths cost the callback, never the chat watch
 //!   thread or the index.
@@ -80,8 +86,8 @@ enum Message {
         rescan: bool,
     },
     /// A root watched by its folders: its entries or one of its own store files changed.
-    /// Sent only by the macOS directory watch, so the variant exists only there.
-    #[cfg(target_os = "macos")]
+    /// Sent only by the directory watch of macOS and Linux, so the variant exists only there.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     RootEntries(usize),
     Stop,
 }
@@ -140,9 +146,14 @@ fn platform_latency() -> Duration {
     Duration::ZERO
 }
 
-/// The session folders `root` is watched by, on a platform with a watch per file (macOS).
+/// The session folders `root` is watched by, on a platform with a watch per file (macOS kqueue,
+/// Linux inotify).
 fn folders_of(root: &WatchedRoot) -> Option<&'static [&'static str]> {
-    if cfg!(target_os = "macos") { cmux_chat_index::session_folders(root.kind) } else { None }
+    if cfg!(any(target_os = "macos", target_os = "linux")) {
+        cmux_chat_index::session_folders(root.kind)
+    } else {
+        None
+    }
 }
 
 /// Which paths the index reads: run in the watch's callback, before any hand-off.
@@ -198,7 +209,7 @@ impl Filter {
 struct Trees {
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     filter: Arc<Filter>,
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    #[cfg_attr(not(any(target_os = "macos", target_os = "linux")), allow(dead_code))]
     tx: Sender<Message>,
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     latency: Duration,
@@ -280,11 +291,15 @@ struct FolderWatch {
     at: usize,
     root: WatchedRoot,
     folders: &'static [&'static str],
-    /// The session folders watched now, and the root-level files the kqueue watch holds.
+    /// The session folders watched now, and the root-level files the entries watch holds.
     watched: HashMap<PathBuf, Tree>,
     files: Vec<PathBuf>,
     #[cfg(target_os = "macos")]
     entries: Option<crate::agent_host::record_watch::DirWatch>,
+    /// The root's entries, and its own files with their writes (a store's WAL that Codex keeps
+    /// open), each watched by itself.
+    #[cfg(target_os = "linux")]
+    entries: Option<(crate::agent_host::record_watch::DirWatch, cmux_config::Watcher)>,
 }
 
 impl FolderWatch {
@@ -295,7 +310,7 @@ impl FolderWatch {
             folders,
             watched: HashMap::new(),
             files: Vec::new(),
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "linux"))]
             entries: None,
         }
     }
@@ -360,13 +375,41 @@ impl FolderWatch {
             }
             self.entries = entries;
         }
+        #[cfg(target_os = "linux")]
+        {
+            let at = self.at;
+            // The old watches stay until the new ones are armed, so no change falls between.
+            let tx = trees.tx.clone();
+            let dir = crate::agent_host::record_watch::DirWatch::start(
+                std::slice::from_ref(&self.root.path),
+                move || tx.send(Message::RootEntries(at)).is_err(),
+            );
+            let tx = trees.tx.clone();
+            // Its first hint (right after it is armed) reads the files once: a write between
+            // the look above and the watch is not missed.
+            let files = cmux_config::Watcher::start_with_writes(self.files.clone(), move || {
+                let _ = tx.send(Message::RootEntries(at));
+            });
+            self.entries = match (dir, files) {
+                (Some(dir), Ok(files)) => Some((dir, files)),
+                (dir, files) => {
+                    let why = files.err().map_or_else(String::new, |e| format!(": {e}"));
+                    let what = if dir.is_none() { "entries" } else { "own files" };
+                    errors.push(format!(
+                        "{}: the root's {what} cannot be watched{why}",
+                        self.root.path.display()
+                    ));
+                    None
+                }
+            };
+        }
         true
     }
 
     fn armed(&self) -> bool {
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
         return self.entries.is_some();
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         return true;
     }
 }
@@ -439,11 +482,11 @@ fn coalesce(source: &mut impl Source, mut on_burst: impl FnMut(Burst) -> bool) {
                         burst.add_path(path);
                     }
                 }
-                #[cfg(target_os = "macos")]
+                #[cfg(any(target_os = "macos", target_os = "linux"))]
                 Some(Message::RootEntries(at)) if !burst.entries.contains(&at) => {
                     burst.entries.push(at)
                 }
-                #[cfg(target_os = "macos")]
+                #[cfg(any(target_os = "macos", target_os = "linux"))]
                 Some(Message::RootEntries(_)) => {}
                 None => {}
                 Some(Message::Stop) => return,
