@@ -25,10 +25,12 @@
 //! A call's path is resolved the way Rust does: through `use` imports (an alias, a group, a glob,
 //! one written `self::`, `super::` or through another import), `crate::`, `self::` and `super::`
 //! into modules in this file or another, through a type alias or a `const` bound to a path,
-//! `Self` and `<T>::`, every glob a glob reaches, and down each `cfg` arm of a gated item. It fails
-//! closed: a call it cannot settle to a known item that is not a read (a path into a module it
-//! cannot read, a `super::` past the root, a loop of imports, or another crate's `metadata`,
-//! `exists`, `try_exists` or `symlink_metadata`) is a row, never skipped (#42003 review).
+//! `Self` and `<T>::`, every glob a glob reaches, a local bound to a path, and down each `cfg`
+//! arm of a gated item; a path used as a value (`.map(std::fs::metadata)`) is judged as a call
+//! is. It fails closed: a call or value it cannot settle to a known item that is not a read (a
+//! path into a module it cannot read, a `super::` past the root, a loop of imports, or another
+//! crate's `metadata`, `exists`, `try_exists` or `symlink_metadata`) is a row, never skipped
+//! (#42003 review).
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -471,7 +473,7 @@ fn parse_file_at(path: &Path) -> Option<syn::File> {
 }
 
 /// Where a call's path leads, in one build.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 enum Settled {
     /// A path in std, core or alloc.
     Std(Vec<String>),
@@ -776,6 +778,9 @@ struct Scan<'a> {
     module: Vec<String>,
     scopes: Vec<Rc<Scope>>,
     self_ty: Option<Vec<String>>,
+    /// The function's locals bound so far: a name bound to a path (`let f = std::fs::metadata;`)
+    /// maps to where that path leads, any other local to nothing.
+    locals: HashMap<String, Rc<Vec<Settled>>>,
     resolver: Resolver<'a>,
     rows: Vec<String>,
 }
@@ -812,22 +817,85 @@ impl Scan<'_> {
     fn row(&mut self, span: proc_macro2::Span, what: String) {
         self.rows.push(format!("{}:{} {what}", self.rel, span.start().line));
     }
+
+    /// Where `segments`, written here, leads in every build: a local's binding, or the path
+    /// resolved through the scopes around it.
+    fn settle(&self, segments: &[String]) -> Vec<Settled> {
+        if let [name] = segments
+            && let Some(local) = self.locals.get(name)
+        {
+            return local.as_ref().clone();
+        }
+        let at = At {
+            module: self.module.clone(),
+            scopes: self.scopes.clone(),
+            self_ty: self.self_ty.clone(),
+        };
+        self.resolver.resolve(&at, segments, STEPS)
+    }
+
+    /// The path `f` is, with `<T>::` followed to `T` (#42352 review F1's class), and how it is
+    /// written.
+    fn path_of(f: &syn::ExprPath) -> (Vec<String>, String) {
+        let mut segments: Vec<String> =
+            f.path.segments.iter().map(|s| s.ident.to_string()).collect();
+        let mut written = segments.join("::");
+        if let Some(q) = &f.qself
+            && q.position == 0
+            && let Some(ty) = type_path(&q.ty)
+        {
+            written = format!("<{}>::{written}", ty.join("::"));
+            segments = [ty, segments].concat();
+        }
+        (segments, written)
+    }
+
+    /// A row when the path `f`, called (`call`) or used as a value, leads to a read in some build
+    /// or cannot be settled (fail closed). Judged by where the path leads: `metadata(p)` after
+    /// `use std::fs::metadata;` is std's, after a local `fn metadata` it is not.
+    fn judge(&mut self, f: &syn::ExprPath, call: bool) {
+        let (segments, written) = Self::path_of(f);
+        let settled = self.settle(&segments);
+        let Some(shown) = settled.iter().find_map(offends) else { return };
+        let written = if call { format!("{written}(..)") } else { format!("{written} as a value") };
+        let what = if shown.starts_with("unresolved: ")
+            || segments.len() == 1
+            || matches!(segments.first().map(String::as_str), Some("self" | "super"))
+        {
+            format!("{written} ({shown})")
+        } else {
+            written
+        };
+        self.row(f.span(), what);
+    }
+
+    /// Runs `visit` with the locals as they are now, and puts them back after: a binding made in
+    /// it (a block's, a closure's, an arm's) ends with it.
+    fn scoped(&mut self, visit: impl FnOnce(&mut Self)) {
+        let outer = self.locals.clone();
+        visit(self);
+        self.locals = outer;
+    }
 }
 
 impl<'ast> Visit<'ast> for Scan<'_> {
     fn visit_item_fn(&mut self, f: &'ast syn::ItemFn) {
         if !is_test_attr(&f.attrs) {
-            // A fresh scope per function: a local's path shape stays in it.
+            // A fresh scope per function: a local's path shape and binding stay in it.
             let outer = std::mem::take(&mut self.paths);
+            let locals = std::mem::take(&mut self.locals);
             syn::visit::visit_item_fn(self, f);
             self.paths = outer;
+            self.locals = locals;
         }
     }
     fn visit_impl_item_fn(&mut self, f: &'ast syn::ImplItemFn) {
         if !is_test_attr(&f.attrs) {
             let outer = std::mem::take(&mut self.paths);
+            let locals = std::mem::take(&mut self.locals);
             syn::visit::visit_impl_item_fn(self, f);
             self.paths = outer;
+            self.locals = locals;
         }
     }
     fn visit_item_mod(&mut self, m: &'ast syn::ItemMod) {
@@ -846,7 +914,7 @@ impl<'ast> Visit<'ast> for Scan<'_> {
             _ => None,
         });
         self.scopes.push(Rc::new(Scope::of(items, false)));
-        syn::visit::visit_block(self, b);
+        self.scoped(|scan| syn::visit::visit_block(scan, b));
         self.scopes.pop();
     }
     fn visit_item_impl(&mut self, i: &'ast syn::ItemImpl) {
@@ -885,7 +953,11 @@ impl<'ast> Visit<'ast> for Scan<'_> {
             m.parse_body_with(Punctuated::<syn::Expr, syn::Token![,]>::parse_terminated)
         {
             for arg in &args {
-                self.visit_expr(arg);
+                // A named format argument (`name = value`): only its value is an expression.
+                match arg {
+                    syn::Expr::Assign(a) => self.visit_expr(&a.right),
+                    _ => self.visit_expr(arg),
+                }
             }
         }
         syn::visit::visit_macro(self, m);
@@ -918,43 +990,61 @@ impl<'ast> Visit<'ast> for Scan<'_> {
         {
             self.paths.insert(ident.to_string());
         }
-        syn::visit::visit_local(self, l);
-    }
-    fn visit_expr_call(&mut self, c: &'ast syn::ExprCall) {
-        if let syn::Expr::Path(f) = &*c.func {
-            let mut segments: Vec<String> =
-                f.path.segments.iter().map(|s| s.ident.to_string()).collect();
-            let mut written = segments.join("::");
-            // `<T>::f`: `T`'s `f`, `T` followed like any path (#42352 review F1's class).
-            if let Some(q) = &f.qself
-                && q.position == 0
-                && let Some(ty) = type_path(&q.ty)
-            {
-                written = format!("<{}>::{written}", ty.join("::"));
-                segments = [ty, segments].concat();
-            }
-            // Judged by where the path leads in every build: `metadata(p)` after
-            // `use std::fs::metadata;` is std's, after a local `fn metadata` it is not, and one
-            // the resolver cannot settle is a row (fail closed).
-            let at = At {
-                module: self.module.clone(),
-                scopes: self.scopes.clone(),
-                self_ty: self.self_ty.clone(),
-            };
-            let settled = self.resolver.resolve(&at, &segments, STEPS);
-            if let Some(shown) = settled.iter().find_map(offends) {
-                let what = if shown.starts_with("unresolved: ")
-                    || segments.len() == 1
-                    || matches!(segments.first().map(String::as_str), Some("self" | "super"))
-                {
-                    format!("{written}(..) ({shown})")
-                } else {
-                    format!("{written}(..)")
-                };
-                self.row(c.span(), what);
+        // The value first, then the names it binds: `let metadata = metadata(p)?;` calls the
+        // import, and a name bound to a path (`let f = std::fs::metadata;`) leads where it does.
+        let bound = l.init.as_ref().and_then(|init| expr_path(&init.expr)).map(|p| self.settle(&p));
+        if let Some(init) = &l.init {
+            self.visit_expr(&init.expr);
+            if let Some((_, diverge)) = &init.diverge {
+                self.visit_expr(diverge);
             }
         }
-        syn::visit::visit_expr_call(self, c);
+        self.visit_pat(&l.pat);
+        if let (Some(ident), Some(bound)) = (ident, bound) {
+            self.locals.insert(ident.to_string(), Rc::new(bound));
+        }
+    }
+    fn visit_pat_ident(&mut self, i: &'ast syn::PatIdent) {
+        self.locals.insert(i.ident.to_string(), Rc::new(Vec::new()));
+        syn::visit::visit_pat_ident(self, i);
+    }
+    fn visit_expr_let(&mut self, l: &'ast syn::ExprLet) {
+        self.visit_expr(&l.expr);
+        self.visit_pat(&l.pat);
+    }
+    fn visit_expr_if(&mut self, i: &'ast syn::ExprIf) {
+        self.scoped(|scan| syn::visit::visit_expr_if(scan, i));
+    }
+    fn visit_expr_while(&mut self, w: &'ast syn::ExprWhile) {
+        self.scoped(|scan| syn::visit::visit_expr_while(scan, w));
+    }
+    fn visit_expr_for_loop(&mut self, f: &'ast syn::ExprForLoop) {
+        self.visit_expr(&f.expr);
+        self.scoped(|scan| {
+            scan.visit_pat(&f.pat);
+            scan.visit_block(&f.body);
+        });
+    }
+    fn visit_expr_closure(&mut self, c: &'ast syn::ExprClosure) {
+        self.scoped(|scan| syn::visit::visit_expr_closure(scan, c));
+    }
+    fn visit_arm(&mut self, a: &'ast syn::Arm) {
+        self.scoped(|scan| syn::visit::visit_arm(scan, a));
+    }
+    fn visit_expr_path(&mut self, p: &'ast syn::ExprPath) {
+        // A path as a value (`.map(std::fs::metadata)`, a field set to `fs::metadata`): a read
+        // passed on is a read. A callee is judged in `visit_expr_call`.
+        self.judge(p, false);
+        syn::visit::visit_expr_path(self, p);
+    }
+    fn visit_expr_call(&mut self, c: &'ast syn::ExprCall) {
+        match &*c.func {
+            syn::Expr::Path(f) => self.judge(f, true),
+            func => self.visit_expr(func),
+        }
+        for arg in &c.args {
+            self.visit_expr(arg);
+        }
     }
     fn visit_expr_method_call(&mut self, m: &'ast syn::ExprMethodCall) {
         let method = m.method.to_string();
@@ -992,6 +1082,7 @@ fn rows_in_module(
             module: module.to_vec(),
             scopes: vec![Rc::clone(&root)],
             self_ty: None,
+            locals: HashMap::new(),
             resolver: Resolver { modules },
             rows: Vec::new(),
         };
@@ -1604,6 +1695,7 @@ fn the_lint_follows_type_aliases_and_other_names_for_a_path() {
         [
             "Path::exists(..)",
             "P::try_exists(..)",
+            "std::fs::metadata as a value",
             "PROBE(..) (std::fs::metadata)",
             "Self::exists(..)",
             "<P>::exists(..)",
