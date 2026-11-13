@@ -435,6 +435,8 @@ fn handle_frame<S: Source + ?Sized>(
                 if let Some(SubscriptionEvents::List(receiver)) = events {
                     let sid = sid.clone();
                     let tx = events_tx.clone();
+                    // concurrency-allow: this task is owned by the connection's event channel;
+                    // dropping the run loop drops its receiver and terminates the task.
                     tokio::spawn(async move {
                         while let Some(item) = receiver.recv().await {
                             let (frame, cursor) = list_item_frame(&sid, item)?;
