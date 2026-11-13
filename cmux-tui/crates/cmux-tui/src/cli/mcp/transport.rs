@@ -84,7 +84,7 @@ pub(super) fn resource(
     prefixes: &[Prefix],
 ) -> Result<Value, CallFailure> {
     use FailureKind::{InProgress, NotRun, Rejected};
-    if plan.stream || !plan.resolve.is_empty() {
+    if plan.stream {
         return Err(CallFailure::local(NotRun, "usage.invalid", "not a plain unary request"));
     }
     resolve::apply_global_route(global, &mut plan)
@@ -153,6 +153,27 @@ pub(super) fn resource(
         }
         request.set("params", plan.params.clone());
     }
+    // The lookups a parsed command asked for (`current` and `caller` as the
+    // caller's own objects, names as ids), as the CLI runs them (wire.rs):
+    // `cmux agents terminal split` splits the pane of the caller (for a
+    // Chief turn the Home chat's pane), never the pane the person has focused.
+    let route = resolve::SocketRoute::new(&socket, derived, global);
+    let caller_route = wire::routes_to_caller_session(global);
+    if !plan.resolve.is_empty() {
+        resolve::apply(&mut reader, &mut plan, caller_route, &route).map_err(|failure| {
+            match failure {
+                resolve::Failure::Resource(error) | resolve::Failure::Local { error, .. } => {
+                    CallFailure { kind: NotRun, error, idempotency_key: key.clone() }
+                }
+                resolve::Failure::Refused => fail(NotRun, "session.busy", "session is busy".into()),
+                resolve::Failure::Transport(message) => fail(NotRun, "transport.failed", message),
+                resolve::Failure::AppAction { action, .. } => {
+                    fail(NotRun, "app.unreachable", format!("{action} is an app action"))
+                }
+            }
+        })?;
+        request.set("params", plan.params.clone());
+    }
     // A browser tab in a session a cmux app owns is the app's to render
     // (frontend_browser.rs), as the CLI's `tab create browser` does.
     #[cfg(unix)]
@@ -164,6 +185,10 @@ pub(super) fn resource(
         key.as_deref(),
     ) {
         return opened.map_err(|failure| app_open_failure(failure, key.as_deref()));
+    }
+    // Any other creation with no place acts in the caller's own (beside.rs).
+    if resolve::place_creation(&mut reader, &mut plan, caller_route, &route) {
+        request.set("params", plan.params.clone());
     }
     // `agents workspace create` from a cmux terminal against an older
     // daemon: sent without `created_by`, as `cmux workspace create` is.

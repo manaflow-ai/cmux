@@ -257,6 +257,12 @@ pub(super) trait Backend {
     fn caller_terminal(&self) -> Option<String> {
         std::env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|id| !id.is_empty())
     }
+    /// The workspace key an agent chat's environment names
+    /// (`CMUX_WORKSPACE_ID`), for a chat the app cannot place (placement.rs
+    /// `workspace_key_place`).
+    fn caller_workspace_key(&self) -> Option<String> {
+        super::beside::Caller::of_process().fallback_workspace_key().map(str::to_owned)
+    }
     /// Holds the session daemon's `session.events` stream open until
     /// `deadline` and calls `on_wake` with each item (the initial snapshot
     /// first, or with `cursor` the journal batches after it), and with

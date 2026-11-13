@@ -12,7 +12,7 @@ use serde_json::{Map, Value, json};
 
 use super::app::{self, ActionName};
 use super::app_focus;
-use super::command::{CommandPlan, RequestPlan, Resolve, ResponseView, WireOperation};
+use super::command::{CommandPlan, RequestPlan, ResponseView, WireOperation};
 use super::mcp::{self, Backend, CallFailure, FailureKind};
 use super::{GlobalArgs, OutputMode, Surface, UsageError, parse_globals, wire};
 use cmux_json::JsonSet as _;
@@ -33,7 +33,7 @@ pub(super) use wait::{
     DEFAULT_TIMEOUT_SECONDS as DEFAULT_WAIT_SECONDS, MAX_TIMEOUT_SECONDS as MAX_WAIT_SECONDS,
 };
 
-const HELP: &str = "Usage: cmux agents <snapshot|workspace|tab|terminal|palette|dialog|chat|wait|events|doctor>\n\nAgent-facing JSON topology. Mutations return the changed result and a fresh topology snapshot. Palette and dialogs are owned by the cmux app.\n\n  cmux agents snapshot\n  cmux agents workspace select <workspace-id>\n  cmux agents workspace create [--name <name>] [--empty] [--top]\n  cmux agents tab select <tab-id>\n  cmux agents terminal focus <tab-id>\n  cmux agents terminal split <left|right|up|down> [--surface <pane-id>]\n  cmux agents palette open\n  cmux agents dialog list [--all]\n  cmux agents dialog answer <request-id> --mode <mode>\n  cmux agents dialog answer <request-id> --selection <value> [--selection <value> ...]\n  cmux agents chat new [--workspace <ws>|--pane <pane>|--top] [--harness <h>] [--model <m>] [--effort <e>] [--mode <m>] [--policy <p>] [--cwd <dir>] [--name <n>] [--attach <file>]... [--] [<prompt>]\n  cmux agents chat send <chat> [--] <text>\n  cmux agents chat read <chat> [--after <item-id>] [--limit <n>]\n  cmux agents chat state <chat>\n  cmux agents chat interrupt <chat>\n  cmux agents chat continue <chat> [[--] <text>]\n  cmux agents wait --until idle|dialog|text [--target <id>] [--text <text> [--regex]] [--timeout <seconds>]\n  cmux agents events [--after <cursor>] [--kind dialog|notification|tab|workspace|agent ...] [--timeout <seconds>] [--limit <n>] [--json]\n  cmux agents events --until <kind>.<change>|<prefix>* [--match <path>=<value> ...] [--timeout <duration>] [--json]   (the first matching event; exit 124 on timeout)\n  cmux agents doctor [--json]\n";
+const HELP: &str = "Usage: cmux agents <snapshot|workspace|tab|terminal|palette|dialog|chat|wait|events|doctor>\n\nAgent-facing JSON topology. Mutations return the changed result and a fresh topology snapshot. Palette and dialogs are owned by the cmux app.\n\n  cmux agents snapshot\n  cmux agents workspace select <workspace-id>\n  cmux agents workspace create [--name <name>] [--empty] [--top]\n  cmux agents tab select <tab-id>\n  cmux agents terminal focus <tab-id>\n  cmux agents terminal split <left|right|up|down> [--surface <pane-id>]   (without --surface: the caller's own pane, for a Chief turn the Home chat's pane; never the pane the person has focused)\n  cmux agents palette open\n  cmux agents dialog list [--all]\n  cmux agents dialog answer <request-id> --mode <mode>\n  cmux agents dialog answer <request-id> --selection <value> [--selection <value> ...]\n  cmux agents chat new [--workspace <ws>|--pane <pane>|--top] [--harness <h>] [--model <m>] [--effort <e>] [--mode <m>] [--policy <p>] [--cwd <dir>] [--name <n>] [--attach <file>]... [--] [<prompt>]\n  cmux agents chat send <chat> [--] <text>\n  cmux agents chat read <chat> [--after <item-id>] [--limit <n>]\n  cmux agents chat state <chat>\n  cmux agents chat interrupt <chat>\n  cmux agents chat continue <chat> [[--] <text>]\n  cmux agents wait --until idle|dialog|text [--target <id>] [--text <text> [--regex]] [--timeout <seconds>]\n  cmux agents events [--after <cursor>] [--kind dialog|notification|tab|workspace|agent ...] [--timeout <seconds>] [--limit <n>] [--json]\n  cmux agents events --until <kind>.<change>|<prefix>* [--match <path>=<value> ...] [--timeout <duration>] [--json]   (the first matching event; exit 124 on timeout)\n  cmux agents doctor [--json]\n";
 
 /// Handles the `agents` namespace before the normal daemon grammar.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
@@ -385,8 +385,10 @@ fn run_resource<B: Backend>(
         }
         Err(error) => return Err(AgentFailure::Usage(error.0)),
     };
-    // `cmux agents` sends plain unary requests with no caller placement: its
-    // `current` is still the focused object, and it has no `caller`.
+    // `current` is the caller's own object, resolved on the request's
+    // connection as for every cmux resource command (mcp/transport.rs): a
+    // Chief turn's is the Home chat's place, never the pane the person has
+    // focused. The explicit `caller` word stays with the resource commands.
     let caller = json!("caller");
     if plan.params.as_object().is_some_and(|params| {
         super::command::plan::CALLER_SCOPES.iter().any(|scope| params.get(*scope) == Some(&caller))
@@ -396,7 +398,6 @@ fn run_resource<B: Backend>(
                 .into(),
         ));
     }
-    plan.resolve.retain(|step| *step != Resolve::Caller);
     if plan.operation.class() == OperationClass::Mutation {
         plan.idempotency_key = Some(change_key(idempotency_key)?);
     }

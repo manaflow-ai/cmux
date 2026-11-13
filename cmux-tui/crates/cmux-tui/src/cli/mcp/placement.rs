@@ -1,6 +1,7 @@
 //! Where a call that names no place acts: the caller's own place for
-//! `current` and `focused` ([`super::caller_scope`]), and beside the
-//! caller's chat for a new terminal or link ([`crate::cli::beside`]).
+//! `current` and `focused` ([`super::caller_scope`]) and for a creation
+//! with no place ([`crate::cli::beside`]: beside the caller's chat for a new
+//! terminal, profile browser tab or link).
 
 use std::borrow::Cow;
 
@@ -17,8 +18,23 @@ use cmux_json::JsonSet as _;
 /// right of it; `None` when the environment names no caller (a client
 /// outside a cmux chat or terminal).
 pub(super) fn app_identity(global: &crate::cli::GlobalArgs) -> Result<Option<Value>, CallFailure> {
-    if crate::cli::app::caller_from(|key| std::env::var(key).ok()).is_none() {
+    let caller = crate::cli::beside::Caller::of_process();
+    if !caller.is_known() {
         return Ok(None);
+    }
+    // A Chief turn's place is the Home chat of the app that owns this
+    // server's daemon. A Cloud Chief turn reaches the person's Mac app over a
+    // relay while its daemon is the VM's, where the Mac's Home ids name
+    // nothing: there it has no place, and its calls keep the daemon's own
+    // `current` (https://github.com/manaflow-ai/cmux/issues/25590).
+    if caller.home_chat {
+        let owned =
+            crate::cli::wire::resolve_socket_with_origin(global).ok().is_some_and(|(socket, _)| {
+                crate::cli::frontend_browser::owning_app_socket(global, &socket).is_some()
+            });
+        if !owned {
+            return Ok(None);
+        }
     }
     let timeout = crate::cli::app::READ_TIMEOUT;
     transport::app_method(global, "system.identify", json!({}), timeout, None, false).map(Some)
@@ -33,18 +49,29 @@ pub(super) fn app_focus(global: &crate::cli::GlobalArgs) -> Result<Option<Value>
 }
 
 impl<B: Backend> Server<B> {
-    /// A terminal tab or web link that names no place goes beside the
-    /// caller's chat, in its own workspace ([`super::beside`]): the column
-    /// right of the chat takes it, and with none a split makes one (that
-    /// split's answer is the `Err`, the call's result). A client the app
-    /// does not place keeps the daemon's default.
+    /// A creation that names no place acts in the caller's own
+    /// ([`crate::cli::beside`]), never in the daemon's active workspace,
+    /// which follows the person's focus. A terminal tab, a profile browser
+    /// tab or a web link goes beside the caller's chat: the column right of
+    /// the chat takes it, and with none a split makes one (that split's
+    /// answer is the `Err`, the call's result). A pane, a screen and any tab
+    /// the app does not place go to the caller's own workspace, screen and
+    /// pane when the request is sent. A client with no caller keeps the
+    /// daemon's default.
     pub(super) fn place_beside<'a>(
         &self,
         tool: &v2_tools::V2Tool,
         arguments: &'a Map<String, Value>,
     ) -> Result<Cow<'a, Map<String, Value>>, Value> {
-        let terminal = tool.wire == "tab.create_terminal";
-        let open_url = tool.wire == "workspace.open_url";
+        use crate::cli::beside::{self, Kind, Placement};
+        use cmux_tui_core::resource::ResourceOperation;
+
+        if beside::creation_scopes(tool.operation).is_none() {
+            return Ok(Cow::Borrowed(arguments));
+        }
+        let terminal = tool.operation == ResourceOperation::TabCreateTerminal;
+        let open_url = tool.operation == ResourceOperation::WorkspaceOpenUrl;
+        let profile = tool.operation == ResourceOperation::BrowserProfileOpen;
         // `pane: "current"` would put the terminal over this chat's own pane; models write
         // it by reflex for "on my right" (tests/tool-evals r13a: GPT 6 Astra and 6.1 Sol in
         // 8 samples, after the sheet said no pane). It goes beside the chat like no pane;
@@ -53,7 +80,7 @@ impl<B: Backend> Server<B> {
         let current = |key: &str| arguments.get(key).and_then(Value::as_str) == Some("current");
         let own_pane = terminal
             && current("pane")
-            && crate::cli::beside::PARENTS.iter().all(|key| {
+            && beside::PARENTS.iter().all(|key| {
                 *key == "pane"
                     || !arguments.contains_key(*key)
                     || (*key == "workspace" && current(key))
@@ -66,44 +93,75 @@ impl<B: Backend> Server<B> {
         } else {
             Cow::Borrowed(arguments)
         };
-        if !(terminal || open_url)
-            || arguments.contains_key("session")
-            || !crate::cli::beside::names_no_place(&unplaced)
-        {
+        if arguments.contains_key("session") || !beside::names_no_place(&unplaced) {
             return Ok(Cow::Borrowed(arguments));
         }
-        let identity = match self.backend.identity() {
-            Ok(identity) => identity,
-            // No app: a terminal still goes beside the chat, from the
-            // daemon's own layout. A link keeps the daemon's
-            // `workspace.open_url`, since `browser.open_split` needs the app.
-            Err(_) if terminal => self.daemon_identity(),
-            Err(_) => None,
-        };
-        let Some(placement) =
-            identity.and_then(|identity| crate::cli::beside::placement(&identity))
-        else {
-            return Ok(Cow::Borrowed(arguments));
-        };
-        if open_url {
-            return Err(self.open_beside(&unplaced));
+        if terminal || open_url || profile {
+            let answer = match self.backend.identity() {
+                Ok(identity) => identity,
+                // No app: a terminal still goes beside the chat, from the
+                // daemon's own layout.
+                Err(_) if terminal => self.daemon_identity(),
+                Err(_) => None,
+            };
+            // An MCP client is an agent, in a chat or in a terminal: its tab
+            // goes beside it whatever the app's version.
+            let kind = if terminal { Kind::Terminal } else { Kind::Browser };
+            match answer.and_then(|identity| beside::placement_of(&identity, kind)) {
+                // The app's `browser.open_split` places a link beside the chat.
+                Some(_) if open_url => return Err(self.open_beside(&unplaced)),
+                Some(Placement::Pane { workspace, pane }) => {
+                    let mut with_place = Map::clone(&unplaced);
+                    with_place.insert("workspace".into(), json!(workspace));
+                    with_place.insert("pane".into(), json!(pane));
+                    return Ok(Cow::Owned(with_place));
+                }
+                Some(Placement::NewColumn { workspace, chat_pane }) => {
+                    let split = beside::split_params(&unplaced, &workspace, &chat_pane);
+                    return Err(self.split_for(tool, &unplaced, &workspace, split));
+                }
+                Some(Placement::SplitBelow { workspace, pane }) => {
+                    let split = beside::split_below_params(&unplaced, &workspace, &pane);
+                    return Err(self.split_for(tool, &unplaced, &workspace, split));
+                }
+                None => {}
+            }
         }
-        let mut with_place = Map::clone(&unplaced);
-        match placement {
-            crate::cli::beside::Placement::Pane { workspace, pane } => {
-                with_place.insert("workspace".into(), json!(workspace));
-                with_place.insert("pane".into(), json!(pane));
-            }
-            crate::cli::beside::Placement::NewColumn { workspace, chat_pane } => {
-                let split = crate::cli::beside::split_params(&unplaced, &workspace, &chat_pane);
-                return Err(self.split_for(&unplaced, &workspace, split));
-            }
-            crate::cli::beside::Placement::SplitBelow { workspace, pane } => {
-                let split = crate::cli::beside::split_below_params(&unplaced, &workspace, &pane);
-                return Err(self.split_for(&unplaced, &workspace, split));
-            }
+        // Every other creation, and a tab the app does not place, gets the
+        // caller's own workspace, screen and pane on the request's own
+        // connection, as the CLI's does (transport.rs, resolve.rs
+        // `place_creation`). A browser tab an app renders is placed by the
+        // caller its run names (frontend_browser.rs).
+        Ok(Cow::Borrowed(arguments))
+    }
+
+    /// The place of the workspace an agent chat's environment names
+    /// (`CMUX_WORKSPACE_ID`), when this session has it: the workspace and,
+    /// while it has them, its active screen, pane and tab.
+    fn workspace_key_place(&self) -> Option<Map<String, Value>> {
+        let key = self.backend.caller_workspace_key()?;
+        let ask = |tool: &str, arguments: Map<String, Value>| {
+            let call = v2_tools::find(tool)?.plan(&arguments).ok()?;
+            let answer = self.backend.resource(None, call.plan, &call.prefixes).ok()?;
+            Some(answer.get("value").cloned().unwrap_or(answer))
+        };
+        let workspaces = ask("workspace_list", Map::new())?;
+        let workspace = crate::cli::beside::workspace_of_key(&workspaces, &key)?;
+        let mut path = Map::new();
+        let mut selector = Map::new();
+        selector.insert("workspace".into(), json!(workspace));
+        path.insert("workspace".into(), json!(workspace));
+        for (tool, scope) in [("screen_get", "screen"), ("pane_get", "pane"), ("tab_get", "tab")] {
+            selector.insert(scope.into(), json!("current"));
+            let Some(id) = ask(tool, selector.clone())
+                .and_then(|record| record.get("id").and_then(Value::as_str).map(str::to_owned))
+            else {
+                break;
+            };
+            selector.insert(scope.into(), json!(id));
+            path.insert(scope.into(), json!(id));
         }
-        Ok(Cow::Owned(with_place))
+        Some(path)
     }
 
     /// A link an agent opens with no workspace: the app's `browser.open_split`
@@ -125,11 +183,14 @@ impl<B: Backend> Server<B> {
         }
     }
 
-    /// The terminal a `tab_create_terminal` asked for, opened by `split` (a
-    /// new column right of the chat, or a pane below the column's lone pane
-    /// of another kind), then given its name.
+    /// The tab a creation asked for, in the new pane `split` makes (a new
+    /// column right of the chat, or a pane below the column's lone pane of
+    /// another kind). A terminal is the split's own tab, then given its
+    /// name. A profile browser tab opens in the new pane, whose shell tab
+    /// then ends, which leaves the pane to the browser.
     fn split_for(
         &self,
+        tool: &v2_tools::V2Tool,
         arguments: &Map<String, Value>,
         workspace: &str,
         mut split: Map<String, Value>,
@@ -138,20 +199,23 @@ impl<B: Backend> Server<B> {
         if let Some(key) = key {
             split.insert("idempotency_key".into(), json!(format!("{key}-beside")));
         }
-        let Some(tool) = v2_tools::find("pane_split") else {
+        let Some(pane_split) = v2_tools::find("pane_split") else {
             return tool_error(envelope(
                 v2_tools::invalid("pane_split is unavailable"),
                 "not_run",
                 None,
             ));
         };
-        let result = self.call_v2(tool, &split);
+        let result = self.call_v2(pane_split, &split);
         if result["isError"] == true {
             return result;
         }
         // A change answers `{revision, value}`; `value` is the created path.
         let answer = &result["structuredContent"];
         let created = if answer["value"].is_object() { &answer["value"] } else { answer };
+        if tool.operation == cmux_tui_core::resource::ResourceOperation::BrowserProfileOpen {
+            return self.open_in_new_pane(tool, arguments, workspace, created);
+        }
         if let Some(mut rename) = crate::cli::beside::rename_params(arguments, workspace, created) {
             rename.remove("machine");
             if let Some(key) = key {
@@ -166,6 +230,40 @@ impl<B: Backend> Server<B> {
             }
         }
         result
+    }
+
+    /// Opens `tool`'s browser tab in the pane a split `created`, then ends
+    /// that pane's shell. A failed open ends the shell too, and with it the
+    /// new pane.
+    fn open_in_new_pane(
+        &self,
+        tool: &v2_tools::V2Tool,
+        arguments: &Map<String, Value>,
+        workspace: &str,
+        created: &Value,
+    ) -> Value {
+        let text = |field: &str| created.get(field).and_then(Value::as_str);
+        let (Some(pane), Some(shell)) = (text("pane_id"), text("terminal_id")) else {
+            return tool_error(envelope(
+                v2_tools::invalid("the split made no pane for the browser tab"),
+                "in_progress",
+                None,
+            ));
+        };
+        let mut open = arguments.clone();
+        open.insert("workspace".into(), json!(workspace));
+        open.insert("pane".into(), json!(pane));
+        let opened = self.call_v2(tool, &open);
+        if let Some(close) = v2_tools::find("terminal_close") {
+            let mut end = Map::new();
+            end.insert("terminal".into(), json!(shell));
+            if let Some(key) = arguments.get("idempotency_key").and_then(Value::as_str) {
+                end.insert("idempotency_key".into(), json!(format!("{key}-shell")));
+            }
+            // The browser tab is open either way; a shell that stays is closed by hand.
+            let _ = self.call_v2(close, &end);
+        }
+        opened
     }
 
     /// Puts the caller's own ids in place of `current` selectors and the
@@ -190,22 +288,34 @@ impl<B: Backend> Server<B> {
         let caller = if caller_scope::wants_caller(params) {
             match self.backend.identity() {
                 // The app answers an agent session it has no chat for
-                // with `found: false` and no workspace.
+                // with `found: false` and no workspace: the workspace the
+                // chat's environment names stands in, when this session has it.
                 Ok(Some(identity)) => {
                     let caller = identity.get("caller").cloned().unwrap_or(Value::Null);
                     if !caller_scope::is_placed(&caller) {
-                        return Err(caller_scope::unresolved("the app does not know this chat"));
+                        match self.workspace_key_place() {
+                            Some(place) => Some(Value::Object(place)),
+                            None => {
+                                return Err(caller_scope::unresolved(
+                                    "the app does not know this chat",
+                                ));
+                            }
+                        }
+                    } else {
+                        if browser {
+                            crate::cli::caller_browser::apply(params, &identity)?;
+                        }
+                        Some(caller)
                     }
-                    if browser {
-                        crate::cli::caller_browser::apply(params, &identity)?;
-                    }
-                    Some(caller)
                 }
                 Ok(None) => None,
                 // No app (a cmux TUI or Cloud session): the daemon knows the
                 // caller's terminal, as it does for the CLI (resolve.rs
-                // `caller_path_of`).
-                Err(failure) => match self.daemon_caller() {
+                // `caller_path_of`), and an agent chat's workspace by its key.
+                Err(failure) => match self
+                    .daemon_caller()
+                    .or_else(|| self.workspace_key_place().map(Value::Object))
+                {
                     Some(caller) => Some(caller),
                     None => {
                         let message = failure
