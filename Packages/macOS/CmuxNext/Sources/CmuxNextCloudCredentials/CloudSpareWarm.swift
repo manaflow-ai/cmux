@@ -32,9 +32,10 @@ public import os
         guard let userID = auth.user?.id, claimed == nil || CloudMoveCLI.copiesLoginOnClaim(.standard) else { return }
         let teamID = auth.teamID
         let ask: @MainActor @Sendable () async -> Asked? = { [self] in
+            let scope = await CloudWarmLoginScope().read(platform: platform, identity: installIdentity, userID: userID, teamID: teamID, otherTeams: auth.loginScopes)
             guard let token = try? await auth.tokens().access, let install = try? await installIdentity.installToken(),
-                  let copy = await cli.startChatWarmSpare(platform: platform, account: userID, access: token, install: install, claimed: claimed) else { return nil }
-            return Asked(copy: copy, token: token, install: install)
+                  let copy = await cli.startChatWarmSpare(platform: platform, account: userID, access: token, install: install, claimed: claimed, scope: scope) else { return nil }
+            return Asked(copy: copy, token: token, install: install, scope: scope)
         }
         let answer = claimed.map { claims.register($0, ask) }
         // task-owner: none; one bounded warm, its calls' own timeouts end it, and Rust's lock and throttle answer repeats.
@@ -44,46 +45,47 @@ public import os
             guard let asked else { return }
             let (copy, token, install) = (asked.copy, asked.token, asked.install)
             let still: @MainActor @Sendable () async throws -> Bool = { [auth] in auth.user?.id == userID && auth.teamID == teamID }
-            let installed = await copyLogin(onto: copy.machineID, userID: userID, teamID: teamID, still: still)
-            let kept = installed ? true : (try? await still()) == true
-            // An installed copy is the receipt a start onto this machine takes instead of checking the login again.
-            let end: CloudMoveCLI.SpareWarmEnd = installed ? .installed(copy.machineID) : kept ? .finished(copy.machineID) : .abandoned(copy.machineID)
-            _ = await cli.startChatWarmSpare(platform: platform, account: userID, access: token, install: install, end: end)
+            let result = await copyLogin(onto: copy.machineID, userID: userID, teamID: teamID, still: still)
+            let currentScope = await CloudWarmLoginScope().read(platform: platform, identity: installIdentity, userID: userID, teamID: teamID, otherTeams: auth.loginScopes)
+            let end: CloudMoveCLI.SpareWarmEnd = (try? await still()) == true ? result : .abandoned(copy.machineID)
+            _ = await cli.startChatWarmSpare(platform: platform, account: userID, access: token, install: install, end: end,
+                                            generation: copy.generation, scope: asked.scope, currentScope: currentScope)
         }
     }
 
     /// Rust's answer to a warm or a claim that hands the App a copy, and the tokens that report its end.
-    struct Asked: Sendable { var copy: CloudMoveCLI.SpareWarm, token: String, install: String }
+    struct Asked: Sendable { var copy: CloudMoveCLI.SpareWarm, token: String, install: String; var scope: CloudMoveCLI.SpareLoginScope? }
 
     /// The start's Claude copy with no prompt: only a verdict that installs as is (a cached login, consent given) copies;
-    /// never as a team guest. Answers whether a login was installed; never throws.
-    func copyLogin(onto machineID: String, userID: String, teamID: String?, still: @escaping @MainActor @Sendable () async throws -> Bool) async -> Bool {
+    /// never as a team guest. Rust also recognizes a verified existing login; never throws.
+    func copyLogin(onto machineID: String, userID: String, teamID: String?, still: @escaping @MainActor @Sendable () async throws -> Bool) async -> CloudMoveCLI.SpareWarmEnd {
         let otherTeams = auth.loginScopes, pinned = api.pinningTeam(teamID)
         var decision = CloudHarnessLoginDecision(dogfood: dogfood, setting: CloudCredentialTransfer.passHarnessLoginSetting(.standard), harness: "claude", signedIn: true)
         await gate.read(into: &decision)
         CloudHarnessLoginAsk(headless: true).apply(to: &decision, userID: userID)
         defer { logger.info("\(Self.step, privacy: .public): harness login \(decision.summary, privacy: .public)") }
         do {
-            guard decision.verdict.gate, decision.verdict.transferProvider == .claude else { return false }
+            guard decision.verdict.gate, decision.verdict.transferProvider == .claude else { return .finished(machineID) }
             decision.callerOwns = try await still()
             try await decision.readMachine(on: pinned, machineID: machineID, teamID: teamID, userID: userID, otherTeams: otherTeams)
-            guard decision.verdict.transferProvider == .claude, decision.verdict.step == .install else { return false }
+            if decision.verdict.warmVerified == true { return .verified(machineID) }
+            guard decision.verdict.transferProvider == .claude, decision.verdict.step == .install else { return .finished(machineID) }
             if let outcome = try await CloudCredentialTransfer.CachedLogin.startOutcome({
                 await CloudCredentialTransfer.cachedLogin(provider: .claude, teamID: teamID, userID: userID, otherTeams: otherTeams)
             }) {
                 decision.outcome = outcome
-                return false
+                return .finished(machineID)
             }
-            guard auth.user?.id == userID, auth.teamID == teamID else { return false }
+            guard auth.user?.id == userID, auth.teamID == teamID else { return .finished(machineID) }
             let transfer = CloudCredentialTransfer(provider: .claude, machineID: machineID, teamID: teamID, userID: userID, otherTeams: otherTeams,
                                                    guestCheckedAt: decision.guestCheckedAt, openTerminal: { _ in false })
             try await transfer.run(api: api, currentTeamID: { [auth] in auth.teamID }, currentUserID: { [auth] in auth.user?.id },
                                    confirmed: true, callerOwnsVM: still, stillAllowed: gate.stillAllowed)
             decision.outcome = "installed"
-            return true
+            return .installed(machineID)
         } catch {
             decision.outcome = CloudHarnessLoginDecision.loginOutcome(error, cancelled: Task.isCancelled)
-            return false
+            return .finished(machineID)
         }
     }
 }
@@ -101,10 +103,15 @@ public extension CloudHarnessLoginDecision {
     /// ``CloudSpareWarm`` reports its copy installed); then the start records ``warmReceipt`` and reads and passes no login
     /// of its own (Leo, 2026-11-10: "if they're logged in why do we need to re-check their login after the critical path").
     /// Never for a `--login` word, which decides for itself; no harness named is Claude, as the rules read it.
-    mutating func takeWarmReceipt(cli binary: URL?, machine: String, userID: String?, ask: CloudHarnessLoginAsk) async -> Bool {
-        guard ask.requested == nil, let binary, let userID else { return false }
-        let provider = harness.flatMap { $0.isEmpty ? nil : $0 } ?? CloudCredentialTransfer.Provider.claude.rawValue
-        guard await CloudMoveCLI(binary: binary).startChatLoginReceipt(machine: machine, account: userID, provider: provider) else { return false }
+    mutating func takeWarmReceipt(cli binary: URL?, machine: String, userID: String?, ask: CloudHarnessLoginAsk,
+                                  claims: CloudClaimedCopyRegistrations,
+                                  readScope: @MainActor @Sendable () async -> CloudMoveCLI.SpareLoginScope?) async -> Bool {
+        guard ask.requested == nil, let binary, let userID, let provider = verdict.transferProvider else { return false }
+        let cli = CloudMoveCLI(binary: binary)
+        await claims.registered(machine)
+        await cli.startChatWaitCopy(machine: machine, provider: provider.rawValue)
+        let scope = await readScope()
+        guard await cli.startChatLoginReceipt(machine: machine, account: userID, provider: provider.rawValue, scope: scope) else { return false }
         outcome = Self.warmReceipt
         return true
     }

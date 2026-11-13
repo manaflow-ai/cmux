@@ -281,6 +281,9 @@ pub struct Decision {
     /// warm copies ([`warm_copies`]). Only such a start waits on that copy; any other never waits.
     pub warm_copy_conflict: bool,
     /// One line for the log and the `cloud.machines` row; no token, path or provider output.
+    /// A known login on an owned spare can be reused without another guest read.
+    /// `Working` is deliberately excluded: it also represents an unreachable provider.
+    pub warm_verified: bool,
     pub summary: String,
 }
 
@@ -513,6 +516,11 @@ pub fn decide(d: &Inputs) -> Decision {
             && step != Step::Refuse
             && choice(d) != Some(Choice::Machine)
             && d.provider.is_some_and(warm_copies),
+        warm_verified: reason == Reason::MachineLoginKept
+            && d.provider == Some(Provider::Claude)
+            && kind == Some("owner")
+            && matches!(d.machine_login, Some(MachineLogin::Cached | MachineLogin::Session))
+            && d.machine_probe.as_ref().is_none_or(|probe| probe.exit_code == 0),
         summary: summary(d, step, reason),
     }
 }
