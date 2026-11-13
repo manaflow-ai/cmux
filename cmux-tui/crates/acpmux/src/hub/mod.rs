@@ -1952,6 +1952,7 @@ impl Hub {
             background_turns: StdMutex::new(Default::default()),
             processes: StdMutex::new(Default::default()),
             pr_creates: StdMutex::new(Default::default()),
+            pr_closes: StdMutex::new(Default::default()),
             touch_queue: StdMutex::new(Default::default()),
             overlaps_told: StdMutex::new(Default::default()),
             start_calls: StdMutex::new(Default::default()),
