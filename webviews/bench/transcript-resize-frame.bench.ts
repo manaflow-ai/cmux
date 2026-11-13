@@ -18,7 +18,7 @@
 //   bun bench/transcript-resize-frame.bench.ts [turns=100,1500] [rounds=3]
 /// <reference types="bun" />
 import path from "node:path";
-import { chromium } from "playwright";
+import { chromium } from "./browsers";
 import { createServer } from "vite";
 import { warmViteServer } from "../test/support/warmDevServer";
 import { perfRow, TARGET_MS } from "./perfRow";
