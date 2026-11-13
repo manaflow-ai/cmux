@@ -176,6 +176,7 @@ public final class ConnectivityIncidentReporter {
 
     public init(file: URL?, app: ConnectivityIncidentApp = .current(), rules: ConnectivityIncidentDetector.Rules = .init(),
                 clock: any Clock<Duration> = ContinuousClock(), now: @escaping @Sendable () -> Date = { Date() },
+                watches: Bool = true,
                 isTeam: @escaping @MainActor () -> Bool = { ConnectivityTelemetry.shared.audience == .team },
                 check: @escaping Check, send: @escaping Send) {
         detector = ConnectivityIncidentDetector(rules: rules)
@@ -183,7 +184,12 @@ public final class ConnectivityIncidentReporter {
         self.app = app
         self.clock = clock
         self.now = now
-        self.isTeam = isTeam
+        // A reporter that does not watch (a headless coordinator) never checks or opens anything.
+        if watches {
+            self.isTeam = isTeam
+        } else {
+            self.isTeam = { false }
+        }
         self.check = check
         self.send = send
         outbox = file.flatMap { try? JSONDecoder().decode(ConnectivityIncidentOutbox.self, from: Data(contentsOf: $0)) } ?? .init()
