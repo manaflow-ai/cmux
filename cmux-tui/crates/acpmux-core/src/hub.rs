@@ -189,6 +189,11 @@ pub struct ListReceiver {
     published: Arc<ArcSwap<SummaryIndex>>,
 }
 
+pub(crate) enum RawRead {
+    Span(history::RawSpan),
+    Lagged,
+}
+
 impl Drop for ListReceiver {
     fn drop(&mut self) {
         if let Ok(mut subscribers) = self.subscribers.lock() {
@@ -219,7 +224,7 @@ impl ListReceiver {
             }
             state.cursor
         };
-        let (first, last, bytes) = {
+        let bytes = {
             let history = self.history.lock().ok()?;
             let first = history.first_seq();
             let last = history.last_seq().unwrap_or_else(|| self.published.load().seq());
@@ -232,11 +237,25 @@ impl ListReceiver {
                 }
                 return Some(ListItem::Lagged { cursor });
             }
-            let bytes = history.after(cursor, cursor.saturating_add(1))?;
-            (first, last, bytes)
+            match history.after(cursor, cursor.saturating_add(1)) {
+                Some(bytes) => bytes,
+                None => {
+                    if let Ok(mut state) = self.subscriber.state.lock() {
+                        state.ended = true;
+                    }
+                    return Some(ListItem::Lagged { cursor });
+                }
+            }
         };
-        let _ = (first, last);
-        let item = history::decode(bytes).ok()?.into_iter().next()?;
+        let item = match history::decode(bytes).ok().and_then(|items| items.into_iter().next()) {
+            Some(item) => item,
+            None => {
+                if let Ok(mut state) = self.subscriber.state.lock() {
+                    state.ended = true;
+                }
+                return Some(ListItem::Lagged { cursor });
+            }
+        };
         let seq = match &item {
             ListItem::Summary(event) => event.seq,
             ListItem::Gone { seq, .. } => *seq,
@@ -247,6 +266,58 @@ impl ListReceiver {
             state.cursor = state.cursor.max(seq);
         }
         Some(item)
+    }
+
+    /// Reads a bounded span of the ring without decoding its operations.
+    /// `through` limits a replay to the target captured when it opened; `None`
+    /// follows the live tail. A malformed or expired span is reported as a
+    /// lag so the connection can open one fresh window.
+    pub(crate) fn try_next_raw(&self, through: Option<u64>, max_bytes: usize) -> Option<RawRead> {
+        let cursor = {
+            let state = self.subscriber.state.lock().ok()?;
+            if state.ended {
+                return None;
+            }
+            state.cursor
+        };
+        let span = {
+            let history = self.history.lock().ok()?;
+            let last = history.last_seq().unwrap_or_else(|| self.published.load().seq());
+            // A live pump consumes exactly one operation. A replay captures
+            // its target once and may consume several bounded spans.
+            let target = through.unwrap_or(cursor.saturating_add(1)).min(last);
+            if cursor >= target {
+                return None;
+            }
+            if history.first_seq().is_some_and(|first| cursor.saturating_add(1) < first) {
+                None
+            } else {
+                history.after_frame(cursor, target, max_bytes)
+            }
+        };
+        let Some(span) = span.filter(history::RawSpan::is_valid) else {
+            if let Ok(mut state) = self.subscriber.state.lock() {
+                state.ended = true;
+            }
+            return Some(RawRead::Lagged);
+        };
+        if let Ok(mut state) = self.subscriber.state.lock() {
+            state.cursor = state.cursor.max(span.last_seq);
+        }
+        Some(RawRead::Span(span))
+    }
+
+    pub(crate) async fn recv_raw(&self, through: Option<u64>, max_bytes: usize) -> Option<RawRead> {
+        loop {
+            let changed = self.subscriber.notify.notified();
+            if let Some(item) = self.try_next_raw(through, max_bytes) {
+                return Some(item);
+            }
+            if self.subscriber.state.lock().ok()?.ended {
+                return None;
+            }
+            changed.await;
+        }
     }
 
     pub async fn recv(&self) -> Option<ListItem> {
@@ -277,7 +348,13 @@ pub struct Hub {
     updates: Arc<UpdateQueue>,
     subscribers: Arc<Mutex<Vec<Arc<Subscriber>>>>,
     history: Arc<Mutex<History>>,
+    page_provider: Arc<Mutex<Option<Arc<dyn PageProvider>>>>,
     sources: Arc<ArcSwap<HashMap<String, Source>>>,
+}
+
+/// Supplies rows that are outside the hot summary index for a bounded keyed page.
+pub trait PageProvider: Send + Sync {
+    fn row(&self, key: &RowKey) -> std::io::Result<Option<Arc<Summary>>>;
 }
 
 /// Explicit name for the published summary hub used by later actors.
@@ -416,6 +493,7 @@ impl Hub {
             updates: updates.clone(),
             subscribers: subscribers.clone(),
             history: history.clone(),
+            page_provider: Arc::new(Mutex::new(None)),
             sources: sources.clone(),
         };
         let mut writer = HubWriter {
@@ -519,6 +597,24 @@ impl Hub {
         self.published.load_full()
     }
 
+    #[cfg(test)]
+    pub(crate) fn reset_history_encoded_ops(&self) {
+        if let Ok(history) = self.history.lock() {
+            history.reset_encoded_ops();
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn history_encoded_ops(&self) -> usize {
+        self.history.lock().map_or(0, |history| history.encoded_ops())
+    }
+
+    pub fn set_page_provider(&self, provider: Arc<dyn PageProvider>) {
+        if let Ok(mut slot) = self.page_provider.lock() {
+            *slot = Some(provider);
+        }
+    }
+
     pub fn resume_target(&self, cursor: u64) -> Result<Option<u64>, HubError> {
         let history = self.history.lock().map_err(|_| HubError::WriterGone)?;
         let target = history.last_seq().unwrap_or_else(|| self.published.load().seq());
@@ -570,6 +666,24 @@ impl Hub {
         })
     }
 
+    /// Registers a subscriber at a retained cursor without constructing a
+    /// window. Resume callers use this path when the first response is a raw
+    /// ring span; a window is built only on a fresh or lagged resume.
+    pub fn subscribe_replay(&self, sub: &Sub, cursor: u64) -> Result<ListReceiver, HubError> {
+        if sub.stream.as_str() != "list" {
+            return Err(HubError::WrongStream(sub.stream.as_str().to_owned()));
+        }
+        validate_window(sub)?;
+        let subscriber = Arc::new(Subscriber::new(cursor));
+        self.subscribers.lock().map_err(|_| HubError::WriterGone)?.push(subscriber.clone());
+        Ok(ListReceiver {
+            subscriber,
+            subscribers: self.subscribers.clone(),
+            history: self.history.clone(),
+            published: self.published.clone(),
+        })
+    }
+
     /// Builds one bounded first frame from the current published index. It does
     /// not hydrate chats or construct a whole-list reply.
     pub fn list_window(&self, sub: &Sub) -> Result<Frame, HubError> {
@@ -599,16 +713,29 @@ impl Hub {
             ),
             _ => (None, ReadSide::After),
         };
-        let page = index
-            .read_page(
-                key.as_ref(),
-                side,
-                true,
-                requested,
-                crate::wire::MAX_PAGE_BYTES.saturating_sub(8192 + sub.sid.len()),
-                sub.filter.as_ref(),
-            )
-            .map_err(HubError::page_error)?;
+        let page = if matches!(sub.view, Some(crate::wire::ListView::Live)) {
+            index
+                .read_live_page(
+                    key.as_ref(),
+                    side,
+                    true,
+                    requested,
+                    crate::wire::MAX_PAGE_BYTES.saturating_sub(8192 + sub.sid.len()),
+                    sub.filter.as_ref(),
+                )
+                .map_err(HubError::page_error)?
+        } else {
+            index
+                .read_page(
+                    key.as_ref(),
+                    side,
+                    true,
+                    requested,
+                    crate::wire::MAX_PAGE_BYTES.saturating_sub(8192 + sub.sid.len()),
+                    sub.filter.as_ref(),
+                )
+                .map_err(HubError::page_error)?
+        };
         let window = Window {
             sid: sub.sid.clone(),
             cursor,
@@ -642,6 +769,55 @@ impl Hub {
         if request.stream.as_str() != "list" {
             return Err(HubError::WrongStream(request.stream.as_str().to_owned()));
         }
+        let max = request.max_bytes as usize;
+        if max > crate::wire::MAX_PAGE_BYTES || max <= 8192 + request.sid.len() {
+            return Err(HubError::InvalidPage);
+        }
+        if let Some(keys) = request.keys.as_ref() {
+            if keys.is_empty()
+                || keys.len() > 100
+                || request.before.is_some()
+                || request.after.is_some()
+            {
+                return Err(HubError::InvalidPage);
+            }
+            let index = self.snapshot();
+            let mut rows = Vec::with_capacity(keys.len());
+            let mut missing = Vec::new();
+            let mut unknown = Vec::new();
+            let provider = self.page_provider.lock().ok().and_then(|slot| slot.clone());
+            for key in keys {
+                let row_key = book_key(key).row;
+                if let Some(row) = index.get_row(&row_key) {
+                    rows.push(row);
+                } else if let Some(row) =
+                    provider.as_ref().map(|provider| provider.row(&row_key)).transpose()?.flatten()
+                {
+                    rows.push(row);
+                } else if key.origin == "local" {
+                    missing.push(key.clone());
+                } else {
+                    unknown.push(key.clone());
+                }
+            }
+            let reply = crate::wire::PageResult {
+                sid: request.sid.clone(),
+                rows: rows.iter().map(Arc::as_ref).collect::<Vec<_>>(),
+                has_before: false,
+                has_after: false,
+                cold_unread: false,
+                before_key: None,
+                after_key: None,
+                missing,
+                unknown,
+                rest: Vec::new(),
+            };
+            let frame = Frame::json(FrameKind::Page, &reply)?;
+            if frame.encoded_len() > max {
+                return Err(HubError::InvalidPage);
+            }
+            return Ok(frame);
+        }
         let (key, side) = match request.side() {
             Some((side, crate::wire::Position::List(key))) => (
                 Some(book_key(key)),
@@ -660,21 +836,30 @@ impl Hub {
             }
             _ => return Err(HubError::InvalidPage),
         };
-        let max = request.max_bytes as usize;
-        if max > crate::wire::MAX_PAGE_BYTES || max <= 8192 + request.sid.len() {
-            return Err(HubError::InvalidPage);
-        }
         let index = self.snapshot();
-        let page = index
-            .read_page(
-                key.as_ref(),
-                side,
-                false,
-                MAX_WINDOW_ROWS,
-                max - 8192 - request.sid.len(),
-                request.filter.as_ref(),
-            )
-            .map_err(HubError::page_error)?;
+        let page = if matches!(request.view, Some(crate::wire::ListView::Live)) {
+            index
+                .read_live_page(
+                    key.as_ref(),
+                    side,
+                    false,
+                    MAX_WINDOW_ROWS,
+                    max - 8192 - request.sid.len(),
+                    request.filter.as_ref(),
+                )
+                .map_err(HubError::page_error)?
+        } else {
+            index
+                .read_page(
+                    key.as_ref(),
+                    side,
+                    false,
+                    MAX_WINDOW_ROWS,
+                    max - 8192 - request.sid.len(),
+                    request.filter.as_ref(),
+                )
+                .map_err(HubError::page_error)?
+        };
         let reply = crate::wire::PageResult {
             sid: request.sid.clone(),
             rows: page.rows.iter().map(Arc::as_ref).collect::<Vec<_>>(),
@@ -683,6 +868,9 @@ impl Hub {
             cold_unread: page.cold_unread,
             before_key: page.before_key.map(wire_key),
             after_key: page.after_key.map(wire_key),
+            missing: Vec::new(),
+            unknown: Vec::new(),
+            rest: Vec::new(),
         };
         let frame = Frame::json(FrameKind::Page, &reply)?;
         if frame.encoded_len() > max {

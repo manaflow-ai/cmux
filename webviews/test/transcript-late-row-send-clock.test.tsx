@@ -39,6 +39,10 @@ const replacements: Record<string, unknown> = {
   requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
   cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
   IS_REACT_ACT_ENVIRONMENT: true,
+  // The send's rise and the arrival step are the chase's, which the blocks follow arm plays; the slim
+  // `send` arm (the product's) moves every pass's rows at once and plays neither (VirtualTranscript
+  // `slimFollow`; Leo, 2026-11-09: "the scroll up is extremely sluggish").
+  cmuxExperiments: { "follow-motion": "blocks" },
 };
 for (const key of Object.getOwnPropertyNames(dom.window))
   if (/^(HTML|SVG|CSS|Shadow|Document|Mutation)/.test(key) && !(key in scope))
