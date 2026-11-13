@@ -178,9 +178,7 @@ impl Events {
         event: HubEvent,
     ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
         debug_assert!(event.remote.is_some(), "a local event goes through Events::send");
-        if event.record.kind != "status"
-            && let Some(remote) = event.remote.as_ref()
-        {
+        if let Some(remote) = event.remote.as_ref() {
             self.mark_remote_tee(&remote.peer, &event.session_id);
         }
         self.stamped(event)
