@@ -487,16 +487,18 @@ public struct CloudMachineWorkspaces {
     public var shown: @MainActor (_ machineID: String) -> Void
     /// A workspace of this page is on its navigation stack (true from its push until it is
     /// popped, whatever is pushed over it), so the shell can hide its tab bar as on Workspaces.
-    public var onStack: @MainActor (_ workspaceID: String, _ onStack: Bool) -> Void = { _, _ in }
+    public var onStack: @MainActor (_ workspaceID: String, _ onStack: Bool) -> Void
 
     public init(state: @escaping @MainActor (String) -> State, canCreate: @escaping @MainActor (String) -> Bool,
                 create: @escaping @MainActor (String) -> Workspace?, page: @escaping @MainActor (Workspace) -> AnyView,
-                shown: @escaping @MainActor (String) -> Void = { _ in }) {
+                shown: @escaping @MainActor (String) -> Void = { _ in },
+                onStack: @escaping @MainActor (_ workspaceID: String, _ onStack: Bool) -> Void = { _, _ in }) {
         self.state = state
         self.canCreate = canCreate
         self.create = create
         self.page = page
         self.shown = shown
+        self.onStack = onStack
     }
 }
 
