@@ -484,10 +484,8 @@ where
         if sub.cursor.is_none() {
             sub.anchor.get_or_insert(Anchor::End);
         }
-        let keys: HashSet<ListKey> = held_keys.into_iter().collect();
-        if keys.len() > 4096 {
-            return Err(FrameError::InvalidLength(keys.len()));
-        }
+        let keys: HashMap<(String, String), ListKey> =
+            held_keys.into_iter().map(|key| (Self::row_identity(&key), key)).collect();
         if !wire::identifier_fits(&sub.sid) {
             return Err(FrameError::InvalidLength(sub.sid.len()));
         }
