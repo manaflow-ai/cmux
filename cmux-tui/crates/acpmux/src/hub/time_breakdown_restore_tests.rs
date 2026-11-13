@@ -164,8 +164,9 @@ async fn a_restart_restores_the_saved_fold_and_reads_only_the_records_past_it() 
     let (hub, visited) = open(&root.0);
     hub.load_logs();
     let session = hub.resolve("long").unwrap();
-    hub.seed_time_breakdown(&session);
+    hub.seed_time_breakdown(&session, true);
     assert!(visited.load(Ordering::SeqCst) >= TURNS * 4, "the first fold reads the log");
+    assert!(root.0.join("sessions/long").join(time_breakdown::FILE).exists());
     // Three more turns the daemon logs live, then it stops.
     for n in TURNS..TURNS + 3 {
         for record in turn(n) {
@@ -181,7 +182,7 @@ async fn a_restart_restores_the_saved_fold_and_reads_only_the_records_past_it() 
     hub.load_logs();
     let session = hub.resolve("long").unwrap();
     let after_load = visited.load(Ordering::SeqCst);
-    hub.seed_time_breakdown(&session);
+    hub.seed_time_breakdown(&session, false);
     let read = visited.load(Ordering::SeqCst) - after_load;
     assert!(session.time_breakdown.lock().unwrap().initialized);
     assert!(read <= 100, "the open visited {read} records of a {}-record journal", TURNS * 4 + 12);
@@ -199,7 +200,7 @@ async fn an_open_of_a_chat_with_no_saved_fold_reads_no_record() {
     hub.load_logs();
     let session = hub.resolve("long").unwrap();
     let after_load = visited.load(Ordering::SeqCst);
-    hub.seed_time_breakdown(&session);
+    hub.seed_time_breakdown(&session, false);
     assert_eq!(visited.load(Ordering::SeqCst) - after_load, 0, "an open read the journal");
     assert!(!session.time_breakdown.lock().unwrap().initialized);
     assert!(!session.time_breakdown.lock().unwrap().seeding);
