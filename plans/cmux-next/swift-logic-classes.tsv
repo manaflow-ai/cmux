@@ -2480,7 +2480,7 @@ CmuxNextApp	class	AppPageNativeProvider	0	MIXED	0	40	Packages/macOS/CmuxNext/Sou
 CmuxNextApp	class	DaemonPageRelay	0	MIXED	0	40	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/PageProviders.swift	from class AppPageNativeProvider:13: native provider forwarding confirmed namespace ops to owner providers
 CmuxNextApp	class	PolicyGatedPageProvider	0	MIXED	0	40	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/PageProviders.swift	from class AppPageNativeProvider:13: native provider forwarding confirmed namespace ops to owner providers
 CmuxNextApp	class	PageRelayChannel	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/PageRelayChannel.swift	from class PageRelayChannel:26: page relay channel forwarding daemon data into webviews
-CmuxNextApp	struct	ServerSettingsPageJSON	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/ServerSettingsPageJSON.swift	JSON conversion of server settings report for the page
+CmuxNextUpdater	struct	ServerSettingsPageJSON	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/ServerUpdates/ServerSettingsPageJSON.swift	JSON conversion of server settings report for the page
 CmuxNextApp	class	ServerSettingsPageRoute	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/ServerSettingsPageRoute.swift	from class ServerSettingsPageRoute:15: page route relaying server settings
 CmuxNextApp	class	SettingsBackdropThumbnails	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/SettingsBackdropThumbnails.swift	from class SettingsBackdropThumbnails:14: backdrop thumbnail images
 CmuxNextApp	enum	SettingsIconAssets	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/SettingsIconAssets.swift	icon asset PNG resource

@@ -12,10 +12,12 @@ import Foundation
 extension CloudSetup {
     /// Serves this setup from a Settings > Models of its own: acpmux at `environment`, the team's
     /// `agentKeys`, `openTerminal` for Claude Code's `claude setup-token`, and `openSettings` for a
-    /// Settings page route (``CloudSetup/addRoute``, ``CloudSetup/modelsRoute``).
-    public func serve(environment: @escaping @MainActor () -> AcpmuxEnvironment?, agentKeys: TeamAgentKeys,
+    /// Settings page route (``CloudSetup/addRoute``, ``CloudSetup/modelsRoute``). `credentials` reads each
+    /// Cloud chat's model credential from the same acpmux (``CloudAgentCredentials/acpmuxRead(environment:)``).
+    public func serve(environment: @escaping @MainActor () -> AcpmuxEnvironment?, agentKeys: TeamAgentKeys, credentials: CloudAgentCredentials,
                       openTerminal: @escaping @MainActor (String) async -> Bool,
                       openSettings: @escaping @MainActor (String) -> Void) {
+        credentials.read = CloudAgentCredentials.acpmuxRead(environment: environment)
         let models = SettingsModels(environment: environment, keys: KeychainModelKeyStore(),
                                     openURL: { NSWorkspace.shared.openInBackground($0) },
                                     harnesses: SettingsHarnesses(environment: environment, openTerminal: openTerminal),
