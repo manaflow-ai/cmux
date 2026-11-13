@@ -2656,6 +2656,24 @@ def test_python_cdn_reads_send_a_user_agent_the_cdn_accepts():
             module.fetch_url("https://files.cmux.com/cmux-tui/x/manifest.json")
         assert seen == [deadline_http.USER_AGENT], module.__name__
 
+
+def test_adopted_manifest_check_requires_what_publish_requires():
+    # The adopted prefix must hold everything a published one does: adopt-commit-manifest's check names the same
+    # required and forbidden artifacts as publish's "Verify Unix manifests before upload", so the two cannot drift
+    # (32964a1a's check named none, and tests/test_ci_cmux_tui_latest_acpmux.py went red on it).
+    artifacts = workflow("cmux-tui-artifacts.yml")
+
+    def artifact_args(text: str, step: str) -> list[str]:
+        body = text.split(f"- name: {step}", 1)[1].split("\n      - ", 1)[0]
+        call = body.split("--manifest-file assets/cmux-tui/manifest.json", 1)[1].split("--artifact-directory", 1)[0]
+        return re.findall(r"--(?:require|forbid)-artifact [\w.-]+", call)
+
+    published = artifact_args(workflow_job(artifacts, "publish"), "Verify Unix manifests before upload")
+    adopted = artifact_args(workflow_job(artifacts, "adopt-commit-manifest"), "Verify the prepared manifest")
+    assert len(published) > 20
+    assert adopted == published
+
+
 # Keep this the last statement of the file: unittest.main() ends the process, so a
 # test defined after it never runs in `python3 tests/test_tui_publish_workflow_security.py`.
 if __name__ == "__main__":
