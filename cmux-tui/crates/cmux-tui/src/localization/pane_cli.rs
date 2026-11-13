@@ -1,7 +1,8 @@
 //! `pane_cli` strings of the CLI catalog (English and Japanese): the labels
 //! of `cmux identify` in a cmux-tui pane (cli/pane_identify.rs), the root
-//! help's heading for scopes that need the cmux app (cli/root_help.rs) and
-//! the `cmux skill` usage (cli/skill.rs).
+//! help's heading for scopes that need the cmux app (cli/root_help.rs), the
+//! `cmux skill` usage (cli/skill.rs) and the agent list's note on the rows it
+//! left out (cli/wire/agent_roster.rs).
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct PaneCliMessages {
@@ -41,8 +42,11 @@ pub(crate) struct PaneCliMessages {
     /// `cmux identify` from a `cmux` of another build than the session
     /// daemon on this machine: `{own}` this build, `{daemon}` the daemon's,
     /// `{run}` how to run the daemon's own `cmux` (`"$CMUX_TUI_CLI" (path)`
-    /// in a pane, else the path).
+    /// when the pane's `CMUX_TUI_CLI` is that file, else the path).
     pub build_mismatch: &'static str,
+    /// The `agent list` text line for the ended agents of closed terminals
+    /// it left out: `{count}` of them.
+    pub agent_list_hidden_ended: &'static str,
 }
 
 pub(super) const ENGLISH: PaneCliMessages = PaneCliMessages {
@@ -68,6 +72,7 @@ pub(super) const ENGLISH: PaneCliMessages = PaneCliMessages {
     folder_trust_separator: "; ",
     warning: "warning",
     build_mismatch: "this cmux is build {own}, but the session daemon is build {daemon}; run the session's own cmux: {run}",
+    agent_list_hidden_ended: "ended agents of closed terminals not shown: {count} (--state ended shows them)",
 };
 
 pub(super) const JAPANESE: PaneCliMessages = PaneCliMessages {
@@ -93,4 +98,5 @@ pub(super) const JAPANESE: PaneCliMessages = PaneCliMessages {
     folder_trust_separator: "。",
     warning: "警告",
     build_mismatch: "この cmux はビルド {own} ですが、セッションデーモンはビルド {daemon} です。セッション自身の cmux を使ってください: {run}",
+    agent_list_hidden_ended: "表示していない、閉じたターミナルの終了したエージェント: {count} 件 (--state ended で表示します)",
 };

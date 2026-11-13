@@ -10,21 +10,40 @@
 //! A Chief started from such an agent's shell inherits it. Running it starts acpmux as before;
 //! but the daemon's process runs the host binary, not the script, so the socket peer check
 //! ([`crate::acpmux_peer`]) must compare with the binary the script runs. Only that exact shape
-//! names one: a shell word per argument, each in single quotes, the first an absolute path. Any
-//! other file is no wrapper and is checked as itself.
+//! names one: a shell word per argument, each in single quotes, the first an absolute path, in a
+//! file this user owns and no other user can write. Any other file is no wrapper and is checked
+//! as itself.
 
 use std::path::{Path, PathBuf};
 
 /// The largest wrapper read: the script is two short lines.
 const MOST: u64 = 4096;
 
-/// The executable `path` runs when it is acpmux's wrapper script, else `None`.
+/// The executable `path` runs when it is acpmux's wrapper script, else `None`. Only a regular
+/// file this user owns that no other user can write (acpmux writes it 0700) names one: a file
+/// another user could change could point the check at any binary (review of #39552). The file
+/// is checked and read through one open handle, at most [`MOST`] bytes.
 pub fn target(path: &Path) -> Option<PathBuf> {
-    let meta = std::fs::metadata(path).ok()?;
-    if !meta.is_file() || meta.len() > MOST {
+    use std::io::Read;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+    // Non-blocking: a FIFO named as ACPMUX_BIN must not hang the open; it is no file anyway.
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(path)
+        .ok()?;
+    let meta = file.metadata().ok()?;
+    // SAFETY: getuid has no preconditions.
+    let me = unsafe { libc::getuid() };
+    if !meta.is_file() || meta.uid() != me || meta.mode() & 0o022 != 0 {
         return None;
     }
-    parse(&std::fs::read_to_string(path).ok()?)
+    let mut text = String::new();
+    file.take(MOST + 1).read_to_string(&mut text).ok()?;
+    if text.len() as u64 > MOST {
+        return None;
+    }
+    parse(&text)
 }
 
 /// The executable in wrapper text `script` (`#!/bin/sh\nexec '<exe>' '<word>'... "$@"\n`).

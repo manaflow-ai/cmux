@@ -9,6 +9,10 @@ use tokio_tungstenite::tungstenite::{Message as Frame, protocol::CloseFrame};
 
 pub(crate) const DRAIN_BUDGET: Duration = Duration::from_secs(2);
 const CLOSE_BUDGET: Duration = Duration::from_secs(1);
+/// How long a connection that ended (`stopped`) still writes what it queued, its reason why among
+/// it (`outbound.rs`, `reader.too_slow`), before it closes: a client that reads nothing gets no
+/// longer, as a socket's last line (`stream.rs`).
+const LAST_FRAMES_WAIT: Duration = Duration::from_secs(2);
 
 #[derive(Clone)]
 pub struct WsShutdown {
@@ -143,7 +147,9 @@ impl Drop for Children {
 }
 
 /// Shutdown also interrupts a blocked text send. Sending Close flushes buffered frames, but
-/// a client that stopped reading cannot hold daemon handoff beyond CLOSE_BUDGET. A large line
+/// a client that stopped reading cannot hold daemon handoff beyond CLOSE_BUDGET. Once the
+/// connection ended (`stopped`), what it queued is written for [`LAST_FRAMES_WAIT`] at most, a
+/// frame already waiting on the client included, so a frozen client never holds the socket open. A large line
 /// goes compressed once the client asked for that (`frame_compress.rs`).
 pub(super) async fn write<S>(
     mut sink: S,
@@ -159,14 +165,37 @@ pub(super) async fn write<S>(
         () = shutdown.normal() => {},
         () = shutdown.closing() => {},
         () = async {
+            // Set once the connection ended: what is left must be written by then.
+            let mut deadline: Option<tokio::time::Instant> = None;
             loop {
-                let line = tokio::select! {
-                    line = outbound.recv() => line,
-                    _ = &mut stopped => None,
+                let line = match deadline {
+                    Some(at) => tokio::time::timeout_at(at, outbound.recv()).await.ok().flatten(),
+                    None => tokio::select! {
+                        line = outbound.recv() => line,
+                        _ = &mut stopped => {
+                            deadline = Some(tokio::time::Instant::now() + LAST_FRAMES_WAIT);
+                            continue;
+                        }
+                    },
                 };
                 let Some(line) = line else { break };
                 let Some(frame) = wire.frame(line).await else { break };
-                if sink.send(frame).await.is_err() {
+                let send = sink.send(frame);
+                tokio::pin!(send);
+                let sent = match deadline {
+                    Some(at) => tokio::time::timeout_at(at, send).await.ok(),
+                    // A frame that waits on a client reading nothing does not hold the end.
+                    None => tokio::select! {
+                        biased;
+                        sent = &mut send => Some(sent),
+                        _ = &mut stopped => {
+                            let at = tokio::time::Instant::now() + LAST_FRAMES_WAIT;
+                            deadline = Some(at);
+                            tokio::time::timeout_at(at, send).await.ok()
+                        }
+                    },
+                };
+                if !matches!(sent, Some(Ok(()))) {
                     break;
                 }
             }

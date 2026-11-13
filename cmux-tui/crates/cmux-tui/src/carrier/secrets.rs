@@ -216,6 +216,9 @@ pub(super) fn run(args: &[String]) -> i32 {
             }),
             phases: Arc::new(|_| {}),
             fresh_sessions: Default::default(),
+            progress: None,
+            ssh: Arc::new(super::ssh::SshSetup::from_env(None)),
+            ssh_refusal: super::ssh::SshRefusal::default(),
         };
         let dialed = match client::dial(&plan).await {
             Ok(dialed) => dialed,

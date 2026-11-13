@@ -80,10 +80,10 @@ impl AgentRow {
         json!({
             "terminal": self.terminal,
             "harness": self.harness,
-            // `state` is a deprecated alias of `status` (`ended` for a session
-            // that ended): scripts that read it get the same word.
+            // `status` is `ended` for a session that ended, as in the send
+            // receipt; `state` is its deprecated alias.
             "state": self.status_word(),
-            "status": self.status.map(AgentStatus::as_str),
+            "status": self.status_word(),
             "title": self.title,
             "workspace_id": self.workspace_id,
             "workspace": self.workspace,
@@ -162,6 +162,25 @@ pub(in crate::cli) fn status_of(word: &str, unseen: bool) -> Option<AgentStatus>
     }
 }
 
+/// Whether an agent record is the agent's own report (its hooks, or a
+/// report over the socket), not a guess from the screen (the screen-detection
+/// plugin, `plugin`, or the older `detected`). Only an own report says when
+/// an agent accepts a message or took one (W5-R: a screen record said idle
+/// before Claude Code had started).
+pub(in crate::cli) fn reported_by_agent(record: &Value) -> bool {
+    !matches!(record.get("source").and_then(Value::as_str), Some("plugin" | "detected"))
+}
+
+/// Whether the hooks cmux installs for `harness` (any alias,
+/// cmux-tui-hooks `provider_events`) include one that `kind` matches, a
+/// cmux-tui-core `agent_hook_event_*` predicate. A harness with no such hook
+/// never reports that event, so no wait may depend on it.
+pub(in crate::cli) fn harness_hooks_report(harness: &str, kind: fn(&str, &str) -> bool) -> bool {
+    let harness = super::super::agent_vocabulary::harness_name(harness);
+    cmux_tui_hooks::provider_events(&harness)
+        .is_some_and(|events| events.iter().any(|event| kind(&harness, event)))
+}
+
 /// The agent of one terminal record, from the daemon's agent records of
 /// that terminal (newest first wins) or its OSC 7501 program status.
 /// `unseen` is whether the terminal carries an unread notification.
@@ -233,7 +252,7 @@ pub(in crate::cli) fn agent_rows(snapshot: &Value) -> Vec<AgentRow> {
         .as_array()
         .into_iter()
         .flatten()
-        .filter(|terminal| terminal["lifecycle"] != "exited")
+        .filter(|terminal| super::super::terminal_lifecycle::is_live(terminal))
         .filter_map(|terminal| {
             let unseen = terminal["id"].as_str().is_some_and(|id| unseen.contains(id));
             agent_of_terminal(terminal, agents, unseen)

@@ -84,6 +84,8 @@ await requireBrowserLane("settings-header-edge.test.ts", async () => {
         if (box.width === 0 || box.height === 0) continue;
         const glass = title.closest<HTMLElement>(".group.ui-glass");
         let expected = page;
+        // Flush left in the refined look too (Lucas 2026-11-12: "Density and Motion" and "Window
+        // Background" in line with "Appearance"), after a day on the rows' text edge.
         if (glass) {
           // On a glass card the header shares the rows' text edge: the card edge plus a row's
           // left padding.

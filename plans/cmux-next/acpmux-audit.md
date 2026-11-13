@@ -1,5 +1,7 @@
 # acpmux performance audit (rules D1-D8, A1-A3)
 
+New notices to PL-acpmux go in [acpmux-audit/](acpmux-audit/), one file per change named `YYYY-MM-DD-<slug>.md` (from 2026-11-09, so that parallel PRs do not conflict here); this file keeps the older ones.
+
 Status: audit landed 2026-10-23 (session cmux-4f, PL-acpmux); fixes in progress in the same
 session (the lead moved acpmux ownership here: nobody in cmux-b6 owns acpmux code). Rules and
 targets: [perf-lead.md](perf-lead.md), "Daemon and acpmux targets". Every acpmux op < 2 ms p95
@@ -48,7 +50,7 @@ bench covers it, else the cost read from the code (marked "est.").
 | 7 | D2 | Session lists are O(all sessions) per request: `all_session_summaries` (`hub/peers.rs:763`) clones every session's full `SessionMeta` (`hub/views.rs:266`: drafts up to 1M characters, tool and model lists, config options), clones the parent's meta for `spawnedBy`, sorts, then pages. `_acpmux/sessions`, `_acpmux/watch`, and each watcher's `session_changed` per state record | see Results (op.sessions); est. 5-50 ms at hundreds of chats | One summary value per session, rebuilt when its state version changes (the record write already bumps `state_seq`); page before building; readers take the cached values | Leo 38, Lawrence 16 (`views.rs`) | open (batch 2) |
 | 8 | D1 | Each prompt from the app or Web reads and parses `~/.claude.json` (often MBs), the Codex `config.toml` and the trust record, canonicalizes the cwd and walks `.git`, three times per prompt (`server/trust_gate.rs:264,292`, `web_control.rs`), in `spawn_blocking` but on the reply path; a cold chat adds folder-profile reads under the config read lock (`hub/worktree_care.rs:280`) | est. 2-5 ms x 3 per prompt | Cache the trust verdict per (cwd, harness family), invalidated by a file watch on the three files | Lawrence 6, Leo 5 (`trust_gate.rs`) | open (batch 2) |
 | 9 | D7 | Start reads every open session's whole log twice and gates attach, prompts, queue edits and host adoption on it: `load_logs` (`hub/mod.rs:622`) runs `mark_unknown_outcomes` (one session after another, `:639`) and `restore_queues` (`:640`); `_acpmux/attach` waits for it (`server/requests.rs:995`). Before the ready line `LocalStore::list` runs twice, with two ancestor walks per session | est. 26.8 s for 3.9 GB of logs (the code's own note) | Keep the open-turn marker and the queue in the session record; start applies only the tail past `lastSeq` (`catch_up` reads it already); load a session's state on its first open or prompt (a per-session gate, not one global gate); adopt hosts in parallel; one `list` | Lawrence, Leo (`hub/mod.rs`, `hub/queue.rs`: Leo 21) | open (batch 2) |
-| 10 | A3 | No process per tool call (A3 holds). Per chat: 5-8 processes and ~40-80 threads: the agent host (3 threads: runtime, a `waitid` thread, a record-watch thread, `agent_host/host.rs:931`), the harness, `cmux mcp serve`, and one `acpmux *-mcp` process each for forum, subsessions, secrets, offers, each a multi-thread tokio runtime (12-16 idle threads) started eagerly at the harness's first `tools/list` (`agent_tools.rs`), each opening a new daemon connection per call | see Results (stress.tree: processes and threads per chat) | One MCP helper per chat with a single-thread runtime (or `cmux mcp serve` calls the daemon socket itself), fixed tool lists in the server spec, a server starts on its first call; one daemon connection per helper; host exit and record watch on the runtime (kqueue), no extra threads | Lawrence 25, Leo 11 (`agent_tools.rs`); `cmux mcp serve` is cmux-tui (cmux-b6 PL-daemon) | open (batch 3; the cmux-tui side routed to cmux-b6) |
+| 10 | A3 | No process per tool call (A3 holds). Per chat: 5-8 processes and ~40-80 threads: the agent host (3 threads: runtime, a `waitid` thread, a record-watch thread, `agent_host/host.rs:931`), the harness, `cmux mcp serve`, and one `acpmux *-mcp` process each for forum, subsessions, secrets, offers, each a multi-thread tokio runtime (12-16 idle threads) started eagerly at the harness's first `tools/list` (`agent_tools.rs`), each opening a new daemon connection per call | see Results (stress.tree: processes and threads per chat) | One MCP helper per chat with a single-thread runtime (or `cmux mcp serve` calls the daemon socket itself), fixed tool lists in the server spec, a server starts on its first call; one daemon connection per helper; host exit and record watch on the runtime (kqueue), no extra threads | Lawrence 25, Leo 11 (`agent_tools.rs`); `cmux mcp serve` is cmux-tui (cmux-b6 PL-daemon) | partly fixed 2026-11-11: acpmux's own five servers (secrets, offers, sub-sessions, forum, acpmux) run in one `acpmux tools-mcp` process per chat on a 1-worker runtime with one daemon connection (`tools_mcp.rs`; `cmux mcp serve` starts it once for every upstream naming the same `shared` launch). Still open: the agent host's extra threads |
 
 Further findings (smaller, or app side):
 
@@ -378,3 +380,17 @@ peer against the binary it runs. The wrapper text is now a contract: a change to
 `cli_caller.rs` must change `acpmux_wrapper.rs` too (the `BinChoice::Wrapper` doc says so).
 Next (F3b): the Swift app's `ACPMUX_BIN` override and `mux/host` `acpmux-daemon.ts` must not
 take the wrapper as the daemon binary either.
+
+## Notice to PL-acpmux: terminal children say TERM_PROGRAM=cmux; acpmux launches keep ghostty (2026-11-12)
+
+- cmux terminals now say `TERM_PROGRAM=cmux` with cmux's `TERM_PROGRAM_VERSION`
+  (`cmux_pty::TERMINAL_IDENTITY`, replacing `UNSET_IN_TERMINAL_CHILDREN`).
+- In acpmux only a doc comment changed: `cli/cli_agent.rs` `attach_tty` now names
+  `TERMINAL_IDENTITY`. That protocol-adapter PTY still sets no terminal identity.
+- The acpmux daemon launches on Cloud (`web/services/vms/drivers/acpmuxPersonKey.ts`,
+  `backend/apps/api/src/cloud-acpmux-guest.ts`) are unchanged: `TERM_PROGRAM=ghostty` and the
+  baked Ghostty version. Agents keep the Ghostty identity, matching the `claude`/`codex` wrappers
+  in cmux-tui (`agent_terminal_identity.rs`): Claude Code and Codex key notifications, links and
+  the progress bar on `ghostty`, and a Ghostty version turns their copy-on-select off (cmux#22585).
+- Nothing needed from you unless an acpmux path starts a person-facing terminal; that one must
+  call `PtyCommand::terminal_identity()`.

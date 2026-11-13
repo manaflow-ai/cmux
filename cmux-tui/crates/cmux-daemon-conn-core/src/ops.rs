@@ -215,8 +215,10 @@ pub fn call(op: &str, request: &Value) -> OpResult {
         ),
         "offline_intent_disposition" => {
             let answering = request.get("answering").and_then(Value::as_bool).unwrap_or(true);
+            let kind = text(request, "kind")?;
             Ok(json!({
-                "disposition": offline::disposition(text(request, "kind")?, answering),
+                "disposition": offline::disposition(kind, answering),
+                "sent": offline::maybe_sent(kind),
                 "bound_ms": offline::HOLD_BOUND_MS,
             }))
         }
@@ -228,6 +230,12 @@ pub fn call(op: &str, request: &Value) -> OpResult {
                 request.get("bound_ms").and_then(Value::as_u64).unwrap_or(offline::HOLD_BOUND_MS);
             let now_ms = number(request, "now_ms")?;
             to_value(offline::sweep(&held, now_ms, flag(request, "reachable"), bound_ms))
+        }
+        "offline_intent_requeue" => {
+            let entry: Held =
+                serde_json::from_value(request.get("held").cloned().unwrap_or_default())
+                    .map_err(|_| invalid("held"))?;
+            to_value(offline::requeue(&entry, text(request, "kind")?))
         }
         "offline_intent_text" => to_value(offline::text(
             text(request, "action")?,

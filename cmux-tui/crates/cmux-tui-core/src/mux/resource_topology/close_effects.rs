@@ -1,5 +1,6 @@
 //! Resource close effects: surface and terminal close effects, legacy terminal closes, terminal exit detach projection, and the close plan and commit.
 
+use super::emptied_workspace::forget_closed_workspace_indexes;
 use super::*;
 
 impl Mux {
@@ -71,9 +72,9 @@ impl Mux {
 
     /// `terminal.close`. With [`TerminalCloseGuard::UnplacedAndNotKept`]
     /// (`if_unplaced`) a terminal that has a view or is marked `keep` fails
-    /// with [`TerminalCloseGuardFailed`] and nothing changes; the check runs
-    /// under the commit's registry lock, so no placement can land between
-    /// the check and the close.
+    /// with [`TerminalCloseGuardFailed::PlacedOrKept`] and nothing changes;
+    /// the check runs under the commit's registry lock, so no placement can
+    /// land between the check and the close.
     pub(crate) fn commit_resource_terminal_close_effect(
         &self,
         terminal_id: &TerminalPublicId,
@@ -92,7 +93,7 @@ impl Mux {
             operation_name,
             fingerprint,
             move |state, registry| {
-                if guard == TerminalCloseGuard::UnplacedAndNotKept {
+                if guard.requires_unplaced() {
                     // A terminal with no durable host has no keep mark to
                     // read, so the guarded close leaves it alone.
                     let retained = match registry.terminal_host_id(&terminal_id)? {
@@ -102,7 +103,7 @@ impl Mux {
                         None => true,
                     };
                     if retained {
-                        return Err(TerminalCloseGuardFailed.into());
+                        return Err(TerminalCloseGuardFailed::PlacedOrKept.into());
                     }
                 }
                 Ok(EffectSlots {
@@ -158,10 +159,18 @@ impl Mux {
         // The registry lock serializes placement commits and the creation
         // fence excludes a creation between runtime and placement, so this
         // check cannot race a new view of the terminal.
-        if guard == TerminalCloseGuard::UnplacedAndNotKept
-            && terminal_placed_or_kept(&state, &registry, &public_id, terminal_id)?
-        {
-            return Err(TerminalCloseGuardFailed.into());
+        if guard.requires_unplaced() {
+            if terminal_placed_or_kept(&state, &registry, &public_id, terminal_id)? {
+                return Err(TerminalCloseGuardFailed::PlacedOrKept.into());
+            }
+            if guard.requires_detached()
+                && state
+                    .terminal_catalog
+                    .get(&public_id)
+                    .is_some_and(|runtime| self.terminal_view_attached(runtime.id))
+            {
+                return Err(TerminalCloseGuardFailed::Attached.into());
+            }
         }
         let durable_host = registry.terminal_host_id(&public_id)?.ok_or_else(|| {
             terminal_close_state_error(format!("terminal {public_id} has no durable host"))
@@ -842,7 +851,15 @@ impl Mux {
             )?;
             workspace_close =
                 Some(self.workspace_close_record(&projected, workspace, &workspace_key, index));
-            split_index_changed = true;
+            // Every index change of this close is inside the closed workspace: drop its entries
+            // and no other. The rebuild of every index walked the whole session for one close.
+            // An index that names no workspace takes the full rebuild below.
+            if let Some(closed) = state.workspaces.get(index) {
+                forget_closed_workspace_indexes(&mut projected, closed, index);
+                split_index_changed = false;
+            } else {
+                split_index_changed = true;
+            }
         } else if let Some(emptied) = self.close_emptied_workspaces_for_resource_close_locked(
             registry,
             state,

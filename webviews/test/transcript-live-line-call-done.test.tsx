@@ -4,7 +4,7 @@
 // genuinely determine that there's no more seconds ticking, then why are we still showing it? Why
 // don't we just immediately switch to the thinking? I feel like this hangs on for a bit too much").
 // The line keeps its id (it never leaves and comes back), and the turn's clock goes on.
-import { expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
@@ -31,6 +31,16 @@ const call = (status: string, extra: Partial<NonNullable<AcpmuxActivity["tool"]>
     ...extra,
   },
 });
+// The line's two times (liveLineTimes.experiment.ts `labelled`) on the line itself
+// (liveTurnClock.experiment.ts `line`): this file reads the thinking time and the turn's clock.
+const TWO_TIMES = { "live-turn-clock": "line", "live-line-times": "labelled" };
+beforeEach(() => {
+  globalThis.cmuxExperiments = { ...TWO_TIMES };
+});
+afterEach(() => {
+  delete globalThis.cmuxExperiments;
+});
+
 const prompt = row("u-1", "user", 0, { text: "Run the tests" });
 const view = (items: AcpmuxActivity[]) =>
   turnView([prompt, row("t-1", "activity", 10, { items })], new Set(), {
@@ -38,17 +48,19 @@ const view = (items: AcpmuxActivity[]) =>
     agentFamily: "claude",
     now: START + 140_000,
   });
-const words = (line: AcpmuxRow) =>
+const words = (line: AcpmuxRow, now = START + 140_000) =>
   renderToStaticMarkup(
     <Thinking
       since={line.at}
-      now={() => START + 140_000}
+      now={() => now}
       doing={line.doing}
       doingShell={line.doingShell}
       done={line.doingDone}
       doneMs={line.doingForMs}
       liveState={line.liveState}
-      thoughtMs={line.thoughtMs}
+      phaseAt={line.phaseAt}
+      heardAt={line.heardAt}
+      heardKey={line.heardKey}
       turnTotal={line.turnTotal}
       below
     />,
@@ -70,11 +82,13 @@ test("a command that finished at once: the line reads Thinking, with no frozen s
   expect(line.doing).toBeUndefined();
   expect(line.doingDone).toBeUndefined();
   expect(line.doingForMs).toBeUndefined();
-  const text = words(line);
-  expect(text).toStartWith("Thinking");
+  // Thinking from the call's end, its own time ticking, the turn's clock after it.
+  const text = words(line, START + 15_000);
+  expect(text).toBe("Thinking 5s · turn 15s");
   expect(text).not.toContain("pytest");
-  // The turn's clock goes on.
-  expect(text).toContain("2m 20s");
+  // Two minutes later with nothing heard, it is no longer seen thinking (Leo, 2026-11-12: "the
+  // whatever ms gets stuck and becomes false really quickly"); the turn's clock goes on.
+  expect(words(line)).toBe("Waiting 2m 10s · turn 2m 20s");
 });
 
 test("a command whose output came after its last tick: completed is completed, the line reads Thinking", () => {
@@ -82,6 +96,5 @@ test("a command whose output came after its last tick: completed is completed, t
   const lagged = call("completed", { endedAt: START + 11_000, output: "…\n120 passed\n", exitCode: 0 });
   const line = view([lagged]).at(-1)!;
   expect(line.doing).toBeUndefined();
-  expect(words(line)).toStartWith("Thinking");
-  expect(words(line)).not.toMatch(/\b1s ·/);
+  expect(words(line, START + 15_000)).toBe("Thinking 4s · turn 15s");
 });

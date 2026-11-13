@@ -17,8 +17,16 @@ import Testing
         defaults.synchronize()
 
         TestDefaults.remove(suiteName)
-        #expect(!FileManager.default.fileExists(atPath: Self.plistPath(suiteName)))
-        try await Task.sleep(for: .milliseconds(500))
-        #expect(!FileManager.default.fileExists(atPath: Self.plistPath(suiteName)))
+        let path = Self.plistPath(suiteName)
+        #expect(!FileManager.default.fileExists(atPath: path))
+        // cfprefsd writes a file back on its own time and says nothing when it does not: look for the file
+        // for the half second it had, ending the instant one appears.
+        let deadline = ContinuousClock.now + .milliseconds(500)
+        var writtenBack = false
+        while !writtenBack, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+            writtenBack = FileManager.default.fileExists(atPath: path)
+        }
+        #expect(!writtenBack, "cfprefsd wrote the removed suite's plist back")
     }
 }

@@ -1,23 +1,24 @@
-import CmuxNextFeed
 import CmuxNextPalette
 import Foundation
+import CmuxNextFeedClient
 
 /// The command palette's Find Work page (`palette.findWork`, classic
 /// `ContentView+CurrentWorkCommandPalette`): the work already known to cmux. Workspaces with
 /// unread notifications come first, then the other workspaces; a row switches to its workspace.
 /// Below them, the user's open GitHub review requests and assignments (read with their `gh`
-/// login, never prompting) open in a new workspace.
+/// login by the daemon's GitHub poster, `feed.github.find_work`, never prompting) open in a new workspace.
 @MainActor
 struct FindWorkPalettePage {
     let services: AppServices
-    /// The GitHub reads; tests pass a fake.
-    var github: any GitHubFeedAPI
+    /// The GitHub reads (`feed.github.find_work`); tests pass a fake.
+    var github: @MainActor () async throws -> FeedGitHubWork.Lists
     /// Opens a GitHub row's page; tests record it.
     var open: @MainActor (URL) -> Void
 
-    init(services: AppServices, github: (any GitHubFeedAPI)? = nil, open: (@MainActor (URL) -> Void)? = nil) {
+    init(services: AppServices, github: (@MainActor () async throws -> FeedGitHubWork.Lists)? = nil, open: (@MainActor (URL) -> Void)? = nil) {
         self.services = services
-        self.github = github ?? services.findWorkGitHub
+        let daemon = services.feed.daemon
+        self.github = github ?? { try await daemon.findWork() }
         self.open = open ?? { [weak services] url in
             guard let services else { return }
             WorkspaceHandlers.openInNewWorkspace(url, services: services)
@@ -62,17 +63,15 @@ struct FindWorkPalettePage {
 
     /// The user's review requests, then their assigned issues and pull requests (one row per
     /// item); a row explaining why when gh cannot answer.
-    static func githubItems(_ github: any GitHubFeedAPI, open: @escaping @MainActor (URL) -> Void) async -> [PaletteItem] {
-        async let reviews = github.reviewRequests(etag: nil)
-        async let assigned = github.assignedWork(etag: nil)
+    static func githubItems(_ github: @MainActor () async throws -> FeedGitHubWork.Lists, open: @escaping @MainActor (URL) -> Void) async -> [PaletteItem] {
         var seen = Set<String>(), items: [PaletteItem] = []
         do {
-            for item in try await reviews.value ?? [] where seen.insert(item.htmlURL).inserted {
+            let work = try await github()
+            for item in work.reviews where seen.insert(item.url).inserted {
                 items.append(row(item, section: reviewSection, symbol: "arrow.triangle.pull", open: open))
             }
-            for item in try await assigned.value ?? [] where seen.insert(item.htmlURL).inserted {
-                let isPull = item.htmlURL.contains("/pull/")
-                items.append(row(item, section: assignedSection, symbol: isPull ? "arrow.triangle.pull" : "smallcircle.filled.circle", open: open))
+            for item in work.assigned where seen.insert(item.url).inserted {
+                items.append(row(item, section: assignedSection, symbol: item.isPull ? "arrow.triangle.pull" : "smallcircle.filled.circle", open: open))
             }
         } catch {
             items.append(PaletteItem(id: "work.github.unavailable", title: FindWorkStrings.githubUnavailable,
@@ -83,14 +82,14 @@ struct FindWorkPalettePage {
         return items
     }
 
-    private static func row(_ item: GitHubReviewRequest, section: PaletteSection, symbol: String,
+    private static func row(_ item: FeedGitHubWork, section: PaletteSection, symbol: String,
                             open: @escaping @MainActor (URL) -> Void) -> PaletteItem {
-        let url = URL(string: item.htmlURL)
+        let url = URL(string: item.url)
         return PaletteItem(
-            id: "work.github:\(item.htmlURL)", title: item.title,
-            subtitle: "\(item.repository.fullName)#\(item.number)",
-            accessory: item.user?.login, symbol: symbol, section: section,
-            keywords: [item.repository.fullName, "#\(item.number)", item.user?.login].compactMap { $0 },
+            id: "work.github:\(item.url)", title: item.title,
+            subtitle: "\(item.repo)#\(item.number)",
+            accessory: item.author, symbol: symbol, section: section,
+            keywords: [item.repo, "#\(item.number)", item.author].compactMap { $0 },
             isEnabled: url != nil,
             primary: PaletteCommand(id: "open", title: FindWorkStrings.openInNewWorkspace, symbol: "return",
                                     effect: .perform { if let url { open(url) } }))

@@ -198,8 +198,9 @@ export function waveProgress(shape: WaveShape, index: number, focus: number, amp
 /// pointer in 3 of these (90 ms), inside the motion scale's micro step, so a sweep reads as one
 /// smooth wave and a flick never jumps.
 export const WAVE_FOLLOW_MS = 30;
-/// The rail's spring (threadMinimap.css `--acpmux-minimap-spring`, about 0.8% overshoot) as points
-/// of progress over its duration: the wave grows in on it when the pointer arrives.
+/// The rail's spring (threadMinimap.css `--acpmux-minimap-spring`) as points of progress over its
+/// duration: the wave grows in on it when the pointer arrives. It reaches full size at 58.75% and
+/// stays there: no point is over 1 (Lawrence: no bounce in any motion).
 const SPRING: ReadonlyArray<readonly [number, number]> = [
   [0, 0],
   [0.1, 0.398],
@@ -207,9 +208,7 @@ const SPRING: ReadonlyArray<readonly [number, number]> = [
   [0.3, 0.843],
   [0.4, 0.925],
   [0.5, 0.972],
-  [0.6, 1.004],
-  [0.7, 1.008],
-  [0.8, 1.003],
+  [0.5875, 1],
   [1, 1],
 ];
 export const WAVE_IN_MS = MOTION_MS.micro;
@@ -446,6 +445,29 @@ export function railFades(
   };
 }
 
+/// How deep each edge fade of the list draws, 0 to 1 of its full size: none at the very end, growing
+/// with how far the list has scrolled from that end until it is full RAIL_FADE_RAMP fades on, so the
+/// rows roll under the edge like a wheel turning (Leo, 2026-11-07: "if you scroll to the very top, there
+/// should be no fade. But then as you scroll down, like gradually, there's more and more of a fade on
+/// the top edges" and, from the bottom, "the bottom should gradually have that same kind of fade").
+export const RAIL_FADE_RAMP = 2;
+export function railFadeReach(count: number, height: number, top: number, pitch = ROW_PITCH) {
+  const ramp = Math.max(1, railFade(height) * RAIL_FADE_RAMP);
+  const reach = (distance: number) => Math.max(0, Math.min(1, distance / ramp));
+  return { top: reach(top), bottom: reach(count * pitch - top - height) };
+}
+
+/// The transcript's edge fades (conversation.css `--acpmux-fade-*-reach`) the same way: none at either
+/// end of the chat, full once the view is TRANSCRIPT_FADE_RAMP px from it.
+export const TRANSCRIPT_FADE_RAMP = 96;
+export const transcriptFadeReach = (distance: number) =>
+  Math.max(0, Math.min(1, Math.round((distance / TRANSCRIPT_FADE_RAMP) * 100) / 100));
+
+/// The compact rail's bottom shadow follows the transcript's distance from its latest-message
+/// starting point. Keep this as a named model value so the rail and its gallery/tests share the same
+/// 96 px ramp as the transcript edge, including the latest-position deadband applied by the caller.
+export const railBottomShadowReach = (distanceFromLatest: number) => transcriptFadeReach(distanceFromLatest);
+
 /// Where the rail's list scrolls (its `scrollTop`) so the band, the prompts on screen (`first` to
 /// `last`), shows whole and clear of the fades: `current` while it already does; else the band's
 /// first row a third of the way down, as the Codex rail puts it, moved as little as it takes to show
@@ -496,13 +518,14 @@ export function jumpDuration(distance: number): number {
 export const JUMP_GLIDE_VIEWPORTS = 1;
 
 /// Where Jump to latest's glide starts: from `from` when the end is within JUMP_GLIDE_VIEWPORTS,
-/// else that far above `target`. Gliding the whole way through a long chat mounted every row in
+/// else that far above `target` (below it for a glide up, Jump up's). Gliding the whole way through a long chat mounted every row in
 /// between for a frame or two, drawn blank while they measured (Leo, 2026-10-28: "when I click the
 /// jump to bottom button, it should be, like, on the in-between. It shouldn't need to be doing that
 /// thing"). Skipping the middle draws only rows near the end.
 export function jumpGlideStart(from: number, target: number, viewport: number): number {
   const span = Math.max(0, viewport) * JUMP_GLIDE_VIEWPORTS;
-  return target - from > span ? target - span : from;
+  if (target - from > span) return target - span;
+  return from - target > span ? target + span : from;
 }
 
 /// Each prompt's turn and the reply it previews, by row object: rows are immutable, so a long
@@ -1095,6 +1118,34 @@ export function foldIncoming(
   }
   for (; at < turns.length; at += 1) folded.push(turns[at]!);
   return { turns: folded, ticks: runs.ticks };
+}
+
+/// Whose prompts the rail shows, picked from its right-click menu (Leo, 2026-11-07: "when you
+/// right-click the left scroll rail, you should be able to ... filter out the other agent messages to
+/// only your own, or filtering out your own to only the agent messages"): every prompt, the person's
+/// own, or only other agents' messages (a tick with a sender, promptSender).
+export type RailFilter = "all" | "mine" | "agents";
+
+/// The turns and ticks a filter keeps, in order, and where the loaded ones now start (`loadedStart`
+/// counts the earlier, indexed turns kept before it). Pending ticks are not here: they have no sender
+/// yet, so a filtered rail draws none (ThreadMinimap).
+export function filterTurns(
+  turns: readonly MinimapTurn[],
+  ticks: readonly MinimapTick[],
+  loadedStart: number,
+  filter: RailFilter,
+): { turns: readonly MinimapTurn[]; ticks: readonly MinimapTick[]; loadedStart: number } {
+  if (filter === "all") return { turns, ticks, loadedStart };
+  const keptTurns: MinimapTurn[] = [];
+  const keptTicks: MinimapTick[] = [];
+  let start = 0;
+  for (let at = 0; at < ticks.length; at += 1) {
+    if ((ticks[at]!.from !== undefined) !== (filter === "agents")) continue;
+    if (at < loadedStart) start += 1;
+    keptTurns.push(turns[at]!);
+    keptTicks.push(ticks[at]!);
+  }
+  return { turns: keptTurns, ticks: keptTicks, loadedStart: start };
 }
 
 const runsByTicks = new WeakMap<

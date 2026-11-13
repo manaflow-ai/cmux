@@ -167,7 +167,8 @@ extension DaemonStore {
 
     /// Records `tree`, applied incrementally, as the last applied live snapshot: the memo takes
     /// only `diff`'s entries (O(changed)); an unchanged workspace's entry equals its snapshot
-    /// already. The memo's dictionary is moved out before it changes, so it is never copied.
+    /// already. The memo's dictionary is moved out before it changes, so it is never copied; an unmoved snapshot's
+    /// `diff.order` is the memo's own array (``SnapshotDiff/compute(_:against:order:revision:)``), so none is replaced.
     func advanceSnapshotMemo(_ tree: DaemonTree, applying diff: SnapshotDiff) {
         var applied: [String: WorkspaceSnapshot] = [:]
         swap(&applied, &snapshotMemo.applied)
@@ -205,7 +206,7 @@ extension DaemonStore {
             } else {
                 snapshotMemo.untracked = true
             }
-        case .titleChanged(let surface, _), .surfaceResized(let surface, _), .surfaceExited(let surface):
+        case .titleChanged(let surface, _, _), .surfaceResized(let surface, _), .surfaceExited(let surface):
             // One tab's field: the next snapshot re-applies that tab, not its workspace.
             if index.tabsBySurface[surface] != nil { snapshotMemo.dirtyTabs.insert(surface) }
         case .agentChanged, .agentPresenceChanged, .notification:

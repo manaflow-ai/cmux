@@ -38,7 +38,14 @@ final class TabCell {
     var showsZoom = false {
         didSet { if oldValue != showsZoom { updateAccessibility() } }
     }
-    var isLifted = false { didSet { if oldValue != isLifted { updateLift() } } }
+    var isLifted = false {
+        didSet {
+            guard oldValue != isLifted else { return }
+            updateLift()
+            // The flush corner's foot comes off while the tab is lifted, and back on the drop.
+            if cornerFoot > 0, isSelected { layoutLayers() }
+        }
+    }
     /// The strip's window is main (in front); off, the selected tab's fill is dimmer (never
     /// gone: a pane's active tab always looks active), so only it repaints.
     var isWindowMain = true { didSet { if oldValue != isWindowMain, isSelected { updateColors(animated: false) } } }
@@ -57,6 +64,19 @@ final class TabCell {
     /// The selected (or lifted) tab's fill shows: always for the pane's active tab, in a
     /// background window too (Lawrence 2026-10-20, a tab with no pill read as inactive).
     var fillsSelection: Bool { isSelected || isLifted }
+    /// The flush corner (`chrome.cornerFlush`): how far below the pill the strip's bottom is. The selected
+    /// tab, at rest, draws in the content card's color down to there, into the card; 0 when off.
+    var cornerFoot: CGFloat = 0 {
+        didSet { if cornerFoot != oldValue, isSelected { stateChanged(animated: false) } }
+    }
+    /// The flush corner's concave fillets at the foot (`flush-goo`, `TabCell+CornerFeet`), made on first use;
+    /// `cornerFeetSkipsLeading`: the tab is on the card's edge, where no leading fillet fits.
+    var cornerFeetLayer: CAShapeLayer?
+    var cornerFeetSkipsLeading = false {
+        didSet { if cornerFeetSkipsLeading != oldValue, isSelected { layoutLayers() } }
+    }
+    /// The selected tab runs into the card (``cornerFoot``); a lifted (dragged) tab is a pill again.
+    var runsIntoCard: Bool { cornerFoot > 0 && isSelected && !isLifted }
     /// The share of the selected fill's alpha a background window's active tab keeps.
     static let backgroundWindowSelectionShare: CGFloat = 0.55
     /// Hover may start the title marquee (off while a drag or rename runs).
@@ -325,9 +345,17 @@ final class TabCell {
                 : Palette.selectionFill.withAlphaComponent(Palette.selectionFill.alphaComponent * Self.backgroundWindowSelectionShare)
             let fill: NSColor? = fillsSelection ? selection : multi ? Palette.secondarySelectionFill : (isHovered && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil)
             backgroundLayer.backgroundColor = fill?.cgColor
-            if isLifted, let lift = Palette.windowBackground.blended(withFraction: 0.08, of: Palette.textPrimary) {
-                // Keeps the tabs sliding under it quiet: solid when opaque, thicker glass when translucent.
-                backgroundLayer.backgroundColor = WindowBackdrop.dragPreview(themeScope).dragLiftFill(lift).cgColor
+            // The flush corner: the content's own glass (`Palette.folderTabFill`: what the content paints, with the
+            // chrome's shade cut away under the tab), so the tab and the card read as one shape and the same
+            // transparency. Where that would not stand out of the chrome, the selection fill.
+            let folder = Palette.folderTabFill ?? selection
+            if runsIntoCard { backgroundLayer.backgroundColor = folder.cgColor }
+            cornerFeetLayer?.fillColor = folder.cgColor
+            if isLifted {
+                // The floating-card token (`Palette.elevatedBackground`, the window a step toward the text) keeps the
+                // tabs sliding under it quiet: solid when opaque, thicker glass when translucent.
+                // glass-opaque-allow: `dragLiftFill` keeps it translucent over glass; solid only in an opaque window.
+                backgroundLayer.backgroundColor = WindowBackdrop.dragPreview(themeScope).dragLiftFill(Palette.elevatedBackground).cgColor
             }
             // A hibernated tab keeps its title color (Chrome's discarded tabs do too); the ring marks it.
             let text = isSelected ? Palette.textPrimary : Palette.textSecondary
@@ -426,6 +454,14 @@ final class TabCell {
         backgroundLayer.frame = bounds
         layoutSeparator(slot: slot, pill: bounds)
         backgroundLayer.cornerRadius = m.cornerRadius
+        // A folder tab takes the circular curve of its shade cut-out and fillets (``folderPath()``, ``feetPath``), so a
+        // squircle `tabs.cornerCurve` leaves no halo of shade at its top corners.
+        backgroundLayer.cornerCurve = runsIntoCard ? .circular : Metrics.tabCornerCurve
+        // The flush corner: the selected tab runs down into the card, rounded only on top (no foot, no point).
+        backgroundLayer.maskedCorners = runsIntoCard ? [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+            : [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+        if runsIntoCard { backgroundLayer.frame.size.height += cornerFoot }
+        layoutCornerFeet()
 
         let midY = bounds.height / 2
         let iconSide = m.iconSize

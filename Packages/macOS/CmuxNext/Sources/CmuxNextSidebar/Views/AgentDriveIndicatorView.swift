@@ -20,8 +20,9 @@ final class AgentDriveIndicatorView: ClickableButton {
     /// The driving agents, first shown; the rest count in the tooltip.
     private(set) var drivers: [SidebarPresence] = []
     private(set) var variant: SidebarDriveIndicatorVariant = .capsule
-    /// The person picked a menu item: Go to (`stop` false) or Stop, for `presence`.
-    var onPick: ((SidebarPresence, _ stop: Bool) -> Void)?
+    /// Makes the menu's Go to and Stop rows, titled as given, from registered actions
+    /// (``SidebarView/driveMenuItem``); nil, or nil for a row, leaves the row out.
+    var makeItem: ((SidebarDriveCommand, _ title: String) -> NSMenuItem?)?
 
     private let fill = CALayer()
     private let glyph = CALayer()
@@ -118,7 +119,7 @@ final class AgentDriveIndicatorView: ClickableButton {
         switch variant {
         case .capsule:
             fill.frame = b
-            fill.cornerRadius = b.height / 2
+            fill.cornerRadius = b.height / 2 // radius-allow: the agent-drive status capsule, a status mark
             glyph.frame = CGRect(x: Metrics.space1 * 1.5, y: (b.height - g) / 2, width: g, height: g)
             let size = nameLabel.naturalSize
             nameLabel.frame = NSRect(x: glyph.frame.maxX + Metrics.space1, y: (b.height - ceil(size.height)) / 2,
@@ -129,14 +130,14 @@ final class AgentDriveIndicatorView: ClickableButton {
         case .badge:
             let d = min(b.width, b.height)
             fill.frame = CGRect(x: (b.width - d) / 2, y: (b.height - d) / 2, width: d, height: d)
-            fill.cornerRadius = d / 2
+            fill.cornerRadius = d / 2 // radius-allow: a round status badge
             let inner = g - 3
             glyph.frame = CGRect(x: (b.width - inner) / 2, y: (b.height - inner) / 2, width: inner, height: inner)
         case .dot:
             let d = SidebarStyle.dotSize
             // Width equals height and the radius is half of it: a true circle.
             fill.frame = CGRect(x: (b.width - d) / 2, y: (b.height - d) / 2, width: d, height: d)
-            fill.cornerRadius = d / 2
+            fill.cornerRadius = d / 2 // radius-allow: a status dot
             glyph.frame = .zero
         }
     }
@@ -201,32 +202,26 @@ final class AgentDriveIndicatorView: ClickableButton {
     /// Go to the agent's tab, then Stop when the row can stop what it drives; one pair per driver.
     func menu(for first: SidebarPresence) -> NSMenu {
         let menu = NSMenu()
-        menu.autoenablesItems = false
+        // The registry's rows enable as their actions can run now; a header has no action and stays off.
+        menu.autoenablesItems = true
         for driver in drivers {
+            guard let tab = driver.tab else { continue }
             if drivers.count > 1 {
-                let header = NSMenuItem(title: Strings.presenceLine(driver), action: nil, keyEquivalent: "")
-                header.isEnabled = false
-                menu.addItem(header)
+                menu.addItem(NSMenuItem(title: Strings.presenceLine(driver), action: nil, keyEquivalent: ""))
             }
-            menu.addItem(item(Strings.driveGoTo(driver.name), symbol: "arrow.right.circle") { [weak self] in self?.onPick?(driver, false) })
+            add(.goTo(tab: tab), Strings.driveGoTo(driver.name), symbol: "arrow.right.circle", to: menu)
             if driver.canStop, let drive = driver.drive {
-                menu.addItem(item(Strings.driveStop(drive), symbol: "stop.circle") { [weak self] in self?.onPick?(driver, true) })
+                add(.stop(tab: tab, drive: drive), Strings.driveStop(drive), symbol: "stop.circle", to: menu)
             }
             if driver != drivers.last { menu.addItem(.separator()) }
         }
         return menu
     }
 
-    private func item(_ title: String, symbol: String, run: @escaping () -> Void) -> NSMenuItem {
-        let item = NSMenuItem(title: title, action: #selector(runItem(_:)), keyEquivalent: "")
-        item.target = self
-        item.representedObject = MenuAction(run: run)
+    private func add(_ command: SidebarDriveCommand, _ title: String, symbol: String, to menu: NSMenu) {
+        guard let item = makeItem?(command, title) else { return }
         item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
-        return item
-    }
-
-    @objc private func runItem(_ sender: NSMenuItem) {
-        (sender.representedObject as? MenuAction)?.run()
+        menu.addItem(item)
     }
 
     override func viewDidMoveToWindow() {
@@ -234,10 +229,4 @@ final class AgentDriveIndicatorView: ClickableButton {
         // Core Animation drops a layer's animations when it leaves the window; the breath comes back with it.
         if window != nil, !drivers.isEmpty { breathe() }
     }
-}
-
-/// The work of one Go to or Stop menu item (`NSMenuItem.representedObject`).
-private final class MenuAction {
-    let run: () -> Void
-    init(run: @escaping () -> Void) { self.run = run }
 }
