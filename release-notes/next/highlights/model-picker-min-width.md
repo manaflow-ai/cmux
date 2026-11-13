@@ -1,5 +1,5 @@
-title: The model picker keeps a readable minimum width
-category: fixed
+title: Resize the model picker from its corner
+category: improved
 docs: https://cmux.com/docs/next/agents
 
-Dragging the model picker stops at a minimum width that follows your text size. Narrow panes still keep the menu within reach.
+Drag the model picker’s outer corner to change its width and height together. You can narrow it to 80 pixels, and double-click the corner to restore both default sizes.

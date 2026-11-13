@@ -610,6 +610,35 @@
 .acpmux-cols-resize-y:hover::after,
 .acpmux-cols-resize-y[data-dragging]::after { opacity: 1; }
 
+/* The outer corner resizes both dimensions; it shares the edges' hover treatment. */
+.acpmux-cols-resize-corner {
+  position: absolute;
+  z-index: var(--layer-raised);
+  width: var(--ds-space-3);
+  height: var(--ds-space-3);
+  cursor: nwse-resize;
+  touch-action: none;
+}
+.acpmux-cols-resize-corner[data-edge="end"] { right: -4px; }
+.acpmux-cols-resize-corner[data-edge="start"] { left: -4px; }
+.acpmux-cols-resize-corner[data-side="bottom"] { bottom: -4px; }
+.acpmux-cols-resize-corner[data-side="top"] { top: -4px; }
+.acpmux-cols-resize-corner[data-edge="start"][data-side="bottom"],
+.acpmux-cols-resize-corner[data-edge="end"][data-side="top"] { cursor: nesw-resize; }
+.acpmux-cols-resize-corner::after {
+  content: "";
+  position: absolute;
+  inset: var(--ds-space-1);
+  border-right: 1.5px solid color-mix(in srgb, var(--agent-text) 30%, transparent);
+  border-bottom: 1.5px solid color-mix(in srgb, var(--agent-text) 30%, transparent);
+  opacity: 0;
+}
+.acpmux-cols-resize-corner[data-edge="start"]::after { transform: scaleX(-1); }
+.acpmux-cols-resize-corner[data-side="top"]::after { transform: scaleY(-1); }
+.acpmux-cols-resize-corner[data-edge="start"][data-side="top"]::after { transform: scale(-1, -1); }
+.acpmux-cols-resize-corner:hover::after,
+.acpmux-cols-resize-corner[data-dragging]::after { opacity: 1; }
+
 /* The level and Fast a search named (QuickModelColumns `named`): lit as a highlighted row, so the path
    Enter lands reads at a glance. */
 .acpmux-cols-tune .acpmux-cols-row[data-named]:not([data-hl]) {
