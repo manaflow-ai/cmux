@@ -168,6 +168,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "acpmux-standalone"
+version = "1.0.0"
+dependencies = [
+ "acpmux",
+ "acpmux-build-id",
+ "anyhow",
+]
+
+[[package]]
 name = "addr2line"
 version = "0.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

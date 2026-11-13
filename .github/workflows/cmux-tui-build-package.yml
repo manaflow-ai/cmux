@@ -512,8 +512,12 @@ jobs:
             "cmux-app-host" "$(zb 2) -p cmux-app-host --bin cmux-app-host" \
             "cmux-relay" "$(zb 3) -p cmux-relay --bin cmux-relay" \
             "chatmux-relay" "$(zb 4) -p chatmux-relay --bin chatmux-relay" \
-            "acpmux" "$(zb 5) -p acpmux --bin acpmux" \
+            "acpmux-standalone" "$(zb 5) -p acpmux-standalone --bin acpmux-standalone" \
             "cmux-agent-screen-detection" "$(zb 6) --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml"
+          # acpmux-standalone is the acpmux program with its build id stamped in the binary
+          # only: `-p acpmux` stamps the acpmux lib, and every new commit recompiled it, 209 s
+          # of a warm leg (run 43497362002). "Stage binary" reads it as acpmux.
+          cp "target/$t/release/acpmux-standalone" "target/$t/release/acpmux"
 
       - name: Build cmux-tui (macOS cross)
         if: matrix.cross == true && runner.os == 'macOS'
