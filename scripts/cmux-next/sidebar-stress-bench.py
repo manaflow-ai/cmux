@@ -24,7 +24,7 @@ Traces go to OUT/traces/*.trace; OUT/results.json holds every number and the top
 Usage (nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA):
   sidebar-stress-bench.py --app "$NX_APP" --tag "$NX_APP_TAG" --out "$NX_ARTIFACTS/stress" [--sizes 100,500,1000]
 """
-import argparse, glob, json, math, os, shutil, socket, statistics, subprocess, sys, tempfile, time
+import argparse, glob, json, math, os, re, shutil, socket, statistics, subprocess, sys, tempfile, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -552,6 +552,37 @@ def scenario_switch(pid, size, count=24):
     return {"clicks": count, "click_to_idle_ms": percentiles(lat), "noop_rpc_ms": noop_ms(), "frames": stats,
             "selected_after": selected[:3], "trace": os.path.relpath(tr.path, OUT), "profile": main_thread_profile(tr.path)}
 
+
+class SwitchStop(Exception):
+    """The switch matrix cannot measure the cells it names. main() keeps the size's other rows and the cells that
+    ended (`cells`), writes them, and ends the run with exit 1 and this text."""
+
+    cells = None
+
+
+def switch_target(name):
+    """Makes the workspace `name` and gives its id. The CLI prints what it made as a record (rows of `key value`),
+    never a bare id: the id is the record's `value.workspace_id` row, as tab-switch-matrix.py reads it. The whole
+    record went to the app as the id before (2026-10-21 to 2026-11-13), and every call that named it answered
+    `not_found`. The id is given when the app lists the workspace: the CLI's answer can come before that."""
+    done = cli("workspace", "create", "--name", name)
+    found = re.search(r"value\.workspace_id\s+(\S+)", done.stdout)
+    if not found:
+        raise SwitchStop(f"switch matrix: `workspace create --name {name}` gave no value.workspace_id: {(done.stdout + done.stderr).strip()[-300:]}")
+    ref = found.group(1)
+    if not wait(lambda: any(w.get("id") == ref for w in topology().get("workspaces") or []), 30):
+        raise SwitchStop(f"switch matrix: the app does not list workspace {name} ({ref}) 30 s after the CLI made it")
+    return ref
+
+
+def accepted(what, reply):
+    """`reply` to a call that sets up a measured cell (select a workspace, open its page, move its row). An error
+    answer stops the matrix with that answer: the cell would measure another workspace under this cell's name."""
+    if isinstance(reply, dict) and reply.get("error"):
+        raise SwitchStop(f"switch matrix: {what}: the app answered {json.dumps(reply['error'], default=str)[:400]}")
+    return reply
+
+
 def switch_targets():
     """Two terminal and two Chromium workspaces at the top of the sidebar (Cmd-1..4), made once:
     positions 1-2 Chromium (a page each), 3-4 terminal (a shell each)."""
@@ -559,21 +590,19 @@ def switch_targets():
         return made["switch_targets"]
     refs = {}
     for name in ("sw term b", "sw term a"):
-        refs[name] = cli("workspace", "create", "--name", name).stdout.strip() or name
+        refs[name] = switch_target(name)
     for index, name in enumerate(("sw chromium b", "sw chromium a")):
-        refs[name] = cli("workspace", "create", "--name", name).stdout.strip() or name
+        refs[name] = switch_target(name)
         path = os.path.join(SCRATCH, f"switch-page-{index}.html")
         open(path, "w").write("<!doctype html><title>p</title><body style='font:14px system-ui'>" +
                               "".join(f"<p>row {i} <b>bold</b> <code>code</code></p>" for i in range(400)) + "</body>")
-        action("goToWorkspace", {"workspace": refs[name]}, focus=True)
+        accepted(f"goToWorkspace {name}", action("goToWorkspace", {"workspace": refs[name]}, focus=True))
         time.sleep(0.5)
-        reply = action("openBrowser.chromium", {"url": "file://" + path}, focus=True)
-        if isinstance(reply, dict) and reply.get("error"):
-            note(f"switch matrix: openBrowser.chromium: {reply['error']}")
+        accepted(f"openBrowser.chromium in {name}", action("openBrowser.chromium", {"url": "file://" + path}, focus=True))
         time.sleep(2)
     # Move to top in reverse so the order is chromium a, chromium b, term a, term b.
     for name in ("sw term b", "sw term a", "sw chromium b", "sw chromium a"):
-        action("palette.moveWorkspaceToTop", target={"kind": "workspace", "id": refs[name]})
+        accepted(f"palette.moveWorkspaceToTop {name}", action("palette.moveWorkspaceToTop", target={"kind": "workspace", "id": refs[name]}))
         time.sleep(0.3)
     made["switch_targets"] = refs
     time.sleep(2)
@@ -582,6 +611,27 @@ def switch_targets():
 
 def selected_title():
     return next((r.get("title") for r in workspace_rows() if r.get("selected")), None)
+
+
+def cell_mark(asked, sent, switched, wrong=0):
+    """Why a cell of the switch matrix is no measure of what it names, or None. `switched` is the count of switches
+    that the app's own timer kept for the cell (None: an old build with no timer). The selection check inside a cell
+    cannot say this: it runs after each 4th input, which always goes back to the workspace the cell started from, so
+    it passes when no input switched anything. `wrong` is the count of those checks that found another workspace:
+    then each input can switch (the count is whole) and the cell still measures a pair that it does not name."""
+    done = sent if switched is None else min(sent, switched)
+    if done < asked:
+        return f"invalid: {done} of {asked} inputs switched"
+    return f"invalid: {wrong} of {sent // 4} selection checks found another workspace" if wrong else None
+
+
+def cmd_digits(side):
+    """The Cmd-digit of each workspace row of the sidebar report `side`, by title. The app's default numbering counts
+    the shown top items (Home, the App Store) before the workspaces, so the first workspace is not Cmd-1. A top item
+    that the sidebar does not draw has no frame and takes no number. Only 1 to 8: Cmd-9 can be "the last item"."""
+    top = sum(1 for item in side.get("items") or [] if item.get("region") == "top" and item.get("window_frame"))
+    listed = [r.get("title") for r in side.get("rows") or [] if str(r.get("key", "")).startswith("workspace(")]
+    return {title: top + place + 1 for place, title in enumerate(listed) if top + place + 1 <= 8}
 
 
 def scenario_switch_matrix(pid, size):
@@ -594,19 +644,26 @@ def scenario_switch_matrix(pid, size):
     ticking(True)
     time.sleep(2)
     out = {"tickers": len(made["tickers"])}
+    digits = cmd_digits(sidebar())
     rows = {r.get("title"): r for r in workspace_rows()}
     order = [r.get("title") for r in workspace_rows()[:4]]
     out["top_rows"] = order
-    pairs = {"chromium": ("sw chromium a", "sw chromium b", 1), "terminal": ("sw term a", "sw term b", 3)}
+    out["top_digits"] = [digits.get(title) for title in order]
+    pairs = {"chromium": ("sw chromium a", "sw chromium b"), "terminal": ("sw term a", "sw term b")}
     probe = rpc("debug.workspace_switch", {"action": "stop"})  # an older build answers with an error
     timed = isinstance(probe, dict) and "recording" in probe
     out["app_timer"] = timed
     tr = Trace(pid, f"{size}-switch-matrix", 4 + 3 * 2 * opts.switches * 0.45 + 10)
     tr.__enter__()
-    for kind, (a, b, first) in pairs.items():
+    for kind, (a, b) in pairs.items():
         for how in ("click", "cmd_digit", "next_prev"):
             lat, longest, wrong = [], [], 0
-            action("goToWorkspace", {"workspace": refs[a]}, focus=True)
+            try:
+                accepted(f"{kind} {how}: goToWorkspace {a}", action("goToWorkspace", {"workspace": refs[a]}, focus=True))
+            except SwitchStop as stop:
+                tr.__exit__(None, None, None)  # the recorder ends with the matrix
+                stop.cells = out  # the cells that ended are measured: they keep their rows
+                raise
             time.sleep(0.6)
             if timed:
                 rpc("debug.workspace_switch", {"action": "start"})
@@ -619,7 +676,9 @@ def scenario_switch_matrix(pid, size):
                         break
                     send = lambda: rpc("debug.mouse", {"action": "click", "x": f["x"] + 60, "y": f["y"] + f["height"] / 2})  # noqa: E731
                 elif how == "cmd_digit":
-                    digit = str(first + (1 if to_b else 0))
+                    if target not in digits:
+                        break  # the workspace has no digit: no key is sent, the cell's count says it
+                    digit = str(digits[target])
                     send = lambda: rpc("debug.key", {"key": digit, "modifiers": ["command"]})  # noqa: E731
                 else:
                     key = "]" if to_b else "["
@@ -636,10 +695,20 @@ def scenario_switch_matrix(pid, size):
                 if i % 4 == 3 and selected_title() != target:
                     wrong += 1
                 time.sleep(0.2)
+            # The timer's stop is the first call after the cell's last input: no call goes between 2 inputs.
+            samples = ((rpc("debug.workspace_switch", {"action": "stop"}) or {}).get("switches") or []) if timed else None
+            mark = cell_mark(opts.switches, len(lat), None if samples is None else len(samples), wrong)
+            if mark:
+                # A fact of the run, not a row: the cell keeps its counts and no latency key (perf-budgets.py makes
+                # rows only from a cell with input_to_idle_ms), and the matrix goes on.
+                out[f"{kind}.{how}"] = {"invalid": mark, "switches": len(lat), "app_switches": None if samples is None else len(samples),
+                                        "wrong_selection_checks": wrong, "app_samples": samples}
+                note(f"switch matrix {kind} {how}: {mark}")
+                continue
             entry = {"switches": len(lat), "input_to_idle_ms": percentiles(lat),
                      "longest_frame_ms": percentiles(longest), "wrong_selection_checks": wrong}
             if timed:
-                samples = (rpc("debug.workspace_switch", {"action": "stop"}) or {}).get("switches") or []
+                entry["app_switches"] = len(samples)
                 entry["app_samples"] = samples
                 commit = [x["commit_ms"] + x.get("input_ms", 0) for x in samples if isinstance(x.get("commit_ms"), (int, float))]
                 entry["input_to_commit_ms"] = percentiles(commit)
@@ -792,17 +861,31 @@ def main():
                 ticking(False)
             if "switch" in want:
                 entry["switch"] = scenario_switch(app.pid, size)
+            stopped = None
             if "switch_matrix" in want:
-                entry["switch_matrix"] = scenario_switch_matrix(app.pid, size)
+                try:
+                    entry["switch_matrix"] = scenario_switch_matrix(app.pid, size)
+                except SwitchStop as stop:
+                    # No row for a cell whose workspaces the matrix did not make, select, fill or move. The rows
+                    # this size measured stay (the scenarios before and after, the cells that ended); the run ends
+                    # with exit 1 when they are written.
+                    stopped = str(stop)
+                    entry["switch_matrix"] = dict(stop.cells or {}, error=stopped)
+                    note(stopped)
+                    ticking(False)
             if "drag" in want:
                 entry["drag"] = scenario_drag(app.pid, size)
             if "hitches" in want:
                 entry["hitches"] = scenario_hitches(app.pid, size)
             entry["hangs"] = rpc("debug.hangs", {})
-            entry["measurement_complete"] = scrolls_complete(entry, want)
+            cells = (entry.get("switch_matrix") or {}).values()
+            entry["measurement_complete"] = (scrolls_complete(entry, want) and not stopped
+                                             and not any(isinstance(c, dict) and c.get("invalid") for c in cells))
             results["sizes"][str(size)] = entry
             with open(os.path.join(OUT, "results.json"), "w") as f:
                 json.dump(results, f, indent=1, default=str)
+            if stopped:
+                sys.exit(stopped)
             note(f"size {size}: done")
         # A second window: does a status tick cost scale with windows?
         if not opts.no_trace:
