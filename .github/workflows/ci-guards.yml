@@ -146,6 +146,12 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_test_integrity.py
 
+      # A fix-cause:* label on a closed pull request starts no job in a
+      # labeled pull_request_target workflow (the fix-cause backfill).
+      - name: Validate fix-cause labels start no jobs
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fix_cause_labels_start_no_jobs.py
+
       - name: Validate machine-failure detection for focused reruns
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_machine_failure.py
