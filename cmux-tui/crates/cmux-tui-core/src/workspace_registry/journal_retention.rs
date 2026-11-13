@@ -100,6 +100,40 @@ const PRUNED_ROW_TABLES: [(&str, &str); 4] = [
     ("journal_ingress_receipts", "journal_sequence"),
 ];
 
+/// A step of the retention pass that a test looks at
+/// ([`RETENTION_STEP_FOR_TEST`]).
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RetentionStep {
+    /// The rows of the hold that deletes through this record were read on a
+    /// connection that the registry lock does not guard. The read is over.
+    #[allow(dead_code)]
+    ReadBeforeHold { through: i64 },
+    /// One hold deletes the rows of the records through this one
+    /// ([`WorkspaceRegistry::delete_pruned_segment_rows`]). Inside the hold.
+    RowHold { through: i64 },
+    /// The records of the sealed segments at or below a floor are read
+    /// (`output_cleanup::stage`): a row seek for each of those segments.
+    FloorCut,
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Test seam: runs on this thread at each [`RetentionStep`].
+    pub(crate) static RETENTION_STEP_FOR_TEST: std::cell::RefCell<Option<Box<dyn FnMut(RetentionStep)>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+pub(crate) fn retention_step_for_test(step: RetentionStep) {
+    // Taken while it runs: the seam may wait for the registry lock.
+    let hook = RETENTION_STEP_FOR_TEST.with(|slot| slot.borrow_mut().take());
+    if let Some(mut hook) = hook {
+        hook(step);
+        RETENTION_STEP_FOR_TEST.with(|slot| *slot.borrow_mut() = Some(hook));
+    }
+}
+
 /// A sealed segment whose delete began: the floor is at its `end`.
 #[derive(Debug)]
 pub(crate) struct PrunedSegment {
@@ -429,6 +463,8 @@ impl WorkspaceRegistry {
             .optional()?;
         // Fewer records than a hold takes: all of them, through the end.
         let through = last.unwrap_or(end);
+        #[cfg(test)]
+        retention_step_for_test(RetentionStep::RowHold { through });
         for (table, column) in PRUNED_ROW_TABLES {
             tx.prepare_cached(&format!("DELETE FROM {table} WHERE {column} <= ?1"))?
                 .execute([through])?;
