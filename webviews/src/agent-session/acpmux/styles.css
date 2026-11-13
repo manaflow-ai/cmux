@@ -374,9 +374,9 @@
 .acpmux-queued-text{display:block;min-width:0;margin:0;padding:0;border:0;background:none;color:inherit;font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height);text-align:left;white-space:pre-wrap;overflow-wrap:anywhere}
 /* One line, cut with an ellipsis, until the row is opened; the cut sits on the button's text, as WebKit lays a button out as its own box. */
 .acpmux-queued-clamp{display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.acpmux-queued-text[data-open] .acpmux-queued-clamp{white-space:pre-wrap;overflow-wrap:anywhere}
-/* The actions show on the row's hover and while focus is in it (a key on the row, Tab to a button), and stay while the ⋯ menu is open. A pointer that cannot hover sees them always. The 22px actions center on the text's first line (its height follows the chat font size, #26523) and the row takes no more height from them than that line. */
+/* The actions show on the row's hover, while the keyboard's focus is in it (a key on the row, Tab to a button), while the ⋯ menu or the right-click menu is open, and while its edit field is typed in. Keyboard focus counts only while the page is the key one (pageKey.ts marks the root data-page-inactive otherwise; the build leaves opacity reveals ungated by FOCUS-RING, so it is this rule that drops them). A click's focus, a row opened to its whole text, or another pane or app taking the keyboard keeps none of them: they fade away (Leo, 2026-11-12: "if i click into the app or click into you for the workspace like focus anything the composer just the window the pane it should fade away"). A pointer that cannot hover sees them always. The 22px actions center on the text's first line (its height follows the chat font size, #26523) and the row takes no more height from them than that line. */
 .acpmux-queued-actions{grid-column:2;display:flex;align-items:center;gap:2px;height:var(--text-content--line-height);opacity:0;transition:var(--cmux-hover-reveal-out-transition)}
-.acpmux-queued:is(:hover,:focus-within) .acpmux-queued-actions,.acpmux-queued:is(:has([data-popup-open]),:focus-within) .acpmux-queued-actions,.acpmux-queued:has([aria-expanded=true]) .acpmux-queued-actions{opacity:1;transition:var(--cmux-hover-reveal-in-transition)}
+.acpmux-queued:hover .acpmux-queued-actions,.acpmux-queued:has([data-popup-open]) .acpmux-queued-actions,:root:not([data-page-inactive]) .acpmux-queued:has(:focus-visible) .acpmux-queued-actions{opacity:1;transition:var(--cmux-hover-reveal-in-transition)}
 /* It follows the pointer's dwell (pages/shared/desktop.css --cmux-hover-reveal-*): in for as long as the pointer stays, out a little faster, at once from the keyboard. */
 .acpmux-queued:is(:focus-visible,:has(:focus-visible)) .acpmux-queued-actions{transition:none}
 @media (hover:none){.acpmux-queued-actions{opacity:1}}
@@ -667,29 +667,31 @@
 @media (max-width:620px){.acpmux-diff-tree{display:none}.acpmux-fh-dir{display:none}}
 /* The panel can be half a pane (beside the transcript), so the tree also gives way to the diff by the panel's own width, not only the window's. */
 @container acpmux-diff-panel (max-width:620px){.acpmux-diff-tree{display:none}.acpmux-fh-dir{display:none}}
-.acpmux-edited{position:relative;margin-bottom:6px;border-radius:8px;overflow:hidden;background:color-mix(in srgb,var(--agent-text) 2%,var(--agent-page-bg))}
+/* The edited-files card as the Codex app draws it (Lucas, 2026-11-12): a 64px head with a 40px glyph tile, the title over its counts, 36px file rows in the chat's font and a tinted "Show N more" row. model.ts editedCardHeight measures these. */
+.acpmux-edited{position:relative;margin-bottom:6px;border-radius:var(--grid-cards-radius);overflow:hidden;background:color-mix(in srgb,var(--agent-text) 3%,var(--agent-page-bg))}
 .acpmux-edited::after{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 0 0 1px var(--agent-border);pointer-events:none}
-.acpmux-edited-head{display:flex;align-items:center;gap:8px;min-height:36px;box-sizing:border-box;padding:4px 6px 4px 12px}
+.acpmux-edited-head{display:flex;align-items:center;gap:var(--ds-space-3);min-height:calc(16 * var(--grid-base));box-sizing:border-box;padding:var(--ds-space-3)}
 .acpmux-edited-head:not(:last-child){box-shadow:inset 0 -1px 0 var(--agent-border)}
-.acpmux-edited-icon{flex:none;display:flex;align-items:center;justify-content:center;width:14px;height:14px;color:var(--agent-muted)}
-.acpmux-edited-title{flex:1;min-width:0;display:flex;align-items:baseline;gap:8px;line-height:18px;font-size:var(--text-body);letter-spacing:var(--text-body--letter-spacing)}
+.acpmux-edited-icon{flex:none;display:flex;align-items:center;justify-content:center;width:calc(10 * var(--grid-base));height:calc(10 * var(--grid-base));box-sizing:border-box;border-radius:var(--ds-radius-lg);background:var(--agent-page-bg);box-shadow:inset 0 0 0 1px var(--agent-border);color:var(--agent-text)}
+.acpmux-edited-icon>svg{width:16px;height:16px}
+.acpmux-edited-title{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:calc(var(--grid-base) / 2);line-height:20px;font-size:var(--text-body);letter-spacing:var(--text-body--letter-spacing)}
 .acpmux-edited-title>div:first-child{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .acpmux-edited-title .acpmux-diff-counts{font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-edited-outside{color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
-.acpmux-review-changes{flex:none;height:var(--ds-control-compact);padding:0 var(--ds-space-2);border:0;border-radius:var(--ds-radius-control);background:transparent;box-shadow:inset 0 0 0 1px var(--agent-border);color:var(--agent-text);font:inherit;font-size:var(--text-detail);cursor:default;letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-review-changes{flex:none;height:var(--ds-control-row);padding:0 var(--ds-space-3);border:0;border-radius:var(--ds-radius-control);background:transparent;box-shadow:inset 0 0 0 1px var(--agent-border);color:var(--agent-text);font:inherit;font-size:var(--text-detail);cursor:default;letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-review-changes:hover{background:color-mix(in srgb,var(--agent-text) 6%,transparent)}
-.acpmux-edited-undo{flex:none;display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 6px;border:0;border-radius:6px;background:transparent;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);cursor:default;letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-edited-undo{flex:none;display:inline-flex;align-items:center;gap:var(--ds-space-1);height:var(--ds-control-row);padding:0 var(--ds-space-2);border:0;border-radius:var(--ds-radius-control);background:transparent;color:var(--agent-text);font:inherit;font-size:var(--text-detail);cursor:default;letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-edited-undo:hover:not(:disabled){background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
 .acpmux-edited-undo:disabled{color:var(--agent-muted);cursor:default}
 .acpmux-edited-undo:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
-.acpmux-edited-file{display:flex;align-items:center;gap:12px;width:100%;height:26px;box-sizing:border-box;padding:0 12px;border:0;background:none;color:var(--agent-text);font:inherit;font-size:var(--text-detail);line-height:16px;text-align:left;letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-edited-file{display:flex;align-items:center;gap:var(--ds-space-3);width:100%;height:calc(9 * var(--grid-base));box-sizing:border-box;padding:0 var(--ds-space-3);border:0;background:none;color:var(--agent-text);font:inherit;font-size:var(--text-detail);line-height:16px;text-align:left;letter-spacing:var(--text-detail--letter-spacing)}
 button.acpmux-edited-file{cursor:default}
 button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4%,transparent)}
-.acpmux-edited-path{flex:1;min-width:0;display:flex;white-space:nowrap;overflow:hidden;font-family:var(--cv-code-font,var(--cv-mono,ui-monospace,"SF Mono",Menlo,monospace))}
+.acpmux-edited-path{flex:1;min-width:0;display:flex;white-space:nowrap;overflow:hidden}
 .acpmux-edited-dir{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--agent-muted)}
 .acpmux-edited-base{flex:none}
-.acpmux-edited-more{display:flex;align-items:center;gap:4px;width:100%;height:26px;box-sizing:border-box;padding:0 12px;border:0;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);cursor:default;letter-spacing:var(--text-detail--letter-spacing)}
-.acpmux-edited-more:hover{color:var(--agent-text)}
+.acpmux-edited-more{display:flex;align-items:center;gap:var(--ds-space-1);width:100%;height:calc(9 * var(--grid-base));box-sizing:border-box;padding:0 var(--ds-space-3);border:0;background:color-mix(in srgb,var(--agent-text) 3%,transparent);color:var(--agent-text);font:inherit;font-size:var(--text-detail);cursor:default;letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-edited-more:hover{background:color-mix(in srgb,var(--agent-text) 6%,transparent)}
 
 .acpmux-permission-panel{display:flex;flex-direction:column;gap:var(--acp-row-gap,8px);flex-shrink:0;min-height:0;max-height:45vh;overflow:auto;padding-bottom:0;font-size:var(--acp-font-size,13px);line-height:var(--acp-line-height,1.5)}
 .acpmux-asks-stack>.acpmux-permission-panel{padding-left:0;padding-right:0}
@@ -922,9 +924,12 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-question-submit[data-action=next]{padding-right:var(--ds-space-3)}
 .acpmux-question-hint{margin-right:auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-question-actions button:disabled{cursor:default}
-/* A decided ask's record (QuestionCard.tsx AnsweredQuestion, Leo 2026-10-29 after Claude desktop): a compact bordered card, each question in the text colour and the chosen answers in grey under it, then who answered. An ask that ended unanswered is the same card with how it ended in the answer's place. */
-.acpmux-question-answered,.acpmux-question-cancelled{display:flex;flex-direction:column;gap:var(--ds-space-2);align-self:flex-start;width:fit-content;min-width:min(100%,320px);max-width:100%;box-sizing:border-box;padding:var(--ds-space-2) var(--ds-space-3);border:var(--cmux-hairline, 0.5px) solid var(--acpmux-question-edge);border-radius:12px;background:var(--acpmux-question-bg);color:var(--agent-text);font-size:var(--text-body);letter-spacing:var(--text-body--letter-spacing);line-height:var(--text-body--line-height)}
-.acpmux-question-cancelled{gap:calc(var(--ds-space-1) / 2)}
+/* Answered questions use the user bubble, with a muted question above the answer. Unanswered outcomes keep their compact card. */
+.acpmux-question-answered,.acpmux-question-cancelled{display:flex;flex-direction:column;gap:var(--ds-space-2);align-self:flex-start;width:fit-content;min-width:min(100%,320px);max-width:100%;box-sizing:border-box;padding:var(--ds-space-2) var(--ds-space-3);border:var(--cmux-hairline, 0.5px) solid var(--acpmux-question-edge);border-radius:12px;color:var(--agent-text);font-size:var(--text-body);letter-spacing:var(--text-body--letter-spacing);line-height:var(--text-body--line-height)}
+.acpmux-question-cancelled{gap:calc(var(--ds-space-1) / 2);background:var(--acpmux-question-bg)}
+.acpmux-question-answered{align-self:flex-end;margin-inline-start:auto;min-width:0;border:0}
+.acpmux-question-answered .acpmux-question-answered-prompt{color:var(--agent-muted)}
+.acpmux-question-answered .acpmux-question-answered-answer{color:var(--agent-text)}
 .acpmux-question-answered-item{display:flex;flex-direction:column;gap:calc(var(--ds-space-1) / 2);min-width:0}
 .acpmux-question-answered-prompt{overflow-wrap:anywhere}
 .acpmux-question-answered-answer{color:var(--agent-muted);overflow-wrap:anywhere}

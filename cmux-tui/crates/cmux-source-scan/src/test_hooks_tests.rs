@@ -46,7 +46,10 @@ fn judge_row(args: &str, source: &str) -> Option<String> {
     let ok = match (kind, first) {
         ("passes", _) | ("chain", "passes") => found.is_empty(),
         ("chain", "refused") => !found.is_empty(),
-        ("refused", _) => found.iter().any(|f| f.starts_with(&at) && f.contains(words)),
+        // Exactly what the row names: one more finding fails it as a missing one does.
+        ("refused", _) => {
+            !found.is_empty() && found.iter().all(|f| f.starts_with(&at) && f.contains(words))
+        }
         ("clear", _) => !found.iter().any(|f| f.starts_with(&at)),
         _ => return Some(format!("no such row kind: {args}")),
     };
@@ -72,6 +75,15 @@ fn every_row_is_judged_as_it_says() {
     );
 }
 
+/// #41567 review F1: a `refused` row names the finding its source holds, so one more finding
+/// (another line, or other words) fails it.
+#[test]
+fn a_refused_row_fails_on_a_finding_it_does_not_name() {
+    let two = "pub static A: std::sync::OnceLock<fn(bool)> = std::sync::OnceLock::new();\npub static B: std::sync::OnceLock<fn(bool)> = std::sync::OnceLock::new();\n";
+    let why = judge_row("refused text.rs 1 closure", two);
+    assert!(why.as_deref().is_some_and(|w| w.contains("text.rs:2:")), "B went unnamed: {why:?}");
+}
+
 /// The property, run by hand: ACPMUX_TEST_HOOKS_CHAINS names a directory of generated chains,
 /// `N.rs` each with `N.base` holding 1 when the python check refused it. Writes `N.new` (1 when
 /// this check refuses) and fails on a chain the python check refused that this one passes.
@@ -83,7 +95,7 @@ fn generated_chains_base_refuses_implies_this_refuses() {
     };
     let dir = Path::new(&dir);
     let (mut total, mut base, mut new, mut both, mut base_only) = (0, 0, 0, 0, Vec::new());
-    for path in rust_files(dir) {
+    for path in rust_files(dir).expect("the chains directory") {
         let text = std::fs::read_to_string(&path).expect("chain");
         let refused = !judge_source(&format!("{SRC}chain.rs"), &text).is_empty();
         let base_refused =
@@ -167,7 +179,7 @@ fn the_tree_follows_paths_into_other_files() {
         std::fs::create_dir_all(path.parent().expect("a parent")).expect("mkdir");
         std::fs::write(&path, text).expect("write");
     }
-    let found = judge_tree(&dir);
+    let found = judge_tree(&dir).expect("the tree this test wrote reads");
     std::fs::remove_dir_all(&dir).expect("remove the tree this test wrote");
     let why = |name: &str| found.iter().find(|f| f.name == name).map(|f| f.why.clone());
     for name in ["OK_USE", "OK_PATH", "OK_TESTS_USE", "OK_GENERIC", "OK_CHILD"] {

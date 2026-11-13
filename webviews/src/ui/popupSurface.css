@@ -283,7 +283,8 @@
    pane does not load ui.css and that menu named no class of the pane's; the composer model menu's
    submenu chevrons drew nothing for the same reason). Zero-specificity copies of ui.css's menu rules,
    so a ui.css host draws exactly what it drew, and a menu, row, check or chevron that names no look of
-   its own still gets this one; a feature's own rules still win. A host maps --ui-row to its row wash. */
+   its own still gets this one; a feature's own rules still win. A host maps --ui-row to its row wash;
+   a host that maps none gets the app's highlighted-row token (desktop.css --cmux-row-focus), ui.css's. */
 :where(.ui-popup.ui-menu) {
   padding: var(--ui-popup-padding);
   font-family: var(--font-ui);
@@ -305,7 +306,7 @@
   outline: none;
 }
 :where(.ui-menu-item[data-highlighted]) {
-  background: var(--ui-row, color-mix(in srgb, currentColor 10%, transparent));
+  background: var(--ui-row, var(--cmux-row-focus, color-mix(in srgb, currentColor 10%, transparent)));
 }
 :where(.ui-menu-check) {
   display: inline-flex;
