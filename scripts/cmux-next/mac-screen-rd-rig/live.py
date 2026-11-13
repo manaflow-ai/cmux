@@ -322,12 +322,12 @@ def observe_pane(row, host_id):
                 observer.wait(timeout=5)
             evidence["observer"] = {"error": "observer did not report command readiness", "ready_line": ready_line}
             return evidence
-        motion_script = (f"printf '%s' $$ > {shlex.quote(source_pid_file)}; "
+        motion_script = (f"export CMUX_SOURCE_NONCE={shlex.quote(source['nonce'])} "
+                         f"CMUX_SOURCE_MARKER_ORIGIN={shlex.quote(source['marker_origin'])} "
+                         f"CMUX_SOURCE_CELL_SIZE={int(source['cell_size'])}; "
+                         f"printf '%s' $$ > {shlex.quote(source_pid_file)}; "
                          f"exec {shlex.quote(o.motion)} --motion")
-        motion_command = f"CMUX_SOURCE_NONCE={shlex.quote(source['nonce'])} " \
-                         f"CMUX_SOURCE_MARKER_ORIGIN={shlex.quote(source['marker_origin'])} " \
-                         f"CMUX_SOURCE_CELL_SIZE={int(source['cell_size'])} " \
-                         f"~/.local/bin/cmux new-workspace --name {shlex.quote(f'rd-rig motion {o.tag}')} " \
+        motion_command = f"~/.local/bin/cmux new-workspace --name {shlex.quote(f'rd-rig motion {o.tag}')} " \
                          f"--command {shlex.quote('sh -c ' + shlex.quote(motion_script))} --focus false"
         try:
             started = ssh(o.host, motion_command)
@@ -394,6 +394,12 @@ def observe_pane(row, host_id):
             raw = observer.stdout.read() if observer.stdout else ""
             err = observer.stderr.read() if observer.stderr else ""
             raw = raw or err or "observer timed out waiting for a presented marker"
+        except (OSError, subprocess.SubprocessError) as error:
+            stop_source()
+            observer.terminate()
+            evidence["observer"] = {"error": "observer process failed", "detail": str(error),
+                                     "cleanup_errors": cleanup_errors}
+            return evidence
         stop_source()
         try:
             receipt = json.loads(raw.splitlines()[-1])

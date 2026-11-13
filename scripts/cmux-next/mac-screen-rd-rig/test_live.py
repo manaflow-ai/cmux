@@ -95,6 +95,7 @@ raise SystemExit
         self.assertIn("touch", commands)
         self.assertIn("--start-file", commands)
         self.assertIn("CMUX_SOURCE_NONCE=00112233445566778899aabbccddeeff", commands)
+        self.assertIn("--command 'sh -c", commands)
         self.assertIn("kill", commands)
 
     def test_bad_geometry_stays_unready(self):
