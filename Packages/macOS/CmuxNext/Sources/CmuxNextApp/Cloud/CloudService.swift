@@ -531,8 +531,6 @@ final class CloudService {
     /// belong to the one they were asked in.
     var account: [String?] { listAccount }
 
-    /// When the store's list for the account signed in now was read, as ms since the epoch (nil: it holds none).
-    var currentListReadMs: Int? { hasLoadedCurrentMachines ? listLoadedAt.map { Int(Date().timeIntervalSince1970 * 1000 - $0.duration(to: .now) / .milliseconds(1)) } : nil }
     /// Whether the store holds a list the server answered, within `age`, for the user and team
     /// signed in now: a failed or superseded refresh, or another team's list, is not one.
     func hasCurrentList(within age: Duration) -> Bool {
