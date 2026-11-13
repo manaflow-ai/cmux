@@ -638,12 +638,32 @@ jobs:
             echo "Tree $published_key and commit $SHA's binaries are published; this pin push builds nothing (dispatch to republish)."
           fi
 
+          # A tree key is write-once, but commit-addressed manifests are not:
+          # every trusted feat-cmux-next tip is a client pin and needs its own
+          # manifest even when it has the same runtime tree as an older tip.
+          # The old tree-only shortcut skipped the build and silently left a
+          # successful run with no cmux-tui/$SHA/manifest.json (the SSH
+          # installer then had nothing to fetch).
+          commit_manifest_ready=false
+          if [[ "$EVENT_NAME" == push && "$REF" != refs/heads/cmux-tui-pin-* ]] &&
+              curl --head --fail --silent --show-error --connect-timeout 5 --max-time 15 -o /dev/null \
+                "https://files.cmux.com/cmux-tui/$SHA/manifest.json?preflight=$RUN_ID-commit" 2>/dev/null; then
+            commit_manifest_ready=true
+            echo "Commit $SHA already has a cmux-tui manifest."
+          fi
+
           # Main still needs commit-addressed artifacts and latest/ updates.
-          # Other trusted refs only spend macOS time for a new tree.
+          # Other refs may skip a published tree only after their own
+          # commit-addressed manifest exists. A new tip must rebuild even when
+          # its tree key is already published.
           if [[ "$tree_ready" == true && "$REF" != refs/heads/main &&
                 "$EVENT_NAME" != workflow_dispatch &&
-                ( "$REF" != refs/heads/cmux-tui-pin-* || "$pin_duplicate" == true ) ]]; then
+                ( "$REF" != refs/heads/cmux-tui-pin-* || "$pin_duplicate" == true ) &&
+                "$commit_manifest_ready" == true ]]; then
             run_macos=false
+          elif [[ "$tree_ready" == true && "$REF" == refs/heads/feat-cmux-next &&
+                  "$EVENT_NAME" == push && "$commit_manifest_ready" != true ]]; then
+            echo "Tree $published_key is ready but commit $SHA has no manifest; rebuilding this tip."
           fi
           if [[ "${STALE:-}" == true ]]; then
             run_macos=false
@@ -2945,6 +2965,32 @@ jobs:
 
       - name: Verify published Unix manifests
         run: *verify-published-unix-manifests
+
+  # A green publish job is not enough: the installer reads through the CDN,
+  # and a tree-only shortcut can otherwise leave the immutable commit prefix
+  # absent while every Actions job is green. Keep this as a final, independent
+  # gate so a skipped publish is also red when its manifest is missing.
+  verify-cdn-publication:
+    name: verify cmux-tui CDN publication
+    if: ${{ always() && needs.tree-preflight.result == 'success' &&
+      (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next'))) &&
+      !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') }}
+    needs: [tree-preflight, publish, publish-tree]
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci/verify_cmux_tui_publication.py
+          sparse-checkout-cone-mode: false
+      - name: Verify commit and tree metadata through the CDN
+        env:
+          TREE_KEY: ${{ needs.tree-preflight.outputs.key }}
+        run: python3 scripts/ci/verify_cmux_tui_publication.py --sha "$GITHUB_SHA" --tree-key "$TREE_KEY"
 
   # The Windows pass of publish (the same steps): this commit's
   # cmux-tui-windows/<sha>/ prefix, once build-windows is done. The prefixes the
