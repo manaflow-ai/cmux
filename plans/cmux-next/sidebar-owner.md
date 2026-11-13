@@ -46,10 +46,11 @@
   other density keeps its rows, its `space1` gap and the tab radius. At every density: titles in `Palette.sidebarTitle`
   (the primary text 12% toward the ground, 4.5:1 on every fill), detail lines tertiary, section and list headings at the
   row size, regular, secondary ink (`SidebarStyle.headerFont`, was 12 pt semibold); the neutral hover, selection and
-  pressed fills are Codex's 5/8/12% dark and 4/6/10% light (`ThemeTokens`). Two take back earlier calls and each has a
-  Debug toggle: a dim layer over the sidebar (`sidebar.surfaceDim.dark`, `.light`; off since 2026-11-11, see below;
-  Lawrence 2026-10-19 had one surface; skipped under `appearance.surfaces.sidebar` or a separate chrome shade) and a quiet "Workspaces" heading over
-  the one list (`sidebar.listHeading`; cx-mdo0 had none). What paints the sidebar's own color (badge cutout rings, the
+  pressed fills are Codex's 5/8/12% dark and 4/6/10% light (`ThemeTokens`). Two took back earlier calls: a dim layer over
+  the sidebar (Debug `sidebar.surfaceDim.dark`, `.light`; off since 2026-11-11, see below; Lawrence 2026-10-19 had one
+  surface; skipped under `appearance.surfaces.sidebar` or a separate chrome shade) and a quiet "Workspaces" heading over
+  the one list (`sidebar.listHeading`; cx-mdo0 had none), removed again with its toggle for
+  https://github.com/manaflow-ai/cmux/issues/42373: no label between the pinned rows and the list. What paints the sidebar's own color (badge cutout rings, the
   Needs-You tray backing, favicon grounds) reads `SidebarStyle.ground`, the background under the dim. The softer fills
   also move every theme's secondary and tertiary inks (theme-ink-vectors.json regenerated). Regression:
   `SidebarCodexMatchTests`.
