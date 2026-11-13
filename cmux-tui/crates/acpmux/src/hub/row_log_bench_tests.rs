@@ -132,6 +132,37 @@ async fn list_follow_bench() {
         renamed_pages[1].as_secs_f64() / renamed_pages[0].as_secs_f64()
     );
 
+    // The first page at both sizes in one loop, one sample of each in turn, so a noisy moment of
+    // the machine falls on both: after a one-row rename (what `append` sends for most records)
+    // and after a change that makes every closed row stale (`tags`, `created`).
+    let hubs = [hub_with(525, 0, 0).await, hub_with(11_000, 0, 0).await];
+    for hub in &hubs {
+        let _ = hub.own_rows_from(None, 0);
+    }
+    for (change, all_stale) in [("a rename", false), ("an all-rows change", true)] {
+        let mut taken: [Vec<Duration>; 2] = Default::default();
+        for n in 0..200 {
+            for (hub, samples) in hubs.iter().zip(taken.iter_mut()) {
+                let chat = format!("chat-{}", n % 525);
+                if all_stale {
+                    record(hub, &chat, "renamed");
+                } else {
+                    hub.own_row_changed_for_test(&chat, "renamed");
+                }
+                let mut app = Client::new(hub, Origin::Local).await;
+                let started = Instant::now();
+                app.call(method::MUX_WATCH, json!({"enabled": true, "limit": 200})).await;
+                samples.push(started.elapsed());
+            }
+        }
+        let [small, god] = taken.map(p95);
+        eprintln!(
+            "PERF first page interleaved after {change}: 525 p95 {small:?}, 11000 p95 {god:?}, god/small {:.2}",
+            god.as_secs_f64() / small.as_secs_f64()
+        );
+    }
+    drop(hubs);
+
     // The app's first frame after its socket is up (from connect, through `initialize`, to the
     // first page's reply) with 525 chats and 30 peers of 20 rows: alone ("quiet"), and while 30
     // links reconnect.
