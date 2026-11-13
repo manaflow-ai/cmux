@@ -1,0 +1,142 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43346087008",
+  "recorded_at": "2026-11-13T01:44:09Z",
+  "reason": "cmux-tui 8985ce1fab4e changes the image's cmux-tui (pinned 19d181e09dd1)",
+  "dry_run": false,
+  "cmux_tui": "8985ce1fab4e7c4edeb195357b7e088dfbf0fdab",
+  "fixes": [
+    {
+      "sha": "8985ce1fab4e7c4edeb195357b7e088dfbf0fdab",
+      "mergedAt": "2026-11-13T01:08:49Z",
+      "subject": "ci(cmux-tui): each machine manifest check wants the targets its ref built (#42302)"
+    },
+    {
+      "sha": "5a851e80ed91caca82b36c39d63b0a48f7f83f94",
+      "mergedAt": "2026-11-13T01:00:54Z",
+      "subject": "base red: the notices tool places a path crate that a crate outside the workspace inherits (nightly-next stops at the notices) (#42295)"
+    },
+    {
+      "sha": "3de9f62b182ed9cc85fdc6c18e4578238aa7664c",
+      "mergedAt": "2026-11-12T16:25:23-08:00",
+      "subject": "fix(cmux-tui): a window_record.put stores its record once, an equal put nothing"
+    },
+    {
+      "sha": "1a2ffd8908a90be4b0f29b0ac0224b8a64cce4dc",
+      "mergedAt": "2026-11-12T16:25:23-08:00",
+      "subject": "test(cmux-tui): a window_record.put stores its record once, an equal put nothing"
+    },
+    {
+      "sha": "0efe2496548459da84f4d20bc544ed6638478709",
+      "mergedAt": "2026-11-13T00:22:54Z",
+      "subject": "test(cmux-tui): the git lane test client reads a connection that closed before its look (#42270)"
+    },
+    {
+      "sha": "209f57173fae04cef0564a8a8d9fbb418ade6fe4",
+      "mergedAt": "2026-11-12T16:13:10-08:00",
+      "subject": "fix(cmux-tui): sync the terminal tail files together every 30 s, not each every second"
+    },
+    {
+      "sha": "96272fab7cac7bb3045f802eb728fc83c6c17fad",
+      "mergedAt": "2026-11-12T16:13:10-08:00",
+      "subject": "test(cmux-tui): printing terminals fsync each tail file once a second"
+    },
+    {
+      "sha": "8a45ce6b56c1177872f2e99fcff6f5e12a49abc6",
+      "mergedAt": "2026-11-12T16:10:52-08:00",
+      "subject": "cmux-rd host: the person's keys reach the focused window again; Screen Sharing netem harness (#42263)"
+    },
+    {
+      "sha": "ed8f20e01dbd8348101ad192c1e4d240a918fe69",
+      "mergedAt": "2026-11-12T17:36:36-06:00",
+      "subject": "cmux-git: a sync barrier's locks unlock before they close, so a forked child keeps none"
+    },
+    {
+      "sha": "db07f523cc4736285f7db0d46b482fe2689b7320",
+      "mergedAt": "2026-11-12T17:36:34-06:00",
+      "subject": "cmux-file-lock: a held file lock that unlocks before it closes"
+    },
+    {
+      "sha": "be19cb14e5ead2b1f90080824f4cd8ce3d989a68",
+      "mergedAt": "2026-11-12T17:36:33-06:00",
+      "subject": "cmux-git tests: an ended sync frees its locks while a forked child still has its descriptors (red)"
+    },
+    {
+      "sha": "efbc76a07494e86c4ee6d00362b1b0368dca6161",
+      "mergedAt": "2026-11-12T15:24:48-08:00",
+      "subject": "Fix direct peer redials and replacement races (#42171)"
+    },
+    {
+      "sha": "e8d079c4b872debcaa426553d1066a53b5846eb5",
+      "mergedAt": "2026-11-12T23:21:02Z",
+      "subject": "fix(daemon): a client that closed stops being a client while its git reads wait (#42186)"
+    },
+    {
+      "sha": "ff293599bd7420a1f46b7e27747126499be8b781",
+      "mergedAt": "2026-11-12T15:16:50-08:00",
+      "subject": "Fix TCP stream recovery under packet loss (#42169)"
+    },
+    {
+      "sha": "4a64061013fcec2e936208406a18ff525c0150ac",
+      "mergedAt": "2026-11-12T23:16:41Z",
+      "subject": "acpmux tests: the idle-hold hang detector counts only the intended panic after the hold (#41816 F1) (#41890)"
+    },
+    {
+      "sha": "c47524c80c7d8c911af4cb9acd1f7ac7a0fbbe29",
+      "mergedAt": "2026-11-12T15:14:50-08:00",
+      "subject": "cmux-source-scan: an unreadable source fails the scan and names the path (#42109)"
+    },
+    {
+      "sha": "04fbca699e49cb94b67a6e15f08aa82b3026ad7f",
+      "mergedAt": "2026-11-12T23:07:53Z",
+      "subject": "cmux-tui test: the Chief target test gives the CLI the test build's short not-run deadline (#40571)"
+    },
+    {
+      "sha": "be6628282153fa24942f418bb4f6323ea026899e",
+      "mergedAt": "2026-11-12T23:05:48Z",
+      "subject": "cmux-usage-patterns: a daemon whose settings watch didn't start stops counting when the setting goes off (#42211)"
+    },
+    {
+      "sha": "bdf52016fd4648138f96587d92051db7778d8844",
+      "mergedAt": "2026-11-12T15:02:59-08:00",
+      "subject": "acpmux: a held read checks the home after a failed read; the store lint resolves imports (#41915 F1 F2) (#41970)"
+    },
+    {
+      "sha": "4539f4b7b8028d88c63d116ff71a54a0aafd0779",
+      "mergedAt": "2026-11-12T15:01:11-08:00",
+      "subject": "cmux-tui: the WAL syncer checkpoints by the frames the WAL holds, not its file size"
+    },
+    {
+      "sha": "acdf48efc561f299d8287db10c865447d75e5e1c",
+      "mergedAt": "2026-11-12T15:01:11-08:00",
+      "subject": "cmux-tui tests: a WAL file that kept its size is not checkpointed after every request"
+    },
+    {
+      "sha": "a84cbd091652b6f3f0e2ef5c67178ccde5addd95",
+      "mergedAt": "2026-11-12T14:45:34-08:00",
+      "subject": "cargo: align patch versions across the repo's lock files (top-30 distinct versions 70 to 55) (#42155)"
+    },
+    {
+      "sha": "f0c7952f4586d3fcd11406e97ab4307cd76c27c0",
+      "mergedAt": "2026-11-12T14:23:44-08:00",
+      "subject": "cmux-action-catalog: Move, Set Proxy and Remove Proxy in the Browser Profile palette family (#42115)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T01:44:09Z",
+    "snapshot_id": "sh-5887abd471f547b7ad25661d7264cefd",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43346087008): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "0793ca2383d66dcd4d6018130d8e700eda182126",
+    "image": "cloud-native-auto-8985ce1f-43346087008-1",
+    "revision": "ci-43346087008-1",
+    "at": "2026-11-13T01:44:09Z"
+  },
+  "rolled_back": false
+}
