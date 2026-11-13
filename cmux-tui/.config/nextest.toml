@@ -207,3 +207,9 @@ success-output = "final"
 [[profile.ci.overrides]]
 filter = 'binary_id(cmux-tui-core) & test(/^mux::tests::journal_vacuum_backlog::/)'
 success-output = "final"
+
+# The seal cost test (mux/tests/journal_seal_cost.rs) prints what a seal wrote (its
+# journal_seal_cost line); a fleet step shows it only when a passing test's output is kept.
+[[profile.ci.overrides]]
+filter = 'binary_id(cmux-tui-core) & test(/^mux::tests::journal_seal_cost::/)'
+success-output = "final"
