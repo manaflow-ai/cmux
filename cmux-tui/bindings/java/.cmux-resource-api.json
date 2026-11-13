@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "9777aaa4ca272d35c048bcabc64e2d86f7a04385f1a5a2ffa4a5b87b22e1cc4d",
+  "catalog_sha256": "410246dc1512a7f8bdc9b80623cdbc7b6e26bdcaaa2478f97cfdba9928760443",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -728,6 +728,9 @@
       "class": "mutation"
     },
     "session.window.title.set": {
+      "class": "mutation"
+    },
+    "settings.edit": {
       "class": "mutation"
     },
     "settings.get": {

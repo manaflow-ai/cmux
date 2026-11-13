@@ -480,15 +480,21 @@ jobs:
             CMUX_TUI_NPM_BOOTSTRAP_VERSION="$CMUX_TUI_DISTRIBUTION_VERSION"
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
           fi
-          # lto=thin (the Cloud machine channel's legs only): the profile #41963 measured as its
-          # thin control, release LTO thin and 16 codegen units for the three crates on the critical
-          # path. lto=fat changes nothing: cmux-tui/Cargo.toml's release profile applies.
+          # lto=thin (the Cloud machine channel's legs only): release LTO off and 16 codegen units
+          # for the three crates on the critical path. Real thin LTO left every crate's machine code
+          # to the final link: the cmux-tui and acpmux "bin" units took 107-175 s each, last on
+          # both groups (cargo timings, runs 43445027590 and 43447122933); with LTO off each crate
+          # compiles its own code in parallel and the link only links. lto=fat changes nothing:
+          # cmux-tui/Cargo.toml's release profile applies.
+          # --timings (thin only): cargo-groups.sh prints each group's slowest and last units, so a
+          # slow leg says where its time went.
           profile=""
           if [[ "$LTO" == thin ]]; then
-            export CARGO_PROFILE_RELEASE_LTO=thin
+            export CARGO_PROFILE_RELEASE_LTO=off
             for pkg in cmux-tui cmux-tui-core acpmux; do
               profile+=" --config profile.release.package.$pkg.codegen-units=16"
             done
+            profile+=" --timings"
           fi
           # One cargo per package, all at once, each in its own target directory
           # (building them in one cargo would unify their features). The

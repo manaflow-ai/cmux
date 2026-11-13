@@ -231,9 +231,9 @@ DEPS_CHECKER = "scripts/cmux-next/check-package-dependency-lists.py"
 # package, {s} its scripts/cmux-next. Mirrors the job's steps; tests/test_cmux_next_prepush_gate.py
 # keeps this list in step with the workflow.
 # The exit codes each scanner's verdicts use (audited 2026-11-11): 0 for none and 1 for findings, all of them. Exit 2
-# is a refusal to judge in check-crash-safety.sh (not a git checkout), check-state-roots.sh, check-no-process-scan.py
-# and check-no-raw-spawn.py (a bad baseline row); any other code, or a signal, is no verdict either. A scanner whose
-# verdicts use other codes names them here.
+# is a refusal to judge in check-crash-safety.sh (not a git checkout), check-state-roots.sh, check-no-process-scan.py,
+# check-no-raw-spawn.py and check-no-raw-flock.py (a bad baseline row); any other code, or a signal, is no verdict
+# either. A scanner whose verdicts use other codes names them here.
 SCANNER_VERDICT_CODES: dict[str, tuple[int, ...]] = {}
 DEFAULT_VERDICT_CODES = (0, 1)
 
@@ -261,6 +261,8 @@ SCANNERS = (
      ["python3", "-I", "{s}/check-no-raw-spawn.py", "{root}"], ("cmux-tui/", "scripts/cmux-next/raw-spawn-baseline.tsv")),
     ("Every spawn has an owner (cmux_scope::Scope, cmux_process::Child; cmuxterm-hq#9096)",
      ["python3", "-I", "{s}/check-spawn-owner.py", "{root}"], ("cmux-tui/", "scripts/cmux-next/spawn-owner-baseline.tsv")),
+    ("No raw file locks (cmux_file_lock::FileLock, lane c-agenthost lock audit)",
+     ["python3", "-I", "{s}/check-no-raw-flock.py", "{root}"], ("cmux-tui/", "scripts/cmux-next/raw-flock-baseline.tsv")),
     ("No app id special cases (zero first-party privilege, docs/app-store-platonic-ideal.md 5)",
      ["python3", "-I", "{s}/check-app-id-special-cases.py", "{root}"],
      (PKG + "/", "cmux-tui/", "first-party-apps/", "scripts/cmux-next/app-id-special-cases-baseline.tsv")),
@@ -411,6 +413,7 @@ RATCHET_BASELINES = {
     "process-scan-baseline.tsv": ((0,), 1),
     "state-roots-baseline.tsv": ((0,), 1),
     "raw-spawn-baseline.tsv": ((0,), 1),
+    "raw-flock-baseline.tsv": ((0,), 1),
     "spawn-owner-baseline.tsv": ((0,), 1),
     "app-id-special-cases-baseline.tsv": ((0,), 1),
     "swift-type-scale-baseline.tsv": ((0, 1), 2),

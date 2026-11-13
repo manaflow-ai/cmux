@@ -12,8 +12,7 @@ use std::time::{Duration, Instant};
 #[cfg(unix)]
 use super::start_apps_when_ready;
 use super::{
-    ACCEPT_RETRY_INITIAL, ACCEPT_RETRY_MAX, RenderService, claim_watched_connection,
-    claim_watched_terminal_connection, cleanup, handle_connection_with_permit,
+    ACCEPT_RETRY_INITIAL, ACCEPT_RETRY_MAX, RenderService, cleanup, handle_connection_with_permit,
     try_default_socket_path,
 };
 use crate::mux::Mux;
@@ -525,7 +524,6 @@ pub fn bind_session_socket(session: &str, path: Option<PathBuf>) -> anyhow::Resu
 pub(super) struct ServedSession {
     pub(super) mux: Arc<Mux>,
     pub(super) render_service: Arc<RenderService>,
-    pub(super) terminal_sessions: Arc<super::terminal_sessions::TerminalSessions>,
 }
 
 impl ServedSession {
@@ -535,26 +533,18 @@ impl ServedSession {
         // A process in one of the session's terminals (an agent, its hooks,
         // `cmux` run in a pane) may hold only its share of the connections, so
         // a burst of agents cannot lock the app out of its own daemon (#27698).
-        // Decided here, before the connection's thread, without waiting on the
-        // state lock (`TerminalSessions`).
-        let key = stream.peer_process_key();
+        // Decided here, before the connection's thread, from the terminals'
+        // seats alone: the session state is never read (`terminal_admission`).
         let connections = self.mux.connection_stats();
-        let terminal = self.terminal_sessions.terminal_of_peer(&self.mux, key.as_deref());
-        let permit = if let Some(terminal) = terminal {
-            claim_watched_terminal_connection(connections, &*stream, Some(terminal))
-        } else {
-            claim_watched_connection(connections, &*stream)
-        };
-        let Some(permit) = permit else {
-            // Refused at the connection limit, before any line: counted by the lane it
-            // asked for (`server-stats` section `commands`).
-            connections.commands().connection_refused(if terminal.is_some() {
-                crate::diagnostics::ClientKind::Terminal
-            } else {
-                crate::diagnostics::ClientKind::Local
-            });
-            refuse_busy(stream);
-            return;
+        let permit = match super::terminal_admission::admit(connections, &*stream) {
+            Ok(permit) => permit,
+            Err(lane) => {
+                // Refused at the connection limit, before any line: counted by the
+                // lane it asked for (`server-stats` section `commands`).
+                connections.commands().connection_refused(lane);
+                refuse_busy(stream);
+                return;
+            }
         };
         let mux = self.mux.clone();
         let render_service = self.render_service.clone();

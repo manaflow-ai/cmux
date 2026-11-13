@@ -2698,6 +2698,26 @@ def test_pending_deferral_is_red_once_its_tree_is_published():
             assert "::error title=commit manifest missing::" in result.stdout
 
 
+def test_pending_red_names_the_word_base_red_watch_skips():
+    # cmuxterm-hq's base_red_watch (hq#10455) keeps a red out of feat-cmux-next's base reds only while every
+    # ##[error] line it printed has this word, split on whitespace: the sweep re-runs that run, so no lane takes
+    # it. Only the pending-turned-red says it; any other error is a base red.
+    word = "cmux-tui-manifest-rerun-pending"
+    key = "e" * 40
+    fake = f"curl() {{ printf '%s' '{json.dumps({'key': key})}'; }}; "
+    result = subprocess.run(["bash", "-c", fake + cdn_gate_script()],
+                            env={**os.environ, "ADOPT_STATE": "pending", "STALE": "false", "TREE_KEY": key,
+                                 "GITHUB_SHA": "s", "GITHUB_RUN_ID": "1", "GITHUB_RUN_ATTEMPT": "1"},
+                            capture_output=True, text=True)
+    assert result.returncode == 1, (result.stdout, result.stderr)
+    # GitHub logs `::error title=T::message` as `##[error]message`.
+    logged = [line.split("::", 2)[2] for line in result.stdout.splitlines() if line.startswith("::error")]
+    assert logged and all(word in line.split() for line in logged), logged
+    others = [line for line in workflow("cmux-tui-artifacts.yml").splitlines()
+              if "::error" in line and "was published after this run deferred" not in line]
+    assert others and not any(word in line for line in others)
+
+
 def sweep_world(run_status: str, *, adopts: bool = True, manifest: int = 404, attempt: int = 1):
     import cmux_tui_manifest_sweep as sweeper
 
