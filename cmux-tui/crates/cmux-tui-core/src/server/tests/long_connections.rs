@@ -406,8 +406,7 @@ fn at_the_bound_a_wait_and_an_event_stream_get_an_error_and_the_connection_goes_
     let mut bad_wait = wait.clone();
     bad_wait["timeout_ms"] = json!("soon");
     let bad = send("bad-timeout-at-the-bound", "terminal.wait", bad_wait, None);
-    assert_eq!(bad["ok"], false, "{bad}");
-    assert_ne!(bad["error"]["code"], "operation.failed", "the bound refused it: {bad}");
+    assert_eq!(bad["error"]["code"], "validation.invalid", "{bad}");
     let legacy_check = json!({
         "id":"legacy-check-at-the-bound",
         "cmd":"wait-for",
