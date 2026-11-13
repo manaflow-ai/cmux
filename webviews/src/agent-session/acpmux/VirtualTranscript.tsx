@@ -2667,6 +2667,9 @@ function TranscriptView({
   const didOpenAtLatest = useRef(false);
   /// The sends this chat's view has taken in (`sends`): a new one puts the view at the latest message.
   const seenSends = useRef(sends);
+  /// Prompt identities captured on the send's first snapshot. Kept separately from enteringRows:
+  /// a burst can exceed the live-entry threshold, while its thinking row still belongs to the send.
+  const sentPromptIds = useRef(new Set<string>());
   /// A prompt was sent before the chat opened (while its tail still fits): it opens at the latest
   /// message, not at the reader's old place.
   const sentBeforeOpen = useRef(false);
@@ -2803,6 +2806,20 @@ function TranscriptView({
   }, [noteQueue]);
   const previousLayout = useRef<PlacedLayout | null>(null);
   const previousRows = useRef<readonly AcpmuxRow[]>(rows);
+  if (sessionChanged) sentPromptIds.current.clear();
+  if (sends !== seenSends.current) {
+    const previous = previousRows.current;
+    const first = Math.max(0, previous.length - ARRIVAL_TAIL);
+    const last = Math.min(rows.length, previous.length + ARRIVAL_TAIL);
+    for (let index = first; index < last; index += 1) {
+      const row = rows[index];
+      if (row?.kind === "user" && !isLineRow(row) && row.id !== previous[index]?.id) sentPromptIds.current.add(row.id);
+    }
+    for (let index = Math.max(0, rows.length - ARRIVAL_TAIL); index < rows.length; index += 1) {
+      const row = rows[index];
+      if (row?.kind === "user" && !isLineRow(row)) sentPromptIds.current.add(row.id);
+    }
+  }
   const previousViewport = useRef({ height, width, dockSpace, dockCard });
   /// The room kept under the last row (`room` below) as of the last placement pass.
   const heldRoom = useRef(dockRoom);
@@ -3801,6 +3818,7 @@ function TranscriptView({
       didOpenAtLatest.current = false;
       // Another chat's count (the subagent view takes none) is not a send in this one.
       seenSends.current = sends;
+      sentPromptIds.current.clear();
       sentBeforeOpen.current = false;
       sendRiseUntil.current = Number.NEGATIVE_INFINITY;
       sendClockUntil.current = Number.NEGATIVE_INFINITY;
@@ -6160,7 +6178,7 @@ function TranscriptView({
                         observer={observer}
                         queueDrawn={queueDrawn}
                         sendThinking={
-                          row.kind === THINKING && row.verbKey !== undefined && enteringRows.current.has(row.verbKey)
+                          row.kind === THINKING && row.verbKey !== undefined && sentPromptIds.current.has(row.verbKey)
                         }
                         // A session switch is a load, not a live arrival. The reset effect runs after
                         // this render, so gate it here as well to avoid a reused row id animating once.

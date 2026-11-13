@@ -13,7 +13,6 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { broughtSentPrompt } from "../src/agent-session/acpmux/VirtualTranscript";
 import { installJsdomScroller } from "./support/jsdomScroller";
-import { settleReact } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -99,7 +98,6 @@ const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 
 afterAll(async () => {
-  await settleReact();
   if (ownNow) Object.defineProperty(performance, "now", ownNow);
   else delete (performance as unknown as Record<string, unknown>).now;
   dom.window.close();
