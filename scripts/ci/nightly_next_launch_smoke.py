@@ -2,7 +2,8 @@
 """What the cmux NEXT post-publish launch smoke does with a verdict (nightly-next-launch-smoke.yml).
 
 The feed publishes without waiting on anything here. After a build is on the feed, the workflow
-launches it from a fresh home (scripts/ci/fresh_home_launch_smoke.py) and this script decides:
+launches it from an empty home and then from a seeded home, the home of a person who uses the app
+(scripts/ci/fresh_home_launch_smoke.py --arms empty,seeded), and this script decides:
 
   verdict --dir DIR [--daemon]
       The verdict of up to two harness runs (DIR/status-N and DIR/attempt-N/report.json). An attempt
@@ -17,6 +18,13 @@ launches it from a fresh home (scripts/ci/fresh_home_launch_smoke.py) and this s
       step timeout) is cannot-run, and so is any cannot-run attempt. An attempt that the publish gate's
       watchdog stopped (status 124) is read by its report in the same way: a crash when the harness had
       already seen the app end, else cannot-run. Prints pass, crash or cannot-run.
+      The crash is of either home: when the empty home passed and the app ended from the seeded home,
+      the harness's report describes that launch (its `arm` is seeded), with the same evidence rule.
+
+  seeded-note --dir DIR
+      One sentence when the verdict is a pass whose seeded home was not checked (the seed could not be
+      made, or the app never read it: the harness then keeps the empty home's pass), else nothing. The
+      workflow says it as a warning; the pass and its marker stay.
 
   attempt --dir DIR --number N [--daemon]
       The result of harness run N alone (pass, crash or cannot-run). The publish gate asks it after an
@@ -123,6 +131,36 @@ def verdict(attempts: list[tuple[int, dict]], required: int = 2, daemon: bool = 
             return result
     # Every attempt crashed; fewer than REQUIRED means the check was cut short (a timeout).
     return CRASH if attempts and len(attempts) >= required else CANNOT_RUN
+
+
+def seeded_note(attempts: list[tuple[int, dict]]) -> str:
+    """What a pass of the post-publish smoke did not check, as one line, or "".
+
+    The harness is asked for 2 homes. The seeded home's arm can end with no verdict of its own
+    (report.json's `arms.seeded.verdict`: cannot-run when the seed could not be made or the launch could
+    not start, not-run when the app never read the seeded store), and the run then keeps the empty home's
+    pass. That is a pass here too, never a crash: a fault of the seed tool must not roll a published build
+    back. Without this line nobody sees that the second home was not checked. It is about the attempt
+    that gave the pass (verdict()'s rule); any other verdict has no note.
+    """
+    for status, report in attempts:
+        result = attempt_result(status, report)
+        if result == CRASH:
+            continue
+        if result != PASS:
+            return ""
+        arms = report.get("arms")
+        arm = arms.get("seeded") if isinstance(arms, dict) else None
+        arm = arm if isinstance(arm, dict) else {}
+        said = str(arm.get("verdict") or "not-run")
+        if said == PASS:
+            return ""
+        reason = str(arm.get("reason") or "the harness gave no reason")
+        # One line of printable text, whatever the harness wrote: the workflow puts it in a `::warning` command.
+        said, reason = ("".join(ch if ch.isprintable() else " " for ch in text) for text in (said, reason))
+        return " ".join(f"the seeded home (imported-cookie sync on) was not checked ({said}: {reason})".split())[:400] \
+            + "; the empty home passed and the build stays on the feed"
+    return ""
 
 
 def read_attempts(directory: Path) -> list[tuple[int, dict]]:
@@ -308,6 +346,8 @@ def main(argv: list[str] | None = None) -> int:
     v = sub.add_parser("verdict")
     v.add_argument("--dir", type=Path, required=True)
     v.add_argument("--daemon", action="store_true", help="a daemon_down report counts as a crash counts")
+    n = sub.add_parser("seeded-note")  # what a pass did not check, for the post-publish smoke's warning
+    n.add_argument("--dir", type=Path, required=True)
     a = sub.add_parser("attempt")  # one attempt's result (pass, crash or cannot-run), for the gate's loop
     a.add_argument("--dir", type=Path, required=True)
     a.add_argument("--number", type=int, required=True)
@@ -354,6 +394,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"in_flight={run or ''}")
     elif args.command == "verdict":
         print(verdict(read_attempts(args.dir), daemon=args.daemon))
+    elif args.command == "seeded-note":
+        note = seeded_note(read_attempts(args.dir))
+        if note:
+            print(note)
     elif args.command == "attempt":
         attempts = read_attempts(args.dir)
         print(attempt_result(*attempts[args.number - 1], args.daemon) if 0 < args.number <= len(attempts)
