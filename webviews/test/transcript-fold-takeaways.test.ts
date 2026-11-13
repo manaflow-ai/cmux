@@ -4,7 +4,7 @@
 // Short narration between steps folds with them. While running, intermediate dialogue remains visible.
 import { afterEach, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { isTakeaway, turnFoldFor, turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { isTakeaway, turnFoldFor, turnView, toggleTurnFold } from "../src/agent-session/acpmux/conversation/turns";
 
 /// These cases read a steered turn as one fold (turnFoldSteered `nested-open`); its in-order default,
 /// each message that came in mid-turn ending a fold, is turn-fold-in-order.test.ts's.
@@ -105,7 +105,7 @@ test("Find opens the fold that holds the row", () => {
   ).toBe("worked-u");
 });
 
-test("short narration between tools folds with them", () => {
+test("short narration folds with the turn and remains separate from its tool groups when opened", () => {
   const rows = [
     row("u", "user"),
     ran("read"),
@@ -117,10 +117,12 @@ test("short narration between tools folds with them", () => {
     summary(),
   ];
   expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "assistant:final", "turnSummary:end"]);
-  // Opened, each short note joins the runs around it, as in a running turn (turns.ts mergeShortNotes).
   const open = turnView(rows, new Set(["worked-u"]));
-  expect(open.map((shaped) => shaped.id)).not.toContain("check");
-  expect(open.find((shaped) => shaped.id === "read")?.joined).toEqual(["read", "check", "grep", "running", "test"]);
+  expect(
+    open.filter((shaped) => shaped.kind === "activity" || shaped.kind === "assistant").map((shaped) => shaped.id),
+  ).toEqual(["read", "check", "grep", "running", "test", "final"]);
+  expect(open.find((shaped) => shaped.id === "check")?.text).toBe("Let me check the host next.");
+  expect(open.find((shaped) => shaped.id === "running")?.text).toBe("Both audits still running.");
 });
 
 test("long reply, then a tool, then 'Pushed.': both replies stay visible", () => {
@@ -153,7 +155,7 @@ test("a substantive answer with a table stays visible before a tool and its shor
   ]);
 });
 
-test("completed compactions and subagent reports fold, while a refusal stays available", () => {
+test("completed compactions fold, while subagent lifecycle lines and refusals stay available", () => {
   const rows = [
     row("u", "user"),
     ran("read"),
@@ -169,7 +171,14 @@ test("completed compactions and subagent reports fold, while a refusal stays ava
     answer("final"),
     summary(),
   ];
-  expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "notice:refused", "assistant:final", "turnSummary:end"]);
+  expect(drawn(rows)).toEqual([
+    "user:u",
+    "worked:worked-u",
+    "subagentDone:cef-done",
+    "notice:refused",
+    "assistant:final",
+    "turnSummary:end",
+  ]);
 });
 
 test("a running turn draws as before: nothing folds", () => {
@@ -267,6 +276,10 @@ test("Find opens the right fold for a row after a summary a steer continued", ()
   ];
   const folds = drawn(rows).filter((entry) => entry.startsWith("worked:"));
   expect(folds).toEqual(["worked:worked-u"]);
+  const opened = turnView(rows, toggleTurnFold(rows, new Set(), "worked-u"));
+  expect(opened.find((entry) => entry.id === "worked-u")?.foldOpen).toBe(true);
+  expect(opened.some((entry) => entry.id === "tool1")).toBe(true);
+  expect(opened.some((entry) => entry.id === "tool3")).toBe(true);
   expect(
     turnFoldFor(
       rows,
