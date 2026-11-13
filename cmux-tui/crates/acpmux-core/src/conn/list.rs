@@ -189,6 +189,7 @@ fn raw_parts(sid: &str, replay: Option<ReplayMark>) -> Result<(Vec<u8>, Vec<u8>)
 }
 
 fn raw_budget(sid: &str, replay: Option<ReplayMark>) -> Result<usize, ConnError> {
+    let replay_present = replay.is_some();
     let (prefix, suffix) = raw_parts(sid, replay)?;
     Ok(crate::wire::MAX_REPLAY_FRAME_BYTES
         .saturating_sub(5)
@@ -208,7 +209,7 @@ fn raw_frame(
     payload.extend_from_slice(&suffix);
     let frame = Frame::new(FrameKind::Delta, payload)
         .map_err(|error| ConnError::InvalidRequest(error.to_string()))?;
-    if replay.is_some() && frame.encoded_len() > crate::wire::MAX_REPLAY_FRAME_BYTES {
+    if replay_present && frame.encoded_len() > crate::wire::MAX_REPLAY_FRAME_BYTES {
         return Ok(Err("list replay operation exceeds replay bound".into()));
     }
     Ok(Ok(frame))

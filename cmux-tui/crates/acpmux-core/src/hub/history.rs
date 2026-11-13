@@ -30,8 +30,8 @@ pub(super) struct History {
 /// The connection wraps these bytes in the delta envelope without decoding
 /// or re-encoding an operation for each subscriber.
 pub(super) struct RawSpan {
-    pub(super) bytes: Vec<u8>,
-    pub(super) last_seq: u64,
+    pub(crate) bytes: Vec<u8>,
+    pub(crate) last_seq: u64,
 }
 
 #[derive(Serialize)]
