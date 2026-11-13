@@ -57,28 +57,28 @@ struct SidebarAgentUsageTests {
     // MARK: Formatting
 
     @Test func summaryShowsModelContextPercentAndEstimatedCost() {
-        let formatter = SidebarAgentUsageFormatter(locale: Locale(identifier: "en_US"))
+        let formatter = SidebarAgentUsageFormatter(strings: .localized, locale: Locale(identifier: "en_US"))
         #expect(formatter.summary(for: Self.usage) == "Opus 4.8 · 42% · ~$1.20")
         let partial = SidebarAgentUsage(modelName: "Opus 4.8", contextFraction: nil, estimatedCostUSD: 1.2, costIsLowerBound: true)
         #expect(formatter.summary(for: partial) == "Opus 4.8 · ~$1.20+")
     }
 
     @Test func summaryOmitsUnknownWindowAndPrice() {
-        let formatter = SidebarAgentUsageFormatter(locale: Locale(identifier: "en_US"))
+        let formatter = SidebarAgentUsageFormatter(strings: .localized, locale: Locale(identifier: "en_US"))
         let usage = SidebarAgentUsage(modelName: "gpt-6-astra", contextFraction: nil, estimatedCostUSD: nil)
         #expect(formatter.summary(for: usage) == "gpt-6-astra")
     }
 
     @Test func decorationExtendsOnlyTheMatchingAgentEntryAndExplainsTheCost() {
-        let formatter = SidebarAgentUsageFormatter(locale: Locale(identifier: "en_US"))
+        let formatter = SidebarAgentUsageFormatter(strings: .localized, locale: Locale(identifier: "en_US"))
         let claude = Self.statusEntry(key: "claude_code", value: "Running")
         let other = Self.statusEntry(key: "build", value: "Passing")
 
         let decorated = formatter.decorate([claude, other], usageByStatusKey: ["claude_code": Self.usage])
 
         #expect(decorated[0].value == "Running · Opus 4.8 · 42% · ~$1.20")
-        #expect(decorated[0].helpText == SidebarAgentUsageFormatter.costHelpText)
-        #expect(decorated[0].sidebarHelpText.hasSuffix(SidebarAgentUsageFormatter.costHelpText))
+        #expect(decorated[0].helpText == SidebarAgentUsageFormatter.Strings.localized.costHelpText)
+        #expect(decorated[0].sidebarHelpText.hasSuffix(SidebarAgentUsageFormatter.Strings.localized.costHelpText))
         #expect(decorated[0].icon == claude.icon)
         #expect(decorated[0].color == claude.color)
         #expect(decorated[0].priority == claude.priority)
@@ -95,6 +95,21 @@ struct SidebarAgentUsageTests {
 
         defaults.set(true, forKey: SidebarCatalogSection().hideAllDetails.userDefaultsKey)
         #expect(!SidebarTabItemSettingsSnapshot(defaults: defaults).visibleAuxiliaryDetails.showsAgentUsage)
+    }
+
+    @Test func partSettingsAreOnByDefaultAndEachFollowsItsKey() {
+        let defaults = UserDefaults(suiteName: "SidebarAgentUsageTests.\(UUID().uuidString)")!
+        func parts() -> SidebarAgentUsage.Parts {
+            SidebarTabItemSettingsSnapshot(defaults: defaults).visibleAuxiliaryDetails.agentUsageParts
+        }
+        #expect(parts() == .all)
+
+        defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.showAgentModelKey)
+        #expect(parts() == [.context, .cost])
+        defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.showAgentCostKey)
+        #expect(parts() == [.context])
+        defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.showAgentContextKey)
+        #expect(parts() == [])
     }
 
     // MARK: Coordinator
@@ -167,6 +182,58 @@ struct SidebarAgentUsageTests {
         defaults.set(false, forKey: SidebarCatalogSection().showCustomMetadata.userDefaultsKey)
         coordinator.settingsDidChange()
         #expect(metadata.agentUsageByStatusKey.isEmpty)
+    }
+
+    @Test func turningOffEveryPartStopsSampling() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("usage-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let path = try Self.claudeTranscript(contextTokens: 200_000, in: directory, name: "a")
+        let workspaceID = UUID()
+        let defaults = Self.makeDefaults(enabled: true)
+        for key in [
+            SidebarWorkspaceDetailDefaults.showAgentModelKey,
+            SidebarWorkspaceDetailDefaults.showAgentContextKey,
+            SidebarWorkspaceDetailDefaults.showAgentCostKey,
+        ] {
+            defaults.set(false, forKey: key)
+        }
+        let metadata = WorkspaceSidebarMetadataModel(limitProvider: UnlimitedSidebarLog())
+        let coordinator = SidebarAgentUsageCoordinator(defaults: defaults, coalesceInterval: .zero) { id in
+            id == workspaceID ? metadata : nil
+        }
+
+        coordinator.noteHookEvent(Self.event(.preToolUse, session: "A", workspace: workspaceID, transcript: path, at: 1))
+        await coordinator.waitUntilIdle()
+        #expect(coordinator.scheduledFlushCount == 0)
+
+        // One part back on resamples without waiting for a hook event.
+        defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.showAgentContextKey)
+        coordinator.settingsDidChange()
+        await coordinator.waitUntilIdle()
+        #expect(metadata.agentUsageByStatusKey["claude_code"]?.contextFraction == 0.2)
+    }
+
+    @Test func snapshotRowLeavesOutADisabledPart() throws {
+        let defaults = Self.makeDefaults(enabled: true)
+        defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.showAgentModelKey)
+        let workspace = Workspace()
+        workspace.statusEntries["claude_code"] = Self.statusEntry(key: "claude_code", value: "Running")
+        // A structured agent key stays out of the sidebar until an agent owns
+        // it; a PID with no panel binding is the smallest proof, as in
+        // `SidebarCompactAgentStatusTests`.
+        workspace.agentPIDs["claude_code"] = 4242
+        workspace.sidebarMetadata.updateAgentUsage(Self.usage, forStatusKey: "claude_code")
+
+        let snapshot = SidebarWorkspaceSnapshotFactory(
+            workspace: workspace, settings: SidebarTabItemSettingsSnapshot(defaults: defaults), showsAgentActivity: false
+        ).makeSnapshot()
+        // The percent and currency follow `Locale.current`, so the expected
+        // text comes from a formatter on the same locale and strings.
+        let row = try #require(snapshot.metadataEntries.first { $0.key == "claude_code" }?.value)
+        let summary = SidebarAgentUsageFormatter(strings: .localized, shownParts: [.context, .cost]).summary(for: Self.usage)
+        #expect(row == "Running" + SidebarAgentUsageFormatter.separator + summary)
+        #expect(!row.contains("Opus 4.8"))
     }
 
     @Test func resumingTheSameTranscriptKeepsUsageAndPaddedWorkspaceIdsResolve() async throws {
