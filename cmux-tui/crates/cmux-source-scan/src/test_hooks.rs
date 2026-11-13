@@ -21,7 +21,8 @@
 //! drew three rounds of tokenizer findings): statics, type aliases, structs, enums, `use`
 //! renames and macro invocations come from the tree. A macro's statics are judged unless the
 //! macro is `thread_local!` or `task_local!`, whose whole invocation (its span, not its lines) is
-//! per thread; another macro's body is judged when it parses as items. A static's type is judged
+//! per thread; another macro's body is judged when it parses as items, statements or expressions
+//! (`dbg!({ static .. })`: [`crate::source::visit_macro_body`]). A static's type is judged
 //! after the file's own names in it are resolved: aliases (transitive and generic, arguments by
 //! position, then defaults in order, then the body, a parameter going before every other name),
 //! structs and enums by their fields, and `use ... as` renames. A name the file does not show (one
@@ -50,7 +51,9 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;
 use std::path::Path;
 
-use crate::source::{line_of, rel_path, rust_files, snippet};
+use crate::source::{
+    ReadError, line_of, read_source, rel_path, rust_files, snippet, visit_macro_body,
+};
 use proc_macro2::{Span, TokenStream, TokenTree};
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
@@ -169,14 +172,15 @@ impl fmt::Display for Finding {
 
 /// Every finding in the crate at `crate_dir` (its `src`), paths from the repository root. A
 /// path into another file of the crate (`crate::a::B`, `super::B`, a `use` of one) is followed
-/// there ([`Crate`]).
-pub fn judge_tree(crate_dir: &Path) -> Vec<Finding> {
+/// there ([`Crate`]). Err names a path of `src` the check could not read (a missing `src` too):
+/// a source it skipped would read as clean.
+pub fn judge_tree(crate_dir: &Path) -> Result<Vec<Finding>, ReadError> {
     let src = crate_dir.join("src");
     let mut files = Vec::new();
     let mut krate = Crate::default();
-    for path in rust_files(&src) {
+    for path in rust_files(&src)? {
         let rel = rel_path(crate_dir, &path);
-        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        let text = read_source(&path)?;
         let module = module_of(&rel_path(&src, &path));
         let parsed = syn::parse_file(&text);
         if let (Ok(file), Some(module)) = (&parsed, &module) {
@@ -192,7 +196,7 @@ pub fn judge_tree(crate_dir: &Path) -> Vec<Finding> {
         let at = module.as_deref().map(|module| (&krate, module, &memo));
         found.extend(judge_parsed(&format!("{CRATE_REL}{rel}"), text, parsed, at));
     }
-    found
+    Ok(found)
 }
 
 /// The findings of one file, `rel` its path from the repository root. A name from another file
@@ -381,13 +385,10 @@ fn is_cfg_test(attrs: &[Attribute]) -> bool {
     })
 }
 
-/// A macro's body as items, unless the macro is per thread (or per task) or its body is no items.
-fn items_in(mac: &syn::Macro) -> Option<syn::File> {
-    let name = mac.path.segments.last()?.ident.to_string();
-    if PER_THREAD.contains(&name.as_str()) {
-        return None;
-    }
-    syn::parse2::<syn::File>(mac.tokens.clone()).ok()
+/// Whether a macro's body holds process-wide statics: every macro's but a per-thread (or per-task)
+/// one's.
+fn process_wide(mac: &syn::Macro) -> bool {
+    mac.path.segments.last().is_some_and(|s| !PER_THREAD.iter().any(|p| s.ident == p))
 }
 
 #[derive(Clone)]
@@ -549,8 +550,8 @@ impl<'ast> Visit<'ast> for Collect<'_> {
         self.names.use_tree("", &i.tree, &self.scope);
     }
     fn visit_macro(&mut self, mac: &'ast syn::Macro) {
-        if let Some(file) = items_in(mac) {
-            Collect { names: &mut *self.names, scope: self.scope.clone() }.visit_file(&file);
+        if process_wide(mac) {
+            visit_macro_body(self, mac);
         }
     }
 }
@@ -650,15 +651,8 @@ impl<'ast> Visit<'ast> for Sites {
         self.push(&i.ident, &i.ty, &i.attrs);
     }
     fn visit_macro(&mut self, mac: &'ast syn::Macro) {
-        if let Some(file) = items_in(mac) {
-            let mut inner = Sites {
-                out: Vec::new(),
-                test_depth: self.test_depth,
-                test_file: self.test_file,
-                scope: self.scope.clone(),
-            };
-            inner.visit_file(&file);
-            self.out.extend(inner.out);
+        if process_wide(mac) {
+            visit_macro_body(self, mac);
         }
     }
 }
@@ -1293,7 +1287,25 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    /// Whether `ty` is a `Mutex<()>`, std's or tokio's (through the file's aliases).
+    /// `idents` with its first segment replaced by the path the file's `use` gives it, again and
+    /// again (`use std::sync as s; use s::Mutex as Lock;`), until no `use` names its head.
+    fn used_path(&self, idents: &[String]) -> Vec<String> {
+        let mut path = idents.to_vec();
+        let mut seen: Vec<String> = Vec::new();
+        while let Some(head) = path.first().cloned()
+            && !seen.contains(&head)
+            && let Some(full) = self.names.uses.get(&head)
+        {
+            seen.push(head);
+            let mut next: Vec<String> = full.split("::").map(str::to_string).collect();
+            next.extend(path.drain(1..));
+            path = next;
+        }
+        path
+    }
+
+    /// Whether `ty` is a `Mutex<()>`, std's or tokio's (through the file's aliases and its
+    /// `use` names, renames included: `use std::sync::Mutex as Lock` makes `Lock<()>` one).
     fn is_serializer(&self, ty: &Type, depth: usize) -> bool {
         let Type::Path(p) = ty else {
             return false;
@@ -1302,18 +1314,21 @@ impl<'a> Resolver<'a> {
             return false;
         }
         let idents: Vec<String> = p.path.segments.iter().map(|s| s.ident.to_string()).collect();
-        let shape = match idents.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
-            [name] if *name != "Mutex" => {
-                return match self.names.defs.get(*name) {
-                    Some(Def { params, body: Body::Alias(inner), .. }) if params.is_empty() => {
-                        self.is_serializer(inner, depth + 1)
-                    }
-                    _ => false,
-                };
-            }
-            ["Mutex"] => self.names.uses.get("Mutex").is_none_or(|full| {
-                matches!(full.as_str(), "std::sync::Mutex" | "tokio::sync::Mutex")
-            }),
+        if let [name] = idents.as_slice()
+            && let Some(def) = self.names.defs.get(name)
+        {
+            return match def {
+                Def { params, body: Body::Alias(inner), .. } if params.is_empty() => {
+                    self.is_serializer(inner, depth + 1)
+                }
+                _ => false,
+            };
+        }
+        let shape = match self.used_path(&idents).iter().map(String::as_str).collect::<Vec<_>>()[..]
+        {
+            // A bare `Mutex` the file does not import is taken as std's (the prelude has none,
+            // so it is an import from another file or a glob).
+            ["Mutex"] => true,
             ["std" | "tokio", "sync", "Mutex"] => true,
             _ => false,
         };

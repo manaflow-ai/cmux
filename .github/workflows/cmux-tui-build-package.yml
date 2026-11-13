@@ -43,7 +43,7 @@ on:
         default: false
         type: boolean
       target_set:
-        description: "Binary targets to build: all, linux (both Linux musl targets), macos (both macOS targets), macos-arm64, macos-x86_64, or windows (no Unix target: only the include_windows jobs)"
+        description: "Binary targets to build: all, linux (both Linux musl targets), macos (both macOS targets), macos-arm64, macos-x86_64, linux-macos-arm64 (both Linux musl targets and aarch64-apple-darwin), or windows (no Unix target: only the include_windows jobs)"
         required: false
         default: all
         type: string
@@ -265,6 +265,13 @@ jobs:
               selected = [
                   target for target in targets
                   if target["target"] == "aarch64-apple-darwin"
+              ]
+          elif target_set == "linux-macos-arm64":
+              # cmux-tui-artifacts.yml's fat build off main and rc/**: every shipped
+              # Linux target and the arm64 Mac, no Intel (CMUX_TUI_DARWIN_X86_64).
+              selected = [
+                  target for target in targets
+                  if target["target"].endswith("-unknown-linux-musl") or target["target"] == "aarch64-apple-darwin"
               ]
           elif target_set == "macos-x86_64":
               selected = [

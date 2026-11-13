@@ -90,7 +90,10 @@ class ChannelOnlyThinTest(unittest.TestCase):
 
     def test_the_shipped_linux_binaries_come_from_the_fat_build(self):
         jobs = workflow(ROOT / ".github/workflows/cmux-tui-artifacts.yml")["jobs"]
-        self.assertEqual(jobs["build"]["with"]["target_set"], "all")
+        # Fat and every shipped Linux target: all on main and rc/**, Linux plus arm64 Mac elsewhere.
+        target_set = jobs["build"]["with"]["target_set"]
+        self.assertIn("'all'", target_set)
+        self.assertIn("'linux-macos-arm64'", target_set)
         self.assertNotIn("lto", jobs["build"]["with"])
         for name in ("publish", "darwin-fallback-plan"):
             with self.subTest(job=name):
