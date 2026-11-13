@@ -2375,7 +2375,7 @@
     },
     "diagnostics.usagePatterns" : {
       "default" : false,
-      "description" : "Counts how you use cmux on this computer: commands, pane splits, agent chats, prompts and tokens, and connections, by day and hour. It never records prompts, terminal text, web addresses, file names or anything you type, and nothing is sent anywhere. See them with cmux usage-patterns or on the Agent Stats page.",
+      "description" : "Counts how you use cmux on this computer: commands, pane splits, agent chats, prompts and tokens, and connections, by day and hour. It never records prompts, terminal text, web addresses, file names or anything you type, and nothing is sent anywhere. See them with cmux usage-patterns or on the Agent Stats page. It also counts which packages agents install, by name.",
       "title" : "Record Usage Patterns",
       "type" : "boolean"
     },
@@ -3573,6 +3573,12 @@
       },
       "title" : "Terminal Size Priority",
       "type" : "array"
+    },
+    "models.spreadUsage" : {
+      "default" : true,
+      "description" : "When one subscription runs out, a thread moves to another of your connections that serves the same model.",
+      "title" : "Spread Usage Across My Subscriptions",
+      "type" : "boolean"
     },
     "navigation.history.scope" : {
       "default" : "workspaces",
@@ -5741,7 +5747,7 @@
       "type" : "number"
     },
     "workspaces.newPlacement" : {
-      "default" : "afterCurrent",
+      "default" : "top",
       "description" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. A workspace made in a group goes to the same place inside that group. Pinned workspaces stay above it.",
       "enum" : [
         "top",
