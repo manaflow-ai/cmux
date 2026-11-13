@@ -124,7 +124,11 @@ fn a_personal_warm_is_its_personal_team_and_a_guest_gets_no_copy() {
         },
     )
     .unwrap();
-    assert_eq!((guest["fresh"].clone(), guest.get("copy")), (json!(true), None));
+    assert_eq!((guest["fresh"].clone(), guest.get("copy")), (json!(false), None));
+    assert_eq!(guest["in_flight"], true);
+    let active = read(dir.path()).copies;
+    assert_eq!(active.len(), 1);
+    assert_eq!(active[0].account, "user_a");
     // Within the gap the record answers: no call, no second copy.
     let again = warm("owner", 1_060_000);
     assert_eq!((again["fresh"].clone(), again.get("copy")), (json!(false), None));
