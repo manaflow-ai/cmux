@@ -20,6 +20,7 @@ an incomplete observer receipt leaves `comparison_ready=false`. Writes DIR/resul
 pulled files.
 """
 import argparse, hashlib, json, os, shlex, subprocess, sys, time
+import select
 from pathlib import Path
 import math
 import re
@@ -283,22 +284,42 @@ def observe_pane(row, host_id):
         if not o.motion:
             evidence["observer"] = {"error": "source/start trigger is required; pass --motion MARKER_BIN"}
             return evidence
-        observer = ssh_background(o.viewer, command)
+        observer = ssh_background(o.viewer, f"printf 'OBSERVER_READY\\n'; exec {command}")
         # The passive observer waits for a caller-created start signal. Start
-        # the owned source marker only after the observer has entered capture.
-        time.sleep(0.25)
+        # the owned source marker only after its remote process has entered the
+        # observer command, then create the signal in this unique run directory.
+        ready_line = ""
+        if observer.stdout and select.select([observer.stdout], [], [], 10)[0]:
+            ready_line = observer.stdout.readline().strip()
+        if ready_line != "OBSERVER_READY":
+            observer.terminate()
+            try:
+                observer.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                observer.kill()
+                observer.wait(timeout=5)
+            evidence["observer"] = {"error": "observer did not report command readiness", "ready_line": ready_line}
+            return evidence
         motion_command = f"~/.local/bin/cmux new-workspace --name {shlex.quote(f'rd-rig motion {o.tag}')} " \
                          f"--command {shlex.quote(o.motion + ' --motion')} --focus false"
         started = ssh(o.host, motion_command)
         if "OK workspace" not in started:
             observer.terminate()
-            observer.wait(timeout=5)
+            try:
+                observer.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                observer.kill()
+                observer.wait(timeout=5)
             evidence["observer"] = {"error": "source/start trigger failed", "trigger_reply": started}
             return evidence
         signaled = ssh(o.viewer, f"touch {shlex.quote(start_file)} && printf READY", timeout=10)
         if signaled != "READY":
             observer.terminate()
-            observer.wait(timeout=5)
+            try:
+                observer.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                observer.kill()
+                observer.wait(timeout=5)
             evidence["observer"] = {"error": "observer start signal could not be created", "signal_reply": signaled}
             return evidence
         try:
