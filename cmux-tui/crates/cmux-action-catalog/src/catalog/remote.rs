@@ -155,6 +155,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "arrow.clockwise",
         surfaces: PALETTE | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sshMachine", "connection", 100)], ..SurfacePlan::DEFAULT },
+        palette_target_source: Some("ssh"),
         targets: &["machine"],
         cli_name: "remote reconnect",
         ..Action::DEFAULT
@@ -168,6 +169,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "bolt.horizontal.circle",
         surfaces: PALETTE | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sshMachine", "connection", 101)], ..SurfacePlan::DEFAULT },
+        palette_target_source: Some("ssh"),
         targets: &["machine"],
         cli_name: "remote disconnect",
         ..Action::DEFAULT
@@ -182,6 +184,7 @@ pub static ACTIONS: &[Action] = &[
         surfaces: PALETTE | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sshMachine", "connection", 102)], ..SurfacePlan::DEFAULT },
         arguments: &[args::CONFIRM.optional()],
+        palette_target_source: Some("ssh"),
         targets: &["machine"],
         cli_name: "remote install",
         is_destructive: true,
@@ -211,6 +214,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "exclamationmark.bubble",
         surfaces: PALETTE | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("clipboard")), context_menus: &[Placement::at("sshMachine", "inspect", 300).folder("copy")], ..SurfacePlan::DEFAULT },
+        palette_target_source: Some("ssh"),
         targets: &["machine"],
         cli_name: "action remote-copy-error",
         ..Action::DEFAULT
@@ -225,6 +229,7 @@ pub static ACTIONS: &[Action] = &[
         surfaces: PALETTE | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sshMachine", "close", 200)], ..SurfacePlan::DEFAULT },
         arguments: &[args::CONFIRM.optional()],
+        palette_target_source: Some("ssh"),
         targets: &["machine"],
         cli_name: "remote forget",
         is_destructive: true,

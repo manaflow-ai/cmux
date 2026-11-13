@@ -72,4 +72,14 @@ fn palette_target_metadata_marks_cloud_machine_actions_and_preserves_exemptions(
     assert_eq!(row("machine.doctor")["paletteTargetSource"], "ssh");
     assert_eq!(row("remote.removeGroup")["paletteTargetSource"], "remote");
     assert_eq!(row("machine.reconnect")["paletteTargetSource"], serde_json::Value::Null);
+    assert_eq!(row("bookmark.setIcon")["paletteTarget"], "bookmark");
+    assert_eq!(row("bookmark.setIcon")["paletteTargetSource"], "bookmarkFolders");
+    assert_eq!(row("bookmark.openAll")["paletteTargetSource"], "bookmarkFolders");
+    assert_eq!(row("bookmark.copyLink")["paletteTargetSource"], "bookmarks");
+    assert_eq!(row("bookmark.edit")["paletteTargetSource"], serde_json::Value::Null);
+    assert_eq!(row("browserProfile.rename")["paletteTarget"], "browser-profile");
+    assert_eq!(row("browserProfile.rename")["paletteTargetSource"], serde_json::Value::Null);
+    assert_eq!(row("machine.setIcon")["paletteTarget"], "machine");
+    assert_eq!(row("sidebar.item.remove")["paletteTarget"], "sidebar-item");
+    assert_eq!(row("sidebar.section.rename")["paletteTarget"], "sidebar-section");
 }

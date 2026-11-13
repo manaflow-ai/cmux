@@ -32,6 +32,7 @@ pub static ACTIONS: &[Action] = &[
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("browserProfile", "identity", 100)], ..SurfacePlan::DEFAULT },
         arguments: &[args::NAME.optional()],
+        palette_target: Some("browser-profile"),
         targets: &["browser-profile"],
         cli_name: "browser-profile rename",
         ..Action::DEFAULT
@@ -46,6 +47,7 @@ pub static ACTIONS: &[Action] = &[
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("browserProfile", "identity", 101).folder("appearance")], ..SurfacePlan::DEFAULT },
         arguments: &[args::COLOR],
+        palette_target: Some("browser-profile"),
         targets: &["browser-profile"],
         cli_name: "browser-profile set-color",
         ..Action::DEFAULT
@@ -59,6 +61,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "circle.slash",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("browserProfile", "identity", 102).folder("appearance")], ..SurfacePlan::DEFAULT },
+        palette_target: Some("browser-profile"),
         targets: &["browser-profile"],
         cli_name: "browser-profile clear-color",
         ..Action::DEFAULT
@@ -73,6 +76,7 @@ pub static ACTIONS: &[Action] = &[
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("browserProfile", "identity", 103).folder("appearance").label(t("Localizable", "menu.icon.set", "Set Icon…"))], ..SurfacePlan::DEFAULT },
         arguments: &[args::ICON.optional()],
+        palette_target: Some("browser-profile"),
         targets: &["browser-profile"],
         cli_name: "browser-profile set-icon",
         ..Action::DEFAULT
@@ -86,6 +90,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "circle.dashed",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("browserProfile", "identity", 104).folder("appearance").label(t("Localizable", "menu.icon.remove", "Remove Icon"))], ..SurfacePlan::DEFAULT },
+        palette_target: Some("browser-profile"),
         targets: &["browser-profile"],
         cli_name: "browser-profile clear-icon",
         ..Action::DEFAULT
@@ -100,6 +105,7 @@ pub static ACTIONS: &[Action] = &[
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("browserProfile", "close", 400)], ..SurfacePlan::DEFAULT },
         arguments: &[args::CONFIRM.optional()],
+        palette_target: Some("browser-profile"),
         targets: &["browser-profile"],
         cli_name: "browser-profile delete",
         is_destructive: true,
@@ -266,6 +272,7 @@ pub static ACTIONS: &[Action] = &[
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("browserProfile", "close", 399)], ..SurfacePlan::DEFAULT },
         arguments: &[args::RANGE, args::HISTORY.optional(), args::COOKIES.optional(), args::CACHE.optional(), args::CONFIRM.optional()],
+        palette_target: Some("browser-profile"),
         targets: &["browser-profile"],
         cli_name: "browser-profile clear-browsing-data",
         is_destructive: true,
@@ -281,6 +288,7 @@ pub static ACTIONS: &[Action] = &[
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("browserProfile", "close", 398)], ..SurfacePlan::DEFAULT },
         arguments: &[args::CONFIRM.optional()],
+        palette_target: Some("browser-profile"),
         targets: &["browser-profile"],
         cli_name: "browser-profile remove-imported-data",
         is_destructive: true,
@@ -296,6 +304,7 @@ pub static ACTIONS: &[Action] = &[
         surfaces: PALETTE | KEYBOARD,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
         arguments: &[args::INDEX_2],
+        palette_target: Some("browser-profile"),
         targets: &["browser-profile"],
         cli_name: "action browser-profile-move",
         ..Action::DEFAULT
@@ -310,6 +319,7 @@ pub static ACTIONS: &[Action] = &[
         surfaces: PALETTE | KEYBOARD,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
         arguments: &[args::PROXY_SCHEME, args::PROXY_HOST, args::PORT],
+        palette_target: Some("browser-profile"),
         targets: &["browser-profile"],
         cli_name: "action browser-profile-set-proxy",
         ..Action::DEFAULT
@@ -323,6 +333,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "network.slash",
         surfaces: PALETTE | KEYBOARD,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
+        palette_target: Some("browser-profile"),
         targets: &["browser-profile"],
         cli_name: "action browser-profile-clear-proxy",
         ..Action::DEFAULT

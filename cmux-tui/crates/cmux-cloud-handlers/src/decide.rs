@@ -263,9 +263,15 @@ fn palette_status(
 ) -> (PaletteTargetState, Option<PaletteTargetIntent>) {
     let status = status.trim().to_ascii_lowercase();
     match status.as_str() {
-        "paused" | "suspended" => (PaletteTargetState::Resume, Some(PaletteTargetIntent::Choose)),
+        "paused" | "suspended" => {
+            if wants_desktop && !desktop {
+                (PaletteTargetState::DesktopUnavailable, Some(PaletteTargetIntent::CreateDesktop))
+            } else {
+                (PaletteTargetState::Resume, Some(PaletteTargetIntent::Choose))
+            }
+        }
         "starting" | "creating" | "provisioning" | "resuming" | "booting" => {
-            (PaletteTargetState::Starting, Some(PaletteTargetIntent::Choose))
+            (PaletteTargetState::Starting, (!wants_desktop).then_some(PaletteTargetIntent::Choose))
         }
         "running" | "ready" | "connected" | "active" => {
             if wants_desktop && !desktop {

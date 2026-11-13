@@ -237,8 +237,19 @@ fn palette_desktop_starting_state_wins_over_missing_capability() {
     .unwrap();
     let row = &palette_targets(true, &machines)[0];
     assert_eq!(row.state, PaletteTargetState::Starting);
-    assert_eq!(row.intent, Some(PaletteTargetIntent::Choose));
+    assert_eq!(row.intent, None);
     assert!(row.title.is_empty(), "native code supplies the localized fallback title");
+}
+
+#[test]
+fn paused_desktopless_machine_offers_desktop_recovery() {
+    let machines: Vec<PaletteMachine> = serde_json::from_value(json!([
+        {"id": "paused", "title": "Paused", "status": "paused", "desktop": false}
+    ]))
+    .unwrap();
+    let row = &palette_targets(true, &machines)[0];
+    assert_eq!(row.state, PaletteTargetState::DesktopUnavailable);
+    assert_eq!(row.intent, Some(PaletteTargetIntent::CreateDesktop));
 }
 
 #[test]
