@@ -284,10 +284,32 @@ def observe_pane(row, host_id):
         if not o.motion:
             evidence["observer"] = {"error": "source/start trigger is required; pass --motion MARKER_BIN"}
             return evidence
+        host_home = ssh(o.host, 'printf %s "$HOME"')
+        host_root = f"{host_home}/rd-hub-rig"
+        source_dir = ssh(o.host, f"mktemp -d {shlex.quote(host_root + f'/source-{o.tag}.XXXXXX')}", timeout=10)
+        if not source_dir.startswith(host_root + "/"):
+            evidence["observer"] = {"error": "host returned an invalid source run directory"}
+            return evidence
+        source_pid_file = f"{source_dir}/pid"
+        cleanup_errors = []
+
+        def stop_source():
+            cleanup = (
+                f"p=$(cat {shlex.quote(source_pid_file)} 2>/dev/null || true); "
+                f"case \"$p\" in ''|*[!0-9]*) ;; *) kill \"$p\" 2>/dev/null || true ;; esac; "
+                f"rm -f {shlex.quote(source_pid_file)}"
+            )
+            try:
+                ssh(o.host, cleanup, timeout=10)
+            except (OSError, subprocess.SubprocessError) as error:
+                cleanup_errors.append(str(error))
+
         observer = ssh_background(o.viewer, f"printf 'OBSERVER_READY\\n'; exec {command}")
-        # The passive observer waits for a caller-created start signal. Start
-        # the owned source marker only after its remote process has entered the
-        # observer command, then create the signal in this unique run directory.
+        # The passive observer waits for a caller-created start signal. The
+        # readiness line proves only that the remote command was launched; the
+        # receipt remains the authority for capture validity. Start the owned
+        # source marker after launch, then create the signal in this unique run
+        # directory.
         ready_line = ""
         if observer.stdout and select.select([observer.stdout], [], [], 10)[0]:
             ready_line = observer.stdout.readline().strip()
@@ -300,39 +322,86 @@ def observe_pane(row, host_id):
                 observer.wait(timeout=5)
             evidence["observer"] = {"error": "observer did not report command readiness", "ready_line": ready_line}
             return evidence
-        motion_command = f"~/.local/bin/cmux new-workspace --name {shlex.quote(f'rd-rig motion {o.tag}')} " \
-                         f"--command {shlex.quote(o.motion + ' --motion')} --focus false"
-        started = ssh(o.host, motion_command)
-        if "OK workspace" not in started:
+        motion_script = (f"printf '%s' $$ > {shlex.quote(source_pid_file)}; "
+                         f"exec {shlex.quote(o.motion)} --motion")
+        motion_command = f"CMUX_SOURCE_NONCE={shlex.quote(source['nonce'])} " \
+                         f"CMUX_SOURCE_MARKER_ORIGIN={shlex.quote(source['marker_origin'])} " \
+                         f"CMUX_SOURCE_CELL_SIZE={int(source['cell_size'])} " \
+                         f"~/.local/bin/cmux new-workspace --name {shlex.quote(f'rd-rig motion {o.tag}')} " \
+                         f"--command {shlex.quote('sh -c ' + shlex.quote(motion_script))} --focus false"
+        try:
+            started = ssh(o.host, motion_command)
+        except (OSError, subprocess.SubprocessError) as error:
+            stop_source()
             observer.terminate()
-            try:
-                observer.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                observer.kill()
-                observer.wait(timeout=5)
-            evidence["observer"] = {"error": "source/start trigger failed", "trigger_reply": started}
+            evidence["observer"] = {"error": "source/start trigger failed", "trigger_error": str(error),
+                                     "cleanup_errors": cleanup_errors}
             return evidence
-        signaled = ssh(o.viewer, f"touch {shlex.quote(start_file)} && printf READY", timeout=10)
-        if signaled != "READY":
+        if "OK workspace" not in started:
+            stop_source()
             observer.terminate()
             try:
                 observer.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 observer.kill()
                 observer.wait(timeout=5)
-            evidence["observer"] = {"error": "observer start signal could not be created", "signal_reply": signaled}
+            evidence["observer"] = {"error": "source/start trigger failed", "trigger_reply": started,
+                                     "cleanup_errors": cleanup_errors}
             return evidence
         try:
-            raw, err = observer.communicate(timeout=30)
+            source_ready = ssh(o.host, f"test -s {shlex.quote(source_pid_file)} && printf READY", timeout=10)
+        except (OSError, subprocess.SubprocessError) as error:
+            source_ready = ""
+            cleanup_errors.append(str(error))
+        if source_ready != "READY":
+            stop_source()
+            observer.terminate()
+            try:
+                observer.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                observer.kill()
+                observer.wait(timeout=5)
+            evidence["observer"] = {"error": "source trigger did not publish an owned pid",
+                                     "cleanup_errors": cleanup_errors}
+            return evidence
+        try:
+            signaled = ssh(o.viewer, f"touch {shlex.quote(start_file)} && printf READY", timeout=10)
+        except (OSError, subprocess.SubprocessError) as error:
+            signaled = ""
+            cleanup_errors.append(str(error))
+        if signaled != "READY":
+            stop_source()
+            observer.terminate()
+            try:
+                observer.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                observer.kill()
+                observer.wait(timeout=5)
+            evidence["observer"] = {"error": "observer start signal could not be created", "signal_reply": signaled,
+                                     "cleanup_errors": cleanup_errors}
+            return evidence
+        try:
+            observer.wait(timeout=30)
+            raw = observer.stdout.read() if observer.stdout else ""
+            err = observer.stderr.read() if observer.stderr else ""
         except subprocess.TimeoutExpired:
             observer.terminate()
-            raw, err = observer.communicate(timeout=5)
+            try:
+                observer.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                observer.kill()
+                observer.wait(timeout=5)
+            raw = observer.stdout.read() if observer.stdout else ""
+            err = observer.stderr.read() if observer.stderr else ""
             raw = raw or err or "observer timed out waiting for a presented marker"
+        stop_source()
         try:
             receipt = json.loads(raw.splitlines()[-1])
         except (ValueError, IndexError):
             receipt = {"error": raw[-1000:]}
         evidence["observer"] = receipt
+        if cleanup_errors:
+            evidence["observer_cleanup_errors"] = cleanup_errors
         evidence["observer_command"] = command
         valid = (receipt.get("schema") == "cmux.presented-marker-series/2" and
                  receipt.get("complete") is True and receipt.get("host_identity_verified") is True and
@@ -342,7 +411,7 @@ def observe_pane(row, host_id):
                  geometry_matches(receipt.get("window_geometry_points"), pane.get("window_frame_points"), pane.get("primary_screen_frame_points")) and
                  type(receipt.get("first_changed_marker_ms")) in (int, float) and
                  math.isfinite(receipt["first_changed_marker_ms"]))
-        evidence["comparison_ready"] = valid
+        evidence["comparison_ready"] = valid and not cleanup_errors
     else:
         evidence["observer"] = {"skipped": "source, pane, marker, geometry, or supported-display readiness was incomplete",
                                  "display": o.display}
