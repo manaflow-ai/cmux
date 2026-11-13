@@ -43,7 +43,13 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         self.flatMap { $0.services.agentTabs.reserveWorkspace(on: $0.services.daemon, cwd: WorkspaceSpawn().startFolder(roomFolder: $0.services.machines.local.store.profile($0.state.profileID)?.defaults?.cwd, local: true, daemonDefault: NewTerminalStart.defaultFolder(on: $0.services.daemon))) }
     }, build: { [weak self] model in
         self.map { window in BenchSpans.measure("cmdN.reserved.build.init") { WorkspaceContentController(workspace: model, daemon: window.services.daemon, services: window.services, state: window.state, parked: true) } }
-    }, mount: { [weak self] content in BenchSpans.measure("cmdN.reserved.build.mount") { self?.root.contentHost.addHiddenSubview(content.contentView) } },
+    }, mount: { [weak self] content in
+        BenchSpans.measure("cmdN.reserved.build.mount") {
+            guard let self else { return }
+            content.contentView.setParked(true)
+            self.root.contentHost.addPrewarmedSubview(content.contentView)
+        }
+    },
        teardown: { $0.teardown() }, workspace: { $0.workspace }, isReserved: { [weak self] in self?.services.daemon.store.reserves($0) ?? false })
     /// Workspaces Toggle Left/Right/Top/Bottom Dock created for an empty edge, docked there once the daemon reports
     /// them (`arrangeOnScreen`). In memory only.
