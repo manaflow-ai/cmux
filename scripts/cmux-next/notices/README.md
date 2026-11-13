@@ -20,6 +20,12 @@ stale). Do not edit it by hand.
   third-party data: a bundle with `Contents/Resources/ghostty-licenses/` needs
   that entry, and the tree must pass `verify-ghostty-license-bundle.py` for the
   checkout's Ghostty revision.
+- A helper app that may run a copy of another bundled binary (the remote browser
+  host's five helpers run cmux-rb-host-helper, or copies of the Rust host when
+  that helper could not be built) names that binary in its entry's `copy_of`.
+  A helper whose LC_UUIDs are the source's (codesign and strip keep them) needs
+  the source's notices too, rust-std included; any other helper needs its own,
+  and the rustc scan below still fails one that links Rust std without rust-std.
 
 Rust and Zig standard libraries: `cmux-tui/build-support/notices/toolchains/`
 (shared with cmux-browser) stores rustc's `COPYRIGHT-library.html` per Rust
@@ -107,10 +113,10 @@ the source archive dry run run it blocking, with the declared-set check.
 build.rs change until the graph is regenerated on a Testbox for the new commit;
 its error gives the commands.
 
-Open item: the bundle check's scan for rustc std paths in a Mach-O without
-`rust-std` (Release merges Iroh's Rust code into the app binary) landed with
-its fix in one commit; the next change to that code adds a red test first as
-its own commit.
+The bundle check scans every Mach-O whose entries (and `copy_of` source) need
+no `rust-std` for rustc std paths (Release merges Iroh's Rust code into the app
+binary). A change to that code adds a red test first as its own commit, as the
+`copy_of` change did (sign run 43387981953).
 
 Planned: the Ghostty section of THIRD_PARTY_LICENSES.md from that collector
 (replaces part of the hand-written Ghostty section; needs the Zig package cache

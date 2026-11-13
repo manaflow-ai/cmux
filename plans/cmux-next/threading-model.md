@@ -48,6 +48,12 @@ How it is enforced:
   `await` of an `@MainActor` function. Escape: `// main-hop-allow: <why no scheduler path fits and what bounds
   the work>`. Old hops are not refused; the count only goes down. `guardrails.py --main-thread-counts [REV]`
   prints the hop, scheduler-entry, raw-blocking and checked-seam counts.
+  `main-actor-url-append` also refuses new URL joins without explicit directory hints in main-actor
+  scopes, including a hint removed from a wrapped call. Foundation can call `lstat` to infer the type:
+  supply `.isDirectory`/`.notDirectory` (or `.inferFromPath` when unknown), never `.checkFileSystem` on
+  main. Lexical isolation cannot follow synchronous `nonisolated` helpers back to their main-actor
+  callers: move actual path searches and signature checks onto `BackgroundWork`'s `.files` lane,
+  as `HarnessIconBook` does. An `@concurrent` task alone still blocks the cooperative pool.
 
 ## Threads and queues
 

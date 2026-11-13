@@ -56,7 +56,7 @@ if "--bench=new-pane-start-state" in sys.argv:
     os.execv(sys.executable, [sys.executable, other, *[a for a in sys.argv[1:] if a != "--bench=new-pane-start-state"]])
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from bench_launch import BenchApp, bundle_id  # noqa: E402
+from bench_launch import BenchApp, bundle_id, close_all_workspaces, wait_for_count  # noqa: E402
 import bench_arms  # noqa: E402
 
 parser = argparse.ArgumentParser()
@@ -471,34 +471,58 @@ def longest_stall(hangs):
     return out
 
 
-def workspace_count():
+# The workspaces no close path closes (the app's home workspace), found by reset_workspaces: never the bench's own.
+KEPT_WORKSPACES = frozenset()
+
+
+def workspace_ids():
     snap = rpc("snapshot.get") or {}
     topology = (snap.get("topology") or snap) if isinstance(snap, dict) else {}
-    return len(topology.get("workspaces") or [])
+    return [w.get("id") for w in topology.get("workspaces") or [] if isinstance(w, dict)]
+
+
+def workspace_count():
+    """The workspaces of the measured topology: every listed one but those reset_workspaces could not close."""
+    return len([ws for ws in workspace_ids() if ws not in KEPT_WORKSPACES])
 
 
 def grow_workspaces(count):
     """At least `count` workspaces; optionally seed empty rows to avoid opening 1000 PTYs."""
     have = workspace_count()
+    failed = []
     for index in range(have, count):
         if opts.empty_workspaces:
-            run("workspace", "create", "--empty", "--name", f"bench-{index}", timeout=120)
+            done = run("workspace", "create", "--empty", "--name", f"bench-{index}", timeout=120)
+            if done.returncode != 0:
+                failed.append(f"bench-{index}: exit {done.returncode} {done.stderr.strip()[-200:]}")
         else:
-            rpc("action.run", {"action": "newTab", "args": {"name": f"bench-{index}"}, "wait": True})
-    now = workspace_count()
+            reply = rpc("action.run", {"action": "newTab", "args": {"name": f"bench-{index}"}, "wait": True})
+            if isinstance(reply, dict) and reply.get("error"):
+                failed.append(f"bench-{index}: {json.dumps(reply['error'])[:200]}")
+    # The creates return before the published topology lists them (bench_launch.wait_for_count).
+    now = wait_for_count(workspace_count, count)
     print(f"workspaces: {have} -> {now}", flush=True)
     if now < count:
-        sys.exit(f"could not reach {count} workspaces (have {now})")
+        sys.exit(f"could not reach {count} workspaces (have {now}; {len(failed)} creates failed: {failed[:3]})")
     return now
 
 
 def reset_workspaces():
     """Drop restored rows in this isolated bench profile before an exact topology run."""
+    global KEPT_WORKSPACES
     if workspace_count() == 0:
         return
-    done = run("workspace", "close-all-in-all-windows", "--confirm", timeout=120)
-    if done.returncode != 0 or not wait(lambda: workspace_count() == 0, 30):
-        sys.exit(f"could not clear restored workspaces: {done.stderr[-400:]}")
+    done = {}
+
+    def close_all():
+        done["run"] = run("workspace", "close-all-in-all-windows", "--confirm", timeout=120)
+        return done["run"].returncode
+
+    # The home workspace stays (home_not_closable); the topology counts without what close-all leaves.
+    KEPT_WORKSPACES, closed = close_all_workspaces(workspace_ids, close_all)
+    print(f"workspaces close-all could not close (not counted): {len(KEPT_WORKSPACES)}", flush=True)
+    if not closed:
+        sys.exit(f"could not clear restored workspaces: {done['run'].stderr[-400:]}")
 
 
 def frame_of(row, key="visible_ms"):

@@ -185,6 +185,21 @@ export function readHostTail(sessionId: string): Promise<KeptTail | undefined> {
   ]);
 }
 
+/// Presentation-only restoration observes the same read without holding up an attach. A disk
+/// answer past its 250 ms transport budget can still draw while ready is pending; leaving the
+/// restored page stops observation without starting another read.
+export function observeHostTail(sessionId: string, draw: (tail: KeptTail) => void): () => void {
+  let stopped = false;
+  void startHostRead(sessionId)
+    .then((tail) => {
+      if (!stopped && tail) draw(tail);
+    })
+    .catch(() => undefined);
+  return () => {
+    stopped = true;
+  };
+}
+
 /// Keeps the tail the app host handed this page with an adopt event (AgentPaneView+SessionAdopt.swift):
 /// the tail `chat.tail.get` would answer, read the same way, without its round trip, so the adopted
 /// page draws the chat in the event's own turn. A page that read the chat itself keeps its own, newer

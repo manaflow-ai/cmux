@@ -61,8 +61,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// real gesture in the pane.
     case shellRun(command: String, cwd: String?)
     /// `harness.update {id}`: the chat card's Update (cx-1mbnu): this Mac's acpmux runs that agent
-    /// CLI's own update now and answers `{ok, version?, error?}`. Only with a real gesture.
-    case harnessUpdate(id: String)
+    /// CLI's own update now and answers `{ok, version?, error?}`. `harness.update {ids}`: the model
+    /// menus' Update all (Harness updates available): one click runs every listed agent's update in
+    /// one acpmux call, answering `{results: [{id, ok, version?, error?}]}` (`each`). Only with a
+    /// real gesture, which the one call spends once.
+    case harnessUpdate(ids: [String], each: Bool)
     /// `harness.restart {}`: the card's Restart Chat: this chat's agent restarts on the installed
     /// version and resumes (after its turn); answers `{restarted, after_turn}`. Only with a gesture.
     case harnessRestart
@@ -249,6 +252,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `pane.sessionInfo.overlays {rects}`: the page's open popups (viewport CSS pixels), which the
     /// natively drawn Session Info steps behind; empty when none shows.
     case sessionInfoOverlays([AgentPaneSessionInfoOverlay])
+    /// `pane.sessionInfo.pinch {scale, left, top}`: the page's trackpad pinch, which the natively
+    /// drawn Session Info zooms and pans with (``AgentPaneSessionInfoPinch``).
+    case sessionInfoPinch(AgentPaneSessionInfoPinch)
     /// `pane.toastAvoidance {rects}`: the page's bottom stack (viewport CSS pixels), which the
     /// window's toasts rest above; nil when the page has none (AgentPaneView+ToastAvoidance.swift).
     case toastAvoidance(CGRect?)
