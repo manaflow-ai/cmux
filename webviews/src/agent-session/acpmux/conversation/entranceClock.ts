@@ -50,12 +50,8 @@ export function holdEntranceForFirstFrame(row: Element, frames: Frames | undefin
     animation.currentTime = 0;
   }
   let handle: number | undefined = frames.request(() => {
-    // A commit can precede this frame's paint. Keep its first painted frame at zero;
-    // releasing in this callback lets WebKit advance the short fade before that paint.
-    handle = frames.request(() => {
-      handle = undefined;
-      for (const animation of held) if (animation.playState === "paused") animation.play();
-    });
+    handle = undefined;
+    for (const animation of held) if (animation.playState === "paused") animation.play();
   });
   return () => {
     if (handle !== undefined) frames.cancel(handle);
