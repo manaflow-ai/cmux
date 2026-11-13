@@ -2,7 +2,8 @@
 //! (BRING-YOUR-OWN-HARNESS H2, slice 2b).
 //!
 //! One non-recursive watch over the profile sources: the managed folders,
-//! the user folder and cmux.json. Linux and others: notify's watcher
+//! the user folder and cmux.json. Linux: inotify for changes only
+//! (`quiet_dirs`), since notify asks for every open. Others: notify's watcher
 //! (inotify). macOS: kqueue vnode events (`record_watch::DirWatch`) on the
 //! folders and on each file in them, made again when the files change, and
 //! a change counts only when what the sources hold changed (`sources_print`).
@@ -10,7 +11,10 @@
 //! writes anywhere on the volume (a build, a full test run) by many seconds
 //! or drops the events (cx-ckdxf), so a new profile was missed or its event
 //! came seconds after another reload. The folder that holds the user folder is watched too, so a user folder that
-//! `cmux harness add` creates later is picked up; nothing is created here.
+//! `cmux harness add` creates later is picked up; nothing is created here. A
+//! source folder whose path does not exist yet (no `~/.config/cmux`, no
+//! `/etc/cmux/harnesses`) is watched through its nearest existing ancestor,
+//! and each folder on the way as it is made (`nearest_folders`).
 //! No timers and no polling: the event thread blocks until an event comes,
 //! gathers the burst (debounce) and only signals. One task on the runtime
 //! takes the signals and reloads the catalog one reload at a time
@@ -26,7 +30,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::RecvTimeoutError;
 use std::time::{Duration, Instant};
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 use notify::Watcher as _;
 
 use crate::config::ProfileSources;
@@ -70,7 +74,9 @@ impl Drop for HarnessWatchState {
 
 /// Keeps the watcher alive; dropping it stops the events and its thread.
 pub(crate) struct HarnessWatcher {
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
+    watcher: StdMutex<crate::quiet_dirs::QuietDirs>,
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     watcher: StdMutex<notify::RecommendedWatcher>,
     watched: StdMutex<Vec<PathBuf>>,
     /// The kqueue watch (macOS) on the watched folders, the files in the
@@ -108,7 +114,15 @@ impl Hub {
             return;
         }
         let (tx, rx) = std::sync::mpsc::channel();
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "linux")]
+        let watcher = match crate::quiet_dirs::QuietDirs::start(tx, "acpmux-harness-inotify") {
+            Ok(watcher) => watcher,
+            Err(e) => {
+                tracing::warn!("harness watch cannot start: {e}");
+                return;
+            }
+        };
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         let watcher = match notify::recommended_watcher(move |event| {
             let _ = tx.send(event);
         }) {
@@ -201,37 +215,48 @@ impl Hub {
 }
 
 impl HarnessWatcher {
-    /// Watches every source folder that exists now (and the folder that holds
-    /// the user folder), each once.
+    /// Watches, for each source folder (and the folder that holds the user folder and
+    /// cmux.json), the nearest folder that exists, each once (`nearest_folders`): a folder
+    /// missing at the start (no `~/.config/cmux`, no `/etc/cmux/harnesses`) is watched through
+    /// its nearest existing ancestor, and each folder on the way is watched as it is made. A
+    /// folder no longer the nearest one (its child came) is let go, so a home watched while
+    /// `~/.config` was missing stops sending its events once the path exists.
     fn refresh(&self, sources: &ProfileSources) {
-        let mut wanted: Vec<PathBuf> = sources.managed.clone();
-        if let Some(user) = &sources.user_dir {
-            wanted.push(user.clone());
-            wanted.extend(user.parent().map(Path::to_path_buf));
-        }
-        wanted.extend(sources.cmux_json.as_deref().and_then(Path::parent).map(Path::to_path_buf));
         let mut watched = self.watched.lock().unwrap_or_else(|p| p.into_inner());
-        // A removed folder's watch is gone with it: forget it so it returns.
-        watched.retain(|dir| dir.is_dir());
+        // A folder made between its look and its parent's watch has no event (the watch came
+        // after it): after each new watch every folder is looked at again, until a look adds
+        // none (`settings_watch.rs` `refresh`).
         #[cfg(not(target_os = "macos"))]
         {
             let mut watcher = self.watcher.lock().unwrap_or_else(|p| p.into_inner());
-            for dir in wanted {
-                if dir.is_dir()
-                    && !watched.contains(&dir)
-                    && watcher.watch(&dir, notify::RecursiveMode::NonRecursive).is_ok()
-                {
-                    watched.push(dir);
+            let folders = source_folders(sources);
+            loop {
+                let wanted = nearest_folders(sources);
+                // A removed folder's watch is gone with it: forget it so it returns.
+                watched.retain(|dir| {
+                    let keep = wanted.contains(dir) && dir.is_dir();
+                    if !keep {
+                        disarm_dir(&mut watcher, dir);
+                    }
+                    keep
+                });
+                let mut added = false;
+                for dir in wanted {
+                    // An ancestor standing in for a missing folder: its entries only.
+                    let entries_only = !folders.contains(&dir);
+                    if !watched.contains(&dir) && arm_dir(&mut watcher, &dir, entries_only) {
+                        watched.push(dir);
+                        added = true;
+                    }
+                }
+                if !added {
+                    break;
                 }
             }
         }
         #[cfg(target_os = "macos")]
         {
-            for dir in wanted {
-                if dir.is_dir() && !watched.contains(&dir) {
-                    watched.push(dir);
-                }
-            }
+            *watched = nearest_folders(sources);
             let mut paths = watched.clone();
             paths.extend(source_files(sources));
             // Made again on every refresh (a burst that changed the sources):
@@ -243,11 +268,12 @@ impl HarnessWatcher {
             *kernel = None;
             let events = self.events.clone();
             let sources = sources.clone();
-            let mut last = sources_print(&sources);
+            let mut last = (sources_print(&sources), nearest_folders(&sources));
             *kernel = crate::agent_host::record_watch::DirWatch::start(&paths, move || {
-                // The folders also hold other files (cmux.json's folder):
-                // only a change to a profile source is a rescan.
-                let now = sources_print(&sources);
+                // The folders also hold other files (cmux.json's folder, a home
+                // watched for its `.config`): only a change to a profile
+                // source, or to which folders are the nearest ones, is a rescan.
+                let now = (sources_print(&sources), nearest_folders(&sources));
                 if now == last {
                     return false;
                 }
@@ -259,6 +285,56 @@ impl HarnessWatcher {
             });
         }
     }
+}
+
+/// Watches `dir`, for its entries only or every change in it; false when it cannot be watched.
+#[cfg(target_os = "linux")]
+fn arm_dir(watcher: &mut crate::quiet_dirs::QuietDirs, dir: &Path, entries_only: bool) -> bool {
+    use crate::quiet_dirs::Kind;
+    watcher.watch(dir, if entries_only { Kind::Entries } else { Kind::Changes })
+}
+
+#[cfg(target_os = "linux")]
+fn disarm_dir(watcher: &mut crate::quiet_dirs::QuietDirs, dir: &Path) {
+    watcher.unwatch(dir);
+}
+
+/// Watches `dir` (notify has no entries-only watch: every change).
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn arm_dir(watcher: &mut notify::RecommendedWatcher, dir: &Path, _entries_only: bool) -> bool {
+    watcher.watch(dir, notify::RecursiveMode::NonRecursive).is_ok()
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn disarm_dir(watcher: &mut notify::RecommendedWatcher, dir: &Path) {
+    let _ = watcher.unwatch(dir);
+}
+
+/// The folders the sources live in: each source folder, the folder that holds the user folder
+/// (`cmux harness add` creates the user folder there) and cmux.json's folder.
+fn source_folders(sources: &ProfileSources) -> Vec<PathBuf> {
+    let mut folders: Vec<PathBuf> = sources.managed.clone();
+    if let Some(user) = &sources.user_dir {
+        folders.push(user.clone());
+        folders.extend(user.parent().map(Path::to_path_buf));
+    }
+    folders.extend(sources.cmux_json.as_deref().and_then(Path::parent).map(Path::to_path_buf));
+    folders
+}
+
+/// The folder to watch for each source folder: the folder itself when it exists, else its
+/// nearest existing ancestor, whose entries name the next folder on the way when it is made.
+/// Each once.
+fn nearest_folders(sources: &ProfileSources) -> Vec<PathBuf> {
+    let mut nearest: Vec<PathBuf> = Vec::new();
+    for folder in source_folders(sources) {
+        if let Some(existing) = folder.ancestors().find(|a| a.is_dir())
+            && !nearest.iter().any(|n| n == existing)
+        {
+            nearest.push(existing.to_path_buf());
+        }
+    }
+    nearest
 }
 
 /// The files the kqueue watch follows besides the folders: each file in a
@@ -306,11 +382,15 @@ fn sources_print(sources: &ProfileSources) -> Vec<(PathBuf, Option<Stamp>)> {
 }
 
 /// True when `path` is a profile source: a file in a source folder, a source
-/// folder itself, or cmux.json.
+/// folder itself, or cmux.json; or a folder on the way to one (made or removed
+/// while the folder past it is missing, `nearest_folders`).
 fn relevant(path: &Path, sources: &ProfileSources) -> bool {
     let folders = sources.managed.iter().chain(sources.user_dir.iter());
     let in_source = |dir: &PathBuf| path == dir || path.parent() == Some(dir.as_path());
-    sources.cmux_json.as_deref() == Some(path) || folders.into_iter().any(in_source)
+    let on_the_way = |source: &PathBuf| source.as_path() != path && source.starts_with(path);
+    sources.cmux_json.as_deref() == Some(path)
+        || folders.clone().any(in_source)
+        || folders.chain(sources.cmux_json.iter()).any(on_the_way)
 }
 
 /// `sources` with every path resolved through its nearest existing folder.

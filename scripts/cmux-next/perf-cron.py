@@ -601,6 +601,23 @@ def report_is_incomplete(part, report):
     return part.get("kind") in ("budgets", "webui") and isinstance(report, dict) and bool(report.get("incomplete"))
 
 
+def incomplete_why(report, limit=3):
+    """What a report's `incomplete` says, short enough for the issue: its first entries, each on one line. A
+    budgets entry is {name: the manifest row's pattern, reason}; a workspace-scaling one names its probe and exit
+    code or what is missing; a web-ui one is a line already. Paths are left out."""
+    items = report.get("incomplete") if isinstance(report, dict) else None
+    items = items if isinstance(items, list) else [items] if items else []
+
+    def one(item):
+        if not isinstance(item, dict):
+            return str(item)
+        if "name" in item:
+            return f"{str(item['name']).replace(chr(92) + '.', '.')}: {item.get('reason') or 'incomplete'}"
+        return " ".join(f"{k} {v}" for k, v in item.items() if k != "report" and isinstance(v, (str, int, float)))
+    shown = [one(item)[:120] for item in items[:limit]]
+    return "; ".join(shown) + (f"; and {len(items) - limit} more" if len(items) > limit else "")
+
+
 def frame_sensitive(name, row):
     """A row whose value depends on the display refresh (frame intervals, frame counts). Dropped frames count too: a
     frame deadline of 8.3 ms misses more often than one of 16.7 ms, so the first 120 Hz run after a 60 Hz baseline
@@ -1749,6 +1766,35 @@ def fmt(v):
     return "n/a" if v is None else (f"{v:g}" if isinstance(v, (int, float)) else str(v))
 
 
+def unfinished_parts(entry, limit=8):
+    """The parts of a finished measurement that did not finish, each with its reason (finish_measurement's
+    failed_parts and failed_why), as one line of the issue; '' when every part finished."""
+    parts = [p for p in entry.get("failed_parts") or [] if isinstance(p, str)]
+    why = entry.get("failed_why") if isinstance(entry.get("failed_why"), dict) else {}
+    shown = [f"{p} (`{str(why[p]).replace('`', chr(39))}`)" if why.get(p) else p for p in parts[:limit]]
+    return "; ".join(shown) + (f"; and {len(parts) - limit} more" if len(parts) > limit else "")
+
+
+def incomplete_streak(state):
+    """The newest tip measurements in a row that ran and ended incomplete, oldest first (bisect steps and abandoned
+    ones between them are left out; a good, regressed or first one ends the streak). From 2026-11-11 to 11-13 every
+    tip measurement ended that way on the same five parts while the issue guessed a busy fleet."""
+    streak = []
+    for entry in reversed([e for e in state.get("history") or [] if isinstance(e, dict)]):
+        if entry.get("kind") != "tip" or entry.get("status") == "abandoned":
+            continue
+        if entry.get("status") != "incomplete":
+            break
+        streak.append(entry)
+    return streak[::-1]
+
+
+def streak_parts(streak):
+    """The parts that did not finish in every measurement of the streak."""
+    sets = [set(p for p in e.get("failed_parts") or [] if isinstance(p, str)) for e in streak]
+    return sorted(set.intersection(*sets)) if sets else []
+
+
 def issue_body(state, repo, now):
     good = state.get("last_good")
     last = state.get("last") or {}
@@ -1834,12 +1880,22 @@ def issue_body(state, repo, now):
                   for x in rebases]
     tried = state.get("last_tried") or {}
     if tried.get("sha") and tried.get("sha") != last.get("sha"):
-        lines += ["", f"Newest attempt: {link(repo, tried['sha'])} at {tried.get('at')} ([run]({tried.get('run_url')})) measured no row, "
-                      "or not every regressed row; it is not the last measurement."]
+        if "failed_parts" not in tried:  # stored before last_tried carried them: the history entry has the parts
+            tried = next((e for e in reversed(state.get("history") or []) if isinstance(e, dict)
+                          and e.get("sha") == tried["sha"] and e.get("kind") == "tip" and e.get("failed_parts")), tried)
+        unfinished = unfinished_parts(tried)
+        lines += ["", f"Newest attempt: {link(repo, tried['sha'])} at {tried.get('at')} ([run]({tried.get('run_url')})) "
+                      + (f"is not the last measurement: {len(tried['failed_parts'])} part(s) did not finish: {unfinished}."
+                         if unfinished else "measured no row, or not every regressed row; it is not the last measurement.")]
     if stale_hours(state, now) > STALE_HOURS:
+        streak = incomplete_streak(state)
         lines += ["", f"**Stale:** no finished measurement since {stale_basis(state)} ({round(stale_hours(state, now))} h): "
-                      "no measure host had idle time, a nightly or dev build kept waiting for a Mac, the commits did not "
-                      "build, the regressed rows' parts kept failing, or the tick failed."]
+                      + (f"the last {len(streak)} tip measurement(s) each ran and ended incomplete"
+                         + (f", every one without {', '.join(streak_parts(streak))}" if streak_parts(streak) else "")
+                         + " (a part that does not finish keeps a measurement from counting)."
+                         if streak else
+                         "no measure host had idle time, a nightly or dev build kept waiting for a Mac, the commits did not "
+                         "build, the regressed rows' parts kept failing, or the tick failed.")]
     cur_parts = (state.get("current") or {}).get("parts") if isinstance(state.get("current"), dict) else None
     failed = [(p, e["why"]) for p, e in sorted((cur_parts or {}).items())
               if isinstance(e, dict) and e.get("state") == "failed" and e.get("why")]
@@ -2199,6 +2255,11 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
     good = state.get("last_good")
     state["current"] = None
     entry = {"sha": cur["sha"], "kind": cur["kind"], "at": iso(t), "run_url": run_url, "failed_parts": failed}
+    # Why each of them did not finish (its own reason, else its state): the issue names it (unfinished_parts).
+    failed_why = {n: str(cur["parts"][n].get("why") or cur["parts"][n].get("reason") or cur["parts"][n].get("state"))[:300]
+                  for n in failed}
+    if failed_why:
+        entry["failed_why"] = failed_why
     state.setdefault("history", []).append(entry)
     state["history"] = state["history"][-60:]
     base_rows = judging_rows(state, t)
@@ -2218,7 +2279,8 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
     if cur["kind"] == "bisect":
         entry["status"], entry["note"] = bisect_step(state, cur, judged, regs)
         return "narrowed" if entry["status"] in ("good", "bad") else "skipped"
-    state["last_tried"] = {"sha": cur["sha"], "at": iso(t), "run_url": run_url}
+    state["last_tried"] = {"sha": cur["sha"], "at": iso(t), "run_url": run_url,
+                           **({"failed_parts": failed, "failed_why": failed_why} if failed else {})}
     if not part_rows:
         entry["status"] = "empty"
         return "empty"
@@ -3150,6 +3212,7 @@ def report(o):
                 # last/last_good records just as it does for a failed part.
                 cur["parts"][name]["state"] = "incomplete"
                 cur["parts"][name]["incomplete"] = report.get("incomplete")
+                cur["parts"][name]["why"] = incomplete_why(report)
                 if not is_linux_part(name):
                     # The host did run, but this is not a completed fleet part
                     # for next_now(): do not immediately chain another tick

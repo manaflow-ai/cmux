@@ -1133,6 +1133,137 @@
     },
     "action.sidebar.revealWorkspace": {"comment": "Command palette and the workspace row menu: shows the current workspace in the sidebar", "extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Reveal Workspace in Sidebar"}}, "ar": {"stringUnit": {"state": "translated", "value": "إظهار مساحة العمل في الشريط الجانبي"}}, "bs": {"stringUnit": {"state": "translated", "value": "Prikaži radni prostor u bočnoj traci"}}, "da": {"stringUnit": {"state": "translated", "value": "Vis arbejdsområde i sidepanelet"}}, "de": {"stringUnit": {"state": "translated", "value": "Arbeitsbereich in der Seitenleiste zeigen"}}, "es": {"stringUnit": {"state": "translated", "value": "Mostrar espacio de trabajo en la barra lateral"}}, "fr": {"stringUnit": {"state": "translated", "value": "Afficher l’espace de travail dans la barre latérale"}}, "it": {"stringUnit": {"state": "translated", "value": "Mostra spazio di lavoro nella barra laterale"}}, "ja": {"stringUnit": {"state": "translated", "value": "サイドバーでワークスペースを表示"}}, "km": {"stringUnit": {"state": "translated", "value": "បង្ហាញកន្លែងធ្វើការនៅក្នុងរបារចំហៀង"}}, "ko": {"stringUnit": {"state": "translated", "value": "사이드바에서 작업 공간 표시"}}, "nb": {"stringUnit": {"state": "translated", "value": "Vis arbeidsområde i sidefeltet"}}, "pl": {"stringUnit": {"state": "translated", "value": "Pokaż obszar roboczy na pasku bocznym"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Mostrar espaço de trabalho na barra lateral"}}, "ru": {"stringUnit": {"state": "translated", "value": "Показать рабочее пространство в боковой панели"}}, "th": {"stringUnit": {"state": "translated", "value": "แสดงพื้นที่ทำงานในแถบด้านข้าง"}}, "tr": {"stringUnit": {"state": "translated", "value": "Çalışma alanını kenar çubuğunda göster"}}, "uk": {"stringUnit": {"state": "translated", "value": "Показати робочий простір на бічній панелі"}}, "vi": {"stringUnit": {"state": "translated", "value": "Hiện không gian làm việc trong thanh bên"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "在边栏中显示工作区"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "在側邊欄中顯示工作區"}}}},
     "action.sidebar.revealAndFocusWorkspace": {"comment": "Command palette and the workspace row menu: shows the current workspace in the sidebar", "extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Reveal and Focus Workspace in Sidebar"}}, "ar": {"stringUnit": {"state": "translated", "value": "إظهار مساحة العمل في الشريط الجانبي والتركيز عليها"}}, "bs": {"stringUnit": {"state": "translated", "value": "Prikaži i fokusiraj radni prostor u bočnoj traci"}}, "da": {"stringUnit": {"state": "translated", "value": "Vis og fokuser arbejdsområde i sidepanelet"}}, "de": {"stringUnit": {"state": "translated", "value": "Arbeitsbereich in der Seitenleiste zeigen und fokussieren"}}, "es": {"stringUnit": {"state": "translated", "value": "Mostrar y enfocar espacio de trabajo en la barra lateral"}}, "fr": {"stringUnit": {"state": "translated", "value": "Afficher et activer l’espace de travail dans la barre latérale"}}, "it": {"stringUnit": {"state": "translated", "value": "Mostra e attiva spazio di lavoro nella barra laterale"}}, "ja": {"stringUnit": {"state": "translated", "value": "サイドバーでワークスペースを表示してフォーカス"}}, "km": {"stringUnit": {"state": "translated", "value": "បង្ហាញ និងផ្ដោតលើកន្លែងធ្វើការនៅក្នុងរបារចំហៀង"}}, "ko": {"stringUnit": {"state": "translated", "value": "사이드바에서 작업 공간 표시 및 포커스"}}, "nb": {"stringUnit": {"state": "translated", "value": "Vis og fokuser arbeidsområde i sidefeltet"}}, "pl": {"stringUnit": {"state": "translated", "value": "Pokaż i aktywuj obszar roboczy na pasku bocznym"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Mostrar e focar espaço de trabalho na barra lateral"}}, "ru": {"stringUnit": {"state": "translated", "value": "Показать рабочее пространство в боковой панели и перейти к нему"}}, "th": {"stringUnit": {"state": "translated", "value": "แสดงและโฟกัสพื้นที่ทำงานในแถบด้านข้าง"}}, "tr": {"stringUnit": {"state": "translated", "value": "Çalışma alanını kenar çubuğunda göster ve odaklan"}}, "uk": {"stringUnit": {"state": "translated", "value": "Показати робочий простір на бічній панелі й перейти до нього"}}, "vi": {"stringUnit": {"state": "translated", "value": "Hiện và chuyển tới không gian làm việc trong thanh bên"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "在边栏中显示并聚焦工作区"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "在側邊欄中顯示並聚焦工作區"}}}},
+    "action.debug.sidebarRowTuner": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar Row Tuner"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ضبط صفوف الشريط الجانبي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podešavanje redova bočne trake"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Justering af sidepanelets rækker"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seitenleisten-Zeilen feinjustieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajuste de filas de la barra lateral"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Réglage des lignes de la barre latérale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Regolazione delle righe della barra laterale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバー行の調整"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការកែតម្រូវជួររបារចំហៀង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사이드바 행 조정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Justering av sidefeltrader"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Strojenie wierszy paska bocznego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajuste das linhas da barra lateral"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Настройка строк боковой панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปรับแต่งแถวของแถบด้านข้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kenar çubuğu satırlarını ayarla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Налаштування рядків бічної панелі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tinh chỉnh hàng thanh bên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "边栏行调节器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "側邊欄列調節器"
+          }
+        }
+      }
+    },
     "action.debug.sidebarStatesPlayground": {
       "extractionState": "manual",
       "localizations": {
@@ -4800,6 +4931,268 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "重設主執行緒阻塞計數"
+          }
+        }
+      }
+    },
+    "action.toasts.showHidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Hidden Toasts Again"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非表示にしたトーストを再表示"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار الإشعارات المخفية مرة أخرى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ponovo prikaži skrivena obavještenja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis skjulte meddelelser igen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ausgeblendete Hinweise wieder anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Volver a mostrar los avisos ocultos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Réafficher les notifications masquées"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra di nuovo gli avvisi nascosti"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញ​សារ​ដែល​បាន​លាក់​ម្ដង​ទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "숨긴 알림 다시 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis skjulte meldinger igjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokaż ponownie ukryte powiadomienia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar avisos ocultos novamente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Снова показывать скрытые уведомления"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงการแจ้งเตือนที่ซ่อนไว้อีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gizlenen bildirimleri yeniden göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Знову показувати приховані сповіщення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện lại các thông báo đã ẩn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "重新显示已隐藏的提示"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "重新顯示已隱藏的提示"
+          }
+        }
+      }
+    },
+    "action.debug.toastTuning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toast Tuning"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トーストの調整"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ضبط الإشعارات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podešavanje obavještenja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Justering af meddelelser"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hinweise abstimmen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajuste de avisos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Réglage des notifications"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Regolazione degli avvisi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការ​កែ​សម្រួល​សារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "알림 조정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Justering av meldinger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dostrajanie powiadomień"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajuste de avisos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Настройка уведомлений"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปรับแต่งการแจ้งเตือน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bildirim ayarı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Налаштування сповіщень"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tinh chỉnh thông báo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "提示调整"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "提示調整"
           }
         }
       }
@@ -50650,6 +51043,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "以聊天方式開啟終端機"
+          }
+        }
+      }
+    },
+    "action.palette.toggleTerminalChat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle Terminal and Chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルとチャットを切り替え"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التبديل بين الطرفية والمحادثة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prebaci između terminala i razgovora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skift mellem terminal og chat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zwischen Terminal und Chat wechseln"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alternar entre terminal y chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Basculer entre terminal et chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alterna terminale e chat"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្ដូររវាង Terminal និងការជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널과 채팅 전환"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bytt mellom terminal og samtale"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przełącz między terminalem a czatem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alternar entre Terminal e Chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переключить терминал и чат"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สลับระหว่างเทอร์มินัลและแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal ile Sohbet Arasında Geçiş Yap"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перемкнути термінал і чат"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chuyển đổi giữa terminal và trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在终端和聊天之间切换"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在終端機和聊天之間切換"
           }
         }
       }

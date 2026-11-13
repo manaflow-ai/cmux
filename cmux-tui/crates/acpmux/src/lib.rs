@@ -179,6 +179,8 @@ pub mod protected_folders;
 pub mod protocol;
 pub mod qos;
 pub mod question_answer;
+#[cfg(target_os = "linux")]
+mod quiet_dirs;
 pub mod recovery;
 pub mod registry;
 pub mod request_cancel;
@@ -218,6 +220,8 @@ pub mod shell_words;
 pub mod sim_agent;
 #[cfg(test)]
 mod single_shot_list_tests;
+#[cfg(test)]
+mod source_scan_smoke;
 pub mod sr2_cost_labels;
 pub(crate) mod ssh_forward;
 pub mod stats;
@@ -250,7 +254,6 @@ pub mod turn_attestation;
 pub mod usage_stats;
 pub mod user_settings;
 pub mod vault;
-pub mod watch_delta;
 pub mod web_modes;
 pub mod wire_size;
 pub mod wireguard;

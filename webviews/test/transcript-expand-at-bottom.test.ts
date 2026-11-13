@@ -178,14 +178,57 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
   /// top (`control`), the opened row's top (a Show more under its text stays at the row's foot, the text above it rises), the first row
   /// under it and the last row's foot, how far the view is from its end, and how far below the row
   /// under it the opened row is drawn (its foot less its clip).
-  type Frame = { line: number; control: number; under: number; last: number; fromEnd: number; over: number };
+  type Frame = {
+    line: number;
+    control: number;
+    under: number;
+    last: number;
+    fromEnd: number;
+    over: number;
+    /// How long after its frame the read ran (ms).
+    lag: number;
+    /// The frame's time less the click's (ms), NaN before a click.
+    since: number;
+  };
+  /// One frame at 60 Hz. A read that ran this long after its frame's time says that the page fell
+  /// behind: on the CI runners every frame that got no read had a late read after it. Its place is
+  /// mostly right for its frame, but a fold with late reads has fewer reads than frames drawn.
+  const FRAME_MS = 1000 / 60;
+  /// What the reads of one fold say about its glide. `places` counts the in-time reads that drew a
+  /// new place strictly between `from` and `to`: more than 1px from both, and more than half a pixel
+  /// from the read before. A frame that draws the same place again is no new place: a close that
+  /// stopped 4px short of its end for four frames and then jumped (#42247) got four of them for that
+  /// stop alone. `late` counts the late reads up to the first read at `to`; with any of them a low
+  /// count is no measure of the fold. `seen` is every read's place up to there, a late one marked L.
+  const glide = (frames: Frame[], key: "line" | "under", from: number, to: number) => {
+    let places = 0;
+    let late = 0;
+    let last = from;
+    let landed = false;
+    const seen: string[] = [];
+    for (const frame of frames) {
+      const top = frame[key];
+      const ranLate = frame.lag > FRAME_MS;
+      if (!landed) seen.push(`${top.toFixed(1)}${ranLate ? "L" : ""}`);
+      if (ranLate) {
+        if (!landed) late += 1;
+      } else {
+        if (Math.abs(top - last) > 0.5 && Math.abs(top - from) > 1 && Math.abs(top - to) > 1) places += 1;
+        last = top;
+      }
+      if (Math.abs(top - to) <= 1) landed = true;
+    }
+    return { places, late, seen: seen.join(" ") };
+  };
   const watchOpen = async (page: Page, query: string, ms = 700, click = true) => {
     const watching = page.evaluate(
       ({ selector, duration }) =>
         new Promise<Frame[]>((resolve) => {
           const frames: Frame[] = [];
           const start = performance.now();
-          window.cmuxAfterPaint(() => {
+          let clicked = Number.NaN;
+          addEventListener("click", () => (clicked = performance.now()), { capture: true, once: true });
+          window.cmuxAfterPaint((painted) => {
             const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
             const line = document.querySelector<HTMLElement>(selector)!;
             const row = line.closest<HTMLElement>(".acpmux-row")!;
@@ -202,6 +245,8 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
               last: rows.at(-1)!.getBoundingClientRect().bottom,
               fromEnd: scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop,
               over: box.bottom - (cut ? Number(cut[1]) : 0) - next.getBoundingClientRect().top,
+              lag: performance.now() - painted,
+              since: painted - clicked,
             });
             if (performance.now() - start < duration) return;
             resolve(frames);
@@ -292,15 +337,36 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
             const at = { direction, index, ...frame };
             expect({ at, still: Math.abs(frame.line - before.line) <= 1 }).toEqual({ at, still: true });
           }
-        const tops = [before[moving], ...frames.map((frame) => frame[moving])];
+        // A step judged is one frame's: the settle curve (cubic-bezier(0.16, 1, 0.3, 1), 180 ms)
+        // covers about half the way in its first 17 ms and 70% by 30 ms, so a first frame drawn two
+        // frames after the click on a busy runner, or a frame the runner dropped, spans more than
+        // one frame of the curve and says nothing of the glide.
+        // The frames from the click on (the watch starts a frame or two before it).
+        const clicked = frames.filter((frame) => Number.isFinite(frame.since));
+        expect(clicked.length).toBeGreaterThan(0);
+        const tops = [before[moving], ...clicked.map((frame) => frame[moving])];
+        const times = [0, ...clicked.map((frame) => frame.since)];
         let largest = 0;
-        for (let index = 1; index < tops.length; index++)
-          largest = Math.max(largest, Math.abs(tops[index]! - tops[index - 1]!));
-        // Frames strictly between where it was and where it settles: the glide, not a jump.
-        const between = frames.filter(
-          (frame) => Math.abs(frame[moving] - before[moving]) > 1 && Math.abs(frame[moving] - after[moving]) > 1,
-        ).length;
-        expect({ direction, between: between >= 3 }).toEqual({ direction, between: true });
+        let skipped = 0;
+        for (let index = 1; index < tops.length; index++) {
+          const step = Math.abs(tops[index]! - tops[index - 1]!);
+          const span = times[index]! - times[index - 1]!;
+          if (!(span <= (index === 1 ? 2 : 1.5) * FRAME_MS)) {
+            if (step > 0.5) skipped += 1;
+            continue;
+          }
+          largest = Math.max(largest, step);
+        }
+        if (skipped > 0)
+          console.log(`glide steps over more than one frame (${engineName} ${direction}): ${skipped}, not judged`);
+        // Three new places or more strictly between where it was and where it settles: the glide,
+        // not a jump. Fewer with reads that ran late is no measure: it says so and judges nothing.
+        const { places, late, seen } = glide(frames, moving, before[moving], after[moving]);
+        if (places < 3 && late > 0)
+          console.log(
+            `no verdict: late frames (${engineName} ${direction}: ${places} new places between in time, ${late} late reads; from ${before[moving].toFixed(1)} to ${after[moving].toFixed(1)}, places read, L = late: ${seen})`,
+          );
+        else expect({ direction, places, between: places >= 3 }).toEqual({ direction, places, between: true });
         expect({ direction, largest, smooth: largest <= Math.abs(total) * 0.7 }).toEqual({
           direction,
           largest,

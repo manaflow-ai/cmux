@@ -2,7 +2,8 @@
 //! git reads of the repository a path or a terminal's working directory is in. The session host answers them
 //! without store state; a connection's request runs git on the daemon's git lane
 //! (`server/git_lane.rs`), never on the connection's reader thread,
-//! bounded by a deadline and output limits. `git.checkpoint.*` captures
+//! bounded by a deadline and output limits. `git.status` reads the refs only
+//! (`cmux_git::head`), not the work tree. `git.checkpoint.*` captures
 //! immutable checkpoints through a separate write runner (`checkpoint`).
 //! `git.commit` and `git.push` are the user's own actions and run git in the
 //! user's environment (`user_run`), keyed in the mutation ledger
@@ -41,6 +42,7 @@ mod worktree_setup;
 use std::path::Path;
 use std::sync::Arc;
 
+use cmux_git::head::Checkout;
 use cmux_git::run::GitFailure;
 use cmux_git::{OpenError, Repository, parse, refs, run, write_run};
 use serde_json::{Value, json};
@@ -137,40 +139,41 @@ pub(crate) fn dispatch(
         other => unreachable!("git_ops does not handle {other:?}"),
     };
     let directory = target::directory(mux, &request, operation)?;
+    if operation == "git.status" {
+        return status(&directory);
+    }
     let repository = open_repository(&directory, operation)?;
     match operation {
         "git.diff" => diff::read(&repository, &request.fields),
         "git.branches" => branches(&repository, &request.fields),
         "git.files.search" => files::search(&repository, &directory, &request.fields),
-        "git.files.list" => list::list(&repository, &directory, &request.fields),
-        _ => status(&repository),
+        _ => list::list(&repository, &directory, &request.fields),
     }
 }
 
 /// The repository `directory` is in, as `operation`'s errors.
 fn open_repository(directory: &Path, operation: &'static str) -> Result<Repository, ResourceError> {
-    Repository::open(directory).map_err(|error| match error {
-        OpenError::NotARepository => not_a_repository(operation, directory),
-        OpenError::Git(failure) => git_failed(operation, &failure),
-    })
+    Repository::open(directory).map_err(|error| open_failed(operation, directory, error))
 }
 
-fn status(repository: &Repository) -> Result<Value, ResourceError> {
-    let arguments = [
-        "status",
-        "--porcelain=v2",
-        "--branch",
-        "-z",
-        "--untracked-files=no",
-        "--ignore-submodules=all",
-    ];
-    let output = repository
-        .run(&arguments, MAX_STATUS_BYTES)
-        .map_err(|failure| git_failed("git.status", &failure))?;
-    // The branch headers come first, so a cut listing still has them.
-    let headers = parse::branch_headers(&output.stdout);
+fn open_failed(operation: &'static str, directory: &Path, error: OpenError) -> ResourceError {
+    match error {
+        OpenError::NotARepository => not_a_repository(operation, directory),
+        OpenError::Git(failure) => git_failed(operation, &failure),
+    }
+}
+
+/// What HEAD of the checkout `directory` is in is on. A view that shows a
+/// branch asks this often and a person waits for it, so it comes from the
+/// refs (`cmux_git::head`): no run looks at the work tree's files, whose
+/// count would set the cost.
+fn status(directory: &Path) -> Result<Value, ResourceError> {
+    const OPERATION: &str = "git.status";
+    let repository =
+        Checkout::open(directory).map_err(|error| open_failed(OPERATION, directory, error))?;
+    let headers = repository.head().map_err(|failure| git_failed(OPERATION, &failure))?;
     let mut value = json!({
-        "root":repository.root.to_string_lossy(),
+        "root":repository.root().to_string_lossy(),
         "detached":headers.branch.is_none(),
         "ahead":clamp(headers.ahead),
         "behind":clamp(headers.behind),
