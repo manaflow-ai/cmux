@@ -780,6 +780,7 @@ fn group_decides_visibility_once_after_later_work_and_steers() {
         mux(6, "turn_result", "{}"),
     ]);
     assert!(m.visible(m.reply("Checking.")));
+    assert!(m.visible(m.reply("also check")));
 }
 #[test]
 fn superseding_live_multiblock_reply_patches_only_its_settled_rows() {
