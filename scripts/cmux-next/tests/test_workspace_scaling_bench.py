@@ -176,6 +176,18 @@ class WaitForCountTests(unittest.TestCase):
     def test_a_count_that_never_arrives_ends_at_the_deadline(self):
         self.assertEqual(self.wait([98] * 100, 100), 98)
 
+    def test_probes_wait_for_their_seeded_count(self):
+        """The typing probe exited 2 with actual_workspace_count 99 of 100 and 998 of 1000 after the instant probe's
+        fix: its seeding read the count once too. Both probes run at import (argparse, the app), so this reads their
+        source for the wait on `workspace_count`."""
+        import ast
+        for script in ("instant-new-surfaces-bench.py", "automation-typing-bench.py"):
+            tree = ast.parse((ROOT / "scripts/cmux-next" / script).read_text())
+            waits = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
+                     and getattr(node.func, "id", None) == "wait_for_count"
+                     and node.args and getattr(node.args[0], "id", None) == "workspace_count"]
+            self.assertTrue(waits, script)
+
 
 class SidebarRowMismatchTests(unittest.TestCase):
     def test_short_list_names_the_failed_creates(self):

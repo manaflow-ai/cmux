@@ -44,7 +44,7 @@ import argparse, csv, importlib.util, json, os, pathlib, random, statistics, sub
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from bench_launch import BenchApp, LaunchError, close_all_workspaces  # noqa: E402
+from bench_launch import BenchApp, LaunchError, close_all_workspaces, wait_for_count  # noqa: E402
 
 
 def load(name, file):
@@ -448,7 +448,8 @@ def main():
         cli("workspace", "create", "--name", "typing", "--focus", "--shell", "exec cat")
         typing = terminal_of("typing")
         results["setup"] = {"agent_terminals": len(tabs), "browser_tab": browser_tab, "typing": typing}
-        actual_workspaces = workspace_count()
+        # The creates return before the published topology lists them (bench_launch.wait_for_count).
+        actual_workspaces = wait_for_count(workspace_count, opts.workspace_count) if opts.workspace_count else workspace_count()
         results["setup"]["workspace_count"] = actual_workspaces
         if seeded["failures"] or (opts.workspace_count and actual_workspaces != opts.workspace_count):
             results["invalid"] = {
