@@ -304,11 +304,9 @@ fn process_frame(
             let (identity, control, ended) = {
                 let mut state = state.lock().map_err(|_| poisoned())?;
                 state.subscribe_at(sub.sid.clone(), sub.cursor)?;
-                (
-                    state.identity().map(ToOwned::to_owned),
-                    state.control(&sub.sid).ok_or_else(poisoned)?,
-                    state.take_ended(),
-                )
+                let control = state.control(&sub.sid).ok_or_else(poisoned)?;
+                state.begin_subscription_reply(control.clone());
+                (state.identity().map(ToOwned::to_owned), control, state.take_ended())
             };
             for sid in ended {
                 source.end(&sid);

@@ -96,6 +96,7 @@ pub struct ConnectionState {
     pub(super) metrics: Arc<ConnectionMetrics>,
     ended: Vec<String>,
     reserved: usize,
+    reply_control: Option<Arc<SubscriptionControl>>,
     identity: Option<Vec<u8>>,
     pub(super) wake: Arc<Notify>,
 }
@@ -116,6 +117,7 @@ impl ConnectionState {
             metrics: Arc::new(ConnectionMetrics::default()),
             ended: Vec::new(),
             reserved: 0,
+            reply_control: None,
             identity: None,
             wake: Arc::new(Notify::new()),
         }
@@ -232,7 +234,10 @@ impl ConnectionState {
             sub.not_fed = true;
             return Offer::NotFed;
         }
-        if self.queued_bytes.saturating_add(self.reserved).saturating_add(bytes) > self.budget {
+        let own_reply =
+            self.reply_control.as_ref().is_some_and(|reply| Arc::ptr_eq(reply, control));
+        let reserve = if own_reply { 0 } else { self.reserved };
+        if self.queued_bytes.saturating_add(reserve).saturating_add(bytes) > self.budget {
             let cursor = self.drop_subscription(sid);
             self.wake.notify_one();
             return Offer::Dropped { sid: sid.to_owned(), cursor };
@@ -243,6 +248,9 @@ impl ConnectionState {
             sub.taken = cursor;
         }
         self.queued_bytes += bytes;
+        if own_reply {
+            self.reserved = self.reserved.saturating_sub(bytes);
+        }
         self.queue.push_back(Queued::Data(FrameLease {
             sid: Some(sid.to_owned()),
             control: Some(control.clone()),
@@ -266,8 +274,12 @@ impl ConnectionState {
         self.reserved = MAX_FRAME_BYTES;
         true
     }
+    pub(super) fn begin_subscription_reply(&mut self, control: Arc<SubscriptionControl>) {
+        self.reply_control = Some(control);
+    }
     pub(super) fn release_reply(&mut self) {
         self.reserved = 0;
+        self.reply_control = None;
     }
     pub fn offer_reply(&mut self, frame: Frame) -> Result<(), ConnError> {
         if self.queued_bytes.saturating_add(frame.encoded_len()) > self.budget {
