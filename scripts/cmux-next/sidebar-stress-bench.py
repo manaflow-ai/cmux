@@ -503,13 +503,22 @@ def scenario_ticks(pid, size):
             "frames_while_ticking": stats, "trace": os.path.relpath(tr.path, OUT), "profile": profile}
 
 
-def scenario_switch(pid, size, count=24):
+def visible_switch_rows():
     scroll_to_top()
     time.sleep(1)
-    rows = [r for r in workspace_rows() if r["window_frame"]["y"] > 60 and r["window_frame"]["y"] + r["window_frame"]["height"] < WINDOW[3] - 80]
+    return [r for r in workspace_rows() if r["window_frame"]["y"] > 60 and r["window_frame"]["y"] + r["window_frame"]["height"] < WINDOW[3] - 80]
+
+
+def scenario_switch(pid, size, count=24):
+    rows = visible_switch_rows()
     if len(rows) < 2:
-        # Keep what the bench saw: the stable perf runs of 2026-11-11/12 got this on every Debug and Release build
-        # (the click_to_idle row was never measured) while the switch matrix and the drag found rows.
+        # Rows that are not plain workspaces (the ticking group and its members, pinned rows) can fill the window,
+        # so the first plain workspace row starts below it: the stable perf runs of 2026-11-11/12 saw "ws 0000 tick"
+        # at y 903 in a 900 pt window, and click_to_idle was never measured. The switch matrix's own workspaces go
+        # to the top of the sidebar (switch_targets, made once and reused there): switch between those instead.
+        switch_targets()
+        rows = visible_switch_rows()
+    if len(rows) < 2:
         seen = [{"title": r.get("title"), "frame": r.get("window_frame")} for r in workspace_rows()[:8]]
         return {"error": "fewer than two visible rows", "window": WINDOW, "rows_seen": seen}
     a, b = rows[2] if len(rows) > 2 else rows[0], rows[-2]
