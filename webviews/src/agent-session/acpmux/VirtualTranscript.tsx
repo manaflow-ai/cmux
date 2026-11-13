@@ -5607,6 +5607,8 @@ function TranscriptView({
   const sinceIndex = sinceKey !== undefined ? indexOfRow(rows, SINCE_DIVIDER, sinceHint) : -1;
   const sinceRow = sinceIndex >= 0 ? rows[sinceIndex] : undefined;
   const unseenIndex = jumpButton ? firstUnseen(rows, readThrough, unseenScan, promptAuthor) : -1;
+  // The reader went to the latest message (`caughtUp`), read once per render.
+  const caught = caughtUp.current;
   // The rows the reader sees, in layout px: rows draw THREAD_TOP under their layout tops, and the
   // floating tab row and the dock cover the view's edges.
   const viewTop = shownTop - THREAD_TOP;
@@ -5615,8 +5617,7 @@ function TranscriptView({
     : { first: 0, last: -1 };
   // The single look (#42056) draws Jump to latest alone: the disc never turns up.
   const [pairLook] = useState(() => experimentArm(jumpPairLook));
-  const unseenAbove =
-    jumpUpOn && pairLook !== "single" && !caughtUp.current && unseenIndex >= 0 && unseenIndex < inView.first;
+  const unseenAbove = jumpUpOn && pairLook !== "single" && !caught && unseenIndex >= 0 && unseenIndex < inView.first;
   const control: JumpControl = jumpButton
     ? jumpControl({
         unseenAbove,
@@ -5628,22 +5629,30 @@ function TranscriptView({
   // Hidden, it keeps the jump it last drew while it fades out: its arrow never turns mid-fade.
   const lastControl = useRef<JumpControl>({ kind: "latest" });
   const drawnControl = control.kind === "hidden" ? lastControl.current : control;
-  lastControl.current = drawnControl;
+  useLayoutEffect(() => {
+    lastControl.current = drawnControl;
+  });
   // Where a press goes: the "New" line when it sits just over the first unseen row (only rows that
   // never count between them, the reader's own prompt), else that row.
   const upRow = unseenIndex >= 0 ? lineOver(rows, unseenIndex, sinceIndex, promptAuthor) : -1;
+  const upTarget = upRow >= 0 ? { rowId: rows[upRow]!.id, top: layout.geometry.topAt(upRow) } : undefined;
+  // What a press reads (`pressUp`), as of the last commit.
   const upTargetRef = useRef<{ rowId: string; top: number } | undefined>(undefined);
-  upTargetRef.current = upRow >= 0 ? { rowId: rows[upRow]!.id, top: layout.geometry.topAt(upRow) } : undefined;
+  useLayoutEffect(() => {
+    upTargetRef.current = upTarget;
+  });
   const [upBadge] = useState(() => experimentArm(jumpUpBadge));
   const upTurns = drawnControl.kind === "up" && upBadge === "count" ? unseenTurns(rows, unseenIndex) : 0;
   // What is in view is seen once the reader attends (the client decides that): reported when it
   // changes, never past an unseen row above the view unless the reader went to the latest (`caughtUp`).
   const seenCandidate =
     jumpButton && readThrough !== undefined
-      ? seenThrough(rows, inView, caughtUp.current ? -1 : unseenIndex, promptAuthor)
+      ? seenThrough(rows, inView, caught ? -1 : unseenIndex, promptAuthor)
       : undefined;
   const seenReport = useRef(onSeenThrough);
-  seenReport.current = onSeenThrough;
+  useLayoutEffect(() => {
+    seenReport.current = onSeenThrough;
+  });
   // Undefined too: an unseen row went above the view, and what was in view before is no longer
   // what the reader would see when they come back to the window.
   useEffect(() => {
