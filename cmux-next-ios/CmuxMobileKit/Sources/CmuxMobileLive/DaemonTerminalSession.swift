@@ -133,8 +133,16 @@ public final class DaemonTerminalSession: TerminalSession {
     /// reach the shell after the rest was dropped (r13 review).
     private var refusingInput = false
     /// How long typed keys may wait for the terminal (a blip) before they
-    /// are dropped and the screen is told (seconds).
-    public static let inputHoldLimit: TimeInterval = 2
+    /// are dropped and the screen is told (seconds). An LTE handover or a
+    /// relay reconnect takes a few seconds; 2 s dropped the keys of most
+    /// blips and said so (Leo, 2026-11-12, on LTE: "thjs chatters too often
+    /// with connectivity"). 10 s rides those out and still never runs a
+    /// command long after it was typed (termfix-r13 D5).
+    public static let inputHoldLimit: TimeInterval = 10
+    /// At most this many typed bytes wait for a detached terminal; past it
+    /// the queue is dropped as an expired one is (a long paste into a dead
+    /// link is not replayed whole into whatever runs when it comes back).
+    public static let inputHoldBytes = 16 * 1024
     /// The clock the hold is measured on (tests inject one).
     var now: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     /// A `send` is being written (writes go one after another, in order).
@@ -293,6 +301,10 @@ public final class DaemonTerminalSession: TerminalSession {
             return
         }
         input.append((bytes, now(), !attached, true))
+        if !attached, input.reduce(0, { $0 + $1.bytes.count }) > Self.inputHoldBytes {
+            dropDetachedInput(reason: "more than \(Self.inputHoldBytes) bytes waited for the terminal")
+            return
+        }
         if attached {
             scheduleInputDrain()
             noteInteraction()
@@ -341,13 +353,18 @@ public final class DaemonTerminalSession: TerminalSession {
     private func expireInput() {
         let cutoff = now() - Self.inputHoldLimit
         guard input.contains(where: { $0.detached && $0.at <= cutoff }) else { return }
+        dropDetachedInput(reason: "the terminal was unreachable for longer than \(Self.inputHoldLimit) s")
+    }
+
+    /// Drops every queued key, refuses input until the next attach, and tells the screen.
+    private func dropDetachedInput(reason: String) {
         let bytes = input.reduce(0) { $0 + ($1.typed ? $1.bytes.count : 0) }
         input.removeAll()
         // Only terminal replies were waiting: nothing the person typed was
         // lost, so typing goes on and the screen says nothing.
         guard bytes > 0 else { return }
         if !attached { refusingInput = true }
-        log.notice("surface \(self.surface, privacy: .public): \(bytes, privacy: .public) typed bytes dropped (the terminal was unreachable for longer than \(Self.inputHoldLimit, privacy: .public) s)")
+        log.notice("surface \(self.surface, privacy: .public): \(bytes, privacy: .public) typed bytes dropped (\(reason, privacy: .public))")
         handler?(.inputNotSent(bytes: bytes))
     }
 
@@ -374,8 +391,7 @@ public final class DaemonTerminalSession: TerminalSession {
 
     /// The terminal is on screen in the foreground app (true), or it left
     /// (false: another tab, the grid, a sheet over it, the app in the
-    /// background past its grace, `TerminalSizeClaimDebounce`). Leaving
-    /// releases the phone's size on the Mac at once, so
+    /// background). Leaving releases the phone's size on the Mac at once, so
     /// the Mac's pane gets its own size back; coming back claims the last
     /// size again.
     public func setClaimsSize(_ claims: Bool) {
@@ -535,6 +551,30 @@ public final class DaemonTerminalSession: TerminalSession {
             throw LinkError(code: "clear-history", message: error)
         }
     }
+
+    /// The Mac terminal's foreground program (`process-info`
+    /// `foreground_executable`, the foreground job leader's name), nil while
+    /// not attached, on a refusal or after ``processInfoDeadline``. One bounded
+    /// read, asked when the screen enters the alternate screen and when a drag
+    /// begins there (``TerminalPanRoute``).
+    public func foregroundProgram() async -> String? {
+        guard attached, let client else { return nil }
+        let surface = surface
+        do {
+            let reply = try await client.request("process-info", params: ["surface": surface], deadline: Self.processInfoDeadline)
+            if let error = Self.error(in: reply) {
+                log.notice("surface \(surface, privacy: .public): process-info refused: \(error, privacy: .public)")
+                return nil
+            }
+            return TerminalProcessInfo(reply: (try JSONSerialization.jsonObject(with: reply) as? [String: Any]) ?? [:]).foregroundExecutable
+        } catch {
+            log.notice("surface \(surface, privacy: .public): process-info failed: \(String(describing: error), privacy: .public)")
+            return nil
+        }
+    }
+
+    /// How long a drag's `process-info` may take (the Mac answers in one PTY query).
+    nonisolated static let processInfoDeadline: Duration = .seconds(1)
 
     /// The reader scrolled up to the mirror's oldest row and the Mac has
     /// older ones (``historyRowsOmitted``): a second attach with
@@ -732,6 +772,9 @@ public final class DaemonTerminalSession: TerminalSession {
             heldEvents = nil
             for event in held { apply(event) }
             attachRetries = 0
+            // Keys held past the limit (the app was suspended) are dropped and said before
+            // the screen hears `.attached`, which forgets a held composer send.
+            expireInput()
             attached = true
             settleReclaimHold()
             refusingInput = false

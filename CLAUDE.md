@@ -292,7 +292,8 @@ nightly-only labels). This applies to humans, Leo and every agent:
   user-visible high-tier behavior behind a default-off setting; revert with
   `gh-merge-green --revert` if it breaks nightly-next and the fix misses the next cut. Agents never
   add `risk:human-ok` or `risk:waived`.
-- Before opening a PR and before merging, check it against [REVIEW.md](REVIEW.md) (draft),
+- Before opening a PR and before merging, check it against "In a cmux PR: what review keeps catching" in the private
+  [before-you-ship checklist](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/before-you-ship.md),
   the mistakes our review history keeps catching.
 - Before designing a change or fixing a bug, read [design-lessons.md](docs/cmux-next/design-lessons.md):
   the causes our fix history keeps repeating, each with its rule and cost.

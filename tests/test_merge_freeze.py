@@ -35,7 +35,7 @@ BROKER_FIELDS = frozenset({
     "headRefOid", "id", "isArchived", "isBinary", "isCrossRepository", "isDraft", "isFork", "isMinimized",
     "isPrivate", "isTruncated", "issueCount", "label", "labels", "lastEditedAt", "limit", "locked", "login",
     "maintainerCanModify", "mergeCommit", "mergeMethod", "mergeStateStatus", "mergeable", "merged",
-    "mergedAt", "mergedBy", "message", "name", "nameWithOwner", "nodes", "number", "object", "oid",
+    "mergedAt", "mergedBy", "message", "mode", "name", "nameWithOwner", "nodes", "number", "object", "oid",
     "pageInfo", "parents", "path", "prefix", "pullRequest", "pushedAt", "remaining", "requestedReviewer",
     "resetAt", "reviewRequests", "reviews", "slug", "startCursor", "state", "status", "submittedAt",
     "target", "targetUrl", "text", "timelineItems", "title", "totalCount", "tree", "type", "updatedAt",
@@ -540,7 +540,17 @@ class SpentRestQuotaTests(unittest.TestCase):
 
 class BrokerGraphqlFieldsTests(unittest.TestCase):
     """The land gates read GitHub through the lane-gh broker, which refuses a graphql field outside its list. Scope:
-    merge_freeze.py and scripts/gh-merge-green (the scripts a land gate runs), not every graphql caller in scripts/."""
+    merge_freeze.py, scripts/gh-merge-green and the base-red classifier merge_hold runs on every land with a red
+    (CLASSIFIER_FILES), not every graphql caller in scripts/. A classifier query the broker refuses means no base red
+    can be excused from a lane VM (cmuxterm-hq#10092: BLOB_QUERY's `mode`)."""
+
+    # The base-red classifier and the helpers it loads; cmuxterm-hq tools/lane-gh-broker/test_classifier_queries.py
+    # SOURCES lists the same files.
+    CLASSIFIER_FILES = ("base_red_excuse.py", "test_reds.py", "main_fix_evidence.py", "gh_pages.py",
+                        "webviews_test_results.py")
+    # Refused on purpose, with why the classifier still answers (the broker's REFUSED_ON_PURPOSE): root `nodes` can
+    # name a node of any repo, so SuiteChecks.read catches the refusal and reads those runs over REST.
+    CLASSIFIER_REFUSED_ON_PURPOSE = frozenset({"SUITE_CHECKS_QUERY"})
 
     def gate_queries(self):
         import ast
@@ -549,6 +559,33 @@ class BrokerGraphqlFieldsTests(unittest.TestCase):
                    and "repository(" in n.value]
         queries += re.findall(r"query='([^']*)'", (ROOT / "scripts/gh-merge-green").read_text())
         return queries
+
+    def classifier_queries(self):
+        """Each classifier file's module-level `NAME_QUERY` strings, by name: literals and f-strings joined as Python
+        joins them, each `{value}` of an f-string read as `0` (a page size or count, never a field name). A `_QUERY`
+        this can't read fails the test, so a query is never skipped unread (cmux#42173 review F1)."""
+        import ast
+
+        def text(node):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                return node.value
+            if isinstance(node, ast.JoinedStr):
+                return "".join(text(part) if isinstance(part, ast.Constant) else "0" for part in node.values)
+            if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+                left, right = text(node.left), text(node.right)
+                return None if left is None or right is None else left + right
+            return None
+
+        found = {}
+        for name in self.CLASSIFIER_FILES:
+            for node in ast.parse((ROOT / "scripts/ci" / name).read_text()).body:
+                if (isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)
+                        and node.targets[0].id.endswith("_QUERY")
+                        and not (isinstance(node.value, ast.Constant) and not isinstance(node.value.value, str))):
+                    value = text(node.value)
+                    self.assertIsNotNone(value, f"{name}: {node.targets[0].id} is not a string this scan can read")
+                    found[f"{name}:{node.targets[0].id}"] = value
+        return found
 
     def test_the_parser_reads_root_fields_fields_and_skips_aliases_arguments_and_types(self):
         roots, below = graphql_fields('query($o:String!){a: repository(owner:$o,name:"x"){issue(number:1){... on Issue{lastEditedAt}}}}')
@@ -563,6 +600,14 @@ class BrokerGraphqlFieldsTests(unittest.TestCase):
         self.assertGreaterEqual(len(queries), 6, "the scan found too few queries; its pattern is stale")
         for query in queries:
             self.assertEqual([], broker_refused_fields(query), query)
+
+    def test_every_classifier_graphql_query_selects_only_fields_the_broker_accepts(self):
+        queries = self.classifier_queries()
+        self.assertGreaterEqual(len(queries), 4, "the scan found too few classifier queries; its pattern is stale")
+        refused = {key: broker_refused_fields(query) for key, query in queries.items()
+                   if key.partition(":")[2] not in self.CLASSIFIER_REFUSED_ON_PURPOSE and broker_refused_fields(query)}
+        self.assertEqual({}, refused, "the lane broker refuses these fields; allow them in cmuxterm-hq "
+                         "tools/lane-gh-broker/graphql-allowlist.json and this file's BROKER_* copy the same day")
 
 
 if __name__ == "__main__":

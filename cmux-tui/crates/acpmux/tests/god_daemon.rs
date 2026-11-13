@@ -12,11 +12,19 @@
 //! - `peers_ms`: from the spawn until every peer's rows are listed;
 //! - `attachUs`: the pane's attach to the god chat (`waitLogs: false`, 400 records, 128 KiB),
 //!   [`ROUNDS`] times: p50, p95 and max;
+//! - `scrollPageUs`: the pane's scroll up through the god chat, [`ROUNDS`] older pages
+//!   (`_acpmux/events` before the oldest seq held, 400 records, 128 KiB); `deepScrollUs`: a jump
+//!   to the middle of its history, [`DEEP_ROUNDS`] times;
 //! - `firstSendFirstTokenMs`, `sendFirstTokenUs`: a prompt to the god chat to its first streamed
 //!   chunk (a stand-in agent answers), the first one (which starts the agent) and the rest;
-//! - `reconnect_ms`: every peer link cut at once, until every peer is listed again (three times);
+//! - `allLogsMs`: from the daemon's start until its "all chat logs" phase ends, waited for;
+//! - `reconnect_ms`: every peer link cut at once, until every peer is listed again (three times),
+//!   and their median;
 //! - `rss` and `peak_rss`: the daemon's resident bytes after all that, and at its peak;
-//! - the daemon's own gauges (`daemon status` `gauges`).
+//! - the daemon's own gauges (`daemon status` `gauges`), its startup phases flat
+//!   (`startupPhasesMs`) and its marks (`marksMs`: socket ready, first list reply, agents may spawn);
+//! - `homeBytes`: the home's bytes on disk after the daemon stops, and `daemonDiskBytes`: those
+//!   it added to what the fixture wrote.
 //!
 //! With `ACPMUX_GOD_DHAT=1` and a binary built with `--features dhat-heap`, the daemon records
 //! its heap (dhat) and the test prints its allocation sites: the bytes each held at the heap's
@@ -35,6 +43,8 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_GOD_SCALE",
     "ACPMUX_GOD_DHAT",
     "ACPMUX_GOD_DHAT_TOP",
+    // A control artifact for differential runs; the child still uses the hermetic environment.
+    "ACPMUX_GOD_DAEMON_BIN",
 ]);
 
 use acpmux::config::{Config, StoreMode};
@@ -54,8 +64,22 @@ use std::time::{Duration, Instant};
 /// How long any one step may take before the run says so and moves on.
 const STEP: Duration = Duration::from_secs(600);
 
-/// Times each repeated step (attach, send) is measured.
+/// Times each repeated step (attach, send, scroll) is measured.
 const ROUNDS: usize = 20;
+
+/// Times the jump to the middle of the god chat is measured.
+const DEEP_ROUNDS: usize = 5;
+
+/// A page as the pane asks for one: its records and bytes.
+const PAGE_LIMIT: u64 = 400;
+const PAGE_BYTES: u64 = 131072;
+
+/// How long the run waits for every chat log to be read, and how often it asks.
+const ALL_LOGS: Duration = Duration::from_secs(120);
+const ALL_LOGS_POLL: Duration = Duration::from_millis(50);
+
+/// The startup points kept as marks, not phases (`gauges.rs`).
+const MARKS: [&str; 4] = ["socket ready", "requests ready", "first list reply", "agents may spawn"];
 
 fn ms(since: Instant) -> u64 {
     since.elapsed().as_millis() as u64
@@ -74,6 +98,91 @@ fn spread(samples: &[u64]) -> Value {
     sorted.sort_unstable();
     let at = |q: f64| sorted[((sorted.len() - 1) as f64 * q).round() as usize];
     json!({"n": sorted.len(), "p50": at(0.5), "p95": at(0.95), "max": sorted[sorted.len() - 1]})
+}
+
+/// The middle value of `samples`, null when there are none.
+fn median(samples: &[u64]) -> Value {
+    if samples.is_empty() {
+        return Value::Null;
+    }
+    let mut sorted = samples.to_vec();
+    sorted.sort_unstable();
+    json!(sorted[sorted.len() / 2])
+}
+
+/// The bytes of every file under `dir`, links not followed; 0 when it can't be read.
+fn dir_bytes(dir: &Path) -> u64 {
+    let Ok(entries) = std::fs::read_dir(dir) else { return 0 };
+    entries
+        .flatten()
+        .map(|e| match e.path().symlink_metadata() {
+            Ok(m) if m.is_dir() => dir_bytes(&e.path()),
+            Ok(m) if m.is_file() => m.len(),
+            _ => 0,
+        })
+        .sum()
+}
+
+/// The oldest seq of a page's records, if it has any.
+fn oldest_seq(page: &Value) -> Option<u64> {
+    page["events"].as_array()?.iter().filter_map(|e| e["seq"].as_u64()).min()
+}
+
+/// The status gauges' startup as two flat objects, by name: each phase's ms (null while it
+/// runs; a name seen twice adds up) and each mark's atMs.
+fn startup_axes(gauges: &Value) -> (Value, Value) {
+    let (mut phases, mut marks) = (serde_json::Map::new(), serde_json::Map::new());
+    for p in gauges["startup"].as_array().into_iter().flatten() {
+        let Some(name) = p["name"].as_str() else { continue };
+        if MARKS.contains(&name) {
+            marks.insert(name.to_owned(), p["atMs"].clone());
+            continue;
+        }
+        let sum = match (phases.get(name).and_then(Value::as_u64), p["ms"].as_u64()) {
+            (Some(a), Some(b)) => json!(a + b),
+            (_, Some(b)) => json!(b),
+            (_, None) => Value::Null,
+        };
+        phases.insert(name.to_owned(), sum);
+    }
+    (Value::Object(phases), Value::Object(marks))
+}
+
+/// When the "all chat logs" phase ended, in ms from the daemon's start: none while it runs.
+fn all_logs_end(gauges: &Value) -> Option<u64> {
+    let phase = gauges["startup"].as_array()?.iter().find(|p| p["name"] == "all chat logs")?;
+    Some(phase["atMs"].as_u64()? + phase["ms"].as_u64()?)
+}
+
+/// Asks `_acpmux/status` until every chat log is read: when it ended, or why it is not known.
+fn wait_all_logs(rpc: &mut Rpc) -> Result<u64, Value> {
+    let started = Instant::now();
+    let mut last = Value::Null;
+    while started.elapsed() < ALL_LOGS {
+        match rpc.call("_acpmux/status", json!({})) {
+            Ok(status) => {
+                if let Some(end) = all_logs_end(&status["gauges"]) {
+                    return Ok(end);
+                }
+            }
+            Err(e) => last = e,
+        }
+        rpc.notes.clear();
+        std::thread::sleep(ALL_LOGS_POLL);
+    }
+    Err(json!({"timeoutMs": ALL_LOGS.as_millis() as u64, "lastError": last}))
+}
+
+/// One older page of the god chat, as the pane asks when it scrolls up: its time and reply.
+fn older_page(rpc: &mut Rpc, god: &str, before: u64) -> (u64, Result<Value, Value>) {
+    let asked = Instant::now();
+    let page = rpc.call(
+        "_acpmux/events",
+        json!({"sessionId": god, "beforeSeq": before, "limit": PAGE_LIMIT, "maxBytes": PAGE_BYTES}),
+    );
+    let us = micros(asked);
+    rpc.notes.clear();
+    (us, page)
 }
 
 /// A line client on the daemon's socket that keeps the lines it reads and has not asked for yet:
@@ -213,12 +322,17 @@ struct Daemon {
     child: Child,
     socket: PathBuf,
     spawned: Instant,
+    socket_connect_us: u64,
 }
 
 impl Daemon {
     fn start(scratch: &Path, home: &Path, dhat: Option<&Path>) -> Self {
         let socket = scratch.join("s.sock");
-        let mut command = daemon_env::command(scratch, daemon_env::Agents::StandIn, &[]);
+        let binary = std::env::var_os("ACPMUX_GOD_DAEMON_BIN")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| daemon_env::bin().to_path_buf());
+        let mut command =
+            daemon_env::command_at(&binary, scratch, daemon_env::Agents::StandIn, &[]);
         command
             .args(["daemon", "run", "--ready-fd", "1", "--log", "warn"])
             .env("ACPMUX_HOME", home)
@@ -231,12 +345,26 @@ impl Daemon {
         }
         let spawned = Instant::now();
         let mut child = command.spawn().unwrap();
+        // Observe bind from a client too: moving an internal gauge alone cannot improve this
+        // measurement. This probe is identical for a control binary and the changed daemon.
+        loop {
+            if UnixStream::connect(&socket).is_ok() {
+                break;
+            }
+            if spawned.elapsed() >= STEP || child.try_wait().unwrap().is_some() {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("the daemon did not bind its socket");
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        let socket_connect_us = micros(spawned);
         let stdout = child.stdout.take().unwrap();
         for line in BufReader::new(stdout).lines() {
             if let Ok(v) = serde_json::from_str::<Value>(&line.unwrap())
                 && v["ready"] == true
             {
-                return Self { child, socket, spawned };
+                return Self { child, socket, spawned, socket_connect_us };
             }
         }
         let _ = child.kill();
@@ -312,6 +440,8 @@ async fn run(shape: Shape, dhat: bool) -> Value {
     let (peer_config, proxies, _hubs) = peers(&shape, &scratch).await;
     let proxies = Arc::new(proxies);
     write_config(&home, peer_config);
+    // What the fixture (and the config) put in the home, before the daemon starts.
+    let fixture_bytes = dir_bytes(&home);
     let rows = shape.peers * shape.peer_rows;
     let profile = dhat.then(|| scratch.join("dhat-heap.json"));
 
@@ -321,6 +451,7 @@ async fn run(shape: Shape, dhat: bool) -> Value {
     let result = tokio::task::spawn_blocking(move || {
         let daemon = Daemon::start(&scratch, &home, profile.as_deref());
         let ready_ms = ms(daemon.spawned);
+        let socket_connect_us = daemon.socket_connect_us;
         let mut rpc = Rpc::connect(&daemon.socket);
         rpc.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "god-bench"}}))
             .unwrap();
@@ -336,10 +467,58 @@ async fn run(shape: Shape, dhat: bool) -> Value {
             let attached = Instant::now();
             attach = rpc.call(
                 "_acpmux/attach",
-                json!({"sessionId": god, "waitLogs": false, "limit": 400, "maxBytes": 131072}),
+                json!({"sessionId": god, "waitLogs": false, "limit": PAGE_LIMIT,
+                       "maxBytes": PAGE_BYTES}),
             );
             attaches.push(micros(attached));
             rpc.notes.clear();
+        }
+
+        // The pane's scroll up: each page the one before the oldest record held. At the chat's
+        // start it begins again from the attach's page, so a short chat gives as many pages.
+        let (mut scrolls, mut scroll_error, mut scroll_wraps) = (vec![], Value::Null, 0u64);
+        let newest_oldest = attach.as_ref().ok().and_then(oldest_seq);
+        match newest_oldest {
+            None => scroll_error = json!("the attach gave no page to scroll up from"),
+            Some(start) => {
+                let mut before = start;
+                for _ in 0..ROUNDS {
+                    let (us, page) = older_page(&mut rpc, &god, before);
+                    let page = match page {
+                        Ok(page) => page,
+                        Err(e) => {
+                            scroll_error = e;
+                            break;
+                        }
+                    };
+                    scrolls.push(us);
+                    match oldest_seq(&page).filter(|_| page["hasMore"] == true) {
+                        Some(oldest) => before = oldest,
+                        None => {
+                            before = start;
+                            scroll_wraps += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        // A jump to the middle of the god chat's history: before half its last seq, a page
+        // further back each round so no round reads the one before it.
+        let (mut deeps, mut deep_error) = (vec![], Value::Null);
+        match attach.as_ref().ok().and_then(|a| a["lastSeq"].as_u64()) {
+            None => deep_error = json!("the attach gave no lastSeq"),
+            Some(last) => {
+                for round in 0..DEEP_ROUNDS as u64 {
+                    let before = (last / 2).saturating_sub(round * PAGE_LIMIT).max(1);
+                    let (us, page) = older_page(&mut rpc, &god, before);
+                    if let Err(e) = page {
+                        deep_error = e;
+                        break;
+                    }
+                    deeps.push(us);
+                }
+            }
         }
 
         // A prompt to the god chat until its first streamed chunk, not its turn's end (the
@@ -374,6 +553,57 @@ async fn run(shape: Shape, dhat: bool) -> Value {
         // None past the first when the first prompt failed.
         let later_sends = sends.get(1..).unwrap_or_default();
 
+        // Every chat log read, however long after the steps above it ends.
+        let all_logs = wait_all_logs(&mut rpc);
+
+        // The same attaches, scroll and prompts once every log is read: what a long chat costs
+        // on its own, apart from the startup load it shares the machine with above.
+        let mut settled_attaches = vec![];
+        for _ in 0..ROUNDS {
+            let attached = Instant::now();
+            let _ = rpc.call(
+                "_acpmux/attach",
+                json!({"sessionId": god, "waitLogs": false, "limit": PAGE_LIMIT,
+                       "maxBytes": PAGE_BYTES}),
+            );
+            settled_attaches.push(micros(attached));
+            rpc.notes.clear();
+        }
+        let mut settled_scrolls = vec![];
+        if let Some(start) = newest_oldest {
+            let mut before = start;
+            for _ in 0..ROUNDS {
+                let (us, page) = older_page(&mut rpc, &god, before);
+                let Ok(page) = page else { break };
+                settled_scrolls.push(us);
+                before = oldest_seq(&page).filter(|_| page["hasMore"] == true).unwrap_or(start);
+            }
+        }
+        let mut settled_sends = vec![];
+        for round in 0..ROUNDS {
+            let sent = Instant::now();
+            let text = format!("settled {round}");
+            let prompt = json!({"sessionId": god, "prompt": [{"type": "text", "text": text}]});
+            let id = rpc.request("session/prompt", prompt);
+            let first = rpc.wait_note(|v| {
+                (is_response(v, id) && v.get("error").is_some())
+                    || (v["method"] == "session/update"
+                        && v["params"]["sessionId"] == json!(god)
+                        && v["params"]["update"]["sessionUpdate"] == "agent_message_chunk"
+                        && v["params"]["update"]["content"]["text"]
+                            .as_str()
+                            .is_some_and(|t| t.contains(&text)))
+            });
+            if is_response(&first, id) {
+                break;
+            }
+            settled_sends.push(micros(sent));
+            if rpc.response(id).is_err() {
+                break;
+            }
+            rpc.notes.clear();
+        }
+
         // From the cut until every peer is listed again.
         let mut reconnect_ms = vec![];
         for _ in 0..3 {
@@ -385,20 +615,37 @@ async fn run(shape: Shape, dhat: bool) -> Value {
             std::thread::sleep(Duration::from_millis(200));
             reconnect_ms.push(wait_listed(&mut rpc, shape.peers, rows).map(|_| ms(cut)));
         }
+        let reconnect_median_ms =
+            median(&reconnect_ms.iter().flatten().copied().collect::<Vec<_>>());
         let status = rpc.call("_acpmux/status", json!({})).unwrap_or_default();
+        let (startup_phases_ms, marks_ms) = startup_axes(&status["gauges"]);
         let (rss, peak_rss) = daemon.rss();
         drop(rpc);
         daemon.stop();
+        let home_bytes = dir_bytes(&home);
+        let daemon_disk_bytes = home_bytes as i64 - fixture_bytes as i64;
         let heap = profile.as_deref().map(attribute);
         json!({
             "shape": shape_name, "chats": shape.chats, "godMessages": shape.god_messages,
             "godLogBytes": made.god_log_bytes, "godJsonlBytes": made.god_jsonl_bytes,
             "peers": shape.peers, "peerRows": shape.peer_rows, "listed": listed,
             "writeMs": write_ms, "readyMs": ready_ms, "firstListMs": first_list_ms,
+            "socketConnectUs": socket_connect_us,
             "peersMs": peers_ms, "attachUs": spread(&attaches), "attachOk": attach.is_ok(),
+            "scrollPageUs": spread(&scrolls), "scrollWraps": scroll_wraps,
+            "scrollError": scroll_error,
+            "deepScrollUs": spread(&deeps), "deepScrollError": deep_error,
             "firstSendFirstTokenMs": first_send_ms, "sendFirstTokenUs": spread(later_sends),
             "sendError": send.err(),
-            "reconnectMs": reconnect_ms, "rss": rss, "peakRss": peak_rss,
+            "allLogsMs": all_logs.as_ref().ok(), "allLogsError": all_logs.as_ref().err(),
+            "settledAttachUs": spread(&settled_attaches),
+            "settledScrollPageUs": spread(&settled_scrolls),
+            "settledSendFirstTokenUs": spread(&settled_sends),
+            "reconnectMs": reconnect_ms, "reconnectMedianMs": reconnect_median_ms,
+            "rss": rss, "peakRss": peak_rss,
+            "fixtureBytes": fixture_bytes, "homeBytes": home_bytes,
+            "daemonDiskBytes": daemon_disk_bytes,
+            "startupPhasesMs": startup_phases_ms, "marksMs": marks_ms,
             "gauges": status["gauges"], "heap": heap,
         })
     })
@@ -552,17 +799,38 @@ async fn god_and_small_homes_in_one_harness() {
             (Some(s), Some(g)) if s > 0.0 => json!(g / s),
             _ => Value::Null,
         };
+        // A JSON pointer escapes '~' as ~0 and '/' as ~1; a space stays as it is.
         let keys = [
+            "/readyMs",
+            "/socketConnectUs",
+            "/marksMs/socket ready",
             "/firstListMs",
             "/peersMs",
+            "/attachUs/p50",
             "/attachUs/p95",
+            "/attachUs/max",
+            "/scrollPageUs/p95",
+            "/deepScrollUs/p95",
+            "/settledAttachUs/p95",
+            "/settledAttachUs/max",
+            "/settledScrollPageUs/p95",
+            "/settledSendFirstTokenUs/p95",
             "/firstSendFirstTokenMs",
             "/sendFirstTokenUs/p95",
+            "/reconnectMedianMs",
+            "/allLogsMs",
+            "/marksMs/agents may spawn",
             "/rss",
             "/peakRss",
+            "/daemonDiskBytes",
+            "/heap/peakBytes",
         ];
-        let ratios: serde_json::Map<String, Value> =
-            keys.iter().map(|k| ((*k).to_owned(), ratio(k))).collect();
+        // A number missing in either home (no heap profile, a step that failed) is left out.
+        let ratios: serde_json::Map<String, Value> = keys
+            .iter()
+            .map(|k| ((*k).to_owned(), ratio(k)))
+            .filter(|(_, r)| !r.is_null())
+            .collect();
         println!("GOD-RATIO {}", Value::Object(ratios));
     }
 }

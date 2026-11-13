@@ -18,6 +18,7 @@
 //! [`log::Log`] per hydrated chat and is its only writer.
 
 mod fsio;
+pub mod index;
 mod json;
 pub mod log;
 pub mod row;
