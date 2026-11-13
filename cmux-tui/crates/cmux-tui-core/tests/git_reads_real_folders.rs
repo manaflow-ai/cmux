@@ -797,11 +797,13 @@ fn git_files_search_counts_no_match_below_a_link_with_more_than_128_folders_abov
             let repo = fresh_repository();
             // The link `dir` is the last of the folders above the name.
             let real: PathBuf = (1..folders).map(|_| "d").collect();
-            link_in_the_place_of_a_tracked_folder_in(&repo, &repo.join(real), outside_file);
+            let folder = repo.join(real);
+            link_in_the_place_of_a_tracked_folder_in(&repo, &folder, outside_file);
             let result = client.search(&repo, "below");
             let state = format!("{folders} folders, {outside_file} behind the link");
             assert_eq!(result["total_matches"], 0, "{state}: {result}");
             assert_eq!(result["results"], json!([]), "{state}: {result}");
+            assert_eq!(client.listed_kind(&folder, "dir"), "file", "{state}");
         }
     }
 }
@@ -815,6 +817,19 @@ impl Drop for ReadAgain {
     }
 }
 
+/// Takes the read permission of `folder` away: a user can go through the folder to a name
+/// below it, and cannot read the folder. A user that reads each folder (root) makes no such
+/// state, so the test fails there with these words and does not pass with no run.
+fn passed_and_not_read(folder: &Path) -> ReadAgain {
+    std::fs::set_permissions(folder, std::fs::Permissions::from_mode(0o111)).unwrap();
+    let read_again = ReadAgain(folder.to_path_buf());
+    assert!(
+        std::fs::read_dir(folder).is_err(),
+        "NOT RUN: the user of this test reads a folder that has no read permission (root?)"
+    );
+    read_again
+}
+
 #[test]
 fn git_files_search_counts_no_match_below_a_link_in_a_folder_that_cannot_be_read() {
     let mut client = Client::of_a_new_daemon();
@@ -822,18 +837,64 @@ fn git_files_search_counts_no_match_below_a_link_in_a_folder_that_cannot_be_read
         let repo = fresh_repository();
         let closed = repo.join("closed");
         link_in_the_place_of_a_tracked_folder_in(&repo, &closed, outside_file);
-        // A user can go through the folder to a name below it, and cannot read the folder.
-        std::fs::set_permissions(&closed, std::fs::Permissions::from_mode(0o111)).unwrap();
-        let read_again = ReadAgain(closed.clone());
-        let no_read = std::fs::read_dir(&closed).is_err();
-        assert!(no_read, "the user of this test reads a folder that has no read permission");
+        let read_again = passed_and_not_read(&closed);
         let result = client.search(&repo, "below");
         let names = client.listed_names(&repo);
+        let names_in_the_folder = client.listed_names(&closed);
         drop(read_again);
         assert_eq!(result["total_matches"], 0, "{outside_file} behind the link: {result}");
         assert_eq!(result["results"], json!([]), "{outside_file} behind the link: {result}");
         assert_eq!(names, ["a.txt"], "{outside_file} behind the link");
+        assert!(names_in_the_folder.is_empty(), "{outside_file}: {names_in_the_folder:?}");
     }
+}
+
+/// A work tree with no link. The daemon does not look below a folder that it cannot read, so
+/// a tracked file below such a folder is no match, no result and gives no name.
+#[test]
+fn git_files_search_gives_no_file_below_a_folder_that_cannot_be_read() {
+    let repo = fresh_repository();
+    let closed = repo.join("closed");
+    std::fs::create_dir_all(&closed).unwrap();
+    std::fs::write(closed.join("inclosed.txt"), "inside\n").unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "--quiet", "-m", "closed"]);
+    let mut client = Client::of_a_new_daemon();
+    assert_eq!(client.found(&repo, "inclosed"), ["closed/inclosed.txt"], "a folder with a read");
+    let read_again = passed_and_not_read(&closed);
+    let result = client.search(&repo, "inclosed");
+    let names = client.listed_names(&repo);
+    drop(read_again);
+    assert_eq!(result["total_matches"], 0, "{result}");
+    assert_eq!(result["results"], json!([]), "{result}");
+    assert_eq!(names, ["a.txt"]);
+}
+
+/// A sparse checkout, a work tree with no link. git lists a tracked file that the checkout
+/// left out, and the file is not on the disk: it is no match, no result and gives no name.
+/// One such file has its folder on the disk, and one has not.
+#[test]
+fn git_files_search_gives_no_tracked_file_that_a_sparse_checkout_left_out() {
+    let repo = fresh_repository();
+    std::fs::create_dir_all(repo.join("out")).unwrap();
+    std::fs::create_dir_all(repo.join("part")).unwrap();
+    std::fs::write(repo.join("out/sparse-one.txt"), "one\n").unwrap();
+    std::fs::write(repo.join("part/sparse-two.txt"), "two\n").unwrap();
+    std::fs::write(repo.join("part/stays.txt"), "three\n").unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "--quiet", "-m", "sparse"]);
+    let mut client = Client::of_a_new_daemon();
+    let all = client.found(&repo, "sparse");
+    assert_eq!(all, ["out/sparse-one.txt", "part/sparse-two.txt"], "the whole checkout");
+
+    git(&repo, &["sparse-checkout", "set", "--no-cone", "/*", "!/out/", "!/part/sparse-two.txt"]);
+    assert!(!repo.join("out").exists(), "the sparse checkout did not take the folder `out` away");
+    assert!(!repo.join("part/sparse-two.txt").exists(), "the sparse checkout left the file");
+    let result = client.search(&repo, "sparse");
+    assert_eq!(result["total_matches"], 0, "{result}");
+    assert_eq!(result["results"], json!([]), "{result}");
+    assert_eq!(client.listed_names(&repo), ["part", "a.txt"]);
+    assert_eq!(client.listed_names(&repo.join("part")), ["stays.txt"]);
 }
 
 /// Puts a program at the hook `name` of `repo` that takes the link `dir` of `repo` away and
@@ -867,5 +928,27 @@ fn git_files_search_counts_a_file_of_a_folder_that_was_a_link_at_the_listing_by_
         assert_eq!(result["total_matches"], 1, "{outside_file} was behind the link: {result}");
         let path = &result["results"][0]["path"];
         assert_eq!(*path, "dir/below.txt", "{outside_file} was behind the link: {result}");
+    }
+}
+
+/// The folder `dir` is a link at git's listing and a real folder with no file at the daemon's
+/// look. The tracked `dir/below.txt` is not in the work tree: it is no match and no result,
+/// with and without a file of its name behind the link.
+#[test]
+fn git_files_search_gives_no_path_of_an_empty_folder_that_was_a_link_at_the_listing() {
+    let mut client = Client::of_a_new_daemon();
+    for outside_file in BEHIND_THE_LINK {
+        let repo = repository_with_a_link_to_a_folder_with(outside_file);
+        let hook = repo.join(".git").join("after-deleted-listing");
+        let script =
+            format!("#!/bin/sh\nrm '{dir}' && mkdir '{dir}'\n", dir = repo.join("dir").display());
+        std::fs::write(&hook, script).unwrap();
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let result = client.search(&repo, "below");
+        std::fs::remove_file(&hook).unwrap();
+        let dir = std::fs::symlink_metadata(repo.join("dir")).unwrap();
+        assert!(dir.is_dir(), "the stand-in git did not put the real folder there");
+        assert_eq!(result["total_matches"], 0, "{outside_file} was behind the link: {result}");
+        assert_eq!(result["results"], json!([]), "{outside_file} was behind the link: {result}");
     }
 }
