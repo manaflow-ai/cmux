@@ -21,7 +21,8 @@ final class AgentComposerPickersCaptureUITests: UIStateCaptureCase {
 
     @MainActor
     private static func row(_ app: XCUIApplication, _ prefix: String) -> XCUIElement {
-        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", prefix)).firstMatch
+        // A submenu row of the open menu: never the picker button behind it ("Model" starts with "Mode").
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND identifier != %@", prefix, "agentChat.composer.model")).firstMatch
     }
 
     /// Opens the picker, then the submenu whose row starts with `submenu`.

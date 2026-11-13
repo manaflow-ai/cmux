@@ -242,7 +242,7 @@ struct ChatComposer: View {
                         .accessibilityAddTraits(.isButton)
                         .accessibilityLabel(placeholder)
                 } else {
-                    if store.currentModelName != nil || !store.models.isEmpty || !store.modes.isEmpty
+                    if store.currentModelID != nil || !store.models.isEmpty || !store.modes.isEmpty
                         || store.effortOption?.options.isEmpty == false { pickerMenu }
                     Spacer(minLength: 0)
                     if let usage = store.contextUsage { ContextUsageRing(usage: usage) }
@@ -359,7 +359,7 @@ struct ChatComposer: View {
         Menu {
             // The model row is there whenever the agent offers models, even when the current one
             // is not among them (a default the account lacks, D4).
-            if store.currentModelName != nil || !store.models.isEmpty { modelSubmenu }
+            if store.currentModelID != nil || !store.models.isEmpty { modelSubmenu }
             if !store.modes.isEmpty { modeSubmenu }
             if let effort = store.effortOption, !effort.options.isEmpty { effortSubmenu(effort) }
         } label: {
@@ -394,6 +394,11 @@ struct ChatComposer: View {
     private func pickerLabel(withEffort: Bool) -> some View {
         HStack(spacing: 4) {
             Text(store.currentModelName ?? store.currentModelID ?? currentModeName ?? "Model")
+            // A mode other than the agent's first (Plan, Full access) stays in sight, as before.
+            if withEffort, store.currentModelName != nil || store.currentModelID != nil, let mode = currentModeName,
+               store.currentModeID != store.modes.first?.id {
+                Text(mode).foregroundStyle(.secondary)
+            }
             if withEffort, store.currentModelName != nil || store.currentModelID != nil, let effort = currentEffortName {
                 Text(effort).foregroundStyle(.secondary)
             }
@@ -425,7 +430,8 @@ struct ChatComposer: View {
                 // Two texts, no icon: iOS draws the second as the row's subtitle (a Label with
                 // an icon drops it).
                 Text(harnessName)
-                if let name = store.currentModelName { Text(name) }
+                // The model in force, named as the button names it (its id when the list lacks it).
+                if let name = store.currentModelName ?? store.currentModelID { Text(name) }
             }
             .menuOrder(.fixed)
             .accessibilityIdentifier("agentChat.composer.model.harness")

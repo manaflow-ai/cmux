@@ -194,9 +194,7 @@ Designer pass, 2026-10-14, on `origin/feat-cnx-ios` `1311e6d57acc`. Scope: agent
 - **Context or usage meter.** `usage_update` is stored in `AgentChatStore.usage` but never
   shown. Add a small ring in the composer's controls row (used / size) with a menu that
   shows the tokens.
-- **Mode selection.** `current_mode_update` is parsed, but the composer has only Model and
-  Effort (`ChatComposer.modelPill`, since one picker with Claude > model, Mode and Effort submenus). There is no mode switch, such as Plan or Ask versus
-  Code. Add a Mode section to the same menu when the agent sends modes.
+- **Mode selection.** Done: the composer's one picker has a Mode submenu (with Claude > model and Effort), listing the modes a phone may pick.
 - **Plan / progress.** Plan entries are stored, and the transcript shows checklists. There
   is no pinned plan progress (for example `3 / 5`) above the composer while a turn runs.
 - **Waiting for Face ID.** See item 11.
