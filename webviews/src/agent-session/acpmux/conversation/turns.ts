@@ -3010,7 +3010,7 @@ function codexRuns(rows: AcpmuxRow[], named?: string, lineOnly = false, carried?
     // A run that edited is shaped as the others; the turn's edited-files card lists its edits when
     // it ends. One with a file change still waiting for its permission stays as it is, so the change
     // it asks about stays in sight (an ended turn's folded run keeps it in sight too: TurnRows.tsx
-    // `staysInSight`). It is still the running turn's run, so its thought keeps its live shape too.
+    // `staysInSight`).
     if (
       (row.items ?? []).some((item) => awaitsPermission(item.tool) || (keepsOwnRow(item.tool) && isRunning(item.tool!)))
     )
