@@ -6761,9 +6761,6 @@ CmuxNextDesign	extension	CALayer	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/
 CmuxNextDesign	struct	SystemScrollers	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/SystemScrollers.swift	from struct SystemScrollers:17: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	extension	Metrics	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/TabCornerRadius.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	class	ChromeLabel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/ChromeLabel.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
-CmuxNextDesign	extension	ChromeLabel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/ChromeLabel.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
-CmuxNextDesign	extension	NSTextField	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/ChromeLabel.swift	from class ChromeLabel:23: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
-CmuxNextDesign	protocol	ShownText	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/ChromeLabel.swift	from class ChromeLabel:23: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	struct	LabelDefaults	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/ChromeLabel.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	enum	GlyphMask	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/GlyphMask.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	struct	LabelParityProbe	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/LabelParityProbe.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
@@ -6771,6 +6768,9 @@ CmuxNextDesign	class	LabelSelectionView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/S
 CmuxNextDesign	enum	LabelText	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/LabelText.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	class	MarqueeLabel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/MarqueeLabel.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	extension	NSTextView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/NSTextView+UndoableReplace.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
+CmuxNextDesign	extension	ChromeLabel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/ShownText.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
+CmuxNextDesign	extension	NSTextField	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/ShownText.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
+CmuxNextDesign	protocol	ShownText	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/ShownText.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	extension	TextWeightProbe	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/TextWeightProbe.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	struct	TextWeightProbe	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/TextWeightProbe.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	class	TitleFade	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/TitleFade.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
