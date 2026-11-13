@@ -7,8 +7,9 @@ impl Terminal {
     /// without writing bytes to the child process. The prompt then starts on
     /// the top row, as after Ghostty's clear_screen.
     ///
-    /// OSC 133 identifies the full prompt when available. Without shell
-    /// metadata, or while a command runs, the cursor's logical line (soft
+    /// OSC 133 identifies the cursor's own prompt when available (each 133;A
+    /// starts a new prompt, so older prompts on the rows above it go). Without
+    /// shell metadata, or while a command runs, the cursor's logical line (soft
     /// wraps included) is kept and every row above it goes, as Ghostty's
     /// clear_screen keeps the cursor row when it is not at a prompt. Cursor
     /// movement is skipped when pending-wrap or origin-mode state cannot be
@@ -40,14 +41,19 @@ impl Terminal {
         let prompt_may_begin_in_history = cursor_is_at_prompt
             && match prompt_start_y {
                 None => true,
-                // Some shells mark every hard-newline prompt row. Row zero is
-                // only a true boundary when the adjacent history row is not
-                // another prompt row.
-                Some(0) if history_rows > 0 => self
-                    .history_row_prompt_semantic(history_rows - 1)
-                    .map(|semantic| semantic != sys::GHOSTTY_ROW_SEMANTIC_NONE)
-                    .unwrap_or(true),
-                Some(0) => false,
+                // A PROMPT mark on the top row is the prompt's first row. A
+                // continuation row there has lost its first row: the prompt
+                // begins in history when the adjacent history row carries a
+                // prompt mark too.
+                Some(0)
+                    if history_rows > 0
+                        && self.active_row_prompt_semantic(0)
+                            != Some(sys::GHOSTTY_ROW_SEMANTIC_PROMPT) =>
+                {
+                    self.history_row_prompt_semantic(history_rows - 1)
+                        .map(|semantic| semantic != sys::GHOSTTY_ROW_SEMANTIC_NONE)
+                        .unwrap_or(true)
+                }
                 Some(_) => false,
             };
         let preserve_from_y = if cursor_is_at_prompt && !prompt_may_begin_in_history {
