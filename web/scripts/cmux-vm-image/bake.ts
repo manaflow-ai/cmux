@@ -261,7 +261,10 @@ export const AGENT_SIGN_IN_FILES = [
  *   ranks above a /login session a user or an old copy left in HOME.
  * - Codex: the provider is the system config (/etc/codex/config.toml), below the user config and `-c`. The legacy
  *   managed file (/etc/codex/managed_config.toml) sits above `-c` (codex-rs `ConfigLayerSource::precedence`), so it
- *   keeps only the devbox's folder trust and update switch.
+ *   keeps only the devbox's folder trust and update switch. So a Codex sign-in the owner keeps on their own VM
+ *   (`~/.codex/auth.json`) is used again for a chat with no credential: acpmux's own mode (`codex_cloud_auth.rs`)
+ *   adds `-c model_provider="openai"`, which the managed pin used to override (Leo, 2026-11-10: a ChatGPT
+ *   subscription should work there). A team machine, and an owner VM with no such login, stay on the edge.
  */
 export function agentModelRouteFiles(alias: string = vmEdgeAliasDomain()): Array<{ path: string; text: string; mode: number }> {
   const env = vmGuestModelPlaneEnv(alias);

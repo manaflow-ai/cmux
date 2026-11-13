@@ -209,6 +209,15 @@ public actor AgentSessionAttachClient {
             guard model == nil || served.model else {
                 throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not support choosing a start model")
             }
+            // A chat set up on the owner's connection never starts on the machine's own route in
+            // its place: a daemon that takes no credential is updated first (``credentialsUnsupported``).
+            guard credentials == nil || served.credentials else {
+                throw AgentSessionAttachError(code: Self.credentialsUnsupported, message: "the daemon does not take the owner's model credential")
+            }
+        }
+        // Nor on a link whose owner answer did not hold for this connection.
+        guard credentials == nil || callerOwnsVM else {
+            throw AgentSessionAttachError(code: "agent_session.host_unverified", message: "the owner's model credential goes only to the owner's own machine")
         }
         let params = Self.startParams(cwd: cwd, harness: harness, homeConfirmed: homeConfirmed, personKey: personKey,
                                       servesKeyedReason: served.keyedReason, callerOwnsVM: callerOwnsVM, servesVMKind: served.vmKind,
@@ -415,6 +424,10 @@ public actor AgentSessionAttachClient {
     /// owner's own link (cmux-tui `agent_session_start.rs`, model-connections.md Revision 2), so it
     /// is not a bundled-daemon `DaemonCapability`.
     public static let credentialsCapability = "agent-session-start-credentials-v1"
+    /// The code ``start(cwd:harness:homeConfirmed:personKey:ownerLink:model:permissionMode:credentials:)``
+    /// throws for a start with the owner's credential on a daemon without ``credentialsCapability``:
+    /// the machine is updated and the start tried once more (`AgentRemoteStartRefusal.olderDaemonCodes`).
+    public static let credentialsUnsupported = "agent_session.credentials_unsupported"
     public static let forkUnsupported = "agent_session.fork_unsupported"
 
     /// `steer`: into the running turn (`agent-session-steer-v1`); a daemon without it queues the

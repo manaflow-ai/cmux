@@ -95,7 +95,7 @@ extension AgentTabStore {
         // A default model pick is omitted by the page. After a harness switch it must remain
         // that harness's default, rather than restoring the previous harness's seeded model.
         let model = chosenModel ?? (harness == seed?.harness ? seed?.model : nil)
-        let credential = ownerLink == nil ? nil : try await cloudCredentials?.launchCredential(connection: seed?.cloudConnection, family: CloudSetup.family(of: harness), refusal: AgentRemoteStartRefusal.credentialUnavailable(machine: machineName ?? machine)) // the owner's credential of the connection its Cloud start chose (the seed's), read before any machine call; never sent to a machine that is not theirs
+        let credential = ownerLink == nil ? nil : try await cloudCredentials?.launchCredential(connection: seed?.cloudConnection, family: CloudSetup.family(of: harness), refusal: AgentRemoteStartRefusal.credentialUnavailable(machine: machineName ?? machine), mismatch: AgentRemoteStartRefusal.credentialMismatch(machine: machineName ?? machine)) // the owner's credential of the connection its Cloud start chose (the seed's), read before any machine call; never sent to a machine that is not theirs
         let client = AgentSessionAttachClient(surface: surface, requestTimeout: AgentTabRemoteStart.timeout, reconnect: reconnect, endpoint: endpoint)
         do { result = .success(try await client.start(cwd: fallback, harness: harness, homeConfirmed: home, personKey: personKey, ownerLink: ownerLink, model: model, permissionMode: startPermissionMode(),
                                                       credentials: credential?.launch)) } catch { result = .failure(error) }

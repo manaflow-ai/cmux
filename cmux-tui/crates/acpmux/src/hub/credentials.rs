@@ -267,6 +267,50 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_prompt_to_a_chat_that_lost_its_credential_is_accepted_then_says_why() {
+        let hub = hub();
+        let launch = AgentCredential::parse(
+            &json!({"env": {CLAUDE_OAUTH: FIRST}, "connection": "claude-token", "expires_at": null}),
+        )
+        .unwrap();
+        let req = NewRequest {
+            cwd: Some(std::env::temp_dir()),
+            credential: Some(launch),
+            ..NewRequest::default()
+        };
+        let session = hub.new_session(req).await.unwrap();
+        hub.child_for(&session).await.unwrap();
+        *session.credential.lock().unwrap() = None;
+        let only = std::collections::BTreeSet::from([session.id.clone()]);
+        hub.restart_harnesses(None, Some(&only)).await;
+        assert!(session.child.lock().await.is_none(), "no agent runs without it");
+        // The prompt is accepted first (a page that relays it hears prompt_accepted at once, never
+        // a timeout), then its turn fails with the reason the card words as "needs your Mac".
+        let accepted = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let heard = accepted.clone();
+        let opts = crate::hub::PromptOptions {
+            on_accepted: Some(Box::new(move |_| {
+                heard.store(true, std::sync::atomic::Ordering::SeqCst)
+            })),
+            ..crate::hub::PromptOptions::default()
+        };
+        let e = hub
+            .prompt_with(
+                &session,
+                vec![json!({"type": "text", "text": "go on"})],
+                "test",
+                false,
+                opts,
+            )
+            .await
+            .unwrap_err();
+        assert!(accepted.load(std::sync::atomic::Ordering::SeqCst), "accepted before it failed");
+        assert_eq!(e.data.unwrap()["reason"], crate::agent_credentials::RECONNECT_REASON);
+        assert!(session.child.lock().await.is_none(), "nothing started on the machine's own route");
+        assert!(!written(&hub, &session.id).contains(FIRST));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_new_expiry_for_the_same_token_restarts_nothing() {
         let hub = hub();
         let with = |at: u64| {
