@@ -332,7 +332,10 @@ export async function papercutPane(
     await stopPages();
     await daemon.stop(true);
   };
-  return { open, close, methods, prompts, record, drop, sent };
+  /// The chat's page address, for a page this helper does not open (support/frames120.ts's 120 Hz one).
+  const address = () =>
+    `http://127.0.0.1:${pagePort}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${PAPERCUT_CHAT}`;
+  return { open, close, methods, prompts, record, drop, sent, address };
 }
 
 /// Settings > Agent Chat > Session Info: Push always (or back to the default), as the host's `display`

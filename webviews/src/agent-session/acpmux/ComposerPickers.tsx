@@ -59,7 +59,7 @@ import {
 } from "./startMode";
 import type { PickerCatalog } from "./modelCatalogData";
 import { catalogProfiles } from "./pickerProfiles";
-import { continueTargets } from "./cmuxCommands";
+import { switchTargets } from "./cmuxCommands";
 import { clearHeldFork, holdFork, useHeldFork } from "./forkHold";
 import { useModelCatalogState } from "./modelCatalogHost";
 import { AnchoredCard } from "../../ui/Tooltip";
@@ -92,6 +92,7 @@ import {
   type ModeIconName,
   RECOMMENDED_BADGE,
   type ShownMode,
+  cloudStartAgent,
   harnessFamilyMenu,
   harnessModeMenu,
   highestMode,
@@ -112,6 +113,7 @@ import {
   aliasNamedAsRelease,
   modelFamily,
   reasoningChoices,
+  effortTakes,
 } from "./composerPickerModel";
 /// A permission mode row: a choice with the harness's own badge and icon (harnessModes.ts).
 type ModeChoice = Omit<Choice, "icon"> & Pick<ShownMode, "recommended" | "icon">;
@@ -142,10 +144,10 @@ type Props = {
   /// combo's effort and Fast, held under their kind's id (heldOptions.ts); the switch applies them
   /// to the new session before its first prompt.
   onHarness?(harness: string, model?: string, options?: Readonly<Record<string, string>>): void;
-  /// A started chat can fork into a new chat on another harness (see ModelPickerProps.fork): with
-  /// it, its model menus list the models of every harness Continue In… can take (continueTargets),
-  /// and a pick of another harness's model is held as the next message's target (forkHold.ts),
-  /// which the composer's send forks to.
+  /// A started chat can switch to another harness's model (see ModelPickerProps.fork): with it, its
+  /// model menus list the models of every other harness that runs here (switchTargets), and a pick
+  /// of another harness's model is held as the next message's target (forkHold.ts), which the
+  /// composer's send forks the chat onto in the same pane, asking nothing (App.tsx `chat.switchModel`).
   fork?: boolean;
   /// The folder a pick is remembered for (lastPick.ts), when the chat has none yet (a New Tab's).
   folder?: string;
@@ -443,6 +445,7 @@ export function ComposerPickers({
     { sessionId?: string; from?: string; model: string; effort: string; reached?: boolean } | undefined
   >(undefined);
   const effortId = effort?.id;
+  const hasUltracode = ultracodeOption !== undefined;
   const effortValues = (effort?.options ?? []).map((option) => option.value).join("\u0000");
   useEffect(() => {
     const wanted = pending.current;
@@ -458,7 +461,8 @@ export function ComposerPickers({
       return;
     }
     if (current === wanted.model) wanted.reached = true;
-    if (current !== wanted.model || !effortId || !effortValues.split("\u0000").includes(wanted.effort)) return;
+    const takes = effortTakes(wanted.effort, effortValues.split("\u0000"), hasUltracode);
+    if (current !== wanted.model || !effortId || !takes) return;
     pending.current = undefined;
     if (wanted.effort !== currentEffort) onEffort(effortId, wanted.effort);
   }, [
@@ -469,6 +473,7 @@ export function ComposerPickers({
     currentEffort,
     effortId,
     effortValues,
+    hasUltracode,
     onEffort,
   ]);
   // One pick of a model and effort: the model first, then the effort once the agent reports
@@ -496,7 +501,7 @@ export function ComposerPickers({
   // fork drops its held pick, so none comes back when the chat shows again (review of #37196, F2).
   const sessionId = summary?.sessionId;
   const forks = locked && fork === true && !!sessionId;
-  const forkTargets = forks ? continueTargets(snapshot.catalog, summary?.harness, summary?.family) : [];
+  const forkTargets = forks ? switchTargets(snapshot.catalog, summary?.harness) : [];
   // One set per list of targets, so the menus' lists are not rebuilt on every render.
   const targetsKey = forkTargets.map((target) => target.id).join("\u0000");
   const targetSet = useMemo(() => new Set(targetsKey ? targetsKey.split("\u0000") : []), [targetsKey]);
@@ -505,7 +510,7 @@ export function ComposerPickers({
     if (!forks || !sessionId) return;
     return () => clearHeldFork(sessionId);
   }, [forks, sessionId]);
-  // A harness Continue In… can't take is never held.
+  // A harness that can't run here is never held.
   const hold = (picked: { harness: string; model?: string; effort?: string; fast?: boolean; name?: string }) => {
     if (!forks || !sessionId || !forkTargets.some((target) => target.id === picked.harness)) return;
     holdFork({
@@ -982,14 +987,18 @@ export function ComposerPickers({
   // machine starts it in, Bypass permissions included (Leo 2026-11-10: "but shouldnt the user be
   // allowed to just go through with stuff?"); with no pick, the asking mode above.
   const chipFamily = summary?.family ?? snapshot.catalog.find((entry) => entry.id === chipHarness)?.family;
-  // The Cloud send names a harness only after a switch, so the machine starts its default agent:
-  // Claude first (acpmux default_harness.rs). A harness whose Cloud start mode cmux does not know
-  // (a Mac with no agent CLI shows another one) names the agent the machine starts, Claude.
-  const cloudKnown = remoteStartMode(chipFamily, chipHarness) !== undefined;
-  const cloudFamily = cloudKnown ? chipFamily : CLOUD_DEFAULT_AGENT;
-  const cloudHarness = cloudKnown ? chipHarness : CLOUD_DEFAULT_AGENT;
+  // The agent the Cloud machine starts (cloudStartAgent): the composer's own, except UniiChat (a Mac
+  // with no agent CLI shows it), which the send leaves out so the machine starts Claude. Another
+  // agent whose Cloud modes cmux does not know keeps the chip's generic label: the machine decides.
+  const cloudAgent = cloudStartAgent(chipFamily, chipHarness);
+  const cloudKnown = cloudAgent.named;
+  const cloudFamily = cloudAgent.family;
+  const cloudHarness = cloudAgent.harness;
+  // The chat starts on the machine, not here: a session this Mac's acpmux already opened for the
+  // new chat (a real app's New Agent Chat does, with or without modes) is not the one that runs, so
+  // its session id and modes never decide the chip (journey run 43021965230: every cell read "Mode").
   const cloudAsking =
-    awaiting && fresh && snapshot.startsOnCloud && modes.length === 0
+    fresh && snapshot.startsOnCloud && snapshot.switching?.phase !== "failed"
       ? remoteStartMode(cloudFamily, cloudHarness)
       : undefined;
   const cloudPick = cloudAsking && snapshot.cloudStartMode;
@@ -1051,6 +1060,9 @@ export function ComposerPickers({
   // for this folder) it checks none and says "Mode", still a pick (Lucas 2026-10-24: a New Tab's
   // "Mode" chip had a chevron but no menu). A start in Plan keeps the inert chip: Plan is never an
   // access row.
+  // The modes the access chip lists: this session's, except for a Cloud start, whose own modes
+  // (pendingAccessModes) are the ones the machine starts in.
+  const accessModes = cloudAsking ? [] : modes;
   const pendingAccessModes: ModeChoice[] = (() => {
     if (!(holdsModePick || holdsStartMode) || !startMode || (namedStart && isPlan(namedStart.modeId))) return [];
     const menu =
@@ -1281,18 +1293,20 @@ export function ComposerPickers({
           catalog fallback's, a harness acpmux does not have, so the row shows none of them. While
           acpmux has not listed its harnesses yet, `picksModel` holds and the placeholder keeps its
           place (#24517). */}
-      {picksModel && modes.length === 0 && startMode && startModeName && pendingAccessModes.length === 0 && (
+      {picksModel && accessModes.length === 0 && startMode && startModeName && pendingAccessModes.length === 0 && (
         <PendingMode
           label={startModeName}
           modeId={shownStart?.modeId}
           icon={pendingMenu?.rows.find((row) => row.id === shownStart?.modeId)?.icon}
         />
       )}
-      {(modes.length > 0 || pendingAccessModes.length > 0) && (
+      {(accessModes.length > 0 || pendingAccessModes.length > 0) && (
         <AccessMenu
           label={t(PICKER_LABELS.mode)}
-          modes={modes.length > 0 ? modes : pendingAccessModes}
-          current={mode?.id ?? (pendingAccessModes.length > 0 ? shownStart?.modeId : undefined)}
+          modes={accessModes.length > 0 ? accessModes : pendingAccessModes}
+          current={
+            (cloudAsking ? undefined : mode?.id) ?? (pendingAccessModes.length > 0 ? shownStart?.modeId : undefined)
+          }
           sessionId={summary?.sessionId}
           warning={t(PICKER_LABELS.fullAccessWarning)}
           managed={fullAccessManaged}
@@ -1353,8 +1367,6 @@ export function ComposerPickers({
 
 /// No start mode to name: the access chip holds its place as "Mode" (a borrowed answer's face).
 const MODE_PLACEHOLDER: KeptStartMode = { modeId: "", borrowed: true };
-/** The agent a Cloud machine starts when the send names none (acpmux default_harness.rs). */
-const CLOUD_DEFAULT_AGENT = "claude";
 
 /// The mode a chat will start in, before it reports its modes: the access chip's face (AccessMenu),
 /// inert until the session's own replaces it in place. `modeId` is read from storage: only a
@@ -1662,7 +1674,7 @@ export function ContextRing({
     ? t("planUsage.ringLabel", { percent })
     : known
       ? t(PICKER_LABELS.context, { percent })
-      : t("context.title");
+      : `${t("context.title")} · ${t("status.notReported")}`;
   const breakdown = contextKnown && !planShown ? contextBreakdown(reported) : undefined;
   const shown = known && (pinned || hover.open);
   const dismissHover = hover.dismiss;
@@ -1757,18 +1769,16 @@ export function ContextRing({
     return () => document.removeEventListener("keydown", onKey, true);
   }, [shown]);
   return (
-    // tooltip-allow: before any usage the inert ring says why; once usage is known the card replaces it.
-    <span
-      ref={wrapper}
-      className="acpmux-picker acpmux-context"
-      title={known ? undefined : t("context.ringTooltipEmpty")}
-    >
+    // Before any usage the inert ring has no tooltip (Lucas 2026-11-11); once usage is known the card shows.
+    <span ref={wrapper} className="acpmux-picker acpmux-context">
       <button
         ref={trigger}
         type="button"
         className="acpmux-context-ring"
         data-menu={t("context.title")}
         aria-label={label}
+        // tooltip-allow: unknown usage has no hover card; explain the empty ring without inventing a percentage.
+        title={known ? undefined : label}
         aria-haspopup="dialog"
         aria-expanded={shown}
         // Before the first usage report there is nothing to show: the ring keeps its place, off.

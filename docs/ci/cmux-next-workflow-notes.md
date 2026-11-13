@@ -370,7 +370,15 @@ outputs, from an earlier attempt: a job output is evaluated when its job runs, s
 attempt's number. Every Mac job reads blacksmith_12_jobs, blacksmith_6_jobs and
 retry_runner only while this equals its own run_attempt; a carried reading is stale (run
 40398277457, 2026-10-26: attempt 2 took blacksmith-6vcpu-macos-26 on a reading 39 minutes old and
-waited 55 minutes for a runner), so the job takes the owned label instead.
+waited 55 minutes for a runner). Its owned labels (runner, the side label, the gui and session
+labels) are as stale, so from attempt 2 on a Mac job takes one only while this equals its own
+run_attempt too; a carried reading, whoever re-ran the run, sends it to the moving Blacksmith label
+(vars.MACOS_RUNNER_26, else RUNNER_POOLS.macos_26), as a push Release compile's fallback does.
+cmux#38484's run 42728317341 (2026-11-10) kept `cmux app scheme compile (Debug)` on
+glaeda-side-std-xcode-26.6 through three re-runs of failed jobs: 2 h, 15 h and 1 h 49 min queued
+(tests/test_ci_next_macos_cascade.py CarriedPlacement). The placement runs only on attempt 1 and the
+rescue's attempts 2 and 3, so attempt 4 and later never take an owned label; fast-tier-handback-placement's
+reading is gated on its own placed_attempt the same way.
 
 ## note-20
 
@@ -456,6 +464,19 @@ on (one after another they took about 7 of the job's 8.4 min). Each of their ste
 for its own commands, prints their output and keeps its name, id and outcome. A `[step-id]`
 line names the step the commands under it belong to; the longest commands start first.
 Not here: "Pushed commits add no violations" deepens the clone and writes its step summary.
+
+## note-27b
+
+Above `checks: Prepare check Python (PyYAML) and timeout` in `.github/workflows/cmux-next.yml`.
+
+portable-placement may put this job on a free mini, whose Homebrew python3 has no
+PyYAML and whose PATH has no GNU `timeout`. On 2026-11-11 the job went red there
+with `ModuleNotFoundError: No module named 'yaml'` (56 times) and `timeout: command
+not found` (cmux13s-mac-mini-glaeda-5 job 130627140300, cmuxs-mac-mini-6-glaeda-3
+job 130624833630), and passed on Blacksmith Linux at the same tree. The job brings
+its own venv first on PATH wherever it lands, as cmux-next-guards.yml's tooling
+tests do; tests/test_portable_jobs_bring_their_python.py keeps every mini-eligible
+job that runs Python tests doing so.
 
 ## note-28
 
@@ -799,8 +820,9 @@ and nightlies keep the requirement as advisory coverage.
 
 Above `daemon-test: Clean generated layout-reducer FFI lockfile` in `.github/workflows/cmux-next.yml`.
 
-Building the package's reducer FFI can rewrite the isolated crate's
-workspace lockfile. Put the checkout back immediately before
+Building the package's reducer FFI can rewrite its workspace's lockfile
+(cmux-layout-reducer-ffi is a member of the app FFI workspace, so the lock is
+cmux-tui/crates/cmux-app-ffi/Cargo.lock). Put the checkout back immediately before
 pin-cmux-tui validates it: the committed lockfile (#37324 tracks it)
 is restored, and an untracked one is removed. Deleting a tracked
 lockfile leaves the tree dirty, and pin-cmux-tui refuses that.
@@ -2978,3 +3000,43 @@ request until the verdict comes. A feat-cmux-next push with no fallback (superse
 
 `tests/test_ci_cmux_next_compile_status.py` `test_a_pull_request_with_no_fallback_hands_off_to_the_overflow_compile`
 runs the real step against a 530.
+
+## note-347
+
+Above `release-compile-revert: Mint the cmux-bot read token` in `.github/workflows/cmux-next.yml`.
+
+The Actions reads (the run's jobs, then up to the scanned runs' jobs) use a cmux-bot token, off
+the repository token's hourly budget, as push attribution does (note-343). On 2026-11-13 from
+05:14Z to 05:40Z the repository token's reads failed in this step on every base push (runs
+43370687308 through 43372812335), so the job went red on its own read, not on a compile, and
+named no culprit. A failed mint leaves every read on the workflow token; a refused read prints
+gh's message and body (`gh_failure` in `scripts/ci/cmux_next_push_attribution.py`).
+
+## note-348
+
+Above `light_runner` in macos-placement's outputs and `LIGHT_SPILL_JOBS` in its place step in `.github/workflows/cmux-next.yml`.
+
+A pull request's swift-canary, daemon-test and generated-files take an idle light side runner
+(glaeda-side-light-xcode-26.6) when no idle std side runner took them, before the cascade
+(side_lane_placement.light_spill_route(); Leo, 2026-11-11: "nobody seems to be doing stuff rn", with
+the std minis at 95 to 100% CPU and the light minis at 21 of 92 capacity units). Only these three: they
+build the same CmuxNext package seed the fast tier builds, which the 16 GB light minis already run, and
+on a pull request they need no GUI session. The Release and app scheme compiles stay on std. Attempt 1
+only, one job per idle light runner beyond its queue, never while a nightly or release job waits on the
+light family, and nothing with an unread or stale pool snapshot. Each job's runs-on and its
+CMUX_NEXT_RUNNER copy read `light_jobs` right after the fork clause.
+
+## note-349
+
+Above `checks: timeout-minutes` in `.github/workflows/cmux-next.yml`.
+
+15 minutes fits Blacksmith 16 vCPU (about 7 min), not a mini: on a mini the job's 15 minutes also
+pay the runner hook's admission wait, and its slow checks run about three times as long beside
+the mini's other jobs. #42624, a data-only devbox image promotion, was placed on a mini on all
+three of its heads and every run was cancelled by the timeout, never passing or failing, so
+merge_hold had no verdict to read: job 131984422217 (run 43454315926) and job 132002973791 (run
+43459662812) were admitted at once and were still in their script tests at 15 minutes
+(test_cmux_next_prepush_gate.py 693 and 720 s, 238 s on Blacksmith); job 132013731059 (run
+43462746656) waited 8 min 5 s in the hook for the canonical root token (the hook costs `checks`
+as a compile) and ran out in "UI font". A job the placement put on a mini gets 35 minutes; every
+other route keeps 15.

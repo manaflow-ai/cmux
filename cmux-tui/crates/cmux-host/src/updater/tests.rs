@@ -98,6 +98,81 @@ fn a_binary_must_come_from_its_commit_publication() {
     assert!(payload.binaries_for(TARGET).is_err());
 }
 
+fn with_url(name: &str, url: String) -> Payload {
+    let mut p = payload_json(OLD_TUI, OLD_HOOK);
+    p["targets"][TARGET][name]["url"] = json!(url);
+    serde_json::from_value(p).unwrap()
+}
+
+#[test]
+fn a_binary_may_come_from_its_commit_machine_copy() {
+    // The Cloud machine channel's own (thin LTO) build of the commit: cmux-tui/<commit>/machine/.
+    let machine =
+        |name: &str| format!("https://files.cmux.com/cmux-tui/{COMMIT}/machine/{name}-{TARGET}");
+    let mut p = payload_json(OLD_TUI, OLD_HOOK);
+    p["targets"][TARGET]["cmux-tui"]["url"] = json!(machine("cmux-tui"));
+    p["targets"][TARGET]["cmux-tui-hook"]["url"] = json!(machine("cmux-tui-hook"));
+    let payload = channel::verify(&envelope(&p, "test"), &keys(), 5_000).unwrap();
+    let (tui, hook) = payload.binaries_for(TARGET).unwrap();
+    assert_eq!(tui.url, machine("cmux-tui"));
+    assert_eq!(hook.url, machine("cmux-tui-hook"));
+    // One of each kind is fine too: each binary is checked on its own.
+    assert!(with_url("cmux-tui", machine("cmux-tui")).binaries_for(TARGET).is_ok());
+    assert!(with_url("cmux-tui-hook", machine("cmux-tui-hook")).binaries_for(TARGET).is_ok());
+}
+
+#[test]
+fn a_binary_url_must_equal_one_of_the_two_exactly() {
+    let other = "f".repeat(40);
+    let base = "https://files.cmux.com/cmux-tui";
+    let near_misses = [
+        // Another commit, in either place.
+        format!("{base}/{other}/cmux-tui-{TARGET}"),
+        format!("{base}/{other}/machine/cmux-tui-{TARGET}"),
+        // Another commit's machine copy reached through this commit's directory.
+        format!("{base}/{COMMIT}/../{other}/machine/cmux-tui-{TARGET}"),
+        format!("{base}/{COMMIT}/machine/../cmux-tui-{TARGET}"),
+        format!("{base}/{COMMIT}/machine/../../{other}/cmux-tui-{TARGET}"),
+        format!("{base}/{COMMIT}/machine/%2e%2e/cmux-tui-{TARGET}"),
+        // Another name: the hook, another target, a suffix or a prefix.
+        format!("{base}/{COMMIT}/machine/cmux-tui-hook-{TARGET}"),
+        format!("{base}/{COMMIT}/machine/cmux-tui-aarch64-unknown-linux-musl"),
+        format!("{base}/{COMMIT}/machine/cmux-tui-{TARGET}.old"),
+        format!("{base}/{COMMIT}/machine/x-cmux-tui-{TARGET}"),
+        // Another directory, a nested one, a doubled slash or a missing one.
+        format!("{base}/{COMMIT}/machines/cmux-tui-{TARGET}"),
+        format!("{base}/{COMMIT}/machine/machine/cmux-tui-{TARGET}"),
+        format!("{base}/{COMMIT}/tree/cmux-tui-{TARGET}"),
+        format!("{base}/{COMMIT}//cmux-tui-{TARGET}"),
+        format!("{base}/{COMMIT}/machine//cmux-tui-{TARGET}"),
+        format!("{base}/{COMMIT}machine/cmux-tui-{TARGET}"),
+        // A query, a fragment, another scheme or host, a case change.
+        format!("{base}/{COMMIT}/machine/cmux-tui-{TARGET}?v=1"),
+        format!("{base}/{COMMIT}/machine/cmux-tui-{TARGET}#x"),
+        format!("http://files.cmux.com/cmux-tui/{COMMIT}/machine/cmux-tui-{TARGET}"),
+        format!("https://files.cmux.com.evil/cmux-tui/{COMMIT}/machine/cmux-tui-{TARGET}"),
+        format!("{base}/{COMMIT}/MACHINE/cmux-tui-{TARGET}"),
+        format!(" {base}/{COMMIT}/machine/cmux-tui-{TARGET}"),
+    ];
+    for url in near_misses {
+        let payload = with_url("cmux-tui", url.clone());
+        assert!(payload.binaries_for(TARGET).is_err(), "{url} passed");
+    }
+    // And the two allowed ones pass, built from the payload's own commit.
+    for url in channel::allowed_urls(COMMIT, &format!("cmux-tui-{TARGET}")) {
+        assert!(with_url("cmux-tui", url.clone()).binaries_for(TARGET).is_ok(), "{url} refused");
+    }
+    // A signed payload of another commit cannot name this commit's machine copy.
+    let mut p = payload_json(OLD_TUI, OLD_HOOK);
+    p["commit"] = json!(other);
+    p["targets"][TARGET]["cmux-tui-hook"]["url"] =
+        json!(format!("{base}/{other}/cmux-tui-hook-{TARGET}"));
+    p["targets"][TARGET]["cmux-tui"]["url"] =
+        json!(format!("{base}/{COMMIT}/machine/cmux-tui-{TARGET}"));
+    let payload = channel::verify(&envelope(&p, "test"), &keys(), 5_000).unwrap();
+    assert!(payload.binaries_for(TARGET).is_err());
+}
+
 #[test]
 fn keys_match_the_web_update_keys() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(
@@ -218,6 +293,23 @@ fn gc_keeps_the_baked_current_and_newest_profiles() {
     assert_eq!(packages, vec![ours[0].clone(), ours[1].clone()]);
     assert!(!paths.at(store::STORE_DIR).join(&ours[0]).exists());
     assert!(paths.at(store::STORE_DIR).join(&ours[2]).exists());
+}
+
+/// The lead (2026-11-13): "machine id and updater outcome (seen, held with reason, busy with
+/// reason, swapped) in sawBuild, so the slow mode gets read instead of inferred." Each check
+/// saves its outcome as codes beside its log line, for the Cloud status report (`look.rs`).
+#[cfg(target_os = "linux")]
+#[test]
+fn a_check_saves_its_outcome_as_codes_for_the_cloud_report() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = image(dir.path());
+    fs::create_dir_all(paths.at("/etc/cmux")).unwrap();
+    fs::write(paths.at(OFF_FILE), "").unwrap();
+    let (outcome, _) = role::check(&paths, gate::Honor::All);
+    assert!(matches!(outcome, role::Outcome::Off(_)), "{outcome:?}");
+    let look = load_state(&paths).look.expect("the check saved its look");
+    assert_eq!(look.outcome, "off");
+    assert!(look.at > 0);
 }
 
 #[test]
@@ -796,7 +888,7 @@ fn a_restore_the_supervisor_has_not_dispatched_holds_the_flip() {
 }
 
 /// Review F2 of #38326: the health timeout's rollback waits while carrier
-/// sessions are attached, looking again every minute, and stops waiting when
+/// sessions are attached, looking again every BUSY_RETRY, and stops waiting when
 /// the role stops.
 #[cfg(target_os = "linux")]
 #[test]
@@ -805,7 +897,7 @@ fn the_health_timeout_rollback_waits_for_carrier_sessions() {
         vec![None, Some("1 carrier session(s) attached".to_owned()), Some("1".to_owned())];
     let mut carrier = || looks.pop().flatten();
     // `wait` with no message times out after BUSY_RETRY: too slow for a test,
-    // so a Check stands in for each minute.
+    // so a Check stands in for each look.
     let (tx, rx_checks) = std::sync::mpsc::channel();
     tx.send(role::Msg::Check).unwrap();
     tx.send(role::Msg::Check).unwrap();
@@ -1694,4 +1786,231 @@ fn adopt_relinks_a_work_link_the_app_replaced_and_keeps_the_file() {
     assert_eq!(relink_work_link(&paths).unwrap(), Relinked::KeptFile);
     restore_work_link(&paths, Relinked::KeptFile);
     assert_eq!(fs::read(&link).unwrap(), b"a newer app build");
+}
+
+/// Goal cloud-fix-to-machine (channel published -> first seen on a production
+/// machine): the worker looks at the channel again within 20 s of any check,
+/// idle or busy, so a channel move reaches an idle machine within about 20 s
+/// and a busy one within about 20 s of its turn ending, not a minute. Never
+/// sooner than 10 s (a tight loop), and the jitter keeps machines out of step.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_updater_looks_again_within_20_s_idle_or_busy() {
+    use std::collections::BTreeSet;
+    use std::time::Duration;
+    let outcomes = [
+        role::Outcome::Busy(vec!["1 carrier session(s) attached".to_owned()]),
+        role::Outcome::Current("c".to_owned()),
+        role::Outcome::Failed("reading the channel: timeout".to_owned()),
+        role::Outcome::Off("off".to_owned()),
+    ];
+    for outcome in &outcomes {
+        for draw in [0, 1, 1_875, 3_750, 3_751, 123_456_789, u64::MAX] {
+            let wait = role::next_look(outcome, draw);
+            assert!(
+                (Duration::from_secs(10)..=Duration::from_secs(20)).contains(&wait),
+                "{outcome:?} with draw {draw}: next look in {wait:?}"
+            );
+        }
+    }
+    let spread: BTreeSet<_> = (0..64u64).map(|i| role::next_look(&outcomes[1], i * 977)).collect();
+    assert!(spread.len() > 8, "the jitter spreads the looks: {spread:?}");
+}
+
+#[test]
+fn parse_response_reads_status_validators_and_body() {
+    let raw = b"HTTP/2 200 \r\netag: \"abc\"\r\nLast-Modified: Fri, 13 Nov 2026 15:03:58 GMT\r\n\r\n{\"x\":1}";
+    assert_eq!(
+        channel::parse_response(raw).unwrap(),
+        channel::Answer::Full {
+            body: b"{\"x\":1}".to_vec(),
+            etag: Some("\"abc\"".to_owned()),
+            last_modified: Some("Fri, 13 Nov 2026 15:03:58 GMT".to_owned()),
+        }
+    );
+    assert_eq!(
+        channel::parse_response(b"HTTP/1.1 304 Not Modified\r\nETag: \"abc\"\r\n\r\n").unwrap(),
+        channel::Answer::NotModified
+    );
+    // An earlier block (a 1xx, a retried 503) is skipped; the last one answers.
+    let retried =
+        b"HTTP/1.1 503 Busy\r\n\r\nHTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 304 Not Modified\r\n\r\n";
+    assert_eq!(channel::parse_response(retried).unwrap(), channel::Answer::NotModified);
+    // No validators: nothing to send back. A value with a control byte is not one.
+    let bare = b"HTTP/1.1 200 OK\r\nETag: \"a\x01b\"\r\n\r\n{}";
+    assert_eq!(
+        channel::parse_response(bare).unwrap(),
+        channel::Answer::Full { body: b"{}".to_vec(), etag: None, last_modified: None }
+    );
+    assert!(channel::parse_response(b"HTTP/1.1 302 Found\r\nLocation: x\r\n\r\n").is_err());
+    assert!(channel::parse_response(b"{\"not\": \"a response\"}").is_err());
+}
+
+fn full(body: Vec<u8>, etag: &str) -> channel::Answer {
+    channel::Answer::Full { body, etag: Some(etag.to_owned()), last_modified: None }
+}
+
+#[test]
+fn a_304_is_trusted_only_with_a_kept_file_that_verifies_now() {
+    let good = envelope(&payload_json(OLD_TUI, OLD_HOOK), "test");
+    // No file kept: a 304 is refused, and nothing is sent conditionally.
+    let mut cache = channel::Cache::new();
+    assert_eq!(cache.validators(), (None, None));
+    assert!(cache.take(channel::Answer::NotModified, &keys(), 5_000).is_err());
+    // A verified 200 is kept with its validator; a 304 then answers its payload.
+    assert_eq!(cache.take(full(good.clone(), "\"v1\""), &keys(), 5_000).unwrap().commit, COMMIT);
+    assert_eq!(cache.validators(), (Some("\"v1\"".to_owned()), None));
+    assert_eq!(cache.take(channel::Answer::NotModified, &keys(), 5_000).unwrap().commit, COMMIT);
+    // The kept file's expiry is checked against now on every 304, and an
+    // expired one is dropped, so the next read is unconditional.
+    assert!(cache.take(channel::Answer::NotModified, &keys(), 10_000).is_err());
+    assert_eq!(cache.validators(), (None, None));
+    // A 200 that does not verify is not kept and drops the kept file.
+    cache.take(full(good.clone(), "\"v1\""), &keys(), 5_000).unwrap();
+    assert!(
+        cache
+            .take(
+                full(envelope(&payload_json(OLD_TUI, OLD_HOOK), "other"), "\"v2\""),
+                &keys(),
+                5_000
+            )
+            .is_err()
+    );
+    assert_eq!(cache.validators(), (None, None));
+    assert!(cache.take(channel::Answer::NotModified, &keys(), 5_000).is_err());
+    // A 200 with no validator verifies but is not kept: nothing to send back.
+    let bare = channel::Answer::Full { body: good, etag: None, last_modified: None };
+    cache.take(bare, &keys(), 5_000).unwrap();
+    assert_eq!(cache.validators(), (None, None));
+}
+
+#[cfg(target_os = "linux")]
+/// A local origin for the channel file over plain HTTP: answers a matching
+/// If-None-Match with 304 and no body, counting whole files and 304s.
+struct Origin {
+    url: String,
+    file: std::sync::Arc<std::sync::Mutex<(String, Vec<u8>)>>,
+    full: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    not_modified: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    body_bytes: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+}
+
+#[cfg(target_os = "linux")]
+impl Origin {
+    fn serve(etag: &str, body: Vec<u8>, always_304: bool) -> Origin {
+        use std::io::{Read as _, Write as _};
+        use std::sync::atomic::Ordering::SeqCst;
+        use std::sync::{Arc, Mutex};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!(
+            "http://{}/cmux-tui/channels/cloud-machine.json",
+            listener.local_addr().unwrap()
+        );
+        let origin = Origin {
+            url,
+            file: Arc::new(Mutex::new((etag.to_owned(), body))),
+            full: Arc::default(),
+            not_modified: Arc::default(),
+            body_bytes: Arc::default(),
+        };
+        let (file, full, not_modified, body_bytes) = (
+            origin.file.clone(),
+            origin.full.clone(),
+            origin.not_modified.clone(),
+            origin.body_bytes.clone(),
+        );
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+                let mut request = Vec::new();
+                let mut buf = [0u8; 1024];
+                while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+                    match stream.read(&mut buf) {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => request.extend_from_slice(&buf[..n]),
+                    }
+                }
+                let request = String::from_utf8_lossy(&request).into_owned();
+                let sent = request.lines().find_map(|line| {
+                    let (key, value) = line.split_once(':')?;
+                    key.eq_ignore_ascii_case("if-none-match").then(|| value.trim().to_owned())
+                });
+                let (etag, body) = file.lock().unwrap().clone();
+                let response = if always_304 || sent.as_deref() == Some(etag.as_str()) {
+                    not_modified.fetch_add(1, SeqCst);
+                    format!(
+                        "HTTP/1.1 304 Not Modified\r\nETag: {etag}\r\nConnection: close\r\n\r\n"
+                    )
+                    .into_bytes()
+                } else {
+                    full.fetch_add(1, SeqCst);
+                    body_bytes.fetch_add(body.len(), SeqCst);
+                    let mut response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\
+                         ETag: {etag}\r\nLast-Modified: Fri, 13 Nov 2026 15:03:58 GMT\r\n\
+                         Connection: close\r\n\r\n",
+                        body.len()
+                    )
+                    .into_bytes();
+                    response.extend_from_slice(&body);
+                    response
+                };
+                let _ = stream.write_all(&response);
+            }
+        });
+        origin
+    }
+
+    fn counts(&self) -> (usize, usize) {
+        use std::sync::atomic::Ordering::SeqCst;
+        (self.full.load(SeqCst), self.not_modified.load(SeqCst))
+    }
+}
+
+#[cfg(target_os = "linux")]
+/// The 15 s poll's origin load: N checks of an unchanged channel read the
+/// whole file once, then are answered 304 with no body, and every check
+/// still returns the verified payload. A changed channel is read whole again.
+#[test]
+fn an_unchanged_channel_is_read_whole_once_then_answered_304() {
+    use std::sync::atomic::Ordering::SeqCst;
+    const POLLS: usize = 20;
+    let origin = Origin::serve("\"v1\"", envelope(&payload_json(OLD_TUI, OLD_HOOK), "test"), false);
+    let cache = std::sync::Mutex::new(channel::Cache::new());
+    for _ in 0..POLLS {
+        let payload =
+            role::read_channel_from(&cache, &origin.url, "=http", &keys(), 5_000).unwrap();
+        assert_eq!(payload.binaries_for(TARGET).unwrap().0.sha256, OLD_TUI);
+    }
+    let one = origin.body_bytes.load(SeqCst);
+    eprintln!(
+        "{POLLS} polls of an unchanged channel: (whole files, 304s) = {:?}, body bytes {one}",
+        origin.counts()
+    );
+    assert_eq!(
+        origin.counts(),
+        (1, POLLS - 1),
+        "an unchanged channel was read whole more than once"
+    );
+
+    // The channel moves: the next check reads the new file whole and returns it.
+    *origin.file.lock().unwrap() =
+        ("\"v2\"".to_owned(), envelope(&payload_json(CLAUDE, OLD_HOOK), "test"));
+    let payload = role::read_channel_from(&cache, &origin.url, "=http", &keys(), 5_000).unwrap();
+    assert_eq!(payload.binaries_for(TARGET).unwrap().0.sha256, CLAUDE);
+    assert_eq!(origin.counts(), (2, POLLS - 1));
+    let payload = role::read_channel_from(&cache, &origin.url, "=http", &keys(), 5_000).unwrap();
+    assert_eq!(payload.binaries_for(TARGET).unwrap().0.sha256, CLAUDE);
+    assert_eq!(origin.counts(), (2, POLLS));
+}
+
+#[cfg(target_os = "linux")]
+/// An origin that answers 304 to a check that kept no file is refused, never
+/// taken as "nothing changed".
+#[test]
+fn a_304_to_an_unconditional_read_is_refused() {
+    let origin = Origin::serve("\"v1\"", envelope(&payload_json(OLD_TUI, OLD_HOOK), "test"), true);
+    let cache = std::sync::Mutex::new(channel::Cache::new());
+    let err = role::read_channel_from(&cache, &origin.url, "=http", &keys(), 5_000).unwrap_err();
+    assert!(err.contains("no verified file is kept"), "{err}");
 }

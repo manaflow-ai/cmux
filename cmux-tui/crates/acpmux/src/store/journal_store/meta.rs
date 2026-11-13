@@ -63,12 +63,48 @@ const JOURNAL_LSN_KEY: &str = "journalLsn";
 /// JSON reader may keep a number only to 2^53).
 const JOURNAL_ID_KEY: &str = "journalId";
 
-/// Tests: a `settle_meta` of the chat this names stops right after it read the chat's image,
-/// says so on the first channel and waits for the second.
 #[cfg(test)]
 type SettleHold = (String, std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>);
+
+/// Tests: a `settle_meta` of the chat this names stops right after it read the chat's image,
+/// says so on the first channel and waits for the second. Only [`on_settle_hold`] sets it.
+///
+/// One per process, not per thread: the settle it stops runs on another thread than the test's.
+/// So [`on_settle_hold`] holds [`SETTLE_HOLD_TEST`] until its guard drops, and a second test's
+/// hold waits for the first instead of replacing or clearing it before its settle ran.
+// test-hook-allow: serialized by SETTLE_HOLD_TEST, held by on_settle_hold until its guard drops
 #[cfg(test)]
-pub(crate) static SETTLE_HOLD: std::sync::Mutex<Option<SettleHold>> = std::sync::Mutex::new(None);
+static SETTLE_HOLD: std::sync::Mutex<Option<SettleHold>> = std::sync::Mutex::new(None);
+/// The tests that hold a settle run one at a time ([`SETTLE_HOLD`]).
+#[cfg(test)]
+static SETTLE_HOLD_TEST: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// The hold [`on_settle_hold`] set; dropping it takes the hold off and lets the next test's in.
+#[cfg(test)]
+pub(crate) struct SettleHoldGuard {
+    _serial: std::sync::MutexGuard<'static, ()>,
+}
+
+#[cfg(test)]
+impl Drop for SettleHoldGuard {
+    fn drop(&mut self) {
+        SETTLE_HOLD.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+    }
+}
+
+/// Stops the next settle of `chat` right after it read the chat's image: it sends on `arrived`
+/// and waits on `release`. Waits for another test's hold to end first.
+#[cfg(test)]
+pub(crate) fn on_settle_hold(
+    chat: &str,
+    arrived: std::sync::mpsc::Sender<()>,
+    release: std::sync::mpsc::Receiver<()>,
+) -> SettleHoldGuard {
+    let serial = SETTLE_HOLD_TEST.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    *SETTLE_HOLD.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+        Some((chat.to_owned(), arrived, release));
+    SettleHoldGuard { _serial: serial }
+}
 
 /// Tests: the stop of [`SETTLE_HOLD`].
 #[cfg(test)]
@@ -113,7 +149,7 @@ fn nanos(at: std::io::Result<std::time::SystemTime>) -> u64 {
 
 /// The identity of the folder at `dir`; `None` when there is none.
 pub(super) fn folder_id(dir: &Path) -> std::io::Result<Option<FolderId>> {
-    match std::fs::symlink_metadata(dir) {
+    match crate::home_fs::symlink_metadata(dir) {
         Ok(meta) => Ok(Some(FolderId { ino: file_id(&meta), birth_ns: nanos(meta.created()) })),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error),
@@ -205,7 +241,7 @@ fn journaled_image(dir: &Path, journal: u64) -> Option<(Lsn, Vec<u8>)> {
 /// The stamp of `dir`'s `session.json` for a save's record: one `lstat`, no read. `None` when
 /// there is none, or when it does not stat (a file there at the replay then counts as moved on).
 fn saw_file(dir: &Path) -> Option<FileStamp> {
-    std::fs::symlink_metadata(dir.join("session.json")).ok().map(|meta| FileStamp::of(&meta))
+    crate::home_fs::symlink_metadata(dir.join("session.json")).ok().map(|meta| FileStamp::of(&meta))
 }
 
 /// The newest image of a chat that its `session.json` does not hold yet.
@@ -502,14 +538,15 @@ fn write_session_json(
     lsn: Lsn,
     journal: u64,
 ) -> Result<()> {
-    use std::os::unix::fs::OpenOptionsExt;
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let path = dir.join("session.json");
+    // Through the folder this daemon holds (`home_fs`): a home replaced after the check never
+    // gets the file.
     crate::config::refuse_lost_home(&path)?;
     let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let tmp = path.with_extension(format!("tmp-{}-{n}", std::process::id()));
     let written = (|| -> Result<()> {
-        let mut file = OpenOptions::new()
+        let mut file = crate::home_fs::OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(true)
@@ -523,11 +560,12 @@ fn write_session_json(
             .map_err(SyncFailed)
             .with_context(|| format!("sync {}", tmp.display()))?;
         drop(file);
-        std::fs::rename(&tmp, &path).with_context(|| format!("rename to {}", path.display()))?;
+        crate::home_fs::rename(&tmp, &path)
+            .with_context(|| format!("rename to {}", path.display()))?;
         log_sync::sync_directory_ordered(dir).with_context(|| format!("sync {}", dir.display()))
     })();
     if written.is_err() {
-        let _ = std::fs::remove_file(&tmp);
+        let _ = crate::home_fs::remove_file(&tmp);
     }
     written
 }
@@ -616,7 +654,7 @@ impl Inner {
         // The large fields go to the parts file, only when they changed (`store/meta_parts.rs`),
         // before the record: the record's image is the rest. A new chat's folder is made below,
         // and its parts file after the record.
-        let parts = match std::fs::symlink_metadata(&dir) {
+        let parts = match crate::home_fs::symlink_metadata(&dir) {
             Ok(_) => {
                 let _open = self.local.writable()?;
                 Some(self.local.parts.write(&dir, meta)?)
