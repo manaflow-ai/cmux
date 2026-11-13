@@ -50,13 +50,24 @@ pub const DEFAULT_TEARDOWN_MS: i64 = 180_000;
 pub const DEFAULT_CALLS_MARGIN_MS: i64 = 60_000;
 /// The longest a cancel waits for the Run to stop before it answers.
 const CANCEL_WAIT: Duration = Duration::from_secs(30);
-const TASK_MAX_CHARS: usize = 16_000;
+/// The longest task a Run takes, in characters as [`task_fits`] counts them.
+pub const TASK_MAX_CHARS: usize = 16_000;
 const KEY_MAX_CHARS: usize = 128;
 /// The receipt's reply: the end of the agent's answer, at most this many characters.
 pub const REPLY_MAX_CHARS: usize = 4_000;
 const ERROR_MAX_CHARS: usize = 500;
 pub const AGENTS: [&str; 4] = ["claude", "codex", "opencode", "pi"];
 pub const DEFAULT_AGENT: &str = "codex";
+
+/// Whether `task` (already trimmed) is a Run's task: 1 to [`TASK_MAX_CHARS`] characters. Characters
+/// as the composer and classic Cloud count them (grapheme clusters, Swift's `count`), never bytes,
+/// Unicode scalars or UTF-16 units: a decomposed "é" or a ZWJ family emoji is one (#39022 review at
+/// 1c13439a, F2). The daemon's create and `cmux run --sandboxed` both ask this, so the CLI never
+/// refuses a task the daemon takes or sends one it refuses. It stops counting past the limit.
+pub fn task_fits(task: &str) -> bool {
+    !task.is_empty() && task.graphemes(true).nth(TASK_MAX_CHARS).is_none()
+}
+
 /// A Run's machine is named this and the Run's id, so a cleanup finds it by name.
 pub const MACHINE_PREFIX: &str = "sandbox-";
 /// The label a lost Run's timeout names.
@@ -505,9 +516,7 @@ impl Engine {
             ));
         }
         let task = optional_text(args, "task").map(str::trim).unwrap_or_default();
-        // Characters as the composer and classic Cloud count them (grapheme clusters, Swift's
-        // `count`), never Unicode scalars: a decomposed "é" is one (#39022 review at 1c13439a, F2).
-        if task.is_empty() || task.graphemes(true).count() > TASK_MAX_CHARS {
+        if !task_fits(task) {
             return Err(refused(400, "run_task_required", "task: the task, 1 to 16000 characters"));
         }
         let agent = optional_text(args, "agent").filter(|a| !a.is_empty()).unwrap_or(DEFAULT_AGENT);

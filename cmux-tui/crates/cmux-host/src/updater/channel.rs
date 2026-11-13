@@ -23,7 +23,9 @@ use base64::Engine as _;
 use ring::signature::{ED25519, UnparsedPublicKey};
 use serde::Deserialize;
 
-/// Public, no credentials; the CDN caches it for a minute.
+/// Public, no credentials. Served with max-age 60, but the CDN does not
+/// cache it (its cache status reads DYNAMIC, 2026-11-13) and curl keeps no
+/// cache, so every check reads the newest file.
 pub const CHANNEL_URL: &str = "https://files.cmux.com/cmux-tui/channels/cloud-machine.json";
 /// The payload's `channel`.
 pub const CHANNEL: &str = "cloud-machine";
