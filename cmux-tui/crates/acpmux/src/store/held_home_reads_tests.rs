@@ -1832,6 +1832,65 @@ fn the_lint_reports_a_read_passed_as_a_value() {
     );
 }
 
+/// A pattern's binding is visible only where Rust makes it so (#42366 review F1: "visit_expr_if
+/// scopes locals across the whole `if`, so an `if let` binding is still visible in `else`. An
+/// imported metadata/exists call in that else branch is read as the local and dropped from the
+/// rows."): `if let` and a let chain in `then` only, never `else` or `else if`; `while let` in its
+/// body; let-else in the rest of the block, not its `else`; a match arm in its guard and body;
+/// a closure's parameters in its body; `for` in its body. Outside those, `metadata(p)` is the
+/// import's, a row; inside, `metadata` is the local.
+#[test]
+fn the_lint_scopes_a_binding_where_rust_does() {
+    let rows = rows_of(
+        r#"
+        use std::fs::metadata;
+        fn review(x: Option<u8>, p: &Path) -> bool {
+            if let Some(metadata) = x { metadata > 0 } else { metadata(p).is_ok() }
+        }
+        fn chain(x: Option<u8>, y: Option<u8>, p: &Path) -> bool {
+            if let Some(a) = x && let Some(metadata) = y {
+                a + metadata > 0
+            } else {
+                metadata(p).is_ok()
+            }
+        }
+        fn else_if(x: Option<u8>, p: &Path) -> bool {
+            if let Some(metadata) = x { metadata > 0 } else if metadata(p).is_ok() { true } else { false }
+        }
+        fn after_if(x: Option<u8>, p: &Path) -> bool {
+            if let Some(metadata) = x { let _ = metadata; }
+            metadata(p).is_ok()
+        }
+        fn while_let(mut x: Option<u8>, p: &Path) -> bool {
+            while let Some(metadata) = x { x = None; let _ = metadata; }
+            metadata(p).is_ok()
+        }
+        fn let_else(x: Option<u8>, p: &Path) -> u8 {
+            let Some(metadata) = x else { return metadata(p).map_or(0, |_| 1); };
+            metadata
+        }
+        fn arms(x: Option<u8>, p: &Path) -> bool {
+            match x {
+                Some(metadata) if metadata > 0 => metadata > 1,
+                _ => metadata(p).is_ok(),
+            }
+        }
+        fn closure(p: &Path) -> bool {
+            let f = |metadata: u8| metadata > 0;
+            f(1) && metadata(p).is_ok()
+        }
+        fn for_loop(xs: Vec<u8>, p: &Path) -> bool {
+            for metadata in xs { let _ = metadata; }
+            metadata(p).is_ok()
+        }
+        fn in_scope(x: Option<u8>) -> bool {
+            if let Some(metadata) = x { metadata > 0 } else { false }
+        }
+        "#,
+    );
+    assert_eq!(rows, ["metadata(..) (std::fs::metadata)"; 9]);
+}
+
 /// Every operation in `home_fs.rs` whose Unix arm goes through the held home's descriptor
 /// (`unix::...`) checks the held home in its other arms too (`held` or `held_read`): no
 /// `home_fs` function that the store's reads go through is path-based on any platform (#41721
