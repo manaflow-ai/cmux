@@ -1792,7 +1792,7 @@ dependencies = [
 
 [[package]]
 name = "cmux-pty"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "libc",
@@ -2590,6 +2590,7 @@ dependencies = [
 name = "cmux-worktree-care"
 version = "0.1.0"
 dependencies = [
+ "cmux-file-lock",
  "cmux-git",
  "libc",
  "serde",

@@ -173,6 +173,7 @@
     "pane.saveLog": "pane.saveLog",
     "pane.sessionInfo": "pane.sessionInfo",
     "pane.sessionInfo.overlays": "pane.sessionInfo.overlays",
+    "pane.sessionInfo.pinch": "pane.sessionInfo.pinch",
     "pane.setAttachmentView": "pane.setAttachmentView",
     "pane.setComposerRing": "pane.setComposerRing",
     "pane.setDictationSource": "pane.setDictationSource",

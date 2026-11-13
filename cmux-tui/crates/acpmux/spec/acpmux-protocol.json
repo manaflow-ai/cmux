@@ -3473,6 +3473,8 @@
         },
         "cancelFork": true,
         "cancelToken": true,
+        "expectRevision": true,
+        "ifIdle": true,
         "purge": true,
         "sessionId": true
       },
