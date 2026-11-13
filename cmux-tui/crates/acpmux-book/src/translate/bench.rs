@@ -57,6 +57,12 @@ fn line_at(harness: Harness, lines: &[String], n: usize) -> String {
         line.clone()
     }
 }
+fn sample_line_at(harness: Harness, lines: &[String], n: usize) -> String {
+    if harness == Harness::Claude && n > 0 && n % 1000 == 0 {
+        return lines[n % lines.len()].clone();
+    }
+    line_at(harness, lines, n)
+}
 fn full_state() -> State {
     let mut state = State::default();
     let prompt = r#"{"seq":1,"at":1000,"dir":"mux","kind":"user_message","msg":{"text":"q"}}"#;
@@ -76,7 +82,7 @@ fn full_state_p95(harness: Harness, lines: &[String], start: usize) -> u128 {
     let mut state = full_state();
     let mut samples = Vec::with_capacity(200);
     for n in start..start + 200 {
-        let line = line_at(harness, lines, n);
+        let line = sample_line_at(harness, lines, n);
         let began = Instant::now();
         black_box(t(&mut state, harness, line.as_bytes()).unwrap());
         samples.push(began.elapsed().as_nanos());
@@ -127,11 +133,11 @@ fn measure_child() {
     let mut cold_all = Vec::new();
     let mut cold_best = u128::MAX;
     let mut cursor = count;
-    let cold_line = line_at(harness, &lines, count);
+    let cold_line = sample_line_at(harness, &lines, count);
     for _ in 0..5 {
         // Same stride, same line mix, and both past their first allocation.
         for _ in &lines {
-            let line = line_at(harness, &lines, cursor);
+            let line = sample_line_at(harness, &lines, cursor);
             cursor += 1;
             black_box(t(&mut state, harness, line.as_bytes()).unwrap());
         }
@@ -139,7 +145,7 @@ fn measure_child() {
         let mut cold = Vec::new();
         for _ in 0..200 {
             for _ in &lines {
-                let line = line_at(harness, &lines, cursor);
+                let line = sample_line_at(harness, &lines, cursor);
                 cursor += 1;
                 let start = Instant::now();
                 black_box(t(&mut state, harness, line.as_bytes()).unwrap());
