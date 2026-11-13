@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43514543653",
+  "recorded_at": "2026-11-13T22:08:51Z",
+  "reason": "cmux-tui 2d276389949d changes the image's cmux-tui (pinned 188c1aec7938)",
+  "dry_run": false,
+  "cmux_tui": "2d276389949d29878e7714390a8c74e18405fbe4",
+  "fixes": [
+    {
+      "sha": "294e35e2a23302ad81e1627212fdff5f91672c2c",
+      "mergedAt": "2026-11-13T21:24:51Z",
+      "subject": "Agent chat: background helpers never hold the turn open (\"Waiting on 16 subagents\") (#41749)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T22:08:51Z",
+    "snapshot_id": "sh-984d0ef89c764e83a96e8322d4a1b5c1",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43514543653): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "ecf6cf6c6d6d0c30bcc9224f331942d0e2a0e5ae",
+    "image": "cloud-native-auto-2d276389-43514543653-1",
+    "revision": "ci-43514543653-1",
+    "at": "2026-11-13T22:08:51Z"
+  },
+  "rolled_back": false
+}
