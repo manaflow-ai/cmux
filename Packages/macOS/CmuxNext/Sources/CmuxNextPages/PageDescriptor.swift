@@ -211,7 +211,9 @@ public extension PageDescriptor {
                   // Agents > Computer Use card (ComputerUseSetup).
                   "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording", "palette.computerUse.restart",
                   // Settings › Import's cards (CmuxNextImportCards): a card's button, and Import from Browser.
-                  "import.card", "importFromBrowser"])
+                  "import.card", "importFromBrowser",
+                  // Customize → Examples: install a packaged sample through the consent card.
+                  "app.install"])
             .union(settingsSectionActions),
         dynamicPrefixes: ["backdrop", "museum", "icon", "symbol", "symbol-bold"], ownsSearchField: true, acceptsFirstMouse: false)
 

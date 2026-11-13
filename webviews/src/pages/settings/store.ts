@@ -1040,9 +1040,9 @@ export class SettingsStore {
     void this.request("cmux.app.action.run", { action: "palette.openCmuxSettingsFile" });
   }
 
-  /** Opens one showcase sample in the App Store's install flow. */
-  openAppStore(app: string): void {
-    void this.request("cmux.app.action.run", { action: "appStore.show", args: { app } });
+  /** Installs one showcase sample through the native consent card (available in NIGHTLY). */
+  installApp(app: string): void {
+    void this.request("cmux.app.action.run", { action: "app.install", args: { app } });
   }
 
   playSound(name: string): void {

@@ -1383,7 +1383,7 @@ export function errorCode(error: WireError): ErrorCode {
  */
 export const settingsPageActions = [
   "palette.openCmuxSettingsFile",
-  "appStore.show",
+  "app.install",
   "openSettings",
   "browserProfile.new",
   "server.addServer",

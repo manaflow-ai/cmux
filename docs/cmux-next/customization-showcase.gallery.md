@@ -1,5 +1,7 @@
 # Customization showcase gallery
 
+![Checked-in 10×3 showcase capture](../assets/customization-showcase-gallery.svg)
+
 These are the capture states for the ten samples in the showcase catalog. They are intentionally
 short: each sample is checked in its useful state, its empty/first-run state, and its failure or
 permission state. Use `cmux ext shot --json` for the PNG and scene outline when dogfooding.

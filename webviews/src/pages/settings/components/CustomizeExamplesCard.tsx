@@ -11,6 +11,14 @@ type Example = {
   app?: string;
 };
 
+const RAW_BASE = "https://raw.githubusercontent.com/manaflow-ai/cmux/feat-cmux-next/";
+
+export function templateInstallCommand(example: Example): string {
+  const dir = "~/.config/cmux/customize";
+  const source = example.file.replace(/\/main\.js$|\/main\.ts$/, "");
+  return `mkdir -p ${dir} && curl -fsSL ${RAW_BASE}${source}/main.js -o ${dir}/main.js && curl -fsSL ${RAW_BASE}${source}/cmux-app.json -o ${dir}/cmux-app.json`;
+}
+
 const EXAMPLES: Example[] = [
   {
     id: "my-prs",
@@ -87,14 +95,18 @@ export function CustomizeExamplesCard() {
       <p className="row-help">{t("settingsPage.customization.help")}</p>
       <div className="rows">
         {EXAMPLES.map((example) => (
-          <ActionRow key={example.id} title={example.title} help={`${example.description} · ${example.file}`}>
+          <ActionRow
+            key={example.id}
+            title={example.title}
+            help={`${example.description} · github.com/manaflow-ai/cmux/tree/feat-cmux-next/${example.file}`}
+          >
             {example.app ? (
-              <Button type="button" className="button" onClick={() => store.openAppStore(example.app!)}>
+              <Button type="button" className="button" onClick={() => store.installApp(example.app!)}>
                 {t("settingsPage.customization.install")}
               </Button>
             ) : (
-              <Button type="button" className="button" onClick={() => store.openNative("cmuxJSON")}>
-                {t("settingsPage.customization.openSource")}
+              <Button type="button" className="button" onClick={() => void store.copy(templateInstallCommand(example))}>
+                {t("settingsPage.customization.copyInstall")}
               </Button>
             )}
           </ActionRow>

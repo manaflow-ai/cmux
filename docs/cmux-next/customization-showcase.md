@@ -21,18 +21,14 @@ button; templates are copied into `~/.config/cmux/customize` and reload when `ma
 
 ## Install and reload
 
-For a template, copy both files into the customize folder (replace the existing `cmux-app.json`
-and merge the exports if you already have a view):
+For a template, open **Settings → Customize → Examples** and choose **Copy install command**.
+Paste the command in a terminal; it downloads the two checked-in files into
+`~/.config/cmux/customize`, where every save hot-reloads the view. The command is intentionally
+small enough to read and edit before running.
 
-```sh
-mkdir -p ~/.config/cmux/customize
-cp skills/cmux-customization/templates/command-button/* ~/.config/cmux/customize/
-cmux apps reload
-```
-
-For an app sample, open **Settings → Customize → Examples**, choose **Open App Store**, then
-install the sample. The supervisor keeps the app disabled until its scopes are granted. Every
-save to a local view reloads it without restarting cmux; `cmux apps reload` is the manual path.
+For an app sample, choose **Install**. The native consent card installs the packaged sample in
+NIGHTLY without opening the Labs-gated App Store. The supervisor keeps it disabled until its
+scopes are granted.
 
 ## Gallery captures
 

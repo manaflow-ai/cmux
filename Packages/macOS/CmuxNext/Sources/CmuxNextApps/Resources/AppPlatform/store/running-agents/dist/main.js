@@ -16,60 +16,39 @@
   };
   var exports_main = {};
   __export(exports_main, {
-    renderAgents: () => renderAgents
+    renderAgents: () => g
   });
-  async function focusTerminal(terminal) {
-    const gesture = cmux.gesture() ?? undefined;
-    const t = await cmux.terminal.get({ terminal });
-    if (t.tab_id)
-      await cmux.tab.focus({ tab: t.tab_id }, { gesture });
+  async function r(n) {
+    let e = cmux.gesture() ?? undefined, s = await cmux.terminal.get({ terminal: n });
+    if (s.tab_id)
+      await cmux.tab.focus({ tab: s.tab_id }, { gesture: e });
   }
-  var GROUPS = [
-    { state: "blocked", title: "Waiting for you", symbol: "exclamationmark.bubble", tone: "warning" },
-    { state: "working", title: "Working", symbol: "circle.dotted", tone: "accent" },
-    { state: "idle", title: "Idle", symbol: "moon", tone: "secondary" },
-    { state: "done", title: "Done", symbol: "checkmark.circle", tone: "success" }
-  ];
-  var label = (a) => {
-    const extra = a.extra ?? {};
-    return String(extra.name ?? extra.title ?? a.source_session ?? a.source);
+  var c = [{ state: "blocked", title: "Waiting for you", symbol: "exclamationmark.bubble", tone: "warning" }, { state: "working", title: "Working", symbol: "circle.dotted", tone: "accent" }, { state: "idle", title: "Idle", symbol: "moon", tone: "secondary" }, { state: "done", title: "Done", symbol: "checkmark.circle", tone: "success" }];
+  var l = (n) => {
+    let e = n.extra ?? {};
+    return String(e.name ?? e.title ?? n.source_session ?? n.source);
   };
-  var since = (ms) => {
-    const minutes = Math.max(0, Math.round((Date.now() - Number(ms)) / 60000));
-    return minutes < 1 ? "now" : minutes < 60 ? `${minutes}m` : `${Math.round(minutes / 60)}h`;
+  var u = (n) => {
+    let e = Math.max(0, Math.round((Date.now() - Number(n)) / 60000));
+    return e < 1 ? "now" : e < 60 ? `${e}m` : `${Math.round(e / 60)}h`;
   };
-  function renderAgents() {
-    const agents = cmux.live("agent.list", {});
-    const visible = computed(() => {
-      const showIdle = cmux.app.settings().showIdle !== false;
-      return (agents() ?? []).filter((a) => showIdle || a.state !== "idle" && a.state !== "done");
-    });
-    const rows = computed(() => {
-      const out = [];
-      for (const g of GROUPS) {
-        const members = visible().filter((a) => a.state === g.state);
-        if (!members.length)
+  function g() {
+    let n = cmux.live("agent.list", {}), e = computed(() => {
+      let t = cmux.app.settings().showIdle !== false;
+      return (n() ?? []).filter((a) => t || a.state !== "idle" && a.state !== "done");
+    }), s = computed(() => {
+      let t = [];
+      for (let a of c) {
+        let i = e().filter((o) => o.state === a.state);
+        if (!i.length)
           continue;
-        out.push({ key: `h:${g.state}`, header: g, count: members.length });
-        for (const a of members)
-          out.push({ key: a.id, agent: a });
+        t.push({ key: `h:${a.state}`, header: a, count: i.length });
+        for (let o of i)
+          t.push({ key: o.id, agent: o });
       }
-      return out;
+      return t;
     });
-    return VStack({ spacing: 2 }, [
-      ForEach({ items: rows, key: (r) => r.key }, (r) => r().header ? HStack({ spacing: 6 }, [
-        Text(() => r().header.title).font("caption").secondary(),
-        Spacer(),
-        Badge(() => r().count ?? 0, () => r().header.tone)
-      ]).paddingHorizontal(8).paddingVertical(2) : Row({
-        title: () => label(r().agent),
-        subtitle: () => `${r().agent.state} · ${since(r().agent.updated_at_ms)}`,
-        symbol: () => GROUPS.find((g) => g.state === r().agent.state)?.symbol ?? "circle",
-        tint: () => GROUPS.find((g) => g.state === r().agent.state)?.tone ?? "secondary",
-        unread: () => r().agent.state === "blocked"
-      }).onTap(() => focusTerminal(r().agent.terminal_id)).contextMenu([Button("Focus Terminal", () => focusTerminal(r().agent.terminal_id))])),
-      () => agents.loading() || visible().length ? null : EmptyState({ title: "No agents running", symbol: "sparkles" })
-    ]);
+    return VStack({ spacing: 2 }, [ForEach({ items: s, key: (t) => t.key }, (t) => t().header ? HStack({ spacing: 6 }, [Text(() => t().header.title).font("caption").secondary(), Spacer(), Badge(() => t().count ?? 0, () => t().header.tone)]).paddingHorizontal(8).paddingVertical(2) : Row({ title: () => l(t().agent), subtitle: () => `${t().agent.state} · ${u(t().agent.updated_at_ms)}`, symbol: () => c.find((a) => a.state === t().agent.state)?.symbol ?? "circle", tint: () => c.find((a) => a.state === t().agent.state)?.tone ?? "secondary", unread: () => t().agent.state === "blocked" }).onTap(() => r(t().agent.terminal_id)).contextMenu([Button("Focus Terminal", () => r(t().agent.terminal_id))])), () => n.loading() || e().length ? null : EmptyState({ title: "No agents running", symbol: "sparkles" })]);
   }
   globalThis.__cmuxAppExports = { ...exports_main };
 })();
