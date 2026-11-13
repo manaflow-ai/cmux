@@ -75,7 +75,7 @@ impl Expiries {
 
     fn mark_due(&mut self, state: &TeeState, now: u64) {
         for _ in 0..BATCH {
-            if !self.ordered.first().is_some_and(|(at, _)| *at <= now) {
+            if self.ordered.first().is_none_or(|(at, _)| *at > now) {
                 break;
             }
             let Some((_, id)) = self.ordered.pop_first() else { break };
