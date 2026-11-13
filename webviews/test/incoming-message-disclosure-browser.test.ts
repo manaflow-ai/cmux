@@ -429,6 +429,20 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       const put = await page.locator(".acpmux-scroll").evaluate(async (el) => {
         await new Promise<void>((done) => requestAnimationFrame(() => done()));
         el.scrollTop = el.scrollHeight - el.clientHeight * 2;
+        const log: string[] = [];
+        const t0 = performance.now();
+        let lastTop = el.scrollTop, lastH = el.scrollHeight;
+        const tick = () => {
+          if (el.scrollTop !== lastTop || el.scrollHeight !== lastH) {
+            const toggle = document.querySelector(".cv-received .cv-agentmsg__toggle")?.getBoundingClientRect().top;
+            log.push(`+${Math.round(performance.now() - t0)} top ${lastTop}->${el.scrollTop} h ${lastH}->${el.scrollHeight} toggle ${toggle?.toFixed(1)} anim ${el.getAnimations({ subtree: true }).length}`);
+            lastTop = el.scrollTop; lastH = el.scrollHeight;
+          }
+          if (performance.now() - t0 < 1200) requestAnimationFrame(tick);
+        };
+        el.addEventListener("scroll", () => log.push(`+${Math.round(performance.now() - t0)} scroll ${el.scrollTop}`));
+        requestAnimationFrame(tick);
+        (window as unknown as { __diag: string[] }).__diag = log;
         return el.scrollTop;
       });
       // The regression is a re-pin inside the open's hold (400 ms, or the fold's length plus 150 ms).
@@ -437,6 +451,7 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       await rest(page);
       const after = await page.locator(".acpmux-scroll").evaluate((el) => el.scrollTop);
       console.log(`code scroll after open: put ${put} -> ${after}`);
+      if (Math.abs(after - put) >= 2) console.log(`DIAG ${JSON.stringify(await page.evaluate(() => (window as unknown as { __diag: string[] }).__diag))}`);
       expect(await atLatest(page)).toBe(false);
       expect(Math.abs(after - put)).toBeLessThan(2);
     } finally {
