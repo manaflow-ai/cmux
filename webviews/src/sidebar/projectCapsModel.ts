@@ -1,9 +1,10 @@
-// Pure model of the sidebar's per-project caps (Leo, 2026-11-10): each project shows its 5 most
-// recent chats, then "Show N more", which opens inline 20 at a time and reads "Show less" once
-// everything shows. Active chats always show whatever the cap: pinned, running, unread (blue) and
-// waiting on you (yellow). Yellow then blue float to the top of the project, below pinned;
-// running chats keep their recency place. The native Swift sidebar implements the same rules; this
-// file is the gallery's copy, with tests (projectCapsModel.test.ts).
+// Pure model of the sidebar's per-project caps (Leo, 2026-11-10): each project shows its first 5
+// quiet chats, then "Show N more", which opens inline 20 at a time and reads "Show less" once
+// everything shows. Active chats always show and never use up the cap: pinned, the selected row,
+// running, unread (blue) and waiting on you (yellow). Pinned come first, then yellow, then blue
+// float to the top of the project; running and selected chats keep their place. One row over the
+// cap shows whole (a row that hides one row saves nothing). This is the gallery's copy of the Rust
+// rule (`cmux-layout-reducer::sidebar_caps`), with tests (projectCapsModel.test.ts).
 
 export type ChatState = "idle" | "running" | "unread" | "waiting";
 
@@ -44,43 +45,51 @@ export type ProjectLayout = Readonly<{
   pageCounts: readonly number[];
 }>;
 
+/** 0 pinned, 1 waiting (yellow), 2 unread (blue): the rows that float, in that order. */
 const floatRank = (chat: CapChat) => (chat.pinned ? 0 : chat.state === "waiting" ? 1 : chat.state === "unread" ? 2 : 3);
 
-/** Always shown whatever the cap. */
-export const isActive = (chat: CapChat) => chat.pinned === true || chat.state !== "idle";
+/** Always shown whatever the cap, and never counted against it. */
+export const isActive = (chat: CapChat) => chat.pinned === true || chat.selected === true || chat.state !== "idle";
 
 /**
  * The project's rows in display order, each tagged with the page that reveals it. Pinned, then
  * waiting (yellow), then unread (blue) float to the top in recency order; the rest keep recency
- * order, running included. Floated and running rows are page 0; idle rows fill the 5-row cap in
- * recency order, then pages of 20.
+ * order. Active rows are page 0 and leave the cap alone; quiet rows fill the 5-row cap, then pages
+ * of 20, and a last page of one row joins the page before it.
  */
 export function layoutProject(chats: readonly CapChat[]): ProjectLayout {
   const floated = chats.filter((chat) => floatRank(chat) < 3).sort((a, b) => floatRank(a) - floatRank(b));
-  const rest = chats.filter((chat) => floatRank(chat) === 3);
-  const rows: CapRow[] = floated.map((chat) => ({ chat, page: 0 }));
-  let budget = Math.max(0, RECENT_CAP - floated.length);
-  let idle = 0;
-  for (const chat of rest) {
-    if (chat.state === "running") {
-      rows.push({ chat, page: 0 });
-      budget = Math.max(0, budget - 1);
-      continue;
-    }
-    if (budget > 0) {
-      rows.push({ chat, page: 0 });
-      budget -= 1;
-      continue;
-    }
-    rows.push({ chat, page: 1 + Math.floor(idle / PAGE_SIZE) });
-    idle += 1;
+  const quietTotal = chats.filter((chat) => !isActive(chat)).length;
+  const pageCounts: number[] = [];
+  for (let left = quietTotal - RECENT_CAP; left > 0; left -= PAGE_SIZE) pageCounts.push(Math.min(PAGE_SIZE, left));
+  // One row over a limit shows whole: fold a last page of one into the page before it (or the cap).
+  if (pageCounts.length > 0 && pageCounts[pageCounts.length - 1] === 1) {
+    pageCounts.pop();
+    if (pageCounts.length > 0) pageCounts[pageCounts.length - 1]! += 1;
   }
-  const pages = Math.ceil(idle / PAGE_SIZE);
-  const pageCounts = Array.from({ length: pages }, (_, index) => Math.min(PAGE_SIZE, idle - index * PAGE_SIZE));
-  return { rows, pages, pageCounts };
+  const pageOf = (quietIndex: number) => {
+    let end = quietTotal - pageCounts.reduce((sum, count) => sum + count, 0);
+    if (quietIndex < end) return 0;
+    for (let page = 0; page < pageCounts.length; page += 1) {
+      end += pageCounts[page]!;
+      if (quietIndex < end) return page + 1;
+    }
+    return pageCounts.length;
+  };
+  const rows: CapRow[] = floated.map((chat) => ({ chat, page: 0 }));
+  let quiet = 0;
+  for (const chat of chats) {
+    if (floatRank(chat) < 3) continue;
+    if (isActive(chat)) rows.push({ chat, page: 0 });
+    else rows.push({ chat, page: pageOf(quiet++) });
+  }
+  return { rows, pages: pageCounts.length, pageCounts };
 }
 
-/** What the project's last row says with `open` pages showing, or null (no row). */
+/**
+ * What the project's last row says with `open` pages showing, or null (no row). The count is how
+ * many one press reveals: 20 while 20 or more hide, else the rest.
+ */
 export function moreLabel(
   layout: ProjectLayout,
   open: number,
@@ -88,12 +97,13 @@ export function moreLabel(
   if (layout.pages === 0) return null;
   if (open >= layout.pages) return { kind: "less" };
   const hidden = layout.pageCounts.slice(open).reduce((sum, count) => sum + count, 0);
-  return { kind: "more", count: hidden };
+  return { kind: "more", count: Math.min(PAGE_SIZE, hidden) };
 }
 
 /** Needs you: yellow rows first, then blue, across projects in project order; at most 3 shown. */
-export function needsYou(projects: readonly CapProject[]): { shown: CapChat[]; more: number } {
+export function needsYou(projects: readonly CapProject[]): { shown: CapChat[]; rest: CapChat[]; more: number } {
   const all = projects.flatMap((project) => project.chats);
   const ordered = [...all.filter((chat) => chat.state === "waiting"), ...all.filter((chat) => chat.state === "unread")];
-  return { shown: ordered.slice(0, NEEDS_YOU_CAP), more: Math.max(0, ordered.length - NEEDS_YOU_CAP) };
+  const rest = ordered.slice(NEEDS_YOU_CAP);
+  return { shown: ordered.slice(0, NEEDS_YOU_CAP), rest, more: rest.length };
 }

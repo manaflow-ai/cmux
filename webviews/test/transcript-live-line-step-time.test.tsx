@@ -6,6 +6,7 @@
 // Agent call whose result is only its launch, 411ms after it started.
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { renderToStaticMarkup as renderMarkup } from "react-dom/server";
 import type { ReactNode } from "react";
 import { mergeToolItem } from "../src/agent-session/acpmux/direct";
@@ -104,7 +105,14 @@ test("thinking that streamed under a second says its time; one dated chunk has n
   });
   const brief = line([prompt, { ...run(), items: [thought(at, at + 420)] }]);
   expect(brief.thoughtMs).toBe(420);
-  expect(drawn(brief, prompt.at + 32_000)).toBe("Thinking 420ms · turn 32s");
+  // The Labelled arm names both times; the default says the turn's clock alone (liveLineTimes.experiment.ts).
+  expect(drawn(brief, prompt.at + 32_000)).toBe("Thinking 32s");
+  (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "live-line-times": "labelled" };
+  try {
+    expect(drawn(brief, prompt.at + 32_000)).toBe("Thinking 420ms · turn 32s");
+  } finally {
+    delete (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments;
+  }
   const single = line([prompt, { ...run(), items: [thought(at, at)] }]);
   expect(single.thoughtMs).toBeUndefined();
   expect(drawn(single, prompt.at + 32_000)).toBe("Thinking 32s");
@@ -126,7 +134,8 @@ test("no finished span is drawn with formatDuration, which floors under a second
   // ticking from its start may read "0s" for its first second; a finished one never does.
   const { readdirSync, statSync } = await import("node:fs");
   const { join } = await import("node:path");
-  const root = new URL("../src", import.meta.url).pathname;
+  // A file path, not the URL's: a checkout under a folder with a space reads "%20" in `pathname`.
+  const root = fileURLToPath(new URL("../src", import.meta.url));
   const files = (dir: string): string[] =>
     readdirSync(dir).flatMap((name) => {
       const path = join(dir, name);

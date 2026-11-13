@@ -383,7 +383,8 @@ When `identify` advertises `terminal-reap-v1`, the owner also ends a terminal
 that has had no tab placement for the reap grace period and emits
 `terminal-reaped`, but only when the owner was started with
 `--terminal-reap-grace-seconds` (`identify` then also advertises
-`terminal-reaper-active-v1`). Every owner a local client starts (`cmux`,
+`terminal-reaper-active-v1`, from the first answer the owner's socket gives
+until the reaper stops). Every owner a local client starts (`cmux`,
 `cmux-tui`, `cmux daemon ensure`) gets the option, 30 seconds unless the
 client names another, and so do the mux owner `remote-link` starts on an
 SSH remote and the owner the chatmux relay starts (when its cmux-tui lists
