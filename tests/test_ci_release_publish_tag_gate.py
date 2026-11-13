@@ -648,6 +648,19 @@ class TagGate(unittest.TestCase):
             with self.subTest(read=command):
                 self.assertEqual(self.check(fixture(job("p", f"      - run: |\n          {command}\n"))), [], command)
 
+    def test_unresolved_runner_command_text_may_publish(self) -> None:
+        runners = (
+            'env -S "$CMD"', 'env --split-string "$CMD"', 'env --split-string="$CMD"',
+            'env -S"$CMD"', 'su -c "$CMD"', 'su runner -c "$CMD"',
+            'su --command="$CMD" runner', 'sh -c "$CMD"', 'bash -c "$CMD"',
+            'eval "$CMD"', 'xargs "$CMD"', 'xargs -n 1 "$CMD"',
+            'ssh host "$CMD"', 'watch "$CMD"', 'flock /tmp/lock "$CMD"',
+        )
+        for runner in runners:
+            with self.subTest(runner=runner):
+                run = "CMD='gh release create v1 dist/x'; " + runner
+                self.assertTrue(publishes({"run": run}), run)
+
     def test_a_wrapped_gh_api_release_write_is_classified_like_a_direct_one(self) -> None:
         write = "gh api repos/o/r/releases -X POST"
         field = "gh api repos/o/r/releases -f tag=v1"

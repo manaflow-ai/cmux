@@ -336,7 +336,7 @@ class SelfHostedDownloads(unittest.TestCase):
         self.assertEqual(len(problems({"w.yml": fixture(POOL, [first, elsewhere, download])})), 1)
 
     def test_a_one_shot_runner_is_not_held_to_it(self) -> None:
-        for runs_on in ("ubuntu-24.04", "blacksmith-4vcpu-ubuntu-2404"):
+        for runs_on in ("ubuntu-24.04", "blacksmith-4vcpu-ubuntu-2404", "blacksmith-6vcpu-macos-latest"):
             document = fixture(runs_on, [{"uses": DOWNLOAD, "with": {"name": "a", "path": "dist"}}])
             self.assertEqual(problems({"w.yml": document}), [])
 
