@@ -45,7 +45,11 @@ final class ScreenContentView: NSView {
     var scrollRidesFrames = false
     /// A keyboard resize press moves this screen (`LayoutRootView.keyboardResizeWillChange`): until its spring lands,
     /// every pane is on the key hold (``PaneHostView``): content with a hold area follows its pane in every frame.
-    var holdsContentForKeyResize = false
+    /// The pane views post no frame notice for as long (``holdPaneFrameNoticesForKeyResize()``): they post again here,
+    /// on every path that ends the key hold.
+    var holdsContentForKeyResize = false {
+        didSet { if oldValue, !holdsContentForKeyResize { releasePaneFrameNoticesIfSettled() } }
+    }
     /// A close waits for `syncScroll` to place its camera, then takes its first frame (`leadIfPending`).
     var leadsFrame = false
     /// A split's or a close's panes spring to their new sizes: their terminals keep their grids
@@ -87,8 +91,9 @@ final class ScreenContentView: NSView {
     var resizeGesture = PaneResizeGesturePhase.idle
     /// The pane contents that heard the drag start; the end goes to them.
     var resizeGestureListeners: [PaneResizeGestureListener] = []
-    /// The pane views a resize drag or a zoom's spring moves post no frame notice until it ends (``FrameNoticeHold``):
-    /// no titlebar drag-shape walk in each of its frames' commits, the zoom key's turn included.
+    /// The pane views a resize drag, a zoom's spring or a key resize's spring moves post no frame notice until it ends
+    /// (``FrameNoticeHold``): no titlebar drag-shape walk in each of its frames' commits, the zoom key's turn included,
+    /// and one update of a Chromium page's tracker in a frame, not one for each ancestor of the page.
     let paneFrameNotices = FrameNoticeHold()
     /// Overlay docked columns' glass rims, keyed by column.
     var backdrops: [ColumnID: DockBackdropView] = [:]
@@ -197,6 +202,9 @@ final class ScreenContentView: NSView {
     fileprivate func reconcileAndScroll(keepsMotion: Bool = false) {
         reconcile(animated: keepsMotion, rebasing: keepsMotion, presents: false)
         syncScroll(focused: lastFocused, source: .programmatic, mode: context.model.centerFocusedColumn, animated: keepsMotion)
+        // A snap in a key resize's spring (a live window resize, a new backing scale): no landing frame comes to end the
+        // key hold, and a hold left on would keep the pane views' frame notices off (`releasePaneFrameNoticesIfSettled`).
+        if !hasMotion { holdsContentForKeyResize = false }
     }
 
     // MARK: Model updates
@@ -254,7 +262,7 @@ final class ScreenContentView: NSView {
         #endif
         // The key-resize hold is the press's own: a structural change (a split, a close, a zoom) takes the screen over,
         // and a press that did not spring (Reduce Motion, pane animations off, a snap) ends it now.
-        if structural || !moving { holdsContentForKeyResize = false }
+        if structural || !moving { holdsContentForKeyResize = false } else { holdPaneFrameNoticesForKeyResize() }
         return moving || canvasState.camera.isMoving
     }
 
