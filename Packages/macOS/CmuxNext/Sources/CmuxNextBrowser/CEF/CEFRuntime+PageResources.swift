@@ -10,7 +10,8 @@ extension CEFRuntime {
             return
         }
         let live = livePages
-        let bundledShared = !live && parsed.path.split(separator: "/").first == "__shared"
+        let firstPath = parsed.path.split(separator: "/").first
+        let bundledShared = !live && (firstPath == "__shared" || firstPath == "__runtime")
         let answer = bundledShared ? nil : tab?.pageResources
         let fallback = liveFallback
         // Outside the live loop, the shim's document and imports must use its bundled tree.
