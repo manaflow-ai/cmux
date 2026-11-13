@@ -112,6 +112,9 @@ impl View {
                 }
                 self.replaying = delta.replay == Some(ReplayMark::Replay);
             }
+            FrameKind::Error => {
+                panic!("unexpected Error: {:?}", frame.decode_json::<serde_json::Value>())
+            }
             _ => panic!("unexpected {:?}", frame.kind),
         }
     }
@@ -387,8 +390,7 @@ async fn resume_marks(shape: acpmux::god_fixture::Shape) -> usize {
     let cursor = hub.snapshot().seq();
     let (mut client, source, task) = pair(hub.clone());
     hello(&mut client).await;
-    sub(&mut client, "caught-up", Some(cursor)).await;
-    let frame = receive(&mut client).await;
+    let frame = sub(&mut client, "caught-up", Some(cursor)).await;
     let delta: DeltaFrame<Summary> = frame.decode_json().unwrap();
     assert_eq!(frame.kind, FrameKind::Delta);
     assert_eq!(delta.replay, Some(ReplayMark::End));
