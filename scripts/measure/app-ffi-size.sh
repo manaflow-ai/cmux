@@ -18,7 +18,9 @@ trap 'rm -rf "$out"' EXIT
 mkdir -p "$root/artifacts"
 modes=("$@")
 ((${#modes[@]})) || modes=(off fat)
-(cd "$root/cmux-tui/crates/cmux-app-ffi" && rustup target add aarch64-apple-darwin >/dev/null)
+# shellcheck source=scripts/lib/rust-targets.sh
+source "$root/scripts/lib/rust-targets.sh"
+(cd "$root/cmux-tui/crates/cmux-app-ffi" && ensure_rust_targets aarch64-apple-darwin >/dev/null)
 json="{"
 for mode in "${modes[@]}"; do
   start=$SECONDS
