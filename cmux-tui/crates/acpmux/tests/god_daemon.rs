@@ -384,18 +384,19 @@ impl Daemon {
         let _ = self.child.wait();
     }
 
-    /// The updater's one-stop handoff, measured through the pane's cache-first attach. The new
+    /// The daemon's one-stop handoff through a cache-first attach (not an app render). The new
     /// daemon is allowed to bind and answer the local chat while peer links and bulk log loading
     /// continue in the background.
-    fn restart_to_chat_visible(
+    fn restart_to_chat_attach(
         &mut self,
         scratch: &Path,
         home: &Path,
         profile: Option<&Path>,
         session: &str,
-    ) -> u64 {
+    ) -> (u64, u64) {
         let started = Instant::now();
         self.stop();
+        let shutdown_ms = ms(started);
         *self = Self::start(scratch, home, profile);
         let mut rpc = Rpc::connect(&self.socket);
         rpc.call(
@@ -408,8 +409,12 @@ impl Daemon {
             json!({"sessionId": session, "waitLogs": false, "limit": PAGE_LIMIT,
                    "maxBytes": PAGE_BYTES}),
         );
-        assert!(attached.is_ok(), "chat was not visible after restart: {attached:?}");
-        started.elapsed().as_millis() as u64
+        let attached = attached.expect("selected chat attached after restart");
+        assert!(
+            attached["events"].as_array().is_some_and(|events| !events.is_empty()),
+            "attach must return a usable transcript page: {attached}"
+        );
+        (ms(started), shutdown_ms)
     }
 }
 
@@ -638,8 +643,8 @@ async fn run(shape: Shape, dhat: bool) -> Value {
         let status = rpc.call("_acpmux/status", json!({})).unwrap_or_default();
         let (startup_phases_ms, marks_ms) = startup_axes(&status["gauges"]);
         let (rss, peak_rss) = daemon.rss();
-        let restart_chat_visible_ms =
-            daemon.restart_to_chat_visible(&scratch, &home, profile.as_deref(), &god);
+        let (restart_chat_attach_ms, shutdown_ms) =
+            daemon.restart_to_chat_attach(&scratch, &home, profile.as_deref(), &god);
         drop(rpc);
         daemon.stop();
         let home_bytes = dir_bytes(&home);
@@ -662,7 +667,7 @@ async fn run(shape: Shape, dhat: bool) -> Value {
             "settledScrollPageUs": spread(&settled_scrolls),
             "settledSendFirstTokenUs": spread(&settled_sends),
             "reconnectMs": reconnect_ms, "reconnectMedianMs": reconnect_median_ms,
-            "restartChatVisibleMs": restart_chat_visible_ms,
+            "restartChatAttachMs": restart_chat_attach_ms, "shutdownMs": shutdown_ms,
             "rss": rss, "peakRss": peak_rss,
             "fixtureBytes": fixture_bytes, "homeBytes": home_bytes,
             "daemonDiskBytes": daemon_disk_bytes,
@@ -808,12 +813,16 @@ async fn god_and_small_homes_in_one_harness() {
             other => panic!("ACPMUX_GOD_SHAPES: no shape {other}"),
         };
         let result = run(shape, dhat).await;
-        let restart_ms = result["restartChatVisibleMs"].as_u64().unwrap_or(u64::MAX);
+        println!("GOD-BASELINE {result}");
+        let restart_ms = result["restartChatAttachMs"].as_u64().unwrap_or(u64::MAX);
         assert!(
             restart_ms <= 2_000,
-            "Restart to Update -> chat visible exceeded 2 s: {restart_ms} ms; result={result}"
+            "Daemon restart -> chat attach exceeded 2 s: {restart_ms} ms; result={result}"
         );
-        println!("GOD-BASELINE {result}");
+        assert!(
+            result["shutdownMs"].as_u64().unwrap_or(u64::MAX) <= 1_000,
+            "daemon shutdown exceeded 1 s: {result}"
+        );
         results.push(result);
     }
     // The comparison the bar reads: god over small, for each number both have.
@@ -862,10 +871,12 @@ async fn god_and_small_homes_in_one_harness() {
 }
 
 /// CI's Linux budget check uses the same harness and the small shape. It keeps the full god bench
-/// ignored while still failing the PR when the local restart path regresses past the product goal.
+/// ignored while detecting a daemon restart regression. Rendering is measured by the app driver.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn restart_to_chat_visible_is_under_two_seconds() {
+async fn restart_to_chat_attach_is_under_two_seconds() {
     let result = run(Shape::small(), false).await;
-    let elapsed = result["restartChatVisibleMs"].as_u64().unwrap_or(u64::MAX);
-    assert!(elapsed <= 2_000, "Restart to Update -> chat visible took {elapsed} ms: {result}");
+    let elapsed = result["restartChatAttachMs"].as_u64().unwrap_or(u64::MAX);
+    assert!(elapsed <= 2_000, "Daemon restart -> chat attach took {elapsed} ms: {result}");
+    let shutdown = result["shutdownMs"].as_u64().unwrap_or(u64::MAX);
+    assert!(shutdown <= 1_000, "Daemon shutdown took {shutdown} ms: {result}");
 }

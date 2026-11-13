@@ -112,6 +112,11 @@ impl Hub {
     pub(crate) fn begin_shutdown(&self) {
         self.start_shutdown();
         self.wake_start_retries();
+        // Stop reconnecting at the fence, not after the session drain: otherwise a peer
+        // could reopen ssh throughout the entire shutdown grace.
+        for peer in self.peers.lock().unwrap_or_else(std::sync::PoisonError::into_inner).values() {
+            peer.stop();
+        }
     }
 
     /// Marks the shutdown begun, under the lock an unstarted turn's end is decided and written
@@ -147,21 +152,61 @@ impl Hub {
         kept
     }
 
-    /// The daemon handoff path has an absolute one-second deadline. Its journal already contains
-    /// every acknowledged append, so it does not synchronously checkpoint every chat; the next
-    /// daemon replays those records while it serves local chats. The non-journal writers still
-    /// get whatever part of the same deadline remains to drain.
-    pub(crate) async fn shutdown_for_handoff(
-        &self,
-        preserve_auto_resume: bool,
-        deadline: tokio::time::Instant,
-    ) -> usize {
+    /// The session part of a daemon handoff. Persistence is a separate, unconditional step:
+    /// timing out this work must never skip closing the store, cost ledger or audit writer.
+    pub(crate) async fn shutdown_for_handoff(&self, preserve_auto_resume: bool) -> usize {
         let ((), kept) =
             tokio::join!(self.stop_pool(), self.shutdown_sessions(preserve_auto_resume, false),);
-        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
-        self.ledger.close(left.min(LEDGER_DRAIN));
-        self.audit.close(left.min(AUDIT_DRAIN));
         kept
+    }
+
+    /// Keep the normal store fence and drains, off the runtime and in parallel. The daemon
+    /// holds its ownership lock until all three finish; if its deadline expires, the process
+    /// exits with that lock still held and the next daemon replays the durable journal.
+    pub(crate) async fn persist_for_handoff(self: Arc<Self>, deadline: tokio::time::Instant) {
+        let (metadata_done, metadata_saved) = tokio::sync::oneshot::channel::<()>();
+        let store = {
+            let hub = self.clone();
+            tokio::task::spawn_blocking(move || {
+                for session in hub.sessions() {
+                    let _ = hub.store_deferred(&session);
+                    // Every mutation already queued its snapshot. Wait for those writes;
+                    // rewriting every unchanged chat adds one durable commit per chat.
+                    if let Err(error) = hub.meta_barrier(&session) {
+                        tracing::error!(session = %session.id, "save meta at shutdown: {error}");
+                    }
+                }
+                // Saving a changed title/repository also updates its ledger entry. Close
+                // that writer after these updates, while the store seals independently.
+                let _ = metadata_done.send(());
+                hub.store.seal();
+                if let Err(error) = hub.store.flush() {
+                    tracing::warn!("store flush failed: {error}");
+                }
+                hub.outbox.compact();
+                hub.peer_snapshots.flush_now();
+            })
+        };
+        let ledger = {
+            let hub = self.clone();
+            async move {
+                let _ = metadata_saved.await;
+                tokio::task::spawn_blocking(move || {
+                    let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+                    if !hub.ledger.close(left) {
+                        tracing::warn!("cost ledger did not drain before the shutdown deadline");
+                    }
+                })
+                .await
+            }
+        };
+        let audit = tokio::task::spawn_blocking(move || {
+            let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+            if !self.audit.close(left) {
+                tracing::warn!("approvals audit did not drain before the shutdown deadline");
+            }
+        });
+        let _ = tokio::join!(store, ledger, audit);
     }
 
     /// Nothing this daemon does from here on reaches the log: the next daemon may read it before

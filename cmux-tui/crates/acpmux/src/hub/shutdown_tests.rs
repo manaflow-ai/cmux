@@ -580,3 +580,103 @@ async fn hub_tasks_that_ignore_cancellation_are_cut_at_one_shared_deadline() {
     assert_eq!(report.still_running.len(), 22, "{report}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A blocking store seal must not prevent the runtime from enforcing the handoff deadline;
+/// the worker still fences late writes and drains the audit once its disk is released.
+#[tokio::test]
+async fn handoff_persistence_does_not_block_the_runtime_and_still_seals_the_store() {
+    use crate::store::{EventRecord, SessionMeta, Store};
+
+    struct HeldSeal {
+        inner: Box<dyn Store>,
+        entered: Arc<Notify>,
+        release: StdMutex<std::sync::mpsc::Receiver<()>>,
+    }
+    impl Store for HeldSeal {
+        fn list(&self) -> anyhow::Result<Vec<SessionMeta>> {
+            self.inner.list()
+        }
+        fn load(&self, id: &str) -> anyhow::Result<Option<SessionMeta>> {
+            self.inner.load(id)
+        }
+        fn save(&self, meta: &SessionMeta) -> anyhow::Result<()> {
+            self.inner.save(meta)
+        }
+        fn append(&self, id: &str, record: &EventRecord) -> anyhow::Result<()> {
+            self.inner.append(id, record)
+        }
+        fn events(&self, id: &str, after: u64, limit: usize) -> anyhow::Result<Vec<EventRecord>> {
+            self.inner.events(id, after, limit)
+        }
+        fn delete(&self, id: &str) -> anyhow::Result<()> {
+            self.inner.delete(id)
+        }
+        fn seal(&self) {
+            self.entered.notify_one();
+            let _ = self.release.lock().unwrap().recv_timeout(Duration::from_secs(2));
+            self.inner.seal();
+        }
+        fn flush(&self) -> anyhow::Result<()> {
+            self.inner.flush()
+        }
+        fn audit_dir(&self) -> Option<PathBuf> {
+            self.inner.audit_dir()
+        }
+        fn peer_cache_dir(&self) -> Option<PathBuf> {
+            self.inner.peer_cache_dir()
+        }
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let config = Config::default();
+    let store = crate::store::open(&config.store, dir.path()).unwrap();
+    let meta: SessionMeta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": "kept", "name": "kept",
+        "harness": "fake", "family": "fake", "cwd": "/tmp", "status": "idle",
+        "createdAt": 1, "updatedAt": 1, "lastSeq": 0
+    }))
+    .unwrap();
+    store.save(&meta).unwrap();
+    let record = EventRecord {
+        seq: 1,
+        at: 1,
+        dir: "mux".into(),
+        kind: "queued".into(),
+        msg: json!({"text": "kept across shutdown"}),
+        host_seq: None,
+    };
+    store.append("kept", &record).unwrap();
+    let entered = Arc::new(Notify::new());
+    let (release, released) = std::sync::mpsc::channel();
+    let hub = Hub::new(
+        config,
+        Box::new(HeldSeal {
+            inner: store,
+            entered: entered.clone(),
+            release: StdMutex::new(released),
+        }),
+    );
+    hub.audit.record(json!({"at": 1, "sessionId": "kept", "kind": "approval",
+        "decision": {"kind": "allow"}, "answeredBy": {"person": true}}));
+    hub.begin_shutdown();
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(100);
+    let mut persistence = tokio::spawn(hub.clone().persist_for_handoff(deadline));
+    tokio::time::timeout(Duration::from_secs(3), entered.notified()).await.unwrap();
+    let started = std::time::Instant::now();
+    let timed_out = tokio::time::timeout_at(deadline, &mut persistence).await.is_err();
+    let elapsed = started.elapsed();
+    let _ = release.send(());
+    assert!(timed_out, "the held seal should still be running");
+    assert!(elapsed < Duration::from_secs(1), "the seal blocked the runtime for {elapsed:?}");
+    tokio::time::timeout(Duration::from_secs(5), persistence).await.unwrap().unwrap();
+    assert!(hub.store.append("kept", &record).is_err(), "late writes were not fenced");
+    assert_eq!(hub.audit.all().unwrap().len(), 1, "shutdown lost the pending approval");
+    let reopened = crate::store::open(&Default::default(), dir.path()).unwrap();
+    assert_eq!(reopened.events("kept", 0, 10).unwrap().len(), 1);
+    reopened.seal();
+}

@@ -308,7 +308,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             })
             .await;
             // The lines logged so far reach the log before the process ends.
-            crate::log_sink::flush(LOG_FLUSH_BUDGET);
+            crate::log_sink::flush(crate::daemon::shutdown_time_left().unwrap_or(LOG_FLUSH_BUDGET));
             if let Err(error) = result {
                 // A systemd start can race the daemon that is handing over
                 // this home. Keep its lock refusal a distinct, prevented

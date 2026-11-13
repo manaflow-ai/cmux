@@ -45,11 +45,46 @@ peer adoption behind the local request path; `_acpmux/attach {waitLogs:false}`
 reads only the selected chat, while the pane's disk tail cache paints its last
 visible rows first.
 
+Session and transport cleanup reserve the last 250 ms of that deadline for
+persistence. Store sealing, metadata barriers, audit and cost-ledger drains run
+off the runtime. The ledger closes after pending metadata updates. An aborted
+session cleanup is joined before sealing, and the daemon's ownership lock stays
+with the persistence task until its writers and PID/token cleanup finish. At the
+deadline the CLI exits with ownership retained; a new daemon cannot race a
+detached writer in the same home. The final diagnostic flush shares the deadline.
+
+The native document resource supplies the selected chat identity before `ready`.
+The saved HTML frame remains the preferred presentation. If that frame is absent,
+the pane folds the retained event tail before the handshake without opening a
+socket or accepting live permissions, queue state or sends. Cache responses later
+than the transport's 250 ms cap can still paint while the handshake is pending.
+The normal handshake still establishes transport authority; local attach does not
+wait for all logs or `startup complete`.
+
 Detectors:
 
 - `hub_tasks_that_ignore_cancellation_are_cut_at_one_shared_deadline` holds 22
   pending hub tasks and verifies one shared `SHUTDOWN_BUDGET` boundary.
-- `restart_to_chat_visible_is_under_two_seconds` runs the real small-home
+- `handoff_persistence_does_not_block_the_runtime_and_still_seals_the_store`
+  holds the store seal, verifies the runtime deadline, then verifies the fence,
+  retained audit and reopened journal.
+- `daemon_peer_gate_waits_for_local_initialization` holds local readiness and
+  verifies the deferred daemon gate.
+- `restart_to_chat_attach_is_under_two_seconds` runs the real small-home
   daemon twice, sends the cache-first attach after the restart, prints
-  `restartChatVisibleMs`, and fails above 2,000 ms. The ignored god harness
-  runs the same measurement for the small and god shapes.
+  `restartChatAttachMs`, and fails above 2,000 ms or 1,000 ms shutdown. The
+  ignored god harness runs the same measurement for the small and god shapes.
+  This measures a nonempty RPC attach, not a rendered frame.
+- `restore-monotonic-trace.test.tsx` withholds native ready and verifies actual
+  transcript rows plus `pane.painted` within 2,000 ms, including cache responses
+  at 300 and 1,500 ms, wrong identities and late answers after unmount.
+- `first-load-after-restart.bench.ts` with `MODE=all GATE=1` measures production
+  Chromium frames with the daemon down, slow initialize, and delayed native ready
+  with both a saved HTML frame and only a retained tail. It fails above 2,000 ms.
+  Its paired baseline uses the same harness and immutable original pane source.
+
+The whole native flow remains a distinct read-back: in the promoted NIGHTLY,
+compare `agent_pane.painted` to `first_window_frame_committed`, corroborate the
+selected transcript text and capture, and check one daemon stop, shutdown below
+one second, and requests-ready before peer dialing. Only the designated app
+driver performs that read-back; neither daemon RPC nor browser navigation proves it.

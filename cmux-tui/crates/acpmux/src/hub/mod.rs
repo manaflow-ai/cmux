@@ -160,7 +160,6 @@ mod retention;
 pub use retention::RetentionRequest;
 pub(crate) mod model_availability;
 pub(crate) use log_load::AdoptionReady;
-#[cfg(debug_assertions)]
 mod model_options;
 mod new_request;
 pub use model_options::{
@@ -1345,7 +1344,7 @@ impl Hub {
             live_ages: StdMutex::new(live_ages::LiveAges::default()),
             refused_models: StdMutex::new(HashMap::new()),
             startup_ready: tokio::sync::watch::channel(true).0,
-            local_ready: tokio::sync::watch::channel(!start_peers).0,
+            local_ready: tokio::sync::watch::channel(start_peers).0,
             spawn_ready: tokio::sync::watch::channel(true).0,
             startup_work_done: tokio::sync::watch::channel(true).0,
             store_load: store_load::StoreLoad::new(loading),
@@ -1507,8 +1506,9 @@ impl Hub {
             hub.watch_titles();
             hub.watch_recaps();
             if start_peers {
-                let peers = hub.clone();
-                hub.scope.spawn_named("peer-start", async move { peers.start_saved_peers().await });
+                for (name, pc) in peers_cfg {
+                    hub.start_peer(&name, &pc);
+                }
             }
         }
         hub

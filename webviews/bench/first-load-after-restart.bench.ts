@@ -18,19 +18,23 @@
 //   relaunch  a new (cold) context opens the same chat, served that copy and the chat's kept tail by the
 //             host, with acpmux unavailable for ACPMUX_DOWN_MS from navigation:
 //               down       the socket is refused (HTTP 503, no upgrade), as while acpmux restarts;
-//               slow-init  the socket opens but `initialize` answers only then, as a slow daemon does.
+//               slow-init  the socket opens but `initialize` answers only then, as a slow daemon does;
+//               native-ready       native ready waits, with the saved HTML copy;
+//               native-ready-tail  native ready waits, no HTML copy, retained event tail only.
 //             Every painted frame until ACPMUX_DOWN_MS + 4000 ms is read after it painted
 //             (test/support/paintedFrames.ts) from the layer on top: the copy's shadow root while it
 //             shows, else the live page.
 // Per round (bench/firstLoadFrames.ts): blank frames after the first content, shift frames (the composer
 // or the bottom-most row in view moved, or that row was replaced), when the final state first painted,
 // when content first painted; and the layout-shift entries' sum.
-//   [MODE=all|down|slow-init] [ROUNDS=3] [TURNS=120] [ACPMUX_DOWN_MS=3000] [GATE=1] [TRACE=1] \
+//   [MODE=all|down|slow-init|native-ready|native-ready-tail] [ROUNDS=3] [TURNS=120] [ACPMUX_DOWN_MS=3000] [GATE=1] [TRACE=1] \
 //     bun bench/first-load-after-restart.bench.ts
-// GATE=1 exits 1 when any round blanked or shifted; otherwise it always exits 0. TRACE=1 prints each
+// GATE=1 fails if content takes over 2 s, blanks, shifts, or never becomes live. TRACE=1 prints each
 // mode's worst round frame by frame. One `FIRST_LOAD_JSON {...}` line carries every number.
+// PANE_SOURCE_REF=<sha> loads that immutable App/direct revision under this same harness for a baseline.
 /// <reference types="bun" />
 import fs from "node:fs";
+import { execFileSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
@@ -48,7 +52,7 @@ import { classifyFrames, type FrameMetrics, type FrameRecord } from "./firstLoad
 import { perfRow } from "./perfRow";
 import { newestPage } from "./daemonPage";
 
-const MODES_ALL = ["down", "slow-init"] as const;
+const MODES_ALL = ["down", "slow-init", "native-ready", "native-ready-tail"] as const;
 type Mode = (typeof MODES_ALL)[number];
 const MODE = process.env.MODE ?? "all";
 if (MODE !== "all" && !(MODES_ALL as readonly string[]).includes(MODE))
@@ -152,7 +156,7 @@ type Recording = {
 };
 type BenchWindow = {
   __firstLoad: Recording;
-  __benchHost: { tailAskedAt: number; tailCalls: number };
+  __benchHost: { tailAskedAt: number; tailCalls: number; readyAnsweredAt: number };
   __cmuxChatSnapshotMiss?: string;
   __cmuxChatSnapshotShown?: { at: number; swappedAt?: number };
   captureSnapshot: (doc: Document, theme: string) => ChatSnapshot | undefined;
@@ -164,8 +168,30 @@ type BenchWindow = {
 /// place (`chat.scrollAnchor.get`: null, the chat opens at its newest message). The page assigns its own
 /// `window.cmuxAcpmuxActions` once its client is up (App.tsx); these stay beside its own, as the app's
 /// host keeps answering them. Runs in the page, so it closes over nothing.
-function installHost({ tail }: { tail: unknown }) {
-  const asked = { tailAskedAt: 0, tailCalls: 0 };
+function installHost({ tail, readyDelayMs }: { tail: unknown; readyDelayMs: number }) {
+  // Wrap the dev host's real ready answer, withholding it just as a daemon handoff does.
+  let webkit: unknown;
+  Object.defineProperty(window, "webkit", {
+    configurable: true,
+    get: () => webkit,
+    set: (next) => {
+      for (const name of ["agentSession", "cmuxPage"]) {
+        const handler = next?.messageHandlers?.[name];
+        if (!handler || readyDelayMs <= 0) continue;
+        const post = handler.postMessage.bind(handler);
+        handler.postMessage = async (request: { method?: string; op?: string }) => {
+          if (["ready", "handshake"].includes((request.method ?? request.op ?? "").replace(/^cmux\.agent\./, ""))) {
+            // fixed-wait: the withheld native handshake is the condition measured by this mode.
+            await new Promise((done) => setTimeout(done, Math.max(0, readyDelayMs - performance.now())));
+            asked.readyAnsweredAt = performance.now();
+          }
+          return post(request);
+        };
+      }
+      webkit = next;
+    },
+  });
+  const asked = { tailAskedAt: 0, tailCalls: 0, readyAnsweredAt: 0 };
   (window as unknown as { __benchHost: typeof asked }).__benchHost = asked;
   const served: Record<string, (params: Record<string, unknown>) => Promise<unknown>> = {
     "chat.tail.get": async () => {
@@ -294,6 +320,7 @@ type Round = {
   /// Why no copy drew (boot.ts), or null when one did.
   copyMiss: string | null;
   tailAskedMs: number | null;
+  readyAnsweredMs: number | null;
   /// When the stand-in acpmux started answering, ms from navigation.
   acpmuxUpMs: number;
   /// Socket upgrades refused while acpmux was down.
@@ -371,7 +398,23 @@ try {
   const work = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "first-load-bench-work-"));
   releases.push(["bundles", () => fs.rmSync(work, { recursive: true, force: true })]);
   const { build } = await import("vite");
+  // An immutable pane source revision under the same harness makes the before/after comparable.
+  // Only these presentation sources differ; the page host, daemon fixture and frame recorder stay fixed.
+  const sourceRef = process.env.PANE_SOURCE_REF;
+  const priorSources = new Map<string, string>();
+  if (sourceRef)
+    for (const file of ["App.tsx", "direct.ts"])
+      priorSources.set(
+        path.join(webviews, "src/agent-session/acpmux", file),
+        execFileSync("git", ["show", `${sourceRef}:webviews/src/agent-session/acpmux/${file}`], {
+          cwd: webviews,
+          encoding: "utf8",
+          maxBuffer: 8 * 1024 * 1024,
+        }),
+      );
+  console.log(`pane source: ${sourceRef ?? "worktree"}`);
   await build({
+    plugins: [{ name: "immutable-pane-baseline", enforce: "pre", load: (id) => priorSources.get(id) }],
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
     build: { outDir: out, emptyOutDir: true },
     logLevel: "error",
@@ -453,7 +496,7 @@ try {
       // As the page host answers it (AgentPageResources.swift): the globals, then the boot if it ran first.
       if (pathname === "/__snapshot/chat.js")
         return script(
-          `self.${SNAPSHOT_GLOBAL}=${JSON.stringify(servedCopy)};self.${SNAPSHOT_THEME_GLOBAL}=${JSON.stringify(THEME)};self.${SNAPSHOT_BOOT_GLOBAL}?.();`,
+          `self.${SNAPSHOT_GLOBAL}=${JSON.stringify(servedCopy)};self.${SNAPSHOT_THEME_GLOBAL}=${JSON.stringify(THEME)};self.__cmuxRestoredChat=${JSON.stringify(PAPERCUT_CHAT)};self.dispatchEvent(new Event('cmux-restored-chat'));self.${SNAPSHOT_BOOT_GLOBAL}?.();`,
         );
       if (pathname === "/chat-snapshot.js") return script(bootScript);
       const file = Bun.file(path.join(out, pathname));
@@ -470,9 +513,9 @@ try {
   });
   releases.push(["browser", () => browser.close()]);
 
-  const prepare = async (page: Page, tail: unknown, windowMs: number) => {
+  const prepare = async (page: Page, tail: unknown, windowMs: number, readyDelayMs = 0) => {
     await installPaintedFrames(page);
-    await page.addInitScript(installHost, { tail });
+    await page.addInitScript(installHost, { tail, readyDelayMs });
     await page.addInitScript(recordFrames, { windowMs, latest: LATEST, hostTag: SNAPSHOT_HOST_TAG });
   };
 
@@ -531,11 +574,11 @@ try {
   /// The load after the restart: a cold context, the copy and the kept tail served, acpmux unavailable
   /// for DOWN_MS from navigation in `mode`.
   const relaunch = async (mode: Mode, copy: ChatSnapshot): Promise<Round> => {
-    servedCopy = copy;
+    servedCopy = mode === "native-ready-tail" ? null : copy;
     const context = await browser.newContext({ viewport: VIEWPORT });
     try {
       const page = await context.newPage();
-      await prepare(page, keptTail, RECORD_MS);
+      await prepare(page, keptTail, RECORD_MS, mode.startsWith("native-ready") ? DOWN_MS : 0);
       load = { refused: 0, socketOpenedAt: 0, initializeAnsweredAt: 0, attachAnsweredAt: 0 };
       downMode = mode;
       downUntil = Date.now() + DOWN_MS;
@@ -555,9 +598,12 @@ try {
           miss: w.__cmuxChatSnapshotMiss ?? null,
           shown: w.__cmuxChatSnapshotShown ?? null,
           tailAskedAt: w.__benchHost.tailAskedAt,
+          readyAnsweredAt: w.__benchHost.readyAnsweredAt,
           liveLatestAt: w.__firstLoad.liveLatestAt,
         };
       });
+      if (mode.startsWith("native-ready") && got.readyAnsweredAt < DOWN_MS - 20)
+        throw new Error(`native ready delay was not exercised: ${got.readyAnsweredAt}`);
       const since = (epoch: number) => (epoch ? epoch - got.origin : null);
       return {
         mode,
@@ -569,6 +615,7 @@ try {
         swapMs: got.shown?.swappedAt ?? null,
         copyMiss: got.miss,
         tailAskedMs: got.tailAskedAt || null,
+        readyAnsweredMs: got.readyAnsweredAt || null,
         acpmuxUpMs: upAt - got.origin,
         refused: load.refused,
         socketOpenedMs: since(load.socketOpenedAt),
@@ -658,7 +705,12 @@ try {
     for (const r of rounds)
       if (r.liveLatestMs === null) console.log("  failed: the live chat never showed the newest answer");
     const bad = rounds.filter(
-      (r) => r.metrics.blankAfterContent > 0 || r.metrics.shiftFrames > 0 || r.liveLatestMs === null,
+      (r) =>
+        r.metrics.blankAfterContent > 0 ||
+        r.metrics.shiftFrames > 0 ||
+        r.liveLatestMs === null ||
+        r.metrics.firstContentMs === null ||
+        r.metrics.firstContentMs > 2000,
     );
     if (bad.length > 0) failed = true;
     if (TRACE) {
@@ -713,7 +765,9 @@ try {
   }
   console.log(`FIRST_LOAD_JSON ${JSON.stringify(json)}`);
   if (GATE && failed) {
-    console.error("first-load-after-restart: a round blanked the chat after it showed content or moved it (GATE=1)");
+    console.error(
+      "first-load-after-restart: a round exceeded 2000 ms to transcript, blanked after content, moved it, or never drew live content (GATE=1)",
+    );
     process.exitCode = 1;
   }
 } finally {

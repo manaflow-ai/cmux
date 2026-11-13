@@ -183,7 +183,21 @@ fn is_test_panic_thread(thread: &str) -> bool {
 /// cancellation-ignoring hub tasks are cut at this deadline so the next daemon can bind promptly.
 pub const SHUTDOWN_BUDGET: Duration = Duration::from_secs(1);
 
+/// Includes the CLI's final diagnostic-log flush, which used to add a fresh second after
+/// the daemon had consumed its entire shutdown budget.
+static SHUTDOWN_DEADLINE: std::sync::Mutex<Option<std::time::Instant>> =
+    std::sync::Mutex::new(None);
+
+pub(crate) fn shutdown_time_left() -> Option<Duration> {
+    SHUTDOWN_DEADLINE
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .as_ref()
+        .map(|deadline| deadline.saturating_duration_since(std::time::Instant::now()))
+}
+
 pub async fn run(opts: DaemonOptions) -> Result<()> {
+    *SHUTDOWN_DEADLINE.lock().unwrap_or_else(PoisonError::into_inner) = None;
     // The start of every startup phase in `daemon status` is timed from (`gauges.rs`).
     let gauges = crate::gauges::global();
     crate::cli::cloud_join::retain_own_machine_consent_requirement()?;
@@ -1056,7 +1070,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     tracing::info!("shutting down");
     let shutdown_deadline = tokio::time::Instant::now() + SHUTDOWN_BUDGET;
+    *SHUTDOWN_DEADLINE.lock().unwrap_or_else(PoisonError::into_inner) =
+        Some(shutdown_deadline.into_std());
     let shutdown_left = || shutdown_deadline.saturating_duration_since(tokio::time::Instant::now());
+    // Session/transport cleanup cannot consume the writers' entire chance to drain.
+    let cleanup_deadline = shutdown_deadline - Duration::from_millis(250);
     // First: the cmux link stops sending peers here before admission closes or the listener is
     // freed, so no process that binds the freed port can be taken for this daemon.
     drop(listener_record);
@@ -1073,15 +1091,15 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // WebSocket shutdown below (1012 on restart), never as a listener failure.
     // A supervisor action under way finishes first, within its own bounds.
     #[cfg(all(unix, feature = "tailnet"))]
-    let _ = tokio::time::timeout(shutdown_left(), tailnet.fence()).await;
+    let _ = tokio::time::timeout_at(cleanup_deadline, tailnet.fence()).await;
     // Its home is gone (`daemon/home_watch.rs`): no later daemon can adopt its agents from
     // there, so they end; and this shutdown removes nothing at the old paths, which may be
     // another daemon's now (`config::mark_home_lost` refuses its writes there).
     startup.abort();
-    let _ = startup.await;
+    let _ = tokio::time::timeout_at(cleanup_deadline, startup).await;
     // Its last heartbeat empties this daemon's rows in the hub's address book.
     if let Some(relay) = mesh_relay {
-        let _ = tokio::time::timeout(shutdown_left(), relay.stop()).await;
+        let _ = tokio::time::timeout_at(cleanup_deadline, relay.stop()).await;
     }
     // SIGTERM handoff and explicit updates/restarts use 1012. Explicit ordinary RPC
     // shutdown and interactive interrupt use a normal WebSocket close.
@@ -1092,7 +1110,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         ws_shutdown.normal_shutdown();
     }
     let drain_deadline = std::cmp::min(
-        shutdown_deadline,
+        cleanup_deadline,
         tokio::time::Instant::now() + crate::server::WS_DRAIN_BUDGET,
     );
     if tokio::time::timeout_at(drain_deadline, ws_shutdown.drained()).await.is_err() {
@@ -1102,22 +1120,22 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         && tokio::time::timeout_at(drain_deadline, &mut task).await.is_err()
     {
         task.abort();
-        let _ = task.await;
+        let _ = tokio::time::timeout_at(cleanup_deadline, task).await;
         tracing::warn!("websocket clients did not drain before the shutdown deadline");
     }
     // The ingress has had the WebSocket drain to close its clients; stop and
     // join whatever remains within the service's own bound.
     #[cfg(all(unix, feature = "tailnet"))]
-    let _ = tokio::time::timeout(shutdown_left(), tailnet.shutdown()).await;
+    let _ = tokio::time::timeout_at(cleanup_deadline, tailnet.shutdown()).await;
     // Keep encrypted bridges alive until WebSocket close/restart frames have drained.
     if let Some(transport) = wireguard {
-        transport.shutdown(shutdown_deadline).await;
+        transport.shutdown(cleanup_deadline).await;
     }
     // A node a person started closes with the daemon; its saved login stays.
     // The controller is made here if no request made it (it holds no node
     // until a start), so a start racing this shutdown is refused either way.
     #[cfg(all(unix, feature = "tailnet"))]
-    match tokio::time::timeout(shutdown_left(), hub.tailnet_controller().shutdown()).await {
+    match tokio::time::timeout_at(cleanup_deadline, hub.tailnet_controller().shutdown()).await {
         Ok(Ok(())) => {}
         Ok(Err(error)) => tracing::warn!("embedded tailnet close: {error}"),
         Err(_) => tracing::warn!("embedded tailnet did not close within {SHUTDOWN_BUDGET:?}"),
@@ -1137,31 +1155,50 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     // How many hosted agents this shutdown kept running for the next
     // daemon; unknown (a timeout) counts as kept.
-    let kept = match tokio::time::timeout(shutdown_left(), async {
-        // A signal can arrive while metadata loads. Snapshot every stored session before
-        // detaching or ending hosts. A timeout conservatively keeps their router below.
-        let _ = metadata.await;
-        if restarting {
-            hub.shutdown_for_handoff(true, shutdown_deadline).await
-        } else {
-            hub.shutdown_for_handoff(false, shutdown_deadline).await
-        }
-    })
-    .await
-    {
-        Ok(kept) => kept,
-        Err(_) => {
+    let mut sessions = {
+        let hub = hub.clone();
+        tokio::spawn(async move {
+            // A signal can arrive while metadata loads. Snapshot every stored session before
+            // detaching or ending hosts. A timeout conservatively keeps their router below.
+            let _ = metadata.await;
+            if restarting {
+                hub.shutdown_for_handoff(true).await
+            } else {
+                hub.shutdown_for_handoff(false).await
+            }
+        })
+    };
+    let mut unfinished_sessions = None;
+    let kept = match tokio::time::timeout_at(cleanup_deadline, &mut sessions).await {
+        Ok(Ok(kept)) => kept,
+        _ => {
+            sessions.abort();
+            unfinished_sessions = Some(sessions);
             tracing::warn!("agents did not stop within {SHUTDOWN_BUDGET:?}; exiting anyway");
-            // The deadline is the handoff contract. A synchronous flush here used to run after
-            // the timeout and serialized every large chat's metadata, so a god-sized restart
-            // still took several seconds despite the bounded shutdown. The shutdown fence and
-            // cancelled owned tasks stop new work; the next daemon replays any unfinished store
-            // writes from its journal.
+            // Persistence still runs below, even when session cleanup used its whole grace.
             usize::MAX
         }
     };
     // The hub's own tasks after its agents: cancelled and joined, any left named (`hub/shutdown.rs`).
-    hub.close_owned_tasks_until(shutdown_deadline).await;
+    hub.close_owned_tasks_until(cleanup_deadline).await;
+    let (cleanup_done, cleanup_finished) = tokio::sync::oneshot::channel::<()>();
+    let persistence = {
+        let hub = hub.clone();
+        tokio::spawn(async move {
+            // Abort is cooperative: a synchronous final session write may still be under way.
+            // Never seal ahead of it or release ownership while it can still mutate the home.
+            if let Some(sessions) = unfinished_sessions {
+                let _ = sessions.await;
+            }
+            hub.persist_for_handoff(shutdown_deadline).await;
+            // PID and token removal also belongs to this owner, before the next daemon may
+            // acquire the lock and write its own files with the same names.
+            let _ = cleanup_finished.await;
+            // A timeout must not unlock the home while a blocking store fence still writes.
+            // This task keeps both the lock and hub until persistence ends or the CLI exits.
+            drop(_lock_file);
+        })
+    };
     // After the agents: their model streams go through the router.
     // A lost home's router path may be another daemon's router now: let go of ours, never ask
     // that path to stop.
@@ -1176,7 +1213,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // Cancelled and finished before the removal, so a late retry never puts it back.
     if let Some(retry) = pid_retry {
         retry.abort();
-        let _ = retry.await;
+        let _ = tokio::time::timeout_at(shutdown_deadline, retry).await;
     }
     recheck_home();
     if !crate::config::home_lost() {
@@ -1192,6 +1229,12 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         tokio::task::spawn_blocking(cmux_usage_patterns::flush),
     )
     .await;
+    let _ = cleanup_done.send(());
+    if tokio::time::timeout_at(shutdown_deadline, persistence).await.is_err() {
+        tracing::warn!(
+            "persistence still draining at the shutdown deadline; keeping the home locked until exit"
+        );
+    }
     tracing::info!("stopped");
     Ok(())
 }

@@ -15,6 +15,24 @@ fn hub() -> Arc<Hub> {
 }
 
 #[tokio::test(start_paused = true)]
+async fn daemon_peer_gate_waits_for_local_initialization() {
+    let mut cfg = Config::default();
+    cfg.store.mode = StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+    let hub = Hub::build(cfg, store, Mailbox::memory(), true, true, None, false);
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(1), hub.wait_local_ready())
+            .await
+            .is_err(),
+        "daemon peer dialing was released before local initialization"
+    );
+    hub.mark_local_ready();
+    tokio::time::timeout(std::time::Duration::from_millis(1), hub.wait_local_ready())
+        .await
+        .expect("local initialization releases peer dialing");
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_new_session_behind_a_startup_that_never_ends_fails_naming_the_phase() {
     let hub = hub();
     // A startup that never finishes, as one held by a wedged host's adoption.
