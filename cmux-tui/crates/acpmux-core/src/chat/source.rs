@@ -444,7 +444,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "release gate: bounded source reads at both history sizes"]
     fn v2_pr03a_source_read_bounds() -> io::Result<()> {
         let mut measured = Vec::new();
         for rows in [40u64, 2_000_000] {
@@ -479,6 +478,14 @@ mod tests {
             god.0 as f64 / small.0 as f64,
             god.1 as f64 / small.1 as f64
         );
+        if let Ok(path) = std::env::var("V2_GATE_OUT") {
+            let mut output = std::fs::OpenOptions::new().create(true).append(true).open(path)?;
+            writeln!(
+                output,
+                "{{\"name\":\"v2.pr03a.source_read_bounds\",\"small_p95\":{},\"god_p95\":{},\"unit\":\"bytes\"}}",
+                small.0, god.0
+            )?;
+        }
         Ok(())
     }
 }
