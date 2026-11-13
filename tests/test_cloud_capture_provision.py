@@ -281,14 +281,35 @@ class Provision(unittest.TestCase):
         grant = text.split("- name: Grant the operator plan only", 1)[1].split("- name:", 1)[0]
         self.assertIn("inputs.target != 'production-team'", grant)
 
-    def test_preclaim_reads_the_staging_names_and_keeps_production_names(self):
+    def test_the_workflow_offers_every_target_and_gives_the_production_key_to_exactly_the_production_ones(self):
+        # The script had `journey` (the staging journey pair, cmux#42626) while the workflow never offered it, so the
+        # one staging rotation nobody could dispatch was the one the journeys needed.
+        text = (ROOT / ".github" / "workflows" / "cloud-capture-provision.yml").read_text()
+        options = next(line for line in text.splitlines() if line.strip().startswith("options:"))
+        offered = {o.strip() for o in options.split("[", 1)[1].rsplit("]", 1)[0].split(",")}
+        self.assertEqual(offered, set(provision.TARGETS))
+        environment = next(line for line in text.splitlines() if line.strip().startswith("environment:"))
+        grant = text.split("- name: Grant the operator plan only", 1)[1].split("- name:", 1)[0]
+        for name, target in provision.TARGETS.items():
+            production = target.project == provision.PRODUCTION_PROJECT_ID
+            self.assertEqual(f"inputs.target == '{name}'" in environment, production, name)
+            if production:
+                self.assertIn(f"inputs.target != '{name}'", grant)
+
+    def test_preclaim_signs_in_with_the_staging_pair_and_keeps_production_names(self):
+        # cmux-next-cloud-journey's CMUX_DOGFOOD_STACK_* is the production account, which staging refuses
+        # (EMAIL_PASSWORD_MISMATCH); cmux-next-vm-image-dev's is the journey target's staging account (TARGETS above).
+        self.assertEqual(provision.TARGETS["journey"].environment, "cmux-next-vm-image-dev")
+        self.assertEqual(provision.TARGETS["journey-production"].environment, "cmux-next-cloud-journey")
         text = (ROOT / ".github" / "workflows" / "cloud-journey-prod.yml").read_text()
-        preclaim = text.split("- name: Staging preclaim login burst", 1)[1].split("- name: Upload staging preclaim evidence", 1)[0]
-        self.assertIn("CMUX_STAGING_STACK_EMAIL: ${{ secrets.CMUX_STAGING_STACK_EMAIL }}", preclaim)
-        self.assertIn("CMUX_STAGING_STACK_PASSWORD: ${{ secrets.CMUX_STAGING_STACK_PASSWORD }}", preclaim)
-        self.assertNotIn("CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}", preclaim)
+        job = text.split("\n  preclaim:\n", 1)[1]
+        self.assertIn("      name: cmux-next-vm-image-dev\n", job.split("    steps:", 1)[0])
+        preclaim = job.split("- name: Staging preclaim login burst", 1)[1].split("- name: Upload staging preclaim evidence", 1)[0]
+        self.assertIn("CMUX_STAGING_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}", preclaim)
+        self.assertIn("CMUX_STAGING_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}", preclaim)
         production = text.split("- name: Cloud journey (prod,", 1)[1].split("- name: ", 1)[0]
         self.assertIn("CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}", production)
+        self.assertIn("name: cmux-next-cloud-journey", text.split("\n  preclaim:\n", 1)[0])
 
     def test_the_platform_targets_seal_to_cmux_platform_repository_secrets_with_their_own_accounts(self):
         key, pk, sk = keypair()

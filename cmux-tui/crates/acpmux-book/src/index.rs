@@ -23,9 +23,19 @@ use std::ops::Bound::{Excluded, Unbounded};
 mod codec;
 mod compaction;
 mod edition;
+mod family_pages;
+mod kin;
+pub use family_pages::CursorGone;
 pub mod folders;
+#[cfg(test)]
+mod kin_contract_tests;
+#[cfg(test)]
+mod kin_gates;
+#[cfg(test)]
+mod kin_lifecycle_tests;
 mod log;
 mod pages;
+mod table_pages;
 pub use pages::{IndexPage, ListFilter, ReadSide};
 #[cfg(test)]
 mod compaction_tests;
@@ -34,6 +44,7 @@ mod snapshot;
 mod storage_tests;
 pub use compaction::{Compaction, CompactionResult};
 pub use edition::IndexEdition;
+pub use kin::{FolderKey, KinTables};
 pub use log::{IndexLog, replay_generation_logs, replay_log, replay_log_from};
 pub use snapshot::{DiskSnapshot, SnapshotRows, SortedSnapshot};
 
@@ -385,6 +396,7 @@ pub struct SummaryIndex {
     live_ordered: OrdMap<SortKey, Arc<Summary>>,
     disk: Option<Arc<DiskSnapshot>>,
     shadowed: OrdSet<RowKey>,
+    kin: KinTables,
 }
 
 impl Default for SummaryIndex {
@@ -403,6 +415,7 @@ impl SummaryIndex {
             live_ordered: OrdMap::new(),
             disk: None,
             shadowed: OrdSet::new(),
+            kin: KinTables::new(),
         }
     }
 
@@ -467,6 +480,7 @@ impl SummaryIndex {
         {
             self.ordered.remove(&SortKey::of(&row));
             self.live_ordered.remove(&SortKey::of(&row));
+            self.kin.remove(&row);
             return true;
         }
         false
@@ -477,10 +491,13 @@ impl SummaryIndex {
     pub fn hydrate_compacted(&mut self, row: Arc<Summary>) {
         let key = row.key();
         if !self.shadowed.contains(&key) && !self.by_id.contains_key(&key) {
-            self.by_id.insert(key, row.clone());
+            self.by_id.insert(key.clone(), row.clone());
             self.ordered.insert(SortKey::of(&row), row.clone());
             if row.is_live() {
                 self.live_ordered.insert(SortKey::of(&row), row);
+            }
+            if let Some(row) = self.by_id.get(&key) {
+                self.kin.insert(row);
             }
         }
     }
@@ -495,20 +512,28 @@ impl SummaryIndex {
         self.shadowed.contains(key)
     }
 
+    /// The kin/folder tables contain only rows present in the hot overlay.
+    pub fn kin(&self) -> &KinTables {
+        &self.kin
+    }
+
     pub fn hydrate(&self, row: Arc<Summary>, now: u64) -> Self {
         if self.shadowed.contains(&row.key()) || !row.is_hot_at(now) {
             return self.clone();
         }
         let mut next = self.clone();
-        if let Some(old) = next.by_id.get(&row.key()) {
+        let key = row.key();
+        let old = next.by_id.get(&key).cloned();
+        if let Some(old) = old.as_ref() {
             next.ordered.remove(&SortKey::of(old));
             next.live_ordered.remove(&SortKey::of(old));
         }
-        next.by_id.insert(row.key(), row.clone());
+        next.by_id.insert(key, row.clone());
         next.ordered.insert(SortKey::of(&row), row.clone());
         if row.is_live() {
-            next.live_ordered.insert(SortKey::of(&row), row);
+            next.live_ordered.insert(SortKey::of(&row), row.clone());
         }
+        next.kin = next.kin.replace(old.as_deref(), Some(&row));
         next
     }
 
@@ -535,6 +560,12 @@ impl SummaryIndex {
     /// Applies one summary without walking the rest of the index.
     pub fn apply(&self, seq: u64, summary: Summary) -> Self {
         let summary = Arc::new(summary.bounded());
+        let old = self.by_id.get(&summary.key()).cloned();
+        if old.as_ref().is_some_and(|old| old.same_content(&summary)) {
+            let mut next = self.clone();
+            next.seq = next.seq.max(seq);
+            return next;
+        }
         let mut by_id = self.by_id.clone();
         let mut ordered = self.ordered.clone();
         let mut live_ordered = self.live_ordered.clone();
@@ -548,12 +579,15 @@ impl SummaryIndex {
         if summary.is_live() {
             live_ordered.insert(sort_key, summary.clone());
         }
-        by_id.insert(key.clone(), summary);
+        by_id.insert(key.clone(), summary.clone());
         let mut shadowed = self.shadowed.clone();
         if self.disk.is_some() {
             shadowed.insert(key);
         }
-        Self { seq: self.seq.max(seq), by_id, ordered, live_ordered, shadowed, ..self.clone() }
+        let mut next =
+            Self { seq: self.seq.max(seq), by_id, ordered, live_ordered, shadowed, ..self.clone() };
+        next.kin = self.kin.replace(old.as_deref(), Some(&summary));
+        next
     }
 
     /// Test/telemetry hook: applying one summary records the number of
@@ -655,14 +689,10 @@ impl SummaryIndex {
         if self.disk.is_some() {
             shadowed.insert(key.clone());
         }
-        Some(Self {
-            seq: self.seq.max(seq),
-            by_id,
-            ordered,
-            live_ordered,
-            shadowed,
-            ..self.clone()
-        })
+        let mut next =
+            Self { seq: self.seq.max(seq), by_id, ordered, live_ordered, shadowed, ..self.clone() };
+        next.kin = self.kin.replace(old.map(Arc::as_ref), None);
+        Some(next)
     }
 }
 

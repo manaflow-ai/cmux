@@ -1077,3 +1077,23 @@ async fn a_key_provider_read_error_is_not_a_missing_chat() {
     drop(client);
     task.await.unwrap().unwrap();
 }
+
+#[test]
+fn family_cursor_gone_has_a_machine_readable_error_code() {
+    let request = Frame::json(FrameKind::Page, &serde_json::json!({"sid":"kin"})).unwrap();
+    let frame = error_frame(&request, &ConnError::Hub(HubError::CursorGone)).unwrap();
+    let value: serde_json::Value = frame.decode_json().unwrap();
+    assert_eq!(value.get("code"), Some(&serde_json::json!("cursor_gone")));
+}
+
+#[test]
+fn table_filter_on_sub_has_invalid_params_code() {
+    let request = Frame::json(FrameKind::Window, &serde_json::json!({"sid":"kin"})).unwrap();
+    let frame = error_frame(
+        &request,
+        &ConnError::Hub(HubError::InvalidParams("table filters are page-only".into())),
+    )
+    .unwrap();
+    let value: serde_json::Value = frame.decode_json().unwrap();
+    assert_eq!(value.get("code"), Some(&serde_json::json!("invalid_params")));
+}
