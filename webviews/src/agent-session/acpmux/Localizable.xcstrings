@@ -53093,127 +53093,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "حدث خطأ، فلم يتم ذلك. حاول مرة أخرى."
+            "value": "حدث خطأ، فلم يتم ذلك."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nešto je pošlo po zlu, pa to nije uspjelo. Pokušajte ponovo."
+            "value": "Nešto je pošlo po zlu, pa to nije uspjelo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Noget gik galt, så det blev ikke gennemført. Prøv igen."
+            "value": "Noget gik galt, så det blev ikke gennemført."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Etwas ist schiefgelaufen, daher hat das nicht geklappt. Versuche es erneut."
+            "value": "Etwas ist schiefgelaufen, daher hat das nicht geklappt."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Something went wrong, so that didn’t go through. Try again."
+            "value": "Something went wrong, so that didn’t go through."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Algo salió mal y no se completó. Inténtalo de nuevo."
+            "value": "Algo salió mal y no se completó."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Un problème est survenu, l’action n’a pas abouti. Réessayez."
+            "value": "Un problème est survenu, l’action n’a pas abouti."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Qualcosa è andato storto e l’azione non è riuscita. Riprova."
+            "value": "Qualcosa è andato storto e l’azione non è riuscita."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "問題が発生したため、完了できませんでした。もう一度お試しください。"
+            "value": "問題が発生したため、完了できませんでした。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "មានបញ្ហាកើតឡើង ដូច្នេះវាមិនបានសម្រេចទេ។ សូមព្យាយាមម្តងទៀត។"
+            "value": "មានបញ្ហាកើតឡើង ដូច្នេះវាមិនបានសម្រេចទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "문제가 발생해 완료되지 않았습니다. 다시 시도하세요."
+            "value": "문제가 발생해 완료되지 않았습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Noe gikk galt, så det ble ikke gjennomført. Prøv igjen."
+            "value": "Noe gikk galt, så det ble ikke gjennomført."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Coś poszło nie tak, więc to się nie udało. Spróbuj ponownie."
+            "value": "Coś poszło nie tak, więc to się nie udało."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Algo deu errado e isso não foi concluído. Tente novamente."
+            "value": "Algo deu errado e isso não foi concluído."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Что-то пошло не так, и действие не выполнено. Попробуйте ещё раз."
+            "value": "Что-то пошло не так, и действие не выполнено."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เกิดข้อผิดพลาด จึงดำเนินการไม่สำเร็จ ลองอีกครั้ง"
+            "value": "เกิดข้อผิดพลาด จึงดำเนินการไม่สำเร็จ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bir sorun oluştu, bu yüzden işlem tamamlanmadı. Yeniden deneyin."
+            "value": "Bir sorun oluştu, bu yüzden işlem tamamlanmadı."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Щось пішло не так, і дію не виконано. Спробуйте ще раз."
+            "value": "Щось пішло не так, і дію не виконано."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Đã xảy ra sự cố nên thao tác chưa hoàn tất. Hãy thử lại."
+            "value": "Đã xảy ra sự cố nên thao tác chưa hoàn tất."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "出现问题，操作未完成。请重试。"
+            "value": "出现问题，操作未完成。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "發生問題，操作未完成。請再試一次。"
+            "value": "發生問題，操作未完成。"
           }
         }
       }
@@ -118384,6 +118384,10 @@
         }
       }
     },
+    "harness.updatesAvailable": {"comment":"Agent pane: model menus' list of every outdated agent CLI, its heading (ask-3fdf0982ec)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تتوفر تحديثات للأدوات"}},"bs":{"stringUnit":{"state":"needs_review","value":"Dostupna su ažuriranja harnessa"}},"da":{"stringUnit":{"state":"needs_review","value":"Opdateringer til harnesses er tilgængelige"}},"de":{"stringUnit":{"state":"needs_review","value":"Harness-Updates verfügbar"}},"en":{"stringUnit":{"state":"translated","value":"Harness updates available"}},"es":{"stringUnit":{"state":"needs_review","value":"Hay actualizaciones de harness disponibles"}},"fr":{"stringUnit":{"state":"needs_review","value":"Mises à jour de harness disponibles"}},"it":{"stringUnit":{"state":"needs_review","value":"Aggiornamenti harness disponibili"}},"ja":{"stringUnit":{"state":"needs_review","value":"ハーネスのアップデートがあります"}},"km":{"stringUnit":{"state":"needs_review","value":"មានការធ្វើបច្ចុប្បន្នភាព harness"}},"ko":{"stringUnit":{"state":"needs_review","value":"하네스 업데이트 사용 가능"}},"nb":{"stringUnit":{"state":"needs_review","value":"Oppdateringer for harnesser er tilgjengelige"}},"pl":{"stringUnit":{"state":"needs_review","value":"Dostępne aktualizacje harnessów"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Atualizações de harness disponíveis"}},"ru":{"stringUnit":{"state":"needs_review","value":"Доступны обновления харнессов"}},"th":{"stringUnit":{"state":"needs_review","value":"มีอัปเดตสำหรับ harness"}},"tr":{"stringUnit":{"state":"needs_review","value":"Harness güncellemeleri var"}},"uk":{"stringUnit":{"state":"needs_review","value":"Доступні оновлення харнесів"}},"vi":{"stringUnit":{"state":"needs_review","value":"Có bản cập nhật harness"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"有可用的 Harness 更新"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"有可用的 Harness 更新"}}}},
+    "harness.updateAll": {"comment":"Agent pane: model menus' harness updates list, the button that updates every listed agent CLI","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تحديث الكل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ažuriraj sve"}},"da":{"stringUnit":{"state":"needs_review","value":"Opdater alle"}},"de":{"stringUnit":{"state":"needs_review","value":"Alle aktualisieren"}},"en":{"stringUnit":{"state":"translated","value":"Update all"}},"es":{"stringUnit":{"state":"needs_review","value":"Actualizar todo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Tout mettre à jour"}},"it":{"stringUnit":{"state":"needs_review","value":"Aggiorna tutto"}},"ja":{"stringUnit":{"state":"needs_review","value":"すべてアップデート"}},"km":{"stringUnit":{"state":"needs_review","value":"ធ្វើបច្ចុប្បន្នភាពទាំងអស់"}},"ko":{"stringUnit":{"state":"needs_review","value":"모두 업데이트"}},"nb":{"stringUnit":{"state":"needs_review","value":"Oppdater alle"}},"pl":{"stringUnit":{"state":"needs_review","value":"Aktualizuj wszystko"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Atualizar tudo"}},"ru":{"stringUnit":{"state":"needs_review","value":"Обновить все"}},"th":{"stringUnit":{"state":"needs_review","value":"อัปเดตทั้งหมด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Tümünü güncelle"}},"uk":{"stringUnit":{"state":"needs_review","value":"Оновити все"}},"vi":{"stringUnit":{"state":"needs_review","value":"Cập nhật tất cả"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"全部更新"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"全部更新"}}}},
+    "harness.updatesHint": {"comment":"Agent pane: model menus' harness updates list, the line under the rows saying why to update","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"غالبًا ما تحتاج النماذج الجديدة إلى أحدث إصدار."}},"bs":{"stringUnit":{"state":"needs_review","value":"Novi modeli često trebaju najnoviju verziju."}},"da":{"stringUnit":{"state":"needs_review","value":"Nye modeller kræver ofte den nyeste version."}},"de":{"stringUnit":{"state":"needs_review","value":"Neue Modelle brauchen oft die neueste Version."}},"en":{"stringUnit":{"state":"translated","value":"New models often need the latest version."}},"es":{"stringUnit":{"state":"needs_review","value":"Los modelos nuevos suelen necesitar la versión más reciente."}},"fr":{"stringUnit":{"state":"needs_review","value":"Les nouveaux modèles nécessitent souvent la dernière version."}},"it":{"stringUnit":{"state":"needs_review","value":"I nuovi modelli richiedono spesso l'ultima versione."}},"ja":{"stringUnit":{"state":"needs_review","value":"新しいモデルには最新バージョンが必要なことがよくあります。"}},"km":{"stringUnit":{"state":"needs_review","value":"ម៉ូដែលថ្មីៗតែងត្រូវការកំណែចុងក្រោយបំផុត។"}},"ko":{"stringUnit":{"state":"needs_review","value":"새 모델은 대개 최신 버전이 필요합니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Nye modeller trenger ofte den nyeste versjonen."}},"pl":{"stringUnit":{"state":"needs_review","value":"Nowe modele często wymagają najnowszej wersji."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Modelos novos costumam precisar da versão mais recente."}},"ru":{"stringUnit":{"state":"needs_review","value":"Новым моделям часто нужна последняя версия."}},"th":{"stringUnit":{"state":"needs_review","value":"โมเดลใหม่มักต้องใช้เวอร์ชันล่าสุด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yeni modeller genellikle en son sürümü gerektirir."}},"uk":{"stringUnit":{"state":"needs_review","value":"Новим моделям часто потрібна остання версія."}},"vi":{"stringUnit":{"state":"needs_review","value":"Các mô hình mới thường cần phiên bản mới nhất."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"新模型通常需要最新版本。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"新模型通常需要最新版本。"}}}},
+    "harness.versionChange": {"comment":"Agent pane: model menus' harness updates list, the installed version and the newest one","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"{version} → {latest}"}},"bs":{"stringUnit":{"state":"needs_review","value":"{version} → {latest}"}},"da":{"stringUnit":{"state":"needs_review","value":"{version} → {latest}"}},"de":{"stringUnit":{"state":"needs_review","value":"{version} → {latest}"}},"en":{"stringUnit":{"state":"translated","value":"{version} → {latest}"}},"es":{"stringUnit":{"state":"needs_review","value":"{version} → {latest}"}},"fr":{"stringUnit":{"state":"needs_review","value":"{version} → {latest}"}},"it":{"stringUnit":{"state":"needs_review","value":"{version} → {latest}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{version} → {latest}"}},"km":{"stringUnit":{"state":"needs_review","value":"{version} → {latest}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{version} → {latest}"}},"nb":{"stringUnit":{"state":"needs_review","value":"{version} → {latest}"}},"pl":{"stringUnit":{"state":"needs_review","value":"{version} → {latest}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{version} → {latest}"}},"ru":{"stringUnit":{"state":"needs_review","value":"{version} → {latest}"}},"th":{"stringUnit":{"state":"needs_review","value":"{version} → {latest}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{version} → {latest}"}},"uk":{"stringUnit":{"state":"needs_review","value":"{version} → {latest}"}},"vi":{"stringUnit":{"state":"needs_review","value":"{version} → {latest}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{version} → {latest}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{version} → {latest}"}}}},
     "harness.update" : {
       "comment" : "Agent pane: agent CLI health notice (cx-ny85)",
       "extractionState" : "manual",
@@ -183406,6 +183410,270 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "對話已壓縮"
+          }
+        }
+      }
+    },
+    "compaction.completedCacheExpiry": {
+      "comment": "Agent pane: transcript note where cmux compacted the conversation on its own, before the prompt cache expired (Settings > Prompt Cache, Compact Before the Cache Expires); nobody typed /compact",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم ضغط المحادثة قبل انتهاء ذاكرة التخزين المؤقت للطلبات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Razgovor sažet prije isteka keša upita"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Samtalen er komprimeret, før prompt-cachen udløb"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Unterhaltung komprimiert, bevor der Prompt-Cache ablief"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conversation compacted before the prompt cache expired"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conversación compactada antes de que caducara la caché de prompts"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conversation compactée avant l’expiration du cache des prompts"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conversazione compattata prima della scadenza della cache dei prompt"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "プロンプトキャッシュの期限切れ前に会話を圧縮しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានបង្រួមការសន្ទនា មុនពេលឃ្លាំងសម្ងាត់ប្រអប់បញ្ចូលផុតកំណត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "프롬프트 캐시가 만료되기 전에 대화를 압축했습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Samtalen ble komprimert før prompt-hurtigbufferen utløp"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rozmowa skompaktowana przed wygaśnięciem pamięci podręcznej promptów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conversa compactada antes de o cache de prompts expirar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Разговор сжат до истечения кеша запросов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บีบอัดบทสนทนาแล้วก่อนแคชพรอมต์หมดอายุ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konuşma, istem önbelleğinin süresi dolmadan sıkıştırıldı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розмову стиснуто до закінчення кешу запитів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã nén cuộc trò chuyện trước khi bộ nhớ đệm lời nhắc hết hạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已在提示缓存过期前压缩对话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已在提示快取過期前壓縮對話"
+          }
+        }
+      }
+    },
+    "compaction.runningCacheExpiry": {
+      "comment": "Agent pane: transcript note while cmux compacts the conversation on its own, before the prompt cache expires (Settings > Prompt Cache, Compact Before the Cache Expires); nobody typed /compact",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جارٍ ضغط المحادثة قبل انتهاء ذاكرة التخزين المؤقت للطلبات…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sažimanje razgovora prije isteka keša upita…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Komprimerer samtalen, før prompt-cachen udløber…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Unterhaltung wird komprimiert, bevor der Prompt-Cache abläuft …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compacting the conversation before the prompt cache expires…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compactando la conversación antes de que caduque la caché de prompts…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compactage de la conversation avant l’expiration du cache des prompts…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compattazione della conversazione prima della scadenza della cache dei prompt…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "プロンプトキャッシュの期限切れ前に会話を圧縮しています…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងបង្រួមការសន្ទនា មុនពេលឃ្លាំងសម្ងាត់ប្រអប់បញ្ចូលផុតកំណត់…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "프롬프트 캐시가 만료되기 전에 대화를 압축하는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Komprimerer samtalen før prompt-hurtigbufferen utløper…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kompaktowanie rozmowy przed wygaśnięciem pamięci podręcznej promptów…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compactando a conversa antes de o cache de prompts expirar…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сжатие разговора до истечения кеша запросов…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังบีบอัดบทสนทนาก่อนแคชพรอมต์หมดอายุ…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konuşma, istem önbelleğinin süresi dolmadan sıkıştırılıyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Стискання розмови до закінчення кешу запитів…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang nén cuộc trò chuyện trước khi bộ nhớ đệm lời nhắc hết hạn…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在提示缓存过期前压缩对话…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在提示快取過期前壓縮對話…"
           }
         }
       }
@@ -256075,7 +256343,270 @@
             "state": "translated",
             "value": "Bạn có thể bị kẹt: {diagnosis}. Hãy thử cách khác."
           }
-        },"zh-Hans":{"stringUnit":{"state":"translated","value":"你可能遇到阻碍：{diagnosis}。请尝试其他方法。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"你可能遇到阻礙：{diagnosis}。請嘗試其他方法。"}}}}
+        },"zh-Hans":{"stringUnit":{"state":"translated","value":"你可能遇到阻碍：{diagnosis}。请尝试其他方法。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"你可能遇到阻礙：{diagnosis}。請嘗試其他方法。"}}}},
+    "subagents.finishedLine": {
+      "comment": "Agent pane: compact completion line naming the finished subagent; the name remains a link to its transcript.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} finished"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتهى {name}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} je završio"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} er færdig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} ist fertig"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} terminó"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} a terminé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} ha terminato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} が完了しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} បានបញ្ចប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} 완료"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} er ferdig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} zakończył pracę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} terminou"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} завершил работу"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} เสร็จแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} tamamlandı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} завершив роботу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} đã hoàn tất"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} 已完成"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} 已完成"
+          }
+        }
+      }
+    },
+    "subagents.startedLine": {
+      "comment": "Agent pane: inline lifecycle sentence for recorded subagents; name may be a localized list of clickable agent names.",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} started working"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بدأ {name} العمل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} je počeo raditi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} begyndte at arbejde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} hat mit der Arbeit begonnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} empezó a trabajar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} a commencé à travailler"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} ha iniziato a lavorare"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} が作業を開始しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} បានចាប់ផ្តើមធ្វើការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} 작업 시작"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} begynte å jobbe"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} rozpoczął pracę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} começou a trabalhar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} начал работу"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} เริ่มทำงานแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} çalışmaya başladı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} почав роботу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} đã bắt đầu làm việc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} 已开始工作"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} 已開始工作"
+          }
+        }
+      }
+    }
   },
   "version": "1.0"
 }

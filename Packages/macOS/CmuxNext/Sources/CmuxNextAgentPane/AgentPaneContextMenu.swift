@@ -23,6 +23,7 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
     var sideChat: Bool
     /// A prompt that was not sent: its row, for Retry.
     var retryRowId: String?
+    var sendPromptAgain: AgentPanePromptAgainMenu?
     /// The message's web links and images, for Open Link.
     var links: [URL]
     /// The pointer is on an image the page opens on click.
@@ -34,7 +35,7 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
     var part: AgentPaneMenuPart?
 
     init(text: String, rowId: String? = nil, sessionId: String? = nil, markdown: String? = nil, replyTime: String? = nil, forkSeq: Int? = nil, sideChat: Bool = false, retryRowId: String? = nil,
-         links: [URL] = [], opensImage: Bool = false, hasImage: Bool? = nil, part: AgentPaneMenuPart? = nil) {
+         links: [URL] = [], opensImage: Bool = false, hasImage: Bool? = nil, part: AgentPaneMenuPart? = nil, sendPromptAgain: AgentPanePromptAgainMenu? = nil) {
         self.rowId = rowId
         self.sessionId = sessionId
         self.text = text
@@ -43,6 +44,7 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
         self.forkSeq = forkSeq
         self.sideChat = sideChat
         self.retryRowId = retryRowId
+        self.sendPromptAgain = sendPromptAgain
         self.links = links
         self.opensImage = opensImage
         self.hasImage = hasImage ?? opensImage
@@ -62,7 +64,9 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
         opensImage = (object["openImage"] as? NSNumber)?.boolValue ?? false
         hasImage = opensImage || ((object["image"] as? NSNumber)?.boolValue ?? false)
         part = AgentPaneMenuPart(report: object["part"])
-        guard !text.isEmpty || hasImage || part != nil else { return nil }
+        let resend = AgentPanePromptAgainMenu(report: object["sendPromptAgain"])
+        sendPromptAgain = resend?.sessionId == sessionId ? resend : nil
+        guard !text.isEmpty || hasImage || part != nil || sendPromptAgain != nil else { return nil }
         self.text = text
         markdown = (object["markdown"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         replyTime = (object["replyTime"] as? String).flatMap { $0.isEmpty ? nil : $0 }
@@ -357,6 +361,9 @@ enum AgentPaneContextMenu {
             }
             // On a link, the part's Open Link stands for the message's.
             links = target.part?.link == nil ? linkItems(target.links, open: actions.open) : []
+        }
+        if selection == nil, let resend = target?.sendPromptAgain {
+            message += resend.items(page: actions.page)
         }
         // A reply's menu opens on its non-interactive date and time header (not a selection's).
         let header: [NSMenuItem]
