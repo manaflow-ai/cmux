@@ -49,17 +49,23 @@ const STILL_PX = 2;
 /** The most a frame may be off where the chat follows its end or holds a reader's row, and the most
  *  anything may move when the width holds: one line of text. */
 const JUMP_PX = 24;
-const WIDE = 800;
-const NARROW = 380;
+export const WIDE = 800;
+export const NARROW = 380;
 /** Width steps in a drag, one each frame. */
-const STEPS = 24;
+export const STEPS = 24;
 /** What the page's clock gains in each frame of a drag: one frame at 60 Hz. */
-const CLOCK_STEP_MS = 16;
+export const CLOCK_STEP_MS = 16;
 /** Frames the drag's clock runs on after the last width: 192 ms, past the 120 ms after which the
  *  transcript ends a live resize. */
-const HOLD_FRAMES = 12;
+export const HOLD_FRAMES = 12;
+/** The width steps at a drag's start that the transcript still places: its rows go into flow at the
+ *  third width of a live resize (VirtualTranscript.tsx LIVE_FLOW_STEPS). */
+export const PLACED_STEPS = 2;
+/** A clock step longer than the 120 ms inside which the transcript reads the next width as the same
+ *  live resize (VirtualTranscript.tsx LIVE_RESIZE_MS). */
+const SLOW_CLOCK_STEP_MS = 130;
 
-type DragArgs = {
+export type DragArgs = {
   from: number;
   to: number;
   steps: number;
@@ -67,11 +73,15 @@ type DragArgs = {
   track: boolean;
   clockStep: number;
   holdFrames: number;
+  /** The drag rests after this many width steps (0: it does not rest)... */
+  restAfter: number;
+  /** ...for this many frames of its clock, with the width as it is. */
+  restFrames: number;
 };
 /** One read of the transcript, in px: `top` from the view's top edge down to the highest row's top,
  *  `foot` from the lowest row's bottom down to the view's bottom edge, `at` the tracked row's top. */
 type Shot = { top: number; foot: number; at: number | null };
-type DragRun = {
+export type DragRun = {
   view: number;
   before: Shot;
   frames: Shot[];
@@ -88,8 +98,11 @@ type DragRun = {
    *  checked: the page reads the drag's clock (`dragInPage`), so a slow runner drives the same drag. */
   gap: number;
   /** The frames read while the rows sat in flow (0 on a transcript that places each frame's rows).
-   *  Printed, never checked: what a person sees is the same claim on both. */
+   *  Printed in each case; checked in the case that proves whose clock the drag runs on. */
   flowed: number;
+  /** The drag's clock at its first width, ms: `performance.now()` in the page reads this clock
+   *  from then until the drag's own timers ran. */
+  began: number;
 };
 
 /// Runs in the page. Sets the pane `from` wide and waits for rest, then gives it one new width each
@@ -103,7 +116,17 @@ type DragRun = {
 /// clock that gains `clockStep` ms a frame: each width is one 60 Hz frame after the one before on
 /// any runner, and the live resize ends when the test's clock says so. Frames, layout, observers
 /// and the rows are the browser's own; no product code is changed for this.
-async function dragInPage({ from, to, steps, toEnd, track, clockStep, holdFrames }: DragArgs): Promise<DragRun> {
+export async function dragInPage({
+  from,
+  to,
+  steps,
+  toEnd,
+  track,
+  clockStep,
+  holdFrames,
+  restAfter,
+  restFrames,
+}: DragArgs): Promise<DragRun> {
   const root = document.getElementById("root")!;
   const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
   const frame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
@@ -228,7 +251,22 @@ async function dragInPage({ from, to, steps, toEnd, track, clockStep, holdFrames
   let gap = 0;
   let stepped = 0;
   let flowed = 0;
+  /// The width holds for `count` frames of the drag's clock. Each step is a task after a frame's
+  /// rendering, where the browser runs a timer too.
+  const hold = async (count: number) => {
+    for (let held = 0; held < count; held += 1) {
+      await new Promise<void>((rendered) => {
+        requestAnimationFrame(() => {
+          const channel = new MessageChannel();
+          channel.port1.onmessage = () => rendered();
+          channel.port2.postMessage(0);
+        });
+      });
+      advanceClock();
+    }
+  };
   startClock();
+  const began = clock;
   try {
     await new Promise<void>((done) => {
       let index = 0;
@@ -252,24 +290,16 @@ async function dragInPage({ from, to, steps, toEnd, track, clockStep, holdFrames
             failed = error;
           }
           advanceClock();
-          requestAnimationFrame(tick);
+          // A rest in the drag's middle: the hand stops, then goes on.
+          if (index === restAfter && restFrames > 0) void hold(restFrames).then(() => requestAnimationFrame(tick));
+          else requestAnimationFrame(tick);
         };
         channel.port2.postMessage(0);
       };
       requestAnimationFrame(tick);
     });
-    // The width holds: the drag's clock goes on until the live resize's own timer ran. Each step is
-    // a task after a frame's rendering, where the browser runs a timer too.
-    for (let count = 0; count < holdFrames; count += 1) {
-      await new Promise<void>((rendered) => {
-        requestAnimationFrame(() => {
-          const channel = new MessageChannel();
-          channel.port1.onmessage = () => rendered();
-          channel.port2.postMessage(0);
-        });
-      });
-      advanceClock();
-    }
+    // The width holds: the drag's clock goes on until the live resize's own timer ran.
+    await hold(holdFrames);
   } finally {
     await endClock();
   }
@@ -290,6 +320,7 @@ async function dragInPage({ from, to, steps, toEnd, track, clockStep, holdFrames
     firstRow,
     gap: round(gap),
     flowed,
+    began,
   };
 }
 
@@ -347,15 +378,22 @@ export async function dragStays({ file, shape, engine, engineName, configFile }:
     await page.evaluate(`window.__debug.seedRows(${rows})`);
     return page;
   };
-  const drag = (page: Page, from: number, to: number, options: { toEnd?: boolean; track?: boolean } = {}) =>
+  const drag = (
+    page: Page,
+    from: number,
+    to: number,
+    options: { toEnd?: boolean; track?: boolean; clockStep?: number } = {},
+  ) =>
     page.evaluate(dragInPage, {
       from,
       to,
       steps: STEPS,
       toEnd: options.toEnd ?? false,
       track: options.track ?? false,
-      clockStep: CLOCK_STEP_MS,
+      clockStep: options.clockStep ?? CLOCK_STEP_MS,
       holdFrames: HOLD_FRAMES,
+      restAfter: 0,
+      restFrames: 0,
     });
   const report = (name: string, run: DragRun, more: Record<string, unknown>) =>
     console.log(
@@ -402,6 +440,29 @@ export async function dragStays({ file, shape, engine, engineName, configFile }:
         ).toBeLessThanOrEqual(STILL_PX);
       });
     }
+  }
+
+  if (shape === "fits") {
+    // The proof that the transcript reads the drag's clock, not the runner's (the cases in these
+    // files stand on it): the same 24 widths, one each frame of the browser, are a live resize when
+    // the clock gains 16 ms a frame, and 24 single resizes when it gains more than the transcript's
+    // 120 ms. On the runner's clock both drags would be the same.
+    test("the drag runs on the test's clock: widths 130 ms apart on it are no live resize", async () => {
+      const page = await open(2400, 15, WIDE);
+      const live = await drag(page, WIDE, NARROW);
+      const slow = await drag(page, NARROW, WIDE, { clockStep: SLOW_CLOCK_STEP_MS });
+      await page.close();
+      console.log(
+        `${file}: clock ${JSON.stringify({
+          live: { flowFrames: live.flowed, gapMs: live.gap },
+          slow: { flowFrames: slow.flowed, gapMs: slow.gap },
+        })}`,
+      );
+      expect(live.flowed, "frames with the rows in flow, widths 16 ms apart on the drag's clock").toBe(
+        STEPS - PLACED_STEPS,
+      );
+      expect(slow.flowed, "frames with the rows in flow, widths 130 ms apart on the drag's clock").toBe(0);
+    });
   }
 
   if (shape === "crossing") {
