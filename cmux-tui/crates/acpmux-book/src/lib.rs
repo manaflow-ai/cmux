@@ -21,6 +21,7 @@ pub mod blobs;
 pub mod checkpoint;
 pub mod folds;
 mod fsio;
+pub mod index;
 mod json;
 pub mod log;
 pub mod row;
