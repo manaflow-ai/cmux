@@ -64,6 +64,9 @@ struct QueuedMedia {
 }
 
 impl QueuedMedia {
+    fn take_payload_if_fresh(self, now: Instant) -> Option<Vec<u8>> {
+        (!self.stale_at(now)).then_some(self.payload)
+    }
     fn stale_at(&self, now: Instant) -> bool {
         now.saturating_duration_since(self.queued_at) > MEDIA_MAX_AGE
     }
@@ -111,10 +114,9 @@ impl Session {
                             tokio::select! {
                                 queued = commands_rx.recv() => {
                                     let Some(queued) = queued else { return Ok::<(), io::Error>(()) };
-                                    if queued.stale_at(Instant::now()) {
+                                    let Some(payload) = queued.take_payload_if_fresh(Instant::now()) else {
                                         continue;
-                                    }
-                                    let payload = queued.payload;
+                                    };
                                     socket.send_to(&payload, target, Priority::Media).await.map_err(io::Error::other)?;
                                 }
                                 received = socket.recv_from() => {
@@ -178,8 +180,10 @@ mod tests {
     #[test]
     fn stalled_media_queue_expires_at_handoff() {
         let queued = QueuedMedia { queued_at: Instant::now(), payload: vec![1] };
-        assert!(!queued.stale_at(queued.queued_at + Duration::from_millis(50)));
-        assert!(queued.stale_at(queued.queued_at + Duration::from_millis(51)));
+        let at = queued.queued_at;
+        assert_eq!(queued.take_payload_if_fresh(at + Duration::from_millis(50)), Some(vec![1]));
+        let queued = QueuedMedia { queued_at: at, payload: vec![2] };
+        assert!(queued.take_payload_if_fresh(at + Duration::from_millis(51)).is_none());
     }
 }
 impl Drop for Session {

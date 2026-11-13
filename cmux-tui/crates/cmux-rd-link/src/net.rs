@@ -43,6 +43,9 @@ struct QueuedMedia {
 }
 
 impl QueuedMedia {
+    fn take_payload_if_fresh(self, now: Instant) -> Option<Vec<u8>> {
+        (!self.stale_at(now)).then_some(self.datagram)
+    }
     fn stale_at(&self, now: Instant) -> bool {
         now.saturating_duration_since(self.queued_at) > MEDIA_MAX_AGE
     }
@@ -810,11 +813,11 @@ impl Driver {
             }
             for _ in 0..256 {
                 let Ok(queued) = self.media.try_recv() else { break };
-                if queued.stale_at(Instant::now()) {
-                    continue;
-                }
                 if self.endpoint.link().is_established() {
-                    for transmit in self.endpoint.send_datagram(&queued.datagram)? {
+                    let Some(datagram) = queued.take_payload_if_fresh(Instant::now()) else {
+                        continue;
+                    };
+                    for transmit in self.endpoint.send_datagram(&datagram)? {
                         self.send(transmit.route, &transmit.packet, now);
                     }
                 }
@@ -870,7 +873,9 @@ mod media_queue_tests {
     #[test]
     fn stalled_rd_media_handoff_expires_without_aging_control() {
         let queued = QueuedMedia { queued_at: Instant::now(), datagram: vec![1] };
-        assert!(!queued.stale_at(queued.queued_at + Duration::from_millis(50)));
-        assert!(queued.stale_at(queued.queued_at + Duration::from_millis(51)));
+        let at = queued.queued_at;
+        assert_eq!(queued.take_payload_if_fresh(at + Duration::from_millis(50)), Some(vec![1]));
+        let queued = QueuedMedia { queued_at: at, datagram: vec![2] };
+        assert!(queued.take_payload_if_fresh(at + Duration::from_millis(51)).is_none());
     }
 }
