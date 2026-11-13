@@ -20,7 +20,6 @@
 
 /// The entrance keyframes a generic row's own animation plays (conversation.css).
 const ENTRANCES = new Set(["cv-enter", "cv-enter-fade"]);
-const HELD_ATTR = "data-entrance-held";
 
 type Frames = {
   request: (run: () => void) => number;
@@ -43,29 +42,19 @@ function isEntrance(animation: Animation): boolean {
 /// Holds `row`'s entrance at its start until the next frame, then plays it from there. Called in
 /// the layout effect of the commit that mounts the row, before it paints. Returns the cancel.
 export function holdEntranceForFirstFrame(row: Element, frames: Frames | undefined = windowFrames()): () => void {
-  if (!frames) return () => {};
-  // WebKit can defer materializing a CSS animation until after a busy commit. Mark the row before
-  // reading its animations so the CSS rule holds the first keyframe even when getAnimations() is
-  // empty (the exact turn-end pop seen under lag in agent-pane-turn-end-motion).
-  const marked = typeof row.setAttribute === "function";
-  if (marked) row.setAttribute(HELD_ATTR, "");
-  const held =
-    typeof row.getAnimations === "function"
-      ? row.getAnimations().filter((animation) => isEntrance(animation) && animation.playState !== "finished")
-      : [];
-  if (held.length === 0 && !marked) return () => {};
+  if (!frames || typeof row.getAnimations !== "function") return () => {};
+  const held = row.getAnimations().filter((animation) => animation.playState === "running" && isEntrance(animation));
+  if (held.length === 0) return () => {};
   for (const animation of held) {
     animation.pause();
     animation.currentTime = 0;
   }
   let handle: number | undefined = frames.request(() => {
     handle = undefined;
-    if (marked) row.removeAttribute(HELD_ATTR);
     for (const animation of held) if (animation.playState === "paused") animation.play();
   });
   return () => {
     if (handle !== undefined) frames.cancel(handle);
     handle = undefined;
-    if (marked) row.removeAttribute(HELD_ATTR);
   };
 }
