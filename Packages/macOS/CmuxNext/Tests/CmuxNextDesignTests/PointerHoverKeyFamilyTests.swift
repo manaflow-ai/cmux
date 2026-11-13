@@ -11,15 +11,18 @@ import Testing
 /// each of the 4 notices, every target that hovers and every target under the pointer, and each
 /// such target asks the window server which window is topmost at the pointer
 /// (`NSWindow.windowNumber(at:belowWindowWithWindowNumber:)`, a synchronous round trip). A sample of
-/// 10 such switches by a debug action had 39 of its main-thread samples there.
+/// 20 such switches by a debug action had 39 of its main-thread samples there.
 ///
-/// A key change between a window and its own page window changes no window order: the page
-/// window is the pane's content, above its window before and after. So it asks nothing. A key
+/// A key change between a window and its own page window recomputes nothing at its notices. The
+/// window is recomputed one time when that pass of the run loop ends, for all such notices of the
+/// pass: the page that leaves is ordered out with its key change, which uncovers what it covered
+/// under a still pointer, and the switch hid and showed views that do not all report it. A key
 /// change to another window can come with a new window order (the other window covers the
-/// pointer), so it still recomputes the hover, and so does a window that resigns key to no window
-/// (another app), a panel of the window that takes the key, and a page window whose window is not
-/// known. A page window with no parent (ordered out as it leaves) is the page of the window that a
-/// key change last saw it in; nothing is guessed for a page that no key change saw with a parent.
+/// pointer), so it still recomputes the hover at once, and so does a window that resigns key to no
+/// window (another app), a panel of the window that takes the key, and a page window whose window
+/// is not known. A page window with no parent (ordered out as it leaves) is the page of the window
+/// that a key change last saw it in; nothing is guessed for a page that no key change saw with a
+/// parent.
 ///
 /// The tests use a synthesized pointer, with which `PointerHover.isTopmost` returns before its
 /// window server read. They count the asks one step before it: `passThroughWindows` is read
@@ -82,27 +85,89 @@ import Testing
         return (window, child, hovers)
     }
 
-    @Test func aKeyChangeBetweenAWindowAndItsPageWindowAsksNoTopmostWindow() throws {
+    /// The count. The 4 key notices of a page that takes the key and gives it back ask nothing
+    /// when they post, and the window is recomputed one time when their pass ends: one ask for
+    /// each of the 3 targets under the pointer, where each notice asked 3 times before.
+    @Test func theKeyNoticesOfOnePassBetweenAWindowAndItsPageRecomputeItOnceWhenThePassEnds() throws {
         let (window, page, hovers) = try Self.rig(child: Self.pageWindowClass())
         defer { Self.close(page, window) }
-        var asks = 0
-        for hover in hovers {
-            hover.passThroughWindows = {
-                asks += 1
-                return []
-            }
-        }
+        let first = try #require(hovers.first)
+        let asks = Asks(hovers)
 
         // The page takes the key (its first frame after a switch, a click in it).
         Self.key(leaves: window, goesTo: page)
-        #expect(asks == 0, "the key going to the window's own page asked the topmost window \(asks) times for 3 targets")
+        #expect(asks.count == 0, "the key going to the window's own page asked the topmost window \(asks.count) times for 3 targets when it posted")
+        // The page gives it back (the page leaves at a switch, a click in the sidebar).
+        Self.key(leaves: page, goesTo: window)
+        #expect(asks.count == 0, "the key coming back from the window's own page asked the topmost window \(asks.count) times for 3 targets when it posted")
         #expect(hovers.allSatisfy { $0.isHovering })
 
-        // The page gives it back (the page leaves at a switch, a click in the sidebar).
-        asks = 0
+        let pass = Self.endPass(asks, first)
+        #expect(pass.asks == 3, "the pass of 4 key notices inside one window asked the topmost window \(pass.asks ?? -1) times for 3 targets; one recompute is 3")
+        #expect(pass.hoveringAtEnd == true)
+    }
+
+    /// The visible side of a workspace switch between two browser tabs, under a pointer that does
+    /// not move, in the order the app has: the window hides the old workspace's content and shows
+    /// the new one (plain views here, which report no hide and no unhide, as some controls of the
+    /// app); the old page is ordered out and gives the key to its window; in a later pass the new
+    /// page takes the key. When each of the two passes ends, where its frame is committed, the
+    /// control of the old content is not hovered and the control at its place in the new content is.
+    @Test func afterASwitchTheHoverIsThatOfTheNewContentWhenEachPassEnds() throws {
+        let pageClass = try Self.pageWindowClass()
+        let window = Self.makeWindow(), oldPage = Self.makeWindow(pageClass), newPage = Self.makeWindow(pageClass)
+        defer { Self.close(oldPage, newPage, window) }
+        window.addChildWindow(oldPage, ordered: .above)
+        let content = try #require(window.contentView)
+        let oldContent = NSView(frame: content.bounds), newContent = NSView(frame: content.bounds)
+        let oldControl = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 40))
+        let newControl = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 40))
+        oldContent.addSubview(oldControl)
+        newContent.addSubview(newControl)
+        newContent.isHidden = true
+        content.addSubview(oldContent)
+        content.addSubview(newContent)
+        let oldHover = PointerHover(oldControl), newHover = PointerHover(newControl)
+        PointerHover.setDebugPointer(NSPoint(x: 50, y: 20), in: window)
+        // The old page holds the key, and its pass ended.
+        Self.key(leaves: nil, goesTo: window)
+        Self.key(leaves: window, goesTo: oldPage)
+        #expect(Self.hoveringWhenThePassEnds([oldHover, newHover]) == [true, false])
+
+        // The switch: the content changes, then the old page leaves.
+        oldContent.isHidden = true
+        newContent.isHidden = false
+        window.removeChildWindow(oldPage)
+        Self.key(leaves: oldPage, goesTo: window)
+        let afterTheOldPageLeft = Self.hoveringWhenThePassEnds([oldHover, newHover])
+        #expect(afterTheOldPageLeft == [false, true], "when the pass of the switch ended, the hover of the old content's control and of the new one was \(String(describing: afterTheOldPageLeft)), not [false, true]")
+
+        // The new page shows and takes the key, in a later pass.
+        window.addChildWindow(newPage, ordered: .above)
+        Self.key(leaves: window, goesTo: newPage)
+        let afterTheNewPageShowed = Self.hoveringWhenThePassEnds([oldHover, newHover])
+        #expect(afterTheNewPageShowed == [false, true], "when the pass of the new page's key ended, the hover of the old content's control and of the new one was \(String(describing: afterTheNewPageShowed)), not [false, true]")
+    }
+
+    /// The same from a page to a terminal: the page window covered the pointer, and its leaving
+    /// uncovers a control of the window under it. Nothing reports that to the control but the key
+    /// change: when the pass ends, the control is recomputed.
+    @Test func aPageThatLeavesRecomputesWhatItCoveredWhenThePassEnds() throws {
+        let (window, page, hovers) = try Self.rig(child: Self.pageWindowClass(), targets: 1)
+        defer { Self.close(page, window) }
+        let hover = try #require(hovers.first)
+        var hoverable = false
+        hover.isHoverable = { hoverable }
+        // The page holds the key and covers the control: it does not hover.
+        Self.key(leaves: window, goesTo: page)
+        hover.refresh()
+        #expect(Self.hoveringWhenThePassEnds([hover]) == [false])
+
+        // The page leaves (here the control's own answer changes, as the topmost window does in the app).
+        hoverable = true
+        window.removeChildWindow(page)
         Self.key(leaves: page, goesTo: window)
-        #expect(asks == 0, "the key coming back from the window's own page asked the topmost window \(asks) times for 3 targets")
-        #expect(hovers.allSatisfy { $0.isHovering })
+        #expect(Self.hoveringWhenThePassEnds([hover]) == [true], "a page left and gave the key to its window, and what it covered was not recomputed when the pass ended")
     }
 
     /// A target that needs the key window depends on the key itself: it is recomputed at each
@@ -192,21 +257,43 @@ import Testing
         return pass
     }
 
+    /// What the hover of each of `hovers` was at the end of one pass (`hoveringWhenThePassEnds`).
+    @MainActor private final class PassEnd {
+        var hovering: [Bool]?
+    }
+
+    /// Runs the pass of the main run loop that a key notice of this call is in, and gives the
+    /// hover of each of `hovers` when the run loop first went to wait: the end of the pass, where
+    /// its frame is committed.
+    private static func hoveringWhenThePassEnds(_ hovers: [PointerHover]) -> [Bool]? {
+        let passEnd = PassEnd()
+        let end = MainRunLoopObserver(activities: [.beforeWaiting, .exit], order: CFIndex.min) { _ in
+            if passEnd.hovering == nil { passEnd.hovering = hovers.map { $0.isHovering } }
+        }
+        endTurn()
+        end.invalidate()
+        return passEnd.hovering
+    }
+
     /// A page that leaves at a workspace switch is ordered out, which takes it from its parent: it
     /// is still the page of the window that the last key change saw it in.
     @Test func aPageThatLeftItsParentStillBelongsToItsWindow() throws {
         let (window, page, hovers) = try Self.rig(child: Self.pageWindowClass())
         defer { Self.close(page, window) }
+        let first = try #require(hovers.first)
         // The page takes the key as a child of its window.
         Self.key(leaves: window, goesTo: page)
         let asks = Asks(hovers)
 
         window.removeChildWindow(page)
         Self.key(leaves: page, goesTo: window)
-        #expect(asks.count == 0, "the key coming back from a page that left its parent asked the topmost window \(asks.count) times")
+        #expect(asks.count == 0, "the key coming back from a page that left its parent asked the topmost window \(asks.count) times when it posted")
         Self.key(leaves: window, goesTo: page)
-        #expect(asks.count == 0, "the key going to the window's page that has no parent now asked the topmost window \(asks.count) times")
+        #expect(asks.count == 0, "the key going to the window's page that has no parent now asked the topmost window \(asks.count) times when it posted")
         #expect(hovers.allSatisfy { $0.isHovering })
+        // One recompute of the window for the whole pass: one ask for each of its 3 targets.
+        let pass = Self.endPass(asks, first)
+        #expect(pass.asks == 3, "the pass of the key changes of a page with no parent asked the topmost window \(pass.asks ?? -1) times for 3 targets")
     }
 
     /// Nothing is guessed: a page window that no key change saw with a parent is no window's
@@ -271,6 +358,8 @@ import Testing
         let observer = try #require(PointerHover.keyObserver)
         Self.key(leaves: window, goesTo: page)
         #expect(observer.knownHome(of: page) === window)
+        // That change's pass ends (its one recompute of the first window is not counted below).
+        Self.endTurn()
 
         window.removeChildWindow(page)
         second.addChildWindow(page, ordered: .above)
@@ -288,7 +377,7 @@ import Testing
         Self.key(leaves: second, goesTo: page)
         second.removeChildWindow(page)
         Self.key(leaves: page, goesTo: second)
-        #expect(asks.count == 0, "a key change between the second window and its page asked the topmost window \(asks.count) times")
+        #expect(asks.count == 0, "a key change between the second window and its page asked the topmost window \(asks.count) times when it posted")
         asks.count = 0
         Self.key(leaves: second, goesTo: window)
         #expect(asks.count > 0, "the key coming back to the first window did not recompute the hover")
