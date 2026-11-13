@@ -145,22 +145,7 @@ Settings ops (`webviews/src/pages/settings/ops.ts`; Swift `SettingsPageProvider.
 
 Members policy (backend `backend/apps/api`, lane D): `team.models_policy.get|set` beside
 `team.agent_key.*`, owner/admin write, defaults above. Enforcement in the platform route is
-out of this repo and noted as a follow-up. Wire shape (snake_case, `@cmux/protocol`
-`TeamModelsPolicyState`): `{team, can_edit, own_connections, choose_runout, revision, updated_at,
-updated_by}`; `set` takes `{own_connections?, choose_runout?}` (a field left out keeps its value).
-TeamDO keeps one row in a side table (`team_models_policy`) and audits each change
-(`team.models_policy.audit`).
-
-Spread on every surface (lane D): the writer is the settings schema key `models.spreadUsage`
-(toggle, default true, palette-shown, off the page's schema rows because the Models card draws it,
-agent-settable), so the palette, `cmux settings get|set` and MCP reach it. The app mirrors it into
-acpmux with `_acpmux/connections/spread.set` at launch, on every change (any writer) and on every
-read of the card when acpmux's copy differs; `{action:"spread"}` writes the setting, then acpmux.
-
-API keys (lane D): the app stores a pasted key with `/usr/bin/security -i` (stdin only, the way
-`cmux harness secret set` does, so acpmux's `security find-generic-password` reads it without a
-prompt) as service `cmux-model-key`, account `<provider>-<8 hex>`, and passes
-`keychain:cmux-model-key/<account>` to `connections/key.add`; a refused add deletes the item.
+out of this repo and noted as a follow-up.
 
 Cloud first use (lane D): before a Cloud chat starts, the app asks the personal gateway whether a
 connection serves the picker's model (`_acpmux/connections`, family of the chosen agent, plus the
@@ -221,12 +206,3 @@ Delivery (`_acpmux/connections/credential {id}` -> `{ "family", "kind", "env": {
   once one is added. Without a credential the machine falls back to today's coderouter path.
 - Organization: team shared keys (`team.agent_key.*`, served by the platform edge) stay listed;
   the team gateway row is removed from the page.
-
-Revision 2 in the app (lane D): `ModelsState.organization` has no `gateway`; `ModelConnection`
-carries `servesCloud` (acpmux `serves_cloud`) and kind `claude-token`. `{action:"claudeSetupToken"}`
-opens a terminal tab in the person's window running `claude setup-token` (Settings > Agents' own
-terminal path); `{action:"addClaudeToken", token, label?}` refuses a value without the `sk-ant-oat`
-prefix or with whitespace inside, stores it like an API key (account `claude-token-<8 hex>`) and
-sends `_acpmux/connections/claude_token.add {secret: "keychain:...", label?}`; a refused add deletes
-the item. `cmux://settings/models/add` opens `#/settings/models?focus=models.add`
-(`DeepLink.settingsRoute`).
