@@ -296,6 +296,9 @@ impl State {
                 self.unarm(path);
             }
             let mut added = false;
+            // A folder gone between the look and its watch: the next look watches its nearest
+            // existing ancestor in its place, or nothing would see it made again.
+            let mut vanished = false;
             for (path, kind, id) in wanted {
                 if self.armed.get(&path).is_some_and(|armed| armed.kind == kind) {
                     continue;
@@ -304,8 +307,10 @@ impl State {
                 let wd = match self.watches.add(&path, mask(kind)) {
                     Ok(wd) => wd,
                     Err(e) => {
-                        // Looked at again on the next event that may change it.
                         tracing::debug!("quiet dirs: cannot watch {}: {e}", path.display());
+                        // Gone since the look: look again now. Still there (a permission
+                        // error): looked at again on the next event that may change it.
+                        vanished |= !path.exists();
                         continue;
                     }
                 };
@@ -322,7 +327,7 @@ impl State {
                     fresh.push(path);
                 }
             }
-            if !added {
+            if !added && !vanished {
                 break;
             }
         }
@@ -491,6 +496,31 @@ mod tests {
         let dirs = QuietDirs::follow(tx, "quiet-dirs-race", vec![target]).unwrap();
         assert!(AFTER_LOOK.with(|hook| hook.borrow().is_none()), "the look never ran");
         assert_eq!(dirs.watched(), vec![folder]);
+    }
+
+    /// A followed folder removed between `sync`'s look (which found it) and its watch: the add
+    /// fails, so that same sync watches its nearest existing ancestor instead, or nothing is
+    /// watched and the folder made again is never seen (#42594 F1).
+    #[test]
+    fn a_folder_removed_while_sync_looks_falls_back_to_its_ancestor() {
+        let base = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(base.path()).unwrap();
+        let folder = root.join("harnesses");
+        std::fs::create_dir_all(&folder).unwrap();
+        let removed = folder.clone();
+        AFTER_LOOK.with(|hook| {
+            *hook.borrow_mut() = Some(Box::new(move || std::fs::remove_dir(&removed).unwrap()));
+        });
+        let (tx, rx) = std::sync::mpsc::channel();
+        let dirs =
+            QuietDirs::follow(tx, "quiet-dirs-vanish", vec![Target::Dir(folder.clone())]).unwrap();
+        assert!(AFTER_LOOK.with(|hook| hook.borrow().is_none()), "the look never ran");
+        assert_eq!(dirs.watched(), vec![root.clone()]);
+        std::fs::create_dir(&folder).unwrap();
+        assert!(named(&rx, &folder), "the folder made again was not seen");
+        while rx.recv_timeout(Duration::from_millis(300)).is_ok() {}
+        std::fs::write(folder.join("x.toml"), "x").unwrap();
+        assert!(named(&rx, &folder.join("x.toml")), "a write into the folder sent nothing");
     }
 
     /// A followed folder replaced under its name (`mv` away, `mv` another in) is watched again:

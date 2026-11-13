@@ -2436,14 +2436,21 @@ fn drop_call_at<'t>(
 /// `std::mem::drop` or `core::mem::drop` (#42081 review F1): the prelude's `drop`, or an import
 /// of either (`use std::mem;`, `use core::mem::drop;`, `use std::mem::drop as release;`). A free
 /// `fn drop` or a `mod mem` the source declares shadows them, and so does a name it imports from
-/// anywhere else. Read over the whole source rather than by scope, so a shadow anywhere in it
-/// counts against every drop there: a drain it cannot place is flagged, never exempt.
+/// anywhere else. An import's `std` or `core` is the crate only when the path starts with `::` or
+/// the source binds no `std` or `core` of its own (`use crate::fake as std;`, `mod std`: #42111
+/// review F1). Read over the whole source rather than by scope, imports inside functions and
+/// methods included (#42111 review F2), so a shadow anywhere in it counts against every drop
+/// there: a drain it cannot place is flagged, never exempt. A definition or an import under a
+/// `#[cfg(..)]` counts as a shadow too (#41970 review F1's class): the code this scans is test
+/// code, and the gated one may be what that build runs.
 #[derive(Default)]
 struct DropNames {
-    /// Each name a `use` binds, with each path it binds it to.
-    uses: HashMap<String, Vec<Vec<String>>>,
-    /// The free functions and the modules the source declares: never an `impl`'s or a
-    /// `trait`'s methods (`impl Drop for Guard { fn drop(&mut self) {} }`).
+    /// Each name a `use` binds, with each path it binds it to and whether that path starts
+    /// with `::`.
+    uses: HashMap<String, Vec<(bool, Vec<String>)>>,
+    /// The free functions and the modules the source declares, at any depth: never an
+    /// `impl`'s or a `trait`'s own methods (`impl Drop for Guard { fn drop(&mut self) {} }`),
+    /// though what their bodies declare and import counts.
     items: HashSet<String>,
     /// The source imports a module whole (`use super::*`).
     globs: bool,
@@ -2455,55 +2462,59 @@ struct DropNames {
 impl DropNames {
     fn of(tokens: &TokenStream) -> Self {
         let mut names = Self::default();
-        names.read(&tokens.clone().into_iter().collect::<Vec<_>>());
+        names.read(&tokens.clone().into_iter().collect::<Vec<_>>(), false);
         names
     }
 
-    fn read(&mut self, tts: &[TokenTree]) {
+    /// Reads `tts`; `methods` says they are an `impl`'s or a `trait`'s body, whose own `fn`s
+    /// are methods and declare no name.
+    fn read(&mut self, tts: &[TokenTree], methods: bool) {
         let mut k = 0;
         while k < tts.len() {
             if word(tts.get(k), "use") {
                 let end = (k..tts.len()).find(|&e| punct(tts.get(e), ';')).unwrap_or(tts.len());
                 let item: TokenStream = tts[k..(end + 1).min(tts.len())].iter().cloned().collect();
                 if let Ok(item) = syn::parse2::<syn::ItemUse>(item) {
-                    self.use_tree(Vec::new(), &item.tree);
+                    self.use_tree(item.leading_colon.is_some(), Vec::new(), &item.tree);
                 }
                 k = end + 1;
                 continue;
             }
-            if (word(tts.get(k), "fn") || word(tts.get(k), "mod"))
+            if (word(tts.get(k), "mod") || (word(tts.get(k), "fn") && !methods))
                 && let Some(TokenTree::Ident(name)) = tts.get(k + 1)
             {
                 self.items.insert(name.to_string());
             }
-            // An `impl` or a `trait` item: the `fn`s in its body are methods.
+            // An `impl` or a `trait` item: its body's own `fn`s are methods.
             if (word(tts.get(k), "impl") || word(tts.get(k), "trait"))
                 && item_start(tts, k)
                 && let Some(body) =
                     (k + 1..tts.len()).find(|&b| group(tts.get(b), Delimiter::Brace).is_some())
+                && let Some(g) = group(tts.get(body), Delimiter::Brace)
             {
+                self.read(&g.stream().into_iter().collect::<Vec<_>>(), true);
                 k = body + 1;
                 continue;
             }
             if let TokenTree::Group(g) = &tts[k] {
-                self.read(&g.stream().into_iter().collect::<Vec<_>>());
+                self.read(&g.stream().into_iter().collect::<Vec<_>>(), false);
             }
             k += 1;
         }
     }
 
-    fn use_tree(&mut self, mut prefix: Vec<String>, tree: &syn::UseTree) {
+    fn use_tree(&mut self, leading: bool, mut prefix: Vec<String>, tree: &syn::UseTree) {
         match tree {
             syn::UseTree::Path(p) => {
                 prefix.push(p.ident.to_string());
-                self.use_tree(prefix, &p.tree);
+                self.use_tree(leading, prefix, &p.tree);
             }
             syn::UseTree::Name(n) => {
                 if n.ident != "self" {
                     prefix.push(n.ident.to_string());
                 }
                 if let Some(name) = prefix.last().cloned() {
-                    self.uses.entry(name).or_default().push(prefix);
+                    self.uses.entry(name).or_default().push((leading, prefix));
                 }
             }
             syn::UseTree::Rename(r) => {
@@ -2511,13 +2522,13 @@ impl DropNames {
                     prefix.push(r.ident.to_string());
                 }
                 if r.rename != "_" {
-                    self.uses.entry(r.rename.to_string()).or_default().push(prefix);
+                    self.uses.entry(r.rename.to_string()).or_default().push((leading, prefix));
                 }
             }
             syn::UseTree::Glob(_) => self.globs = true,
             syn::UseTree::Group(g) => {
                 for item in &g.items {
-                    self.use_tree(prefix.clone(), item);
+                    self.use_tree(leading, prefix.clone(), item);
                 }
             }
         }
@@ -2526,21 +2537,33 @@ impl DropNames {
     /// Whether the path `segments` (after a leading `::` when `leading`) names
     /// `std::mem::drop` or `core::mem::drop` here.
     fn is_std_drop(&self, leading: bool, segments: &[String]) -> bool {
-        let std_mem =
-            |p: &[String]| p.len() == 2 && matches!(p[0].as_str(), "std" | "core") && p[1] == "mem";
-        let std_drop = |p: &[String]| p.len() == 3 && std_mem(&p[..2]) && p[2] == "drop";
+        // A `std` or `core` root is the crate after a leading `::`, or when the source binds
+        // no name of its own over it (`use std::{self, ..}` binds `std` to the crate itself).
+        let rebound = |root: &str| {
+            self.items.contains(root)
+                || self.uses.get(root).is_some_and(|paths| paths.iter().any(|(_, p)| p != &[root]))
+        };
+        let root_is_crate = |leading: bool, root: &str| {
+            matches!(root, "std" | "core") && (leading || !rebound(root))
+        };
+        let std_mem = |leading: bool, p: &[String]| {
+            p.len() == 2 && root_is_crate(leading, &p[0]) && p[1] == "mem"
+        };
+        let std_drop = |leading: bool, p: &[String]| {
+            p.len() == 3 && std_mem(leading, &p[..2]) && p[2] == "drop"
+        };
         // What the source binds `name` to: `None` when it neither declares nor imports it.
-        let bound = |name: &str, is: &dyn Fn(&[String]) -> bool| -> Option<bool> {
+        let bound = |name: &str, is: &dyn Fn(bool, &[String]) -> bool| -> Option<bool> {
             if self.items.contains(name) {
                 return Some(false);
             }
-            self.uses.get(name).map(|paths| paths.iter().all(|p| is(p.as_slice())))
+            self.uses.get(name).map(|paths| paths.iter().all(|(l, p)| is(*l, p.as_slice())))
         };
         if leading {
-            return std_drop(segments);
+            return std_drop(true, segments);
         }
         match segments {
-            [first, _, _] => std_drop(segments) && bound(first.as_str(), &|_| false).is_none(),
+            [_, _, _] => std_drop(false, segments),
             [module, last] => last == "drop" && bound(module.as_str(), &std_mem) == Some(true),
             [name] => bound(name.as_str(), &std_drop)
                 .unwrap_or(name == "drop" && !(self.globs && self.crate_shadows)),
@@ -2857,6 +2880,58 @@ fn the_bounded_wait_scan_exempts_by_meaning_not_text_shape() {
              while let Ok(n) = rx.RECV {}\n",
         ),
         (
+            "#42111 F1: std's drop imported through a std root the source rebinds",
+            "use crate::fake as std;\n\
+             use std::mem::drop as release_tx;\n\
+             let (tx, rx) = channel::<u8>();\n\
+             release_tx(tx);\n\
+             while let Ok(n) = rx.RECV {}\n",
+        ),
+        (
+            "#42111 F1: core's mem imported through a core root the source rebinds",
+            "use self::fake as core;\n\
+             use core::mem;\n\
+             let (tx, rx) = channel::<u8>();\n\
+             mem::drop(tx);\n\
+             while let Ok(n) = rx.RECV {}\n",
+        ),
+        (
+            "#42111 F1: a local `mod std` whose mem::drop forgets",
+            "mod std {\n    pub mod mem {\n        pub fn drop<T>(t: T) {\n            \
+             core::mem::forget(t)\n        }\n    }\n}\n\
+             let (tx, rx) = channel::<u8>();\n\
+             std::mem::drop(tx);\n\
+             while let Ok(n) = rx.RECV {}\n",
+        ),
+        (
+            "#42111 F2: a method-local `use std::mem::forget as drop`",
+            "impl Probe {\n    fn t() {\n        use std::mem::forget as drop;\n        \
+             let (tx, rx) = channel::<u8>();\n        drop(tx);\n        \
+             while let Ok(n) = rx.RECV {}\n    }\n}\n",
+        ),
+        (
+            "#41970 F1 (same class): a `#[cfg(test)] fn drop` that forgets shadows test code",
+            "#[cfg(test)]\nfn drop<T>(t: T) {\n    std::mem::forget(t)\n}\n\
+             let (tx, rx) = channel::<u8>();\n\
+             drop(tx);\n\
+             while let Ok(n) = rx.RECV {}\n",
+        ),
+        (
+            "#41970 F1 (same class): a platform-gated `mod mem` may be the one that runs",
+            "#[cfg(windows)]\nmod mem {\n    pub fn drop<T>(t: T) {\n        \
+             std::mem::forget(t)\n    }\n}\n\
+             let (tx, rx) = channel::<u8>();\n\
+             mem::drop(tx);\n\
+             while let Ok(n) = rx.RECV {}\n",
+        ),
+        (
+            "#41970 F1 (same class): a platform-gated `use std::mem::forget as drop`",
+            "#[cfg(target_os = \"linux\")]\nuse std::mem::forget as drop;\n\
+             let (tx, rx) = channel::<u8>();\n\
+             drop(tx);\n\
+             while let Ok(n) = rx.RECV {}\n",
+        ),
+        (
             "#42023 F1: a drain whose sender another function's drop drops",
             "let (tx, rx) = channel::<()>();\n\
              other::drop(tx);\n\
@@ -2997,6 +3072,27 @@ fn the_bounded_wait_scan_exempts_by_meaning_not_text_shape() {
              let (tx, rx) = channel::<u8>();\n\
              drop(tx);\n\
              while let Ok(n) = rx.RECV {}\n",
+        ),
+        (
+            "#42111 F1: `::std::mem::drop` beside a rebound std root",
+            "use crate::fake as std;\n\
+             let (tx, rx) = channel::<u8>();\n\
+             ::std::mem::drop(tx);\n\
+             while let Ok(n) = rx.RECV {}\n",
+        ),
+        (
+            "#42111 F1: `use ::std::mem::drop as release_tx` beside a rebound std root",
+            "use crate::fake as std;\n\
+             use ::std::mem::drop as release_tx;\n\
+             let (tx, rx) = channel::<u8>();\n\
+             release_tx(tx);\n\
+             while let Ok(n) = rx.RECV {}\n",
+        ),
+        (
+            "#42111 F2: a method-local `use std::mem`",
+            "impl Probe {\n    fn t() {\n        use std::mem;\n        \
+             let (tx, rx) = channel::<u8>();\n        mem::drop(tx);\n        \
+             while let Ok(n) = rx.RECV {}\n    }\n}\n",
         ),
         (
             "#42023 F1: a drain whose sender a turbofish drop drops first",

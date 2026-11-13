@@ -404,6 +404,8 @@ declare namespace Cmux {
   type SessionSnapshot = { id: string /* session_… */; machine_id: string /* machine_… */; name?: string; generation: string; revision: string; connected: boolean; extra?: Record<string, Cmux.JsonValue> }
   type SessionSnapshotItem = { kind: "snapshot"; cursor: Cmux.Cursor; reset_reason?: "initial" | "generation_changed" | "cursor_expired"; snapshot: Cmux.ResourceSnapshot }
   type SettingsChange = { keys: Array<string> }
+  type SettingsEdit = { op: "set" | "set_unset" | "reset" | "reset_unchanged"; key?: string; path?: Array<string>; value?: Cmux.JsonValue }
+  type SettingsEditChange = { keys: Array<string>; applied: Array<number> }
   type Sharing = "team" | "private"
   type ShutdownResult = { accepted: boolean }
   type SidebarAttachItem = unknown

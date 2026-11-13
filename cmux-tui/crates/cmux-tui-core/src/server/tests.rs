@@ -571,6 +571,8 @@ mod subscribe_cap;
 mod subscribe_scroll_on_attach;
 mod terminal_close_if_unplaced;
 mod terminal_progress_follower;
+#[cfg(unix)]
+mod terminal_seats;
 mod test_socket_path;
 mod tree_selection_deltas;
 mod view_leases;
