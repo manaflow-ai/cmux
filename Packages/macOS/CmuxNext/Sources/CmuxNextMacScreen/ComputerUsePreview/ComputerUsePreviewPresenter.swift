@@ -82,7 +82,11 @@ public final class ComputerUsePreviewPresenter {
     /// What the person chose per surface (a new surface starts as a card).
     private var choices: [ComputerUsePreviewSurface: ComputerUsePreviewPresentation] = [:]
     private var corner = ComputerUsePreviewLayout.Corner.topRight
+    /// The card's long side in points while it is laid out (it follows the resize grip live).
     private var longSide = ComputerUsePreviewLayout.defaultLongSide
+    /// The card's long side the stream's size follows: changed only when a resize ends, so a drag
+    /// never sends `L` mid-way.
+    private var streamCardSide = ComputerUsePreviewLayout.defaultLongSide
     private let linger = DemandTimer(owner: "computer-use.preview.linger")
     private let reopen = DemandTimer(owner: "computer-use.preview.reopen")
     private var updateQueued = false
@@ -202,7 +206,7 @@ public final class ComputerUsePreviewPresenter {
         // The stream runs while the preview is up, a blocked one too (cmux Remote sends nothing but
         // its status, and says when the window may show again); a hidden preview (a chip) streams
         // nothing.
-        let side = Self.streamLongSide(expanded: presentation == .expanded, cardPoints: longSide,
+        let side = Self.streamLongSide(expanded: presentation == .expanded, cardPoints: streamCardSide,
                                        backingScale: current.overlay.window?.backingScaleFactor ?? 2)
         if presentation == .hidden {
             current.stream?.stop()
@@ -233,7 +237,8 @@ public final class ComputerUsePreviewPresenter {
             }
             switch status.state {
             case .streaming, .still:
-                if status.state == .streaming { current.overlay.show(still: nil) }
+                // The still stays until the video's first frame is in the layer (`pictured`), so
+                // moving from stills to video never shows an empty card between.
                 current.blocked = false
                 retryDelay = .seconds(1)
                 outageLogged = false
@@ -248,6 +253,7 @@ public final class ComputerUsePreviewPresenter {
                 break
             }
         case .pictured:
+            current.overlay.show(still: nil) // the video's first frame is in the layer: it shows now
             current.pictured = true
         case .still(let image):
             current.overlay.show(still: image)
@@ -324,6 +330,7 @@ public final class ComputerUsePreviewPresenter {
             return
         case .resized(let side):
             longSide = side
+            streamCardSide = side
             current.overlay.place(corner: corner, longSide: side)
         case .showWindow:
             showWindow(of: current.session)
@@ -351,7 +358,9 @@ public final class ComputerUsePreviewPresenter {
     private func followEscape(_ on: Bool) {
         if on, escapeMonitor == nil {
             escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                guard Self.closesExpandedView(keyCode: event.keyCode, modifiers: event.modifierFlags),
+                // Escape that ends an input method's composition (marked text) belongs to it.
+                let composing = (event.window?.firstResponder as? any NSTextInputClient)?.hasMarkedText() == true
+                guard !composing, Self.closesExpandedView(keyCode: event.keyCode, modifiers: event.modifierFlags),
                       let self, let current = self.shown, let window = current.overlay.window,
                       event.window === window, window.isKeyWindow, self.escapeCloses(current) else { return event }
                 self.handle(.collapse)

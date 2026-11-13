@@ -36,7 +36,9 @@ public final class ComputerUsePreviewStream {
     /// ``stills``, the close, or a frame ready to enqueue.
     enum Output: Sendable {
         case status(ComputerUsePreviewStatus)
-        case stillReady
+        /// Still number `sequence` waits in ``stills``; the main queue takes it only if it is still
+        /// the newest (a newer one, or a `blocked` that emptied the slot, makes this word stale).
+        case stillReady(sequence: UInt64)
         case closed
         case sample(CMSampleBuffer)
     }
@@ -62,8 +64,10 @@ public final class ComputerUsePreviewStream {
     private var acceptsFrames = false
     /// Frames enqueued into the layer so far (tests).
     private(set) var framesShown = 0
-    /// A frame is in the layer since the last (re)start, `blocked` or close.
+    /// A frame is in the layer since the last (re)start, `blocked`, close or window change.
     private var hasPicture = false
+    /// The window generation the last `streaming` named; another one clears the old window's frame.
+    private var streamingWindow: Int?
     /// The latest decoded still waiting for the main queue (the reader replaces an older one).
     let stills = ComputerUsePreviewStillSlot()
 
@@ -195,21 +199,29 @@ public final class ComputerUsePreviewStream {
             }
         case .status(let status):
             acceptsFrames = status.state == .streaming
+            // Another window streams now: its first frame replaces nothing of the old one's.
+            if status.state == .streaming, let window = status.window {
+                if let streamingWindow, streamingWindow != window {
+                    renderer.flush(removingDisplayedImage: true, completionHandler: nil)
+                    hasPicture = false
+                }
+                streamingWindow = window
+            }
             switch status.state {
             case .blocked:
                 renderer.flush(removingDisplayedImage: true, completionHandler: nil)
                 acceptsStills = false
                 hasPicture = false
-                _ = stills.take()
+                stills.clear()
             case .streaming, .still:
                 acceptsStills = true
             case .noWindow, .paused:
                 break
             }
             onEvent(.status(status))
-        case .stillReady:
-            // The newest still only; none while the window may not show.
-            guard let image = stills.take(), acceptsStills else { return }
+        case .stillReady(let sequence):
+            // The newest still only, and only the one this word is about; none while the window may not show.
+            guard let image = stills.take(sequence: sequence), acceptsStills else { return }
             onEvent(.still(image))
         case .closed:
             // The channel ended: its last picture does not linger while a new one opens.
@@ -217,7 +229,7 @@ public final class ComputerUsePreviewStream {
             acceptsFrames = false
             acceptsStills = false
             hasPicture = false
-            _ = stills.take()
+            stills.clear()
             onEvent(.closed)
         }
     }
@@ -262,7 +274,7 @@ public final class ComputerUsePreviewStream {
                     deliver(.sample(sample))
                 }
             case ComputerUsePreviewWire.still:
-                if stills.put(jpeg: data) { deliver(.stillReady) }
+                if let sequence = stills.put(jpeg: data) { deliver(.stillReady(sequence: sequence)) }
             default:
                 break
             }
@@ -332,30 +344,53 @@ public final class ComputerUsePreviewStream {
 }
 
 /// The newest decoded still of a preview stream, between its reader thread and the main queue:
-/// one slot, so a slow main thread never queues stills (a newer one replaces the one waiting).
-public nonisolated final class ComputerUsePreviewStillSlot: Sendable {
-    private let image = OSAllocatedUnfairLock<CGImage?>(uncheckedState: nil)
+/// one slot, so a slow main thread never queues stills (a newer one replaces the one waiting), each
+/// still numbered so a word about an older one takes nothing.
+nonisolated final class ComputerUsePreviewStillSlot: Sendable {
+    /// The still waiting (moved out whole by ``take(sequence:)``) and the last number given.
+    private struct State: ~Copyable {
+        var image: CGImage?
+        var sequence: UInt64 = 0
+        var next: UInt64 = 0
 
-    public init() {}
+        /// The waiting still, out of the slot.
+        mutating func takeImage() -> CGImage? {
+            defer { image = nil }
+            return image
+        }
+    }
+    private let slot = Mutex(State())
 
-    /// Decodes `jpeg` on the calling thread (the reader's) and keeps it; true when the slot was
-    /// empty, so the main queue should be told. A payload that does not decode is dropped.
-    func put(jpeg: Data) -> Bool {
+    init() {}
+
+    /// Decodes `jpeg` on the calling thread (the reader's) and keeps it as the newest; its number
+    /// when the main queue should be told (the slot was empty), nil when a still already waits (that
+    /// word now takes this newer one) or the payload does not decode.
+    func put(jpeg: Data) -> UInt64? {
         guard let source = CGImageSourceCreateWithData(jpeg as CFData, nil),
               let decoded = CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
-        else { return false }
-        return image.withLockUnchecked { slot in
-            defer { slot = decoded }
-            return slot == nil
+        else { return nil }
+        return slot.withLock { slot -> UInt64? in
+            slot.next += 1
+            let wasEmpty = slot.image == nil
+            slot.image = decoded
+            slot.sequence = slot.next
+            return wasEmpty ? slot.next : nil
         }
     }
 
-    /// The still waiting, taken out of the slot.
-    func take() -> CGImage? {
-        image.withLockUnchecked { slot in
-            defer { slot = nil }
-            return slot
+    /// The still waiting, taken out of the slot, when a word numbered `sequence` (or later) may take
+    /// it: a word older than the slot's last emptying takes nothing.
+    func take(sequence: UInt64) -> CGImage? {
+        slot.withLock { slot -> CGImage? in
+            guard slot.image != nil, slot.sequence >= sequence else { return nil }
+            return slot.takeImage()
         }
+    }
+
+    /// Empties the slot (`blocked`, a close).
+    func clear() {
+        slot.withLock { $0.image = nil }
     }
 }
 
@@ -385,12 +420,16 @@ public nonisolated struct ComputerUsePreviewStatus: Equatable, Sendable {
     public var width: Int?
     public var height: Int?
     public var appName: String?
+    /// The window generation a `streaming` status names (cmux Remote counts the windows it streamed
+    /// for the session); nil from an older cmux Remote.
+    public var window: Int?
 
-    public init(state: State, width: Int? = nil, height: Int? = nil, appName: String? = nil) {
+    public init(state: State, width: Int? = nil, height: Int? = nil, appName: String? = nil, window: Int? = nil) {
         self.state = state
         self.width = width
         self.height = height
         self.appName = appName
+        self.window = window
     }
 
     /// The status of an `S` message; nil for a state this build does not know (a newer worker's).
@@ -398,7 +437,7 @@ public nonisolated struct ComputerUsePreviewStatus: Equatable, Sendable {
         guard let raw = object["state"] as? String, let state = State(rawValue: raw) else { return nil }
         let app = (object["app"] as? [String: Any])?["name"] as? String
         self.init(state: state, width: (object["width"] as? NSNumber)?.intValue, height: (object["height"] as? NSNumber)?.intValue,
-                  appName: app?.isEmpty == false ? app : nil)
+                  appName: app?.isEmpty == false ? app : nil, window: (object["window"] as? NSNumber)?.intValue)
     }
 }
 

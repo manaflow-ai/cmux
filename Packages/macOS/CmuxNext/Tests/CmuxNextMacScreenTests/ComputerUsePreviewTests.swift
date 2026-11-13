@@ -198,8 +198,8 @@ import VideoToolbox
         ComputerUsePreviewStream.read(ours, stills: stills) { seen.add($0) }
         close(ours)
         #expect(seen.kinds == ["status", "still", "status", "closed"])
-        #expect(stills.take()?.width == 64, "the newest still waits")
-        #expect(stills.take() == nil)
+        #expect(stills.take(sequence: 1)?.width == 64, "the word about the first still takes the newest")
+        #expect(stills.take(sequence: 1) == nil)
     }
 
     /// A payload past the wire's limit ends the stream instead of allocating it.
@@ -279,7 +279,7 @@ import VideoToolbox
         let stream = ComputerUsePreviewStream(session: "chat-1", longSide: 800) { events.append($0) }
         let jpeg = try jpeg(width: 40, height: 20)
         func still() {
-            if stream.stills.put(jpeg: jpeg) { stream.receive(.stillReady) }
+            if let sequence = stream.stills.put(jpeg: jpeg) { stream.receive(.stillReady(sequence: sequence)) }
         }
         func stills() -> Int { events.filter { if case .still = $0 { true } else { false } }.count }
         still()
@@ -295,6 +295,38 @@ import VideoToolbox
         stream.receive(.status(ComputerUsePreviewStatus(state: .streaming)))
         still()
         #expect(stills() == 2, "streaming again lets stills show")
+    }
+
+    /// A word about a still is good only for that still or a newer one: after the slot was emptied
+    /// (`blocked`, a close) an old word takes nothing, even when a newer still came in since.
+    @Test func aStaleStillWordTakesNothing() throws {
+        let slot = ComputerUsePreviewStillSlot()
+        let first = try #require(slot.put(jpeg: try jpeg(width: 10, height: 10)))
+        #expect(slot.put(jpeg: try jpeg(width: 20, height: 10)) == nil, "one word for a slot that is not empty")
+        slot.clear()
+        let third = try #require(slot.put(jpeg: try jpeg(width: 30, height: 10)))
+        #expect(third > first)
+        #expect(slot.take(sequence: third)?.width == 30)
+        #expect(slot.take(sequence: first) == nil)
+    }
+
+    /// Another window streaming (a new `window` generation) clears the old window's last frame, so
+    /// the overlay hides until the new window's first frame; a resize of the same window does not.
+    @Test func anotherWindowClearsTheOldFrame() throws {
+        let encoded = try encodeOneFrame(width: 320, height: 200)
+        let format = try #require(ComputerUsePreviewStream.format(sps: encoded.sps, pps: encoded.pps))
+        let sample = try #require(ComputerUsePreviewStream.sample(encoded.avcc, format: format, microseconds: 1))
+        var events: [ComputerUsePreviewStream.Event] = []
+        let stream = ComputerUsePreviewStream(session: "chat-1", longSide: 800) { events.append($0) }
+        stream.receive(.status(ComputerUsePreviewStatus(state: .streaming, window: 1)))
+        stream.receive(.sample(sample))
+        stream.receive(.status(ComputerUsePreviewStatus(state: .streaming, width: 640, height: 400, window: 1)))
+        stream.receive(.sample(sample))
+        #expect(events.filter { $0 == .pictured }.count == 1, "the same window resized keeps its picture")
+        stream.receive(.status(ComputerUsePreviewStatus(state: .streaming, window: 2)))
+        stream.receive(.sample(sample))
+        #expect(events.filter { $0 == .pictured }.count == 2, "another window starts a new picture")
+        #expect(ComputerUsePreviewStatus(["state": "streaming", "window": 2])?.window == 2)
     }
 
     /// Frames show only while the worker says `streaming`: after `blocked` (or any other status)
@@ -330,8 +362,8 @@ import VideoToolbox
         let stream = ComputerUsePreviewStream(session: "chat-1", longSide: 800) { events.append($0) }
         stream.receive(.status(ComputerUsePreviewStatus(state: .streaming)))
         stream.stop()
-        _ = stream.stills.put(jpeg: try jpeg(width: 4, height: 4))
-        stream.receive(.stillReady)
+        let sequence = try #require(stream.stills.put(jpeg: try jpeg(width: 4, height: 4)))
+        stream.receive(.stillReady(sequence: sequence))
         stream.receive(.closed)
         #expect(events == [.status(ComputerUsePreviewStatus(state: .streaming))])
     }

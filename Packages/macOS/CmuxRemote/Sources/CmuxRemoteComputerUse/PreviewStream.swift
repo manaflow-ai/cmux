@@ -209,6 +209,10 @@ final class PreviewStreamSession: NSObject, SCStreamOutput, SCStreamDelegate, @u
     private var nextStartAt: Date?
     /// No encoder could be made: stills only, for this session.
     private var encoderUnavailable = false
+    /// Counts the windows this session streamed; each `streaming` status names it (`window`), so the
+    /// app clears another window's last frame before this one's first arrives.
+    private var generation = 0
+    private var generationWindow: UInt32?
     /// A size change of the running stream is in flight.
     private var reconfiguring = false
 
@@ -399,7 +403,17 @@ final class PreviewStreamSession: NSObject, SCStreamOutput, SCStreamDelegate, @u
         startFailures = 0
         nextStartAt = nil
         keyframes.required = true
-        send(state: "streaming", extra: ["width": size.width, "height": size.height])
+        send(state: "streaming", extra: ["width": size.width, "height": size.height, "window": streamGeneration(id)])
+    }
+
+    /// The generation `streaming` names for window `id`: the same while the session streams one
+    /// window (a resize keeps it), a new one for another window.
+    private func streamGeneration(_ id: UInt32) -> Int {
+        if generationWindow != id {
+            generationWindow = id
+            generation += 1
+        }
+        return generation
     }
 
     /// A start failed (the window is not in ScreenCaptureKit's list yet, or the capture refused):
@@ -490,7 +504,7 @@ final class PreviewStreamSession: NSObject, SCStreamOutput, SCStreamDelegate, @u
         self.encoder = encoder
         size = target
         keyframes.required = true
-        send(state: "streaming", extra: ["width": target.width, "height": target.height])
+        send(state: "streaming", extra: ["width": target.width, "height": target.height, "window": generation])
     }
 
     // MARK: Stills (queue)

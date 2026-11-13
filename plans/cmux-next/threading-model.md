@@ -108,7 +108,8 @@ One priority model. Main thread: MainWorkClass (PL-main). Off main: WorkPriority
 
 userInteractive: only the main thread and threads a frame waits for. Today: MainThreadWatchdog, QuitDeadline and
 CrashDeadline threads, LineTransport reader (daemon lines), LocalPTY read queue, TerminalOutputLane queue,
-MetalYUVRenderer. No BackgroundWork lane runs at it.
+MetalYUVRenderer, the Computer Use live preview's `cmux-cu-preview-read` (each frame it reads is the next one
+shown). No BackgroundWork lane runs at it.
 
 Blocking work never runs on the cooperative pool: a process wait uses AsyncProcess (no thread waits); file I/O uses lane
 .files (serial per priority); a sync system call (getaddrinfo, Security, Launch Services, AX) uses lane .system (6 at
