@@ -32,7 +32,7 @@ enum ResourceControl {
     @MainActor
     private static func target(_ params: [String: JSONValue], services: AppServices) throws -> ResourceTarget {
         if let raw = params["tab"]?.stringValue {
-            let tab = normalizedTabID(raw)
+            let tab = normalizedControlTabID(raw)
             guard services.locateTabOnAnyMachine(tab) != nil else { throw ControlError(code: "not_found", message: RefusalStrings.noTab(tab)) }
             return .tab(tab)
         }
@@ -47,14 +47,6 @@ enum ResourceControl {
             throw ControlError(code: "not_found", message: RefusalStrings.noWindowShowsWorkspace)
         }
         return .workspace(id)
-    }
-
-    /// A tab id (`tab_…`), or the surface UUID the cmux CLI prints (the
-    /// same 32 hex digits, with dashes).
-    static func normalizedTabID(_ raw: String) -> String {
-        let hex = raw.replacingOccurrences(of: "-", with: "").lowercased()
-        guard !raw.hasPrefix("tab_"), hex.count == 32, hex.allSatisfy(\.isHexDigit) else { return raw }
-        return "tab_" + hex
     }
 
     /// One wait for the second sample: a one-shot deadline, not a sleep.

@@ -49,6 +49,9 @@ enum Reader {
     OpencodeAuth,
     /// Gemini CLI `google_accounts.json`: the signed-in Google account (`active`).
     GeminiAccounts,
+    /// grok's `auth.json`: the account fields it carries (never its tokens), so a token refresh keeps
+    /// the session and another account does not.
+    GrokAuth,
     /// No account field (token files): present or not.
     Stat,
 }
@@ -105,7 +108,7 @@ fn files(
                 .filter(|value| !value.is_empty())
                 .map(PathBuf::from)
                 .unwrap_or_else(|| home.join(".grok"));
-            vec![(dir.join("auth.json"), Reader::Stat)]
+            vec![(dir.join("auth.json"), Reader::GrokAuth)]
         }
         _ => vec![],
     }
@@ -227,6 +230,36 @@ fn account_part(reader: Reader, bytes: &[u8]) -> u64 {
             }
         }
         Reader::GeminiAccounts => s(&v, "/active").hash(&mut h),
+        Reader::GrokAuth => {
+            // Its schema is grok's own: every account-shaped field it has, at the top or one level down.
+            const IDS: [&str; 8] = [
+                "user_id",
+                "userId",
+                "account_id",
+                "accountId",
+                "email",
+                "sub",
+                "team_id",
+                "teamId",
+            ];
+            let mut ids = Vec::new();
+            let mut scan = |o: &serde_json::Map<String, serde_json::Value>, at: &str| {
+                for id in IDS {
+                    if let Some(x) = o.get(id) {
+                        ids.push((at.to_owned(), id, x.to_string()));
+                    }
+                }
+            };
+            if let Some(top) = v.as_object() {
+                scan(top, "");
+                for (k, x) in top {
+                    if let Some(inner) = x.as_object() {
+                        scan(inner, k);
+                    }
+                }
+            }
+            ids.hash(&mut h);
+        }
         // Never parsed (`file_part` counts presence only).
         Reader::Stat => {}
     }

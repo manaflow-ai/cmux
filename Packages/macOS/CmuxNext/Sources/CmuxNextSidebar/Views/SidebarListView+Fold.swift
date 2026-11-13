@@ -12,7 +12,7 @@ extension SidebarListViewComponents {
     /// back to a full reload when a drag, a filter or another layout mode owns the rows.
     func foldGroup(_ id: GroupID) {
         guard let group = model.group(id), let section = model.groupSection(id),
-              drag == nil, settling == nil, landing == nil, external == nil, rowHold.isEmpty, !isShiftingViewport,
+              drag == nil, settling == nil, landing == nil, external == nil, !isShiftingViewport,
               !displayed.rows.isEmpty else {
             return reload(animated: true)
         }
@@ -29,6 +29,10 @@ extension SidebarListViewComponents {
         }
         SidebarPerfCounters.add(.groupFolds)
         groups[id] = group
+        // The row caches hold what the layout shows: a space page kept from them (`SidebarSpacePage`) is compared with
+        // the model, so its sections have this fold as its layout has.
+        spacePages.cachesTookChange(at: model.structureRevision)
+        sections[section.id] = section
         applyFold(from: old, group: id)
     }
 
@@ -56,7 +60,7 @@ extension SidebarListViewComponents {
             if case .workspace = layout.rows[index].key { old.row(for: layout.rows[index].key) == nil } else { false }
         }
         // Only the user's own fold moves on the spring; another client's shows in one step (calm-sidebar-movement).
-        let animate = model.followsUserIntent && (!opensWorkspaces || Motion.sidebar.animates(.newWorkspace))
+        let animate = model.followsUserIntent && (!opensWorkspaces || Motion.sidebar.animates(.newWorkspace, in: window))
         var targets: [(SidebarRowView, NSRect)] = []
         var appearing: [(SidebarRowView, NSRect)] = []
         var leavingRows: [(SidebarRowView, NSRect)] = []

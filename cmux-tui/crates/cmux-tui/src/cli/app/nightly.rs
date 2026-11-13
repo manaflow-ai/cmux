@@ -14,6 +14,7 @@
 
 use std::time::Duration;
 
+use cmux_json::JsonGet as _;
 use serde_json::{Value, json};
 
 use super::super::GlobalArgs;
@@ -142,16 +143,16 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
                 Ok(build) => build,
                 Err((code, message)) => return failure(code, &message, global.output),
             };
-            let installed = text(&listing, "installed").unwrap_or_default();
+            let installed = listing.get_str("installed").unwrap_or_default();
             if global.output == OutputMode::Human {
                 println!(
                     "{}",
                     messages
                         .installing
-                        .replace("{build}", &text(build, "build").unwrap_or_default())
-                        .replace("{version}", &text(build, "version").unwrap_or_default())
-                        .replace("{date}", &text(build, "date").unwrap_or_default())
-                        .replace("{from}", &installed)
+                        .replace("{build}", build.get_str("build").unwrap_or_default())
+                        .replace("{version}", build.get_str("version").unwrap_or_default())
+                        .replace("{date}", build.get_str("date").unwrap_or_default())
+                        .replace("{from}", installed)
                 );
             }
             let number = build.get("build").cloned().unwrap_or(Value::Null);
@@ -234,46 +235,47 @@ pub(super) fn pick<'a>(
     if listing.get("switches").and_then(Value::as_bool) == Some(false) {
         return Err(("nightly.cannot_switch", messages.cannot_switch.to_owned()));
     }
-    let builds: &[Value] =
-        listing.get("builds").and_then(Value::as_array).map_or(&[], Vec::as_slice);
-    let installed = text(listing, "installed").unwrap_or_default();
+    let builds = listing.get_array("builds");
+    let installed = listing.get_str("installed").unwrap_or_default();
     match target {
         Target::Previous => builds
             .iter()
-            .filter(|build| flag(build, "switchable"))
-            .filter(|build| text(build, "build").is_some_and(|number| older(&number, &installed)))
+            .filter(|build| build.get_bool("switchable") == Some(true))
+            .filter(|build| {
+                build.get_nonempty_str("build").is_some_and(|number| older(number, installed))
+            })
             .max_by(|left, right| {
                 order(
-                    &text(left, "build").unwrap_or_default(),
-                    &text(right, "build").unwrap_or_default(),
+                    left.get_str("build").unwrap_or_default(),
+                    right.get_str("build").unwrap_or_default(),
                 )
             })
             .ok_or_else(|| {
-                ("nightly.no_previous", messages.no_previous.replace("{build}", &installed))
+                ("nightly.no_previous", messages.no_previous.replace("{build}", installed))
             }),
         Target::Build(number) => {
             let Some(build) =
-                builds.iter().find(|build| text(build, "build").as_deref() == Some(number))
+                builds.iter().find(|build| build.get_nonempty_str("build") == Some(number))
             else {
                 return Err((
                     "nightly.unknown_build",
                     messages.unknown_build.replace("{build}", number),
                 ));
             };
-            if flag(build, "installed") {
+            if build.get_bool("installed") == Some(true) {
                 return Err((
                     "nightly.installed",
                     messages.installed_already.replace("{build}", number),
                 ));
             }
             if build.get("health").and_then(Value::as_str) == Some("pulled") {
-                let reason = text(build, "pulled_reason").unwrap_or_default();
+                let reason = build.get_str("pulled_reason").unwrap_or_default();
                 return Err((
                     "nightly.pulled",
-                    messages.pulled.replace("{build}", number).replace("{reason}", &reason),
+                    messages.pulled.replace("{build}", number).replace("{reason}", reason),
                 ));
             }
-            if !flag(build, "switchable") {
+            if build.get_bool("switchable") != Some(true) {
                 return Err(("nightly.cannot_switch", messages.cannot_switch.to_owned()));
             }
             Ok(build)
@@ -293,24 +295,23 @@ fn older(build: &str, than: &str) -> bool {
 
 /// One line per build, newest first: `*` marks the running one.
 pub(super) fn human(listing: &Value, messages: &NightlyMessages) -> String {
-    let builds: &[Value] =
-        listing.get("builds").and_then(Value::as_array).map_or(&[], Vec::as_slice);
+    let builds = listing.get_array("builds");
     if builds.is_empty() {
         return format!("{}\n", messages.no_builds);
     }
     let mut out = String::new();
     for build in builds {
         let mut tags = Vec::new();
-        if flag(build, "installed") {
+        if build.get_bool("installed") == Some(true) {
             tags.push(messages.here);
         }
-        if flag(build, "kept") {
+        if build.get_bool("kept") == Some(true) {
             tags.push(messages.kept);
         }
         if build.get("health").and_then(Value::as_str) == Some("pulled") {
             tags.push(messages.pulled_tag);
         }
-        let commit: String = text(build, "commit").unwrap_or_default().chars().take(8).collect();
+        let commit: String = build.get_str("commit").unwrap_or_default().chars().take(8).collect();
         let titles = build
             .get("titles")
             .and_then(Value::as_array)
@@ -318,23 +319,15 @@ pub(super) fn human(listing: &Value, messages: &NightlyMessages) -> String {
             .unwrap_or_default();
         out.push_str(&format!(
             "{} {:<14} {:<10} {:<8} {:<20} {}\n",
-            if flag(build, "installed") { "*" } else { " " },
-            text(build, "build").unwrap_or_default(),
-            text(build, "date").unwrap_or_default(),
+            if build.get_bool("installed") == Some(true) { "*" } else { " " },
+            build.get_str("build").unwrap_or_default(),
+            build.get_str("date").unwrap_or_default(),
             commit,
             tags.join(", "),
             titles,
         ));
     }
     out
-}
-
-fn flag(value: &Value, key: &str) -> bool {
-    value.get(key).and_then(Value::as_bool).unwrap_or(false)
-}
-
-fn text(value: &Value, key: &str) -> Option<String> {
-    value.get(key).and_then(Value::as_str).filter(|value| !value.is_empty()).map(str::to_owned)
 }
 
 #[cfg(test)]

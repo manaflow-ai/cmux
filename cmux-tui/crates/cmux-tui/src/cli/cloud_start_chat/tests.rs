@@ -11,7 +11,7 @@ fn strings(words: &[&str]) -> Vec<String> {
 
 fn request(words: &[&str]) -> Request {
     match parse(&strings(words), || Ok("from stdin".to_owned())) {
-        Ok(Parsed::Run(request)) => request,
+        Ok(Parsed::Run(request)) => *request,
         other => panic!("{words:?}: {other:?}"),
     }
 }
@@ -21,6 +21,34 @@ mod clone_wait;
 #[path = "folder_tests.rs"]
 mod folder;
 
+/// Leo, 2026-11-10: a Cloud chat runs the Claude model the person asked for. `--model`, or
+/// `--agent claude/MODEL` as `acp ensure -m` reads it, is the run's model, asked again with it.
+#[test]
+fn the_model_is_taken_from_model_or_agent_and_checked() {
+    let flag = request(&["--model", "claude-haiku-5-5", "-p", "go"]);
+    assert_eq!((flag.agent.as_str(), flag.model.as_deref()), ("claude", Some("claude-haiku-5-5")));
+    let joined = request(&["--agent", "claude/claude-sonnet-5-5", "-p", "go"]);
+    assert_eq!(
+        (joined.agent.as_str(), joined.model.as_deref()),
+        ("claude", Some("claude-sonnet-5-5"))
+    );
+    assert!(
+        again_command(&flag, &Machine::Target("vm-1".into())).contains("--model claude-haiku-5-5")
+    );
+    assert_eq!(request(&["-p", "go"]).model, None);
+    for bad in ["", "-x", "a b", "$(id)", "a'b"] {
+        assert!(
+            parse(&strings(&["--model", bad, "-p", "go"]), || Ok(String::new())).is_err(),
+            "{bad:?}"
+        );
+    }
+    assert!(
+        parse(&strings(&["--agent", "claude/x", "--model", "y", "-p", "go"]), || Ok(String::new()))
+            .is_err()
+    );
+    assert!(TAKES_VALUE.contains(&"--model"));
+}
+
 #[test]
 fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
     let parsed = request(&["--prompt", "hi there"]);
@@ -29,14 +57,17 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
         Request {
             prompt: Some("hi there".into()),
             agent: "claude".into(),
+            model: None,
             cwd: None,
             from_folder: None,
             login: None,
             environment: None,
+            account: None,
             machine: Machine::New,
             wait: false,
             timeout: Duration::from_secs(900),
             make_room: false,
+            allow_large: false,
         }
     );
     let parsed = request(&[
@@ -2089,6 +2120,9 @@ fn only_a_cap_refusal_reads_as_a_cap() {
     assert_eq!(cap_of("app.unreachable", "no app", None), None);
     // cmux-platform's `details.resource` decides over its words.
     assert_eq!(cap_of("cloud.quota.exceeded", "any words", Some("machines")), Some(Cap::Held));
+    // The VM limit by its own code, whatever its words.
+    assert_eq!(cap_of("cloud.quota.vm_limit", "any words", None), Some(Cap::Held));
+    assert_eq!(cap_of("cmux.cloud.vm_limit", "any words", None), Some(Cap::Held));
     assert_eq!(cap_of("cloud.quota.exceeded", "any words", Some("active")), Some(Cap::Running));
     assert_eq!(
         cap_of("cloud.quota.exceeded", "this plan keeps 200 saved snapshots", Some("saved")),
@@ -2352,14 +2386,17 @@ fn a_prompt_to_a_running_chat_on_a_vm_sends_and_waits_without_a_start() {
     let asked = Request {
         prompt: Some("And 2+3?".into()),
         agent: String::new(),
+        model: None,
         cwd: None,
         from_folder: None,
         login: None,
         environment: None,
+        account: None,
         machine: Machine::Target("vm-1".into()),
         wait: true,
         timeout: Duration::from_secs(60),
         make_room: false,
+        allow_large: false,
     };
     let Outcome::Done(answer) = send_to(&mut fake, &asked, "vm-1", "sess-1") else {
         panic!("{:?}", fake.ran)
@@ -2387,14 +2424,17 @@ fn a_send_to_a_running_chat_past_its_deadline_sends_nothing_and_says_how_to_send
     let asked = |prompt: String, secs: u64| Request {
         prompt: Some(prompt),
         agent: String::new(),
+        model: None,
         cwd: None,
         from_folder: None,
         login: None,
         environment: None,
+        account: None,
         machine: Machine::Target("vm-1".into()),
         wait: true,
         timeout: Duration::from_secs(secs),
         make_room: false,
+        allow_large: false,
     };
     let big = big_prompt(200 * 1024);
     let piece = exec_out(&format!("@@size {}\n", big.len()));
@@ -2503,6 +2543,100 @@ fn a_late_creation_timeout_names_the_machine_to_ask_again_by() {
         error["details"]["again"].as_str().unwrap_or_default().contains("--name chat-fresh"),
         "{error}"
     );
+}
+
+/// `cloud list-machines` signed in as `user` on `team`, listing `machines` by id.
+fn listed_as(user: &str, team: Option<&str>, machines: &[&str]) -> Ran {
+    let rows: Vec<Value> =
+        machines.iter().map(|id| json!({"machine_id": id, "title": id})).collect();
+    ok(json!({"loaded": true, "account": {"signed_in": true, "user_id": user, "team_id": team},
+              "machines": rows}))
+}
+
+/// A sandboxed Run's `--account` (the fifth review of #39022): nothing starts on another account,
+/// and the prompt goes only to a machine the Run's own account lists, read after the start.
+#[test]
+fn an_account_run_starts_and_sends_only_on_that_account() {
+    let asked = request(&["--prompt", "secret", "--wait", "--account", "user:u1|team:t1"]);
+    assert_eq!(asked.account.as_deref(), Some("user:u1|team:t1"));
+    assert!(parse(&strings(&["--account", "team:t1"]), || Ok(String::new())).is_err());
+
+    // Another person (same team) at the start: nothing starts.
+    let mut fake = Fake::new(vec![listed_as("u2", Some("t1"), &["dev"])]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(error["code"], "cloud.account_changed");
+    assert_eq!(fake.ran.len(), 1, "{:?}", fake.ran);
+
+    // The app switched between the first list and the start: the machine is not the Run's
+    // account's, so nothing is sent, and the failure names the machine this run made.
+    let mut fake = Fake::new(vec![
+        listed_as("u1", Some("t1"), &[]),
+        started(),
+        listed_as("u2", None, &["vm-1"]),
+    ]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(error["code"], "cloud.account_changed");
+    assert_eq!(error["details"]["machine_id"], "vm-1");
+    assert_eq!(error["details"]["app_account"], "user:u2|personal");
+    assert!(fake.ran.iter().all(|ran| ran[1] != "exec"), "{:?}", fake.ran);
+
+    // The account's list shows the machine only on a later read: then the prompt goes.
+    let mut fake = Fake::new(vec![
+        listed_as("u1", Some("t1"), &[]),
+        started(),
+        listed_as("u1", Some("t1"), &[]),
+        listed_as("u1", Some("t1"), &["vm-1"]),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+        exec_out(
+            "@@wait 0\n@@history\n{\"turns\":[{\"seq\":3,\"status\":\"completed\",\"endedAt\":9}]}\n\
+             @@last\n{\"sessionId\":\"sess-1\",\"replies\":[\"done\"]}\n@@lastexit 0\n",
+        ),
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(answer["reply"], "done");
+
+    // A list that never shows it: nothing is sent.
+    let mut answers = vec![listed_as("u1", Some("t1"), &[]), started()];
+    answers.extend((0..5).map(|_| listed_as("u1", Some("t1"), &["other"])));
+    let mut fake = Fake::new(answers);
+    let Outcome::Failed { error, .. } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(error["code"], "cloud.account_changed");
+    assert!(fake.ran.iter().all(|ran| ran[1] != "exec"), "{:?}", fake.ran);
+
+    // Without --account nothing extra is read.
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n"),
+    ]);
+    assert!(matches!(run(&mut fake, &request(&["--prompt", "x"])), Outcome::Done(_)));
+    assert_eq!(fake.ran.len(), 3, "{:?}", fake.ran);
+}
+
+/// A Run's start names its machine (`--name sandbox-run_…`): when the app switched account between
+/// the first list and the start, nothing is sent, nothing is deleted here (a free name in one
+/// account's list proves nothing in another's: Codex's review of #39022 at 8c2c83b0), and the
+/// refusal names the account the app is on, where the Run's cleanup deletes its own machine.
+#[test]
+fn a_named_machine_on_another_account_gets_nothing_and_names_that_account() {
+    let asked = request(&[
+        "--prompt",
+        "secret",
+        "--wait",
+        "--name",
+        "sandbox-run_1",
+        "--account",
+        "user:u1|team:t1",
+    ]);
+    let made =
+        ok(json!({"machine_id": "vm-1", "machine_name": "sandbox-run_1", "session_id": "sess-1",
+                         "target": "machine:vm-1"}));
+    let mut fake =
+        Fake::new(vec![listed_as("u1", Some("t1"), &[]), made, listed_as("u2", None, &["vm-1"])]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(error["code"], "cloud.account_changed");
+    assert_eq!(error["details"]["app_account"], "user:u2|personal");
+    assert_eq!(fake.ran.len(), 3, "no send and no delete: {:?}", fake.ran);
 }
 
 /// A read the app could not get to the Cloud API at all is asked again, like one it did not answer in time.

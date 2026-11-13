@@ -39,7 +39,7 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
         // ring file, answered at once and not logged here.
         if let body = message.body as? [String: Any], body["method"] as? String == AgentPageFlickerLog.method, let view {
             view.flickerLog?.recordPage(body["params"] as? [String: Any], page: AgentPageFlickerLog.pageName(view),
-                                        pid: view.knownWebContentPid)
+                                        pid: view.flickerPid)
             return replyHandler(AgentPaneReply.success(), nil)
         }
         // Where a chat rests belongs to the chat, so it is answered here from the one store both
@@ -58,6 +58,20 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             let generation = tailGeneration
             // task-owner: one trusted page request, completed by its reply handler
             Task { replyHandler(await AgentPaneTailCache.reply(to: method, params: params, host: host, pageGeneration: generation), nil) }
+            return
+        }
+        // A chat's unsent prompts (``AgentPaneUnsentPrompts``): the chat's, kept across relaunches,
+        // never the model's and never logged (they are the person's text).
+        if let body = message.body as? [String: Any], let method = body["method"] as? String,
+           AgentPaneUnsentPrompts.handles(method: method) {
+            let params = body["params"].flatMap { JSONValue(foundation: $0) } ?? .null
+            // task-owner: one trusted page request, completed by its reply handler
+            Task {
+                switch await AgentPaneUnsentPrompts.reply(to: method, params: params) {
+                case .success(let value): replyHandler(AgentPaneReply.success(value.foundationObject), nil)
+                case .failure(let error): replyHandler(AgentPaneReply.failure(code: error.code, message: error.message), nil)
+                }
+            }
             return
         }
         let request = AgentPaneRequest(body: message.body)

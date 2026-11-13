@@ -70,12 +70,11 @@ would do it, spring curves", "proper physics". Design:
   release or a new target under a moving value stops on its place.
 - One source (hq-1d D2, Lawrence: "decouple from swift app as much as
   possible"): the tokens live in the spec's design-tokens.json `motion`
-  (springs, fades, loops, speed, settle thresholds, the structural set, the
-  bounce and the per-kind defaults; the Swift app passes bounce 0 and its own
-  dampings, all 1, since 2026-11-10: design-tokens.json and cmux-motion still
-  hold the older ones, a follow-up). cmux-tui/crates/cmux-motion reads them
-  at build time (build.rs) and owns the closed-form step
-  (`SpringValue::solve`, `advance_spring`), the structural bounce rule
+  (springs, fades, loops, speed, settle thresholds and the per-kind
+  defaults; every spring's damping is 1 there and in the Swift app since
+  2026-11-10, and build.rs refuses a damping under 1). cmux-tui/crates/cmux-motion
+  reads them at build time (build.rs) and owns the closed-form step
+  (`SpringValue::solve`, `advance_spring`), the speed rule
   (`MotionPolicy::spring`) and the switches (`AnimationSwitches`,
   `set_animation_switches`); cmux-app-ffi exposes them to macOS as
   `cmux_motion_*` (include/cmux_motion_ffi.h). Until the app's FFI pin
@@ -265,7 +264,6 @@ app runs.
 | `disappear` | 0.11 / 1.00 | 133 ms | 200 ms | tab close (width to 0), group collapse, sidebar hide (timed equivalent), browser toolbar hide |
 | `settle` | 0.22 / 0.85 | 175 ms | 342 ms | release after drag: tab drop, drag ghost landing, sidebar row drop (carries pointer velocity; 0.8 pt overshoot on 200 pt) |
 | `scroll` | 0.22 / 0.90 | 208 ms | 267 ms | tab strip reveal, strip column reveal, wheel notch, trackpad fling snap |
-| `screen` | 0.22 / 0.90 | 208 ms | 267 ms | none since 2026-11-10: a screen switch has no animation (rule 9); the token stays for its index in the cmux-motion C ABI |
 | `track` | 0.12 / 0.90 | 117 ms | 167 ms | drop-zone highlight, drag ghost jumps between targets |
 | `selection` | 0.15 / 0.90 | 142 ms | 200 ms | page info toggle (the sidebar selection does not animate, SIDEBAR-SELECTION-NO-TRAVEL-ANIMATION) |
 | `panel` | 0.18 / 0.85 | 142 ms | 283 ms | hover card slide |

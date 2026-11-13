@@ -20,6 +20,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "nightly.yml"
+sys.path.insert(0, str(ROOT / "tests"))
+from nightly_workflow_text import write_out_step_aliases  # noqa: E402
 BUNDLE_SCRIPT = ROOT / "scripts" / "cmux-next" / "build-web-bundles.sh"
 INSPECTOR = "Native/OptChat/optchat-chief/inspector/index.html"
 
@@ -42,7 +44,7 @@ def job_steps(text, job):
 
 
 failures = []
-names = [name for name, _ in job_steps(WORKFLOW.read_text(), "build-nightly-app")]
+names = [name for name, _ in job_steps(write_out_step_aliases(WORKFLOW.read_text()), "build-nightly-app")]
 for step in (*BUNDLE_STEPS, RELEASE_BUILD):
     if step not in names:
         failures.append(f"build-nightly-app has no step {step!r}")

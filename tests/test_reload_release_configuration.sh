@@ -12,11 +12,17 @@ RELOAD="$ROOT_DIR/scripts/reload.sh"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
 TMP_DIR="$(mktemp -d)"
+# reload.sh's tag lock (tempfile.gettempdir()) goes in this private folder, not a fixed name in the shared one.
+export TMPDIR="$TMP_DIR"
 TAG="release-probe-$$"
-LOCK_FILE="$(python3 -c 'import os, sys, tempfile; print(os.path.join(tempfile.gettempdir(), "cmux-reload-tags-%d" % os.getuid(), sys.argv[1] + ".lock"))' "$TAG")"
+# The logs reload.sh reported writing ("==> log: PATH"): it picks the path, so the test removes what it names.
+RELOAD_LOGS=()
 cleanup() {
+  local log
   rm -rf "$TMP_DIR"
-  rm -f "/tmp/cmux-reload-${TAG}.log" "$LOCK_FILE"
+  for log in ${RELOAD_LOGS[@]+"${RELOAD_LOGS[@]}"}; do
+    rm -f -- "$log"
+  done
 }
 trap cleanup EXIT
 
@@ -54,6 +60,9 @@ run_reload() {
     ${RUN_ENV[@]+"${RUN_ENV[@]}"} "$RELOAD" "$@" 2>&1)"
   STATUS=$?
   set -e
+  local log
+  log="$(sed -n 's/^==> log: //p' <<<"$OUTPUT" | tail -n 1)"
+  if [[ -n "$log" ]]; then RELOAD_LOGS+=("$log"); fi
 }
 arg_after() { awk -v key="$1" 'found { print; exit } $0 == key { found = 1 }' "$ARGS"; }
 

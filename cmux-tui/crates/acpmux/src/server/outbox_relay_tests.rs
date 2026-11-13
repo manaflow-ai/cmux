@@ -225,6 +225,9 @@ async fn a_delivery_that_may_have_reached_the_peer_is_never_relayed() {
             attempts: 1,
             never_sent: false,
             relay_post: None,
+            open_on_peer: false,
+            pin: None,
+            proof: None,
             error: Some("peer disconnected".into()),
             accepted: None,
             created_at: now,
@@ -289,6 +292,9 @@ fn an_attempt_on_the_peer_link_is_saved_as_maybe_sent_until_the_link_refuses_it(
         attempts: 0,
         never_sent: true,
         relay_post: None,
+        open_on_peer: false,
+        pin: None,
+        proof: None,
         error: None,
         accepted: None,
         created_at: now,
@@ -300,17 +306,53 @@ fn an_attempt_on_the_peer_link_is_saved_as_maybe_sent_until_the_link_refuses_it(
     assert!(!d.never_sent, "a crash mid-attempt could relay what the peer may run: {d:?}");
 }
 
+/// A delivery to a session of a peer that is down, which the relay cannot carry (an
+/// attachment), after its first attempt: the pin it keeps.
+async fn the_pin_of_an_attempt_that_reached_nothing(rules: u8) -> Option<crate::hub::outbox::Pin> {
+    let mut config = Config::default();
+    config.store.mode = StoreMode::Memory;
+    let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(config, store);
+    hub.replay_rules(rules);
+    let row = json!({"sessionId": LANE, "name": "lane", "status": "idle", "turnCount": 1,
+                     "updatedAt": 5, "createdAt": 5});
+    hub.seed_down_peer("huge-blue", vec![row]);
+    assert!(hub.mesh.set(Arc::new(FakeHub::default())).is_ok());
+    let shot = crate::attach::block("shot.png", b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR");
+    let mut attached = request("huge-blue/lane", "prompt-pin");
+    attached["request"]["prompt"] = json!([{"type": "text", "text": "see this"}, shot]);
+    let id = queue(&hub, attached).await;
+    let d = after_attempt(&hub, &id, 1).await;
+    assert_eq!(d.state, State::Queued, "{d:?}");
+    assert!(d.never_sent, "{d:?}");
+    d.pin
+}
+
+/// Review of #37284 at c4a6f4e7, F3: an attempt that reached nothing (the peer down, the relay
+/// unable to carry it) keeps no pin, so the next one reads the session as the peer lists it
+/// then: a session the peer made again meanwhile is the one it goes to, never failed as stale.
+/// Under c4a6f4e7's rules it kept the generation it read before anything reached the peer.
+#[tokio::test]
+async fn an_attempt_that_reached_nothing_keeps_no_pin() {
+    let old = the_pin_of_an_attempt_that_reached_nothing(crate::hub::journal_restore::AT_C4A6);
+    assert_eq!(old.await.map(|p| p.generation), Some(5), "c4a6f4e7 kept it");
+    assert_eq!(the_pin_of_an_attempt_that_reached_nothing(0).await, None);
+}
+
 /// A send whose record cannot be written is refused, so the sender knows to send it again, and
 /// nothing of it is kept: no delivery from memory, no attachments beside the file.
 #[tokio::test]
 async fn a_send_whose_record_cannot_be_saved_is_refused_and_not_kept() {
     let (hub, fake) = setup(FakeHub::default());
     let dir = std::env::temp_dir().join(format!("outbox-not-saved-{}", uuid::Uuid::now_v7()));
-    // A folder where `outbox.json` should be: its write fails, also for root, while the
-    // attachments beside it can still be written.
+    // Folders where `outbox.json` and its journal should be, made after the open (which sets
+    // an unreadable file aside): their writes fail, also for root, while the attachments beside
+    // them can still be written.
     let path = dir.join("outbox.json");
-    std::fs::create_dir_all(&path).unwrap();
+    std::fs::create_dir_all(&dir).unwrap();
     hub.outbox.open(&path);
+    std::fs::create_dir_all(&path).unwrap();
+    std::fs::create_dir_all(crate::hub::outbox::journal_path(&path)).unwrap();
     let shot = crate::attach::block("shot.png", b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR");
     let mut params = request("huge-blue/lane", "prompt-not-saved");
     params["request"]["prompt"] = json!([{"type": "text", "text": "see this"}, shot]);
