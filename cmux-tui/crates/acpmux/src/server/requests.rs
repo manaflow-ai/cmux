@@ -1746,6 +1746,17 @@ async fn dispatch_request_with_identity(
         method::SESSION_LIST => super::list_reply::acp_list(hub, conn, &params).await,
         method::SESSION_PROMPT => {
             let s = resolved_session(hub, resolved.as_ref(), &params)?;
+            // A delivery again names the generation it first reached (`outbox.rs`
+            // `redeliver_open`): a session purged and made again under its id never runs it.
+            if let Some(generation) =
+                mux_meta(&params).and_then(|m| m.get("sessionCreatedAt")).and_then(Value::as_u64)
+                && s.meta().created_at != generation
+            {
+                return Err(RpcError::invalid_params(
+                    "this prompt was sent to an earlier session of this id; it is not run",
+                )
+                .with_data(json!({"reason": "stale_generation", "retryable": false})));
+            }
             attach(hub, conn, &s.id);
             if person_asks(conn) {
                 super::lane_parent::person_wrote(hub, &s);
@@ -2465,6 +2476,22 @@ async fn dispatch_request_with_identity(
                 .await
                 .map_err(|e| RpcError::internal(e.to_string()))?
         }
+        // A machine started from an older disk takes back what its owner's daemon kept of a
+        // chat (`hub/journal_restore.rs`): that daemon's peer link, proven by this launch's peer
+        // token, or this machine's socket. A paired client device is served as Peer too, with
+        // its own credential: it may drive chats, never write their history.
+        "_acpmux/journal_restore" | "_acpmux/attachments_held"
+            if !matches!(
+                (conn.origin, conn.auth),
+                (Origin::Peer, ConnAuth::PeerToken) | (Origin::Local, ConnAuth::LocalSocket)
+            ) =>
+        {
+            Err(RpcError::invalid_params(
+                "_acpmux/journal_restore and _acpmux/attachments_held answer the owner's peer link and the unix socket only",
+            ))
+        }
+        "_acpmux/journal_restore" => hub.journal_restore(&params).await,
+        "_acpmux/attachments_held" => hub.attachments_held(&params).await,
         "_acpmux/peer_snapshots_clear" if conn.origin != Origin::Local => Err(
             RpcError::invalid_params("peer snapshots clear requires this machine's unix socket"),
         ),
