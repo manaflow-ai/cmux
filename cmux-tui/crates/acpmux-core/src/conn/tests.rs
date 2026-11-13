@@ -136,6 +136,70 @@ async fn a_live_offer_wakes_the_connection_and_first_window_precedes_it() {
 }
 
 #[tokio::test]
+async fn origin_transitions_cross_the_connection_and_resume_at_the_advanced_cursor() {
+    use crate::wire::DeltaOp;
+    use acpmux_book::index::OriginState;
+
+    let (mut client, task, hub, mut writer, _source) = list_pair();
+    hello(&mut client).await;
+    let first = subscribe(&mut client, "origins").await;
+    assert_eq!(first.kind, FrameKind::Window);
+    let window: Window<Summary> = first.decode_json().unwrap();
+    let mut cursor = window.cursor;
+    for (state, since) in
+        [(OriginState::Down, 10), (OriginState::Stale, 20), (OriginState::Connected, 30)]
+    {
+        writer.origin("peer", state, since).unwrap();
+        let frame = receive(&mut client).await;
+        assert_eq!(frame.kind, FrameKind::Delta);
+        let delta: DeltaFrame<Summary> = frame.decode_json().unwrap();
+        assert_eq!(delta.sid, "origins");
+        assert_eq!(delta.replay, None);
+        assert_eq!(delta.ops.len(), 1);
+        let DeltaOp::Origin { seq, origin } = delta.ops.into_iter().next().unwrap() else {
+            panic!("origin transition was not an origin operation");
+        };
+        assert_eq!(seq, cursor + 1);
+        assert_eq!(origin.id, "peer");
+        assert_eq!(origin.state, state);
+        assert_eq!(origin.since, since);
+        cursor = seq;
+    }
+    assert_eq!(cursor, hub.snapshot().seq());
+    assert_eq!(cursor, window.cursor + 3);
+
+    // Resubscribe at the cursor learned from the three decoded operations.
+    // A caught-up replay is empty; the following row must still arrive live.
+    send(&mut client, json!({"method":"unsub","params":{"sid":"origins"}})).await;
+    send(
+        &mut client,
+        json!({"method":"sub","params":{
+            "sid":"origins","stream":"list","cursor":cursor,"edition":window.edition
+        }}),
+    )
+    .await;
+    let caught_up = receive(&mut client).await;
+    assert_eq!(caught_up.kind, FrameKind::Delta);
+    let caught_up: DeltaFrame<Summary> = caught_up.decode_json().unwrap();
+    assert_eq!(caught_up.sid, "origins");
+    assert_eq!(caught_up.replay, Some(ReplayMark::End));
+    assert!(caught_up.ops.is_empty());
+    writer.apply(summary(40)).unwrap();
+    let frame = receive(&mut client).await;
+    assert_eq!(frame.kind, FrameKind::Delta);
+    let delta: DeltaFrame<Summary> = frame.decode_json().unwrap();
+    assert_eq!(delta.sid, "origins");
+    assert_eq!(delta.replay, None);
+    assert_eq!(delta.ops.len(), 1);
+    assert!(matches!(
+        delta.ops.into_iter().next().unwrap(),
+        DeltaOp::Summary { seq, .. } if seq == cursor + 1
+    ));
+    drop(client);
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test]
 async fn errors_name_the_request_and_every_pre_hello_request_is_refused() {
     let (mut client, task, _hub, _writer, _source) = list_pair();
     for method in ["credit", "unsub", "page", "sub"] {
