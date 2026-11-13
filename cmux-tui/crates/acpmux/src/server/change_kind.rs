@@ -40,6 +40,9 @@ pub(crate) fn session_change_kind(record_kind: &str) -> Option<&str> {
         | "auto_resume_settled"
         // Work the session started runs past its turn, or ended (`hub/work_below.rs`).
         | "subagents_working"
+        // A turn Claude Code runs on its own started or ended: the summary's `backgroundTurn`,
+        // and so its indicator and lane (`hub/background_turn.rs`, manaflow-ai/cmux#42447).
+        | "background_turn"
         // A sub-session below it started or stopped waiting on the person (`hub/asks_below.rs`).
         | "subsessions_waiting"
         // How many subagents run changed, or a background command started or ended: the

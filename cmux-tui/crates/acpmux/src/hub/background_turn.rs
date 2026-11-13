@@ -58,6 +58,8 @@ pub(super) struct Running {
     long: bool,
     /// A permission or structured question needs the person's attention.
     attention: bool,
+    /// When it started (Unix ms): the summary's `backgroundTurn.startedAt`, the lane's `since`.
+    started_at: u64,
 }
 
 /// A session's background-turn state, read and written by its tap.
@@ -133,8 +135,14 @@ impl BackgroundTurns {
                 fields.insert("cause".into(), cause);
             }
             started = Some(record);
-            self.running =
-                Some(Running { id, trigger, text: String::new(), long: false, attention: false });
+            self.running = Some(Running {
+                id,
+                trigger,
+                text: String::new(),
+                long: false,
+                attention: false,
+                started_at: now_ms(),
+            });
         }
         let Some(running) = self.running.as_mut() else { return started };
         if kind != "agent_message_chunk" {
@@ -168,6 +176,18 @@ impl BackgroundTurns {
         }))
     }
 
+    /// The running one as the session summary's `backgroundTurn` (`views.rs`):
+    /// `{id, trigger, startedAt}`, or null. While it is set the chat's indicator and lane say
+    /// `working` (manaflow-ai/cmux#42447: a chat Claude Code woke on a finished background
+    /// command worked 18 minutes with no spinner on its sidebar row). Only the dot: such a turn
+    /// still never marks the chat unread nor posts a notice.
+    fn summary(&self) -> Value {
+        self.running.as_ref().map_or(
+            Value::Null,
+            |r| json!({"id": r.id, "trigger": r.trigger, "startedAt": r.started_at}),
+        )
+    }
+
     /// Whether a reply message is a background turn's.
     fn owns_message(&self, id: &str) -> bool {
         self.messages.iter().any(|m| m == id)
@@ -185,6 +205,7 @@ impl Hub {
                 text: String::new(),
                 long: true,
                 attention: false,
+                started_at: now_ms(),
             });
     }
 
@@ -203,6 +224,7 @@ impl Hub {
             text: String::new(),
             long: false,
             attention: false,
+            started_at: now_ms(),
         });
         drop(state);
         if let Some(msg) = previous {
@@ -277,6 +299,11 @@ impl Hub {
         if let Some(msg) = ended {
             self.append(session, "mux", RECORD_KIND, msg);
         }
+    }
+
+    /// The session summary's `backgroundTurn`: the running background turn, or null.
+    pub(super) fn background_turn_summary(&self, session: &Session) -> Value {
+        session.background_turns.lock().unwrap_or_else(|e| e.into_inner()).summary()
     }
 
     /// Whether an `agent_message_chunk` is a background turn's: its words stay off the preview.
@@ -415,6 +442,23 @@ mod tests {
         b.on_update(&chunk("m1", "Done"), false, 0);
         let ended = b.on_line("claude.result.success", &json!({}), false, 3);
         assert_eq!(ended[0]["quiet"], false);
+    }
+
+    #[test]
+    fn the_summary_names_the_running_one_until_it_ends() {
+        let mut b = BackgroundTurns::default();
+        assert_eq!(b.summary(), Value::Null);
+        b.on_line("claude.system.task_notification", &json!({}), false, 1);
+        b.on_line("claude.system.init", &json!({}), false, 2);
+        // A system/init alone is no turn yet.
+        assert_eq!(b.summary(), Value::Null);
+        b.on_update(&json!({"sessionUpdate": "tool_call"}), false, 0).unwrap();
+        let running = b.summary();
+        assert_eq!(running["id"], "bg-2");
+        assert_eq!(running["trigger"], "task_notification");
+        assert!(running["startedAt"].as_u64().is_some_and(|at| at > 0));
+        b.on_line("claude.result.success", &json!({}), false, 5);
+        assert_eq!(b.summary(), Value::Null);
     }
 
     #[test]

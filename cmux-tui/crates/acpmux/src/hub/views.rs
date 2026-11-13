@@ -136,7 +136,8 @@ fn sidebar_requires_open(summary: &Value) -> bool {
 ///
 /// - `input`: a permission or question waits for the person, here or in an
 ///   open sub-session below it (`subsessionsWaiting`, `asks_below.rs`).
-/// - `working`: a turn runs.
+/// - `working`: a turn runs, the person's or acpmux's, or one Claude Code runs on its own
+///   (`backgroundTurn`, `background_turn.rs`: a background task ended, a scheduled wakeup).
 /// - `failed`: the last turn failed (also when the agent then exited).
 /// - `lost`: the agent process is gone (`disconnected`, or a peer's
 ///   `unreachable`) and the chat's last turn did not answer. A chat with
@@ -175,6 +176,14 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
         // so the parent's own row says so, whatever its own turn does (`asks_below.rs`).
         _ if summary["subsessionsWaiting"].as_u64().unwrap_or(0) > 0 => Some("input"),
         "running" => Some("working"),
+        // A turn Claude Code runs on its own (`background_turn.rs`), e.g. woken by a background
+        // command that ended: the agent works, so its row spins (manaflow-ai/cmux#42447). Not
+        // on a peer gone unreachable, which takes its work with it, nor on a stopped harness.
+        _ if summary["backgroundTurn"].is_object()
+            && !matches!(status, "unreachable" | "disconnected") =>
+        {
+            Some("working")
+        }
         _ if last == Some("failed") => Some("failed"),
         "disconnected" | "unreachable" if last.is_some() && !answered => Some("lost"),
         // A peer gone unreachable takes its work with it; a local chat whose harness stopped
@@ -257,7 +266,10 @@ pub fn lane(summary: &Value) -> Value {
         // Its own turn's start, else since its subagents work on past the last one.
         Some("working") => (
             "working",
-            summary["turn"]["startedAt"].as_u64().or(summary["subagentsWorkingSince"].as_u64()),
+            summary["turn"]["startedAt"]
+                .as_u64()
+                .or(summary["backgroundTurn"]["startedAt"].as_u64())
+                .or(summary["subagentsWorkingSince"].as_u64()),
         ),
         Some("input") => (
             "input",
@@ -775,6 +787,9 @@ impl Hub {
         if let Some(dirs) = super::additional_dirs::acp_value(&m) {
             summary.set(super::additional_dirs::FIELD, dirs);
         }
+        // A turn Claude Code runs on its own, while it runs (`background_turn.rs`): `decide`
+        // reads it as working.
+        summary.set("backgroundTurn", self.background_turn_summary(session));
         // Since when work it started runs on past its own turn (`work_below.rs`).
         summary.set("subagentsWorkingSince", json!(self.work_below_since(session)));
         // Other sessions' messages its Claude Code holds (`native_messaging.rs`): `acpmux pending`.
