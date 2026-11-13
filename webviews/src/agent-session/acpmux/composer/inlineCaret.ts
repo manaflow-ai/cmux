@@ -123,6 +123,7 @@ export function inlineCaretPlugin(): Plugin {
       caret.className = "acpmux-md-caret";
       caret.setAttribute("aria-hidden", "true");
       let field: HTMLElement | null = null;
+      let stopFieldEvents: (() => void) | undefined;
       let last = "";
       const hide = () => {
         if (caret.hidden) return;
@@ -140,6 +141,20 @@ export function inlineCaretPlugin(): Plugin {
         if (!field) {
           field = view.dom.closest<HTMLElement>(".acpmux-md-field") ?? view.dom.parentElement;
           field?.append(caret);
+          if (field) {
+            const redraw = () => {
+              last = "";
+              draw();
+            };
+            field.addEventListener("scroll", redraw, { passive: true });
+            for (const type of ["compositionstart", "compositionupdate", "compositionend"])
+              view.dom.addEventListener(type, redraw);
+            stopFieldEvents = () => {
+              field?.removeEventListener("scroll", redraw);
+              for (const type of ["compositionstart", "compositionupdate", "compositionend"])
+                view.dom.removeEventListener(type, redraw);
+            };
+          }
         }
         if (!field) return hide();
         const box = field.getBoundingClientRect();
@@ -182,6 +197,7 @@ export function inlineCaretPlugin(): Plugin {
         update: draw,
         destroy() {
           observer?.disconnect();
+          stopFieldEvents?.();
           view.dom.removeEventListener("focus", draw);
           view.dom.removeEventListener("blur", hide);
           stopKey();
