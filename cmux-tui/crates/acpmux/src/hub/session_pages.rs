@@ -184,6 +184,16 @@ pub(crate) fn page_from(params: &Value) -> Option<Option<u64>> {
     }
 }
 
+/// Whether `row` is the session `params`' `k` cursor names (its `updatedAt` and id key), the row a
+/// page after it starts past ([`SessionCursor::start`]).
+pub(crate) fn names_cursor<R: PageRow + ?Sized>(params: &Value, row: &R) -> bool {
+    params
+        .get("cursor")
+        .and_then(Value::as_str)
+        .and_then(SessionCursor::parse)
+        .is_some_and(|cursor| stamp(row) == cursor.updated_ms && row_key(row) == cursor.key)
+}
+
 /// A page cut by bytes rather than by count, for a reply that has no `limit` to page by (ACP's
 /// `session/list`): of the rows whose paging `keys` are given, those after `cursor` (a
 /// `nextCursor` of this list) that `row` makes and whose `size`s fit in `budget`, at least one,

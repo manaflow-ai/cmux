@@ -155,10 +155,18 @@ impl Hub {
             let mut most = limit.saturating_add(WINDOW_ROOM);
             loop {
                 let (own, all) = self.own_rows_from(from, most);
+                // A page starts past its cursor's row, found by its `updatedAt` and id key: many
+                // rows of one `updatedAt` may come before it. The window holds it, or has passed
+                // its `updatedAt` (it moved or went: the page starts at the first row no newer,
+                // as a pick from every row does). Before, a window of only that `updatedAt` started
+                // pages at its first row, and they repeated it (#42131 review, F1).
+                let past = own.last().is_some_and(|(_, at)| from.is_some_and(|from| *at < from));
                 let list = self.window_rows(own, all, from);
+                let named = |row: &Unbuilt| super::session_pages::names_cursor(params, row);
+                let reached = from.is_none() || past || list.rows().iter().any(named);
                 let picked = pick_page(list.rows(), params)?;
                 // A cursor for the rest: the window held more of the page's rows than it takes.
-                if all || picked.next.as_ref().is_some_and(|next| !next.is_null()) {
+                if all || (reached && picked.next.as_ref().is_some_and(|next| !next.is_null())) {
                     return Ok((list, picked));
                 }
                 most = most.saturating_mul(4);

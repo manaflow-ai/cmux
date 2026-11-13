@@ -99,3 +99,18 @@ async fn a_first_page_reads_its_window_not_every_chat() {
     assert_eq!(rows.len(), 20);
     assert!(next.is_some_and(|next| next.is_string()));
 }
+
+/// Many sessions of one `updatedAt` (#42131 review, F1): a page's cursor row may lie past the
+/// window a page first reads, and the pages still give every session once, in order.
+#[tokio::test]
+async fn pages_through_many_rows_of_one_updated_at_give_each_once() {
+    let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+    for n in 0..200 {
+        let meta = meta(&format!("t{n:03}"), 7);
+        hub.store.save(&meta).unwrap();
+        hub.insert_test_session(meta);
+    }
+    let ids = paged(&hub, 50);
+    let want: Vec<String> = (0..200).map(|n| format!("t{n:03}")).collect();
+    assert_eq!(ids, want, "every session once, ties by id");
+}

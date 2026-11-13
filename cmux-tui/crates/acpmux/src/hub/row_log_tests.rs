@@ -409,3 +409,25 @@ async fn a_change_that_may_reach_every_row_resets_every_older_cursor() {
 
 #[path = "row_log_bench_tests.rs"]
 mod bench;
+
+/// A follow whose one changed row is larger than a reply (#42131 review, F2): the row goes trimmed
+/// or as a stub with its keys, as a page's does, and the reply stays under the cap rather than
+/// ending in `message.too_large`.
+#[tokio::test]
+async fn a_follow_of_one_row_larger_than_a_reply_fits_under_the_cap() {
+    let hub = hub_with(3, 0, 0).await;
+    let mut app = Client::new(&hub, Origin::Local).await;
+    let first = app.call(method::MUX_WATCH, json!({"enabled": true})).await;
+    let (cursor, epoch) = (first["listSeq"].as_u64().unwrap(), first["listEpoch"].clone());
+    let big = hub.session_by_id("chat-1").unwrap();
+    hub.edit_test_meta(&big, |m| m.name = "n".repeat(3 << 20));
+    let params = json!({"enabled": true, "afterSeq": cursor, "listEpoch": epoch});
+    let follow = app.call(method::MUX_WATCH, params).await;
+    let bytes = follow.to_string().len();
+    let cap = crate::rpc::REPLY_PAGE_BYTES;
+    assert!(bytes < cap, "a follow of {bytes} bytes, past the {cap}-byte cap");
+    let rows = follow["sessions"].as_array().unwrap();
+    let row = rows.iter().find(|r| r["sessionId"] == "chat-1").expect("the row is in the follow");
+    assert!(row["name"].as_str().is_none_or(|n| n.len() < 3 << 20), "the row went whole");
+    assert_eq!(follow["more"], false, "{}", follow.to_string().get(..400).unwrap_or_default());
+}

@@ -390,6 +390,12 @@ fn fit_row<'a, K: PageRow + ?Sized>(
     }
 }
 
+/// `row` serialized ([`fit_row`]): whole when it fits in `budget`, else trimmed to fit or a stub
+/// with its keys, as a page sends a row too large for it.
+pub(crate) fn fit_value(row: &Value, budget: usize) -> String {
+    fit_row(&row.to_string(), row, budget).into_owned()
+}
+
 /// The cursor of the page after `last`: a census's (`orderBy`, `s:<id>`) or the list's
 /// (`session_pages::cursor_after`).
 fn page_cursor(params: &Value, last: &Value) -> String {
