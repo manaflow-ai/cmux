@@ -1,7 +1,7 @@
 import { useContext, useLayoutEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 
 import { useT } from "../i18n";
-import type { AcpmuxRow, QueueEdit } from "../model";
+import type { AcpmuxRow, QueueEdit, SteerBehind } from "../model";
 import { Close } from "./icons";
 import { MessageCopy, MessageFooterRow } from "./MessageActions";
 import { ROW_ICON } from "./messageActionsModel";
@@ -79,7 +79,11 @@ export function PendingSteer({
             </button>
           )}
         </span>
-        {kept && <span className="cv-user__kept">{t("message.readAfterStep")}</span>}
+        {kept ? (
+          <span className="cv-user__kept">{t("message.readAfterStep")}</span>
+        ) : (
+          <SteerUnread behind={row.steerBehind} />
+        )}
         {promptId && offersSendNow && (
           <button
             type="button"
@@ -102,6 +106,33 @@ export function PendingSteer({
         )}
       </MessageFooterRow>
     </div>
+  );
+}
+
+/// At rest under a steer the agent has not read: "Not read yet", and the step it waits behind in the
+/// live line's words (turns.ts `withSteerBehind`), so a message held behind a long command or
+/// subagents never reads as ignored (Leo, 2026-11-12: "they're not really responding to my messages.
+/// I'm not sure if they're reading them at all."). It goes with the row's controls when the agent
+/// reads the steer. The step is cut at the row's edge by CSS, never by a count.
+function SteerUnread({ behind }: { behind: SteerBehind | undefined }) {
+  const t = useT();
+  const step =
+    behind?.command !== undefined
+      ? behind.command
+        ? t("tools.runningCommand", { command: behind.command })
+        : t("tools.runningUnnamed")
+      : behind?.call
+        ? behind.call
+        : behind?.agents
+          ? t("turn.live.waitingOnSubagents", { n: behind.agents })
+          : undefined;
+  const notRead = t("steer.notReadYet");
+  const text = step ? `${notRead} · ${step}` : notRead;
+  return (
+    // tooltip-allow: the whole step, which the row's edge may cut; shown nowhere else in full
+    <output className="cv-user__unread" title={text}>
+      {text}
+    </output>
   );
 }
 

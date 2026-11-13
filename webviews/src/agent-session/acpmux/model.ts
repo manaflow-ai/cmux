@@ -449,6 +449,11 @@ export type ClaimCheck = {
   command?: string;
 };
 
+/// What a steer the agent has not read waits behind (`AcpmuxRow.steerBehind`): one of a command in
+/// flight (empty while Claude still writes it), another call by the live line's words, or the count
+/// of foreground subagents; none between steps.
+export type SteerBehind = { command?: string; call?: string; agents?: number };
+
 export type AcpmuxRow = {
   id: string;
   version: number;
@@ -771,6 +776,10 @@ export type AcpmuxRow = {
   afterStop?: true;
   /// A waiting steer's promptId, which its Send now names (conversation/PendingSteer.tsx).
   steerPromptId?: string;
+  /// The step a waiting steer waits behind, set on the running turn's view (turns.ts
+  /// `withSteerBehind`) from what its live line names: the command or call in flight, or the
+  /// foreground subagents it waits on; empty between steps. Its bubble says "Not read yet" with it.
+  steerBehind?: SteerBehind;
   /// A prompt's promptId as acpmux recorded it (its `user_message` record's): the thread rail keys
   /// its tick on it, the same live, after acpmux's echo and when the history is read again.
   promptId?: string;

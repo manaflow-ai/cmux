@@ -16,6 +16,7 @@ import {
   type AcpmuxFileDiff,
   type AcpmuxPlanEntry,
   type AcpmuxRow,
+  type SteerBehind,
 } from "../model";
 import type { Folds } from "./viewFolds";
 import { continuesTurn, opensTurn } from "../turnStart";
@@ -2509,8 +2510,45 @@ function liveTurn(
   trayAgents = 0,
   turnStartedAtMs?: number,
 ): AcpmuxRow[] {
-  return withRetry(turn, shapeLiveTurn(user, turn, clockOffset, sessionStatus, trayAgents, turnStartedAtMs));
+  return withSteerBehind(
+    withRetry(turn, shapeLiveTurn(user, turn, clockOffset, sessionStatus, trayAgents, turnStartedAtMs)),
+  );
 }
+
+/// Each steer the agent has not read yet says what it waits behind, the step the live line names
+/// (Leo, 2026-11-12: "they're not really responding to my messages. I'm not sure if they're reading
+/// them at all"): Claude Code reads a steer only when its current step ends, so behind a long
+/// command or foreground subagents a message can wait for an hour with nothing saying why. A fresh
+/// row with its own version (the label's hash, above any version acpmux gives the prompt), so the
+/// memoized bubble draws again as the step changes; a steer read is the store's row again.
+function withSteerBehind(shaped: AcpmuxRow[]): AcpmuxRow[] {
+  if (!shaped.some((row) => row.kind === "user" && row.steer === "waiting")) return shaped;
+  let line: AcpmuxRow | undefined;
+  for (let index = shaped.length - 1; index >= 0 && !line; index -= 1)
+    if (shaped[index]!.kind === THINKING || shaped[index]!.kind === ACTIVITY_LINE) line = shaped[index];
+  const behind: SteerBehind = !line
+    ? {}
+    : line.kind === ACTIVITY_LINE
+      ? line.text
+        ? { call: line.text }
+        : {}
+      : line.doing !== undefined
+        ? line.doingShell
+          ? { command: line.doing }
+          : { call: line.doing }
+        : line.liveState === "subagents" && line.liveAgents
+          ? { agents: line.liveAgents }
+          : {};
+  const key = `${behind.command ?? ""}\u0000${behind.call ?? ""}\u0000${behind.agents ?? 0}`;
+  let hash = 1;
+  for (let index = 0; index < key.length; index += 1) hash = (hash * 31 + key.charCodeAt(index)) % STEER_BEHIND_SPAN;
+  return shaped.map((row) =>
+    row.kind === "user" && row.steer === "waiting"
+      ? { ...row, version: row.version * (STEER_BEHIND_SPAN + 1) + 1 + hash, steerBehind: behind }
+      : row,
+  );
+}
+const STEER_BEHIND_SPAN = 1_000_003;
 
 /// The running turn's retries (the client's `TURN_RETRY` row, direct.ts) on its "Thinking" line:
 /// while its harness retries a failed model request the line says the model cannot be reached,
