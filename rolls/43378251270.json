@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43378251270",
+  "recorded_at": "2026-11-13T06:32:18Z",
+  "reason": "cmux-tui e21d4f7653ef changes the image's cmux-tui (pinned 8438bf21252c)",
+  "dry_run": false,
+  "cmux_tui": "e21d4f7653ef55137c3ea1fac87bd9e1ddd5d0e2",
+  "fixes": [
+    {
+      "sha": "e21d4f7653ef55137c3ea1fac87bd9e1ddd5d0e2",
+      "mergedAt": "2026-11-12T21:59:23-08:00",
+      "subject": "Cloud install census: count the packages agents install; the image bake reads a measured npm list (#42151)"
+    },
+    {
+      "sha": "e1457467e9279da493900488a140a8ba3253e5ca",
+      "mergedAt": "2026-11-12T21:58:02-08:00",
+      "subject": "acpmux: test-only items no longer shadow an import in the store lint (#42065)"
+    },
+    {
+      "sha": "c2c1f047bc686b5469ab05c0c105fb6c6c2e8914",
+      "mergedAt": "2026-11-12T21:54:43-08:00",
+      "subject": "Agent chat: policy.json takes the settled attach, and a restart test reloads history (#42185 follow-up) (#42206)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T06:32:18Z",
+    "snapshot_id": "sh-817b914468184c2daa9e5c288cb784b1",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43378251270): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "007e97472f5244dfff7a55665b6d830a4328439f",
+    "image": "cloud-native-auto-e21d4f76-43378251270-1",
+    "revision": "ci-43378251270-1",
+    "at": "2026-11-13T06:32:18Z"
+  },
+  "rolled_back": false
+}
