@@ -94,6 +94,29 @@ Today's targets:
 - `rd-window`: the same window alone as a cmux.rd/1 stream at the same 360 px rung (`cmux-rd host
   --display window:ID --max-width 360 --max-fps 6`), with `cmux-rd bench` as the viewer.
   `rd-window-30` runs it at 30 fps. Both have window rows only.
+- `apple-high` and `apple-standard` open Apple's Screen Sharing.app against the
+  same host and sample the displayed connection for OCR and viewer CPU. They
+  request Standard + Full Quality and Standard + Adaptive Quality respectively;
+  neither is Apple's separate High Performance connection type. Connection
+  identity, readiness and the selected setting still need GUI validation.
+  The current adapter does not observe presented markers, decoded-frame
+  readiness or VNC payload bytes, so key/pointer latency, first-frame
+  latency, decoded FPS, and transport kbps remain explicitly unavailable. The
+  target records sampled screenshot changes separately as `sampled_fps`; this
+  is a normalized observation rate, not decoded transport FPS. The report
+  discards whole buckets that overlap a phase boundary or its first-second
+  guard, then divides counts by retained elapsed time. Transport targets
+  without an explicit duration retain their one-second bucket contract.
+  The target
+  selects Full Quality for `apple-high` and Adaptive Quality for
+  `apple-standard` directly through the app's View menu and fails closed when
+  that menu cannot be selected. These items are available only in Standard
+  connections ([Apple's macOS 26 guide](https://support.apple.com/en-us/guide/mac-help/mh14066/26/mac/26)).
+  Select Standard during connection setup on the dedicated viewer. Apple
+  targets require a second Mac and explicit `targets=`; the daily loopback
+  defaults remain `rd,webrtc`.
+  Lack of an Apple timestamp API does not prevent measuring presented markers
+  with a common external observer; that observer is not implemented here yet.
 
 The window targets add `extra.process_cpu_pct`, the CPU of the process that captures and encodes,
 over the view. Compare them in one run with `--arg=targets=cu-png,rd-window,rd-window-30`
