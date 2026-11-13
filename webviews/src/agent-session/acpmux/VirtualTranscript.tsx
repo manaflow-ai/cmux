@@ -890,6 +890,9 @@ const UNSEEN_READER_MOVE_PX = FOLLOW_BOTTOM_DEADBAND_PX;
 
 /// How long a followed view keeps the room a queued prompt's card left, for the prompt to arrive.
 const FLOOR_HOLD_MS = 1000;
+/// How long the slim arm keeps the live line's room at a turn's end (`endRoom`): the reveal's drain
+/// (StreamReveal.finishMs, 180 ms) and the fold's settle (180 ms) it plays under, and a frame.
+const END_ROOM_MS = 400;
 
 /// How long after a send from the latest row the rows that come still rise on its glide: the prompt's
 /// own row and its reply's first rows (acpmux's echo, the live line) land within it.
@@ -1732,6 +1735,8 @@ function TranscriptView({
   const arrivedAt = useRef(Number.NEGATIVE_INFINITY);
   /// The reply's drawn height while the turn's end folds and its last lines reveal (`chaseDrainUntil`).
   const drainReply = useRef<{ id: string; height: number } | undefined>(undefined);
+  /// The content's end at the drain's last pass, with `drainReply`.
+  const drainEnd = useRef<number | undefined>(undefined);
   /// The turn's reply, its last assistant row near the end, and its drawn height. O(1): a few rows
   /// from the end and one element's height.
   const replyHeight = (shown: readonly AcpmuxRow[]) => {
@@ -2792,11 +2797,36 @@ function TranscriptView({
   /// are placed (the layout effect after the placement pass). It reads in render because the
   /// commit replaces those rows: by any effect they are gone. Only within one chat: another chat
   /// shown in their place is a switch, which draws whole on its first frame, never a fold.
+  /// The content's end the last pass drew (`rowsEnd`).
+  const rowsEndRef = useRef(0);
   const turnEndCapture = useRef<TurnEndCapture | undefined>(undefined);
   const turnEnd = useRef<TurnEndFold | undefined>(undefined);
-  if (sameChat && endsTurn(rowsBefore, rows))
+  /// The slim arm's room for the reply's last lines at a turn's end. The live line leaves while the
+  /// reply still reveals what had arrived (StreamReveal.finishMs): a followed view with no chase
+  /// outstanding came down by the line's height at once, the rows above dipped into view as the fold
+  /// started, and they went back up as the reveal filled the end (agent-pane-settled-load: the asked
+  /// reply's bottom from 3 px over the view's top to 25 px in it, then out again, 7272 to 7456 ms).
+  /// The blocks arm's lagging chase took that drop. Held as the end the last pass drew, no more than
+  /// the live line's height over the rows: what the fold folds above still comes down to meet its
+  /// line (turnEndFold.ts). The rows grow into it; it goes after END_ROOM_MS, a reader leaving the
+  /// latest row, or another chat.
+  const endRoom = useRef<{ end: number; line: number; until: number; sessionId?: string; cap?: number } | undefined>(
+    undefined,
+  );
+  if (sameChat && endsTurn(rowsBefore, rows)) {
     turnEndCapture.current = captureTurnEnd(thread.current, ref.current, rows, sessionId);
-  else if (!sameChat) turnEndCapture.current = undefined;
+    // The slim arm, followed: the live line's room stays under the reply while its last lines reveal
+    // (`endRoom`). Read here, where the live line and the end it drew are still the last pass's.
+    const line = rowsBefore.at(-1);
+    if (slimFollow && followingRef.current && line?.below) {
+      const name = typeof CSS === "undefined" ? line.id.replace(/["\\]/g, "\\$&") : CSS.escape(line.id);
+      const drawn = thread.current?.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${name}"]`)?.offsetHeight ?? 0;
+      endRoom.current =
+        drawn > 0.5
+          ? { end: rowsEndRef.current, line: drawn, until: performance.now() + END_ROOM_MS, sessionId }
+          : undefined;
+    }
+  } else if (!sameChat) turnEndCapture.current = undefined;
   // A subagent's view starts with its "Subagent of" pill (subagentRows.ts): pinned over the top, where
   // its row lies at rest: the scroller's top in the stage (under the header) and the thread's own top
   // padding. Read when it comes and as the view resizes, never per streamed token.
@@ -2907,7 +2937,6 @@ function TranscriptView({
   const foldRoomRef = useRef(0);
   foldRoomRef.current = foldRoom;
   /// The content's end without that room, as of the last render.
-  const rowsEndRef = useRef(0);
   /// Shrinks the kept room to the view's end at `node`'s offset, and lets it go once nothing holds
   /// it (no fold in flight, the rows reach the view's end). O(1): a read of the offset and a compare.
   /// Lets the kept room go: a send or Jump to latest heads for the rows' own end. `now` commits it
@@ -3280,6 +3309,13 @@ function TranscriptView({
   const [, releaseFloor] = useReducer((count: number) => count + 1, 0);
   const floorTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(floorTimer.current), []);
+  // The turn's end room goes on its own clock: a pass then draws the end without it.
+  const endRoomUntil = endRoom.current?.until;
+  useEffect(() => {
+    if (endRoomUntil === undefined) return;
+    const timer = setTimeout(releaseFloor, Math.max(0, endRoomUntil - performance.now()) + 1);
+    return () => clearTimeout(timer);
+  }, [endRoomUntil]);
   // Kept for a prompt that was sent, or while the reply streams, which fills it. A prompt withdrawn
   // with nothing streaming brings nothing: the room goes now (the queue's update can come before
   // acpmux's `queue_removed`, which then lets it go).
@@ -3398,7 +3434,13 @@ function TranscriptView({
   const room = sessionSwitched || following ? dockRoom - lifted - trayHold - cardHold : heldRoom.current;
   const rowsHeight = measured.layout.totalHeight + THREAD_TOP + topInset + tailGap + room;
   // The content's end without the room a collapse left (`foldRoom`), which it is released against.
-  const rowsEnd = Math.max(floorHeight - lifted, rowsHeight);
+  const endHeld = endRoom.current;
+  if (endHeld && (!following || endHeld.sessionId !== sessionId || performance.now() >= endHeld.until))
+    endRoom.current = undefined;
+  // Fixed at the first pass after the swap: the line's height over the rows drawn then, never over
+  // rows that grew since, so the room only ever fills.
+  if (endRoom.current) endRoom.current.cap ??= Math.min(endRoom.current.end, rowsHeight + endRoom.current.line);
+  const rowsEnd = Math.max(floorHeight - lifted, rowsHeight, endRoom.current?.cap ?? 0);
   rowsEndRef.current = rowsEnd;
   // The held room less the lift, as the rows' end is: what the reader sees stays where it was drawn.
   // A collapse near the end keeps the content as tall as the view's end (`foldRoom`), so the offset
@@ -4043,8 +4085,17 @@ function TranscriptView({
             // it and landing at no more than a line a frame. The fold reads the rows over the thread
             // drawn back, so it sees only the rest.
             const reply = replyHeight(rows);
-            const grew = reply && drainReply.current?.id === reply.id ? reply.height - drainReply.current.height : 0;
+            const replyGrew =
+              reply && drainReply.current?.id === reply.id ? reply.height - drainReply.current.height : 0;
             drainReply.current = reply;
+            // Under the slim arm's end room (`endRoom`) the end, and so the pinned offset, moves only by
+            // what the reply grew past the room: the rest moved no row, and drawn back it moved them.
+            const end = rowsEndRef.current;
+            const grew =
+              drainEnd.current !== undefined && endRoom.current?.cap !== undefined
+                ? Math.min(replyGrew, Math.max(0, end - drainEnd.current))
+                : replyGrew;
+            drainEnd.current = end;
             chaseAnchor.current = undefined;
             const chase = followChase.current;
             if (chase && grew > 0.5) {
@@ -4079,7 +4130,10 @@ function TranscriptView({
             // moving end) is the ride's, never the drain's to chase after it: the drain measures
             // from the rows as this pass leaves them (a jump landing mid-fold drew the reply's
             // growth over its whole glide back at once, 100 to 200 px under the card).
-            if ((turnEnding && lineLeft) || draining) drainReply.current = replyHeight(rows);
+            if ((turnEnding && lineLeft) || draining) {
+              drainReply.current = replyHeight(rows);
+              drainEnd.current = rowsEndRef.current;
+            }
             // A resize settles in this pass: the next pass after it measures from the rows as they
             // lie now (none noted, the first move after an idle resize, a prompt landing, moved at
             // once). A ride, a fold and a jump move the rows on their own frames: nothing noted.
