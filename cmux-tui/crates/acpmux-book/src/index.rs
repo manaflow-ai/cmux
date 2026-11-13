@@ -1219,7 +1219,7 @@ mod tests {
         assert_live_matches_filter(&index);
 
         let key = peer.key();
-        let mut evicted = index.clone();
+        let mut evicted = index;
         assert!(evicted.evict_compacted(&key));
         assert_live_matches_filter(&evicted);
         evicted.hydrate_compacted(Arc::new(peer.clone()));

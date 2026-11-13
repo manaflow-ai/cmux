@@ -7,7 +7,7 @@ use std::io;
 use std::sync::Arc;
 
 pub(super) enum Frame {
-    Row(Summary, usize),
+    Row(Arc<Summary>, usize),
     Skipped(usize),
     End,
 }
@@ -355,7 +355,7 @@ impl DiskSnapshot {
                     && record_value.seq == self.seq()
                     && !record_value.gone =>
             {
-                Ok(Frame::Row(record_value.summary, frame_len))
+                Ok(Frame::Row(Arc::new(record_value.summary), frame_len))
             }
             Ok(Some(_)) | Ok(None) | Err(_) => Ok(Frame::Skipped(frame_len)),
         }
@@ -386,7 +386,7 @@ impl DiskSnapshot {
                 Frame::Row(summary, len) => {
                     end += len as u64;
                     rows.push(BufferedRow {
-                        summary: Arc::new(summary),
+                        summary,
                         start: end - len as u64,
                         end,
                         ordinal: frame_ordinal,
@@ -445,7 +445,7 @@ impl DiskSnapshot {
             match self.read_frame(&mut frame)? {
                 Frame::Row(summary, actual) if actual == len && frame.is_empty() => {
                     rows.push(BufferedRow {
-                        summary: Arc::new(summary),
+                        summary,
                         start: end - len as u64,
                         end,
                         ordinal: frame_ordinal,
