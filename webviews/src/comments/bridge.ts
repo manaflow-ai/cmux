@@ -69,3 +69,8 @@ export async function saveComment(
 export async function deleteComment(repoRoot: string, id: string): Promise<void> {
   await callDiffComments<unknown>("comments.delete", { repoRoot, id });
 }
+
+/** Asks the host to open a repository file as a file preview beside the diff. */
+export async function openRepositoryFile(repoRoot: string, path: string): Promise<void> {
+  await callDiffComments<unknown>("file.open", { repoRoot, path });
+}
