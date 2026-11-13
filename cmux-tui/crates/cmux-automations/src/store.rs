@@ -88,10 +88,18 @@ pub struct Store {
     home: String,
 }
 
-/// The machine's runner lock; held until dropped.
+/// The machine's runner lock; held until dropped. The drop unlocks before the
+/// file closes: a child another thread forked meanwhile shares the open file
+/// until it execs, and a close alone would leave the lock held in that copy.
 #[derive(Debug)]
 pub struct RunnerLock {
-    _file: File,
+    file: File,
+}
+
+impl Drop for RunnerLock {
+    fn drop(&mut self) {
+        let _ = self.file.unlock();
+    }
 }
 
 impl RunnerLock {
@@ -102,7 +110,7 @@ impl RunnerLock {
         // std's lock is flock on Unix (as runners before it took) and
         // LockFileEx on Windows.
         match file.try_lock() {
-            Ok(()) => Ok(Some(RunnerLock { _file: file })),
+            Ok(()) => Ok(Some(RunnerLock { file })),
             Err(fs::TryLockError::WouldBlock) => Ok(None),
             Err(fs::TryLockError::Error(e)) => Err(e.into()),
         }
