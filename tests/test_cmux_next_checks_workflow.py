@@ -1359,7 +1359,8 @@ printf '%064d  cmux-tui-aarch64-apple-darwin\\n' 3
             # preflight falls back to the run-list election (fake curl answers it).
             env.pop("ACTIONS_ID_TOKEN_REQUEST_URL", None)
             env.pop("ACTIONS_ID_TOKEN_REQUEST_TOKEN", None)
-            result = run_step(script, env, timeout=5)
+            # A hang guard, not a speed bound: two tree keys take more than 5 s on a loaded Mac mini.
+            result = run_step(script, env, timeout=60)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             return dict(line.split("=", 1) for line in output.read_text().splitlines())
 
