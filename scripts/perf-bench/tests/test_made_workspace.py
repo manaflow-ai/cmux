@@ -12,7 +12,9 @@ sys.path.insert(0, HERE)
 # procs.py loads /usr/lib/libproc.dylib at import (macOS only). No test here reads a process, so an empty module
 # stands in for it when the real one does not load, and the tools import on Linux too. The stub is for these
 # imports only (the form of scripts/cmux-next/tests/test_perf_completeness.py): left in sys.modules, a later test's
-# `import procs` gets it in place of the real module (tests/test_script_module_loads.py names it).
+# `import procs` gets it in place of the real module (the module load scan of the manual lane, the file
+# test_script_module_loads in tests/, names a stub that is left). That scan's path is not written here on purpose:
+# the CI routing walk reads the path of a test in a file under scripts/ as a run of that test.
 _PROCS_STUB = None
 try:
     import procs  # noqa: F401
