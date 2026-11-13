@@ -43,6 +43,7 @@ import { finishedTaskLook } from "../agent-session/acpmux/conversation/taskLine.
 import { claudeTurnFold } from "../agent-session/acpmux/conversation/claudeTurnFold.experiment";
 import { commandLabelLook } from "../agent-session/acpmux/conversation/commandLabel.experiment";
 import { liveTurnWork } from "../agent-session/acpmux/conversation/liveTurnWork.experiment";
+import { jumpUpButton } from "../agent-session/acpmux/jumpUp.experiment";
 import { turnFoldReplies } from "../agent-session/acpmux/conversation/turnFoldReplies.experiment";
 import { turnFoldSteered } from "../agent-session/acpmux/conversation/turnFoldSteered.experiment";
 import { workedForMessages } from "../agent-session/acpmux/conversation/workedForMessages.experiment";
@@ -104,6 +105,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   claudeTurnFold,
   commandLabelLook,
   liveTurnWork,
+  jumpUpButton,
   turnFoldReplies,
   turnFoldSteered,
   workedForMessages,
