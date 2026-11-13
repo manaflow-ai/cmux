@@ -1,6 +1,7 @@
 //! The gate a connection passes before it starts work that outlives a
 //! request: a stream (`MessageWriter::start_stream`), a detached wait
-//! (`resource_waits::start_resource_wait`) or a log follow (`apps-logs`).
+//! (`resource_waits::start_resource_wait`, the legacy `wait-for` of
+//! `connection_wait`) or a log follow (`apps-logs`).
 //!
 //! A terminal's connection that does so stops being one of the terminals' 48
 //! short connections and becomes one of at most

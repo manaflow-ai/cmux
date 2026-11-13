@@ -6,7 +6,7 @@ use crate::diagnostics::ConnectionStats;
 use crate::diagnostics::LongConnectionsFull;
 
 const LANE: u64 = MAX_TERMINAL_CONNECTIONS as u64;
-const LONG: u64 = crate::server::message_writer::long_connection::MAX_LONG_TERMINAL_CONNECTIONS;
+const LONG: u64 = message_writer::long_connection::MAX_LONG_TERMINAL_CONNECTIONS;
 
 /// A writer bound to `permit`, as `line_connection` binds a connection's.
 fn writer_of(permit: &ConnectionPermit) -> (MessageWriter, Arc<BoundedOutbound>) {
@@ -105,10 +105,7 @@ fn at_the_bound_no_stream_starts_and_the_connection_stays_short() {
     let text = error.to_string();
     assert!(text.contains("limit 256"), "{text}");
     assert!(text.contains("end a `cmux` wait"), "{text}");
-    let typed = crate::server::message_writer::long_connection::stream_start_error(
-        "session.events",
-        &error,
-    );
+    let typed = message_writer::long_connection::stream_start_error("session.events", &error);
     assert_eq!(typed.code, "operation.failed");
     assert!(!typed.retryable, "a client does not try again by itself");
     assert_eq!(typed.details["operation"], "session.events");
@@ -298,6 +295,29 @@ fn at_the_bound_a_wait_and_an_event_stream_get_an_error_and_the_connection_goes_
         assert_eq!(error["details"]["extra"]["limit"], LONG);
         assert!(error["message"].as_str().is_some_and(|text| text.contains("limit 256")));
     }
+    // The legacy `wait-for` with a timeout is a wait of the same kind.
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let legacy_wait = json!({
+        "id":"legacy-wait-at-the-bound",
+        "cmd":"wait-for",
+        "surface":surface.id,
+        "pattern":"cmux-pattern-that-never-matches",
+        "timeout_ms":60_000,
+    })
+    .to_string();
+    assert!(handle_connection_message(&mux, client, &legacy_wait, &writer, &scheduler));
+    let refused = pop_json(&outbound);
+    assert_eq!(refused["id"], "legacy-wait-at-the-bound", "{refused}");
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert!(
+        refused["error"].as_str().is_some_and(|text| text.contains("limit 256")),
+        "the refusal does not name the limit: {refused}"
+    );
+    assert_eq!(
+        mux.control_clients.resource_wait_admission.active(),
+        0,
+        "a wait refused at the bound took a wait worker"
+    );
     assert!(!permit.lease().is_long());
     assert_eq!(held(&connections), (1, LONG));
 

@@ -252,6 +252,13 @@ impl Control {
         rows.iter().filter(|row| row["name"] == name).filter_map(|row| row["count"].as_u64()).sum()
     }
 
+    /// The connections that the daemon admitted and refused, by the kind of
+    /// client that it saw (`server-stats` section `commands`).
+    fn kinds(&mut self) -> String {
+        let stats = self.request(json!({"cmd": "server-stats", "include": ["commands"]}));
+        stats["commands"]["connections"].to_string()
+    }
+
     /// A terminal in a new workspace that runs `script`.
     fn run_in_terminal(&mut self, name: &str, script: &str) {
         self.request(json!({
@@ -420,12 +427,61 @@ impl Gate {
 
 /// The program of a terminal that holds one long connection: the session's
 /// event stream, as `cmux terminal wait`, an MCP watch and a nested cmux do.
-fn long_holder_script(dir: &Path, index: usize) -> String {
+/// It waits behind `gate` first, so the daemon knows the terminal before the
+/// terminal's first connection (the accept loop then counts the connection
+/// in the terminals' lane; see `Holders`).
+fn long_holder_script(dir: &Path, index: usize, gate: &str) -> String {
     format!(
-        "exec '{tui}' --jsonl session current events >/dev/null 2>'{dir}/held/{index}.err'",
+        "exec 3<'{dir}/held/{gate}'; : >'{dir}/held/{index}.ready'; /bin/cat <&3 >/dev/null; \
+         exec '{tui}' --jsonl session current events >/dev/null 2>'{dir}/held/{index}.err'",
         tui = env!("CARGO_BIN_EXE_cmux-tui"),
         dir = dir.display(),
     )
+}
+
+/// Terminals that each hold one long connection.
+///
+/// The daemon's accept loop counts a connection in the terminals' lane when
+/// it knows the peer's terminal, and it never waits for the state lock to
+/// learn a new terminal. A holder that connects while the daemon still makes
+/// the other terminals can thus be counted as an outside connection, and the
+/// test would then not fill the lane. So each group of holders first waits
+/// behind one gate until each of its terminals runs and the daemon is idle.
+struct Holders;
+
+impl Holders {
+    /// Starts the holders `first..last`, each in its own terminal, and waits
+    /// until the daemon opened `last` event streams in all, or until a
+    /// holder of the group ended with an error. Returns the streams that the
+    /// daemon opened in all.
+    fn start(daemon: &Daemon, control: &mut Control, first: usize, last: usize) -> u64 {
+        let held = daemon.dir.join("held");
+        let gate_name = format!("gate-{first}");
+        let gate = Gate::new(&held, &gate_name);
+        for index in first..last {
+            let script = long_holder_script(&daemon.dir, index, &gate_name);
+            control.run_in_terminal(&format!("h{index}"), &script);
+        }
+        let ready = wait_until(test_timeout(Duration::from_secs(60)), || {
+            (first..last).all(|index| held.join(format!("{index}.ready")).exists())
+        });
+        assert!(ready, "setup: the terminals of the holders {first}..{last} did not all start");
+        gate.open();
+        let wanted = u64::try_from(last).unwrap();
+        wait_until(test_timeout(Duration::from_secs(60)), || {
+            control.handled("session.events") >= wanted
+                || Self::first_error(daemon, first, last).is_some()
+        });
+        control.handled("session.events")
+    }
+
+    /// What the first holder of `first..last` that ended with an error said.
+    fn first_error(daemon: &Daemon, first: usize, last: usize) -> Option<String> {
+        (first..last)
+            .map(|index| daemon.dir.join("held").join(format!("{index}.err")))
+            .filter_map(|path| fs::read_to_string(path).ok())
+            .find(|error| !error.trim().is_empty())
+    }
 }
 
 /// The program of the terminal that makes the three short requests of an
@@ -559,29 +615,21 @@ fn agent_start_long_holders_leave_room_for_a_hook_and_a_typed_command() {
     let terminal = fs::read_to_string(probe.join("terminal")).unwrap();
     assert!(terminal.starts_with("term_"), "setup: the probe's terminal id is {terminal:?}");
 
-    for index in 0..TERMINAL_LANE {
-        control.run_in_terminal(&format!("h{index}"), &long_holder_script(&daemon.dir, index));
-    }
-    // Each holder has its stream: the daemon handled its `session.events`.
     let wanted = u64::try_from(TERMINAL_LANE).unwrap();
-    let held = wait_until(test_timeout(Duration::from_secs(60)), || {
-        control.handled("session.events") >= wanted
-    });
-    let first_error = (0..TERMINAL_LANE)
-        .map(|index| daemon.dir.join("held").join(format!("{index}.err")))
-        .filter_map(|path| fs::read_to_string(path).ok())
-        .find(|error| !error.trim().is_empty())
-        .unwrap_or_default();
-    let streams = control.handled("session.events");
-    assert!(
-        held,
+    let streams = Holders::start(&daemon, &mut control, 0, TERMINAL_LANE);
+    let first_error = Holders::first_error(&daemon, 0, TERMINAL_LANE).unwrap_or_default();
+    assert_eq!(
+        streams, wanted,
         "setup: the daemon opened {streams} of the {wanted} event streams; a holder said {first_error:?}"
     );
     let before = control.connections();
     eprintln!(
         "agent start long holders: {streams} event streams are open from {TERMINAL_LANE} \
-         terminals; the daemon counts {} of {} connections; it refused {} so far",
-        before.active, before.limit, before.refused
+         terminals; the daemon counts {} of {} connections; it refused {} so far; by kind {}",
+        before.active,
+        before.limit,
+        before.refused,
+        control.kinds()
     );
     assert_eq!(before.refused, 0, "setup: the daemon refused a holder: {first_error:?}");
 
@@ -627,6 +675,14 @@ fn agent_start_long_holders_leave_room_for_a_hook_and_a_typed_command() {
         typed.printed.contains(&terminal),
         "the typed command must print its terminal: {}",
         typed.shown()
+    );
+    // The requests got in because the holders left the lane, not because the
+    // daemon took the holders for outside connections (they would then stay
+    // in the count of the short connections).
+    assert!(
+        still.active < u64::try_from(TERMINAL_LANE).unwrap(),
+        "the holders must not be short connections: the daemon counts {} of them",
+        still.active
     );
 }
 
@@ -683,18 +739,15 @@ fn agent_start_long_holders_stop_at_their_bound_with_an_error_that_names_it() {
     let group = TERMINAL_LANE / 2;
     for first in (0..LONG_BOUND).step_by(group) {
         let last = (first + group).min(LONG_BOUND);
-        for index in first..last {
-            control.run_in_terminal(&format!("h{index}"), &long_holder_script(&daemon.dir, index));
-        }
         let wanted = u64::try_from(last).unwrap();
-        let held = wait_until(test_timeout(Duration::from_secs(60)), || {
-            control.handled("session.events") >= wanted
-        });
-        let streams = control.handled("session.events");
-        assert!(
-            held,
+        let streams = Holders::start(&daemon, &mut control, first, last);
+        assert_eq!(
+            streams,
+            wanted,
             "the daemon opened {streams} of the first {wanted} event streams, each from its own \
-             terminal: {LONG_BOUND} terminals must each get one"
+             terminal: {LONG_BOUND} terminals must each get one; a holder said {:?}; by kind {}",
+            Holders::first_error(&daemon, first, last).unwrap_or_default(),
+            control.kinds()
         );
     }
     let full = control.connections();
@@ -707,10 +760,7 @@ fn agent_start_long_holders_stop_at_their_bound_with_an_error_that_names_it() {
         process_counts(&daemon)
     );
     assert_eq!(full.refused, 0, "setup: the daemon refused a connection of a holder");
-    let first_error = (0..LONG_BOUND)
-        .map(|index| daemon.dir.join("held").join(format!("{index}.err")))
-        .filter_map(|path| fs::read_to_string(path).ok())
-        .find(|error| !error.trim().is_empty());
+    let first_error = Holders::first_error(&daemon, 0, LONG_BOUND);
     assert_eq!(first_error, None, "setup: a holder below the bound got an error");
     assert!(
         full.active < u64::try_from(TERMINAL_LANE).unwrap(),
