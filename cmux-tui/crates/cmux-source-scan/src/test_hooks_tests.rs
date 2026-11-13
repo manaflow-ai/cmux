@@ -46,7 +46,10 @@ fn judge_row(args: &str, source: &str) -> Option<String> {
     let ok = match (kind, first) {
         ("passes", _) | ("chain", "passes") => found.is_empty(),
         ("chain", "refused") => !found.is_empty(),
-        ("refused", _) => found.iter().any(|f| f.starts_with(&at) && f.contains(words)),
+        // Exactly what the row names: one more finding fails it as a missing one does.
+        ("refused", _) => {
+            !found.is_empty() && found.iter().all(|f| f.starts_with(&at) && f.contains(words))
+        }
         ("clear", _) => !found.iter().any(|f| f.starts_with(&at)),
         _ => return Some(format!("no such row kind: {args}")),
     };
@@ -70,6 +73,15 @@ fn every_row_is_judged_as_it_says() {
         rows.len(),
         failed.join("\n")
     );
+}
+
+/// #41567 review F1: a `refused` row names the finding its source holds, so one more finding
+/// (another line, or other words) fails it.
+#[test]
+fn a_refused_row_fails_on_a_finding_it_does_not_name() {
+    let two = "pub static A: std::sync::OnceLock<fn(bool)> = std::sync::OnceLock::new();\npub static B: std::sync::OnceLock<fn(bool)> = std::sync::OnceLock::new();\n";
+    let why = judge_row("refused text.rs 1 closure", two);
+    assert!(why.as_deref().is_some_and(|w| w.contains("text.rs:2:")), "B went unnamed: {why:?}");
 }
 
 /// The property, run by hand: ACPMUX_TEST_HOOKS_CHAINS names a directory of generated chains,
