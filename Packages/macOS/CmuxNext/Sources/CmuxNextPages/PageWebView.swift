@@ -94,7 +94,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     var loaded = false
     /// The tab closed (``close()``): its web view is retired and never loads again.
     var isClosed = false
-    var loadWaiters: [CheckedContinuation<Void, Never>] = []
+    var loadWaiters: [(id: UUID, continuation: CheckedContinuation<Bool, Never>)] = []
     var shouldFocusOnAttach = false
     /// The page's popup past the window's edge (PageWebView+Popup.swift), made on first use.
     var popupHost: WebPopupHost?
@@ -543,7 +543,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         uiScaleObservation?.cancel()
         let chatZoom = followsChatZoom
         uiScaleObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.pageScale, chatZoom ? DesignSettings.shared.agentPaneZoom : 1) }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.pageScale, Typography.pageDensityScale, Typography.pageDensityTextScale, chatZoom ? DesignSettings.shared.agentPaneZoom : 1) }) {
                 guard let self else { return }
                 self.applyUIScale()
             }
@@ -587,6 +587,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public override func layout() {
         super.layout()
         webView.frame = bounds
+        // Window entry can precede the offscreen page's first nonempty frame under an alpha-zero workspace.
+        setChromiumVisibility(true)
         if !nativeRects.isEmpty { applyNativeRects() } // the unflipped Chromium view's rects move with the height
         // Not while the claim is pending: a refused document reloads, and its paint would end the
         // pane's hold before the reloaded one drew (finishClaim runs the probe on acknowledgement).

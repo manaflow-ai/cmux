@@ -12,6 +12,7 @@ base_red_rollups.json
 deadline_http.py
 failed_steps_log.py
 gh_pages.py
+git_tree.py
 github_release_download.py
 glaeda_log.py
 main_fix_evidence.py

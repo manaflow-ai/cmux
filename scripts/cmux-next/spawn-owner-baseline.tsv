@@ -144,7 +144,6 @@ cmux-tui/crates/acpmux/src/peer_carriers.rs	1
 cmux-tui/crates/acpmux/src/peer_health.rs	1
 cmux-tui/crates/acpmux/src/peer_overlay.rs	1
 cmux-tui/crates/acpmux/src/peer_ssh.rs	1
-cmux-tui/crates/acpmux/src/secret_mcp.rs	2
 cmux-tui/crates/acpmux/src/server/carrier.rs	4
 cmux-tui/crates/acpmux/src/server/chat_windows.rs	1
 cmux-tui/crates/acpmux/src/server/chats.rs	1

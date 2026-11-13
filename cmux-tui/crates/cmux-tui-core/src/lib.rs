@@ -25,6 +25,8 @@ mod browser_host_history;
 mod browser_provider;
 /// Where the daemon finds the first-party app packages (cx-0uo1, cx-e0cs).
 pub mod first_party_dir;
+#[cfg(all(test, unix))]
+mod fork_tests;
 mod lock_rank;
 pub mod remote_host;
 /// The cloud conversations proxy; its own crate, re-exported at the old path.
