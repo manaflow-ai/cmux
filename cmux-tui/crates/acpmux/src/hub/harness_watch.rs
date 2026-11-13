@@ -2,7 +2,8 @@
 //! (BRING-YOUR-OWN-HARNESS H2, slice 2b).
 //!
 //! One non-recursive watch over the profile sources: the managed folders,
-//! the user folder and cmux.json. Linux and others: notify's watcher
+//! the user folder and cmux.json. Linux: inotify for changes only
+//! (`quiet_dirs`), since notify asks for every open. Others: notify's watcher
 //! (inotify). macOS: kqueue vnode events (`record_watch::DirWatch`) on the
 //! folders and on each file in them, made again when the files change, and
 //! a change counts only when what the sources hold changed (`sources_print`).
@@ -29,7 +30,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::RecvTimeoutError;
 use std::time::{Duration, Instant};
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 use notify::Watcher as _;
 
 use crate::config::ProfileSources;
@@ -73,7 +74,9 @@ impl Drop for HarnessWatchState {
 
 /// Keeps the watcher alive; dropping it stops the events and its thread.
 pub(crate) struct HarnessWatcher {
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
+    watcher: StdMutex<crate::quiet_dirs::QuietDirs>,
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     watcher: StdMutex<notify::RecommendedWatcher>,
     watched: StdMutex<Vec<PathBuf>>,
     /// The kqueue watch (macOS) on the watched folders, the files in the
@@ -111,7 +114,15 @@ impl Hub {
             return;
         }
         let (tx, rx) = std::sync::mpsc::channel();
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "linux")]
+        let watcher = match crate::quiet_dirs::QuietDirs::start(tx, "acpmux-harness-inotify") {
+            Ok(watcher) => watcher,
+            Err(e) => {
+                tracing::warn!("harness watch cannot start: {e}");
+                return;
+            }
+        };
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         let watcher = match notify::recommended_watcher(move |event| {
             let _ = tx.send(event);
         }) {
@@ -218,21 +229,22 @@ impl HarnessWatcher {
         #[cfg(not(target_os = "macos"))]
         {
             let mut watcher = self.watcher.lock().unwrap_or_else(|p| p.into_inner());
+            let folders = source_folders(sources);
             loop {
                 let wanted = nearest_folders(sources);
                 // A removed folder's watch is gone with it: forget it so it returns.
                 watched.retain(|dir| {
                     let keep = wanted.contains(dir) && dir.is_dir();
                     if !keep {
-                        let _ = watcher.unwatch(dir);
+                        disarm_dir(&mut watcher, dir);
                     }
                     keep
                 });
                 let mut added = false;
                 for dir in wanted {
-                    if !watched.contains(&dir)
-                        && watcher.watch(&dir, notify::RecursiveMode::NonRecursive).is_ok()
-                    {
+                    // An ancestor standing in for a missing folder: its entries only.
+                    let entries_only = !folders.contains(&dir);
+                    if !watched.contains(&dir) && arm_dir(&mut watcher, &dir, entries_only) {
                         watched.push(dir);
                         added = true;
                     }
@@ -273,6 +285,29 @@ impl HarnessWatcher {
             });
         }
     }
+}
+
+/// Watches `dir`, for its entries only or every change in it; false when it cannot be watched.
+#[cfg(target_os = "linux")]
+fn arm_dir(watcher: &mut crate::quiet_dirs::QuietDirs, dir: &Path, entries_only: bool) -> bool {
+    use crate::quiet_dirs::Kind;
+    watcher.watch(dir, if entries_only { Kind::Entries } else { Kind::Changes })
+}
+
+#[cfg(target_os = "linux")]
+fn disarm_dir(watcher: &mut crate::quiet_dirs::QuietDirs, dir: &Path) {
+    watcher.unwatch(dir);
+}
+
+/// Watches `dir` (notify has no entries-only watch: every change).
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn arm_dir(watcher: &mut notify::RecommendedWatcher, dir: &Path, _entries_only: bool) -> bool {
+    watcher.watch(dir, notify::RecursiveMode::NonRecursive).is_ok()
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn disarm_dir(watcher: &mut notify::RecommendedWatcher, dir: &Path) {
+    let _ = watcher.unwatch(dir);
 }
 
 /// The folders the sources live in: each source folder, the folder that holds the user folder
