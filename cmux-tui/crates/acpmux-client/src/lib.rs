@@ -1846,6 +1846,7 @@ tail"#;
         .unwrap()
         .encode();
         client.received(&hello);
+        while client.take_send().is_some() {}
         client.subscribe_mirror(Sub::new("m", "list"), std::iter::empty(), true).unwrap();
         let _ = client.take_send();
         let key1 = ListKey { last_activity: 1, chat_id: "a".into(), origin: "local".into() };
