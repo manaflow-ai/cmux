@@ -36,10 +36,6 @@ struct CloudDiffViewerTests {
             if let failure { throw failure }
             return reply
         }
-        func fingerprint(_ repository: String, scope: AgentPaneGitScope) async throws(AgentPaneGitFailure) -> String {
-            if let failure { throw failure }
-            return String(repeating: "c", count: 64)
-        }
         func write(_ request: AgentPaneGitWrite, in repository: String) async throws(AgentPaneGitFailure) -> JSONValue { [:] }
         func stage(_ request: AgentPaneGitStage, in repository: String) async -> String? {
             staged.append(request)
@@ -111,17 +107,6 @@ struct CloudDiffViewerTests {
         } catch let error as PageError {
             #expect(error.code == "cmux.diff.machine_offline")
         }
-        // A machine whose session host is older than the read is reachable: the page gets the
-        // code that makes it reload the diff at each return, and no diff is read in its place.
-        git.failure = .unsupported
-        let diffs = git.diffs.count
-        do {
-            _ = try await Self.call(provider, "cmux.diff.git.fingerprint", ["scope": "unstaged"])
-            Issue.record("a session host without the read answered the freshness check")
-        } catch let error as PageError {
-            #expect(error.code == "native.unsupported")
-        }
-        #expect(git.diffs.count == diffs)
         await provider.close()
     }
 

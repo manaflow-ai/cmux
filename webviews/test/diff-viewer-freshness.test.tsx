@@ -153,61 +153,6 @@ test("an open Cloud diff reports disconnection and clears it after reconnect wit
   expect(refreshed).toBe(0);
 });
 
-test("a session host without the fingerprint read is asked once, and each return reloads the diff", async () => {
-  await act(async () => root.render(null));
-  const intervals = spyOn(globalThis, "setInterval");
-  const cleared = spyOn(globalThis, "clearInterval");
-  let asked = 0;
-  let refreshed = 0;
-  let canRefresh = true;
-  const read = async (): Promise<string> => {
-    asked += 1;
-    throw Object.assign(new Error("native.unsupported"), { code: "native.unsupported" });
-  };
-  const render = () =>
-    act(async () =>
-      root.render(<Viewer key="older-host" read={read} canRefresh={canRefresh} refresh={() => (refreshed += 1)} />),
-    );
-  try {
-    await render();
-    await settle();
-    // The load asked once; the answer reloads nothing and stops the one timer it started.
-    expect(asked).toBe(1);
-    expect(refreshed).toBe(0);
-    expect(intervals).toHaveBeenCalledTimes(1);
-    const timer = intervals.mock.results[0]?.value;
-    expect(cleared.mock.calls.some(([id]) => id === timer)).toBe(true);
-    expect(shown()).toBe("fresh");
-
-    for (let returns = 1; returns <= 3; returns += 1) {
-      dom.window.dispatchEvent(new dom.window.Event("focus"));
-      await settle();
-      expect(refreshed).toBe(returns);
-    }
-    dom.window.dispatchEvent(new dom.window.Event("blur"));
-    dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange"));
-    await settle();
-    expect(refreshed).toBe(4);
-    // Four returns and a blur: no fingerprint was asked for again, and no timer was started.
-    expect(asked).toBe(1);
-    expect(intervals).toHaveBeenCalledTimes(1);
-    expect(shown()).toBe("fresh");
-
-    // A comment draft or the commit form would be lost: the return reloads nothing.
-    canRefresh = false;
-    await render();
-    dom.window.dispatchEvent(new dom.window.Event("focus"));
-    await settle();
-    expect(refreshed).toBe(4);
-    expect(asked).toBe(1);
-    expect(shown()).toBe("fresh");
-  } finally {
-    await act(async () => root.render(null));
-    intervals.mockRestore();
-    cleared.mockRestore();
-  }
-});
-
 test("a replaced source ignores a late offline failure from the old machine", async () => {
   let refuse: ((error: Error) => void) | undefined;
   const oldRead = () =>

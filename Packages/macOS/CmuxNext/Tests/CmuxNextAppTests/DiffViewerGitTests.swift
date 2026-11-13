@@ -21,24 +21,12 @@ struct DiffViewerGitTests {
         var pullRequestOutcome = AgentPaneGitPullRequest.Outcome.opened(url: "https://github.com/o/r/pull/7", number: 7)
         /// The one file's patch the repository's diff shows now.
         var patch = "@@ -1 +1 @@\n-// retry 3 times\n+// retry 9 times\n"
-        /// What the session host's `git.fingerprint` answers now; nil is a session host older than the read.
-        var hostFingerprint: String? = String(repeating: "a", count: 64)
-        var fingerprints: [(String, AgentPaneGitScope)] = []
-        /// How many diffs were asked for.
-        var diffs = 0
 
         func status(_ repository: String) async throws(AgentPaneGitFailure) -> JSONValue {
             ["head": "0123456789abcdef0123456789abcdef01234567", "root": .string(repository)]
         }
 
-        func fingerprint(_ repository: String, scope: AgentPaneGitScope) async throws(AgentPaneGitFailure) -> String {
-            fingerprints.append((repository, scope))
-            guard let hostFingerprint else { throw AgentPaneGitFailure.unsupported }
-            return hostFingerprint
-        }
-
         func diff(_ repository: String, scope: AgentPaneGitScope, includePatch: Bool) async throws(AgentPaneGitFailure) -> JSONValue {
-            diffs += 1
             var file: [String: JSONValue] = ["path": "install.sh", "additions": 1, "deletions": 1]
             if includePatch { file["patch"] = .string(patch) }
             return ["files": [.object(file)], "scope": .string(scope.rawValue)]
@@ -215,11 +203,10 @@ struct DiffViewerGitTests {
         await provider.close()
     }
 
-    /// The viewer refreshes after an agent edits the files it shows (cx-9ce.34): the page asks for the
-    /// fingerprint of its scope's diff every few seconds. The session host makes it (`git.fingerprint`,
-    /// from the changed files), so the question makes no diff: its first form hashed a whole
-    /// `git.diff` with every patch for each question.
-    @Test func aDiffTabsFingerprintIsTheSessionHostsAndMakesNoDiff() async throws {
+    /// The viewer refreshes after an agent edits the files it shows (cx-9ce.34): the page asks for a
+    /// fingerprint of its scope's diff, which changes with any edit, even one that keeps the counts
+    /// (a reworded comment), and stays the same otherwise.
+    @Test func aDiffTabsFingerprintFollowsEveryEdit() async throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "diff-git-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -230,59 +217,11 @@ struct DiffViewerGitTests {
         let page = PageCallContext(page: "cmux.diff")
         let fingerprint = { try await provider.call("cmux.diff.git.fingerprint", params: ["scope": "uncommitted"], context: page) }
 
-        #expect(try await fingerprint()["fingerprint"]?.stringValue == String(repeating: "a", count: 64))
-        git.hostFingerprint = String(repeating: "b", count: 64)
-        #expect(try await fingerprint()["fingerprint"]?.stringValue == String(repeating: "b", count: 64))
-        _ = try await provider.call("cmux.diff.git.fingerprint", params: ["scope": "staged"], context: page)
-        #expect(git.fingerprints.map(\.0) == [Self.repository, Self.repository, Self.repository])
-        #expect(git.fingerprints.map(\.1) == [.uncommitted, .uncommitted, .staged])
-        #expect(git.diffs == 0)
+        let first = try await fingerprint()["fingerprint"]?.stringValue
+        #expect(first?.isEmpty == false)
+        #expect(try await fingerprint()["fingerprint"]?.stringValue == first)
+        git.patch = "@@ -1 +1 @@\n-// retry 3 times\n+// retry up to 9 times\n"
+        #expect(try await fingerprint()["fingerprint"]?.stringValue != first)
         await provider.close()
-    }
-
-    /// A session host older than `git.fingerprint` (a machine that was not updated): each question
-    /// is answered `native.unsupported`, which tells the page to reload the diff when the person comes
-    /// back to it, and no diff is made and hashed in the read's place.
-    @Test func aSessionHostWithoutTheFingerprintReadSaysSoAndNoDiffStandsIn() async throws {
-        let root = FileManager.default.temporaryDirectory.appending(path: "diff-git-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let grant = try DiffSessionGrant.create(root: root, repository: Self.repository)
-        defer { grant.remove() }
-        let git = RecordingGit()
-        git.hostFingerprint = nil
-        let provider = DiffPageProvider(ready: Task { DiffTabReady(grant: grant, config: [:]) }, sidecar: nil, languages: nil, git: git)
-        var codes: [String] = []
-        for _ in 0..<3 {
-            do {
-                _ = try await provider.call("cmux.diff.git.fingerprint", params: ["scope": "uncommitted"], context: PageCallContext(page: "cmux.diff"))
-            } catch let error as PageError {
-                codes.append(error.code)
-            }
-        }
-        #expect(codes == ["native.unsupported", "native.unsupported", "native.unsupported"])
-        #expect(git.diffs == 0)
-        await provider.close()
-    }
-
-    /// The precomputed diff's baseline (DiffPageRuntime+Warm) is the same read in the scope the page
-    /// will ask for, and makes no diff either. With no answer there is no baseline, so no
-    /// precomputed diff is kept.
-    @Test func thePrecomputedDiffsBaselineIsTheSameReadInThePagesScope() async {
-        let git = RecordingGit()
-        let sources: [(JSONValue, AgentPaneGitScope)] = [
-            (["kind": "unstaged"], .unstaged), (["kind": "staged"], .staged),
-            (["kind": "branch", "baseRef": "HEAD"], .uncommitted), (["kind": "branch", "baseRef": "main"], .branch),
-        ]
-        for (source, scope) in sources {
-            let baseline = await DiffPageRuntime.fingerprint(of: source, in: Self.repository, git: git)
-            #expect(baseline == String(repeating: "a", count: 64))
-            #expect(git.fingerprints.last?.1 == scope)
-        }
-        #expect(await DiffPageRuntime.fingerprint(of: ["kind": "patch"], in: Self.repository, git: git) == nil)
-        #expect(git.fingerprints.count == 4)
-        git.hostFingerprint = nil
-        #expect(await DiffPageRuntime.fingerprint(of: ["kind": "unstaged"], in: Self.repository, git: git) == nil)
-        #expect(git.diffs == 0)
     }
 }
