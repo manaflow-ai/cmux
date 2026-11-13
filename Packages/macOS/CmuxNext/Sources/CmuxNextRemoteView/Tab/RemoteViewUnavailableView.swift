@@ -29,8 +29,8 @@ public final class RemoteViewUnavailableView: NSView {
         self.content = content
         let text = Self.text(for: content)
         icon = RemoteChrome.symbol(text.symbol, size: 24)
-        title = RemoteChrome.label(text.title, size: 18, weight: .semibold)
-        detail = RemoteChrome.wrapping(text.detail, size: 13, width: 420)
+        title = RemoteChrome.label(text.title, size: TypeScale.title, weight: TypeScale.emphasis)
+        detail = RemoteChrome.wrapping(text.detail, size: TypeScale.detail, width: 420)
         if case .confirm = content {
             button = RemoteChromeButton(title: RemoteViewStrings.connect)
         } else if case .confirmTarget = content {
@@ -54,7 +54,7 @@ public final class RemoteViewUnavailableView: NSView {
         heading.translatesAutoresizingMaskIntoConstraints = false
         column.addArrangedSubview(heading)
         if let metadata = text.metadata {
-            let status = RemoteChrome.label(metadata, size: 11.5, weight: .medium)
+            let status = RemoteChrome.label(metadata, size: TypeScale.caption, weight: TypeScale.emphasis)
             status.textColor = ThemeTokens.unresolved.textSecondary.nsColor
             column.addArrangedSubview(status)
         }
@@ -64,7 +64,7 @@ public final class RemoteViewUnavailableView: NSView {
             column.addArrangedSubview(button)
             button.onPress = { [weak self] in self?.onConnect?() }
         }
-        addSubview(column)
+        surface.contentView.addSubview(column)
         NSLayoutConstraint.activate([
             surface.centerXAnchor.constraint(equalTo: centerXAnchor),
             surface.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -75,10 +75,10 @@ public final class RemoteViewUnavailableView: NSView {
             surface.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -20),
             column.centerXAnchor.constraint(equalTo: centerXAnchor),
             column.centerYAnchor.constraint(equalTo: centerYAnchor),
-            column.leadingAnchor.constraint(equalTo: surface.leadingAnchor),
-            column.trailingAnchor.constraint(equalTo: surface.trailingAnchor),
-            column.topAnchor.constraint(equalTo: surface.topAnchor),
-            column.bottomAnchor.constraint(equalTo: surface.bottomAnchor),
+            column.leadingAnchor.constraint(equalTo: surface.contentView.leadingAnchor),
+            column.trailingAnchor.constraint(equalTo: surface.contentView.trailingAnchor),
+            column.topAnchor.constraint(equalTo: surface.contentView.topAnchor),
+            column.bottomAnchor.constraint(equalTo: surface.contentView.bottomAnchor),
         ])
         setAccessibilityElement(button == nil)
         setAccessibilityRole(.group)
@@ -105,9 +105,6 @@ public final class RemoteViewUnavailableView: NSView {
         guard next != colors else { return }
         colors = next
         layer?.backgroundColor = next.background.cgColor
-        surface.layer?.backgroundColor = next.background.withAlphaComponent(0.72).cgColor
-        surface.layer?.borderColor = next.separator.withAlphaComponent(0.75).cgColor
-        surface.layer?.borderWidth = next.drawsBorders ? 1 : 0
         icon.contentTintColor = next.textSecondary
         title.textColor = next.textPrimary
         detail.textColor = next.textSecondary
