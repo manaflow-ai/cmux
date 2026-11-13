@@ -617,32 +617,48 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
 
     def test_the_load_at_home_is_read_when_home_rendered_not_when_the_watch_ends(self):
         # The validator's load is the count of its own poll waits so far, and each "Home rendered" line prints
-        # that count. The watch polls on to --seconds after Home, so a read at its end is a larger count. (On a
-        # host where Home takes longer than --seconds the 2 counts are equal and this test proves nothing.)
+        # that count. Each watch polls until 2 s after its launch, so a read at its end is a larger count when
+        # Home rendered before that. (On a host where Home takes longer than 2 s the 2 counts are equal and this
+        # test proves nothing.) Both launches: a read at the end in the seeded launch alone is a wrong form too.
         polls = ("import time\ncount, nap, say = [0], time.sleep, smoke.log\n"
                  "def counted(seconds):\n    count[0] += 1\n    nap(seconds)\n"
                  "def said(message):\n"
                  "    say(message)\n"
                  "    if 'Home rendered' in message:\n        say(f'polls at Home: {count[0]}')\n"
                  "time.sleep, smoke.log, smoke.host_load = counted, said, lambda: float(count[0])")
-        status, output, report = self.run_smoke("healthy", "--seconds", "2", "--startup-timeout", "10", setup=polls)
+        status, output, report, _out = self.seeded("healthy", "--seconds", "2", "--seeded-seconds", "2", setup=polls)
         self.assertEqual(status, smoke.PASS, output)
-        (at_home,) = [line for line in output.splitlines() if line.startswith("polls at Home: ")]
-        self.assertEqual(report["host"]["load_at_home"], float(at_home.split(": ")[1]))
+        self.assertEqual(report["arms"]["seeded"]["verdict"], "pass", output)
+        first, seeded = [float(line.split(": ")[1]) for line in output.splitlines()
+                         if line.startswith("polls at Home: ")]
+        self.assertEqual(report["host"]["load_at_home"], first)
+        self.assertEqual(report["arms"]["seeded"]["host"]["load_at_home"], seeded)
+
+    # The stub writes the same marks in each launch. With this hook each read of a marks file adds one key that
+    # names the launch of that file (the seeded launch's is in the folder SEEDED), so the marks say whose they are.
+    MARKS_NAME_THEIR_LAUNCH = ("read = smoke.read_marks\n"
+                               "smoke.read_marks = lambda path: {**read(path), 'launch: ' + "
+                               "('seeded' if path.parent.name == smoke.SEEDED else 'first'): 1.0}")
 
     def test_a_passed_seeded_launch_keeps_its_own_marks_not_the_first_launchs(self):
-        # The stub writes the same marks in each launch. Here each read of a marks file adds one key that names
-        # the launch of that file (the seeded launch's is in the folder SEEDED), so the marks say whose they are.
-        named = ("read = smoke.read_marks\n"
-                 "smoke.read_marks = lambda path: {**read(path), 'launch: ' + "
-                 "('seeded' if path.parent.name == smoke.SEEDED else 'first'): 1.0}")
-        status, output, report, _out = self.seeded("healthy", setup=named)
+        status, output, report, _out = self.seeded("healthy", setup=self.MARKS_NAME_THEIR_LAUNCH)
         self.assertEqual(status, smoke.PASS, output)
         seeded = report["arms"]["seeded"]
         self.assertEqual(seeded["verdict"], "pass", output)
         self.assertEqual([key for key in seeded["marks"] if key.startswith("launch: ")], ["launch: seeded"])
         self.assertIn(smoke.RENDER_MARK, seeded["marks"])
         # The report of a run that passed describes the first launch.
+        self.assertEqual([key for key in report["marks"] if key.startswith("launch: ")], ["launch: first"])
+
+    def test_a_seeded_launch_with_no_verdict_keeps_its_own_marks_not_the_first_launchs(self):
+        # The seeded launch ran with Home and gave no verdict (the app never read the store): as one that passed.
+        status, output, report, _out = self.seeded("no-sync", setup=self.MARKS_NAME_THEIR_LAUNCH)
+        self.assertEqual(status, smoke.PASS, output)
+        seeded = report["arms"]["seeded"]
+        self.assertEqual(seeded["verdict"], "not-run", output)
+        self.assertEqual([key for key in seeded["marks"] if key.startswith("launch: ")], ["launch: seeded"])
+        self.assertIn(smoke.RENDER_MARK, seeded["marks"])
+        self.assertEqual(report["arm"], "empty")
         self.assertEqual([key for key in report["marks"] if key.startswith("launch: ")], ["launch: first"])
 
     def test_the_hosts_load_is_the_one_minute_number_with_two_decimals(self):
