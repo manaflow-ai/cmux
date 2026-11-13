@@ -206,7 +206,7 @@ fn history_clear_keeps_only_the_input_line_of_a_prompt_that_starts_in_history() 
         assert!(Instant::now() < deadline, "the clear never reached the history");
         std::thread::sleep(Duration::from_millis(100));
     }
-    let after = prompts.screen();
+    let after = prompts.wait_until("the clear on the screen", &|text| !text.contains("three-mid"));
     assert_eq!(
         after.trim_end(),
         "three> pending",

@@ -992,35 +992,6 @@ impl Terminal {
         self.get::<bool>(sys::GHOSTTY_TERMINAL_DATA_CURSOR_PENDING_WRAP).unwrap_or(true)
     }
 
-    /// The first row of the prompt the cursor is in, by Ghostty's row marks
-    /// (PageList's PromptIterator): a `PROMPT` row starts a prompt, and
-    /// `PROMPT_CONTINUATION` rows belong to the prompt above them. Each OSC
-    /// 133;A starts a new prompt, so prompts on adjacent rows (Enter on an
-    /// empty line, a command without output) are separate prompts and only
-    /// the cursor's own one counts. A soft-wrapped input row may carry no
-    /// mark, so the walk starts at the first row of the cursor's logical
-    /// line. `None` when that row has no prompt mark.
-    fn active_prompt_start_row(&self, cursor_y: u16) -> Option<u16> {
-        let mut y = self.active_logical_line_start_row(cursor_y)?;
-        loop {
-            match self.active_row_prompt_semantic(y)? {
-                sys::GHOSTTY_ROW_SEMANTIC_PROMPT => return Some(y),
-                sys::GHOSTTY_ROW_SEMANTIC_PROMPT_CONTINUATION => {
-                    // The top row, or a row below unmarked text: the prompt's
-                    // first row is gone (scrolled off or overwritten), so the
-                    // prompt starts here.
-                    if y == 0
-                        || self.active_row_prompt_semantic(y - 1)? == sys::GHOSTTY_ROW_SEMANTIC_NONE
-                    {
-                        return Some(y);
-                    }
-                    y -= 1;
-                }
-                _ => return None,
-            }
-        }
-    }
-
     fn active_logical_line_start_row(&self, mut y: u16) -> Option<u16> {
         while y > 0 && self.active_row_wrap_continuation(y)? {
             y -= 1;
