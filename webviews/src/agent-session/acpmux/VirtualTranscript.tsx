@@ -51,14 +51,14 @@ import {
 } from "./model";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { railOwnsWheel } from "./threadMinimap/railWheel";
-import { animateScroll, MOTION_SCROLL_EVENT, stopScroll, scrollRunning } from "./threadMinimap/scrollMotion";
+import { animateScroll, MOTION_SCROLL_EVENT, scrollRunning, stopScroll } from "./threadMinimap/scrollMotion";
 import { holdMomentum, installMomentumHold } from "./threadMinimap/momentumHold";
 import {
   JUMP_CURVE,
   jumpDuration,
   jumpGlideStart,
-  transcriptFadeReach,
   railBottomShadowReach,
+  transcriptFadeReach,
 } from "./threadMinimap/model";
 import { cssTimeMs, foldMotion, foldMs } from "./conversation/fold";
 import { ChatMinimap } from "./chatMinimap/ChatMinimap";
@@ -79,10 +79,10 @@ import { createFollowGlide, followRoom } from "./conversation/followGlide";
 import { createTailGlide, type TailGlide } from "./conversation/tailGlide";
 import { finishCarry, notePinPass, pinLiveLine, refreshPinned } from "./conversation/pinnedLiveLine";
 import {
-  createFollowChase,
-  type FollowChase,
   ARRIVAL_EASE,
   arrivalStepMs,
+  createFollowChase,
+  type FollowChase,
   sendMotionMs,
 } from "./conversation/followChase";
 import { followMotion } from "./conversation/followMotion.experiment";
@@ -95,7 +95,7 @@ import { followTrace } from "./followTrace";
 import { FIELD_GROWTH_EVENT, growthTranslate, type FieldGrowthEvent } from "./composer/fieldGrowthEvent";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
-import { noteReplyUnpainted, noteTranscriptMount } from "./flickerLog";
+import { noteTranscriptMount, noteReplyUnpainted } from "./flickerLog";
 import { finalReplyId, REPLY_SETTLE_MS, replyUnpainted } from "./conversation/replyPainted";
 import { authoritativeScrollIntent, createScrollPacer, type ScrollFrame } from "./scrollPacer";
 import { type Translate, useT } from "./i18n";
@@ -2238,9 +2238,6 @@ function TranscriptView({
         if (olderLate) olderRows.current.add(row.id);
         else if (loadArrival) loadFade.current.arrive(row.id);
       } else if (loadArrival) loadFade.current.arrive(row.id);
-      // A stream can append a row in the same commit as a page fill. While the reader is moving,
-      // give it a settled box too; a live entrance transform would expose a transient band under
-      // the wheel even though the row itself is not older history.
       else if (!readerIsMoving) arrived.push(row);
       knownRows.current.add(key);
     }
@@ -4913,7 +4910,6 @@ function TranscriptView({
   /// The older-history check (below), which every scroll event runs too.
   const checkOlderNow = useRef<() => void>(() => {});
   /// The reader's speed up and how long pages take, which move the older-history ask further ahead.
-  /// One per transcript, made once (render reads no ref).
   const [olderAhead] = useState(() => new OlderAhead());
   const handleScroll = (node: HTMLDivElement, immediate = false) => {
     pacing.scrolled();
@@ -4932,18 +4928,7 @@ function TranscriptView({
     // the view's foot: nothing to hold the reader from.
     const gone = roomGone !== undefined && roomGone.sessionId === sessionId && rows[0]?.id === roomGone.firstId;
     const room = gone ? 0 : (latestLayout.current.layout.origin ?? 0);
-    // A passive wheel or scrollbar drag can move the native offset into the reserve before its
-    // input reaches this handler. Do not write it back to the loaded-room top in that window: for
-    // a fast scrub through a long tail that top can be the tail's bottom, which turns one upward
-    // gesture into a visible rebound. The pending input and `giveRoomNearTop` below remove the
-    // reserve; once the input is acknowledged, the clamp keeps layout-only corrections at the
-    // loaded-room edge. A scrollbar drag is the reader's own position too (#42348).
-    if (
-      room > 0 &&
-      layoutScrollTop(node) < room &&
-      !readerUpPending.current &&
-      !userScrollIntent(node).isScrollbarDragging()
-    ) {
+    if (room > 0 && layoutScrollTop(node) < room && !userScrollIntent(node).isScrollbarDragging()) {
       wheelGlide.current?.stop();
       node.scrollTop = physicalScrollTop(node, room);
     }
@@ -5312,7 +5297,6 @@ function TranscriptView({
       if (event?.type === "touchstart") touchY = (event as TouchEvent).touches[0]?.clientY;
       else if (touch) touchY = touch.clientY;
       readerAt.current = performance.now();
-      loadFade.current?.readerMoved();
       // The reader moved: where they are now is their place, not the one a reconnect held.
       heldPlace.current = undefined;
       // Wheeling on at the top of the loaded rows scrolls nothing while older history pages in: the
