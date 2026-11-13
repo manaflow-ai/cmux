@@ -161,6 +161,38 @@ fn work_below_the_turn_is_working_unless_the_chat_failed_or_its_peer_went() {
     assert_eq!(status_indicator(&done), Some("done"));
 }
 
+/// manaflow-ai/cmux#42447: a turn Claude Code runs on its own (a background command ended and
+/// woke it) works with no acpmux turn: its row read `done` and idle the whole time, so the sidebar
+/// showed no spinner. While its `backgroundTurn` is set the chat is working since it started,
+/// over a done or failed last turn; a peer gone unreachable or a stopped harness is not.
+#[test]
+fn a_background_turn_is_working_since_it_started() {
+    use super::status_indicator;
+    let at = |status: &str, last: &str| {
+        json!({"status": status, "turnCount": 5, "updatedAt": 9, "turn": null,
+               "lastTurn": {"status": last, "endedAt": 6},
+               "backgroundTurn": {"id": "bg-5815", "trigger": "task_notification", "startedAt": 8}})
+    };
+    let ready = at("ready", "completed");
+    assert_eq!(status_indicator(&ready), Some("working"));
+    assert_eq!(lane(&ready)["state"], "working");
+    assert_eq!(lane(&ready)["since"], 8);
+    assert_eq!(status_indicator(&at("ready", "failed")), Some("working"));
+    assert_eq!(status_indicator(&at("idle", "completed")), Some("working"));
+    assert_eq!(status_indicator(&at("unreachable", "completed")), Some("done"));
+    assert_eq!(status_indicator(&at("disconnected", "completed")), Some("done"));
+    assert_eq!(status_indicator(&at("closed", "completed")), None);
+    // A permission it asks for still reads as input.
+    let mut asks = at("ready", "completed");
+    asks["pendingPermissions"] = json!(1);
+    assert_eq!(status_indicator(&asks), Some("input"));
+    // Ended: done again, idle since the last turn.
+    let mut ended = at("ready", "completed");
+    ended["backgroundTurn"] = Value::Null;
+    assert_eq!(status_indicator(&ended), Some("done"));
+    assert_eq!(lane(&ended)["state"], "idle");
+}
+
 /// A harness title that is a whole prompt shows as its first 200 characters in every summary; a
 /// shorter one is untouched, its spacing too.
 #[test]
