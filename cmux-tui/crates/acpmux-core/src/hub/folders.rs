@@ -163,14 +163,9 @@ impl Hub {
                 }
                 used = next_used;
                 if let Some(row) = row {
-                    if request
-                        .filter
-                        .as_ref()
-                        .and_then(|f| f.origin.as_deref())
-                        .is_none_or(|origin| row.origin.as_ref() == origin)
-                    {
-                        reply.rows.push(row.as_ref().clone());
-                    }
+                    // An explicit identity is answered just as on summary
+                    // keyed pages; origin filters constrain cursor walks.
+                    reply.rows.push(row.as_ref().clone());
                 } else {
                     reply.missing.push((*key).clone());
                 }

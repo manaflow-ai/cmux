@@ -664,6 +664,12 @@ where
                 if method == "page"
                     && let Some(sid) = sid.as_deref()
                 {
+                    // A failed reply belongs to the same retired request as
+                    // a successful page; neither may reach its replacement sid.
+                    if !self.subscriptions.contains_key(sid) {
+                        self.charge_frame_now(None, frame_bytes);
+                        return;
+                    }
                     self.pages.remove(sid);
                     if self.stale_folder_pages.contains(sid) {
                         self.release_folder_tombstone(sid);
