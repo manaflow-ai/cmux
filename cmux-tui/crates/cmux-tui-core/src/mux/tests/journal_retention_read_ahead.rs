@@ -20,7 +20,9 @@ use std::time::{Duration, Instant};
 use super::journal_retention_bound::{RECORDS, head, write_through};
 use super::journal_retention_holds::session_with_a_big_segment;
 use super::*;
-use crate::workspace_registry::journal_retention::{RETENTION_STEP_FOR_TEST, RetentionStep};
+use crate::workspace_registry::journal_retention::{
+    RETENTION_ROWS_PER_HOLD, RETENTION_STEP_FOR_TEST, RetentionStep,
+};
 
 /// How long a second thread tries to take the registry lock at a step.
 const LOCK_WAIT: Duration = Duration::from_secs(10);
@@ -107,7 +109,7 @@ fn each_row_hold_of_the_retention_pass_follows_a_read_of_its_rows_with_the_regis
     let mut read: Option<(i64, Option<bool>)> = None;
     for (step, free) in &steps {
         match *step {
-            RetentionStep::FloorCut => {}
+            RetentionStep::FloorCut | RetentionStep::RowsDeleted { .. } => {}
             RetentionStep::ReadBeforeHold { through } => read = Some((through, *free)),
             RetentionStep::RowHold { through } => {
                 holds += 1;
@@ -131,6 +133,64 @@ fn each_row_hold_of_the_retention_pass_follows_a_read_of_its_rows_with_the_regis
         problems.push(format!(
             "the setup: the pass did not delete the big segment in 3 or more row holds \
              (deleted: {deleted}, row holds: {holds})"
+        ));
+    }
+    assert!(problems.is_empty(), "{problems:#?}");
+}
+
+/// The bound of a hold is a count of rows, not of records: a record of a
+/// long-lived session has about 15 subject rows, and one hold of 256
+/// records was 24.6 s of the registry lock on a generated registry of 13 GB
+/// (2026-11-13; a rename waited 25 s behind it). So a hold deletes at most
+/// [`RETENTION_ROWS_PER_HOLD`] rows, and between two holds a second thread
+/// gets the registry lock. The test counts the rows of each hold of the
+/// worker's own tick; it times nothing.
+#[test]
+fn a_row_hold_deletes_at_most_the_bound_of_rows_and_gives_the_registry_lock_back() {
+    let (steps, deleted) = steps_of_a_pass_that_deletes_a_big_segment("row-bound", |step| {
+        matches!(step, RetentionStep::ReadBeforeHold { .. })
+    });
+    let mut problems = Vec::new();
+    // The rows of each row hold, in order.
+    let mut holds: Vec<u64> = Vec::new();
+    // True when a second thread got the registry lock at a step after the
+    // last row hold.
+    let mut free_since_the_last_hold = false;
+    for (step, free) in &steps {
+        let RetentionStep::RowsDeleted { rows } = *step else {
+            free_since_the_last_hold |= *free == Some(true);
+            continue;
+        };
+        if !holds.is_empty() && !free_since_the_last_hold {
+            problems.push(format!(
+                "between row hold {} and row hold {} no second thread got the registry lock",
+                holds.len(),
+                holds.len() + 1
+            ));
+        }
+        free_since_the_last_hold = false;
+        holds.push(rows);
+    }
+    let whole: u64 = holds.iter().sum();
+    let most = holds.iter().copied().max().unwrap_or(0);
+    println!(
+        "journal_retention_read_ahead: {} row holds deleted {whole} rows, the most in one hold \
+         {most}; {} steps",
+        holds.len(),
+        steps.len()
+    );
+    if !deleted || whole <= 2 * RETENTION_ROWS_PER_HOLD {
+        problems.push(format!(
+            "the setup: the pass did not delete a big segment of more rows than two holds take \
+             (deleted: {deleted}, rows: {whole})"
+        ));
+    }
+    let over = holds.iter().filter(|rows| **rows > RETENTION_ROWS_PER_HOLD).count();
+    if over > 0 {
+        problems.push(format!(
+            "{over} of {} row holds deleted more than {RETENTION_ROWS_PER_HOLD} rows under the \
+             registry lock (the most: {most} rows in one hold)",
+            holds.len()
         ));
     }
     assert!(problems.is_empty(), "{problems:#?}");
