@@ -138,8 +138,10 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "requireFullAccess",
     "resend",
     "route",
+    "sessionCreatedAt",
     "senderHarness",
     "senderHarnessChecked",
+    "senderToken",
     "spawnToolCallId",
     "startLater",
     "steer",
@@ -150,6 +152,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "tags",
     "teamMessage",
     "throughSeq",
+    "throwaway",
     "topic",
     "via",
     "vmBoundary",
@@ -217,7 +220,7 @@ keyed! {
     /// `initialize`.
     InitializeParams: ["protocolVersion", "clientCapabilities", "clientInfo"];
     /// `_acpmux/kill`.
-    KillParams: ["sessionId", "purge", "cancelFork", "cancelToken"];
+    KillParams: ["sessionId", "purge", "cancelFork", "cancelToken", "ifIdle", "expectRevision"];
     /// `_acpmux/mcp/reconnect`.
     McpReconnectParams: ["sessionId", "server"];
     /// `_acpmux/models`.

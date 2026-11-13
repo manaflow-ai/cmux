@@ -80,6 +80,7 @@ const TAKES_VALUE: &[&str] = &[
     "--from-folder",
     "--login",
     "--environment",
+    "--account",
     "--name",
     "--target",
     "--timeout",
@@ -118,6 +119,10 @@ pub(super) struct Request {
     /// `--environment ID|NAME`: the Cloud environment (`env_…`, or its name) a new machine boots in
     /// (`cloud new-machine --environment`).
     pub environment: Option<String>,
+    /// `--account user:ID|team:ID` (or `user:ID|personal`, `cmux_cloud_api::sandbox::account_scope`):
+    /// nothing starts unless the app is signed in to that account, and the prompt goes only to a
+    /// machine that account's list shows. The daemon's sandboxed Runs pass the Run's own.
+    pub account: Option<String>,
     pub machine: Machine,
     pub wait: bool,
     pub timeout: Duration,
@@ -134,7 +139,7 @@ pub(super) struct Request {
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Parsed {
     Help,
-    Run(Request),
+    Run(Box<Request>),
 }
 
 /// `Some(exit code)` when `args` is `cloud start-chat …`.
@@ -158,7 +163,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             print!("{}", super::cloud_help::START_CHAT_USAGE);
             return Some(0);
         }
-        Ok(Parsed::Run(request)) => request,
+        Ok(Parsed::Run(request)) => *request,
         // A folder refused for what it is: its reason and what to do, not the whole help.
         Err(error) => {
             if let Some(code) = folder_refused(&error, global.output) {
@@ -200,7 +205,9 @@ pub(super) fn start(global: &GlobalArgs, request: &Request) -> i32 {
         && let Err(large) = crate::link::sync_cli::size_cap::check_plain(std::path::Path::new(dir))
     {
         let hint = crate::link::sync_cli::size_cap::OVERRIDE_HINT;
-        let message = format!("cmux: {large}{hint}");
+        // A parent of repositories (~/Projects): each one inside is a folder the chat can start in.
+        let repos = crate::link::sync_cli::size_cap::repos_hint(std::path::Path::new(dir));
+        let message = format!("cmux: {large}{repos}{hint}");
         return super::app::failure(
             crate::link::sync_cli::size_cap::CODE,
             &message,
@@ -231,6 +238,7 @@ pub(super) fn send_existing(
         from_folder: None,
         login: None,
         environment: None,
+        account: None,
         machine: Machine::Target(machine_id.to_owned()),
         wait,
         timeout: timeout.unwrap_or(DEFAULT_TIMEOUT).min(MAX_TIMEOUT),
@@ -364,6 +372,7 @@ pub(super) fn parse(
     let mut from_folder = None;
     let mut login = None;
     let mut environment = None;
+    let mut account = None;
     let mut name = None;
     let mut target = None;
     let mut wait = false;
@@ -398,6 +407,7 @@ pub(super) fn parse(
             "--from-folder" => from_folder = Some(value()?),
             "--login" => login = Some(value()?),
             "--environment" => environment = Some(value()?),
+            "--account" => account = Some(value()?),
             "--name" => name = Some(value()?),
             "--target" => target = Some(value()?),
             "--timeout" => {
@@ -467,6 +477,9 @@ pub(super) fn parse(
         Some(word) if word.is_empty() => return Err(UsageError::new("--environment is empty")),
         environment => environment,
     };
+    if account.as_deref().is_some_and(|scope| !scope.starts_with("user:")) {
+        return Err(UsageError::new("--account user:ID|team:ID or user:ID|personal"));
+    }
     if environment.is_some() && target.is_some() {
         return Err(UsageError::new(
             "--environment makes a new machine; not with --target, whose environment is set",
@@ -487,7 +500,7 @@ pub(super) fn parse(
         }
         (None, None) => Machine::New,
     };
-    Ok(Parsed::Run(Request {
+    Ok(Parsed::Run(Box::new(Request {
         prompt,
         agent,
         model,
@@ -495,12 +508,13 @@ pub(super) fn parse(
         from_folder,
         login,
         environment,
+        account,
         machine,
         wait,
         timeout,
         make_room,
         allow_large,
-    }))
+    })))
 }
 
 /// `--model`'s word, checked as the machine's daemon checks `agent-session-start`'s `model`
@@ -1237,6 +1251,9 @@ fn steps(
             1,
         );
     }
+    if let Err(outcome) = on_account(request, &listed, None) {
+        return outcome;
+    }
     // 2. The chat's machine: one made in --environment first, else the one asked for.
     // A `--cwd` on a machine that already exists may be a repository its bootstrap is still cloning
     // (`cloud new-machine --repo`): wait for the clone rather than fail "cwd is not a directory" (clone_wait.rs).
@@ -1436,6 +1453,12 @@ fn steps(
     }
     progress.machine = Some(Machine::Target(machine_id.to_owned()));
     progress.chat = Some((machine_id.to_owned(), session.to_owned(), answer.clone()));
+    // With `--account`: the machine is that account's before anything is sent to it. A refusal names
+    // the account the app is on (`app_account`); start-chat deletes nothing, since it cannot prove it
+    // made the machine: the caller (a Run's cleanup) deletes its own machine by its own name there.
+    if let Err(outcome) = machine_on_account(runner, request, machine_id, deadline) {
+        return outcome;
+    }
 
     let Some(prompt) = request.prompt.as_deref() else {
         // No prompt: the chat is ready once start-session returned; `--wait` has no turn to wait on.
@@ -1460,6 +1483,67 @@ fn steps(
     }
     let tab = internal::chat_tab(&started);
     send_prompt(runner, request, machine_id, session, (prompt, answer, tab), deadline, progress)
+}
+
+/// `--account`'s check of one `cloud list-machines` answer: the app is signed in to that account
+/// and, with `machine`, its list shows that machine. `Err` is the refusal; a list without the
+/// machine is `Ok(false)`, to read again.
+fn on_account(request: &Request, listed: &Value, machine: Option<&str>) -> Result<bool, Outcome> {
+    let Some(want) = request.account.as_deref() else { return Ok(true) };
+    let now = cmux_cloud_api::sandbox::account_scope(listed);
+    if now.as_deref() != Some(want) {
+        return Err(failed(
+            "cloud.account_changed",
+            format!(
+                "the cmux app is signed in to {}, not {want}: nothing is sent",
+                now.as_deref().unwrap_or("no Cloud account")
+            ),
+            json!({"account": want, "app_account": now, "machine_id": machine}),
+            1,
+        ));
+    }
+    let Some(machine) = machine else { return Ok(true) };
+    let rows = listed.get("machines").and_then(Value::as_array).into_iter().flatten();
+    Ok(rows.into_iter().any(|row| at(row, "machine_id").as_str() == Some(machine)))
+}
+
+/// How many times [`machine_on_account`] reads the list for a machine it does not show yet.
+const ACCOUNT_READS: u32 = 5;
+
+/// With `--account`, after the start and before the send: the app is still on that account and its
+/// list shows `machine_id`, so the prompt reaches only that account's machine. A list that does
+/// not show it yet is read again, at most [`ACCOUNT_READS`] times, a second apart, before `deadline`.
+fn machine_on_account(
+    runner: &mut dyn Runner,
+    request: &Request,
+    machine_id: &str,
+    deadline: Deadline,
+) -> Result<(), Outcome> {
+    if request.account.is_none() {
+        return Ok(());
+    }
+    for read in 0..ACCOUNT_READS {
+        if read > 0 {
+            if deadline.passed(runner) {
+                break;
+            }
+            runner.pause(Duration::from_secs(1));
+        }
+        let listed = match step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"])))
+        {
+            Ok(listed) => listed,
+            Err(error) => return Err(app_failure(error)),
+        };
+        if on_account(request, &listed, Some(machine_id))? {
+            return Ok(());
+        }
+    }
+    Err(failed(
+        "cloud.account_changed",
+        format!("the account's machine list does not show {machine_id}: nothing is sent"),
+        json!({"account": request.account, "machine_id": machine_id}),
+        1,
+    ))
 }
 
 /// Step 4, the prompt to `session` on `machine_id`: inside the command when it fits there, else from
@@ -1614,6 +1698,20 @@ fn wait_turn(
         let turn = last_turn(polled.get("history")).filter(|turn| turn.seq > baseline);
         if let Some(turn) = turn.as_ref().filter(|turn| turn.ended) {
             answer.set("turn", turn.value.clone());
+            if turn.failed() {
+                // `acp last` reads the session's newest reply, not this turn's: a turn that failed
+                // before it said anything (the agent's usage limit) would answer the turn before's
+                // reply as its own. It answers its own error instead, as the pushed route does.
+                let message = at(&turn.value, "error")
+                    .as_str()
+                    .filter(|error| !error.is_empty())
+                    .map_or_else(|| format!("the turn ended {}", turn.status), str::to_owned);
+                return Outcome::Failed {
+                    error: json!({"code": "chat.turn_failed", "message": message,
+                                  "details": answer, "retryable": false}),
+                    exit: 1,
+                };
+            }
             let read = polled.get("lastexit").map(|code| code.trim()) == Some("0");
             let Some(text) = reply(polled.get("last")).filter(|_| read) else {
                 return failed(
@@ -1625,14 +1723,6 @@ fn wait_turn(
                 );
             };
             answer.set("reply", json!(text));
-            if turn.failed() {
-                return Outcome::Failed {
-                    error: json!({"code": "chat.turn_failed",
-                                  "message": format!("the turn ended {}", turn.status),
-                                  "details": answer, "retryable": false}),
-                    exit: 1,
-                };
-            }
             return Outcome::Done(answer);
         }
         // `acp wait` exits 0 (ended), 2 (a permission) or 3 (its own timeout); anything else

@@ -102,7 +102,21 @@ public struct MacHomeRow: Identifiable, Hashable, Sendable, Codable {
 
     /// The rows of a `home-inbox` reply's `data`, in the owner's order.
     public static func rows(fromHomeInbox data: [String: Any]) -> [MacHomeRow] {
-        (data["rows"] as? [[String: Any]] ?? []).compactMap(MacHomeRow.init(wire:))
+        (data["rows"] as? [[String: Any]] ?? []).compactMap(MacHomeRow.pooled(wire:))
+    }
+
+    /// A reply's row read in an autorelease pool of its own. Reading a row bridges its strings
+    /// and runs Foundation's formatter and regular expressions, which leave autoreleased objects;
+    /// without a pool per row they pile up until the whole read's task ends: a 5,000-row list
+    /// held about 10 MB of them per read, and freeing them all at once when the task ended
+    /// stalled the next first screen for a second (`home_list_first_screen_under_load`,
+    /// cmux-next-ios/design/instant-perf.md).
+    static func pooled(wire object: [String: Any]) -> MacHomeRow? {
+        #if canImport(ObjectiveC)
+        autoreleasepool { MacHomeRow(wire: object) }
+        #else
+        MacHomeRow(wire: object)
+        #endif
     }
 
     init?(wire object: [String: Any]) {
@@ -276,6 +290,57 @@ public enum HomeListNote: Equatable, Sendable {
     }
 }
 
+/// The bar at the top of Home while the Home Mac is not connected or its list could not be
+/// read (CMUX-489). The list under it stays usable, but it is what this phone last read, not
+/// the Mac's live list. The bar says so where the person looks first: at the top, not in
+/// small gray text under the last row.
+public struct HomeConnectionBar: Equatable, Sendable {
+    public enum Kind: Equatable, Sendable {
+        /// The Mac's link is down.
+        case offline
+        /// The link is up, but the Mac's list did not load.
+        case failed
+        /// A Try Again from the bar is running.
+        case retrying
+    }
+
+    public let kind: Kind
+    public let title: String
+    /// What the list under the bar is and what happens next.
+    public let detail: String
+
+    /// The bar for Home's state, or nil while the list is live. `offline`: the Home Mac's link
+    /// is neither connected nor connecting. `problem`: why the last read failed. `retrying`: a
+    /// Try Again runs. `hasRows`: rows show under the bar (the last ones read).
+    /// `reconnecting`: the running Try Again dials the Mac first (it was offline), else it only reads again.
+    public static func make(offline: Bool, problem: String?, retrying: Bool, reconnecting: Bool = true, hasRows: Bool,
+                            macName: String?) -> HomeConnectionBar? {
+        let mac = macName ?? String(localized: "your Mac")
+        let kind: Kind
+        if retrying {
+            kind = .retrying
+        } else if offline {
+            kind = .offline
+        } else if problem != nil {
+            kind = .failed
+        } else {
+            return nil
+        }
+        let title: String = switch kind {
+        case .offline: String(localized: "Not connected to \(mac)")
+        case .failed: String(localized: "Couldn't load Home from \(mac)")
+        case .retrying: reconnecting ? String(localized: "Reconnecting to \(mac)…") : String(localized: "Loading Home from \(mac)…")
+        }
+        var detail: String = if hasRows {
+            String(localized: "Showing the last list from this iPhone. It updates when the Mac answers.")
+        } else {
+            String(localized: "Its conversations show when the Mac answers.")
+        }
+        if kind == .failed, let problem, !problem.isEmpty { detail = "\(problem) \(detail)" }
+        return HomeConnectionBar(kind: kind, title: title, detail: detail)
+    }
+}
+
 /// The chosen Mac's Home list over its link: a `chief` channel of its own
 /// (cmux-mobile-host scopes it to the owner's conversations with agents and to
 /// the local owner's rows), read with `home-inbox` and read again (coalesced)
@@ -389,7 +454,7 @@ public final class MacHomeFeed {
             }
             wire["pinned"] = index < 4
             wire["pin_position"] = index
-            return MacHomeRow(wire: wire)
+            return MacHomeRow.pooled(wire: wire)
         }, complete: true)
         self.macID = macID
     }
@@ -665,13 +730,18 @@ public final class MacHomeFeed {
     /// on cancellation, and after `cap` (a channel that goes quiet without closing
     /// never answers; Retry must come back to be tapped again).
     public func reload(cap: Duration = .seconds(15)) async {
+        await reload(cap: cap, on: ContinuousClock())
+    }
+
+    /// ``reload(cap:)`` with the cap timed on `clock` (tests pass one that moves only when told to).
+    public func reload<C: Clock<Duration>>(cap: Duration, on clock: C) async {
         refresh(relist: false, read: .all)
         guard client != nil || opening else { return }
         readWaiterCount += 1
         let id = readWaiterCount
         // task-owner: the cap of one reload; ends at the cap or with the reload's own end
         let capTask = Task { [weak self] in
-            try? await ContinuousClock().sleep(for: cap)
+            try? await clock.sleep(for: cap)
             self?.endReadWait(id)
         }
         defer { capTask.cancel() }
@@ -783,7 +853,8 @@ public final class MacHomeFeed {
         if wantsAll || windows != true || wantedIDs.count > MacHomeRows.idsLimit {
             wantsAll = false
             wantedIDs = []
-            let reply = try await MacHomeReply.read(client, ["owners": ["local"]])
+            // Below the first window's priority: it never slows the first screen down.
+            let reply = try await MacHomeReply.read(client, ["owners": ["local"]], priority: MacHomeReply.wholeListPriority)
             guard mine == generation else { return }
             applyRows(reply, asked: [])
             return
@@ -848,7 +919,7 @@ public final class MacHomeFeed {
     private func listed(_ client: DaemonClient) async throws {
         // The owner's whole list of conversations, parsed off the main actor.
         let line = try await client.request("conversation-list", params: [:])
-        let (seqs, chief) = try await Task.detached(priority: .userInitiated) { () throws -> ([String: Int], String?) in
+        let (seqs, chief) = try await Task.detached(priority: MacHomeReply.wholeListPriority) { () throws -> ([String: Int], String?) in
             let list = try Self.data(line, "conversation-list")
             let summaries = list["conversations"] as? [[String: Any]] ?? []
             var seqs: [String: Int] = [:]

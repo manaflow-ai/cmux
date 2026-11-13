@@ -265,8 +265,11 @@ extension LiveCoordinator {
         // The Mac app's own Feed requests, for as long as this link lives (#33818).
         let needsYou = session.needsYou
         Task { await needsYou.read(on: link, macID: macID) }
+        // The Mac's theme and wallpaper, for as long as this link lives (ask-87d30da8e5).
+        let appearance = self.appearance
+        Task { await appearance.read(on: link, macID: macID) }
         do {
-            let channel = try await link.openChannel(service: "acpmux", args: [:])
+            let channel = try await link.openChannel(service: "acpmux", args: AcpmuxConnection.channelArgs)
             // The link closed while the channel opened: nothing more on it.
             guard session.currentLink === link else {
                 await channel.close(code: "eof", reason: "link replaced")
@@ -407,9 +410,21 @@ extension LiveCoordinator {
     /// ahead of data, no reader stalls) and drops links under load.
     private func checkVersion(_ session: MacSession, _ link: any MacLink) async {
         let macID = session.macID
-        guard let channel = try? await link.openChannel(service: "version", args: [:]) else { return }
-        let reply = try? await channel.receive()
-        await channel.close(code: "eof", reason: "")
+        guard let channel = try? await LinkDeadline.run(
+            timeout: .seconds(15),
+            operation: { try await link.openChannel(service: "version", args: [:]) },
+            onDiscard: { await $0.close(code: "eof", reason: "version expired") }
+        ) else { return }
+        defer { Task { await channel.close(code: "eof", reason: "") } }
+        let reply: Data?
+        do {
+            reply = try await LinkDeadline.run(
+                // This channel was opened behind auth, before its Allow prompt.
+                timeout: LinkPairing.authorizationTimeout + DaemonClient.defaultDeadline,
+                operation: { try await channel.receive() },
+                onCancel: { await channel.close(code: "eof", reason: "version expired") }
+            )
+        } catch { return }
         // Only a host without the service is old; another refusal (`unpaired` while pairing
         // fails) says nothing about its protocol.
         if reply == nil, let closed = channel.closedBy, closed.code != "unknown_service" { return }
@@ -552,14 +567,14 @@ extension LiveCoordinator {
         let terminal = DaemonTerminalSession(surface: surface, terminalID: terminalID, programName: program, clientInfo: info, open: { [weak owner] in
             guard let link = await owner?.servedLink else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
             let channel = try await link.openChannel(service: "daemon", args: [:])
-            return DaemonClient(channel: channel)
+            return DaemonClient(channel: channel, eventCapacity: BoundedDaemonEventBuffer.defaultCapacity)
         }, openInput: { [weak self, weak owner] in
             // Keystrokes ride the link's input lane (PROTOCOL.md "Lanes"), another stream that
             // can overtake `auth`: it opens only once pairing passed (review m6).
             guard let self, let owner else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
             let link = try await self.pairedLink(owner)
             let channel = try await link.openInputChannel(service: "daemon", args: [:])
-            return DaemonClient(channel: channel)
+            return DaemonClient(channel: channel, eventCapacity: BoundedDaemonEventBuffer.defaultCapacity)
         })
         terminal.macName = owner.name
         terminal.setMacOffline(owner.link.target == nil || owner.terminalsOffline)

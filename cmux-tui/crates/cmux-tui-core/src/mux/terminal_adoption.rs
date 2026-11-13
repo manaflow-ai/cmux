@@ -37,11 +37,14 @@ impl Mux {
         options: &SurfaceOptions,
         record: &crate::terminal_host_runtime::TerminalHostRecord,
         record_path: &Path,
+        kitty_expectation: Option<KittyImageAdoptionExpectation>,
     ) -> anyhow::Result<Arc<Surface>> {
         let id = binding
             .as_ref()
             .and_then(|binding| binding.placements.first().map(|(slot, _)| *slot))
             .unwrap_or_else(|| self.next_id());
+        // Held until the reservation below takes it over.
+        let _kitty_expectation = kitty_expectation.and_then(|expectation| expectation.name(id));
         match binding {
             Some(binding) if !binding.placements.is_empty() => {
                 let (_, identity) = binding.placements.first().expect("checked placement");
@@ -351,12 +354,19 @@ impl Mux {
             state.workspaces.get(state.active_workspace).map(|workspace| workspace.key.clone())
         });
         deferred.sort_by_key(|(record, _)| Some(&record.workspace_key) != visible.as_ref());
-        for (record, record_path) in deferred {
+        // The Kitty budget is sized for every host before the first one
+        // reserves (kitty_reservation.rs): otherwise the first adoption takes
+        // the whole budget and the others wait for its connect.
+        let kitty_expectations = self.expect_kitty_image_adoptions(deferred.len());
+        for ((record, record_path), kitty_expectation) in
+            deferred.into_iter().zip(kitty_expectations)
+        {
             self.schedule_terminal_adoption_after(
                 options.clone(),
                 record,
                 record_path,
                 Duration::ZERO,
+                Some(kitty_expectation),
             );
         }
         for (record, record_path) in cleanup_retries {
@@ -396,8 +406,9 @@ impl Mux {
     ) -> anyhow::Result<()> {
         let terminal_id = record.terminal_id.clone();
         let restored_binding = self.restored_terminal_binding(&terminal_id)?;
-        let adopted =
-            self.adopt_restored_terminal(restored_binding, options, &record, &record_path).ok();
+        let adopted = self
+            .adopt_restored_terminal(restored_binding, options, &record, &record_path, None)
+            .ok();
         if let Some(surface) = adopted {
             if self
                 .finish_terminal_adoption(&terminal_id, &record.incarnation, surface.clone())
@@ -886,18 +897,22 @@ impl Mux {
             record,
             record_path,
             Duration::from_millis(100),
+            None,
         );
     }
 
     /// Adopts a surviving host on its own thread, first after `first_delay` (zero:
     /// at a start, once the owner says ready), then retrying with backoff. At most ``ADOPTION_SLOTS`` hosts replay at once, so a
     /// start with hundreds of hosts does not hold every replay in memory together.
+    /// `kitty_expectation` (a start's) keeps the host's Kitty share counted
+    /// until its first attempt reserves or ends.
     pub(super) fn schedule_terminal_adoption_after(
         self: &Arc<Self>,
         options: SurfaceOptions,
         record: crate::terminal_host_runtime::TerminalHostRecord,
         record_path: std::path::PathBuf,
         first_delay: Duration,
+        kitty_expectation: Option<KittyImageAdoptionExpectation>,
     ) {
         let terminal_id = record.terminal_id.clone();
         if !self.terminal_adoptions.lock().unwrap().insert(terminal_id.clone()) {
@@ -952,6 +967,7 @@ impl Mux {
                     std::thread::sleep(Duration::from_millis(ms.min(5_000)));
                 }
                 let mut first_attempt = true;
+                let mut kitty_expectation = kitty_expectation;
                 let mut delay = first_delay;
                 let mut refusals = pending_terminals::RefusalStreak::default();
                 loop {
@@ -961,6 +977,9 @@ impl Mux {
                         turn = None;
                     }
                     let _ = &turn;
+                    // Only the first attempt is counted in the Kitty budget: a
+                    // retry must not shrink running terminals for its backoff.
+                    let kitty_expectation = kitty_expectation.take();
                     if mux.shutting_down.load(Ordering::Acquire) {
                         break;
                     }
@@ -1088,6 +1107,7 @@ impl Mux {
                             &options,
                             &record,
                             &record_path,
+                            kitty_expectation,
                         )
                     };
                     if mux.refused_all(
