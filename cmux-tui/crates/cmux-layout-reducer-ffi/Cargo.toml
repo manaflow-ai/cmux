@@ -5,9 +5,10 @@ edition = "2024"
 rust-version = "1.91"
 license = "GPL-3.0-or-later"
 publish = false
+# In cmux-app-ffi's workspace (its Cargo.lock), outside cmux-tui's.
+workspace = "../cmux-app-ffi"
 description = "C ABI for the pure cmux sidebar drop resolver, section layout reducer, Tasks preview, bookmark preview, window focus rules, the Cloud start's decisions, NEXT Cloud's configuration rules, the cloud task follower, NEXT Cloud's machine record and rules, the Cloud action handlers' rules and the window handlers' rules"
 
-[workspace]
 
 [lib]
 crate-type = ["staticlib", "rlib"]
@@ -31,9 +32,3 @@ serde_json = "1"
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 unused_qualifications = "warn"
-
-[profile.release]
-opt-level = 3
-codegen-units = 1
-debug = false
-strip = "debuginfo"

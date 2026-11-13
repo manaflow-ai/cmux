@@ -17,6 +17,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 from blacksmith_linux_sizes import blacksmith_route  # noqa: E402
+import workflow_jobs  # noqa: E402
 
 
 def load(name: str) -> dict:
@@ -79,8 +80,9 @@ class HeadlessDebugDaemon(unittest.TestCase):
         # The two jobs share one Blacksmith size (.github/runners.json linux_sizes).
         self.assertEqual(blacksmith_route("cmux-tui-sdks.yml", "conformance"),
                          blacksmith_route("cmux-tui-headless-debug.yml", "build"))
-        self.assertTrue(self.consumer["runs-on"].endswith("|| " + trusted), self.consumer["runs-on"])
-        self.assertEqual(self.producer["runs-on"], "${{ " + trusted)
+        consumer = workflow_jobs.single_runs_on(self.consumer)
+        self.assertTrue(consumer.endswith("|| " + trusted), consumer)
+        self.assertEqual(workflow_jobs.single_runs_on(self.producer), "${{ " + trusted)
 
     def test_a_pull_request_builds_incrementally_from_the_feat_target_dir(self) -> None:
         # The exact-binary key names the whole cmux-tui tree, so a pull request that

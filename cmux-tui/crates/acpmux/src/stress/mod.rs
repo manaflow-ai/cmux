@@ -11,14 +11,24 @@
 //!   count), the class of `acpmux::hub::outbox::Outbox::save` rewriting a whole file per change
 //!   (cmuxterm-hq#8660);
 //! - bytes left on disk;
+//! - bytes read on a restart and an open of one god chat ([`god_chat`]);
 //! - open file descriptors and resident memory, in a child process of this test binary that runs
 //!   one test alone ([`isolated`]), since both are process-wide.
 //!
 //! A check fails when the cost of one operation grows with the size around it (the god size over
 //! the small size past [`GOD_OVER_SMALL`]) or when a resource keeps growing after warm-up (a
 //! positive slope past the stated noise band). Run: `cargo test -p acpmux --lib stress::`.
+//!
+//! Time is ticked, not waited for: [`reconnect`] runs a peer's whole reconnect loop through a day
+//! and more of outage under tokio's paused clock, with the wall clock following it
+//! (`store::test_clock::follow_tokio`) and a seeded jitter, so hours of backoff take
+//! milliseconds and a seed replays a run draw for draw.
 
+// Test-only as the whole module is; said here too, for check-spawn-owner.py's file walk.
+#[cfg(test)]
+mod god_chat;
 mod outbox;
+mod reconnect;
 mod store;
 
 use std::path::Path;
@@ -44,6 +54,13 @@ pub(crate) fn open_fds() -> Option<usize> {
 }
 
 /// Resident memory of this process in bytes. None off Linux.
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn rss_bytes() -> Option<u64> {
+    None
+}
+
+/// Resident memory of this process in bytes (`/proc/self/statm`).
+#[cfg(target_os = "linux")]
 pub(crate) fn rss_bytes() -> Option<u64> {
     let statm = std::fs::read_to_string("/proc/self/statm").ok()?;
     let pages: u64 = statm.split_whitespace().nth(1)?.parse().ok()?;

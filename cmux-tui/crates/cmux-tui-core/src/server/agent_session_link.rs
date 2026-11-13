@@ -16,7 +16,7 @@ use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, sync_channel};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
@@ -24,6 +24,11 @@ use serde_json::{Value, json};
 #[path = "agent_message_acpmux.rs"]
 mod agent_message_acpmux;
 
+#[path = "agent_session_list_gate.rs"]
+pub(crate) mod list_gate;
+#[cfg(test)]
+#[path = "agent_session_list_gate_tests.rs"]
+mod list_gate_tests;
 #[cfg(test)]
 #[path = "agent_session_link_tests.rs"]
 mod tests;
@@ -114,6 +119,11 @@ pub(crate) struct AcpmuxLink {
     pending: Arc<Pending>,
     next_id: AtomicU64,
     closed: Arc<AtomicBool>,
+    /// A reply waited for past its call's timeout ([`AcpmuxLink::call_while_alive_or_late`]): `close`
+    /// leaves the socket open for it, and the wait closes it when it ends.
+    late: AtomicBool,
+    /// The capability ids this acpmux serves, read once (`list_gate`'s `capabilities`).
+    capabilities: OnceLock<Vec<String>>,
 }
 
 impl AcpmuxLink {
@@ -131,6 +141,8 @@ impl AcpmuxLink {
             pending: Arc::default(),
             next_id: AtomicU64::new(1),
             closed: Arc::new(AtomicBool::new(false)),
+            late: AtomicBool::new(false),
+            capabilities: OnceLock::new(),
         });
         let pending = link.pending.clone();
         let closed = link.closed.clone();
@@ -151,6 +163,47 @@ impl AcpmuxLink {
         let (id, receiver) = self.send(method, params)?;
         let result = receiver.recv_timeout(timeout).unwrap_or(Err(LinkError::Timeout));
         self.forget(id);
+        result
+    }
+
+    /// [`AcpmuxLink::call_while_alive_until`] for a request acpmux goes on with after the caller
+    /// stops waiting (`session/new` spawns its agent whether or not anyone still reads the
+    /// answer): a reply that comes after the call failed with [`LinkError::Timeout`], within
+    /// `grace` more, goes to `late`, on a thread of its own, so what it made can be undone. The
+    /// link stays open for that wait, a `close` meanwhile included, and closes when it ends.
+    pub(crate) fn call_while_alive_or_late(
+        self: &Arc<Self>,
+        method: &str,
+        params: Value,
+        patience: Patience,
+        until: Instant,
+        grace: Duration,
+        late: impl FnOnce(&AcpmuxLink, Value) + Send + 'static,
+    ) -> Result<Value, LinkError> {
+        let until = until.min(Instant::now() + patience.ceiling);
+        let (id, receiver) = self.send(method, params)?;
+        let result = self.wait_while_alive(&receiver, until, patience);
+        if result != Err(LinkError::Timeout) {
+            self.forget(id);
+            return result;
+        }
+        self.late.store(true, Ordering::Release);
+        let link = self.clone();
+        let waited = std::thread::Builder::new()
+            .name("mux-acpmux-late".into())
+            .stack_size(THREAD_STACK_BYTES)
+            .spawn(move || {
+                if let Ok(Ok(reply)) = receiver.recv_timeout(grace) {
+                    late(&link, reply);
+                }
+                link.forget(id);
+                link.late.store(false, Ordering::Release);
+                link.close();
+            });
+        if waited.is_err() {
+            self.late.store(false, Ordering::Release);
+            self.forget(id);
+        }
         result
     }
 
@@ -332,8 +385,12 @@ impl AcpmuxLink {
             .map_err(|_| LinkError::Closed)
     }
 
-    /// Ends the socket; the reader thread reports the close.
+    /// Ends the socket; the reader thread reports the close. While a late reply is waited for
+    /// ([`AcpmuxLink::call_while_alive_or_late`]) that wait ends it instead.
     pub(crate) fn close(&self) {
+        if self.late.load(Ordering::Acquire) {
+            return;
+        }
         self.closed.store(true, Ordering::Release);
         let stream = self.stream.lock().unwrap_or_else(|e| e.into_inner());
         let _ = stream.shutdown(std::net::Shutdown::Both);

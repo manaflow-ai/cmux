@@ -15,7 +15,7 @@
 //! (`registry:<identify.session_id>`), so a tab recorded for another
 //! machine never starts here. The client names only an agent kind
 //! (`harness`, resolved by acpmux from its own config), an optional model (`model`), and a folder (`cwd`,
-//! absolute; acpmux checks it). No command, env, policy, mode, peer, preset,
+//! absolute; acpmux checks it), and on the caller's own Cloud VM a mode (`mode`, below). No command, env, policy, peer, preset,
 //! workspace or MCP server param exists (unknown fields are a bad request).
 //! The daemon itself names the tab's workspace to acpmux on `session/new`
 //! (`_meta.acpmux.workspaceId`, which picks the session's display), from the
@@ -40,6 +40,17 @@
 //! person owns, so any agent starts there, Codex and opencode included, in
 //! its own default mode (still with policy `ask`). A Mac, an SSH host and a
 //! team VM keep the rule above ([`AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY`]).
+//!
+//! There, and only there, the person's own mode pick (`mode`,
+//! [`AGENT_SESSION_START_MODE_CAPABILITY`]) is what the chat starts in (Leo, 2026-11-10: "but
+//! shouldnt the user be allowed to just go through with stuff?"): acpmux gets it as
+//! `_meta.acpmux.mode` and applies it under its own start rules (`hub/start_gate.rs`). A pick
+//! that asks keeps policy `ask`. A pick that does not ask (Claude Code's Bypass permissions, the
+//! Codex bridge's full access) starts with no policy of the start's own: policy `ask` would hold
+//! every tool call whatever the mode (acpmux's policy gate, W5-L) and refuse the move to it
+//! (`refuse_wider_mode`), so the pick could never apply. A start on any other host (a Mac, an SSH
+//! host, a team VM, a teammate's connection) ignores `mode`: policy `ask` and the asking-mode rule
+//! hold there as before.
 //!
 //! acpmux runs on demand: when nothing listens on the socket, the daemon
 //! starts it once through the binary's starter (`cmux acp daemon start`,
@@ -82,6 +93,9 @@ pub const AGENT_SESSION_START_KEYED_REASON_CAPABILITY: &str = "agent-session-sta
 pub const AGENT_SESSION_START_VM_KIND_CAPABILITY: &str = "agent-session-start-vm-kind-v1";
 /// `model` on `agent-session-start` is relayed to acpmux's first `session/new`.
 pub const AGENT_SESSION_START_MODEL_CAPABILITY: &str = "agent-session-start-model-v1";
+/// `mode` on `agent-session-start`: the permission mode the person picked for the chat, applied
+/// only on the caller's own Cloud VM (module docs). Elsewhere the param is ignored.
+pub const AGENT_SESSION_START_MODE_CAPABILITY: &str = "agent-session-start-mode-v1";
 /// On a Cloud VM with the caller's `vm_kind: "owner"`, `agent-session-start`
 /// starts any agent (Codex and opencode too) without the asking-mode rule.
 /// Advertised only where this machine reads as a Cloud VM with no team
@@ -136,6 +150,14 @@ pub(super) const START_PATIENCE: Patience = Patience {
     ceiling: Duration::from_secs(15 * 60),
 };
 const CALL_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long a start waits for an acpmux that went away under its catalog read (restarting) to
+/// listen again ([`ready_catalog`]), and the pause between connects.
+const RECONNECT_WAIT: Duration = Duration::from_secs(20);
+const RECONNECT_PAUSE: Duration = Duration::from_millis(200);
+/// How long after a `session/new` failed as a timeout its answer is still waited for, to end the
+/// session acpmux made for a start that already gave up (Codex review of cmux#40640 at
+/// 00411eb5: an agent spawned after the start stopped waiting stayed bound to no tab).
+const LATE_SESSION_GRACE: Duration = Duration::from_secs(300);
 
 /// One acpmux call of a start, waiting on acpmux's liveness ([`START_PATIENCE`]) until the
 /// start's one ceiling, `until`.
@@ -290,6 +312,10 @@ pub(super) struct StartParams {
     harness: Option<String>,
     #[serde(default)]
     model: Option<String>,
+    /// The permission mode the person picked (module docs): applied only on the caller's own
+    /// Cloud VM, ignored on any other host.
+    #[serde(default)]
+    mode: Option<String>,
     /// The selected folder on the machine. A missing folder is allowed only
     /// for the caller's own Cloud VM, where Rust creates `~/chats/<id>`.
     #[serde(default)]
@@ -335,7 +361,11 @@ impl StartParams {
                 && !model.chars().any(|c| c.is_whitespace() || c.is_control())
                 && !model.contains(['{', '}', '$', '"', '\\', '\''])
         });
-        harness_ok && cwd_ok && instance_ok && model_ok
+        let mode_ok = self.mode.as_deref().is_none_or(|mode| {
+            (1..=64).contains(&mode.len())
+                && mode.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
+        });
+        harness_ok && cwd_ok && instance_ok && model_ok && mode_ok
     }
 }
 
@@ -412,8 +442,7 @@ pub(super) fn start(
             let gated = keyed_gate(&socket, &params);
             timings.keyed_gate = Some(ms_since(began));
             let result = match gated {
-                Ok(()) => run(&worker_mux, client, socket, params, phone, &mut timings)
-                    .map_err(|r| (r, None)),
+                Ok(()) => run(&worker_mux, client, socket, params, phone, &mut timings),
                 Err(refused) => Err(refused),
             };
             drop(slot);
@@ -471,7 +500,26 @@ fn keyed_gate(
             Some(status.map_err(|_| unknown())?)
         }
     };
-    let keyed = status.as_ref().is_some_and(|status| {
+    keyed_by(status.as_ref(), params)
+}
+
+/// [`keyed_gate`] again on `link`, the acpmux the start runs on: the gate read the acpmux that
+/// listened before the start, and a restart since ([`ready_catalog`]) brings a run the caller may
+/// hold no key for, whose permission prompts it then could not approve.
+fn still_keyed(link: &AcpmuxLink, params: &StartParams) -> Result<(), (Refusal, Option<Value>)> {
+    if !params.require_person_key {
+        return Ok(());
+    }
+    let status = link
+        .call("_acpmux/status", json!({}), CALL_TIMEOUT)
+        .map_err(|_| (Refusal::NeedsKeyedStart, Some(keyed_restart_reason(Some(&json!({}))))))?;
+    keyed_by(Some(&status), params)
+}
+
+/// Ok when `status` (`_acpmux/status`; None: acpmux does not run) holds a person key for the
+/// caller's `person_instance`, else the typed `needs_keyed_start` refusal.
+fn keyed_by(status: Option<&Value>, params: &StartParams) -> Result<(), (Refusal, Option<Value>)> {
+    let keyed = status.is_some_and(|status| {
         status.get("personKey").and_then(Value::as_bool) == Some(true)
             && params.person_instance.is_some()
             && status.get("personInstance").and_then(Value::as_str)
@@ -480,7 +528,7 @@ fn keyed_gate(
     if keyed {
         return Ok(());
     }
-    Err((Refusal::NeedsKeyedStart, Some(keyed_restart_reason(status.as_ref()))))
+    Err((Refusal::NeedsKeyedStart, Some(keyed_restart_reason(status))))
 }
 
 /// The ONE rule for whether a keyed restart of this machine's acpmux can
@@ -531,13 +579,55 @@ fn run(
     params: StartParams,
     phone: bool,
     timings: &mut StartTimings,
-) -> Result<Value, Refusal> {
+) -> Result<Value, (Refusal, Option<Value>)> {
     let began = Instant::now();
-    let (link, started) = connect_noting(mux, &socket)?;
+    let (link, started) = connect_noting(mux, &socket).map_err(|r| (r, None))?;
     (timings.acpmux_connect, timings.acpmux_started) = (Some(ms_since(began)), started);
-    let result = start_and_bind(mux, client, &link, &params, phone, timings);
+    let checks = Instant::now();
+    let until = checks + START_PATIENCE.ceiling;
+    let cwd = params.cwd.as_deref().ok_or((Refusal::BadRequest, None))?;
+    let (link, catalog) = ready_catalog(&socket, link, cwd, until).map_err(|r| (r, None))?;
+    let result = still_keyed(&link, &params).and_then(|()| {
+        start_and_bind(mux, client, &link, &catalog, &params, phone, checks, until, timings)
+            .map_err(|r| (r, None))
+    });
     link.close();
     result
+}
+
+/// acpmux's catalog for a start in `cwd`, read as long as acpmux is alive ([`START_PATIENCE`]:
+/// a starting acpmux holds it until its `catalog_ready`), by `until`. An acpmux that goes away
+/// under the read, or is not listening yet, is one restarting (the app's keyed restart for remote
+/// approvals, 0.3 s before the start in cmuxterm-hq run 42837396397): the read connects again and
+/// asks again until `until`. It never runs the starter again: the restart brings its own acpmux,
+/// and a second start here would race it. The read changes nothing, so asking twice is safe; what
+/// the start changes comes after it, on the link this returns.
+fn ready_catalog(
+    socket: &std::path::Path,
+    mut link: Arc<AcpmuxLink>,
+    cwd: &str,
+    until: Instant,
+) -> Result<(Arc<AcpmuxLink>, Value), Refusal> {
+    loop {
+        match ask(&link, until, "_acpmux/harnesses", json!({"cwd": cwd})) {
+            Ok(catalog) => return Ok((link, catalog)),
+            Err(LinkError::Closed) if Instant::now() < until => link.close(),
+            Err(error) => {
+                link.close();
+                return Err(Refusal::of(error));
+            }
+        }
+        // A restart brings its acpmux up in seconds; one that stays down is gone.
+        let back_by = until.min(Instant::now() + RECONNECT_WAIT);
+        link = loop {
+            std::thread::sleep(RECONNECT_PAUSE);
+            match AcpmuxLink::connect(socket, |_| {}) {
+                Ok(link) => break link,
+                Err(_) if Instant::now() < back_by => {}
+                Err(_) => return Err(Refusal::Unavailable),
+            }
+        };
+    }
 }
 
 /// A link to acpmux, starting it once when nothing listens (also an
@@ -586,16 +676,20 @@ pub(in crate::server) fn restart_with(
 
 /// `phone`: the caller declared `cloud-mobile-chat-v1` (read before the start's worker).
 /// `timings`: each phase reached, on this machine's clock.
+/// `catalog`: acpmux's catalog for the start's folder ([`ready_catalog`]); `checks`: when the
+/// checks before the agent began (the readiness wait included); `until`: the start's one ceiling.
+#[allow(clippy::too_many_arguments)]
 fn start_and_bind(
     mux: &Arc<Mux>,
     client: u64,
-    link: &AcpmuxLink,
+    link: &Arc<AcpmuxLink>,
+    catalog: &Value,
     params: &StartParams,
     phone: bool,
+    checks: Instant,
+    until: Instant,
     timings: &mut StartTimings,
 ) -> Result<Value, Refusal> {
-    let checks = Instant::now();
-    let until = checks + START_PATIENCE.ceiling;
     let cwd = params.cwd.as_deref().ok_or(Refusal::BadRequest)?;
     let owner_cloud = mux
         .control_clients
@@ -612,9 +706,7 @@ fn start_and_bind(
     // The family the start resolves to, from acpmux's own catalog, before
     // any agent process exists: a Codex alias or a default harness of a
     // refused family never starts (but on the caller's own Cloud VM).
-    let catalog =
-        ask(link, until, "_acpmux/harnesses", json!({"cwd": cwd})).map_err(Refusal::of)?;
-    let family = catalog_family(&catalog, params.harness.as_deref()).ok_or(Refusal::NotAsking)?;
+    let family = catalog_family(catalog, params.harness.as_deref()).ok_or(Refusal::NotAsking)?;
     // A phone's family is held to its own floor instead: acpmux refuses Codex as a Web family,
     // but a Codex bridge session holds to the phone floor in `ask`, which only the session's
     // `cloudMobileAsks` can tell from Codex's adapter (`settle_phone_mode`).
@@ -637,7 +729,14 @@ fn start_and_bind(
     if !folder_trusted(&trust, params.harness.as_deref()) {
         return Err(Refusal::UntrustedFolder);
     }
-    let mut meta = json!({"policy": "ask"});
+    // The person's own pick on their own Cloud VM (module docs); never a phone's start, never
+    // another host's.
+    let picked = params.mode.as_deref().filter(|_| owner_cloud && !phone);
+    let mut meta = match picked {
+        Some(mode) if !mode_asks(&table, &family, mode) => json!({"mode": mode}),
+        Some(mode) => json!({"policy": "ask", "mode": mode}),
+        None => json!({"policy": "ask"}),
+    };
     if let Some(harness) = &params.harness {
         meta.insert("harness", json!(harness));
     }
@@ -655,7 +754,23 @@ fn start_and_bind(
     let new = json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": meta}});
     timings.checks = Some(ms_since(checks));
     let spawn = Instant::now();
-    let created = ask(link, until, "session/new", new).map_err(Refusal::of);
+    // acpmux goes on spawning the agent after a start stops waiting: a session it makes later is
+    // bound to no tab, so it ends as soon as its answer comes.
+    let created = link
+        .call_while_alive_or_late(
+            "session/new",
+            new,
+            START_PATIENCE,
+            until,
+            LATE_SESSION_GRACE,
+            |link, late| {
+                if let Some(session) = late.get("sessionId").and_then(Value::as_str) {
+                    let kill = json!({"sessionId": session, "purge": true});
+                    let _ = link.call("_acpmux/kill", kill, CALL_TIMEOUT);
+                }
+            },
+        )
+        .map_err(Refusal::of);
     timings.session_new = Some(ms_since(spawn));
     let created = created?;
     let settle = Instant::now();
@@ -746,6 +861,18 @@ fn refused_family(table: &Value, family: &str) -> bool {
         .get("refusedFamilies")
         .and_then(Value::as_array)
         .is_some_and(|refused| refused.iter().any(|name| name.as_str() == Some(family)))
+}
+
+/// Whether `mode` asks before it acts for `family`: acpmux's remote table
+/// (`_acpmux/web_modes` `families`) lists it, or it is the Codex bridge's
+/// `ask` or `read-only`, which the table leaves out because it refuses Codex
+/// for the Web (acpmux `start_mode::NARROW_MODES`).
+fn mode_asks(table: &Value, family: &str, mode: &str) -> bool {
+    let listed = table
+        .pointer(&format!("/families/{}", family.replace('~', "~0").replace('/', "~1")))
+        .and_then(Value::as_array)
+        .is_some_and(|modes| modes.iter().any(|listed| listed.as_str() == Some(mode)));
+    listed || (family == "codex" && matches!(mode, "ask" | "read-only"))
 }
 
 /// The family acpmux reports for `session` (`_acpmux/web_modes`), with no
@@ -932,6 +1059,36 @@ mod tests {
         );
         let gated = StartTimings { keyed_gate: Some(7), total: Some(7), ..Default::default() };
         assert_eq!(gated.wire(), json!({"keyed_gate": 7, "total": 7, "acpmux_started": false}));
+    }
+
+    /// A pick that asks keeps policy `ask` on the owner's VM; Bypass permissions and Codex full
+    /// access do not ask, so the start names no policy for them (module docs).
+    #[test]
+    fn a_pick_asks_only_when_the_table_or_the_bridge_says_so() {
+        let table = json!({"families": {"claude": ["default", "plan"]}});
+        assert!(mode_asks(&table, "claude", "default"));
+        assert!(mode_asks(&table, "claude", "plan"));
+        assert!(!mode_asks(&table, "claude", "bypassPermissions"));
+        assert!(!mode_asks(&table, "claude", "acceptEdits"));
+        assert!(mode_asks(&table, "codex", "ask"));
+        assert!(mode_asks(&table, "codex", "read-only"));
+        assert!(!mode_asks(&table, "codex", "agent-full-access"));
+        assert!(!mode_asks(&table, "codex", "agent"));
+        assert!(!mode_asks(&table, "opencode", "ask"));
+    }
+
+    /// `mode` is a plain mode id: anything else makes the whole start a bad request.
+    #[test]
+    fn a_start_mode_is_a_plain_mode_id() {
+        let params = |mode: &str| -> StartParams {
+            serde_json::from_value(json!({"surface": 1, "cwd": "/home/u/work", "mode": mode}))
+                .expect("params parse")
+        };
+        assert!(params("bypassPermissions").valid());
+        assert!(params("agent-full-access").valid());
+        assert!(!params("").valid());
+        assert!(!params("bypass permissions").valid());
+        assert!(!params(&"x".repeat(65)).valid());
     }
 
     /// Only a Cloud VM with no team evidence, and only on the caller's owner

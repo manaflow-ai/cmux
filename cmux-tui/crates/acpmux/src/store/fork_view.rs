@@ -76,7 +76,7 @@ pub fn folder_to_replace(store: &dyn Store, id: &str) -> Result<Option<PathBuf>>
     if let Some(dir) = store.session_dir(id) {
         return Ok(Some(dir));
     }
-    if store.session_path(id).is_some_and(|path| std::fs::symlink_metadata(path).is_ok()) {
+    if store.session_path(id).is_some_and(|path| crate::home_fs::symlink_metadata(path).is_ok()) {
         anyhow::bail!("its history could not be written into its folder; try the move again");
     }
     Ok(None)
@@ -366,6 +366,25 @@ impl Store for ForkView {
     fn flush_session(&self, id: &str) -> Result<()> {
         self.inner.flush_session(id)
     }
+    /// A journal restore's cut of `id`'s own records past `after` (`hub/journal_restore.rs`):
+    /// the forks that show them get them first, as a retention commit does. The trait's own
+    /// default stages through this view, which stages nothing for a store with no segments (the
+    /// memory store), and the cut never happened.
+    fn truncate_after(&self, id: &str, after: u64) -> Result<bool> {
+        let _dropping = self.exclusive();
+        for fork in self.forks_of(id)? {
+            self.materialize_locked(&fork)?;
+        }
+        self.inner.truncate_after(id, after)
+    }
+    /// What a chat keeps while a journal restore holds it (`hub/restore_writer.rs`): the
+    /// store's own, beside its log. The trait's default keeps nothing across a restart.
+    fn keep_parked(&self, id: &str, kept: Option<&[u8]>) -> Result<()> {
+        self.inner.keep_parked(id, kept)
+    }
+    fn kept_parked(&self, id: &str) -> Result<Option<Vec<u8>>> {
+        self.inner.kept_parked(id)
+    }
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
         let _held = self.shared();
         let Some(r) = self.reference(id)? else { return self.inner.events(id, after, limit) };
@@ -444,26 +463,17 @@ impl Store for ForkView {
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        let _held = self.shared();
-        let Some(r) = self.reference(id)? else {
-            return self.inner.scan_back(id, after, before, skip, visit);
-        };
-        let mut going = true;
-        if before > r.through_seq + 1 {
-            self.inner.scan_back(id, after.max(r.through_seq), before, skip, &mut |rec| {
-                going = visit(rec);
-                going
-            })?;
-        }
-        if !going || after >= r.through_seq {
-            return Ok(());
-        }
-        let skip_other = |dir: &[u8], kind: &[u8]| {
-            skip(dir, kind) || !HISTORY_KINDS.iter().any(|k| k.as_bytes() == kind)
-        };
-        self.scan_back(&r.session, after, before.min(r.through_seq + 1), &skip_other, &mut |rec| {
-            !is_history(&rec.kind) || visit(rec)
-        })
+        self.back(id, after, before, skip, visit, false)
+    }
+    fn scan_back_indexed(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.back(id, after, before, skip, visit, true)
     }
     fn tail_after(&self, id: &str, after: u64) -> Result<(u64, u64)> {
         let _held = self.shared();
@@ -704,6 +714,64 @@ impl Store for ForkView {
     }
     fn history_writer(&self, id: &str) -> Result<Option<Box<dyn HistoryWriter + '_>>> {
         self.inner.history_writer(id)
+    }
+}
+
+impl ForkView {
+    /// The inner store's `scan_back` (`indexed`: its `scan_back_indexed`).
+    fn inner_back(
+        &self,
+        indexed: bool,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        if indexed {
+            self.inner.scan_back_indexed(id, after, before, skip, visit)
+        } else {
+            self.inner.scan_back(id, after, before, skip, visit)
+        }
+    }
+
+    /// `scan_back` (`indexed`: `scan_back_indexed`): the fork's own records, then its chat's
+    /// history before the fork point.
+    fn back(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+        indexed: bool,
+    ) -> Result<()> {
+        let _held = self.shared();
+
+        let Some(r) = self.reference(id)? else {
+            return self.inner_back(indexed, id, after, before, skip, visit);
+        };
+        let mut going = true;
+        if before > r.through_seq + 1 {
+            self.inner_back(indexed, id, after.max(r.through_seq), before, skip, &mut |rec| {
+                going = visit(rec);
+                going
+            })?;
+        }
+        if !going || after >= r.through_seq {
+            return Ok(());
+        }
+        let skip_other = |dir: &[u8], kind: &[u8]| {
+            skip(dir, kind) || !HISTORY_KINDS.iter().any(|k| k.as_bytes() == kind)
+        };
+        self.back(
+            &r.session,
+            after,
+            before.min(r.through_seq + 1),
+            &skip_other,
+            &mut |rec| !is_history(&rec.kind) || visit(rec),
+            indexed,
+        )
     }
 }
 

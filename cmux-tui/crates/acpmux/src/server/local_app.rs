@@ -61,13 +61,19 @@ impl LocalAppAuth {
 
     /// Whether `hello` is the local app: every condition in the module docs.
     pub fn is_local_app(&self, hello: &Hello<'_>) -> bool {
+        self.from_page(hello) && hello.first_frame.is_some_and(|f| self.frame_has_token(f))
+    }
+
+    /// Loopback and the page's own origin, the token aside: a hello that is the pane unless its
+    /// token is missing or another launch's. Only for the log line that names such a pane.
+    pub fn from_page(&self, hello: &Hello<'_>) -> bool {
         let loopback = hello.listener.ip().is_loopback() && hello.peer.ip().is_loopback();
         let origin = match hello.origins {
             [one] => cmux_local_auth::parse_origin(one)
                 .is_some_and(|o| self.page_origins.iter().any(|p| p == &o)),
             _ => false,
         };
-        loopback && origin && hello.first_frame.is_some_and(|f| self.frame_has_token(f))
+        loopback && origin
     }
 
     fn frame_has_token(&self, frame: &str) -> bool {
@@ -91,11 +97,10 @@ impl LocalAppAuth {
 #[cfg(unix)]
 pub(crate) fn create_secret(path: &Path) -> anyhow::Result<String> {
     use std::io::Write;
-    use std::os::unix::fs::OpenOptionsExt;
     if let Some(dir) = path.parent() {
         crate::agent_host::ensure_private_dir(dir)?;
     }
-    match std::fs::remove_file(path) {
+    match crate::home_fs::remove_file(path) {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(anyhow::anyhow!("remove stale {}: {e}", path.display())),
@@ -104,7 +109,7 @@ pub(crate) fn create_secret(path: &Path) -> anyhow::Result<String> {
     getrandom::fill(&mut bytes)
         .map_err(|e| anyhow::anyhow!("the OS random generator for {}: {e}", path.display()))?;
     let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-    let mut f = std::fs::OpenOptions::new()
+    let mut f = crate::home_fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(0o600)
@@ -123,7 +128,7 @@ pub(crate) fn create_secret(path: &Path) -> anyhow::Result<String> {
     if let Some(dir) = path.parent() {
         crate::agent_host::ensure_private_dir(dir)?;
     }
-    match std::fs::remove_file(path) {
+    match crate::home_fs::remove_file(path) {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(anyhow::anyhow!("remove stale {}: {e}", path.display())),

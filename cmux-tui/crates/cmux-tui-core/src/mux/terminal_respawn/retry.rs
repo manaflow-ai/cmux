@@ -16,8 +16,11 @@
 //!   never dead, while a next try is on its way.
 //! - The supervisor admits the next try (`supervisor.rs`): it waits the
 //!   backoff of the terminal's attempts in the last 10 minutes (0 s, 2 s,
-//!   10 s, 30 s, 60 s). A try with no wait takes a new place at the end of
-//!   the respawn gate's line; one with a wait holds no turn while it waits.
+//!   10 s, 30 s, 60 s). A try takes a new place at the end of the respawn
+//!   gate's line: one with no wait at once, one with a wait when the wait
+//!   is over (it holds no place and no turn while it waits). A try for a
+//!   terminal the person sees or asked for does not wait for that line, as
+//!   its first try did not.
 //! - At most [`LAUNCH_SECOND_TRIES`] next tries per restart. After the last
 //!   one, or when the supervisor admits no further attempt, the tab shows
 //!   the terminal ended with the cause of its last failure, as before.
@@ -47,6 +50,7 @@ impl RespawnPlan {
             delay: Duration::ZERO,
             recorded: self.recorded.clone(),
             user_restart: self.user_restart,
+            asked: self.asked,
             kept: self.kept.clone(),
             screen_incarnation: self.screen_incarnation.clone(),
             failed_launches: self.failed_launches.saturating_add(1),

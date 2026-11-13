@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { translate } from "./i18n";
 import { createNativePromptUploadTransport } from "./nativePromptUpload";
+import { resetPageHostClientForTests } from "./pageHost";
 
 test("native upload control waits for event readiness and terminal status, without binding bytes", async () => {
   let subscribe!: () => void;
@@ -134,6 +135,8 @@ test("the shared PageClient uses call envelopes and preserves typed native error
       message: "Send again",
     });
   } finally {
+    // The transport kept a page host client on this fake handler; a later file must not reach it.
+    resetPageHostClientForTests();
     if (previous === undefined) delete scope.webkit;
     else scope.webkit = previous;
   }
