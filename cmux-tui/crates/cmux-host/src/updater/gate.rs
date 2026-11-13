@@ -310,7 +310,10 @@ impl Gate {
         }
         let age = now_ms.checked_sub(mark.at_ms);
         age.is_some_and(|age| age <= ms(RESTART_PENDING_FOR))
-            && !super::role::restored_between(Some(i128::from(mark.offset_ns)), offset_ns)
+            // The restore test role's `restored_between` makes, read here
+            // because the gate builds on every Unix and the role on Linux only.
+            && crate::agent::clock_set_wake(i128::from(mark.offset_ns), offset_ns)
+                != crate::agent::Wake::ClockSet
     }
 
     /// The service started: no restart of it is pending any more.
