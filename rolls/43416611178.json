@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43416611178",
+  "recorded_at": "2026-11-13T11:38:13Z",
+  "reason": "cmux-tui d64121ee098a changes the image's cmux-tui (pinned 243388fe905c)",
+  "dry_run": false,
+  "cmux_tui": "d64121ee098ad286dbbf2b47f38342e59e82f820",
+  "fixes": [
+    {
+      "sha": "d64121ee098ad286dbbf2b47f38342e59e82f820",
+      "mergedAt": "2026-11-13T03:00:47-08:00",
+      "subject": "iOS chat: an older page carries a huge tool output's start, the rest loads on open (chat_older_page) (#42524)"
+    },
+    {
+      "sha": "fde2e4b3c14509a081fd13419313355b5d35b706",
+      "mergedAt": "2026-11-13T02:49:06-08:00",
+      "subject": "feat: v2 PR 3a book persistence (incomplete actor) (#42222)"
+    },
+    {
+      "sha": "095bfa9b1032ebc77cbe7e9f9e721807de6c883a",
+      "mergedAt": "2026-11-13T02:46:16-08:00",
+      "subject": "acpmux: status never holds every pane's connect on a slow reading or the config lock (#41804)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-13T11:38:13Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
