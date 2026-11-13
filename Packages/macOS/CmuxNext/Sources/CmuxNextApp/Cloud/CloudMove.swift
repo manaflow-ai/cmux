@@ -1,11 +1,13 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextBridge
 import CmuxNextCloud
 import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextWorkspaceRepair
 import Foundation
 
 /// Move to Cloud (cmuxterm-hq#1874 slice 3): the one action behind the palette's
@@ -13,10 +15,10 @@ import Foundation
 /// For a chat tab of this Mac it reuses a Cloud machine (the named one, else a
 /// connected one, else any, else a new one), copies the chat's folder there
 /// (`cmux link seed push`), moves the chat (`cmux link agent move`), and shows
-/// it on that machine: a Cloud workspace whose terminal runs in the synced
-/// folder and whose chat tab is bound to the moved session through the
-/// machine's store, so the tab attaches through that machine and carries its
-/// badge. This Mac's tab, whose chat the move closed, closes.
+/// it on that machine: a Cloud workspace whose only tab is the chat, bound to
+/// the moved session through the machine's store, so the tab attaches through
+/// that machine and carries its badge, in place of this Mac's tab (``open``),
+/// which closes with its chat.
 ///
 /// The chat keeps its session, history, draft and queue, not its tab id: a tab
 /// lives in exactly one machine's store, which mints its ids, and a chat on a
@@ -165,6 +167,9 @@ struct CloudMove {
             let registry = services.registry
             let again = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tabID), arguments: arguments, origin: .user)
             retry = { _ = registry.perform(Self.action, invocation: again) }
+        } else if !(error is Failure), !(error is ActionFailure) { // an unexpected error (no network): Retry runs the move again
+            let registry = services.registry, again = ActionInvocation(target: invocation.target, arguments: invocation.arguments, origin: .user)
+            retry = { _ = registry.perform(Self.action, invocation: again) }
         }
         var title = CloudMoveStrings.retry
         if case .update = failure.retry { title = CloudMachineUpdateStrings.button }
@@ -214,18 +219,18 @@ struct CloudMove {
             services.cloud.logger.error("cloud move: link agent move: \(String(describing: error), privacy: .public)")
             throw Failure(message: CloudMoveStrings.unresolved, retry: again)
         }
-        guard moved.ok, let movedSession = moved.sessionID else { throw Self.failure(moving: moved, machine: name, retry: again) }
+        guard moved.ok, let movedSession = moved.sessionID else { throw CloudMoveFailure.moving(moved, machine: name, retry: again) }
         // Bring Back Local merges into this folder, and offers itself only for chats recorded here.
         if let host = AgentTabStore.registryHost(of: machine.daemon) {
             let local = folder.subpath.isEmpty ? folder.root : folder.root + "/" + folder.subpath
             services.cloud.movedChats.record(CloudMovedChats.Entry(machineID: machine.machineID, host: host, session: movedSession, harness: record.harness,
                                                                    localRoot: folder.root, localChat: local, remoteFolder: remote.folder,
-                                                                   remoteChat: remote.chat, name: workspace?.name))
+                                                                   remoteChat: remote.chat, name: Self.movedName(workspace, folder: chat)))
             services.cloud.accessAsks.start(services: services)
         }
         // The move committed: from here Retry only opens the chat's tab on the machine.
         let shown = CloudMoveRetries.Shown(session: movedSession, harness: record.harness, machineID: machine.machineID, folder: remote.chat,
-                                           name: workspace?.name, key: moved.transferID ?? movedSession)
+                                           name: Self.movedName(workspace, folder: chat), key: moved.transferID ?? movedSession)
         // A quit or a crash before the tab opens leaves the relaunched app only opening it.
         services.cloud.moveRetries[tab.id] = .show(shown)
         try await finish(shown, on: machine, tab: tab)
@@ -253,7 +258,8 @@ struct CloudMove {
     /// Opens the moved chat's tab on `machine`, then closes this Mac's tab, whose chat closed with the move.
     private func finish(_ shown: CloudMoveRetries.Shown, on machine: CloudMachineSession, tab: TabModel) async throws {
         do {
-            try await show(shown.session, harness: shown.harness, on: machine, in: shown.folder, name: shown.name, key: shown.key)
+            try await Self.open(shown, host: AgentTabStore.registryHost(of: machine.daemon), hostName: machine.machine.title, on: machine.daemon,
+                                repair: machine.emptyWorkspaces, mutation: "cloud-move-", leaving: tab, services: services)
         } catch {
             throw Failure(message: CloudMoveStrings.tabFailed(machine.machine.title, CloudStrings.errorText(error)), retry: .show(shown))
         }
@@ -283,7 +289,7 @@ struct CloudMove {
             // Not this machine's home (an image without the work user): the next root.
             guard last.errorCode == "fs.permission_denied" else { break }
         }
-        throw Self.failure(syncing: last, machine: machine, retry: retry)
+        throw CloudMoveFailure.syncing(last, machine: machine, retry: retry)
     }
 
     /// `folder`'s place under `root` on a machine, its folder name ending in `suffix` (``sync``).
@@ -291,12 +297,6 @@ struct CloudMove {
         let remote = folder.remote(under: root)
         guard !suffix.isEmpty else { return remote }
         return (remote.folder + suffix, remote.folder + suffix + String(remote.chat.dropFirst(remote.folder.count)))
-    }
-
-    /// A failed copy's failure: an outdated machine's Retry updates it first.
-    static func failure(syncing answer: CloudMoveCLI.Answer, machine: String, retry: CloudMoveRetries.Retry) -> Failure {
-        if answer.errorCode == CloudMoveStrings.outdatedCode { return Failure(message: CloudMoveStrings.outdatedMachine(machine), retry: retry.updating) }
-        return Failure(message: CloudMoveStrings.syncFailed(machine, answer.error ?? answer.errorCode ?? ""), retry: retry)
     }
 
     /// The chat's folder on this Mac: the `path` argument (the CLI makes a
@@ -365,43 +365,30 @@ struct CloudMove {
         CloudMoveStrings.notConnected(session.machine.title)
     }
 
-    /// Shows the moved chat on `machine`: a new Cloud workspace with a terminal
-    /// in `folder`, then the chat's tab bound to `session` through the
-    /// machine's store, selected; filed into the window, and shown when the run
-    /// may change the view. `key` makes the chat tab's creation idempotent.
-    func show(_ session: String, harness: String?, on machine: CloudMachineSession, in folder: String, name: String?, key: String) async throws {
-        let daemon = machine.daemon
-        guard let connection = daemon.connection, let host = AgentTabStore.registryHost(of: daemon) else { throw DaemonError.notConnected }
-        let record = AgentSessionRef(host: host, hostName: machine.machine.title, session: session, harness: harness)
-        let workspace = NewWorkspacePlacements.placedKey(in: services.windows) // placed like Cmd-N, not at the machine daemon's slot
-        let created = try await WorkspaceCreation.createWithFirstTab(workspace, name: name, on: connection, repair: machine.emptyWorkspaces) { result in
-            try await connection.createTerminal(in: result.key, cwd: folder)
-            return try await connection.request(NewConversationTabRequest(agentSession: record, workspace: result.workspace,
-                                                                          origin: AgentTabStore.createOrigin, mutationID: "cloud-move-" + key))
+    /// Opens a moved chat (Move to Cloud's, Bring Back Local's) on `daemon`, bound to `shown.session` through `host`: a workspace placed
+    /// like Cmd-N whose only tab is the chat's (made once: `mutation` + `shown.key`), selected. No terminal first: as the first tab it took
+    /// the window and `--focus` (capture baf4f76ab502); a new terminal beside the chat starts in its folder. Each window that
+    /// showed `tab`, the tab the chat leaves, shows it there even for a run with no `--focus`, as focus follows a moved tab.
+    static func open(_ shown: CloudMoveRetries.Shown, host: String?, hostName: String?, on daemon: DaemonService, repair: EmptyWorkspaceRepair,
+                     mutation: String, leaving tab: TabModel, services: AppServices) async throws {
+        guard let connection = daemon.connection, let host else { throw DaemonError.notConnected }
+        let record = AgentSessionRef(host: host, hostName: hostName, session: shown.session, harness: shown.harness)
+        let workspace = NewWorkspacePlacements.placedKey(in: services.windows)
+        let created = try await WorkspaceCreation.createWithFirstTab(workspace, name: shown.name, on: connection, repair: repair) { result in
+            try await connection.request(NewConversationTabRequest(agentSession: record, workspace: result.workspace,
+                                                                   origin: AgentTabStore.createOrigin, mutationID: mutation + shown.key))
         }
-        services.windows.reveal(workspaceID: workspace.rawValue)
-        let tab = created.tabResourceID?.rawValue ?? "surface:\(created.surface.rawValue)"
-        if let pane = await daemon.store.firstPane(mirroring: workspace) {
-            for window in services.windows.controllers { window.state.selection.select(tab, in: pane.id) }
-        }
+        let pane = services.locateTab(model: tab)?.1
+        let keeping = services.windows.controllers.filter { window in pane.map { window.showsOnScreen(tab.id, in: $0) } == true }.map(\.state.id)
+        if keeping.isEmpty { services.windows.reveal(workspaceID: workspace.rawValue) }
+        ActionRunScope.carrying(ActionRunScope(origin: ActionRunScope.current?.origin ?? .user, allowsViewChange: true)) { keeping.forEach { services.windows.show(workspaceID: workspace.rawValue, inWindow: $0) } }
+        let opened = created.tabResourceID?.rawValue ?? "surface:\(created.surface.rawValue)", first = await daemon.store.firstPane(mirroring: workspace)
+        for window in services.windows.controllers { if let first { window.state.selection.select(opened, in: first.id) } }
     }
 
-    /// The failure of a `cmux link agent move` answer, in plain words. `retry`
-    /// runs the move again on its machine; a garbage answer (a crash) may come
-    /// after the commit, so it is unresolved, never failed.
-    static func failure(moving answer: CloudMoveCLI.Answer, machine: String, retry: CloudMoveRetries.Retry) -> Failure {
-        switch answer.errorCode {
-        case "move_unresolved", CloudMoveCLI.badAnswer: Failure(message: CloudMoveStrings.unresolved, retry: retry)
-        case "move_in_progress": Failure(message: CloudMoveStrings.inProgress, retry: retry)
-        case "agent_session.team_vm_blocked": Failure(message: CloudMoveStrings.teamMachine(machine))
-        case "agent_session.host_unverified": Failure(message: CloudMoveStrings.unknownMachine(machine))
-        // This Mac's own daemon (the source) is never the machine to update.
-        case CloudMoveStrings.outdatedCode where answer.side != "source":
-            Failure(message: CloudMoveStrings.outdatedMachine(machine), retry: retry.updating)
-        case "source_unreachable", "target_unreachable": Failure(message: CloudMoveStrings.unreachable(machine), retry: retry)
-        // A machine with no acpmux up yet (cmux#31198), too busy or too slow gave the chat back: the same move may work again.
-        default: Failure(message: CloudMoveStrings.moveFailed(answer.error ?? answer.errorCode ?? ""), retry: answer.errorCode.map { ["agent_transfer.unavailable", "agent_transfer.limit", "agent_transfer.timeout"].contains($0) } == true ? retry : nil)
-        }
+    /// A moved chat's workspace name: its workspace's here, but never Home's (a machine's "Home" hid the chat): its folder's.
+    static func movedName(_ workspace: WorkspaceModel?, folder: String) -> String? {
+        workspace?.kind == SidebarMapping.homeKind ? URL(fileURLWithPath: folder).lastPathComponent : workspace?.name
     }
 
     private func toast(_ id: String, _ message: String, duration: Duration, retry: (@MainActor () -> Void)? = nil) { Self.toast(services, id, message, duration: duration, retry: retry) }

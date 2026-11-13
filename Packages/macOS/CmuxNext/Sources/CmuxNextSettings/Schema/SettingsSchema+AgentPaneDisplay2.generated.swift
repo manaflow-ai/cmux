@@ -48,6 +48,16 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 keywords: ["agent", "chat", "acp", "display", "reading", "plan", "task", "tasks", "todo", "checklist", "pin", "pinned", "list", "progress"]
             ),
             SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.finishSoundPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.finishSound", "Play Sound When Work Finishes"),
+                help: SettingsText.keyed("settings.agentPane.display.finishSound.help", "A soft sound when a long turn in the chat you're looking at ends, its checks pass or its pull request merges. Follows the Mac's Play user interface sound effects setting."),
+                kind: .toggle,
+                default: .bool(AgentPaneDisplaySettingsSchema.finishSoundDefault),
+                keywords: ["agent", "chat", "sound", "sounds", "audio", "finish", "finished", "done", "merged", "checks", "turn", "notification"]
+            ),
+            SettingDescriptor(
                 AgentPaneDisplaySettingsSchema.trayTuckedPath,
                 section: .appearance,
                 group: group,
@@ -268,6 +278,16 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 ]),
                 default: .string(AgentPaneDisplaySettingsSchema.presentationDefault),
                 keywords: ["agent", "chat", "acp", "display", "reading", "presentation", "messages", "bubbles", "chat", "tools"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.promptCoachPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.promptCoach", "Prompt Coach"),
+                help: SettingsText.keyed("settings.agentPane.display.promptCoach.help", "After a chat that took several corrections, shows how its first prompt could have said it all at once."),
+                kind: .toggle,
+                default: .bool(AgentPaneDisplaySettingsSchema.promptCoachDefault),
+                keywords: ["agent", "chat", "acp", "prompt", "coach", "rewrite", "corrections", "tips", "one shot", "first prompt", "copy"]
             ),
             SettingDescriptor(
                 AgentPaneDisplaySettingsSchema.statusVerbsModePath,

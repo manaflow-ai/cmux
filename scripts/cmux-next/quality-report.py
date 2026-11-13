@@ -13,6 +13,16 @@ So the nightly tracks three numbers over time, each from the source that already
                             output is given (--god-small; a row fails over GOD_SMALL_LIMIT x small).
   animation_token_coverage  the share of animations that go through the motion tokens (--anim-coverage, the
                             coverage script's JSON).
+  ci_health                 Leo, 2026-11-10: "WE DO NOT STAND FOR BAD CI AND LOW QUALITY STUFF EVER". From the check
+                            runs of the last --ci-commits commits of each --ci-branches branch (GitHub GraphQL, every
+                            attempt of every run): green_share, the share of checks whose newest finished run on the
+                            branch is green, and flake_rate, the share of (commit, check) pairs that failed and then
+                            passed on the same commit. The checks red now are listed with their failure counts.
+  nightly_speed             Leo, 2026-11-12: "we need to start freaking enforcing, like, the speed". Over the window:
+                            nightlies published, merge to feed p50 and p95 against SPEED_BUDGET_MIN (30), how many
+                            were over it, and the stage with the largest p50. From the history that
+                            scripts/ci/nightly_speed.py keeps in the cmuxterm-hq issue SPEED_TITLE (GH_TOKEN with
+                            issues read on cmuxterm-hq).
 
 And the crash section of the report: crashes and hangs of the last --hours, by signature, new or returning,
 NIGHTLY or DEV. From Sentry when its API answers (SENTRY_AUTH_TOKEN with event:read and org:read); else from
@@ -21,6 +31,7 @@ signature; their report lines carry each report's time and build), read with `gh
 cmuxterm-hq). The section says which source answered and why the other did not.
 
     quality-report.py report [--hours 24] [--perf-state state.json] [--god-small FILE] [--anim-coverage FILE]
+                             [--ci-branches feat-cmux-next,main] [--ci-commits 50] [--ci-repo manaflow-ai/cmux] [--speed]
                              --json OUT [--md OUT] [--public-md OUT]
     quality-report.py sticky --report OUT.json --md OUT.md [--repo manaflow-ai/cmuxterm-hq]
 
@@ -39,6 +50,7 @@ Tests: scripts/cmux-next/tests/test_quality_report.py (python3 -m unittest, no n
 from __future__ import annotations
 
 import argparse
+import base64
 import datetime as dt
 import json
 import os
@@ -48,6 +60,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+import zlib
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 SCHEMA = 1
@@ -66,6 +79,14 @@ STICKY_TITLE = "cmux NEXT nightly quality report"
 STICKY_MARK = "<!-- cmux-next-quality-report -->"
 HISTORY_RE = re.compile(r"<!-- quality-history: (\[.*?\]) -->", re.S)
 HISTORY_KEEP = 60
+# scripts/ci/nightly_speed.py's issue and its hidden history (ISSUE_TITLE, ISSUE_MARK, HISTORY_Z_RE, HISTORY_RE,
+# INFLATE_CAP, BUDGET_MIN there): compressed and base64, or the plain JSON of the first form.
+SPEED_TITLE = "cmux NEXT nightly speed budget"
+SPEED_MARK = "<!-- cmux-next-nightly-speed -->"
+SPEED_HISTORY_RE = re.compile(r"<!-- nightly-speed-history: (\{.*?\}) -->", re.S)
+SPEED_HISTORY_Z_RE = re.compile(r"<!-- nightly-speed-history-z: (.*?) -->", re.S)
+SPEED_INFLATE_CAP = 4_000_000
+SPEED_BUDGET_MIN = 30.0
 GOD_SMALL_LIMIT = 1.2
 TOP_SIGNATURES = 15
 # Interaction rows of the perf cron: latencies a person waits on. Background and shape rows (idle CPU, long-task
@@ -425,7 +446,12 @@ def god_vs_small(doc: Any, why: Optional[str]) -> Dict[str, Any]:
         ratio = r.get("ratio")
         if not isinstance(ratio, (int, float)):
             ratio = round(god / small, 3) if isinstance(small, (int, float)) and small > 0 and isinstance(god, (int, float)) else None
-        rows.append({"name": str(r.get("name") or "?"), "small_p95": small, "god_p95": god, "ratio": ratio})
+        status = r.get("status")
+        if not isinstance(status, str):
+            status = "skipped" if ratio is None else ("ok" if ratio <= GOD_SMALL_LIMIT else "red")
+        reason = r.get("reason")
+        rows.append({"name": str(r.get("name") or "?"), "small_p95": small, "god_p95": god, "ratio": ratio,
+                     "status": status, "reason": reason if isinstance(reason, str) else None})
     ratios = [r["ratio"] for r in rows if isinstance(r["ratio"], (int, float))]
     return {"source": "god-vs-small", "limit": GOD_SMALL_LIMIT, "rows": rows,
             "failing": [r["name"] for r in rows if isinstance(r["ratio"], (int, float)) and r["ratio"] > GOD_SMALL_LIMIT],
@@ -447,12 +473,220 @@ def anim_coverage(doc: Any, why: Optional[str]) -> Dict[str, Any]:
             "why": None if value is not None else (why or "the coverage input has no coverage figure")}
 
 
+# CI health
+
+CI_REPO = "manaflow-ai/cmux"
+CI_COMMITS = 50
+CI_PAGE = 5  # commits per GraphQL page: each carries up to 100 suites of up to 100 runs
+CI_TOP_RED = 15
+CI_CALL_TIMEOUT = 45  # seconds per read: 20 reads stay inside the job's limit
+# A finished run counts as green or red; skipped, neutral, cancelled (superseded by a newer push) and still running
+# runs say nothing about the check's health.
+CI_GREEN = {"SUCCESS"}
+CI_RED = {"FAILURE", "TIMED_OUT", "STARTUP_FAILURE", "ACTION_REQUIRED"}
+CI_QUERY = """query($owner:String!,$name:String!,$expr:String!,$n:Int!,$after:String){
+ repository(owner:$owner,name:$name){ object(expression:$expr){ ... on Commit {
+  history(first:$n, after:$after){ pageInfo{endCursor hasNextPage} nodes{ oid committedDate
+   checkSuites(first:100){ nodes{ app{slug} workflowRun{ workflow{name} }
+     checkRuns(first:100, filterBy:{checkType:ALL}){ nodes{ name conclusion startedAt completedAt } } } } } } } } } }"""
+
+
+def gh_graphql(query: str, variables: Dict[str, Any], run: Callable = subprocess.run) -> Dict[str, Any]:
+    """One GraphQL read with gh: on CI_GH_TOKEN (the workflow's checks-read token) when set, else gh's own login."""
+    cmd = ["gh", "api", "graphql", "-f", "query=" + query]
+    env = None
+    if os.environ.get("CI_GH_TOKEN"):
+        env = {**os.environ, "GH_TOKEN": os.environ["CI_GH_TOKEN"]}
+    elif "CI_GH_TOKEN" in os.environ:
+        raise SourceError("no checks-read token (CI_GH_TOKEN is empty: the App mint failed or there is no App)")
+    for k, v in variables.items():
+        if v is not None:
+            cmd += ["-F" if isinstance(v, int) else "-f", f"{k}={v}"]
+    try:
+        done = run(cmd, capture_output=True, text=True, timeout=CI_CALL_TIMEOUT, env=env)
+    except (OSError, subprocess.SubprocessError) as e:
+        raise SourceError(f"gh could not read the check runs: {e}") from e
+    if done.returncode != 0:
+        raise SourceError("gh could not read the check runs: " + " ".join((done.stderr or done.stdout).split())[:240])
+    try:
+        return json.loads(done.stdout or "{}")
+    except ValueError as e:
+        raise SourceError(f"gh returned no JSON for the check runs: {e}") from e
+
+
+def gh_ci_history(repo: str, branch: str, commits: int, graphql: Callable = gh_graphql) -> List[Dict[str, Any]]:
+    """The newest `commits` commits of `branch`, newest first, each with its check suites and every run attempt."""
+    owner, name = repo.split("/", 1)
+    out: List[Dict[str, Any]] = []
+    after = None
+    while len(out) < commits:
+        r = graphql(CI_QUERY, {"owner": owner, "name": name, "expr": branch, "n": min(CI_PAGE, commits - len(out)), "after": after})
+        obj = ((r.get("data") or {}).get("repository") or {}).get("object")
+        if not obj:
+            raise SourceError(f"{repo}@{branch} has no commit history to read ({(r.get('errors') or [{}])[0].get('message', 'no data')})")
+        h = obj["history"]
+        out += h.get("nodes") or []
+        if not (h.get("pageInfo") or {}).get("hasNextPage"):
+            break
+        after = h["pageInfo"]["endCursor"]
+    return out[:commits]
+
+
+def ci_branch_health(commits: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """green_share and flake_rate of one branch's commits (newest first). A check is `workflow / job`, or the app's
+    name for a check that no workflow runs. Its attempts on one commit (re-runs, and a dispatch on the same commit)
+    are read in start order: the last finished one is the commit's result, and a red before a later green on the
+    same commit is a flake."""
+    per_check: Dict[str, Dict[str, Any]] = {}
+    pairs = flaky = 0
+    flaky_checks: Dict[str, int] = {}
+    for c in commits:
+        attempts: Dict[str, List[Dict[str, Any]]] = {}
+        for s in ((c.get("checkSuites") or {}).get("nodes") or []):
+            wf = ((s.get("workflowRun") or {}).get("workflow") or {}).get("name") or ((s.get("app") or {}).get("slug") or "?")
+            for run in ((s.get("checkRuns") or {}).get("nodes") or []):
+                attempts.setdefault(f"{wf} / {run.get('name')}", []).append(run)
+        for check, runs in attempts.items():
+            done = [r for r in sorted(runs, key=lambda r: r.get("startedAt") or r.get("completedAt") or "")
+                    if r.get("conclusion") in CI_GREEN | CI_RED]
+            if not done:
+                continue
+            pairs += 1
+            final = done[-1]["conclusion"]
+            if final in CI_GREEN and any(r["conclusion"] in CI_RED for r in done[:-1]):
+                flaky += 1
+                flaky_checks[check] = flaky_checks.get(check, 0) + 1
+            st = per_check.setdefault(check, {"runs": 0, "red": 0, "newest": None})
+            st["runs"] += 1
+            st["red"] += final in CI_RED
+            if st["newest"] is None:  # commits come newest first
+                st["newest"] = "green" if final in CI_GREEN else "red"
+    green = sum(1 for v in per_check.values() if v["newest"] == "green")
+    red_now = sorted((k for k, v in per_check.items() if v["newest"] == "red"),
+                     key=lambda k: (-per_check[k]["red"], -per_check[k]["red"] / per_check[k]["runs"], k))
+    return {"commits": len(commits),
+            "from": commits[-1].get("committedDate") if commits else None,
+            "to": commits[0].get("committedDate") if commits else None,
+            "head_sha": commits[0].get("oid") if commits else None,
+            "checks": len(per_check), "green_checks": green,
+            "green_share": round(green / len(per_check), 4) if per_check else None,
+            "pairs": pairs, "flaky_pairs": flaky,
+            "flake_rate": round(flaky / pairs, 4) if pairs else None,
+            "red_now": [{"check": k, "red": per_check[k]["red"], "runs": per_check[k]["runs"]} for k in red_now[:CI_TOP_RED]],
+            "red_now_count": len(red_now),
+            "flaky": [{"check": k, "flaky": n} for k, n in sorted(flaky_checks.items(), key=lambda kv: (-kv[1], kv[0]))[:CI_TOP_RED]]}
+
+
+def ci_health(branches: List[str], commits: int, repo: str, history: Optional[Callable] = None) -> Dict[str, Any]:
+    """CI health over the base branches: the two headline numbers pool every branch's checks and pairs."""
+    if not branches or history is None:
+        return {"green_share": None, "flake_rate": None, "branches": {}, "source": None, "why": "no --ci-branches given"}
+    per: Dict[str, Any] = {}
+    whys = []
+    for b in branches:
+        try:
+            per[b] = ci_branch_health(history(repo, b, commits))
+        except Exception as e:  # any odd reply costs this branch's numbers, never the report
+            why = str(e) if isinstance(e, SourceError) else f"unreadable check runs: {type(e).__name__}: {e}"
+            per[b] = {"why": why}
+            whys.append(f"{b}: {why}")
+    read = [v for v in per.values() if "why" not in v]
+    checks = sum(v["checks"] for v in read)
+    pairs = sum(v["pairs"] for v in read)
+    return {"source": "github-checks" if read else None, "repo": repo, "commits_per_branch": commits,
+            "green_share": round(sum(v["green_checks"] for v in read) / checks, 4) if checks else None,
+            "flake_rate": round(sum(v["flaky_pairs"] for v in read) / pairs, 4) if pairs else None,
+            "checks": checks, "pairs": pairs, "branches": per,
+            "why": "; ".join(whys) if whys and not read else (None if read else "no check runs were read")}
+
+
+# Nightly speed
+
+def gh_speed_history(repo: str = HQ_REPO, run: Callable = subprocess.run) -> Dict[str, Any]:
+    """The speed issue's hidden history document (nightly_speed.py history_doc)."""
+    cmd = ["gh", "issue", "list", "--repo", repo, "--state", "open", "--search", f'"{SPEED_TITLE}" in:title',
+           "--json", "number,title,body", "--limit", "10"]
+    try:
+        done = run(cmd, capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as e:
+        raise SourceError(f"gh could not list the speed issue: {e}") from e
+    if done.returncode != 0:
+        raise SourceError(f"gh could not list the speed issue: {(done.stderr or done.stdout).strip()[-200:]}")
+    try:
+        issues = json.loads(done.stdout or "[]")
+    except ValueError as e:
+        raise SourceError(f"gh returned no JSON for the speed issue: {e}") from e
+    own = [i for i in issues if i.get("title") == SPEED_TITLE and SPEED_MARK in (i.get("body") or "")]
+    if not own:
+        raise SourceError(f"no open {repo} issue \"{SPEED_TITLE}\" (nightly-speed.yml has not written it)")
+    body = min(own, key=lambda i: i["number"])["body"]
+    try:
+        z = SPEED_HISTORY_Z_RE.search(body)
+        if z:
+            inflate = zlib.decompressobj()
+            raw = inflate.decompress(base64.b64decode(z.group(1), validate=True), SPEED_INFLATE_CAP)
+            doc = None if inflate.unconsumed_tail or not inflate.eof else json.loads(raw)
+        else:
+            m = SPEED_HISTORY_RE.search(body)
+            doc = json.loads(m.group(1)) if m else None
+    except (ValueError, zlib.error, RecursionError):
+        doc = None
+    if not isinstance(doc, dict) or not isinstance(doc.get("records"), list):
+        raise SourceError("the speed issue has no readable history")
+    return doc
+
+
+def speed_num(v: Any) -> bool:
+    """A number of minutes (nightly_speed.py is_num): no bool, NaN, infinity, or integer too large for a float."""
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and -1e9 < v < 1e9
+
+
+def quantile(values: List[float], p: float) -> Optional[float]:
+    """Linear interpolation between closest ranks (nightly_speed.py's, so the two agree)."""
+    v = sorted(values)
+    if not v:
+        return None
+    k = p * (len(v) - 1)
+    lo = int(k)
+    hi = min(lo + 1, len(v) - 1)
+    return round(v[lo] + (v[hi] - v[lo]) * (k - lo), 2)
+
+
+def nightly_speed(doc: Any, why: Optional[str], since: dt.datetime) -> Dict[str, Any]:
+    """Nightlies whose feed upload is in the window, against the budget."""
+    empty = {"source": None, "published": 0, "p50_min": None, "p95_min": None, "over_budget": None,
+             "budget_min": SPEED_BUDGET_MIN, "largest_stage": None, "largest_stage_p50_min": None}
+    # The document is text in an issue: valid JSON of another shape is no history and a value of another type is
+    # skipped, never an exception in the report.
+    if not isinstance(doc, dict) or not isinstance(doc.get("records"), list):
+        return {**empty, "why": why or "no speed history"}
+    budget = doc.get("budget_min") if speed_num(doc.get("budget_min")) else SPEED_BUDGET_MIN
+    recs = [r for r in doc["records"] if isinstance(r, dict) and isinstance(r.get("feed_at"), str)
+            and (parse_time(r["feed_at"]) or since) > since]
+    mtf = [r["merge_to_feed"] for r in recs if speed_num(r.get("merge_to_feed"))]
+    # The top-level stages only (a step inside a stage, or a job wall, would double count).
+    top = [k for k in doc.get("top_stages") or [] if isinstance(k, str)] if isinstance(doc.get("top_stages"), list) else []
+    p50s = {}
+    for k in top:
+        vals = [r["stages"][k] for r in recs if isinstance(r.get("stages"), dict) and speed_num(r["stages"].get(k))]
+        if vals:
+            p50s[k] = quantile(vals, 0.5)
+    largest = max(p50s, key=lambda k: p50s[k]) if p50s else None
+    return {"source": "nightly-speed-issue", "published": len(recs), "p50_min": quantile(mtf, 0.5),
+            "p95_min": quantile(mtf, 0.95), "over_budget": sum(1 for v in mtf if v > budget), "budget_min": budget,
+            "largest_stage": largest, "largest_stage_p50_min": p50s.get(largest) if largest else None,
+            "why": None if mtf else "no nightly with a landing time was published in the window"}
+
+
 # The report
 
 def build_report(hours: int, t: dt.datetime, sentry_token: Optional[str], perf_state: Optional[str],
                  god_small_path: Optional[str], anim_path: Optional[str],
                  sentry_getter: Optional[Callable] = None,
-                 hang_watch: Callable[[dt.datetime], List[Dict[str, Any]]] = gh_hang_watch_issues) -> Dict[str, Any]:
+                 hang_watch: Callable[[dt.datetime], List[Dict[str, Any]]] = gh_hang_watch_issues,
+                 ci_branches: Optional[List[str]] = None, ci_commits: int = CI_COMMITS, ci_repo: str = CI_REPO,
+                 ci_history: Optional[Callable] = None,
+                 speed_history: Optional[Callable[[], Dict[str, Any]]] = None) -> Dict[str, Any]:
     since = t - dt.timedelta(hours=hours)
     get = sentry_getter or (lambda path, params: sentry_get(path, params, sentry_token or ""))
     sentry_why = None if sentry_token or sentry_getter else "no SENTRY_AUTH_TOKEN"
@@ -478,12 +712,22 @@ def build_report(hours: int, t: dt.datetime, sentry_token: Optional[str], perf_s
     state, state_why = load_json(perf_state)
     god, god_why = load_json(god_small_path)
     anim, anim_why = load_json(anim_path)
+    speed_doc, speed_why = None, "no speed history source given"
+    if speed_history is not None:
+        try:
+            speed_doc, speed_why = speed_history(), None
+        except SourceError as e:
+            speed_why = str(e)
+        except Exception as e:  # an odd reply costs this metric, never the report
+            speed_why = f"unreadable speed history: {type(e).__name__}: {e}"
     return {"schema": SCHEMA, "generated_at": iso(t), "window_hours": hours, "since": iso(since),
             "head_sha": os.environ.get("GITHUB_SHA") or None,
             "crash_free_session_rate": crash_free, "crashes": crashes,
             "interaction_p95_ms": interaction_p95(state, state_why),
             "god_vs_small": god_vs_small(god, god_why),
-            "animation_token_coverage": anim_coverage(anim, anim_why)}
+            "animation_token_coverage": anim_coverage(anim, anim_why),
+            "ci_health": ci_health(ci_branches or [], ci_commits, ci_repo, ci_history),
+            "nightly_speed": nightly_speed(speed_doc, speed_why, since)}
 
 
 def public_report(r: Dict[str, Any]) -> Dict[str, Any]:
@@ -511,6 +755,8 @@ def headline(r: Dict[str, Any], public: bool = False) -> Dict[str, str]:
     p = r["interaction_p95_ms"]
     g = r["god_vs_small"]
     a = r["animation_token_coverage"]
+    ci = r.get("ci_health") or {"why": "not in this report"}
+    sp = r.get("nightly_speed") or {"why": "not in this report"}
     return {
         "Crash-free sessions": (pct(cf["value"]) + ("" if public else f" of {cf.get('sessions')}")) if cf["value"] is not None else f"n/a ({cf['why']})",
         "Crashes and hangs": (f"{cr['total']} ({', '.join(f'{k} {v}' for k, v in sorted(cr['by_channel'].items())) or 'none'}; "
@@ -521,7 +767,22 @@ def headline(r: Dict[str, Any], public: bool = False) -> Dict[str, str]:
         "God vs small": (f"worst {g['worst_ratio']}x (limit {g['limit']}x), {len(g['failing'])} over"
                          if g["rows"] else f"n/a ({g['why']})"),
         "Animation token coverage": pct(a["value"]) if a["value"] is not None else f"n/a ({a['why']})",
+        "CI checks green on base": (f"{pct(ci['green_share'])} of {ci['checks']} checks, newest run on "
+                                    + ", ".join(b for b, v in ci["branches"].items() if "why" not in v) if ci.get("green_share") is not None else f"n/a ({ci.get('why')})"),
+        "CI flake rate": (f"{pct(ci['flake_rate'])} of {ci['pairs']} commit-check pairs failed then passed on the same commit"
+                          if ci.get("flake_rate") is not None else f"n/a ({ci.get('why')})"),
+        "Nightly merge to feed": speed_line(sp),
     }
+
+
+def speed_line(sp: Dict[str, Any]) -> str:
+    if sp.get("p50_min") is None:
+        return f"n/a ({sp.get('why')})"
+    line = (f"p50 {sp['p50_min']:.1f} min, p95 {sp['p95_min']:.1f} min (budget p95 under {sp['budget_min']:.0f}); "
+            f"{sp['over_budget']} of {sp['published']} published over budget")
+    if sp.get("largest_stage"):
+        line += f"; largest stage {sp['largest_stage']} p50 {sp['largest_stage_p50_min']:.1f} min"
+    return line
 
 
 def render_markdown(r: Dict[str, Any], public: bool) -> str:
@@ -551,7 +812,32 @@ def render_markdown(r: Dict[str, Any], public: bool) -> str:
     g = r["god_vs_small"]
     if g["failing"]:
         out += ["", f"God over {g['limit']}x small: " + ", ".join(f"`{n}`" for n in g["failing"][:10])]
+    skipped = [row for row in g["rows"] if row.get("status") == "skipped"]
+    if skipped:
+        out += ["", "God-vs-small rows skipped: " + ", ".join(
+            f"`{row['name']}`" + (f" ({row['reason']})" if row.get("reason") else "") for row in skipped)]
+    out += ci_markdown(r.get("ci_health") or {})
     return "\n".join(out) + "\n"
+
+
+def ci_markdown(ci: Dict[str, Any]) -> List[str]:
+    if not ci.get("branches"):
+        return []
+    out = ["", "### CI health", "", "| Branch | Commits | Green checks | Flaky pairs | Red now |", "| --- | --- | --- | --- | --- |"]
+    for b, v in ci["branches"].items():
+        if "why" in v:
+            out.append(f"| {b} | n/a ({' '.join(str(v['why']).split()).replace('|', '/')}) | | | |")
+            continue
+        out.append(f"| {b} | {v['commits']} ({v['from']} to {v['to']}) | {v['green_checks']}/{v['checks']} ({pct(v['green_share'])}) | "
+                   f"{v['flaky_pairs']}/{v['pairs']} ({pct(v['flake_rate'])}) | {v['red_now_count']} |")
+    for b, v in ci["branches"].items():
+        if v.get("red_now"):
+            out += ["", f"Red now on {b}, most often red first (red of finished commits in the window): " + ", ".join(
+                f"`{x['check'].replace('|', '/')}` {x['red']}/{x['runs']}" for x in v["red_now"])]
+        if v.get("flaky"):
+            out += ["", f"Flaky on {b} (commits where it failed, then passed): " + ", ".join(
+                f"`{x['check'].replace('|', '/')}` {x['flaky']}" for x in v["flaky"])]
+    return out
 
 
 def history_row(r: Dict[str, Any]) -> Dict[str, Any]:
@@ -562,7 +848,9 @@ def history_row(r: Dict[str, Any]) -> Dict[str, Any]:
             "dev": (cr.get("by_channel") or {}).get("DEV"), "new_sigs": cr.get("new_signatures"),
             "worst_p95_ms": r["interaction_p95_ms"].get("worst_p95_ms"),
             "over_budget": len(r["interaction_p95_ms"]["over_budget"]),
-            "god_ratio": r["god_vs_small"]["worst_ratio"], "anim": r["animation_token_coverage"]["value"]}
+            "god_ratio": r["god_vs_small"]["worst_ratio"], "anim": r["animation_token_coverage"]["value"],
+            "ci_green": (r.get("ci_health") or {}).get("green_share"), "ci_flake": (r.get("ci_health") or {}).get("flake_rate"),
+            "speed_p95": (r.get("nightly_speed") or {}).get("p95_min")}
 
 
 def sticky_body(r: Dict[str, Any], md: str, old_body: str) -> str:
@@ -576,13 +864,15 @@ def sticky_body(r: Dict[str, Any], md: str, old_body: str) -> str:
     row = history_row(r)
     history = [h for h in history if isinstance(h, dict) and h.get("at") != row["at"]] + [row]
     history = history[-HISTORY_KEEP:]
-    lines = ["| Night | Crash-free | Crashes (NIGHTLY/DEV) | New sigs | Worst p95 ms | Over budget | God/small | Anim coverage |",
-             "| --- | --- | --- | --- | --- | --- | --- | --- |"]
+    lines = ["| Night | Crash-free | Crashes (NIGHTLY/DEV) | New sigs | Worst p95 ms | Over budget | God/small | Anim coverage | CI green | CI flake | Merge to feed p95 min |",
+             "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
     for h in reversed(history):
         crashes = "n/a" if h.get("crashes") is None else f"{h['crashes']} ({h.get('nightly') or 0}/{h.get('dev') or 0}, {h.get('crash_source')})"
         lines.append(f"| {h['at']} | {pct(h.get('crash_free'))} | {crashes} | {h.get('new_sigs') if h.get('new_sigs') is not None else 'n/a'} | "
                      f"{h.get('worst_p95_ms') if h.get('worst_p95_ms') is not None else 'n/a'} | {h.get('over_budget')} | "
-                     f"{h.get('god_ratio') if h.get('god_ratio') is not None else 'n/a'} | {pct(h.get('anim'))} |")
+                     f"{h.get('god_ratio') if h.get('god_ratio') is not None else 'n/a'} | {pct(h.get('anim'))} | "
+                     f"{pct(h.get('ci_green'))} | {pct(h.get('ci_flake'))} | "
+                     f"{h.get('speed_p95') if h.get('speed_p95') is not None else 'n/a'} |")
     return (f"{STICKY_MARK}\nWritten each night by cmux `.github/workflows/cmux-next-quality-report.yml` "
             f"(`scripts/cmux-next/quality-report.py`). Do not edit: the next night replaces this body.\n\n{md}\n"
             f"## Over time\n\n" + "\n".join(lines) + f"\n\n<!-- quality-history: {json.dumps(history, separators=(',', ':'))} -->\n")
@@ -613,6 +903,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     rep.add_argument("--perf-state", help="perf-cron state.json (perf-cron.py fetch-state)")
     rep.add_argument("--god-small", help="the god-vs-small gate's JSON")
     rep.add_argument("--anim-coverage", help="the animation token coverage JSON")
+    rep.add_argument("--ci-branches", default="", help="comma-separated base branches for the CI health section")
+    rep.add_argument("--ci-commits", type=int, default=CI_COMMITS, help="commits read per branch")
+    rep.add_argument("--ci-repo", default=CI_REPO)
+    rep.add_argument("--speed", action="store_true", help="read the nightly speed history from the cmuxterm-hq issue")
     rep.add_argument("--json", required=True, help="the metrics JSON, signature names included (private)")
     rep.add_argument("--public-json", help="the metrics JSON without signature names (public)")
     rep.add_argument("--md", help="the full report (signature names)")
@@ -623,8 +917,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     st.add_argument("--repo", default=HQ_REPO)
     args = ap.parse_args(argv)
     if args.cmd == "report":
+        branches = [b.strip() for b in args.ci_branches.split(",") if b.strip()]
         r = build_report(args.hours, now_utc(), os.environ.get("SENTRY_AUTH_TOKEN") or None, args.perf_state,
-                         args.god_small, args.anim_coverage)
+                         args.god_small, args.anim_coverage, ci_branches=branches, ci_commits=args.ci_commits,
+                         ci_repo=args.ci_repo, ci_history=gh_ci_history if branches else None,
+                         speed_history=gh_speed_history if args.speed else None)
         for path, doc in ((args.json, r), (args.public_json, public_report(r) if args.public_json else None)):
             if path:
                 with open(path, "w", encoding="utf-8") as f:

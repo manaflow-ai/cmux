@@ -123,12 +123,12 @@ struct HomeChiefDefaultTests {
         home.setCloudChiefs(HomeCloudChiefs(hosted: Self.hosted, placed: Self.placed))
         // The Hosted Chief is the newest, so it is the list's first row and the fallback's first pick.
         let rows = Self.cloudLedRows
-        #expect(HomeDefaultConversation.defaultConversation(rows: rows, home: home)?.rawValue == "conv_hosted",
+        #expect(TopHomePageView.defaultConversation(rows: rows, home: home)?.rawValue == "conv_hosted",
                 "Auto with no local brain: the Hosted Chief is both the default and the first row")
 
         services.settings = try await Self.settings(#"{"home":{"chiefEngine":"local"}}"#).0
         #expect(home.defaultChiefConversation == nil, "this Mac's conversation is not listed: there is no Chief to open")
-        #expect(HomeDefaultConversation.defaultConversation(rows: rows, home: home)?.rawValue == "conv_local",
+        #expect(TopHomePageView.defaultConversation(rows: rows, home: home)?.rawValue == "conv_local",
                 "the fallback skips both cloud Chiefs and opens this Mac's conversation")
     }
 
@@ -141,15 +141,15 @@ struct HomeChiefDefaultTests {
         home.setCloudChiefs(HomeCloudChiefs(hosted: Self.hosted, placed: Self.placed))
         let rows = Self.cloudLedRows
         let hosted = CmuxHomeCore.ConversationID("conv_hosted")
-        #expect(HomeDefaultConversation.replacementForExcluded(shown: hosted, rows: rows, home: home) == nil,
+        #expect(TopHomePageView.replacementForExcluded(shown: hosted, rows: rows, home: home) == nil,
                 "Auto with no local brain: the Hosted Chief is the choice, so it stays")
 
         services.settings = try await Self.settings(#"{"home":{"chiefEngine":"local"}}"#).0
-        #expect(HomeDefaultConversation.replacementForExcluded(shown: hosted, rows: rows, home: home)?.rawValue == "conv_local")
+        #expect(TopHomePageView.replacementForExcluded(shown: hosted, rows: rows, home: home)?.rawValue == "conv_local")
         // What the row allows is already shown, or nothing is: the page leaves it alone.
-        #expect(HomeDefaultConversation.replacementForExcluded(shown: CmuxHomeCore.ConversationID("conv_local"),
-                                                               rows: rows, home: home) == nil)
-        #expect(HomeDefaultConversation.replacementForExcluded(shown: nil, rows: rows, home: home) == nil)
+        #expect(TopHomePageView.replacementForExcluded(shown: CmuxHomeCore.ConversationID("conv_local"),
+                                                       rows: rows, home: home) == nil)
+        #expect(TopHomePageView.replacementForExcluded(shown: nil, rows: rows, home: home) == nil)
     }
 
     /// Picking This Mac goes through a stretch with no Chief at all (its conversation is not listed
@@ -165,30 +165,42 @@ struct HomeChiefDefaultTests {
         // Nothing the row allows is listed, so the Hosted Chief stays on screen for now.
         let cloudOnly = [HomeChiefRosterTests.chief(HomeChiefRosterTests.hosted, "chief_hosted", "Chief", at: 5),
                          HomeChiefRosterTests.chief(HomeChiefRosterTests.placed, "chief_placed", "Chief", at: 4)]
-        let waiting = HomeDefaultConversation.followUp(chief: nil, shown: hosted, followed: "conv_hosted", composing: false,
-                                                       rows: cloudOnly, home: home)
+        let waiting = TopHomePageView.followUp(chief: nil, shown: hosted, followed: "conv_hosted", composing: false,
+                                               rows: cloudOnly, home: home)
         #expect(waiting == .init(open: nil, followed: "conv_hosted"))
         // This Mac's Chief is listed: it opens, because the page still follows what it opened.
-        #expect(HomeDefaultConversation.followUp(chief: "conv_local", shown: hosted, followed: waiting.followed, composing: false,
-                                                 rows: Self.cloudLedRows, home: home).open?.rawValue == "conv_local")
+        #expect(TopHomePageView.followUp(chief: "conv_local", shown: hosted, followed: waiting.followed, composing: false,
+                                         rows: Self.cloudLedRows, home: home).open?.rawValue == "conv_local")
 
         // With a DM listed the page leaves the Hosted Chief for it, and follows the DM, so this
         // Mac's Chief replaces that too once it arrives.
         let withDM = cloudOnly + [HomeChiefRosterTests.dm(HomeChiefRosterTests.ada, at: 1)]
-        let moved = HomeDefaultConversation.followUp(chief: nil, shown: hosted, followed: "conv_hosted", composing: false,
-                                                     rows: withDM, home: home)
+        let moved = TopHomePageView.followUp(chief: nil, shown: hosted, followed: "conv_hosted", composing: false,
+                                             rows: withDM, home: home)
         #expect(moved == .init(open: HomeChiefRosterTests.ada, followed: "conv_ada"))
-        #expect(HomeDefaultConversation.followUp(chief: "conv_local", shown: HomeChiefRosterTests.ada, followed: moved.followed,
-                                                 composing: false, rows: Self.cloudLedRows, home: home).open?.rawValue == "conv_local")
+        #expect(TopHomePageView.followUp(chief: "conv_local", shown: HomeChiefRosterTests.ada, followed: moved.followed,
+                                         composing: false, rows: Self.cloudLedRows, home: home).open?.rawValue == "conv_local")
 
         // What the person opened themselves is never replaced, by a Chief or by this stretch.
-        #expect(HomeDefaultConversation.followUp(chief: "conv_local", shown: HomeChiefRosterTests.ada, followed: "conv_hosted",
-                                                 composing: false, rows: Self.cloudLedRows, home: home).open == nil)
+        #expect(TopHomePageView.followUp(chief: "conv_local", shown: HomeChiefRosterTests.ada, followed: "conv_hosted",
+                                         composing: false, rows: Self.cloudLedRows, home: home).open == nil)
         // Not even when what they opened is a cloud Chief the row excludes: the page followed the
         // Hosted Chief, they opened the placed one, and this stretch leaves it where it is.
-        #expect(HomeDefaultConversation.followUp(chief: nil, shown: HomeChiefRosterTests.placed, followed: "conv_hosted",
-                                                 composing: false, rows: withDM, home: home)
+        #expect(TopHomePageView.followUp(chief: nil, shown: HomeChiefRosterTests.placed, followed: "conv_hosted",
+                                         composing: false, rows: withDM, home: home)
             == .init(open: nil, followed: "conv_hosted"))
+    }
+
+    /// A conversation the person opens is not one the page follows, so a Chief that arrives later
+    /// never takes them off it — not even the conversation the page's own first fallback had
+    /// opened, which they may come back to (review of #23984, finding 1).
+    @Test func openingAConversationEndsWhatThePageFollows() async throws {
+        let services = Self.services()
+        services.home.setCloudChiefs(HomeCloudChiefs(hosted: Self.hosted))
+        let page = TopHomePageView(services: services, windowKey: { "chief-follow" })
+        #expect(page.followedChief == "conv_hosted", "the page follows the Chief it would open itself")
+        page.show(CmuxHomeCore.ConversationID("conv_ada"))
+        #expect(page.followedChief == nil, "the person opened one: the page follows nothing now")
     }
 
     /// Auto's own sequence: the person opens the Hosted Chief while this Mac's brain runs, that
@@ -203,12 +215,12 @@ struct HomeChiefDefaultTests {
         let rows = Self.cloudLedRows
         let hosted = CmuxHomeCore.ConversationID("conv_hosted")
         // They opened the Hosted Chief themselves, so the page follows nothing.
-        let died = HomeDefaultConversation.followUp(chief: "conv_hosted", shown: hosted, followed: nil, composing: false,
-                                                    rows: rows, home: home)
+        let died = TopHomePageView.followUp(chief: "conv_hosted", shown: hosted, followed: nil, composing: false,
+                                            rows: rows, home: home)
         #expect(died == .init(open: nil, followed: nil), "nothing opens: they are already there")
         // The brain is back, so this Mac's Chief is preferred again; they stay where they are.
-        #expect(HomeDefaultConversation.followUp(chief: "conv_local", shown: hosted, followed: died.followed, composing: false,
-                                                 rows: rows, home: home) == .init(open: nil, followed: nil))
+        #expect(TopHomePageView.followUp(chief: "conv_local", shown: hosted, followed: died.followed, composing: false,
+                                         rows: rows, home: home) == .init(open: nil, followed: nil))
     }
 
     /// The Engine row is watched, not only the preferred Chief's id: before the cloud read lands
@@ -220,11 +232,11 @@ struct HomeChiefDefaultTests {
         let home = services.home
         // No cloud Chief read yet, and this Mac's Chief is not listed.
         #expect(home.defaultChiefConversation == nil)
-        #expect(HomeDefaultConversation.chiefKey(home) == .init(chief: nil, prefersLocal: false))
+        #expect(TopHomePageView.chiefKey(home) == .init(chief: nil, prefersLocal: false))
 
         services.settings = try await Self.settings(#"{"home":{"chiefEngine":"local"}}"#).0
         #expect(home.defaultChiefConversation == nil, "still no Chief to open: the id did not change")
-        #expect(HomeDefaultConversation.chiefKey(home) == .init(chief: nil, prefersLocal: true),
+        #expect(TopHomePageView.chiefKey(home) == .init(chief: nil, prefersLocal: true),
                 "but what the page watches did, so it reconciles what it opened")
     }
 
@@ -236,19 +248,19 @@ struct HomeChiefDefaultTests {
         home.setCloudChiefs(HomeCloudChiefs(hosted: Self.hosted, placed: Self.placed))
         services.settings = try await Self.settings(#"{"home":{"chiefEngine":"local"}}"#).0
         let hosted = CmuxHomeCore.ConversationID("conv_hosted")
-        #expect(HomeDefaultConversation.followUp(chief: nil, shown: hosted, followed: "conv_hosted", composing: true,
-                                                 rows: Self.cloudLedRows, home: home) == .init(open: nil, followed: "conv_hosted"),
+        #expect(TopHomePageView.followUp(chief: nil, shown: hosted, followed: "conv_hosted", composing: true,
+                                         rows: Self.cloudLedRows, home: home) == .init(open: nil, followed: "conv_hosted"),
                 "a conversation the row allows is listed, but the New Message page is up")
-        #expect(HomeDefaultConversation.followUp(chief: nil, shown: hosted, followed: "conv_hosted", composing: false,
-                                                 rows: Self.cloudLedRows, home: home).open?.rawValue == "conv_local",
+        #expect(TopHomePageView.followUp(chief: nil, shown: hosted, followed: "conv_hosted", composing: false,
+                                         rows: Self.cloudLedRows, home: home).open?.rawValue == "conv_local",
                 "with no New Message page it moves, so the test above fails for its own reason")
         // Nor when this Mac's Chief arrives while the page is still being written on. The page did
         // not open that Chief, so it does not follow it either: what it was following stays, and
         // the Chief replaces that when the person leaves New Message and it is shown again.
-        #expect(HomeDefaultConversation.followUp(chief: "conv_local", shown: hosted, followed: "conv_hosted", composing: true,
-                                                 rows: Self.cloudLedRows, home: home) == .init(open: nil, followed: "conv_hosted"))
-        #expect(HomeDefaultConversation.followUp(chief: "conv_local", shown: hosted, followed: "conv_hosted", composing: false,
-                                                 rows: Self.cloudLedRows, home: home).open?.rawValue == "conv_local")
+        #expect(TopHomePageView.followUp(chief: "conv_local", shown: hosted, followed: "conv_hosted", composing: true,
+                                         rows: Self.cloudLedRows, home: home) == .init(open: nil, followed: "conv_hosted"))
+        #expect(TopHomePageView.followUp(chief: "conv_local", shown: hosted, followed: "conv_hosted", composing: false,
+                                         rows: Self.cloudLedRows, home: home).open?.rawValue == "conv_local")
     }
 
     /// Two readers of this Mac's brain liveness (a brain that started or died, and the Chief tab

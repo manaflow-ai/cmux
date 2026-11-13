@@ -41,6 +41,7 @@ pub mod catalog;
 pub mod chat_fork;
 pub mod chats;
 pub mod claude_auth;
+mod claude_cloud_auth;
 pub mod claude_peers;
 pub mod claude_stdio;
 pub mod cli;
@@ -53,6 +54,7 @@ pub mod cloud_rewind;
 pub mod codex_app_server;
 #[cfg(unix)]
 mod codex_auth_file;
+mod codex_cloud_auth;
 pub mod codex_desktop;
 pub mod complete;
 pub mod config;
@@ -68,13 +70,33 @@ pub mod deps;
 pub mod desktop_bridge;
 pub mod desktop_link;
 pub mod folder_instructions;
+#[cfg(all(test, unix))]
+mod fork_tests;
 pub mod forum;
 pub mod forum_mcp;
 pub mod frame_compress;
+pub mod gauges;
 pub mod generic_goal;
 pub mod git_state;
 pub mod github_app_token;
 pub mod github_broker;
+#[cfg(unix)]
+pub mod github_mcp;
+pub mod god_fixture;
+/// GitHub's MCP server needs the Cloud agent's unix socket (`github_mcp.rs`): elsewhere it is
+/// never offered, and the command says so.
+#[cfg(not(unix))]
+pub mod github_mcp {
+    pub const SERVER_NAME: &str = "github";
+
+    pub fn available() -> bool {
+        false
+    }
+
+    pub async fn run() -> anyhow::Result<()> {
+        anyhow::bail!("acpmux github-mcp runs only on a cmux Cloud machine")
+    }
+}
 pub mod github_status;
 pub mod goal;
 pub mod hand;
@@ -86,6 +108,10 @@ pub mod harness_icon_set;
 pub mod harness_install;
 pub mod harness_limits;
 pub(crate) mod heap_future;
+pub mod heap_profile;
+pub(crate) mod home_fs;
+#[cfg(test)]
+mod home_writers_by_path_tests;
 pub mod host_load;
 pub mod host_pressure;
 pub mod hosted_mcp;
@@ -100,10 +126,15 @@ pub mod launch_credential;
 pub mod launch_policy;
 #[cfg(target_os = "linux")]
 pub(crate) mod linux_sandbox;
+pub mod list_bytes;
 pub mod listener_record;
 pub mod live_models;
 pub mod local_stream;
+pub mod log_sink;
 pub mod login_env;
+pub mod lossy_lines;
+#[cfg(test)]
+mod lost_home_race_tests;
 pub(crate) mod machine_info;
 pub mod machine_tunnel;
 pub mod machine_wake;
@@ -115,6 +146,8 @@ pub mod mesh_control;
 pub mod mesh_http;
 pub mod model_copies;
 pub mod name_match;
+#[cfg(target_os = "macos")]
+mod named_files_watch;
 pub mod native;
 pub mod no_panic;
 pub mod offer_mcp;
@@ -125,8 +158,10 @@ pub(crate) mod opencode_ask;
 mod owner_only;
 pub mod pairing;
 pub mod parent_watch;
+pub mod parse_budget;
 pub mod path_canon;
 pub mod peer;
+pub mod peer_kept_tokens;
 pub mod peer_last_good;
 pub mod peer_link;
 pub mod peer_paths;
@@ -146,8 +181,11 @@ pub mod protected_folders;
 pub mod protocol;
 pub mod qos;
 pub mod question_answer;
+#[cfg(target_os = "linux")]
+mod quiet_dirs;
 pub mod recovery;
 pub mod registry;
+pub mod request_cancel;
 pub mod resume;
 pub mod review_box;
 pub mod review_brief;
@@ -156,12 +194,16 @@ mod route_probe;
 pub mod route_shadow;
 mod router_socket;
 pub mod routes;
+pub mod rows;
 pub mod rpc;
+pub mod run_elsewhere;
 pub mod schema;
 pub mod secret_mcp;
 pub mod secret_scan;
 pub mod self_command;
 pub mod sender_harness;
+pub mod sender_program;
+pub mod sender_token;
 pub mod server;
 pub mod session_env;
 pub mod session_identity;
@@ -173,15 +215,22 @@ pub mod session_status;
 pub mod sha256;
 // The shadow admission verdict beside each placement and create (cmuxterm-hq#7342).
 pub mod memory_inbox;
+pub mod prompt_coach;
 pub mod shadow_admission;
 pub mod shell_words;
 #[cfg(feature = "sim")]
 pub mod sim_agent;
+#[cfg(test)]
+mod single_shot_list_tests;
+#[cfg(test)]
+mod source_scan_smoke;
 pub mod sr2_cost_labels;
 pub(crate) mod ssh_forward;
 pub mod stats;
 pub(crate) mod stderr;
 pub mod store;
+#[cfg(test)]
+mod stress;
 pub mod subagent_call;
 pub mod subagent_notice;
 pub mod subagents;
@@ -189,11 +238,15 @@ pub mod subrouter_session;
 pub mod subsession_mcp;
 pub mod subsession_worktree;
 pub mod suggestion_gate;
+pub(crate) mod supervise;
 pub mod tailnet;
 #[cfg(test)]
 mod test_exec;
 #[cfg(test)]
+mod test_hooks_tree;
+#[cfg(test)]
 mod test_stack;
+pub mod tools_mcp;
 pub mod touched_files;
 pub mod transcript;
 pub mod trust;
@@ -203,7 +256,6 @@ pub mod turn_attestation;
 pub mod usage_stats;
 pub mod user_settings;
 pub mod vault;
-pub mod watch_delta;
 pub mod web_modes;
 pub mod wire_size;
 pub mod wireguard;

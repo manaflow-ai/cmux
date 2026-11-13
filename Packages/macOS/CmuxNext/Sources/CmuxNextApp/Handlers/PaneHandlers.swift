@@ -69,7 +69,7 @@ enum PaneHandlers {
     /// can split a background workspace). Left and up split right or down with the new pane first (`split-before-v1`),
     /// or on an older daemon split, then swap the original into the new slot, so the new pane lands on
     /// that side. A shown workspace focuses the new pane.
-    static func split(_ ctx: AppActionContext, _ invocation: ActionInvocation, direction: PaneDirection) {
+    static func split(_ ctx: AppActionContext, _ invocation: ActionInvocation, direction: PaneDirection, insertion: DividerInsertion? = nil) {
         guard let pane = ctx.daemonPane(invocation) else { return }
         // The pane's own daemon: a CLI run can target a pane of a machine
         // other than the active window's.
@@ -86,8 +86,9 @@ enum PaneHandlers {
         // else the chat's, else the daemon's resolver, NEW-TERMINAL-INHERITS-CWD).
         // A person's split of a browser tab, the New Tab page or a chat opens the New Tab page (cx-jfo7),
         // unless it asked for a terminal (the chat header's Terminal).
-        let page = !invocation.opensTerminal && NewTabPage.splitsToPage(controller, direction: direction, byPerson: invocation.origin == .user)
-        let tool = ctx.services.toolSplit(from: pane, edge: edge(direction), byPerson: invocation.origin == .user)
+        // A divider's Insert New ▸ (DividerInsertion) is always a plain split between its two panes.
+        let page = insertion == nil && !invocation.opensTerminal && NewTabPage.splitsToPage(controller, direction: direction, byPerson: invocation.origin == .user)
+        let tool: ToolSplitDecision = insertion != nil ? .split : ctx.services.toolSplit(from: pane, edge: edge(direction), byPerson: invocation.origin == .user)
         // The plan is Rust's (cmux-window-rules `tabs::panes::split`): the folder is the explicit one,
         // else home when Ghostty's `split-inherit-working-directory` is false (NewTerminalStart), else the
         // split tab's (a terminal's, or an agent chat's exact folder), else the selected or first tab's.
@@ -131,14 +132,14 @@ enum PaneHandlers {
             break
         }
         let axis: SplitAxis = plan.horizontal ? .horizontal : .vertical
-        let sizing = controller.flatMap { controller in
+        let sizing = insertion?.sizing ?? controller.flatMap { controller in
             content?.layoutModel.splitSizingChanges(splitting: controller.layoutPaneID, axis: axis)
         } ?? []
         let daemonDirection = SplitDirection(rawValue: plan.daemonDirection) ?? .right
         let swapTowards = plan.swapTowards.flatMap(PaneDirection.init(rawValue:))
         let intent = content?.beginFocusIntent()
         let command = PaneSplitCommand(pane: handle, direction: daemonDirection,
-                                       options: SpawnOptions(cwd: cwd, workspace: workspace, keep: keep), swapTowards: swapTowards)
+                                       options: SpawnOptions(cwd: cwd, workspace: workspace, keep: keep), swapTowards: swapTowards, around: insertion?.around)
         // Cmd+D (and Split Left/Up with `split-before-v1`) on a daemon with client keys: the new pane shows and takes focus
         // in this frame (plans/cmux-next/remote-state-ownership.md S3); otherwise after the reply.
         let provisional = command.isOptimistic(on: daemon) ? ProvisionalPane() : nil

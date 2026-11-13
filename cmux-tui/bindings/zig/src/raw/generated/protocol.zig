@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "1b4bf7a9d9ddfbe05f536c4ddb18034f2dacac28fed74012dc84a291d52c998e";
+pub const ir_sha256 = "59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -692,6 +692,8 @@ pub const ConversationTabRecord = struct {
 };
 
 pub const ConversationTabSplit = struct {
+    /// The split the new split wraps whole, as split-around-v1 on split: pane must be that split's last pane and direction right or down.
+    around: wire.Field(Id) = .absent,
     /// The side of pane the new pane takes: right, down, left or up.
     direction: []const u8,
     /// Caller-minted public id of the new pane (pane_ and 32 hex digits), as split-client-keys-v1; refused when it exists or ever existed.
@@ -2032,6 +2034,29 @@ pub const SendExpectAgent = struct {
     session: wire.Field([]const u8) = .absent,
 };
 
+pub const ServerStatsCommandConnections = struct {
+    accepted: u64,
+    kind: []const u8,
+    refused: u64,
+};
+
+pub const ServerStatsCommandRow = struct {
+    count: u64,
+    hist: []const u64,
+    kind: []const u8,
+    max_ns: u64,
+    name: []const u8,
+    total_ns: u64,
+};
+
+pub const ServerStatsCommands = struct {
+    connections: []const ServerStatsCommandConnections,
+    hist_bounds_ns: []const u64,
+    name_limit: u64,
+    names: u64,
+    rows: []const ServerStatsCommandRow,
+};
+
 pub const ServerStatsConnections = struct {
     accepted: u64,
     active: u64,
@@ -2116,6 +2141,27 @@ pub const ServerStatsHookQueue = struct {
     queued_events: u64,
     reset_dropped_events: u64,
     undeliverable_events: u64,
+};
+
+pub const ServerStatsJournalFollower = struct {
+    client: u64,
+    connected_ms: u64,
+    keeps_hook_rows: bool,
+    keeps_report_rows: bool,
+    kinds: []const []const u8,
+    left_ms: wire.Nullable(u64),
+    max_sensitivity: wire.Nullable([]const u8),
+    remote: bool,
+    stream_id: []const u8,
+};
+
+pub const ServerStatsJournalFollowers = struct {
+    followers: []const ServerStatsJournalFollower,
+    grace_ms: u64,
+    hook_rows_kept: bool,
+    journal_hook_keeps_rows: wire.Nullable(bool),
+    keep_all_ms: u64,
+    report_rows_kept: bool,
 };
 
 pub const ServerStatsJournalWriter = struct {
@@ -2211,9 +2257,11 @@ pub const ServerStatsResourceProjection = struct {
 };
 
 pub const ServerStatsResult = struct {
+    commands: ?ServerStatsCommands = null,
     connections: ServerStatsConnections,
     disk: ?ServerStatsDisk = null,
     hook_queue: ?ServerStatsHookQueue = null,
+    journal_followers: ?ServerStatsJournalFollowers = null,
     journal_writer: wire.Nullable(ServerStatsJournalWriter),
     locks: ?ServerStatsLocks = null,
     registry_lock: ServerStatsRegistryLock,
@@ -2223,8 +2271,10 @@ pub const ServerStatsResult = struct {
     write_path: ?ServerStatsWritePath = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "commands",
         "disk",
         "hook_queue",
+        "journal_followers",
         "locks",
         "resource_projection",
         "write_path",
@@ -2646,10 +2696,13 @@ pub const Tab = struct {
     terminal_incarnation: wire.Field([]const u8) = .absent,
     terminal_resource_id: wire.Field([]const u8) = .absent,
     title: []const u8,
+    title_activity: wire.Field([]const u8) = .absent,
+    title_text: ?[]const u8 = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "short_id",
         "supports_clear_history_key_fallback",
+        "title_text",
     };
 };
 
@@ -3502,10 +3555,49 @@ pub const Workspace = struct {
     };
 };
 
+pub const WorkspaceFirstTabBrowser = struct {
+    activate: ?bool = null,
+    cols: wire.Field(u16) = .absent,
+    engine: []const u8,
+    favicon_url: wire.Field([]const u8) = .absent,
+    idempotency_key: wire.Field([]const u8) = .absent,
+    owner: wire.Field([]const u8) = .absent,
+    profile_id: wire.Field([]const u8) = .absent,
+    rows: wire.Field(u16) = .absent,
+    title: wire.Field([]const u8) = .absent,
+    url: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "activate",
+    };
+};
+
+pub const WorkspaceFirstTab = union(enum) {
+    browser: WorkspaceFirstTabBrowser,
+
+    pub const cmux_wire_custom_union = true;
+
+    pub fn cmuxEncode(self: @This(), allocator: std.mem.Allocator) !wire.Value {
+        return switch (self) {
+            .browser => |payload| try wire.encodeTagged(allocator, "kind", "browser", payload),
+        };
+    }
+
+    pub fn cmuxDecode(allocator: std.mem.Allocator, value: wire.Value) !@This() {
+        const tag_value = try wire.objectString(value, "kind");
+        if (std.mem.eql(u8, tag_value, "browser")) {
+            return .{ .browser = try wire.decodeLeaky(WorkspaceFirstTabBrowser, allocator, value) };
+        }
+        return error.UnknownUnionVariant;
+    }
+};
+
 pub const WorkspaceMutationResult = struct {
     changed: ?bool = null,
     /// close-workspace with end_terminals and report_closed_ids: the closed.list groups the close stored, oldest first; closed.reopen of each restores exactly what it closed.
     closed_ids: ?[]const []const u8 = null,
+    /// create-workspace with first_tab (workspace-first-tab-v1): the new-frontend-browser-tab reply for the workspace's first tab.
+    first_tab: ?JsonValue = null,
     generation: []const u8,
     index: u64,
     key: []const u8,
@@ -3517,6 +3609,7 @@ pub const WorkspaceMutationResult = struct {
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "changed",
         "closed_ids",
+        "first_tab",
     };
 };
 
@@ -4053,6 +4146,27 @@ pub fn browserWheelGuarded(client: anytype, request: BrowserWheelGuardedRequest)
             .authority = "frontend",
             .since = 10,
             .capability = "browser-pointer-frame-guard-v1",
+        },
+        request,
+    );
+}
+
+pub const CancelCreatingInputRequest = struct {
+    terminal_id: []const u8,
+};
+
+pub const CancelCreatingInputResult = struct {
+    cancelled: bool,
+};
+
+pub fn cancelCreatingInput(client: anytype, request: CancelCreatingInputRequest) !wire.Decoded(CancelCreatingInputResult) {
+    return client.callTyped(
+        CancelCreatingInputResult,
+        .{
+            .name = "cancel-creating-input",
+            .authority = "control",
+            .since = 12,
+            .capability = "creating-input-cancel-v1",
         },
         request,
     );
@@ -5910,6 +6024,8 @@ pub const CreateTerminalRequest = struct {
     argv: wire.Field([]const []const u8) = .absent,
     cols: wire.Field(u16) = .absent,
     command: wire.Field([]const u8) = .absent,
+    /// Make the workspace first when no workspace has key: a workspace and its first terminal in one request. Needs key and mutation_id, and takes no workspace.
+    create_workspace: ?bool = null,
     cwd: wire.Field([]const u8) = .absent,
     detached: ?bool = null,
     env: wire.Field(wire.Map([]const u8)) = .absent,
@@ -5924,8 +6040,11 @@ pub const CreateTerminalRequest = struct {
     shell_args: wire.Field([]const []const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     workspace: wire.Field(Id) = .absent,
+    /// The name of the workspace create_workspace makes.
+    workspace_name: wire.Field([]const u8) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "create_workspace",
         "detached",
         "keep",
     };
@@ -5942,11 +6061,13 @@ pub fn createTerminal(client: anytype, request: CreateTerminalRequest) !wire.Dec
             .since = 7,
             .capability = "workspace-registry-v1",
             .fields = &.{
+                .{ .name = "create_workspace", .since = 12, .capability = "create-terminal-workspace-v1" },
                 .{ .name = "detached", .since = 12, .capability = "detached-terminals-v1" },
                 .{ .name = "env", .since = 12, .capability = "terminal-env-v1" },
                 .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
                 .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },
                 .{ .name = "terminal_id", .since = 9, .capability = null },
+                .{ .name = "workspace_name", .since = 12, .capability = "create-terminal-workspace-v1" },
             },
         },
         request,
@@ -5956,6 +6077,8 @@ pub fn createTerminal(client: anytype, request: CreateTerminalRequest) !wire.Dec
 pub const CreateWorkspaceRequest = struct {
     expected_generation: wire.Field([]const u8) = .absent,
     expected_revision: wire.Field(u64) = .absent,
+    /// The workspace's first tab, made in the same request: {kind: "browser"} with the fields of new-frontend-browser-tab except pane, workspace, split and after. A first tab that cannot be made takes the workspace back; a replayed create replays a keyed tab and makes no second unkeyed one. The reply's first_tab is new-frontend-browser-tab's reply.
+    first_tab: wire.Field(WorkspaceFirstTab) = .absent,
     key: wire.Field([]const u8) = .absent,
     mutation_id: wire.Field([]const u8) = .absent,
     name: wire.Field([]const u8) = .absent,
@@ -5972,6 +6095,9 @@ pub fn createWorkspace(client: anytype, request: CreateWorkspaceRequest) !wire.D
             .authority = "control",
             .since = 7,
             .capability = "workspace-registry-v1",
+            .fields = &.{
+                .{ .name = "first_tab", .since = null, .capability = "workspace-first-tab-v1" },
+            },
         },
         request,
     );
@@ -7623,6 +7749,8 @@ pub const NewFrontendBrowserTabRequest = struct {
     split: wire.Field(ConversationTabSplit) = .absent,
     title: wire.Field([]const u8) = .absent,
     url: []const u8,
+    /// Instead of pane: the tab goes in this workspace's active pane, or is the first tab of an empty workspace (no terminal is made for it to replace). Refused with split.
+    workspace: wire.Field(Id) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "activate",
@@ -7641,6 +7769,7 @@ pub fn newFrontendBrowserTab(client: anytype, request: NewFrontendBrowserTabRequ
             .capability = "frontend-browser-tabs-v1",
             .fields = &.{
                 .{ .name = "split", .since = null, .capability = "frontend-browser-tab-split-v1" },
+                .{ .name = "workspace", .since = null, .capability = "frontend-browser-tab-workspace-v1" },
             },
         },
         request,
@@ -9152,6 +9281,27 @@ pub fn setDefaultColors(client: anytype, request: SetDefaultColorsRequest) !wire
     );
 }
 
+pub const SetDividerVisibleRequest = struct {
+    split: Id,
+    transaction: wire.Field(u64) = .absent,
+    visible: bool,
+};
+
+pub const SetDividerVisibleResult = EmptyResult;
+
+pub fn setDividerVisible(client: anytype, request: SetDividerVisibleRequest) !wire.Decoded(SetDividerVisibleResult) {
+    return client.callTyped(
+        SetDividerVisibleResult,
+        .{
+            .name = "set-divider-visible",
+            .authority = "control",
+            .since = 12,
+            .capability = "split-divider-visibility-v1",
+        },
+        request,
+    );
+}
+
 pub const SetFrontendBrowserHistoryRequest = struct {
     history: wire.Nullable(JsonValue),
     surface: Id,
@@ -9769,6 +9919,8 @@ pub fn snapshotRequest(client: anytype, request: SnapshotRequestRequest) !wire.D
 }
 
 pub const SplitRequest = struct {
+    /// The split the new split wraps whole (the new pane after it, as wide or tall as the whole subtree): inserting a pane at a divider. pane must be that split's last pane and dir right or down.
+    around: wire.Field(Id) = .absent,
     before: ?bool = null,
     cols: wire.Field(u16) = .absent,
     cwd: wire.Field([]const u8) = .absent,
@@ -9802,6 +9954,7 @@ pub fn split(client: anytype, request: SplitRequest) !wire.Decoded(SplitResult) 
             .since = 5,
             .capability = null,
             .fields = &.{
+                .{ .name = "around", .since = 12, .capability = "split-around-v1" },
                 .{ .name = "before", .since = 12, .capability = "split-before-v1" },
                 .{ .name = "cwd", .since = 12, .capability = "terminal-env-v1" },
                 .{ .name = "env", .since = 12, .capability = "terminal-env-v1" },
@@ -11530,11 +11683,14 @@ pub const TerminalRegistryChangedEvent = struct {
 };
 
 pub const TitleChangedEvent = struct {
+    activity: wire.Field([]const u8) = .absent,
     event: []const u8,
     surface: Id,
+    text: ?[]const u8 = null,
     title: ?[]const u8 = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "text",
         "title",
     };
 };
@@ -12276,7 +12432,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 299;
+pub const command_count: usize = 301;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -12298,6 +12454,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "browser-reload", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-wheel", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-wheel-guarded", .authority = "frontend", .since = 10, .capability = "browser-pointer-frame-guard-v1", .stream = null },
+    .{ .name = "cancel-creating-input", .authority = "control", .since = 12, .capability = "creating-input-cancel-v1", .stream = null },
     .{ .name = "chief-inspect", .authority = "local-admin", .since = 12, .capability = "chief-inspect-v1", .stream = null },
     .{ .name = "chief-work", .authority = "frontend", .since = 12, .capability = "chief-work-v1", .stream = null },
     .{ .name = "clear-history", .authority = "control", .since = 9, .capability = "clear-history-v1", .stream = null },
@@ -12512,6 +12669,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "set-client-sizing", .authority = "control", .since = 10, .capability = null, .stream = null },
     .{ .name = "set-column-dock", .authority = "control", .since = 12, .capability = "dock-columns-v1", .stream = null },
     .{ .name = "set-default-colors", .authority = "control", .since = 5, .capability = null, .stream = null },
+    .{ .name = "set-divider-visible", .authority = "control", .since = 12, .capability = "split-divider-visibility-v1", .stream = null },
     .{ .name = "set-frontend-browser-history", .authority = "control", .since = 12, .capability = "frontend-browser-history-v1", .stream = null },
     .{ .name = "set-host-size-policy", .authority = "control", .since = 12, .capability = "host-size-policy-v1", .stream = null },
     .{ .name = "set-layout-sizes", .authority = "control", .since = 12, .capability = "layout-sizes-batch-v1", .stream = null },

@@ -1,6 +1,8 @@
 public import AppKit
 public import CmuxNextAgentPane
 public import CmuxNextCompat
+public import CmuxNextDesign
+import CmuxNextDaemon
 import CmuxNextKeepAwake
 import CmuxNextWakeups
 public import CmuxNextMobile
@@ -51,9 +53,9 @@ public final class IPhoneHostService {
         var acpmux: @Sendable () async -> (url: URL, token: String)?
         /// Folders the phone may preview files from (the chat roots).
         var fileRoots: @MainActor () -> [String]
-        /// The folders of the tabs this Mac's daemon lists now (absolute, deduplicated):
-        /// a phone may start agent chats there (``MobileHostApproverSync/updateWorkspaceRoots(_:)``).
-        var workspaceFolders: @MainActor @Sendable () -> [String] = { [] }
+        /// The workspaces this Mac's daemon lists now: a phone may start agent chats in their tabs' folders
+        /// (``MobileHostWorkspaceFolders``, ``MobileHostApproverSync/updateWorkspaceRoots(_:)``).
+        var workspaces: @MainActor @Sendable () -> [WorkspaceModel] = { [] }
         /// This Mac's agent tab host (`install:<id>`), for agent tabs a phone creates.
         var agentTabHost: @MainActor () -> String? = { nil }
         /// The agent and model this Mac's New Tab page picked last (``NewChatPicks``):
@@ -179,8 +181,11 @@ public final class IPhoneHostService {
     /// Observers that show a waiting prompt once a cmux window is on screen.
     @ObservationIgnored var pairWindowWatch: [any NSObjectProtocol] = []
     @ObservationIgnored var approverSync: MobileHostApproverSync?
-    @ObservationIgnored private var followingFolders: Task<Void, Never>?
+    /// The folders acpmux gets (``followWorkspaceFolders()``).
+    @ObservationIgnored private let folders = MobileHostWorkspaceFolders()
     @ObservationIgnored private var followingPicks: Task<Void, Never>?
+    /// This Mac's theme and wallpaper for the phones (`followAppearance(of:)`).
+    @ObservationIgnored var followingAppearance: Task<Void, Never>?
     @ObservationIgnored private var pairingWatch: Task<Void, Never>?
     /// App-lifetime wake observer; released on stop or deinit.
     @ObservationIgnored private var wakeObserver: MainActorObservation?
@@ -222,7 +227,8 @@ public final class IPhoneHostService {
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.iphone")
 
     /// A host that runs nothing until it is wired and an account with the setting on arrives.
-    public init(loginKeychain: LoginKeychain, pairedStore: MobileHostPairedStore? = nil) {
+    /// `appearance`: the scope whose theme and wallpaper the phones get (the app's; ask-87d30da8e5).
+    public init(loginKeychain: LoginKeychain, pairedStore: MobileHostPairedStore? = nil, appearance: ThemeScope? = nil) {
         self.loginKeychain = loginKeychain
         let pairedStore = pairedStore ?? MobileHostPairedStore(loginKeychain: loginKeychain)
         self.pairedStore = pairedStore
@@ -273,6 +279,7 @@ public final class IPhoneHostService {
                 self?.pairingEvent(event)
             }
         }
+        if let appearance { followAppearance(of: appearance) }
     }
 
     /// The app Feed's open requests for the phones (#33818), from `user`'s feed: handed to hostd,
@@ -280,6 +287,12 @@ public final class IPhoneHostService {
     /// set for that account's hostd only.
     public func setNeedsYou(_ requests: [MobileHostNeedsYouRequest], user: String) async {
         await supervisor.setNeedsYou(requests, user: user)
+    }
+
+    /// This Mac's theme and wallpaper for the phones (ask-87d30da8e5): handed to hostd, which
+    /// serves it (`appearance.rs`). One hop to the supervisor; it keeps the newest for each hostd.
+    public func setAppearance(_ appearance: MobileHostAppearance) async {
+        await supervisor.setAppearance(appearance)
     }
 
     /// The feed's account changed or signed out: the kept set is forgotten, so no hostd gets it.
@@ -374,20 +387,16 @@ public final class IPhoneHostService {
     /// Hands acpmux the folders of this Mac's workspaces while iPhone connections are allowed
     /// for a signed-in account (none otherwise), so a phone's agent chat starts there.
     func followWorkspaceFolders() {
-        followingFolders?.cancel()
-        // task-owner: lives as long as the app; re-reads the folders on each daemon tree change
-        followingFolders = Task { [weak self] in
-            for await folders in ObservationStream({ [weak self] in
-                guard let self, allowed, account != nil else { return [String]() }
-                return dependencies?.workspaceFolders() ?? []
-            }) {
-                guard let self else { return }
-                if approverSync == nil, !folders.isEmpty, let environment = dependencies?.acpmuxEnvironment {
-                    approverSync = makeApproverSync(environment)
-                }
-                approverSync?.updateWorkspaceRoots(folders)
+        folders.follow({ [weak self] in
+            guard let self, allowed, account != nil else { return nil }
+            return dependencies?.workspaces() ?? []
+        }, send: { [weak self] folders in
+            guard let self else { return }
+            if approverSync == nil, !folders.isEmpty, let environment = dependencies?.acpmuxEnvironment {
+                approverSync = makeApproverSync(environment)
             }
-        }
+            approverSync?.updateWorkspaceRoots(folders)
+        })
     }
 
     /// Hands acpmux the agent and model this Mac's New Tab page picked last while iPhone
@@ -483,8 +492,9 @@ public final class IPhoneHostService {
         applying?.cancel()
         identityRetry?.cancel()
         pairingWatch?.cancel()
-        followingFolders?.cancel()
+        folders.stop()
         followingPicks?.cancel()
+        followingAppearance?.cancel()
         approverSync?.stop()
         quietAttention()
         let supervisor = supervisor

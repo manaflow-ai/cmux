@@ -291,3 +291,43 @@ fn closing_the_focused_pane_with_no_focus_history_focuses_its_sibling() {
     mux.close_pane(p2).unwrap();
     mux.with_state(|s| assert_eq!(s.workspaces[0].screens[0].active_pane, p3));
 }
+
+/// A relative selection of a tab, screen or workspace takes any `delta` a client sends
+/// (`select-tab`, `select-screen`, `select-workspace` read it as an `isize`). A huge one is
+/// a step around the ring, never an overflow: `active + delta` overflowed while `Mux::state`
+/// was held, and the panic poisoned it for every later request.
+#[test]
+fn a_huge_selection_delta_steps_around_the_ring_without_overflow() {
+    let step = |active: usize, delta: isize, len: usize| {
+        (active + delta.rem_euclid(len as isize) as usize) % len
+    };
+    let mux = test_mux();
+    let first = mux.new_workspace(None, None).unwrap();
+    let pane = mux.with_state(|s| s.pane_of(first.id).unwrap());
+    mux.new_tab(Some(pane), None, None).unwrap();
+    mux.new_tab(Some(pane), None, None).unwrap();
+    for delta in [isize::MAX, isize::MIN, isize::MAX - 1] {
+        mux.select_tab(Some(pane), Some(1), None);
+        mux.select_tab(Some(pane), None, Some(delta));
+        assert_eq!(mux.with_state(|s| s.panes[&pane].active_tab), step(1, delta, 3), "{delta}");
+    }
+
+    mux.new_screen(None, None).unwrap();
+    mux.new_screen(None, None).unwrap();
+    let active_screen =
+        |mux: &Arc<Mux>| mux.with_state(|s| s.workspaces[s.active_workspace].active_screen);
+    for delta in [isize::MAX, isize::MIN] {
+        mux.select_screen(Some(1), None);
+        mux.select_screen(None, Some(delta));
+        assert_eq!(active_screen(&mux), step(1, delta, 3), "{delta}");
+    }
+
+    mux.new_workspace(None, None).unwrap();
+    mux.new_workspace(None, None).unwrap();
+    for delta in [isize::MAX, isize::MIN] {
+        mux.select_workspace(Some(1), None);
+        mux.select_workspace(None, Some(delta));
+        assert_eq!(mux.with_state(|s| s.active_workspace), step(1, delta, 3), "{delta}");
+    }
+    assert!(!mux.state.is_poisoned());
+}

@@ -150,18 +150,21 @@ fn write_fenced(
     let record = Record { version: VERSION, listen, pid, key: hex(key) };
     let text = serde_json::to_vec(&record).map_err(io::Error::other)?;
     let temp = home.join(format!(".{FILE_NAME}.{pid}.tmp"));
+    // Through the folder this daemon holds (`home_fs`): a home replaced after the check never
+    // gets the record.
     let written = (|| {
-        let mut options = std::fs::OpenOptions::new();
-        options.write(true).create(true).truncate(true);
-        #[cfg(unix)]
-        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-        let mut file = options.open(&temp)?;
+        let mut file = crate::home_fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&temp)?;
         file.write_all(&text)?;
         file.sync_all()?;
-        std::fs::rename(&temp, &path)
+        crate::home_fs::rename(&temp, &path)
     })();
     if written.is_err() {
-        let _ = std::fs::remove_file(&temp);
+        let _ = crate::home_fs::remove_file(&temp);
     }
     written.map(|()| Written { home: home.to_path_buf() })
 }
@@ -172,7 +175,7 @@ fn remove_if_owned(home: &Path) {
     if read(home).is_some_and(|record| {
         record.pid == std::process::id() && Some(&record.key) == ours.as_ref()
     }) {
-        let _ = std::fs::remove_file(home.join(FILE_NAME));
+        let _ = crate::home_fs::remove_file(home.join(FILE_NAME));
     }
 }
 

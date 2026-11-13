@@ -148,8 +148,8 @@ final class SidebarGroupLineViews {
 }
 
 /// One members' line, the sidebar's left bar: Chrome's (Leo 2026-10-19), a 2 pt bar in its header bar's exact color,
-/// one capsule with the same round cap at the top and the bottom (Lawrence msg 19775, `SidebarGroupLineShape`).
-/// The layer's corner clip draws the caps, so the line keeps its shape in every frame of the rows' spring.
+/// the katana's tip at the top (Leo 2026-11-08) and a round cap at the bottom (Lawrence msg 19775, `SidebarGroupLineShape`).
+/// The layer's corner clip draws the cap, so the line keeps its shape in every frame of the rows' spring.
 final class GroupLineView: NSView {
     /// The view's bounds spring can keep presenting the old rail height after its model height reaches zero.
     /// Keep the shape taller than any sidebar line so the view, not the shape, clips the shrinking rail.
@@ -210,6 +210,8 @@ final class GroupLineView: NSView {
 
     override func updateLayer() {
         let look = observedLook()
+        // Sections (`sidebar.groupHeader.background`): a plain heading over its members, no line and no block.
+        if !background.drawsBackground { return paintNothing() }
         if isBlock { return paintBlock(look.noColor) }
         light.isHidden = true
         rim.isHidden = true
@@ -251,6 +253,18 @@ final class GroupLineView: NSView {
         updateShape()
     }
 
+    /// Sections: the view draws nothing (its rail, block, rim and light hidden); it stays, so a switch back repaints it.
+    private func paintNothing() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        railShape.fillColor = nil
+        layer?.backgroundColor = nil
+        layer?.borderWidth = 0
+        rim.isHidden = true
+        light.isHidden = true
+    }
+
     private func updateShape() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -268,10 +282,11 @@ final class GroupLineView: NSView {
             light.locations = [0, NSNumber(value: Double(min(1, 2 * SidebarDensityTokens.rowHeight / max(bounds.height, 1)))), 1]
             return
         }
-        // The clipping layer owns both caps (one capsule, `SidebarGroupLineShape`), so they follow the presentation
-        // bounds through a fold; rounding the oversized body instead would clip the bottom cap off the visible rail.
+        // The clipping layer owns the bottom cap, so it follows the presentation bounds through a fold; rounding the
+        // oversized body instead would clip the cap off the visible rail. The body's path draws the katana's tip at
+        // its top (`SidebarGroupLineShape`).
         layer?.cornerRadius = SidebarGroupLineShape.cornerRadius(width: bounds.width)
-        layer?.maskedCorners = SidebarGroupLineShape.corners
+        layer?.maskedCorners = SidebarGroupLineShape.capCorners(flipped: layer?.contentsAreFlipped() == true)
         let height = max(bounds.height, railShape.frame.height, Self.shapeCoverageHeight)
         railShape.frame = CGRect(x: 0, y: 0, width: bounds.width, height: height)
         railShape.path = SidebarGroupLineShape.body(width: bounds.width, height: height)

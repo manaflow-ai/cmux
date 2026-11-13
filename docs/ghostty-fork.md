@@ -12,6 +12,48 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### A frame with no built cells draws the background only (ghostty-next, cmux f14)
+
+- Release branch `release/cmux-gi-land-1-cell-guard` at `b37a94dfe`: `c370b103a` (`release/cmux-gi-land-1`) and the
+  two commits of fork PR manaflow-ai/ghostty-next#91, red `c59eb2db0` (the seam and its tests) and fix `b37a94dfe`.
+  No merge commit. The pin is `b37a94dfe`. GhosttyNextKit
+  `xcframework-b37a94dfec401407047f34ecfbc5151be6566a56-apple-v6` (zip sha256 `d5085be1...814ed`, run 42836958007).
+  Fork PR #91 itself merged into `release/cmux-gi-land-2` as `748966825`; cmux does not pin that line (cmux #40615
+  reverted #40174).
+- What: a renderer can draw a frame between its init and its first cell build (the macOS display pass and each
+  synchronous draw). Until then `uniforms.grid_size` was `undefined` and the cell background buffer had its initial
+  1 cell, and the cell shaders read `cells[grid_pos.y * grid_size.x + grid_pos.x]` with no bounds check. So a new
+  surface could show memory that is not its own cells. `Contents.framePlan()` (`src/renderer/cell.zig`) is now the
+  one source for both facts: `drawFrame` takes the grid from the cells that the frame uploads (0 x 0 before the
+  first build), and a frame with no cells does not run the cell background pass or the cell text pass. It draws the
+  background colour or image as before. `rebuildCells` no longer writes `uniforms.grid_size`. No switch.
+- Why: cmux order f14 (a new split pane showed cells of another buffer and no prompt).
+- Tests: three "Contents frame plan: " tests in `src/renderer/cell.zig`. They test the plan, not a GPU frame: the
+  three lines in `drawFrame` that obey the plan are checked by reading.
+- Files: `src/renderer/cell.zig`, `src/renderer/generic.zig`.
+- Conflict notes: keep `uniforms.grid_size` with one writer (`drawFrame`, from `framePlan`) and keep both
+  `if (cell_plan.cell_passes)` guards when upstream changes the frame's passes. Do not put the grid write back in
+  `rebuildCells`. A bounds check in the shaders is not a replacement: the GLSL shaders use `uvec2`, where
+  `grid_size.x - 1` wraps at a 0 x 0 grid.
+
+### The embedder hears each frame the layer shows (ghostty-next)
+
+- Release branch `release/cmux-gi-present-cb-1` at `a0e665d4f` (red tests `3e874ce8c` and `6ef7ba722`), on
+  `b3a5ebfdf`. The pin is `c370b103a` on `release/cmux-gi-land-1`: the merge of `a0e665d4f` and `a0975fd8c` (the
+  section below), with no conflict. ghostty-integration step 3 (P23).
+- What: `ghostty_surface_set_present_callback(surface, cb, userdata)`. Each time a frame becomes the IOSurface layer's
+  contents (off main after the GPU thread's own transaction commits; on main for a new size, the first frame, a display
+  pass or an embedder present), `cb` gets `ghostty_surface_present_s`: the frame's pixel size, the reason
+  (`GHOSTTY_PRESENT_CONTENT` at the shown size, `GHOSTTY_PRESENT_RESIZE` for another size or the first frame), the
+  renderer's present sequence and `mach_absolute_time()`. Dropped and superseded frames are not reported. The layer
+  reads the callback under the CA lock and calls it after the unlock, so the callback may take its own locks.
+  `setSurfaceSync` now always takes the CA lock. The renderer's `prepareDeinit` removes the callback, so no frame is
+  reported after `ghostty_surface_free` returns (the embedder may free the userdata then). cmux's
+  `setContents:` swizzle (`TypingFrameProbe`) is deleted.
+- Conflict notes: `include/ghostty.h` (after `ghostty_surface_host_frame_committed`), `src/apprt/structs.zig`
+  (`PresentReason`, `Present`, `PresentCallback`), `src/apprt/embedded.zig`, `src/renderer/Metal.zig`,
+  `src/renderer/metal/IOSurfaceLayer.zig` (every contents setter, `presentReportLocked`).
+
 ### Upstream scroll and resize fixes picked onto the pin (ghostty-next, GI PIN SYNC)
 
 - Release branch `release/cmux-gi-pin-sync-2` at `a0975fd8c`, on `b3a5ebfdf`: first `9ae6954e2`, the upstream tests of

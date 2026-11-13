@@ -79,13 +79,13 @@ pub(super) fn acp_prompt_blocks(
             .collect();
         let safe_name = if safe_name.is_empty() { "document.pdf" } else { &safe_name };
         let dir = session.meta().cwd.join(".cmux").join("attachments");
-        std::fs::create_dir_all(&dir).map_err(|e| {
+        crate::home_fs::create_dirs(&dir).map_err(|e| {
             RpcError::internal(format!("cannot create PDF attachment directory: {e}"))
         })?;
         // The folder sits in the user's project; keep it out of their commits.
         let ignore = dir.join(".gitignore");
         if !ignore.exists() {
-            let _ = std::fs::write(&ignore, "*\n");
+            let _ = crate::home_fs::write(&ignore, "*\n");
         }
         let path = dir.join(format!("{}-{safe_name}", uuid::Uuid::now_v7()));
         let encoded = block.get("data").and_then(Value::as_str).unwrap_or("");
@@ -93,7 +93,7 @@ pub(super) fn acp_prompt_blocks(
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(encoded)
             .map_err(|e| RpcError::invalid_params(format!("invalid PDF attachment: {e}")))?;
-        std::fs::write(&path, bytes)
+        crate::home_fs::write(&path, bytes)
             .map_err(|e| RpcError::internal(format!("cannot save PDF attachment: {e}")))?;
         let uri = file_uri(&path);
         out.push(json!({
@@ -108,6 +108,24 @@ pub(super) fn acp_prompt_blocks(
         }));
     }
     Ok(out)
+}
+
+/// The turn a pending run of `prompt_id` was given on `session`, and whether it still waits in
+/// the queue: the queued prompt's, or the running turn's. None while that run has not been
+/// accepted (its agent still starts, a check still runs, also one after its turn shows: a
+/// Cloud turn's claim can still refuse it), or between its leaving the queue and its turn's
+/// start.
+fn pending_turn(session: &Session, prompt_id: &str) -> Option<(String, bool)> {
+    let queued = {
+        let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        queue.iter().find(|q| q.prompt_id == prompt_id).map(|q| (q.turn_id.clone(), true))
+    };
+    queued.or_else(|| {
+        let turn = session.turn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        turn.as_ref()
+            .filter(|t| t.prompt_id == prompt_id && t.accepted)
+            .map(|t| (t.turn_id.clone(), false))
+    })
 }
 
 /// A `file://` URI for the saved file, percent-encoded so a project folder with
@@ -175,6 +193,14 @@ impl Hub {
             });
         }
         self.pair_logs(opts.provenance.as_ref()).await;
+        // Opt-in usage patterns: a prompt (or steer) on this harness; never its text.
+        if cmux_usage_patterns::enabled() {
+            let harness = session.meta.lock().unwrap_or_else(|e| e.into_inner()).harness.clone();
+            cmux_usage_patterns::count(
+                if steer { "agent-steer" } else { "agent-prompt" },
+                &harness,
+            );
+        }
         // A person's own prompt is the person asking for the chat: what a daemon start held in
         // its protected folder goes on, ahead of this prompt (`protected_hold.rs`). Not the
         // owner's terminal send, which no connection proved (`PromptOptions::unproven_owner`).
@@ -192,6 +218,9 @@ impl Hub {
             // entry (the ledger is only for client-supplied idempotency keys).
             let generated_id = uuid::Uuid::now_v7().to_string();
             opts.prompt_id = Some(generated_id.clone());
+            if let Some(text) = opts.coach.take() {
+                self.coach_prompt(session, &generated_id, &text);
+            }
             ensure_message_provenance(&mut opts, &session.id);
             let message = message_context(self, session, &blocks, &opts, &generated_id);
             embed_message_context(&mut opts, message.as_ref(), &session.id);
@@ -228,7 +257,15 @@ impl Hub {
         let outcome = match seen {
             Err(mut first) => {
                 if let Some(f) = opts.on_accepted.take() {
-                    f(duplicate(Value::Null));
+                    // The first run's turn, once it has one (queued or running): the sender of
+                    // this copy then knows the prompt was taken. With none yet, the first run
+                    // may still be held or refused, and only its answer says.
+                    let (turn, queued) = pending_turn(session, &prompt_id).unzip();
+                    let mut notice = duplicate(json!({"_meta": {"acpmux": {"turnId": turn}}}));
+                    if queued == Some(true) {
+                        notice.set("queued", json!(true));
+                    }
+                    f(notice);
                 }
                 let result = first
                     .wait_for(Option::is_some)
@@ -243,6 +280,10 @@ impl Hub {
             }
             Ok(outcome) => outcome,
         };
+        // A client's resend of this id was answered above: the coach counts the prompt once.
+        if let Some(text) = opts.coach.take() {
+            self.coach_prompt(session, &prompt_id, &text);
+        }
         // A resent inbox message answers as its notice did, a failure as the same error.
         if opts.resend
             && let Some(answer) = self.logged_inbox_answer(session, &prompt_id)
@@ -576,7 +617,7 @@ impl Hub {
             self.cold_prompt_check(session).await?;
         }
         if steer_now && session.moving().is_some() {
-            return Err(super::queue::moving_error());
+            return Err(super::queue::moving_error(session));
         }
         // Who sent it, as the queue knows its prompts' senders (`digest.rs`).
         let agent = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
@@ -748,6 +789,8 @@ impl Hub {
             .noticed(super::prompt_line::is_notice(provenance.as_ref()))
             .by_person(persons);
         turn.trigger = trigger;
+        // A queued prompt was accepted when it was queued; any other is, once its checks pass.
+        turn.accepted = waiting;
         // Before the turn shows: a Stop from then on fences its unwritten prompt (`cancel.rs`).
         *session.unwritten_prompt.lock().unwrap_or_else(|e| e.into_inner()) =
             Some((turn_id.to_string(), false));
@@ -829,6 +872,14 @@ impl Hub {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
             return Err(e);
+        }
+        #[cfg(test)]
+        {
+            let seam = self.turn_shown_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
+            if let Some((arrived, release)) = seam {
+                let _ = arrived.send(());
+                let _ = release.await;
+            }
         }
         // Claim only after every dispatch fence that can refuse the prompt has passed. The
         // capability is one-use; every successful claim is finished below or on each early exit.
@@ -938,6 +989,12 @@ impl Hub {
             if let Some(key) = supersede.as_deref() {
                 let _ =
                     replaced.set(self.supersede_queued(session, key, agent.as_deref(), &prompt_id));
+            }
+            // From here a second copy of the prompt hears this turn (`pending_turn`).
+            if let Some(turn) = session.turn.lock().unwrap_or_else(|e| e.into_inner()).as_mut()
+                && turn.turn_id == turn_id
+            {
+                turn.accepted = true;
             }
             accept(
                 json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false, "state": "started"}),
@@ -1072,10 +1129,7 @@ impl Hub {
         if session.rehydrate.swap(false, Ordering::SeqCst)
             && let Some(transcript) = self.transcript(session, 24_000, &prompt_id)
         {
-            blocks.insert(
-                    0,
-                    json!({"type": "text", "text": format!("<restored_transcript note=\"acpmux restored this conversation on a new agent session; tool state was not restored\">\n{transcript}\n</restored_transcript>\n")}),
-                );
+            blocks.insert(0, restored_transcript(session, &transcript));
         }
         // The forum rules this session was not told yet (`hub/forum.rs`).
         let mut told = self.forum_context(session, pushed.clone(), &mut blocks).await;
@@ -1333,10 +1387,7 @@ impl Hub {
                         if session.rehydrate.swap(false, Ordering::SeqCst)
                             && let Some(transcript) = self.transcript(session, 24_000, &prompt_id)
                         {
-                            blocks.insert(
-                                0,
-                                json!({"type": "text", "text": format!("<restored_transcript note=\"acpmux restored this conversation on a new agent session; tool state was not restored\">\n{transcript}\n</restored_transcript>\n")}),
-                            );
+                            blocks.insert(0, restored_transcript(session, &transcript));
                             // The new agent session gets every rule again.
                             told = self.forum_retell(session, pushed.clone(), &mut blocks).await;
                         }
@@ -1656,11 +1707,39 @@ impl Hub {
         // person's terminal signs in, and the fix (`claude_auth.rs`).
         let mut signed_out = false;
         let cloud_host = result.is_err() && self.config.read().await.cloud_host;
+        // On a Cloud machine, the card's third way in: cmux's gateway, when the image says the
+        // machine's team has an account for Claude there (`agent_login::Machine::gateway_access`).
+        // Asked only for a sign-in failure it explains.
+        let gateway = match &result {
+            Err(e) if cloud_host && crate::claude_auth::would_explain(&session.id, &e.message) => {
+                let machine = crate::agent_login::Machine {
+                    root: self.vm_marker_root(),
+                    home: dirs::home_dir().unwrap_or_default(),
+                };
+                machine.gateway_access(crate::agent_login::Agent::Claude).await == Some(true)
+            }
+            _ => false,
+        };
         if let Err(e) = &mut result
-            && let Some(text) = crate::claude_auth::explain(&session.id, &e.message, cloud_host)
+            && let Some(text) =
+                crate::claude_auth::explain(&session.id, &e.message, cloud_host, gateway)
         {
             tracing::warn!(session = %session.id, "Claude agent is not signed in");
-            e.message = text;
+            // The gateway fallback (off by default, `agent_login::GATEWAY_FALLBACK_ENV`): a chat
+            // with no credential on a team the gateway serves uses it without asking. The agent
+            // restarts on it once this turn ends, and the first send goes again there
+            // (`auto_resume/first_send.rs`).
+            let fell_back = gateway
+                && crate::agent_login::gateway_fallback_on()
+                && crate::claude_auth::spawned(&session.id)
+                    .is_some_and(|s| !crate::claude_auth::find(&s.env).signed_in())
+                && self.use_gateway_now(session);
+            e.message = if fell_back {
+                tracing::info!(session = %session.id, "Claude has no credential: the chat uses cmux's gateway");
+                crate::claude_auth::gateway_fallback_text(&e.message)
+            } else {
+                text
+            };
             signed_out = true;
         }
         if let (Err(e), Some(Value::Object(info))) = (&mut result, &route_info) {
@@ -1755,6 +1834,9 @@ impl Hub {
                     if status == "completed" && taught {
                         self.offer_learned(session, learned);
                     }
+                    // A chat that took several corrections, kept now (`prompt_coach.rs`): settled
+                    // by this turn's own prompt only.
+                    self.coach_turn_ended(session, prompt_id, status == "completed");
                     // A goal set with goal_set goes on, or stops at its budget (`goal_tools.rs`).
                     if status == "completed" {
                         self.continue_goal(session, spent);
@@ -1809,11 +1891,12 @@ impl Hub {
             self.end_trigger_background(session, turn_id);
         }
         self.reset_stream(session);
-        // Nobody showing it: the sidebar dot and `wait --until done` see it. While work it
-        // started still runs (a background subagent, a working sub-session) the task is not
-        // done: the dot waits for that work to end (`work_below.rs`, manaflow-ai/cmux#25563).
-        if !trigger && !self.shown(session) {
-            self.mark_unread_unless_work_below(session);
+        // Nobody attending it (not shown, or shown to a person who is away, `seen.rs`): the
+        // sidebar dot and `wait --until done` see it. While work it started still runs (a
+        // background subagent, a working sub-session) the task is not done: the dot waits for
+        // that work to end (`work_below.rs`, manaflow-ai/cmux#25563).
+        if !trigger {
+            self.note_turn_end(session);
         }
         if session.status() != SessionStatus::Closed {
             let alive = child.is_alive().await;
@@ -1840,6 +1923,8 @@ impl Hub {
             drop(state);
         }
         self.save_meta(session);
+        // The chat's settled view, for the shape its pane opens with (`settled_view.rs`).
+        self.settle_view_at_turn_end(session);
         self.send_offer_result(session);
         self.lane_turn_ended(session, true, turn);
         self.inbox_turn_ended(session, turn_id, turn, true);
@@ -1930,6 +2015,7 @@ impl Hub {
                 self.set_status(session, status);
             }
             self.save_meta(session);
+            self.settle_view_at_turn_end(session);
             self.lane_turn_ended(session, false, turn);
             self.inbox_turn_ended(session, turn_id, turn, false);
             return;
@@ -1956,6 +2042,7 @@ impl Hub {
             self.set_status(session, SessionStatus::Disconnected);
         }
         self.save_meta(session);
+        self.settle_view_at_turn_end(session);
         // The turn was counted: its lane's parent hears it failed, with no reply of its own
         // (`lane_reports.rs`).
         self.lane_turn_ended(session, false, turn);
@@ -1980,21 +2067,10 @@ impl Hub {
     /// Keep the outcome of the last turn on the session (`lastTurn` in the
     /// summary), so `wait` can report a failed turn after it resolves.
     pub(super) fn record_last_turn(&self, session: &Session, turn_result: &Value) {
-        let mut last = serde_json::Map::new();
-        for k in super::views::LAST_TURN_KEYS {
-            if let Some(v) = turn_result.get(k) {
-                last.insert(k.to_owned(), v.clone());
-            }
-        }
-        last.insert("endedAt".into(), json!(now_ms()));
-        for key in ["turnCount", "turnSeq"] {
-            if let Some(value) = turn_result.get(key) {
-                last.insert(key.into(), value.clone());
-            }
-        }
+        let last = last_turn_of(turn_result, now_ms());
         self.lane_report_record_result(&session.id, turn_result);
         if turn_result.get("trigger") != Some(&Value::Bool(true)) {
-            session.meta.lock().unwrap().last_turn = Some(Value::Object(last));
+            session.meta.lock().unwrap().last_turn = Some(last);
         }
         // Every turn's end passes here once: its parent hears it (`subsession_results.rs`).
         self.subsession_turn_ended(session, turn_result);
@@ -2346,7 +2422,7 @@ impl Hub {
             .lock()
             .unwrap()
             .values()
-            .any(|s| s.id != session.id && s.meta().name == name)
+            .any(|s| s.id != session.id && s.read_meta(|m| m.name == name))
         {
             return Err(RpcError::invalid_params(format!("session name {name:?} is taken")));
         }
@@ -2463,7 +2539,12 @@ impl Hub {
             super::watches::before_purge(self, &session.id).await?;
             // Its background tasks end with it (`bg_tasks.rs`); a stop keeps them.
             self.bg_purge(session).await?;
-            session.purged.store(true, Ordering::SeqCst);
+            {
+                // Under the breakdown's lock: a time breakdown save running now lands before the
+                // folder is deleted, and none starts after (`views.rs` `write_time_breakdown`).
+                let _breakdown = session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
+                session.purged.store(true, Ordering::SeqCst);
+            }
             // Its spend, title and folder leave the cost ledger with it (`hub/ledger`).
             self.ledger.purge(&session.id);
             self.remove_cached_closed_summary(&session.id);
@@ -2534,8 +2615,11 @@ impl Hub {
                 remote: None,
                 update_line: Default::default(),
                 row: Default::default(),
+                list_seq: 0,
             });
             drop(sessions);
+            // Its parent's row and the rows below it read it (#42091 F1).
+            self.note_rows_reading(session);
         }
         Ok(())
     }
@@ -2603,4 +2687,37 @@ fn take_if_turn(slot: &StdMutex<Option<String>>, turn_id: &str) -> bool {
     } else {
         false
     }
+}
+
+/// The `lastTurn` a turn's `turn_result` message leaves on the session, ended at `ended_at`.
+pub(super) fn last_turn_of(turn_result: &Value, ended_at: u64) -> Value {
+    let mut last = serde_json::Map::new();
+    for k in super::views::LAST_TURN_KEYS {
+        if let Some(v) = turn_result.get(k) {
+            last.insert(k.to_owned(), v.clone());
+        }
+    }
+    last.insert("endedAt".into(), json!(ended_at));
+    for key in ["turnCount", "turnSeq"] {
+        if let Some(value) = turn_result.get(key) {
+            last.insert(key.into(), value.clone());
+        }
+    }
+    Value::Object(last)
+}
+
+/// The chat's transcript as a rehydrated agent's first prompt gets it, under the note its session
+/// holds (`Session::rehydrate_note`, a fork onto another harness), else the restore's own.
+fn restored_transcript(session: &Session, transcript: &str) -> Value {
+    let note = session
+        .rehydrate_note
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .take()
+        .unwrap_or_else(|| {
+            "acpmux restored this conversation on a new agent session; tool state was not restored"
+                .to_owned()
+        })
+        .replace('"', "'");
+    json!({"type": "text", "text": format!("<restored_transcript note=\"{note}\">\n{transcript}\n</restored_transcript>\n")})
 }
