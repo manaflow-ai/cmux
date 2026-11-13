@@ -118,3 +118,5 @@ test("a page that pins its motion is never marked minimal", () => {
   budget.dispose();
   expect(doc.documentElement.getAttribute("data-chat-motion")).toBe("full");
 });
+
+// Vehicle only (never merges): this line changes nothing.

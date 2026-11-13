@@ -207,3 +207,5 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
     now: shown.now,
   };
 }
+
+// Vehicle only (never merges): this line changes nothing.

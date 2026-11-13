@@ -42,3 +42,5 @@ export function springEasing(
     return fallback;
   }
 }
+
+// Vehicle only (never merges): this line changes nothing.

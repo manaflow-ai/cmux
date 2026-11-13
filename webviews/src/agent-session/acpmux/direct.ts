@@ -15581,3 +15581,5 @@ function refusedByHost(error: AcpmuxRpcError): boolean {
   const data = error.data && typeof error.data === "object" ? (error.data as Record<string, unknown>) : undefined;
   return data?.origin === "native";
 }
+
+// Vehicle only (never merges): this line changes nothing.

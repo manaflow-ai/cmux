@@ -568,3 +568,5 @@ class Flight {
     if (flight === this) flight = undefined;
   }
 }
+
+// Vehicle only (never merges): this line changes nothing.

@@ -3603,3 +3603,5 @@ export function turnFooterFrom(rows: readonly AcpmuxRow[], from: number): string
 
 /// A folded copy of an activity row is drawn as tool rows, never as the edited-files card.
 export const isFoldedCopy = (row: AcpmuxRow) => row.id.endsWith(FOLDED);
+
+// Vehicle only (never merges): this line changes nothing.

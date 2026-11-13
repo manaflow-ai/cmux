@@ -569,3 +569,5 @@ export function paintFindHighlights(
   paintAdaptiveFind(root.ownerDocument, FIND_HIGHLIGHT, CHAT_FIND_COLORS, all, current ? [current] : []);
   return current;
 }
+
+// Vehicle only (never merges): this line changes nothing.

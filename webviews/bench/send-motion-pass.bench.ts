@@ -909,3 +909,5 @@ if (import.meta.main) {
     await release();
   }
 }
+
+// Vehicle only (never merges): this line changes nothing.

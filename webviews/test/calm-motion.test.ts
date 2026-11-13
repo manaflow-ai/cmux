@@ -164,3 +164,5 @@ await requireBrowserLane("calm-motion.test.ts", async () => {
     expect(pop).toBe("");
   });
 });
+
+// Vehicle only (never merges): this line changes nothing.

@@ -185,3 +185,5 @@ await requireBrowserLane("chat-scroll-back-still.test.ts", async () => {
     },
   );
 });
+
+// Vehicle only (never merges): this line changes nothing.

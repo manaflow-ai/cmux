@@ -178,3 +178,5 @@ await requireBrowserLane("turn-transition-jumps.test.ts", async () => {
     },
   );
 });
+
+// Vehicle only (never merges): this line changes nothing.

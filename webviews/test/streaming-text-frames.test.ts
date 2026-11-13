@@ -226,3 +226,5 @@ await requireBrowserLane("streaming-text-frames.test.ts", async () => {
     expect(overLayout(eased)).toEqual([]);
   });
 });
+
+// Vehicle only (never merges): this line changes nothing.

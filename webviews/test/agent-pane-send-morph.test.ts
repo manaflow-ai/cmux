@@ -470,3 +470,5 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
     }
   });
 });
+
+// Vehicle only (never merges): this line changes nothing.

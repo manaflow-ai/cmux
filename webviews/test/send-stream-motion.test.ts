@@ -186,3 +186,5 @@ await requireBrowserLane("send-stream-motion.test.ts", async () => {
     }
   });
 });
+
+// Vehicle only (never merges): this line changes nothing.

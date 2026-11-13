@@ -358,3 +358,5 @@ await requireBrowserLane("send-scroll-setting.browser.test.ts", async () => {
     await page.close();
   });
 });
+
+// Vehicle only (never merges): this line changes nothing.

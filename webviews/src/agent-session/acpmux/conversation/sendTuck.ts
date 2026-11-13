@@ -274,3 +274,5 @@ function shownText(box: HTMLElement): string | undefined {
 export function endSendTuck(): void {
   running?.();
 }
+
+// Vehicle only (never merges): this line changes nothing.

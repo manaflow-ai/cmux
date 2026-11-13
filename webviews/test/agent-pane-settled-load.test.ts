@@ -1299,3 +1299,5 @@ await requireBrowserLane("agent-pane-settled-load.test.ts", async () => {
     },
   );
 });
+
+// Vehicle only (never merges): this line changes nothing.

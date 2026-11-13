@@ -526,3 +526,5 @@ async function playArrival(
   }
   await wait(ARRIVAL_QUIET_MS);
 }
+
+// Vehicle only (never merges): this line changes nothing.

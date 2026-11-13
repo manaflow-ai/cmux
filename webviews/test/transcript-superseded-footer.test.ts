@@ -287,3 +287,5 @@ test("send a message: no assistant action row until assistant content arrives", 
   expect(last.text).toBe("Fixed the reconnect.");
   expect(markup(last)).toContain(COPY);
 });
+
+// Vehicle only (never merges): this line changes nothing.

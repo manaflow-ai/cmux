@@ -12,3 +12,5 @@ test("a CSS time and a min() of times", () => {
   expect(cssTimeMs("min(var(--x), 120ms)")).toBeUndefined();
   expect(cssTimeMs("auto")).toBeUndefined();
 });
+
+// Vehicle only (never merges): this line changes nothing.

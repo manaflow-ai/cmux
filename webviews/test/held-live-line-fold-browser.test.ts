@@ -153,3 +153,5 @@ await requireBrowserLane("held-live-line-fold-browser.test.ts", async () => {
     expect(round(worst! - bandBefore!)).toBeLessThanOrEqual(0.5);
   });
 });
+
+// Vehicle only (never merges): this line changes nothing.

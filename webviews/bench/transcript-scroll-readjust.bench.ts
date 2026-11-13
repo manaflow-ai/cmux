@@ -252,3 +252,5 @@ if (import.meta.main) {
     await vite.close();
   }
 }
+
+// Vehicle only (never merges): this line changes nothing.

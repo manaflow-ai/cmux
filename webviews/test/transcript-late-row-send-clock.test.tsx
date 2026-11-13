@@ -193,3 +193,5 @@ test("a send that makes a tail that fit overflow rises on the send's clock", asy
     container.remove();
   }
 });
+
+// Vehicle only (never merges): this line changes nothing.

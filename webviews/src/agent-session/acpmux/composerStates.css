@@ -1082,3 +1082,5 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 .acpmux-composer-prompt.is-cloud-starting [contenteditable] {
   color: var(--agent-muted);
 }
+
+/* Vehicle only (never merges): this line changes no rule. */

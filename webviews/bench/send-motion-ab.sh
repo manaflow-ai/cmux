@@ -56,3 +56,5 @@ for log in "$out"/after-*.log "$out"/before-*.log; do
   [ -f "$log" ] || continue
   grep '^PERF_ROW ' "$log" | sed "s|^PERF_ROW |$(basename "$log" .log) |" || true
 done
+
+# Vehicle only (never merges): this line changes nothing.

@@ -6561,3 +6561,5 @@ function TranscriptView({
 }
 
 const TranscriptViewMemo = React.memo(TranscriptView);
+
+// Vehicle only (never merges): this line changes nothing.

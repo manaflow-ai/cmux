@@ -201,3 +201,5 @@ export default componentEntry<Props>({
     },
   },
 });
+
+// Vehicle only (never merges): this line changes nothing.

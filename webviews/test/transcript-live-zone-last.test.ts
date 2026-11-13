@@ -242,3 +242,5 @@ for (const offset of [5 * 60_000, -5 * 60_000]) {
     expect(after.indexOf(`act-1${AFTER_SEND}u-2`)).toBe(after.indexOf("u-2") + 1);
   });
 }
+
+// Vehicle only (never merges): this line changes nothing.

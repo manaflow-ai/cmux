@@ -221,3 +221,5 @@ export function createFrameBudget(chat: Element, clock?: Clock): FrameBudget {
 export function minimalMotion(node: Element | null | undefined): boolean {
   return Boolean(node?.closest(`[${CHAT_MOTION_ATTR}="${MINIMAL_MOTION}"]`));
 }
+
+// Vehicle only (never merges): this line changes nothing.
