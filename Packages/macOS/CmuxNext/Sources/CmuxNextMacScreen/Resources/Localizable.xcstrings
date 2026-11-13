@@ -35376,26 +35376,26 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Only devices you approve can view or control. A sharing bar shows who is connected and lets you stop with one click."
+            "state": "translated",
+            "value": "لا يمكن العرض أو التحكم إلا للأجهزة التي توافق عليها. يعرض شريط المشاركة الأجهزة المتصلة ويتيح لك الإيقاف بنقرة واحدة."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Only devices you approve can view or control. A sharing bar shows who is connected and lets you stop with one click."
+            "state": "translated",
+            "value": "Samo uređaji koje odobrite mogu gledati ili upravljati. Traka za dijeljenje pokazuje ko je povezan i omogućava zaustavljanje jednim klikom."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Only devices you approve can view or control. A sharing bar shows who is connected and lets you stop with one click."
+            "state": "translated",
+            "value": "Kun enheder, du godkender, kan se eller styre. En delingslinje viser, hvem der er tilsluttet, og lader dig stoppe med ét klik."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Only devices you approve can view or control. A sharing bar shows who is connected and lets you stop with one click."
+            "state": "translated",
+            "value": "Nur von dir genehmigte Geräte können diesen Mac sehen oder steuern. Eine Freigabeleiste zeigt die Verbindung und beendet sie mit einem Klick."
           }
         },
         "en": {
@@ -35406,98 +35406,98 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Only devices you approve can view or control. A sharing bar shows who is connected and lets you stop with one click."
+            "state": "translated",
+            "value": "Solo los dispositivos que apruebes pueden ver o controlar. Una barra de uso compartido muestra quién está conectado y permite detenerlo con un clic."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Only devices you approve can view or control. A sharing bar shows who is connected and lets you stop with one click."
+            "state": "translated",
+            "value": "Seuls les appareils que vous approuvez peuvent voir ou contrôler. Une barre de partage indique qui est connecté et permet d’arrêter en un clic."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Only devices you approve can view or control. A sharing bar shows who is connected and lets you stop with one click."
+            "state": "translated",
+            "value": "Solo i dispositivi che approvi possono visualizzare o controllare. Una barra di condivisione mostra chi è connesso e consente di interrompere con un clic."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Only devices you approve can view or control. A sharing bar shows who is connected and lets you stop with one click."
+            "state": "translated",
+            "value": "承認したデバイスだけが表示または操作できます。共有バーに接続中のデバイスが表示され、ワンクリックで停止できます。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Only devices you approve can view or control. A sharing bar shows who is connected and lets you stop with one click."
+            "state": "translated",
+            "value": "មានតែឧបករណ៍ដែលអ្នកអនុម័តប៉ុណ្ណោះអាចមើល ឬគ្រប់គ្រងបាន។ របារចែករំលែកបង្ហាញអ្នកដែលបានភ្ជាប់ ហើយអនុញ្ញាតឱ្យបញ្ឈប់ដោយចុចតែម្តង។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Only devices you approve can view or control. A sharing bar shows who is connected and lets you stop with one click."
+            "state": "translated",
+            "value": "승인한 기기만 보고 제어할 수 있습니다. 공유 막대에 연결된 기기가 표시되며 한 번 클릭해 중지할 수 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Only devices you approve can view or control. A sharing bar shows who is connected and lets you stop with one click."
+            "state": "translated",
+            "value": "Bare enheter du godkjenner kan se eller styre. En delingslinje viser hvem som er tilkoblet, og lar deg stoppe med ett klikk."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Only devices you approve can view or control. A sharing bar shows who is connected and lets you stop with one click."
+            "state": "translated",
+            "value": "Tylko zatwierdzone przez Ciebie urządzenia mogą wyświetlać lub sterować. Pasek udostępniania pokazuje połączenie i pozwala zatrzymać je jednym kliknięciem."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Only devices you approve can view or control. A sharing bar shows who is connected and lets you stop with one click."
+            "state": "translated",
+            "value": "Somente dispositivos aprovados por você podem visualizar ou controlar. Uma barra de compartilhamento mostra quem está conectado e permite parar com um clique."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Only devices you approve can view or control. A sharing bar shows who is connected and lets you stop with one click."
+            "state": "translated",
+            "value": "Просматривать экран и управлять им могут только одобренные вами устройства. Панель общего доступа показывает подключённые устройства и позволяет остановить сеанс одним нажатием."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Only devices you approve can view or control. A sharing bar shows who is connected and lets you stop with one click."
+            "state": "translated",
+            "value": "เฉพาะอุปกรณ์ที่คุณอนุมัติเท่านั้นที่ดูหรือควบคุมได้ แถบการแชร์จะแสดงผู้ที่เชื่อมต่อและให้หยุดได้ด้วยการคลิกครั้งเดียว"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Only devices you approve can view or control. A sharing bar shows who is connected and lets you stop with one click."
+            "state": "translated",
+            "value": "Yalnızca onayladığınız aygıtlar görüntüleyebilir veya denetleyebilir. Paylaşım çubuğu bağlı olanları gösterir ve tek tıklamayla durdurmanızı sağlar."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Only devices you approve can view or control. A sharing bar shows who is connected and lets you stop with one click."
+            "state": "translated",
+            "value": "Переглядати або керувати можуть лише схвалені вами пристрої. Панель спільного доступу показує підключених і дає змогу зупинити одним натисканням."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Only devices you approve can view or control. A sharing bar shows who is connected and lets you stop with one click."
+            "state": "translated",
+            "value": "Chỉ các thiết bị bạn phê duyệt mới có thể xem hoặc điều khiển. Thanh chia sẻ cho biết ai đang kết nối và cho phép dừng bằng một lần nhấp."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Only devices you approve can view or control. A sharing bar shows who is connected and lets you stop with one click."
+            "state": "translated",
+            "value": "只有你批准的设备可以查看或控制。共享栏会显示已连接的设备，并可一键停止。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Only devices you approve can view or control. A sharing bar shows who is connected and lets you stop with one click."
+            "state": "translated",
+            "value": "只有你核准的裝置可以檢視或控制。共享列會顯示已連線的裝置，並可一鍵停止。"
           }
         }
       }
@@ -35638,26 +35638,26 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Accessibility lets a device you approve use the keyboard and pointer. You can share your screen without allowing control."
+            "state": "translated",
+            "value": "تتيح تسهيلات الاستخدام لجهاز توافق عليه استخدام لوحة المفاتيح والمؤشر. يمكنك مشاركة شاشتك من دون السماح بالتحكم."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Accessibility lets a device you approve use the keyboard and pointer. You can share your screen without allowing control."
+            "state": "translated",
+            "value": "Pristupačnost omogućava odobrenom uređaju da koristi tastaturu i pokazivač. Ekran možete dijeliti bez dopuštanja upravljanja."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Accessibility lets a device you approve use the keyboard and pointer. You can share your screen without allowing control."
+            "state": "translated",
+            "value": "Tilgængelighed giver en godkendt enhed adgang til tastatur og markør. Du kan dele skærmen uden at tillade styring."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Accessibility lets a device you approve use the keyboard and pointer. You can share your screen without allowing control."
+            "state": "translated",
+            "value": "Bedienungshilfen erlauben einem genehmigten Gerät, Tastatur und Zeiger zu verwenden. Du kannst den Bildschirm teilen, ohne die Steuerung zu erlauben."
           }
         },
         "en": {
@@ -35668,98 +35668,98 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Accessibility lets a device you approve use the keyboard and pointer. You can share your screen without allowing control."
+            "state": "translated",
+            "value": "La accesibilidad permite que un dispositivo aprobado use el teclado y el puntero. Puedes compartir la pantalla sin permitir el control."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Accessibility lets a device you approve use the keyboard and pointer. You can share your screen without allowing control."
+            "state": "translated",
+            "value": "L’accessibilité permet à un appareil approuvé d’utiliser le clavier et le pointeur. Vous pouvez partager votre écran sans autoriser le contrôle."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Accessibility lets a device you approve use the keyboard and pointer. You can share your screen without allowing control."
+            "state": "translated",
+            "value": "Accessibilità consente a un dispositivo approvato di usare tastiera e puntatore. Puoi condividere lo schermo senza consentire il controllo."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Accessibility lets a device you approve use the keyboard and pointer. You can share your screen without allowing control."
+            "state": "translated",
+            "value": "アクセシビリティを許可すると、承認したデバイスがキーボードとポインタを使えます。操作を許可せずに画面を共有することもできます。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Accessibility lets a device you approve use the keyboard and pointer. You can share your screen without allowing control."
+            "state": "translated",
+            "value": "ភាពងាយស្រួលអនុញ្ញាតឱ្យឧបករណ៍ដែលអ្នកអនុម័តប្រើក្តារចុច និងទ្រនិច។ អ្នកអាចចែករំលែកអេក្រង់ដោយមិនអនុញ្ញាតការគ្រប់គ្រង។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Accessibility lets a device you approve use the keyboard and pointer. You can share your screen without allowing control."
+            "state": "translated",
+            "value": "손쉬운 사용을 허용하면 승인한 기기에서 키보드와 포인터를 사용할 수 있습니다. 제어를 허용하지 않고 화면만 공유할 수도 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Accessibility lets a device you approve use the keyboard and pointer. You can share your screen without allowing control."
+            "state": "translated",
+            "value": "Tilgjengelighet lar en godkjent enhet bruke tastaturet og pekeren. Du kan dele skjermen uten å tillate styring."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Accessibility lets a device you approve use the keyboard and pointer. You can share your screen without allowing control."
+            "state": "translated",
+            "value": "Dostępność pozwala zatwierdzonemu urządzeniu używać klawiatury i wskaźnika. Możesz udostępnić ekran bez zezwalania na sterowanie."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Accessibility lets a device you approve use the keyboard and pointer. You can share your screen without allowing control."
+            "state": "translated",
+            "value": "A Acessibilidade permite que um dispositivo aprovado use o teclado e o cursor. Você pode compartilhar a tela sem permitir o controle."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Accessibility lets a device you approve use the keyboard and pointer. You can share your screen without allowing control."
+            "state": "translated",
+            "value": "Универсальный доступ позволяет одобренному устройству использовать клавиатуру и указатель. Вы можете поделиться экраном, не разрешая управление."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Accessibility lets a device you approve use the keyboard and pointer. You can share your screen without allowing control."
+            "state": "translated",
+            "value": "การช่วยการเข้าถึงช่วยให้อุปกรณ์ที่คุณอนุมัติใช้แป้นพิมพ์และตัวชี้ได้ คุณแชร์หน้าจอโดยไม่อนุญาตการควบคุมได้"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Accessibility lets a device you approve use the keyboard and pointer. You can share your screen without allowing control."
+            "state": "translated",
+            "value": "Erişilebilirlik, onayladığınız bir aygıtın klavye ve işaretçiyi kullanmasını sağlar. Denetime izin vermeden ekranınızı paylaşabilirsiniz."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Accessibility lets a device you approve use the keyboard and pointer. You can share your screen without allowing control."
+            "state": "translated",
+            "value": "Універсальний доступ дає схваленому пристрою змогу використовувати клавіатуру й вказівник. Ви можете надати доступ до екрана без дозволу керувати ним."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Accessibility lets a device you approve use the keyboard and pointer. You can share your screen without allowing control."
+            "state": "translated",
+            "value": "Trợ năng cho phép thiết bị bạn phê duyệt dùng bàn phím và con trỏ. Bạn có thể chia sẻ màn hình mà không cho phép điều khiển."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Accessibility lets a device you approve use the keyboard and pointer. You can share your screen without allowing control."
+            "state": "translated",
+            "value": "辅助功能允许你批准的设备使用键盘和指针。你可以共享屏幕而不允许控制。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Accessibility lets a device you approve use the keyboard and pointer. You can share your screen without allowing control."
+            "state": "translated",
+            "value": "輔助使用允許你核准的裝置使用鍵盤和指標。你可以共享螢幕而不允許控制。"
           }
         }
       }
@@ -35900,26 +35900,26 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Open a cmux window to share this Mac."
+            "state": "translated",
+            "value": "打开一个 cmux 窗口来共享这台 Mac。"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Open a cmux window to share this Mac."
+            "state": "translated",
+            "value": "Otvorite cmux prozor da podijelite ovaj Mac."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Open a cmux window to share this Mac."
+            "state": "translated",
+            "value": "Åbn et cmux-vindue for at dele denne Mac."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Open a cmux window to share this Mac."
+            "state": "translated",
+            "value": "Öffne ein cmux-Fenster, um diesen Mac zu teilen."
           }
         },
         "en": {
@@ -35930,98 +35930,98 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Open a cmux window to share this Mac."
+            "state": "translated",
+            "value": "Abre una ventana de cmux para compartir este Mac."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Open a cmux window to share this Mac."
+            "state": "translated",
+            "value": "Ouvrez une fenêtre cmux pour partager ce Mac."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Open a cmux window to share this Mac."
+            "state": "translated",
+            "value": "Apri una finestra di cmux per condividere questo Mac."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Open a cmux window to share this Mac."
+            "state": "translated",
+            "value": "このMacを共有するにはcmuxウインドウを開いてください。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Open a cmux window to share this Mac."
+            "state": "translated",
+            "value": "បើកបង្អួច cmux ដើម្បីចែករំលែក Mac នេះ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Open a cmux window to share this Mac."
+            "state": "translated",
+            "value": "이 Mac을 공유하려면 cmux 창을 여세요."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Open a cmux window to share this Mac."
+            "state": "translated",
+            "value": "Åpne et cmux-vindu for å dele denne Macen."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Open a cmux window to share this Mac."
+            "state": "translated",
+            "value": "Otwórz okno cmux, aby udostępnić tego Maca."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Open a cmux window to share this Mac."
+            "state": "translated",
+            "value": "Abra uma janela do cmux para compartilhar este Mac."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Open a cmux window to share this Mac."
+            "state": "translated",
+            "value": "Откройте окно cmux, чтобы поделиться этим Mac."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Open a cmux window to share this Mac."
+            "state": "translated",
+            "value": "เปิดหน้าต่าง cmux เพื่อแชร์ Mac เครื่องนี้"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Open a cmux window to share this Mac."
+            "state": "translated",
+            "value": "Bu Mac’i paylaşmak için bir cmux penceresi açın."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Open a cmux window to share this Mac."
+            "state": "translated",
+            "value": "Відкрийте вікно cmux, щоб надати доступ до цього Mac."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Open a cmux window to share this Mac."
+            "state": "translated",
+            "value": "Mở cửa sổ cmux để chia sẻ máy Mac này."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Open a cmux window to share this Mac."
+            "state": "translated",
+            "value": "打开 cmux 窗口以共享这台 Mac。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Open a cmux window to share this Mac."
+            "state": "translated",
+            "value": "開啟 cmux 視窗以共享這部 Mac。"
           }
         }
       }
@@ -36031,26 +36031,26 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS needs Screen Recording permission for this cmux app to share your display."
+            "state": "translated",
+            "value": "يحتاج macOS إلى إذن تسجيل الشاشة ليتمكن تطبيق cmux هذا من مشاركة شاشتك."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS needs Screen Recording permission for this cmux app to share your display."
+            "state": "translated",
+            "value": "macOS-u je potrebna dozvola za snimanje ekrana da bi ova cmux aplikacija dijelila vaš ekran."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS needs Screen Recording permission for this cmux app to share your display."
+            "state": "translated",
+            "value": "macOS skal have tilladelse til skærmoptagelse, så denne cmux-app kan dele din skærm."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS needs Screen Recording permission for this cmux app to share your display."
+            "state": "translated",
+            "value": "macOS benötigt die Bildschirmaufnahme-Berechtigung, damit diese cmux-App deinen Bildschirm teilen kann."
           }
         },
         "en": {
@@ -36061,98 +36061,98 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS needs Screen Recording permission for this cmux app to share your display."
+            "state": "translated",
+            "value": "macOS necesita permiso de grabación de pantalla para que esta app de cmux comparta tu pantalla."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS needs Screen Recording permission for this cmux app to share your display."
+            "state": "translated",
+            "value": "macOS a besoin de l’autorisation d’enregistrement de l’écran pour que cette app cmux partage votre écran."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS needs Screen Recording permission for this cmux app to share your display."
+            "state": "translated",
+            "value": "macOS richiede l’autorizzazione per la registrazione dello schermo affinché questa app cmux possa condividere lo schermo."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS needs Screen Recording permission for this cmux app to share your display."
+            "state": "translated",
+            "value": "このcmuxアプリで画面を共有するには、macOSの画面収録の許可が必要です。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS needs Screen Recording permission for this cmux app to share your display."
+            "state": "translated",
+            "value": "macOS ត្រូវការការអនុញ្ញាតថតអេក្រង់ ដើម្បីឱ្យកម្មវិធី cmux នេះចែករំលែកអេក្រង់របស់អ្នក។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS needs Screen Recording permission for this cmux app to share your display."
+            "state": "translated",
+            "value": "이 cmux 앱이 화면을 공유하려면 macOS 화면 기록 권한이 필요합니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS needs Screen Recording permission for this cmux app to share your display."
+            "state": "translated",
+            "value": "macOS trenger tillatelse til skjermopptak for at denne cmux-appen skal kunne dele skjermen din."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS needs Screen Recording permission for this cmux app to share your display."
+            "state": "translated",
+            "value": "macOS potrzebuje uprawnień do nagrywania ekranu, aby ta aplikacja cmux mogła udostępniać ekran."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS needs Screen Recording permission for this cmux app to share your display."
+            "state": "translated",
+            "value": "O macOS precisa da permissão Gravação de Tela para que este app cmux compartilhe sua tela."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS needs Screen Recording permission for this cmux app to share your display."
+            "state": "translated",
+            "value": "Для этого приложения cmux macOS требуется разрешение на запись экрана, чтобы делиться вашим экраном."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS needs Screen Recording permission for this cmux app to share your display."
+            "state": "translated",
+            "value": "macOS ต้องได้รับอนุญาตการบันทึกหน้าจอเพื่อให้แอป cmux นี้แชร์หน้าจอของคุณได้"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS needs Screen Recording permission for this cmux app to share your display."
+            "state": "translated",
+            "value": "Bu cmux uygulamasının ekranınızı paylaşabilmesi için macOS’te Ekran Kaydı izni gerekir."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS needs Screen Recording permission for this cmux app to share your display."
+            "state": "translated",
+            "value": "macOS потрібен дозвіл на запис екрана, щоб цей застосунок cmux міг надавати доступ до вашого екрана."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS needs Screen Recording permission for this cmux app to share your display."
+            "state": "translated",
+            "value": "macOS cần quyền Ghi màn hình để ứng dụng cmux này chia sẻ màn hình của bạn."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS needs Screen Recording permission for this cmux app to share your display."
+            "state": "translated",
+            "value": "此 cmux 应用需要 macOS 的屏幕录制权限才能共享你的显示屏。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS needs Screen Recording permission for this cmux app to share your display."
+            "state": "translated",
+            "value": "此 cmux App 需要 macOS 的螢幕錄製權限才能共享你的顯示器。"
           }
         }
       }
@@ -36162,26 +36162,26 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow cmux in the macOS permission prompt or System Settings, then return here and check again."
+            "state": "translated",
+            "value": "اسمح لـ cmux في مطالبة الأذونات في macOS أو إعدادات النظام، ثم عد إلى هنا وتحقق مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow cmux in the macOS permission prompt or System Settings, then return here and check again."
+            "state": "translated",
+            "value": "Dozvolite cmux-u u macOS upitu za dozvolu ili u Postavkama sistema, zatim se vratite ovdje i provjerite ponovo."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow cmux in the macOS permission prompt or System Settings, then return here and check again."
+            "state": "translated",
+            "value": "Tillad cmux i macOS-tilladelsesdialogen eller Systemindstillinger, vend derefter tilbage hertil og tjek igen."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow cmux in the macOS permission prompt or System Settings, then return here and check again."
+            "state": "translated",
+            "value": "Erlaube cmux im macOS-Berechtigungsdialog oder in den Systemeinstellungen, kehre dann hierher zurück und prüfe erneut."
           }
         },
         "en": {
@@ -36192,98 +36192,98 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow cmux in the macOS permission prompt or System Settings, then return here and check again."
+            "state": "translated",
+            "value": "Permite cmux en el aviso de permisos de macOS o en Ajustes del Sistema; después vuelve aquí y comprueba de nuevo."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow cmux in the macOS permission prompt or System Settings, then return here and check again."
+            "state": "translated",
+            "value": "Autorisez cmux dans la demande d’autorisation de macOS ou dans Réglages Système, puis revenez ici et vérifiez à nouveau."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow cmux in the macOS permission prompt or System Settings, then return here and check again."
+            "state": "translated",
+            "value": "Consenti a cmux nella richiesta di autorizzazione di macOS o in Impostazioni di Sistema, poi torna qui e controlla di nuovo."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow cmux in the macOS permission prompt or System Settings, then return here and check again."
+            "state": "translated",
+            "value": "macOSの許可ダイアログまたはシステム設定でcmuxを許可し、ここに戻ってもう一度確認してください。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow cmux in the macOS permission prompt or System Settings, then return here and check again."
+            "state": "translated",
+            "value": "អនុញ្ញាត cmux ក្នុងសំណើសុំការអនុញ្ញាតរបស់ macOS ឬការកំណត់ប្រព័ន្ធ បន្ទាប់មកត្រឡប់មកទីនេះ ហើយពិនិត្យម្ដងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow cmux in the macOS permission prompt or System Settings, then return here and check again."
+            "state": "translated",
+            "value": "macOS 권한 메시지나 시스템 설정에서 cmux를 허용한 다음 여기로 돌아와 다시 확인하세요."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow cmux in the macOS permission prompt or System Settings, then return here and check again."
+            "state": "translated",
+            "value": "Tillat cmux i macOS-tillatelsesmeldingen eller Systeminnstillinger, og gå deretter tilbake hit og sjekk igjen."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow cmux in the macOS permission prompt or System Settings, then return here and check again."
+            "state": "translated",
+            "value": "Zezwól na cmux w monicie uprawnień macOS lub w Ustawieniach systemowych, a następnie wróć tutaj i sprawdź ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow cmux in the macOS permission prompt or System Settings, then return here and check again."
+            "state": "translated",
+            "value": "Permita o cmux no aviso de permissão do macOS ou nos Ajustes do Sistema; depois volte aqui e verifique novamente."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow cmux in the macOS permission prompt or System Settings, then return here and check again."
+            "state": "translated",
+            "value": "Разрешите cmux в запросе разрешений macOS или в системных настройках, затем вернитесь сюда и проверьте ещё раз."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow cmux in the macOS permission prompt or System Settings, then return here and check again."
+            "state": "translated",
+            "value": "อนุญาต cmux ในพรอมต์สิทธิ์ของ macOS หรือการตั้งค่าระบบ จากนั้นกลับมาที่นี่แล้วตรวจสอบอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow cmux in the macOS permission prompt or System Settings, then return here and check again."
+            "state": "translated",
+            "value": "macOS izin isteminde veya Sistem Ayarları’nda cmux’a izin verin, ardından buraya dönüp tekrar kontrol edin."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow cmux in the macOS permission prompt or System Settings, then return here and check again."
+            "state": "translated",
+            "value": "Дозвольте cmux у запиті macOS або в системних параметрах, потім поверніться сюди й перевірте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow cmux in the macOS permission prompt or System Settings, then return here and check again."
+            "state": "translated",
+            "value": "Cho phép cmux trong lời nhắc quyền của macOS hoặc Cài đặt hệ thống, rồi quay lại đây và kiểm tra lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow cmux in the macOS permission prompt or System Settings, then return here and check again."
+            "state": "translated",
+            "value": "在 macOS 权限提示或系统设置中允许 cmux，然后返回此处再次检查。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Allow cmux in the macOS permission prompt or System Settings, then return here and check again."
+            "state": "translated",
+            "value": "在 macOS 權限提示或系統設定中允許 cmux，然後返回此處再次檢查。"
           }
         }
       }
@@ -36424,26 +36424,26 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Share this Mac’s main display with your devices."
+            "state": "translated",
+            "value": "شارك الشاشة الرئيسية لهذا الـ Mac مع أجهزتك."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Share this Mac’s main display with your devices."
+            "state": "translated",
+            "value": "Podijelite glavni ekran ovog Maca sa svojim uređajima."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Share this Mac’s main display with your devices."
+            "state": "translated",
+            "value": "Del denne Macs primære skærm med dine enheder."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Share this Mac’s main display with your devices."
+            "state": "translated",
+            "value": "Teile den Hauptbildschirm dieses Mac mit deinen Geräten."
           }
         },
         "en": {
@@ -36454,98 +36454,98 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Share this Mac’s main display with your devices."
+            "state": "translated",
+            "value": "Comparte la pantalla principal de este Mac con tus dispositivos."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Share this Mac’s main display with your devices."
+            "state": "translated",
+            "value": "Partagez l’écran principal de ce Mac avec vos appareils."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Share this Mac’s main display with your devices."
+            "state": "translated",
+            "value": "Condividi lo schermo principale di questo Mac con i tuoi dispositivi."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Share this Mac’s main display with your devices."
+            "state": "translated",
+            "value": "このMacのメインディスプレイをデバイスと共有します。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Share this Mac’s main display with your devices."
+            "state": "translated",
+            "value": "ចែករំលែកអេក្រង់មេរបស់ Mac នេះជាមួយឧបករណ៍របស់អ្នក។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Share this Mac’s main display with your devices."
+            "state": "translated",
+            "value": "이 Mac의 기본 디스플레이를 기기와 공유합니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Share this Mac’s main display with your devices."
+            "state": "translated",
+            "value": "Del hovedskjermen på denne Macen med enhetene dine."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Share this Mac’s main display with your devices."
+            "state": "translated",
+            "value": "Udostępnij główny ekran tego Maca swoim urządzeniom."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Share this Mac’s main display with your devices."
+            "state": "translated",
+            "value": "Compartilhe a tela principal deste Mac com seus dispositivos."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Share this Mac’s main display with your devices."
+            "state": "translated",
+            "value": "Поделитесь основным дисплеем этого Mac со своими устройствами."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Share this Mac’s main display with your devices."
+            "state": "translated",
+            "value": "แชร์จอภาพหลักของ Mac เครื่องนี้กับอุปกรณ์ของคุณ"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Share this Mac’s main display with your devices."
+            "state": "translated",
+            "value": "Bu Mac’in ana ekranını aygıtlarınızla paylaşın."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Share this Mac’s main display with your devices."
+            "state": "translated",
+            "value": "Надайте своїм пристроям доступ до основного екрана цього Mac."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Share this Mac’s main display with your devices."
+            "state": "translated",
+            "value": "Chia sẻ màn hình chính của máy Mac này với các thiết bị của bạn."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Share this Mac’s main display with your devices."
+            "state": "translated",
+            "value": "与设备共享这台 Mac 的主显示屏。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Share this Mac’s main display with your devices."
+            "state": "translated",
+            "value": "與裝置共享這部 Mac 的主顯示器。"
           }
         }
       }
@@ -36808,6 +36808,530 @@
           "stringUnit": {
             "state": "translated",
             "value": "繼續但不控制"
+          }
+        }
+      }
+    },
+    "devices.shareScreen": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مشاركة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dijeli"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Del"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teilen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partager"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Condividi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共有"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចែករំលែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "공유"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Del"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udostępnij"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartilhar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поделиться"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paylaş"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поділитися"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chia sẻ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享"
+          }
+        }
+      }
+    },
+    "devices.viewScreen": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض الشاشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži ekran"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis skærm"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildschirm anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "View screen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ver pantalla"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher l’écran"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visualizza schermo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画面を表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មើលអេក្រង់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis skjerm"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyświetl ekran"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ver tela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Просмотреть экран"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ดูหน้าจอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekranı Görüntüle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переглянути екран"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Xem màn hình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查看屏幕"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檢視螢幕"
+          }
+        }
+      }
+    },
+    "devices.error.invalidAction": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذا الإجراء غير متاح لهذا الجهاز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova radnja nije dostupna za ovaj uređaj."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne handling er ikke tilgængelig for denne enhed."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Aktion ist für dieses Gerät nicht verfügbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That action is not available for this device."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta acción no está disponible para este dispositivo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette action n’est pas disponible pour cet appareil."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa azione non è disponibile per questo dispositivo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイスではこの操作を利用できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សកម្មភាពនេះមិនអាចប្រើបានសម្រាប់ឧបករណ៍នេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 기기에서는 이 작업을 사용할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne handlingen er ikke tilgjengelig for denne enheten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta czynność nie jest dostępna dla tego urządzenia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta ação não está disponível para este dispositivo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Это действие недоступно для этого устройства."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การดำเนินการนี้ใช้ไม่ได้กับอุปกรณ์นี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu işlem bu aygıtta kullanılamaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ця дія недоступна для цього пристрою."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thao tác này không khả dụng cho thiết bị này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此设备无法执行此操作。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此裝置無法使用此操作。"
+          }
+        }
+      }
+    },
+    "devices.error.offline": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جهاز Mac هذا غير متصل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj Mac je van mreže."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Mac er offline."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Mac ist offline."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That Mac is offline."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ese Mac está sin conexión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac est hors ligne."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo Mac è offline."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacはオフラインです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac នេះនៅក្រៅបណ្ដាញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac은 오프라인입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Macen er frakoblet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten Mac jest offline."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac está offline."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот Mac не в сети."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac เครื่องนี้ออฟไลน์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac çevrimdışı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей Mac не в мережі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy Mac đó đang ngoại tuyến."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 处于离线状态。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這部 Mac 處於離線狀態。"
           }
         }
       }

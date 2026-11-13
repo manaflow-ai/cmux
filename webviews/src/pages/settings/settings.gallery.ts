@@ -15,6 +15,7 @@ import { PERSONALIZATION_KEYS } from "./personalizationParts";
 import { MockTeams } from "./mockTeams";
 import { mockThemeColors } from "./mockThemes";
 import { schema } from "./schema";
+import { mockDevicesState } from "./mockProvider";
 import MARTIN_PANDEMONIUM from "../../gallery/fixtures/art/martin-pandemonium.jpg?inline";
 import FRIEDRICH_FOREST_MOONLIGHT from "../../gallery/fixtures/art/friedrich-forest-moonlight.jpg?inline";
 import VAN_GOGH_STARRY_NIGHT from "../../gallery/fixtures/art/van-gogh-starry-night.jpg?inline";
@@ -1781,6 +1782,32 @@ variants["github-connect-confirm"] = variant("accounts", {
     await ctx.click({ selector: '[data-github-action="disconnect"]' });
     await ctx.waitFor(() => ctx.document.querySelector('[data-card="github-connection"] output'));
   },
+});
+
+const screenSharingDevices = mockDevicesState();
+variants["devices-screen-sharing-local"] = variant("devices", {
+  devices: screenSharingDevices,
+  note: "This Mac keeps one compact Share action beside its name; the device name and access controls retain their space.",
+});
+variants["devices-screen-sharing-remote"] = variant("devices", {
+  devices: {
+    ...screenSharingDevices,
+    others: screenSharingDevices.others.map((device) =>
+      device.id === "dev-macbook"
+        ? {
+            ...device,
+            online: true,
+            presence: "Online",
+            screenAction: { kind: "view", title: "View screen", disabled: false },
+          }
+        : device,
+    ),
+  },
+  note: "An online Mac has a direct View screen action; phones retain their access picker.",
+});
+variants["devices-screen-sharing-offline"] = variant("devices", {
+  devices: screenSharingDevices,
+  note: "An offline Mac keeps its disabled View screen affordance while its name and captions remain readable.",
 });
 
 export default settingsPageEntry({

@@ -97,13 +97,20 @@ extension SidebarListViewComponents {
                 guard let self else { return false }
                 return SidebarFoldAction(list: self).toggle(key)
             }
+        case (.listHeader, let view as ListHeaderRowView):
+            view.screenButton.onPress = { [weak self] in self?.model.send(.shareScreen(.local)) }
         case let (.section(sectionID), view as SectionHeaderRowView):
             if case let .machine(machine) = sectionID {
                 view.allowsAdd = true
                 view.onAdd = { [weak self] in self?.model.send(.newWorkspace(machine: machine, group: nil)) }
+                view.screenButton.onPress = { [weak self, weak view] in
+                    guard let intent = view?.screenAction else { return }
+                    self?.model.send(intent)
+                }
             } else {
                 view.allowsAdd = false
                 view.onAdd = nil
+                view.screenButton.onPress = nil
             }
         default:
             break

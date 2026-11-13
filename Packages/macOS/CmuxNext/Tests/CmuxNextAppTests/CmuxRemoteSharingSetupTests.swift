@@ -138,6 +138,74 @@ struct CmuxRemoteSharingSetupTests {
         ])
     }
 
+    @Test(arguments: [true, false])
+    func losingScreenRecordingDuringControlCheckReturnsToScreenGuide(controlGranted: Bool) async throws {
+        let fixture = Fixture(permissions: (true, false), answers: ["allow", "check", "cancel"])
+        fixture.afterAnswer = { identifier, answer in
+            if identifier.hasSuffix(".controlCheck"), answer == "check" {
+                fixture.permissions = (false, controlGranted)
+            }
+        }
+
+        let shared = try await fixture.setup().proceed(after: "continue", present: fixture.present)
+
+        #expect(!shared)
+        #expect(fixture.enables == 0)
+        #expect(fixture.controlRequests == 1)
+        #expect(fixture.presented == [
+            "cmux.dialog.screenSharing.setup.control",
+            "cmux.dialog.screenSharing.setup.controlCheck",
+            "cmux.dialog.screenSharing.setup.screen",
+        ])
+    }
+
+    @Test func restoringScreenRecordingAfterControlCheckCanFinish() async throws {
+        let fixture = Fixture(permissions: (true, false), answers: ["allow", "check", "allow", "check"])
+        fixture.afterAnswer = { identifier, answer in
+            guard answer == "check" else { return }
+            if identifier.hasSuffix(".controlCheck") {
+                fixture.permissions = (false, true)
+            } else if identifier.hasSuffix(".screenCheck") {
+                fixture.permissions.screen = true
+            }
+        }
+
+        let shared = try await fixture.setup().proceed(after: "continue", present: fixture.present)
+
+        #expect(shared)
+        #expect(fixture.enables == 1)
+        #expect(fixture.screenRequests == 1 && fixture.controlRequests == 1)
+        #expect(fixture.presented == [
+            "cmux.dialog.screenSharing.setup.control",
+            "cmux.dialog.screenSharing.setup.controlCheck",
+            "cmux.dialog.screenSharing.setup.screen",
+            "cmux.dialog.screenSharing.setup.screenCheck",
+        ])
+    }
+
+    @Test func continuingWithoutControlRechecksScreenAndPreservesThatChoice() async throws {
+        let fixture = Fixture(permissions: (true, false), answers: ["view", "allow", "check"])
+        fixture.afterAnswer = { identifier, answer in
+            if answer == "view" {
+                fixture.permissions.screen = false
+            } else if identifier.hasSuffix(".screenCheck"), answer == "check" {
+                fixture.permissions.screen = true
+            }
+        }
+
+        let shared = try await fixture.setup().proceed(after: "continue", present: fixture.present)
+
+        #expect(shared)
+        #expect(fixture.enables == 1)
+        #expect(fixture.screenRequests == 1 && fixture.controlRequests == 0)
+        #expect(!fixture.permissions.control)
+        #expect(fixture.presented == [
+            "cmux.dialog.screenSharing.setup.control",
+            "cmux.dialog.screenSharing.setup.screen",
+            "cmux.dialog.screenSharing.setup.screenCheck",
+        ])
+    }
+
     @Test func cancellationInsidePermissionSheetNeverEnablesSharing() async throws {
         let fixture = Fixture(permissions: (false, true), answers: ["cancel"])
         let setup = fixture.setup()

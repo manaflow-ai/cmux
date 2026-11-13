@@ -229,6 +229,8 @@ struct PageFactory {
             return (try? JSONValue.parse(JSONEncoder().encode(await environments.run(run)))) ?? .object([:])
         }
         let devices = services.deviceHub.settingsModel
+        devices.openScreen = { [weak services] id in services?.openMacScreen(for: id, in: nil) }
+        devices.shareThisMac = { [weak services] in _ = services?.registry.perform("macScreen.shareThisMac", invocation: ActionInvocation(origin: .user)) }
         provider.devicesState = { (try? JSONValue.parse(JSONEncoder().encode(devices.state))) ?? .null }
         provider.devicesRun = { params in
             let run: MacScreenDevicesSettings.Run

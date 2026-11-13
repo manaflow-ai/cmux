@@ -57,24 +57,25 @@ struct CmuxRemoteSharingSetup {
     func proceed(after answer: String, present: (CmuxDialogSpec) async -> String) async throws -> Bool {
         guard answer == "continue", !Task.isCancelled else { return false }
         var permissions = await refresh()
-        var requested = false
-        while !permissions.screen {
-            let answer = await present(Self.spec(requested ? .screenCheck : .screen))
+        var screenRequested = false, controlRequested = false, viewOnly = false
+        // Every read can revoke either grant. Select the next sheet from both current grants,
+        // so losing Screen Recording during the optional control step returns to its guide.
+        while !permissions.screen || (!permissions.control && !viewOnly) {
+            guard !Task.isCancelled else { return false }
+            let needsScreen = !permissions.screen
+            let step: Step = needsScreen
+                ? (screenRequested ? .screenCheck : .screen)
+                : (controlRequested ? .controlCheck : .control)
+            let answer = await present(Self.spec(step))
             guard !Task.isCancelled else { return false }
             switch answer {
-            case "allow": requestScreen(); requested = true
+            case "allow":
+                if needsScreen { requestScreen(); screenRequested = true }
+                else { requestControl(); controlRequested = true }
             case "check": permissions = await refresh()
-            default: return false
-            }
-        }
-        requested = false
-        while !permissions.control {
-            let answer = await present(Self.spec(requested ? .controlCheck : .control))
-            guard !Task.isCancelled else { return false }
-            if answer == "view" { break }
-            switch answer {
-            case "allow": requestControl(); requested = true
-            case "check": permissions = await refresh()
+            case "view" where !needsScreen:
+                viewOnly = true
+                permissions = await refresh()
             default: return false
             }
         }

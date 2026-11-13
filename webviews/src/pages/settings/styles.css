@@ -1213,6 +1213,10 @@ mark {
   gap: 6px;
 }
 
+.devices-screen-action {
+  flex: 0 0 auto;
+}
+
 .devices-relays-header {
   justify-content: space-between;
   flex-wrap: nowrap;

@@ -13,7 +13,7 @@ struct AAMacScreenSharingBarGalleryTests {
     private static let variants: [(name: String, title: String)] = [
         ("view-only", "Studio is viewing this Mac"),
         ("full-control", "Studio is controlling this Mac"),
-        ("long-name", "Leo's MacBook Pro — a very long viewer name is still visible"),
+        ("long-name", "Design Studio MacBook Pro with a very long name is viewing this Mac"),
     ]
 
     @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_TEST_REQUIRE_GUI"] == "1"))
@@ -53,13 +53,6 @@ struct AAMacScreenSharingBarGalleryTests {
                 bar.close()
             }
         }
-        let tar = Process()
-        tar.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
-        tar.currentDirectoryURL = AANestedGroupsGalleryTests.packageRoot
-        tar.arguments = ["cf", "mac-screen-sharing-bar-gallery.tar", "mac-screen-sharing-bar-gallery"]
-        try tar.run()
-        tar.waitUntilExit()
-        #expect(tar.terminationStatus == 0)
     }
 
     private func findLabel(in view: NSView, matching text: String) -> NSTextField? {

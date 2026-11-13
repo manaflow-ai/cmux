@@ -37,6 +37,20 @@ test("the card shows this Mac with its badge and fingerprint and reads again whe
   page.unmount();
 });
 
+test("Mac rows expose Share or View screen without widening the name controls", async () => {
+  const page = await open();
+  const self = card(page.container).querySelector<HTMLElement>('[data-device="dev-mac-studio"]')!;
+  const share = self.querySelector<HTMLButtonElement>('[data-device-action="shareScreen"]')!;
+  expect(share.getAttribute("aria-label")).toBe("Share");
+  await click(share);
+  const remote = card(page.container).querySelector<HTMLElement>('[data-device="dev-macbook"]')!;
+  const view = remote.querySelector<HTMLButtonElement>('[data-device-action="viewScreen"]')!;
+  expect(view.disabled).toBe(true);
+  expect(remote.querySelector('[data-device-action="shareScreen"]')).toBeNull();
+  expect(remote.querySelector("[data-device-name]")!.textContent).toBe("MacBook Pro");
+  page.unmount();
+});
+
 test("other devices show presence and an access picker that sends setAccess", async () => {
   const page = await open();
   const element = card(page.container);

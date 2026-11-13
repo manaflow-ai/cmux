@@ -114,14 +114,10 @@ public final class MacScreenPages {
         approval.hub = { [weak self] in self?.hub }
     }
 
-    /// The record a machine row should open. Joined ids are device ids even before the hub's
-    /// device list arrives; legacy machine names need a hub match. A person's View action also
-    /// supplies its scope, so the new tab connects without a second Connect click.
-    public func record(forMachine machine: String, requesting scope: SessionScope? = nil) -> MacScreenRecord {
-        guard !machine.isEmpty else { return MacScreenRecord(macID: nil) }
-        let candidate = machine.hasPrefix("joined:") ? String(machine.dropFirst("joined:".count)) : machine
-        guard let id = MacScreenRecord.normalizedDeviceID(candidate)
-            ?? hub?.devices.first(where: { $0.name == candidate })?.id else {
+    /// Opens an already-resolved screen device UUID. Machine routes, joined IDs and names are
+    /// not device identities. A person's View action supplies its scope for one-click connection.
+    public func record(forDevice device: String, requesting scope: SessionScope? = nil) -> MacScreenRecord {
+        guard let id = MacScreenRecord.normalizedDeviceID(device) else {
             return MacScreenRecord(macID: nil)
         }
         if let scope { pendingScopes[id] = scope }

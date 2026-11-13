@@ -39,8 +39,6 @@ private final class CallLog {
 private let hostID = "0b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff"
 
 nonisolated private final class MachineDevicesURLProtocol: URLProtocol, @unchecked Sendable {
-    nonisolated(unsafe) static var body = #"{"devices":[]}"#
-
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
@@ -48,7 +46,7 @@ nonisolated private final class MachineDevicesURLProtocol: URLProtocol, @uncheck
         guard let url = request.url else { return }
         let body = url.path == "/v1/auth/stack"
             ? #"{"session":"hub-session","userId":"u","expiresAt":4102444800000}"#
-            : Self.body
+            : request.value(forHTTPHeaderField: "X-Test-Devices") ?? #"{"devices":[]}"#
         let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1",
                                        headerFields: ["Content-Type": "application/json"])
         if let response { client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed) }
@@ -109,12 +107,13 @@ struct MacScreenDeviceRecordTests {
     }
 
     @MainActor
-    @Test func machineRowsResolveHubDevicesAndFallBackHome() async throws {
+    @Test func screenRecordsRequireDeviceIDsInsteadOfMachineNames() async throws {
         let deviceID = "6f1c2a4e-0d3b-4c5a-9e7f-112233445566"
-        MachineDevicesURLProtocol.body = #"{"devices":[{"id":"6f1c2a4e-0d3b-4c5a-9e7f-112233445566","name":"Air Blue","platform":"macos","online":true}]}"#
+        let devicesBody = #"{"devices":[{"id":"6f1c2a4e-0d3b-4c5a-9e7f-112233445566","name":"Test Studio","platform":"macos","online":true}]}"#
         let identity = DeviceIdentity(deviceID: UUID(), keys: TestDeviceKeys())
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MachineDevicesURLProtocol.self]
+        configuration.httpAdditionalHeaders = ["X-Test-Devices": devicesBody]
         let client = DeviceHubClient(baseURL: URL(string: "https://hub.invalid")!, identity: identity,
                                      tokens: DeviceHubAccountToken { "stack-token" },
                                      session: URLSession(configuration: configuration))
@@ -123,14 +122,14 @@ struct MacScreenDeviceRecordTests {
 
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
         let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
-        #expect(pages.record(forMachine: "joined:\(deviceID)") == MacScreenRecord(deviceID: deviceID))
+        #expect(pages.record(forDevice: deviceID.uppercased()) == MacScreenRecord(deviceID: deviceID))
         pages.hub = hub
-        #expect(pages.record(forMachine: deviceID) == MacScreenRecord(deviceID: deviceID))
-        #expect(pages.record(forMachine: "joined:\(deviceID)") == MacScreenRecord(deviceID: deviceID))
-        #expect(pages.record(forMachine: "Air Blue") == MacScreenRecord(deviceID: deviceID))
-        #expect(pages.record(forMachine: "missing-machine").isHome)
+        #expect(pages.record(forDevice: deviceID) == MacScreenRecord(deviceID: deviceID))
+        #expect(pages.record(forDevice: "joined:\(deviceID)").isHome)
+        #expect(pages.record(forDevice: "Test Studio").isHome)
+        #expect(pages.record(forDevice: "missing-machine").isHome)
         #expect(pages.pendingScopes.isEmpty)
-        let requested = pages.record(forMachine: "joined:\(deviceID)", requesting: .view)
+        let requested = pages.record(forDevice: deviceID, requesting: .view)
         // Automation/restoration does not consume a person's pending connection choice.
         pages.prepare("restored", record: requested, byPerson: false)
         _ = pages.makeView(for: "restored")
@@ -732,6 +731,50 @@ struct MacScreenDevicesSettingsTests {
         pages.hubConfigured = false
         #expect(!settings.state.available)
         pages.hub = nil
+    }
+}
+
+@MainActor
+struct MacScreenDeviceActionTests {
+    @Test func settingsActionsUseVerifiedMacDevicesAndTheGuidedShareCallback() async throws {
+        let identity = DeviceIdentity(deviceID: UUID(), keys: TestDeviceKeys())
+        let remote = "6f1c2a4e-0d3b-4c5a-9e7f-112233445566"
+        let offline = "7f1c2a4e-0d3b-4c5a-9e7f-112233445566"
+        let phone = "8f1c2a4e-0d3b-4c5a-9e7f-112233445566"
+        let devicesBody = #"{"devices":[{"id":"\#(identity.id)","name":"This Mac","platform":"macos","online":true},{"id":"\#(remote)","name":"Remote Mac","platform":"macos","online":true},{"id":"\#(offline)","name":"Offline Mac","platform":"macos","online":false},{"id":"\#(phone)","name":"Phone","platform":"ios","online":true}]}"#
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MachineDevicesURLProtocol.self]
+        configuration.httpAdditionalHeaders = ["X-Test-Devices": devicesBody]
+        let client = DeviceHubClient(baseURL: URL(string: "https://hub.invalid")!, identity: identity,
+                                     tokens: DeviceHubAccountToken { "stack-token" },
+                                     session: URLSession(configuration: configuration))
+        let hub = DeviceHub(client: client, secrets: MemoryRelaySecretStore(), deviceName: "This Mac")
+        await hub.refreshDevices()
+
+        let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
+        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        pages.hub = hub
+        let settings = MacScreenDevicesSettings(pages: pages)
+        var opened: String?
+        var shares = 0
+        settings.openScreen = { opened = $0 }
+        settings.shareThisMac = { shares += 1 }
+        func run(_ action: String, id: String? = nil, on: Bool? = nil) -> MacScreenDevicesSettings.Run {
+            .init(action: action, id: id, name: nil, scope: nil, on: on, relay: nil)
+        }
+
+        #expect((await settings.run(run("openScreen", id: remote))).error == nil)
+        #expect(opened == remote)
+        #expect((await settings.run(run("openScreen", id: identity.id))).error != nil)
+        #expect((await settings.run(run("openScreen", id: offline))).error != nil)
+        #expect((await settings.run(run("openScreen", id: phone))).error != nil)
+        #expect((await settings.run(run("openScreen", id: "unknown"))).error != nil)
+        #expect((await settings.run(run("shareThisMac", id: identity.id))).error == nil)
+        #expect(shares == 1)
+        #expect((await settings.run(run("setSharing", on: true))).error == nil)
+        #expect(shares == 2, "enabling from Settings uses the guided Share callback")
+        #expect((await settings.run(run("shareThisMac", id: remote))).error != nil)
+        #expect(shares == 2)
     }
 }
 

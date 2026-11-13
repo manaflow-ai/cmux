@@ -112,7 +112,7 @@ extension CmuxRemoteActionEnvironment {
                     if action == "share" {
                         guard let window else { return ["ok": false, "declined": true] }
                         let shared = try await CmuxRemoteSharingSetup(host: environment.screenHost).confirm(in: window)
-                        return ["ok": shared, "declined": !shared]
+                        return ["ok": .bool(shared), "declined": .bool(!shared)]
                     }
                     let (title, body) = CmuxRemoteStrings.confirmAccess(device: name, scope: scope ?? .ask)
                     guard await Self.confirm(title: title, body: body, in: window) else { return ["ok": false, "declined": true] }

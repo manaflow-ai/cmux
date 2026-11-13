@@ -117,16 +117,29 @@ import Testing
         let ticketText = #"{"type":"session.ticket","sessionId":"s1","ticket":"jws","signalURL":"wss://hub.example/ws","ice":[],"peer":{"id":"viewer","name":"Viewer","signingKey":"key"},"role":"host","scope":"view"}"#
         let relay = PushRelay()
         let subscriber = ObjectIdentifier(NSObject())
-        let relayed = DispatchSemaphore(value: 0)
+        let relayed = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         let received = OSAllocatedUnfairLock<String?>(initialState: nil)
         relay.add(subscriber) { line in
             if let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
                let text = object["text"] as? String { received.withLock { $0 = text } }
-            relayed.signal()
+            relayed.continuation.yield(())
             return true
         }
         _ = try await RelayingConnection(inner: OneShotConnection(text: ticketText), relay: relay).receive()
-        #expect(relayed.wait(timeout: .now() + 1) == .success)
+        let sawRelay = await withTaskGroup(of: Bool.self) { group -> Bool in
+            group.addTask {
+                var iterator = relayed.stream.makeAsyncIterator()
+                return await iterator.next() != nil
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(1))
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
+        }
+        #expect(sawRelay)
         let pushText = try #require(received.withLock { $0 })
         agent.handle(try #require(DeviceHubPush(text: pushText)))
         #expect(served == 0)

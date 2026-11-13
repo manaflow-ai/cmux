@@ -33,6 +33,10 @@ public final class MacScreenDevicesSettings {
     @ObservationIgnored public var thisDeviceRemoved: @MainActor () -> Void = {}
     /// This Mac's name changed (the app keeps it for the next registration).
     @ObservationIgnored public var thisDeviceRenamed: @MainActor (String) -> Void = { _ in }
+    /// Opens a verified Mac Screen device from Settings > Devices.
+    @ObservationIgnored public var openScreen: @MainActor (String) -> Void = { _ in }
+    /// Starts the same guided Share This Mac flow used by the sidebar.
+    @ObservationIgnored public var shareThisMac: @MainActor () -> Void = {}
     /// Checks a relay; tests replace it.
     @ObservationIgnored var checkRelay: @Sendable ([ICEServerConfig]) async -> ICERelayCheck.Outcome = { servers in
         await ICERelayCheck(servers: servers).run()
@@ -82,6 +86,11 @@ public final class MacScreenDevicesSettings {
         }
 
         public struct Device: Encodable, Equatable, Sendable {
+            public struct ScreenAction: Encodable, Equatable, Sendable {
+                var kind: String
+                var title: String
+                var disabled: Bool
+            }
             public struct Confirm: Encodable, Equatable, Sendable {
                 var title: String
                 var body: String
@@ -99,10 +108,11 @@ public final class MacScreenDevicesSettings {
             var thisDevice: Bool
             var sharesText: String?
             var access: String?
+            var screenAction: ScreenAction?
             var removeConfirm: Confirm
 
             enum CodingKeys: String, CodingKey {
-                case id, name, platform, fingerprint, fingerprintFull, online, presence, thisDevice, sharesText, access, removeConfirm
+                case id, name, platform, fingerprint, fingerprintFull, online, presence, thisDevice, sharesText, access, screenAction, removeConfirm
             }
 
             /// The page reads null for an absent value, never a missing key.
@@ -118,6 +128,7 @@ public final class MacScreenDevicesSettings {
                 try c.encode(thisDevice, forKey: .thisDevice)
                 try c.encode(sharesText, forKey: .sharesText)
                 try c.encode(access, forKey: .access)
+                try c.encode(screenAction, forKey: .screenAction)
                 try c.encode(removeConfirm, forKey: .removeConfirm)
             }
         }
@@ -288,7 +299,11 @@ public final class MacScreenDevicesSettings {
             id: device.id, name: device.name, platform: device.platform == .ios ? L.t("devices.platform.ios", "iPhone") : L.t("devices.platform.mac", "Mac"),
             fingerprint: device.fingerprint.map(DeviceIdentity.displayFingerprint), fingerprintFull: device.fingerprint, online: isMe || device.online, presence: presence,
             thisDevice: isMe, sharesText: device.macScreenShared ? L.t("devices.shares", "Shares Mac Screen") : nil,
-            access: isMe ? nil : hub.scope(host: me, viewer: device.id).rawValue, removeConfirm: confirm)
+            access: isMe ? nil : hub.scope(host: me, viewer: device.id).rawValue,
+            screenAction: device.platform == .macos
+                ? .init(kind: isMe ? "share" : "view", title: isMe ? L.t("devices.shareScreen", "Share") : L.t("devices.viewScreen", "View screen"), disabled: !isMe && !device.online)
+                : nil,
+            removeConfirm: confirm)
     }
 
     nonisolated static func modeText(_ mode: RelayAuthMode) -> String {
@@ -469,6 +484,16 @@ public final class MacScreenDevicesSettings {
                 await share.refreshPermissions()
                 await hub.refreshAll()
                 await hub.refreshAudit()
+            case "openScreen":
+                guard let id = run.id, let device = hub.devices.first(where: { $0.id == id }), device.platform == .macos else {
+                    return RunResult(error: L.t("devices.error.gone", "That device is no longer in your devices."))
+                }
+                guard id != hub.identity.id else { return RunResult(error: L.t("devices.error.invalidAction", "That action is not available for this device.")) }
+                guard device.online else { return RunResult(error: L.t("devices.error.offline", "That Mac is offline.")) }
+                openScreen(id)
+            case "shareThisMac":
+                guard run.id == hub.identity.id else { return RunResult(error: L.t("devices.error.invalidAction", "That action is not available for this device.")) }
+                shareThisMac()
             case "rename":
                 guard let id = run.id, let name = run.name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else {
                     return RunResult(error: L.t("devices.error.name", "Enter a name."))
@@ -486,7 +511,8 @@ public final class MacScreenDevicesSettings {
                 }
                 try await hub.setPermission(host: hub.identity.id, viewer: id, scope: scope.scope)
             case "setSharing":
-                try await hubHost.setSharing(run.on ?? false)
+                if run.on == true { shareThisMac() }
+                else { try await hubHost.setSharing(false) }
             case "openPermission":
                 share.openSettings(screenRecording: run.id == "screenRecording")
             case "saveRelay":

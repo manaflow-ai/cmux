@@ -8,6 +8,32 @@ extension WorkspaceRowView {
     /// Where the row's last layout put the menu button, made or not: the menu anchors there (`SidebarRowMenu`).
     var moreFrame: NSRect { moreSlot.frame }
 
+    func makeScreenButton() -> SidebarIconButton {
+        let button = SidebarIconButton(icon: .remoteDisplay, pointSize: { Metrics.smallIconSize - Metrics.space1 }, label: Strings.viewScreen)
+        button.onPress = { [weak self] in
+            guard let self, let id = self.screenMachineID else { return }
+            self.onViewScreen?(id)
+        }
+        identify(button, as: "screen")
+        return button
+    }
+
+    func configureScreen(_ machine: SidebarMachine?) {
+        let eligible = machine.map { $0.kind == .cloud || (($0.kind == .ssh || $0.kind == .server) && $0.screenDeviceID != nil) } ?? false
+        let next = eligible && !isPlaceholderRow ? machine?.id : nil
+        if screenMachineID != next { screenMachineID = next; needsLayout = true }
+        if let machine, screenMachineID != nil {
+            let button = screenSlot.control(in: self)
+            button.isHidden = false
+            button.isEnabled = machine.kind == .cloud || machine.screenAvailable
+            button.label = Strings.viewScreen + (button.isEnabled ? "" : " — " + Strings.statusOffline)
+            identify(button, as: "screen")
+        } else {
+            screenSlot.made?.isHidden = true
+            screenSlot.made?.isEnabled = false
+        }
+    }
+
     func makeCloseButton() -> SidebarIconButton {
         let button = SidebarIconButton.rowClose(label: Strings.closeButton)
         button.onPress = { [weak self] in self?.onClose?() }
@@ -60,6 +86,7 @@ extension WorkspaceRowView {
 
     /// The made controls' accessibility identifiers, for the row's workspace.
     func applyControlIdentifiers() {
+        screenSlot.made.map { identify($0, as: "screen") }
         closeSlot.made.map { identify($0, as: "close") }
         moreSlot.made.map { identify($0, as: "more") }
         pinSlot.made.map { identify($0, as: "pin") }

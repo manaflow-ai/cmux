@@ -60,13 +60,6 @@ struct AAMacScreenSetupGalleryTests {
                 #expect(CGImageDestinationFinalize(dest))
             }
         }
-        let tar = Process()
-        tar.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
-        tar.currentDirectoryURL = AANestedGroupsGalleryTests.packageRoot
-        tar.arguments = ["cf", "mac-screen-setup-gallery.tar", "mac-screen-setup-gallery"]
-        try tar.run()
-        tar.waitUntilExit()
-        #expect(tar.terminationStatus == 0)
     }
 
     private enum GalleryError: Error { case missingDialog }

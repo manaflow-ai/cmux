@@ -38,6 +38,13 @@ public struct HubDevice: Codable, Sendable, Equatable, Identifiable {
         self.macScreenShared = macScreenShared; self.online = online
     }
 
+    /// Known Mac screen destinations, including Macs whose user has yet to allow sharing.
+    /// Lowercase device IDs are stable identity keys; display names never participate.
+    public static func macScreenAvailability(in devices: [HubDevice]) -> [String: Bool] {
+        Dictionary(devices.filter { $0.platform == .macos }.map { ($0.id.lowercased(), $0.online) },
+                   uniquingKeysWith: { first, _ in first })
+    }
+
     /// The signing key's display fingerprint, when the key is valid.
     public var fingerprint: String? { signingKey.flatMap(DeviceIdentity.fingerprint(signingKey:)) }
 

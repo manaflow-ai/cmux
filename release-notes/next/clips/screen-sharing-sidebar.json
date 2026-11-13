@@ -1,0 +1,23 @@
+{
+  "caption": "Share This Mac stays visible in the sidebar with either workspace layout.",
+  "frameInterval": 0.25,
+  "settings": {"sidebar": {"groupByComputer": false}},
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "Share beside Projects", "wait": 1.5, "clip": true},
+    {
+      "title": "Share beside This Mac in the grouped layout",
+      "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "sidebar.groupByComputer", "value": true}},
+      "wait": 2,
+      "clip": true
+    },
+    {
+      "title": "Return to the flat layout",
+      "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "sidebar.groupByComputer", "value": false}},
+      "wait": 1.5,
+      "clip": true
+    },
+    {"title": "End", "wait": 0.3}
+  ],
+  "crop": [0, 0.12, 0.28, 0.65]
+}

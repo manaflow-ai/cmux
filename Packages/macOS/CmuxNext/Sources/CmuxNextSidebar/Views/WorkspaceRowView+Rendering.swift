@@ -114,7 +114,10 @@ extension WorkspaceRowView {
         layoutColorRail(in: full)
         // The name lines and the trailing cluster center in the head; the
         // status block, when shown, fills the rest below it.
-        let b = NSRect(x: full.minX, y: full.minY, width: full.width, height: full.height - statusHeight)
+        // View owns one compact trailing slot at rest. The whole existing text/control cluster uses
+        // the remaining width, so hover close, overflow, badges and captions never collide with it.
+        let contentWidth = max(0, full.width - (screenMachineID == nil ? 0 : SidebarStyle.trailingSlotPitch))
+        let b = NSRect(x: full.minX, y: full.minY, width: contentWidth, height: full.height - statusHeight)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         // Entering a row should reveal its controls immediately. Keep the
@@ -126,6 +129,7 @@ extension WorkspaceRowView {
         // (Leo 2026-10-21); the members' line is one layer per group beside the rows
         // (SidebarListView+GroupLines).
         let (th, sh, top, cy) = textMetrics(head: b)
+        screenSlot.frame = SidebarStyle.trailingColumnFrame(rowWidth: full.width, centerY: cy, side: SidebarStyle.controlSize)
         let columns = SidebarStyle.columns(rowWidth: b.width, depth: treeDepth)
         // A custom workspace icon or favicon takes the leading slot; without one the title starts
         // at the leading inset (no default kind glyph).

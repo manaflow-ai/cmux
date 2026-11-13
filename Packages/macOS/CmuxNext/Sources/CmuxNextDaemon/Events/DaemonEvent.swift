@@ -9,6 +9,8 @@ public enum DaemonEvent: Sendable, Hashable {
     case connected(DaemonIdentity, generationChanged: Bool)
     /// The socket dropped. The connection retries on its own.
     case disconnected(reason: String)
+    /// The authenticated screen worker became ready, rotated its UUID, or removed its identity.
+    case screenDeviceChanged(String?)
 
     // Tree deltas (`tree_events:"deltas"`).
     case workspaceAdded(WorkspaceDelta)
@@ -105,7 +107,7 @@ extension DaemonEvent {
     /// which `list-workspaces` does not carry.
     var outlivesSnapshot: Bool {
         switch self {
-        case .connected, .disconnected, .daemonShutdown, .sessionState: true
+        case .connected, .disconnected, .daemonShutdown, .sessionState, .screenDeviceChanged: true
         // Transient questions to this connection; a snapshot never holds them.
         case .terminalClipboardRead, .terminalClipboardReadCancelled: true
         // Terminal outcomes live outside list-workspaces, including background jobs.
