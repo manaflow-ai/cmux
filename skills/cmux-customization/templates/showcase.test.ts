@@ -107,6 +107,26 @@ test("saved links reject unsafe URLs, persist HTTPS links and open with a gestur
   expect(host.calls.find((call) => call.name === "action.run")?.options.gesture).toBe("showcase-click")
 })
 
+test("saved links keep edits disabled after a read failure and retry without overwriting", async () => {
+  const host = new FakeHost(source("saved-links"))
+  let reads = 0
+  const writes: unknown[] = []
+  host.handlers["app.storage.get"] = () => ++reads === 1 ? refused() : ok(["https://team.example/existing"])
+  host.handlers["app.storage.set"] = (params) => { writes.push(params.value); return ok() }
+  expect(host.mount("m", "renderSavedLinks")).toBe("")
+  await host.settle()
+  expect(host.findNode("m", (node) => node.type === "TextField")).toBeUndefined()
+  tap(host, "Button", "Retry")
+  await host.settle()
+  expect(rows(host).map((node) => node.props.title)).toEqual(["https://team.example/existing"])
+  host.mount("m2", "renderSavedLinks")
+  await host.settle()
+  expect(reads).toBe(2)
+  host.dispatch("m", host.findNode("m", (node) => node.type === "TextField")!, "submit", { text: "https://team.example/new" })
+  await host.settle()
+  expect(writes.at(-1)).toEqual(["https://team.example/existing", "https://team.example/new"])
+})
+
 test("branch status reads the Session Info folder and displays a read error", async () => {
   const host = new FakeHost(source("branch-status"))
   host.handlers["git.status"] = () => ok({ root: "/src/project", branch: "feature", ahead: 2, behind: 1 })
