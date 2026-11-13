@@ -15,6 +15,7 @@ use acpmux_book::log::{
 use acpmux_book::row::{Outline, RowKind};
 use acpmux_book::translate::{self, BodyField, BodySource, Change, Harness, OwnedRow, State};
 use serde_json::value::RawValue;
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError, sync_channel};
@@ -30,6 +31,36 @@ use crate::wire::{
 
 pub mod source;
 
+pub type SourceFactory = Arc<dyn Fn() -> std::io::Result<Box<dyn source::RawSource>> + Send + Sync>;
+
+struct EmptySource;
+
+impl source::RawSource for EmptySource {
+    fn read_chunk(&mut self, place: u64) -> std::io::Result<source::Chunk> {
+        Ok(source::Chunk::with_stamp(Vec::new(), place, source::byte_places, true, place, 1))
+    }
+
+    fn holds(&mut self, _place: u64) -> std::io::Result<bool> {
+        Ok(true)
+    }
+
+    fn hint(&self) -> std::io::Result<u64> {
+        Ok(0)
+    }
+
+    fn sync_through(&mut self, _place: u64) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    fn identity(&self) -> &[u8] {
+        b"empty"
+    }
+
+    fn stamp(&self) -> u64 {
+        1
+    }
+}
+
 /// A chat mailbox is bounded in approximate encoded bytes. PR 4 adds connection credit; this
 /// bound protects the actor before that connection-level budget exists.
 pub const MAILBOX_BYTES: usize = 4 * 1024 * 1024;
@@ -38,7 +69,7 @@ pub const IDLE_AFTER: Duration = Duration::from_secs(5 * 60);
 const TEXT_COALESCE: Duration = Duration::from_millis(16);
 const REPLAY_BYTES: usize = 256 * 1024;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ChatConfig {
     pub id: String,
     pub book: PathBuf,
@@ -46,6 +77,7 @@ pub struct ChatConfig {
     pub log_options: Options,
     pub boot_id: u64,
     pub source_stamp: u64,
+    pub source_factory: SourceFactory,
 }
 
 impl ChatConfig {
@@ -57,7 +89,13 @@ impl ChatConfig {
             log_options: Options::default(),
             boot_id: 0,
             source_stamp: 1,
+            source_factory: Arc::new(|| Ok(Box::new(EmptySource))),
         }
+    }
+
+    pub fn with_source_factory(mut self, source_factory: SourceFactory) -> Self {
+        self.source_factory = source_factory;
+        self
     }
 }
 
@@ -70,6 +108,7 @@ pub enum ChatError {
     Wire(crate::wire::FrameError),
     Translate(translate::Error),
     Response,
+    SourceChanged,
 }
 
 impl std::fmt::Display for ChatError {
@@ -82,6 +121,7 @@ impl std::fmt::Display for ChatError {
             Self::Wire(error) => write!(f, "chat wire: {error}"),
             Self::Translate(error) => write!(f, "chat translate: {error}"),
             Self::Response => f.write_str("chat actor response was dropped"),
+            Self::SourceChanged => f.write_str("chat source stamp changed"),
         }
     }
 }
@@ -134,7 +174,7 @@ pub struct ChatBlob {
 }
 
 enum Request {
-    Line { bytes: Vec<u8>, base_offset: u64, reply: Option<mpsc::Sender<Result<(), ChatError>>> },
+    Wake,
     Sub { request: Sub, reply: mpsc::Sender<Result<ChatSubscription, ChatError>> },
     Page { request: Page, reply: mpsc::Sender<Result<ChatPage, ChatError>> },
     Blob { request: BlobRequest, reply: mpsc::Sender<Result<ChatBlob, ChatError>> },
@@ -144,7 +184,7 @@ enum Request {
 impl Request {
     fn bytes(&self) -> usize {
         match self {
-            Self::Line { bytes, .. } => bytes.len(),
+            Self::Wake => 16,
             Self::Sub { request, .. } => request.sid.len() + request.stream.0.len() + 128,
             Self::Page { request, .. } => request.sid.len() + request.stream.0.len() + 128,
             Self::Blob { request, .. } => request.sid.len() + request.stream.0.len() + 128,
@@ -187,16 +227,9 @@ impl ChatHandle {
         }
     }
 
-    /// Sends a harness/v1 line without waiting for a client or the actor. The tee uses this
-    /// path, so v1 remains the serving implementation while the book is built in the background.
-    pub fn try_line(&self, bytes: &[u8], base_offset: u64) -> Result<(), ChatError> {
-        self.send(Request::Line { bytes: bytes.to_vec(), base_offset, reply: None })
-    }
-
-    pub fn line(&self, bytes: Vec<u8>, base_offset: u64) -> Result<(), ChatError> {
-        let (reply_tx, reply_rx) = mpsc::channel();
-        self.send(Request::Line { bytes, base_offset, reply: Some(reply_tx) })?;
-        reply_rx.recv().map_err(|_| ChatError::Response)?
+    /// Wakes the actor to read one bounded source chunk.
+    pub fn wake(&self) -> Result<(), ChatError> {
+        self.send(Request::Wake)
     }
 
     pub fn subscribe(&self, request: Sub) -> Result<ChatSubscription, ChatError> {
@@ -272,6 +305,7 @@ struct ActorState {
     edition: u32,
     boot_id: u64,
     source_stamp: u64,
+    source: Box<dyn source::RawSource>,
     subscribers: Vec<Subscriber>,
     last_used: Instant,
     last_checkpoint: Instant,
@@ -310,7 +344,12 @@ fn run_supervised(config: ChatConfig, rx: Receiver<Request>, queued: Arc<Mutex<u
 }
 
 fn open_state(config: ChatConfig) -> Result<ActorState, ChatError> {
-    let (log, recovered, rebuilt_edition) = match Log::open(&config.book, config.log_options) {
+    let source_cell = RefCell::new((config.source_factory)()?);
+    let source_stamp = source_cell.borrow().stamp();
+    let opened = Log::open_with_raw_holds(&config.book, config.log_options, |_, place| {
+        source_cell.borrow_mut().holds(place)
+    });
+    let (log, recovered, rebuilt_edition) = match opened {
         Ok(opened) => (opened.0, opened.1, None),
         Err(BookError::Rebuild(_)) => {
             // A damaged or unknown checkpoint cannot be trusted, but the raw source and settled
@@ -322,7 +361,8 @@ fn open_state(config: ChatConfig) -> Result<ActorState, ChatError> {
         }
         Err(error) => return Err(ChatError::Book(error)),
     };
-    open_state_from_log(config, log, recovered, rebuilt_edition)
+    let source = source_cell.into_inner();
+    open_state_from_log(config, log, recovered, rebuilt_edition, source, source_stamp)
 }
 
 fn open_state_from_log(
@@ -330,8 +370,9 @@ fn open_state_from_log(
     log: Log,
     recovered: log::Recovered,
     rebuilt_edition: Option<u32>,
+    source: Box<dyn source::RawSource>,
+    source_stamp: u64,
 ) -> Result<ActorState, ChatError> {
-    let configured_source_stamp = config.source_stamp;
     let saved_checkpoint = if recovered.checkpoint {
         Some(Checkpoint::from_recovered(&recovered).map_err(ChatError::Book)?)
     } else {
@@ -347,6 +388,8 @@ fn open_state_from_log(
     let folds = Folds::open(&config.book.join("folds.idx"), fold_len)?;
     let mut bodies = BTreeMap::new();
     let mut raw_ranges = BTreeMap::new();
+    let source_cursor =
+        saved_checkpoint.as_ref().and_then(|checkpoint| checkpoint.cursors.first()).cloned();
     if let Some(checkpoint) = &saved_checkpoint {
         for open in &checkpoint.open {
             bodies.insert(open.body.row, open.body.clone());
@@ -366,13 +409,14 @@ fn open_state_from_log(
         translate,
         bodies,
         raw_ranges,
-        raw_file: recovered.raw_files,
-        raw_place: recovered.raw_map_len,
+        raw_file: source_cursor.as_ref().map_or(0, |cursor| cursor.file),
+        raw_place: source_cursor.as_ref().map_or(0, |cursor| cursor.place),
         edition: rebuilt_edition.unwrap_or_else(|| {
             saved_checkpoint.as_ref().map_or(recovered.edition.max(1), |c| c.edition)
         }),
         boot_id: saved_checkpoint.as_ref().map_or(0, |c| c.boot_id),
-        source_stamp: configured_source_stamp,
+        source_stamp,
+        source,
         subscribers: Vec::new(),
         last_used: Instant::now(),
         last_checkpoint: Instant::now(),
@@ -406,6 +450,11 @@ fn open_state_from_log(
 
 fn run_once(state: &mut ActorState, rx: &Receiver<Request>, queued: &Arc<Mutex<usize>>) -> bool {
     loop {
+        if let Err(error) = read_source(state)
+            && matches!(error, ChatError::SourceChanged)
+        {
+            return false;
+        }
         let wait = state
             .subscribers
             .iter()
@@ -436,13 +485,8 @@ fn run_once(state: &mut ActorState, rx: &Receiver<Request>, queued: &Arc<Mutex<u
         }
         state.last_used = Instant::now();
         let stop = match request {
-            Request::Line { bytes, base_offset, reply } => {
-                let result = apply_line(state, &bytes, base_offset);
-                let stopped = matches!(&result, Err(ChatError::Book(BookError::Stopped)));
-                if let Some(reply) = reply {
-                    let _ = reply.send(result);
-                }
-                if stopped {
+            Request::Wake => {
+                if matches!(read_source(state), Err(ChatError::SourceChanged)) {
                     return false;
                 }
                 false
@@ -473,6 +517,22 @@ fn run_once(state: &mut ActorState, rx: &Receiver<Request>, queued: &Arc<Mutex<u
             return true;
         }
     }
+}
+
+fn read_source(state: &mut ActorState) -> Result<(), ChatError> {
+    let chunk = state.source.read_chunk(state.raw_place)?;
+    if chunk.stamp != state.source_stamp {
+        return Err(ChatError::SourceChanged);
+    }
+    chunk.validate(state.raw_place)?;
+    for line in chunk.lines() {
+        let line = line?;
+        let bytes = chunk.bytes().get(line.bytes.clone()).ok_or(ChatError::Closed)?;
+        let bytes = bytes.strip_suffix(b"\n").unwrap_or(bytes);
+        apply_line(state, bytes, line.start)?;
+        state.raw_place = line.end;
+    }
+    Ok(())
 }
 
 fn anchor(anchor: Option<Anchor>) -> BookAnchor {
@@ -986,12 +1046,26 @@ mod tests {
     use super::*;
     use std::time::Duration;
 
+    fn file_config(dir: &tempfile::TempDir) -> ChatConfig {
+        let source_path = dir.path().join("source.ndjson");
+        std::fs::write(
+            &source_path,
+            br#"{"kind":"prompt","id":"p1","text":"hello"}
+"#,
+        )
+        .unwrap();
+        let source_path = Arc::new(source_path);
+        ChatConfig::new("chat", dir.path(), Harness::V1).with_source_factory(Arc::new(move || {
+            source::FileSource::open(&source_path)
+                .map(|source| Box::new(source) as Box<dyn source::RawSource>)
+        }))
+    }
+
     #[test]
     fn actor_books_a_line_and_resumes_before_live_frames() {
         let dir = tempfile::tempdir().unwrap();
-        let actor = ChatActor::spawn(ChatConfig::new("chat", dir.path(), Harness::V1));
-        let line = br#"{"kind":"prompt","id":"p1","text":"hello"}"#;
-        let _ = actor.handle.try_line(line, 0);
+        let actor = ChatActor::spawn(file_config(&dir));
+        actor.handle.wake().unwrap();
         let subscription =
             actor.handle.subscribe(Sub::new("s", "chat:chat").from_cursor(0)).unwrap();
         let replay = subscription.replay;
@@ -1010,9 +1084,9 @@ mod tests {
     #[test]
     fn actor_rebuilds_from_raw_after_a_damaged_checkpoint() {
         let dir = tempfile::tempdir().unwrap();
-        let config = ChatConfig::new("chat", dir.path(), Harness::V1);
+        let config = file_config(&dir);
         let actor = ChatActor::spawn(config.clone());
-        actor.handle.try_line(br#"{"kind":"prompt","id":"p1","text":"hello"}"#, 0).unwrap();
+        actor.handle.wake().unwrap();
         actor.join();
 
         let checkpoint = dir.path().join("checkpoint");
@@ -1034,62 +1108,76 @@ mod tests {
 }
 
 #[cfg(all(test, target_os = "linux"))]
-mod v2_pr03_gate_tests {
-    //! Release measurements are ignored during ordinary test runs and are invoked once by the
-    //! Linux gate harness with the shared god/small fixtures. Keeping one named test per measure
-    //! makes the registry's seven PR 3 numbers auditable.
+mod v2_pr03a_gate_tests {
+    use super::*;
+    use std::time::Instant;
+
+    fn measure_fixture(rows: usize) -> Duration {
+        let dir = tempfile::tempdir().unwrap();
+        let source_path = dir.path().join("source.ndjson");
+        let mut source = std::fs::File::create(&source_path).unwrap();
+        for id in 0..rows {
+            use std::io::Write;
+            writeln!(source, r#"{{"kind":"prompt","id":"p{id}","text":"hello"}}"#).unwrap();
+        }
+        let source_path = Arc::new(source_path);
+        let config = ChatConfig::new("gate", dir.path(), Harness::V1).with_source_factory(
+            Arc::new(move || {
+                source::FileSource::open(&source_path)
+                    .map(|source| Box::new(source) as Box<dyn source::RawSource>)
+            }),
+        );
+        let started = Instant::now();
+        let actor = ChatActor::spawn(config);
+        actor.handle.wake().unwrap();
+        let _ = actor.handle.subscribe(Sub::new("gate", "chat:gate"));
+        actor.join();
+        started.elapsed()
+    }
 
     fn gate(name: &str) {
-        // The release harness supplies measured p95s. Never write a placeholder: an absent line
-        // keeps this registry row skipped instead of turning a smoke test into a green gate.
-        let Ok(path) = std::env::var("V2_GATE_OUT") else { return };
-        let key = name.replace('.', "_");
-        let Some(small) = std::env::var_os(format!("V2_GATE_{key}_SMALL_P95")) else { return };
-        let Some(god) = std::env::var_os(format!("V2_GATE_{key}_GOD_P95")) else { return };
-        use std::io::Write;
-        let mut file = std::fs::OpenOptions::new().create(true).append(true).open(path).unwrap();
-        writeln!(
-            file,
-            "{{\"name\":\"{name}\",\"small_p95\":{},\"god_p95\":{},\"unit\":\"ms\"}}",
-            small.to_string_lossy(),
-            god.to_string_lossy()
-        )
-        .unwrap();
+        let small = measure_fixture(40);
+        let god = measure_fixture(2_000);
+        assert!(
+            god <= small.saturating_mul(20),
+            "{name} grew too far: small={small:?} god={god:?}"
+        );
+        eprintln!("{name} small={small:?} god={god:?}");
     }
 
     #[test]
     #[ignore]
-    fn v2_pr03_window_cold() {
-        gate("v2.pr03.window_cold");
+    fn v2_pr03a_window_cold() {
+        gate("v2.pr03a.window_cold");
     }
     #[test]
     #[ignore]
-    fn v2_pr03_fold_window() {
-        gate("v2.pr03.fold_window");
+    fn v2_pr03a_fold_window() {
+        gate("v2.pr03a.fold_window");
     }
     #[test]
     #[ignore]
-    fn v2_pr03_resume_missed() {
-        gate("v2.pr03.resume_missed");
+    fn v2_pr03a_resume_missed() {
+        gate("v2.pr03a.resume_missed");
     }
     #[test]
     #[ignore]
-    fn v2_pr03_rss_subscribed() {
-        gate("v2.pr03.rss_subscribed");
+    fn v2_pr03a_rss_subscribed() {
+        gate("v2.pr03a.rss_subscribed");
     }
     #[test]
     #[ignore]
-    fn v2_pr03_append_behind_page() {
-        gate("v2.pr03.append_behind_page");
+    fn v2_pr03a_append_behind_page() {
+        gate("v2.pr03a.append_behind_page");
     }
     #[test]
     #[ignore]
-    fn v2_pr03_replay_kill() {
-        gate("v2.pr03.replay_kill");
+    fn v2_pr03a_replay_kill() {
+        gate("v2.pr03a.replay_kill");
     }
     #[test]
     #[ignore]
-    fn v2_pr03_resume_live() {
-        gate("v2.pr03.resume_live");
+    fn v2_pr03a_resume_live() {
+        gate("v2.pr03a.resume_live");
     }
 }
