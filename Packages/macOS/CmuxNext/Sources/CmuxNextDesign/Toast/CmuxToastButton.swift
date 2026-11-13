@@ -1,12 +1,18 @@
 public import AppKit
 
-/// A toast's action (Undo, Reopen, Details) or close button: a clear text button in
-/// the primary text color, or a small xmark, on the toast's own surface,
+/// A toast's action (Undo, Reopen, Details), Don't Show Again or close button: a clear text button
+/// in the primary text color (Don't Show Again in the secondary one, lit under the pointer: it is the
+/// quiet choice), or a small xmark, on the toast's own surface,
 /// with the shared hover fill only under the pointer. No second capsule, no
 /// accent color.
 @MainActor
 public final class CmuxToastButton: ClickableButton {
-    public enum Style { case action, close }
+    public enum Style {
+        case action
+        /// Don't Show Again: a text button in the secondary text color, regular weight.
+        case quiet
+        case close
+    }
 
     /// Horizontal padding of the action title inside its hover fill.
     static let titlePadding: CGFloat = 6
@@ -33,7 +39,7 @@ public final class CmuxToastButton: ClickableButton {
     static let chevronGap: CGFloat = 4
     /// The fill the button shows now (tests): nil when it shows none.
     var shownFill: NSColor? { ChromeHover.fillColor(hover.state) }
-    private lazy var hover = ChromeHover(self, cornerRadius: Metrics.itemCornerRadius, behindContent: true)
+    private lazy var hover = ChromeHover(self, cornerRadius: Metrics.buttonCornerRadius, behindContent: true)
 
     init(style: Style, title: String, target: AnyObject?, action: Selector?) {
         self.style = style
@@ -47,7 +53,7 @@ public final class CmuxToastButton: ClickableButton {
         self.action = action
         setAccessibilityLabel(title)
         switch style {
-        case .action:
+        case .action, .quiet:
             heightAnchor.constraint(equalToConstant: Self.closeSide + 2).isActive = true
         case .close:
             let config = NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
@@ -68,7 +74,7 @@ public final class CmuxToastButton: ClickableButton {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     public override var intrinsicContentSize: NSSize {
-        guard style == .action else { return NSSize(width: Self.closeSide, height: Self.closeSide) }
+        guard style != .close else { return NSSize(width: Self.closeSide, height: Self.closeSide) }
         let text = attributedTitle.size()
         let chevron = image.map { ceil($0.size.width) + Self.chevronGap } ?? 0
         // Never narrower than the cell needs to draw the whole title: the cell's own insets clipped a title sized
@@ -94,6 +100,10 @@ public final class CmuxToastButton: ClickableButton {
                     .font: Typography.bodyEmphasized,
                     .foregroundColor: color,
                 ])
+                contentTintColor = color
+            case .quiet:
+                let color = Palette.toastText(hover.state.hovering || hover.state.pressed ? .primary : .secondary)
+                attributedTitle = NSAttributedString(string: plainTitle, attributes: [.font: Typography.body, .foregroundColor: color])
                 contentTintColor = color
             case .close:
                 contentTintColor = Palette.toastText(hover.state.hovering || hover.state.pressed ? .primary : .secondary)

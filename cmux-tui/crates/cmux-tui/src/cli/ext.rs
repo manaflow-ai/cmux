@@ -3,12 +3,14 @@
 //! An extension is an app on the app platform; `ext` is the author-facing
 //! noun and `cmux apps ...` keeps working unchanged. `ext new` scaffolds a
 //! folder, `ext dev` loads it into the running cmux and reloads it on every
-//! save (`dev.rs`), `ext list` and `ext remove` show and drop the folders
-//! `ext dev` loaded.
+//! save (`dev.rs`), `ext shot` shows what it rendered (`shot.rs`), `ext list`
+//! and `ext remove` show and drop the folders `ext dev` loaded.
 
 mod daemon;
 mod dev;
 mod scaffold;
+mod scene;
+mod shot;
 #[cfg(test)]
 mod tests;
 
@@ -40,6 +42,8 @@ pub(super) mod exit {
     pub const NO_DAEMON: i32 = 3;
     pub const MANIFEST_INVALID: i32 = 4;
     pub const BUILD_FAILED: i32 = 5;
+    /// `ext shot`: it loaded and rendered, but no picture was taken.
+    pub const SHOT_FAILED: i32 = 6;
     pub const INTERRUPTED: i32 = 130;
 }
 
@@ -48,6 +52,9 @@ cmux ext: make a cmux extension and watch it change as you work.
   cmux ext new NAME            a working extension folder ./NAME (a sidebar section)
   cmux ext dev [DIR]           load DIR into cmux, then reload it on every save (Ctrl-C stops)
   cmux ext dev --once --json   one validate + build + reload; exit 0 ok, 1 load, 3 no cmux, 4 manifest, 5 build
+  cmux ext shot [DIR] [--out PNG] [--json]
+                               one reload, then what it rendered: the view's outline and a
+                               picture of the cmux window that shows it; exit 6 no picture
   cmux ext list | remove ID    the extensions loaded this way; remove drops one
 
 ext dev options: --build CMD (run instead of the packer), --build-timeout SECS (default 120),
@@ -74,6 +81,7 @@ pub(super) enum Request {
     Help,
     New { name: String, kind: String, dir: Option<PathBuf> },
     Dev(DevOptions),
+    Shot(shot::ShotOptions),
     List,
     Remove { app: String },
 }
@@ -168,6 +176,35 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                 options.dir = dir;
             }
             Ok(Request::Dev(options))
+        }
+        "shot" => {
+            // One `ext dev --once` reload with no install card, plus where the picture goes.
+            let mut out = None;
+            let mut dev = vec!["dev".to_string(), "--once".into(), "--no-install".into()];
+            let mut words = rest.iter();
+            while let Some(word) = words.next() {
+                match word.as_str() {
+                    "--out" => match words.next() {
+                        // `-` is the PNG inline in a reply; ext shot names a file.
+                        Some(path) if path != "-" => out = Some(PathBuf::from(path)),
+                        _ => return Err(usage("--out needs a file path")),
+                    },
+                    "--once" | "--keep" | "--remove-on-exit" | "--no-install" => {
+                        return Err(usage(&format!(
+                            "{word}: ext shot reloads once and installs nothing"
+                        )));
+                    }
+                    "--build" | "--build-timeout" => {
+                        dev.push(word.clone());
+                        dev.extend(words.next().cloned());
+                    }
+                    _ => dev.push(word.clone()),
+                }
+            }
+            match parse(&dev)? {
+                Request::Dev(dev) => Ok(Request::Shot(shot::ShotOptions { dev, out })),
+                _ => Err(usage("ext shot")),
+            }
         }
         "list" if rest.is_empty() => Ok(Request::List),
         "remove" => match rest {
@@ -268,6 +305,23 @@ fn run(global: &GlobalArgs, request: Request, json_out: bool, globals: Vec<Strin
             } else {
                 dev::run_watch(global, &options, globals)
             }
+        }
+        Request::Shot(mut options) => {
+            options.dev.dir = absolute(options.dev.dir);
+            options.dev.bun = dev::find_bun();
+            if !options.dev.dir.is_dir() {
+                eprintln!("cmux: {} is not a folder", options.dev.dir.display());
+                return exit::USAGE;
+            }
+            // `window screenshot` makes a relative --out absolute itself; the child runs here too.
+            options.out = options.out.map(|out| {
+                if out.is_absolute() {
+                    out
+                } else {
+                    std::env::current_dir().map(|cwd| cwd.join(&out)).unwrap_or(out)
+                }
+            });
+            shot::run(global, &options, &globals, json_out)
         }
         Request::List | Request::Remove { .. } => list_or_remove(global, request, json_out),
     }

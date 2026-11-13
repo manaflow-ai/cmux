@@ -25,7 +25,7 @@ final class HomeChiefAvatarButton: NSButton {
         imagePosition = .imageOnly
         imageScaling = .scaleProportionallyUpOrDown
         wantsLayer = true
-        layer?.cornerRadius = size / 2
+        layer?.cornerRadius = size / 2 // radius-allow: Chief's avatar picture is a circle, not a button face
         layer?.masksToBounds = true
         translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([widthAnchor.constraint(equalToConstant: size), heightAnchor.constraint(equalToConstant: size)])

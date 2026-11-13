@@ -37,12 +37,13 @@ private typealias JSON = CmuxNextSettings.JSONValue
 /// `link_right` opens `url` (default example.com) from the focused pane as a link opened to the right (split right):
 /// visible once the window shows another pane, `page_ms` once that pane's page painted. `dock_respawn` docks the focused pane's lone tab into a new left
 /// dock and leaves a fresh terminal (a lone chat's new tab, ``ChatColumnPlacement``): visible once the window shows another pane.
+/// `newtab_url` is Return on `url` typed into the focused pane's New Tab page (`replace`, as its `tab.open`; `beside`: Option-Return): visible once that pane shows a browser or a pane opens.
 @MainActor
 enum DebugInstantCreateBench {
     private static let frames = BenchFrames()
 
     enum Command: String, CaseIterable {
-        case newWorkspace = "new_workspace", newTab = "new_tab", newTerminal = "new_terminal", splitRight = "split_right", splitDown = "split_down", newBrowser = "new_browser", linkRight = "link_right", githubRight = "github_right", diffRight = "diff_right", splitBrowser = "split_browser", dockRespawn = "dock_respawn"
+        case newWorkspace = "new_workspace", newTab = "new_tab", newTerminal = "new_terminal", splitRight = "split_right", splitDown = "split_down", newBrowser = "new_browser", linkRight = "link_right", githubRight = "github_right", diffRight = "diff_right", splitBrowser = "split_browser", dockRespawn = "dock_respawn", headerTerminal = "header_terminal", newTabURL = "newtab_url"
 
         var key: (String, [String]) {
             switch self {
@@ -51,7 +52,7 @@ enum DebugInstantCreateBench {
             case .newTerminal: ("`", ["control"])
             case .splitRight: ("d", ["command"])
             case .splitDown: ("d", ["command", "shift"])
-            case .newBrowser, .linkRight, .githubRight, .diffRight, .splitBrowser, .dockRespawn: ("l", ["command", "shift"])
+            case .newBrowser, .linkRight, .githubRight, .diffRight, .splitBrowser, .dockRespawn, .headerTerminal, .newTabURL: ("l", ["command", "shift"])
             }
         }
     }
@@ -60,11 +61,13 @@ enum DebugInstantCreateBench {
         guard let command = params["command"]?.stringValue.flatMap(Command.init(rawValue:)) else {
             return .object(["error": .string("command: one of \(Command.allCases.map(\.rawValue).joined(separator: ", "))")])
         }
+        // `header_terminal`: the focused pane's agent chat, shown and wired (opened as a tab of the pane when it shows none), before the timed press of its header's Terminal.
+        @MainActor func chat() -> AgentPaneView? { controller.content?.focusedPane?.currentTabKey.flatMap { services.agentTabs.existingView($0) }.flatMap { $0.isShownReady && $0.model.header != nil ? $0 : nil } }
+        if command == .headerTerminal, chat() == nil, let pane = controller.content?.focusedPane { services.agentTabs.openTab(in: pane); frames.start(); _ = await frames.settled(until: { chat() != nil }, start: .now, window: 0, deadline: 15_000); _ = frames.stop() }
         let before = Probe(controller)
         let shownBrowsers = Probe.browserTabs(controller) // a page painted before the press is never the new one
         let (key, modifiers) = command.key
-        frames.start()
-        BenchSpans.begin()
+        frames.start(); BenchSpans.begin()
         services.cache.cef.benchMarks.arm { name, milliseconds in BenchSpans.mark(name, milliseconds: milliseconds) }
         defer { services.cache.cef.benchMarks.arm(nil) }
         // The GitHub page's `shown` marks (`content` when it drew its pull request) and the open's answer, reported as `github`.
@@ -95,8 +98,11 @@ enum DebugInstantCreateBench {
         } else if command == .diffRight, let folder = params["folder"]?.stringValue, let pane = controller.content?.focusedPane {
             // task-owner: one bench open of the folder's diff tab in the pane (as `openDiffViewer`); ends when it opens or is refused
             Task { [diffPages = services.viewers.diffPages] in _ = try? await diffPages.open(folder: URL(fileURLWithPath: folder, isDirectory: true), in: pane, focus: true) }
+        } else if command == .newTabURL { // no New Tab page focused: nothing opens, the run misses
+            if let pane = controller.content?.focusedPane, let key = pane.currentTabKey, services.agentTabs.isNewTabPage(key) { NewTabPage.replace(key, with: AgentPaneOpenTab(kind: .browser, text: params["url"]?.stringValue ?? "https://example.com/", beside: params["beside"]?.boolValue == true), cwd: nil, in: pane) }
         } else if command == .dockRespawn, let pane = controller.content?.focusedPane, let tab = pane.pane.tabs.first {
             TabMoves.toNewDockColumn(tab, anchor: pane.pane, edge: .left, role: .agentChat, respawn: .terminal(SpawnOptions()), services: services)
+        } else if command == .headerTerminal { chat()?.model.header?.run("splitRight", nil)
         } else if let action = params["run"]?.stringValue ?? (command == .splitBrowser ? "splitBrowserRight" : nil) {
             let arguments = params["url"]?.stringValue.map { ["url": ActionValue.string($0)] } ?? [:]
             _ = services.registry.perform(ActionID(rawValue: action), invocation: ActionInvocation(arguments: arguments))
@@ -104,9 +110,9 @@ enum DebugInstantCreateBench {
         let keyMilliseconds = BenchSpans.ms(.now - start)
         let visible = await frames.settled(until: { before.changed(command, Probe(controller)) }, start: start, window: 0, deadline: 5_000, watchCommits: true)
         let committed = frames.lastCommitted
-        let chrome = visible == nil || command != .newBrowser ? nil : await frames.settled(until: { Probe(controller).browser != nil }, start: start, window: 0, deadline: 5_000)
+        let chrome = visible == nil || (command != .newBrowser && !(command == .newWorkspace && params["run"] != nil)) ? nil : await frames.settled(until: { Probe(controller).browser != nil }, start: start, window: 0, deadline: 5_000)
         // A link or browser opened to the right: its new pane's page (any shown pane of the window), first paint or load end.
-        let opensRight = command == .linkRight || command == .splitBrowser
+        let opensRight = command == .linkRight || command == .splitBrowser || command == .newTabURL
         // The GitHub page: the frame after it drew the pull request (its `shown` mark, not its loading state), with or without `visible`.
         let github = command == .githubRight ? params["url"]?.stringValue : nil
         // The diff tab: the frame after its page reported the first hunk drawn (`cmux.diff.shown`).
@@ -116,12 +122,10 @@ enum DebugInstantCreateBench {
                 if diff { return diffShown.withLock { $0 != nil } }
                 if github != nil { return githubShown.withLock { $0.contains("content") } }
                 return opensRight ? Probe.anyPagePainted(controller, services, besides: shownBrowsers) : Probe(controller).pagePainted(services)
-            },
-                                   start: start, window: 0, deadline: diff ? 20_000 : 5_000)
-        let confirmed = visible == nil ? nil
-            : await frames.settled(until: { Probe(controller).confirmed(command) }, start: start, window: 0, deadline: 5_000)
-        let spans = BenchSpans.end()
-        let stats = frames.stop()
+            }, start: start, window: 0, deadline: diff ? 20_000 : 5_000)
+        let ready = visible == nil || (command != .newWorkspace && command != .newTab) ? nil : await frames.settled(until: { Probe(controller).newTabReady(services) }, start: start, window: 0, deadline: 5_000)
+        let confirmed = visible == nil ? nil : await frames.settled(until: { Probe(controller).confirmed(command) }, start: start, window: 0, deadline: 5_000)
+        let spans = BenchSpans.end(), stats = frames.stop()
         var refresh = 1_000.0 / 60
         if case .object(let fields) = stats, let value = fields["refresh_ms"]?.doubleValue, value > 0 { refresh = value }
         return .object([
@@ -130,7 +134,7 @@ enum DebugInstantCreateBench {
             "visible_ms": visible.map { .number($0) } ?? .null,
             "confirmed_ms": confirmed.map { .number($0) } ?? .null,
             "committed_ms": committed.map { .number($0) } ?? .null, "key_changes": .number(Double(spans.count(where: { $0.name.hasPrefix("key.") }))), "spans_full": .bool(spans.count >= BenchSpans.capacity),
-            "page_ms": page.map { .number($0) } ?? .null, "chrome_ms": chrome.map { .number($0) } ?? .null, "github": .array(githubShown.withLock { $0 }.map(JSON.string)), "diff": diffShown.withLock { $0 } ?? .null,
+            "page_ms": page.map { .number($0) } ?? .null, "ready_ms": ready.map { .number($0) } ?? .null, "chrome_ms": chrome.map { .number($0) } ?? .null, "github": .array(githubShown.withLock { $0 }.map(JSON.string)), "diff": diffShown.withLock { $0 } ?? .null,
             "engine": .string(Probe(controller).browser.map { $0.tab.engineKind == .cef ? "cef" : "webkit" } ?? "none"),
             "spare_window": .string(services.cache.cef.spareWindowState),
             "frames_to_visible": visible.map { .number(($0 / refresh).rounded(.up)) } ?? .null,
@@ -152,23 +156,17 @@ enum DebugInstantCreateBench {
         var selected: String? // the focused pane's selected tab in its strip
 
         init(_ controller: WindowController) {
-            let content = controller.content
-            workspace = content?.workspace.id
-            let focused = content?.focusedPane
-            pane = focused.map(ObjectIdentifier.init)
-            paneHandle = focused?.pane.handle.rawValue
-            paneCount = content?.panes.count ?? 0
-            tab = focused?.currentTabKey
-            selected = focused?.stripModel.selectedID?.rawValue
+            let content = controller.content, focused = content?.focusedPane
+            (workspace, paneCount) = (content?.workspace.id, content?.panes.count ?? 0)
+            (pane, paneHandle) = (focused.map(ObjectIdentifier.init), focused?.pane.handle.rawValue)
+            (tab, selected) = (focused?.currentTabKey, focused?.stripModel.selectedID?.rawValue)
             if let focused, focused.view.hostsContent, focused.stripModel.selectedID?.rawValue == tab,
                case .browser(let entry) = focused.currentContent { browser = entry }
         }
 
         /// The browser tabs the window's panes show.
         static func browserTabs(_ controller: WindowController) -> Set<String> {
-            Set(controller.content?.panes.values.compactMap { pane in
-                if case .browser(let entry) = pane.currentContent { entry.tab.id.rawValue } else { nil }
-            } ?? [])
+            Set(controller.content?.panes.values.compactMap { if case .browser(let entry) = $0.currentContent { entry.tab.id.rawValue } else { nil } } ?? [])
         }
 
         /// Whether a pane of the window shows a browser, other than `besides`, whose page painted (``pagePainted(_:)``).
@@ -187,6 +185,7 @@ enum DebugInstantCreateBench {
             if case .finished = browser.tab.state.phase { return true }
             return services.cache.cef.benchMarks.firstPaints[browser.tab.id.rawValue] != nil
         }
+        @MainActor func newTabReady(_ services: AppServices) -> Bool { tab.map { selected == $0 && (LocalPageTab.page(of: $0) == .nativeNewTab || services.agentTabs.existingView($0)?.isShownReady == true) } ?? false }
 
         func changed(_ command: Command, _ now: Probe) -> Bool {
             switch command {
@@ -194,15 +193,16 @@ enum DebugInstantCreateBench {
             case .newTab, .newTerminal, .diffRight: now.pane == pane && now.tab != nil && now.tab != tab
             case .newBrowser: now.pane == pane && now.tab != nil && now.tab != tab && now.tab == now.selected
             case .splitRight, .splitDown: now.workspace == workspace && now.pane != pane && now.paneCount > paneCount
-            case .linkRight, .githubRight, .splitBrowser, .dockRespawn: now.workspace == workspace && now.paneCount > paneCount
+            case .linkRight, .githubRight, .splitBrowser, .dockRespawn, .headerTerminal: now.workspace == workspace && now.paneCount > paneCount
+            case .newTabURL: now.workspace == workspace && (now.paneCount > paneCount || (now.pane == pane && now.browser != nil && now.tab != tab))
             }
         }
 
         func confirmed(_ command: Command) -> Bool {
             let realTab = tab.map { !$0.hasPrefix(ProvisionalTab.idPrefix) } ?? false
             switch command {
-            case .newWorkspace, .newTab, .newTerminal, .newBrowser, .diffRight: return realTab
-            case .splitRight, .splitDown, .linkRight, .githubRight, .splitBrowser, .dockRespawn: return realTab && (paneHandle ?? .max) < (1 << 62)
+            case .newWorkspace, .newTab, .newTerminal, .newBrowser, .diffRight, .newTabURL: return realTab
+            case .splitRight, .splitDown, .linkRight, .githubRight, .splitBrowser, .dockRespawn, .headerTerminal: return realTab && (paneHandle ?? .max) < (1 << 62)
             }
         }
     }

@@ -148,6 +148,36 @@ await requireBrowserLane("agent-pane-wheel-glide.test.ts", async () => {
         } finally {
           await page.close();
         }
+        // With CMUX_MOTION_STILLS=<dir>: whole-window stills of the same steps, for review (#41456):
+        // the wheel's glide under way, then frames of the send's ride to the new message, which rests
+        // there with no cut. Each still is taken between painted frames, so the ride shows its curve.
+        const stills = process.env.CMUX_MOTION_STILLS;
+        if (!stills) return;
+        const dir = `${stills}/send-during-wheel-glide/${engine}`;
+        await mkdir(dir, { recursive: true });
+        const shot = await pane.open();
+        try {
+          await shot.evaluate(async () => {
+            const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+            node.style.setProperty("--agent-motion-move", "1s");
+            node.dispatchEvent(new WheelEvent("wheel", { deltaY: -20, deltaMode: 1, cancelable: true }));
+            await window.cmuxPaintFrame();
+            await window.cmuxPaintFrame();
+          });
+          await shot.screenshot({ path: `${dir}/0-wheel-glide-under-way.png` });
+          await shot.evaluate(async () => {
+            const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+            node.style.setProperty("--agent-motion-move", "180ms");
+            await window.cmuxAcpmuxActions!["chat.send"]!({ text: "Wheel ownership" });
+          });
+          for (let frame = 1; frame <= 40; frame += 1) {
+            await shot.evaluate(() => window.cmuxPaintFrame());
+            if ([1, 3, 6, 10, 40].includes(frame))
+              await shot.screenshot({ path: `${dir}/${String(frame).padStart(2, "0")}-send-ride-frame-${frame}.png` });
+          }
+        } finally {
+          await shot.close();
+        }
       });
       test("precise, modified and reduced-motion wheels remain native", async () => {
         const page = await pane.open();

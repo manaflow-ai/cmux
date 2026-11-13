@@ -14,17 +14,24 @@ import Testing
         return registry
     }()
 
-    static func decision(_ resolved: FocusState.Resolved) throws -> String {
+    static func decision(_ resolved: FocusState.Resolved, facts: KeyFacts = KeyFacts()) throws -> String {
         let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command], timestamp: 1,
                                                   windowNumber: 0, context: nil, characters: "\r",
                                                   charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
         var focus = FocusState()
         focus.resolved = resolved
-        return String(describing: KeyRouter(registry: registry).decide(event, focus: focus, keyWindow: .content, facts: KeyFacts()))
+        return String(describing: KeyRouter(registry: registry).decide(event, focus: focus, keyWindow: .content, facts: facts))
     }
 
     @Test func theAgentComposerGetsCommandReturn() throws {
         #expect(try Self.decision(.agentPage(pane: "pane_agent", tab: "tab_agent")) == "deliver")
+    }
+
+    /// Home's chat is the same composer: its conversation view and Home as the window's top page
+    /// (Leo, 2026-11-12, on the "no item to do" toast over it: "the bottom pill is weird").
+    @Test func homesComposerGetsCommandReturn() throws {
+        #expect(try Self.decision(.conversation(pane: "pane_home", tab: "tab_home")) == "deliver")
+        #expect(try Self.decision(.none, facts: KeyFacts(topPage: "home")) == "deliver")
     }
 
     @Test func aWebPageGetsCommandReturn() throws {

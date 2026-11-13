@@ -27,7 +27,7 @@ final class PageInfoChipButton: NSView, PointerHoverReporting {
         super.init(frame: frame)
         wantsLayer = true
         focusRingType = .none
-        layer?.cornerRadius = OmnibarStyle.chipCornerRadius
+        layer?.cornerRadius = OmnibarStyle.chipButtonCornerRadius
         layer?.cornerCurve = .continuous
         icon.imageScaling = .scaleNone
         text.isHidden = true

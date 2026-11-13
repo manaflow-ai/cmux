@@ -154,6 +154,7 @@ export function ThreadMinimap({
   scroller,
   scrollTop,
   viewportHeight,
+  latestShadowReach = 0,
   foot,
   railBox,
   scrolls,
@@ -181,6 +182,9 @@ export function ThreadMinimap({
   scroller: React.RefObject<HTMLElement | null>;
   scrollTop: number;
   viewportHeight: number;
+  /// How far the reader is from the latest-message starting point, normalized to the transcript's
+  /// edge-fade ramp. The rail uses this only for its bottom shadow; its own list fade remains separate.
+  latestShadowReach?: number;
   /// Where the transcript's mask ends its view (the bottom stack's top), when it is above
   /// `viewportHeight`: the rail keeps its rows above the mask's bottom band (model.ts railRoom).
   foot?: number;
@@ -1275,7 +1279,12 @@ export function ThreadMinimap({
       // The scroller's mask reads the side from here, its own child (conversation.css): a `:has()`
       // that looked deeper would be checked again for every node a streamed chunk inserts.
       data-side={side}
-      style={{ "--acpmux-rail-left": `${placement.left}px` } as React.CSSProperties}
+      style={
+        {
+          "--acpmux-rail-left": `${placement.left}px`,
+          "--acpmux-minimap-latest-shadow-reach": latestShadowReach,
+        } as React.CSSProperties
+      }
     >
       {/* Right-clicking the rail (or its narrow-pane strip) moves it to the other edge. */}
       <ContextMenu items={menu}>
@@ -1308,6 +1317,7 @@ export function ThreadMinimap({
           id={RAIL_ACCESSIBILITY_ID}
           aria-label={t("minimap.label")}
           data-side={side}
+          data-shadow-variant="elevation"
           style={
             {
               ...railEdge(side, edge),
