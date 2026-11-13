@@ -338,7 +338,7 @@ for (const [fontSize, room] of [
   [20, 300],
   [13, 300],
 ] as const) {
-  test(`a width drag stops at 80px within ${room}px of room at ${fontSize}px type`, async () => {
+  test(`a width drag stops at 270px within ${room}px of room at ${fontSize}px type`, async () => {
     fakeLayout = (window) => {
       const column = window.document.getElementById("root")!;
       column.classList.add("acpmux-main");
@@ -361,7 +361,7 @@ for (const [fontSize, room] of [
       grip.dispatchEvent(new dom!.window.MouseEvent("pointermove", { clientX: 500 - direction * 1000 }));
       grip.dispatchEvent(new dom!.window.MouseEvent("pointerup", { clientX: 500 - direction * 1000 }));
     });
-    const minimum = Math.min(room, 80);
+    const minimum = Math.min(room, 270);
     expect(menu.style.width).toContain(`${minimum}px`);
     expect(modelMenuWidth()).toBe(minimum);
     expect(modelMenuHeight()).toBeUndefined();
@@ -430,12 +430,12 @@ for (const fromEnd of [false, true]) {
       expect(modelMenuHeight()).toBe(360);
       expect(grip.hasAttribute("data-dragging")).toBe(false);
       await drag(-1000, "pointercancel");
-      expect(modelMenuWidth()).toBe(80);
+      expect(modelMenuWidth()).toBe(270);
       expect(modelMenuHeight()).toBe(160);
       await act(async () =>
         grip.dispatchEvent(new dom!.window.MouseEvent("pointermove", { clientX: 2000, clientY: 2000 })),
       );
-      expect(modelMenuWidth()).toBe(80);
+      expect(modelMenuWidth()).toBe(270);
       expect(modelMenuHeight()).toBe(160);
       await act(async () => grip.dispatchEvent(new dom!.window.MouseEvent("dblclick", { bubbles: true })));
       expect(modelMenuWidth()).toBeUndefined();
