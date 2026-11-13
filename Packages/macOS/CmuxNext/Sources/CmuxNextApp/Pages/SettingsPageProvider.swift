@@ -5,7 +5,6 @@ import CmuxNextPages
 import CmuxNextServer
 import CmuxNextSettings
 import CmuxNextTerminal
-import CmuxNextWakeups
 import Foundation
 import Observation
 
@@ -35,12 +34,6 @@ final class SettingsPageProvider: PageProvider {
     /// nil in tests without an app.
     var harnessesState: (@MainActor () -> JSONValue)?
     var harnessesRun: (@MainActor (JSONValue, PageCallContext?) async throws -> JSONValue)?
-    /// Settings > Models (`SettingsModels`, cmux-tui/docs/model-connections.md): the state after its first
-    /// read, the current state, one gesture, and the acpmux watch while a page shows it; nil in tests without an app.
-    var modelsLoad: (@MainActor () async -> JSONValue)?
-    var modelsState: (@MainActor () -> JSONValue)?
-    var modelsRun: (@MainActor (JSONValue, PageCallContext?) async throws -> JSONValue)?
-    var modelsWatching: (@MainActor (Bool) -> Void)?
     /// Settings > Devices (the device hub): its state, one gesture, and the
     /// watch that keeps its history current while a page shows it; nil in
     /// tests without an app.
@@ -56,6 +49,8 @@ final class SettingsPageProvider: PageProvider {
     /// Settings > Agents > Agent integrations (`SettingsAgentIntegrations`): the coding-agent
     /// hooks `cmux agent hook` installs; nil in tests without an app.
     var integrations: (any PageProvider)?
+    /// Settings > Models (`SettingsModels`, cmux-tui/docs/model-connections.md); nil in tests without an app.
+    var models: (any PageProvider)?
     /// The theme picker's write (level, spec or nil) and its spec check (R82 commit 4).
     var setTheme: (@MainActor (_ level: String, _ spec: String?) throws -> Void)?
     var acceptsTheme: (@MainActor (String) -> Bool)?
@@ -224,8 +219,7 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.agents.run": return try await Self.host(agents, "agents").runPage(params)
         case "cmux.settings.harnesses.state": return try Self.host(harnessesState, "harnesses")()
         case "cmux.settings.harnesses.run": return try await Self.host(harnessesRun, "harnesses")(params, context)
-        case "cmux.settings.models.state": return try await Self.host(modelsLoad, "models")()
-        case "cmux.settings.models.run": return try await Self.host(modelsRun, "models")(params, context)
+        case "cmux.settings.models.state", "cmux.settings.models.run": return try await Self.host(models, "models").call(op, params: params, context: context)
         case "cmux.settings.integrations.state", "cmux.settings.integrations.run":
             return try await Self.host(integrations, "agent integrations").call(op, params: params, context: context)
         case "cmux.settings.environments.state": return try Self.host(environmentsState, "environments")()
@@ -369,15 +363,7 @@ final class SettingsPageProvider: PageProvider {
         if stream == "cmux.settings.harnesses.changed", let harnessesState {
             return Self.watch(harnessesState, onEvent: onEvent)
         }
-        if stream == "cmux.settings.models.changed", let modelsState {
-            modelsWatching?(true)
-            let watch = Self.watch(modelsState, onEvent: onEvent)
-            let watching = modelsWatching
-            return PageSubscription {
-                watch.cancel()
-                MainDelivery().run { watching?(false) }
-            }
-        }
+        if stream == "cmux.settings.models.changed", let models { return try await models.subscribe(stream, filter: filter, context: context, onEvent: onEvent) }
         if stream == "cmux.settings.host.changed", let hostLists {
             return Self.watch(hostLists, onEvent: onEvent)
         }

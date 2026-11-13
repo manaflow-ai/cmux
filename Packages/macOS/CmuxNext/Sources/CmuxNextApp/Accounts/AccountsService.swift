@@ -1,13 +1,11 @@
 import AppKit
 public import CmuxNextAccounts
-import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCodeRouter
 import struct CmuxNextDaemon.LoginEnvironment
 import Foundation
 import os
 import CmuxNextCompat
-import CmuxNextSettings
 
 /// Owns the Accounts screen's model and its `AccountsServices`: detection
 /// over the login-shell environment, the cmux Keychain item for pasted
@@ -20,10 +18,9 @@ final class AccountsService: AccountsServices {
     private(set) lazy var model = AccountsModel(services: self)
     private(set) lazy var github = GitHubConnections.live(auth: services.cloud.auth, ownerAPI: services.cloud.configuration.ownerAPIBaseURL(), preview: services.environment.showcase || fixtureHome != nil)
     private(set) lazy var agentKeys = TeamAgentKeys.live(auth: services.cloud.auth, ownerAPI: services.cloud.configuration.ownerAPIBaseURL(), preview: services.environment.showcase || fixtureHome != nil)
-    /// Settings > Models' team members policy and team gateway status (cmux-tui/docs/model-connections.md).
     private(set) lazy var modelsPolicy = TeamModelsPolicy.live(auth: services.cloud.auth, ownerAPI: services.cloud.configuration.ownerAPIBaseURL(), preview: services.environment.showcase || fixtureHome != nil)
     private(set) lazy var teamGateway = TeamModelsPolicy.liveGateway(auth: services.cloud.auth, ownerAPI: services.cloud.configuration.ownerAPIBaseURL(), preview: services.environment.showcase || fixtureHome != nil)
-    /// `models.spreadUsage` mirrored into acpmux's bindings for the app's life (any writer: Settings, palette, CLI, MCP).
+    /// `models.spreadUsage` mirrored into acpmux for the app's life (SettingsModels.mirrorSpread).
     private var spreadMirror: Task<Void, Never>?
     let keys: any ProviderKeyStoring
     /// The per-user salt behind every `acct_…` handle (Keychain, read once off the main actor).
@@ -62,15 +59,7 @@ final class AccountsService: AccountsServices {
         activation = MainActorObservation(NSApplication.didBecomeActiveNotification) { [weak self] in
             self?.model.appDidBecomeActive()
         }
-        // task-owner: AccountsService.spreadMirror: one acpmux push per change of models.spreadUsage, for the app's life.
-        spreadMirror = Task { [weak self] in
-            let spread = ObservationStream { [weak self] in ModelsSettings(root: self?.services.settings?.snapshot.root ?? .null).spreadUsage }
-            for await on in spread {
-                guard let self else { return }
-                guard let environment = QuitAgents.environment(self.services) else { continue }
-                await SettingsModels.pushSpread(on, environment: environment)
-            }
-        }
+        spreadMirror = SettingsModels.mirrorSpread(settings: { [weak services] in services?.settings }, environment: { [weak services] in services.flatMap(QuitAgents.environment) })
     }
 
     /// The detection inputs. The login env is captured once per launch
