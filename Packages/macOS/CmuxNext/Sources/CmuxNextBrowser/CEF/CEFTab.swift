@@ -653,7 +653,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         let shown = isShown
         host.lifecycleTrace.record(id, "focus(\(focused)) created=\(browserID != nil) shown=\(shown)")
         // Never activate a hidden page's window (see `attach`): a hidden page keeps the ask until it shows.
-        let canTake = shown && pageWindowHostHasArea && !appearedThisTurn
+        let canTake = shown && pageWindowHostHasArea // MUTATION, never merges
         pendingFocus = focused && (!canTake || browserID == nil)
         guard !focused || canTake, let browserID else { return }
         if focused { grantFocus(browserID) } else { runtime.shim?.setFocus(browserID, 0) }
