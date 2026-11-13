@@ -1501,6 +1501,22 @@ def _expand(invocation: Invocation, defined: set[str], depth: int, found: list[l
     if not _unreadable(program) and program not in _RUNS_ARGUMENTS and program not in _WRAPPERS:
         found.append([])  # a script a shell runs in a mode this does not model
         return
+    if program == "find":
+        # Search roots and predicate values are data. Only the argv following a command-running action is code.
+        for index, word in enumerate(args):
+            if word not in ("-exec", "-execdir", "-ok", "-okdir"):
+                continue
+            end = index + 1
+            while end < len(args) and args[end] not in (";", "+"):
+                end += 1
+            target = args[index + 1:end]
+            if not target or _opaque(_word_token(target[0])):
+                found.append([])
+            else:
+                tail = _classify(_Command([_word_token(text) for text in target], False, True), defined)
+                if tail is not None:
+                    _expand(tail, defined, depth + 1, found)
+        return
     if program == "xargs":
         # Unlike a text runner, xargs passes data arguments to one command. Locate that command before deciding
         # which expansions are executable: -n's value is not a program, and rm's variable path is not code.

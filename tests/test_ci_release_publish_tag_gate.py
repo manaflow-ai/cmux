@@ -655,6 +655,7 @@ class TagGate(unittest.TestCase):
             'su --command="$CMD" runner', 'sh -c "$CMD"', 'bash -c "$CMD"',
             'eval "$CMD"', 'xargs "$CMD"', 'xargs -n 1 "$CMD"', 'xargs -- "$CMD"',
             'ssh host "$CMD"', 'watch "$CMD"', 'flock /tmp/lock "$CMD"',
+            'find "$ROOT" -exec "$CMD" \\;', 'find "$ROOT" -execdir sh -c "$CMD" \\;',
         )
         for runner in runners:
             with self.subTest(runner=runner):
@@ -793,6 +794,9 @@ STILL_READS = {
     "a function call": "f() { echo hi; }\nf",
     "a variable program": "\"$wheel_python\" -m wheel unpack \"$wheel\" --dest out",
     "xargs with a variable argument": "xargs rm -f \"$scratch\" < files",
+    "find with a variable search root": 'find "$root" -maxdepth 1 -type f -print',
+    "find with a variable predicate value": 'find "$root" -name "$pattern" -print0',
+    "find with a known argv command": 'find "$root" -exec basename {} \\;',
 }
 
 
