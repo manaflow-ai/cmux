@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43415000807",
+  "recorded_at": "2026-11-13T11:20:54Z",
+  "reason": "cmux-tui 243388fe905c changes the image's cmux-tui (pinned 60437cd177c7)",
+  "dry_run": false,
+  "cmux_tui": "243388fe905c8329bb3a4f602b64d7466ada5eb1",
+  "fixes": [
+    {
+      "sha": "243388fe905c8329bb3a4f602b64d7466ada5eb1",
+      "mergedAt": "2026-11-13T02:44:27-08:00",
+      "subject": "Agent chat: Move to terminal in the chat's menu (#41845)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T11:20:54Z",
+    "snapshot_id": "sh-e79fc98afcc1499e9fb5e224333876f3",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43415000807): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "3b8bb2b1a94961fb7fde7ee2cd47cc90767ea4d7",
+    "image": "cloud-native-auto-243388fe-43415000807-1",
+    "revision": "ci-43415000807-1",
+    "at": "2026-11-13T11:20:54Z"
+  },
+  "rolled_back": false
+}
