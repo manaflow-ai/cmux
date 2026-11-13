@@ -343,9 +343,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if let Some(v2) = v2.as_ref()
         && let Some(writer) = v2.take_writer()
     {
-        // concurrency-allow: the daemon owns the V2 handle for its full listener lifetime;
-        // Hub::close wakes this writer during daemon shutdown.
         tokio::spawn(async move {
+            // concurrency-allow: daemon-owned V2 writer ends on Hub::close.
             if let Err(error) = writer.run().await {
                 tracing::warn!(%error, "v2 hub writer stopped");
             }

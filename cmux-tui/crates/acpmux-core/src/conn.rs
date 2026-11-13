@@ -554,9 +554,8 @@ async fn process_frame<S: Source>(
             let sink = sink.clone();
             let control = sink.control(&task_sid);
             if let Some(control) = control {
-                // concurrency-allow: this source task is owned by the subscription control;
-                // unsubscribe, drop, EOF, and connection teardown set ended and wake it.
                 tokio::spawn(async move {
+                    // concurrency-allow: subscription control ends and wakes this source task.
                     let replay_cursor = prefix.last().map(|(_, cursor)| *cursor);
                     for (frame, cursor) in prefix {
                         let outcome = drive_offer(
