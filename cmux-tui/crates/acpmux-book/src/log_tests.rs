@@ -1,6 +1,6 @@
 use crate::log::{
-    Anchor, Edge, Error, Log, MAX_CHECKPOINT, MAX_PAGE_BYTES, Options, Patch, RECORD_OVERHEAD,
-    ROW_ENTRY_LEN, RawRange, SEQ_STRIDE, Side, StateWriter, section, sections,
+    Anchor, Edge, Error, Log, MAX_CHECKPOINT_STATE, MAX_PAGE_BYTES, Options, Patch,
+    RECORD_OVERHEAD, ROW_ENTRY_LEN, RawRange, SEQ_STRIDE, Side, StateWriter, section, sections,
 };
 use crate::row::{MAX_ROW_TEXT, Placement, Row, RowKind};
 use crate::testkit::{assert_rows, ids, open, settle, text, texts, whole_book};
@@ -413,12 +413,12 @@ fn the_checkpoint_keeps_the_actors_state_under_64_kb() {
     assert_eq!(log.stats().checkpoints, 1);
     assert!(std::fs::metadata(home.path().join("checkpoint")).unwrap().len() < 64 * 1024);
 
-    let too_large = vec![0u8; MAX_CHECKPOINT];
+    let too_large = vec![0u8; MAX_CHECKPOINT_STATE];
     assert!(matches!(
         log.write_checkpoint(&too_large, &[]),
-        Err(Error::CheckpointTooLarge { bytes }) if bytes > MAX_CHECKPOINT
+        Err(Error::CheckpointTooLarge { bytes }) if bytes > MAX_CHECKPOINT_STATE
     ));
-    let largest = vec![7u8; MAX_CHECKPOINT - 68];
+    let largest = vec![7u8; MAX_CHECKPOINT_STATE - crate::log::CHECKPOINT_OVERHEAD];
     log.write_checkpoint(&largest, &[]).unwrap();
     assert_eq!(std::fs::metadata(home.path().join("checkpoint")).unwrap().len(), 65535);
     log.write_checkpoint(state.as_bytes(), &[]).unwrap();
