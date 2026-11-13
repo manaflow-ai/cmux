@@ -303,7 +303,7 @@ def summary(results_path: Path, out: Path, previous_path: Path | None) -> None:
         if len(reps) > 1:
             lines += ["", f"Medians of {len(reps)} window and OCR repeats. Each repeat: OCR error "
                       + " / ".join(fmt(r.get("ocr_cer"), "%", 2) for r in reps)
-                      + "; kbps idle / typing / scroll "
+                      + "; kbps idle / typing / scroll / video "
                       + ", ".join("/".join(fmt((r.get("kbps") or {}).get(k), "", 0) for k in WINDOW_PHASES) for r in reps) + "."]
         method = get(t, "split", "key", "method")
         if method:
