@@ -168,9 +168,11 @@ impl KinTables {
         if old_folder != new_folder || folder_content_changed {
             if let Some(Some((folder, sort, _key))) = old_folder.as_ref() {
                 if folder_content_changed {
-                    let replacement =
-                        new_arc.cloned().unwrap_or_else(|| Arc::new(new.unwrap().clone()));
-                    self.insert_folder(folder, sort, &replacement, writes);
+                    if let Some(replacement) =
+                        new_arc.cloned().or_else(|| new.map(|row| Arc::new(row.clone())))
+                    {
+                        self.insert_folder(folder, sort, &replacement, writes);
+                    }
                 } else {
                     self.remove_folder(folder, sort, writes);
                 }
