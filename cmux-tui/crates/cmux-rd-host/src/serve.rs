@@ -237,7 +237,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         );
     }
     let mut carrier = ServeCarrier {
-        link: LinkCarrier { net, paths: Vec::new(), rtt_us: None },
+        link: LinkCarrier::new(net, crate::wg_carrier::Role::Host),
         app: AppLines { buf: Vec::new() },
     };
     let reason = match serve_session(opts, &setup, view_only, &mut carrier) {
@@ -271,7 +271,7 @@ fn serve_session(
         }
         crate::fdwait::wait_readable(&carrier.fds(), Some(left.as_nanos() as u64))?;
         carrier.pump_app().map_err(|e| e.to_string())?;
-        for event in carrier.link.net.events() {
+        for event in carrier.link.events() {
             match event {
                 NetEvent::Candidate(c) => {
                     say(AppLine { candidate: Some(c.to_wire()), ..AppLine::default() })

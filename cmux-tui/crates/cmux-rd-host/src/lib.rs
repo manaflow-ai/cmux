@@ -62,6 +62,8 @@ mod token;
 mod upstream;
 #[cfg(all(target_os = "macos", feature = "bench"))]
 mod vtdecode;
+#[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
+mod wg_carrier;
 mod wire;
 #[cfg(target_os = "linux")]
 mod workload;

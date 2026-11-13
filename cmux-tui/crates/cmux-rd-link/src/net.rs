@@ -27,6 +27,7 @@ use cmux_transport::stun::{TransactionId, binding_request, parse_binding_success
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::os::fd::{AsRawFd, RawFd};
+use std::sync::Arc;
 use std::sync::mpsc;
 use std::thread;
 use std::time::Instant;
@@ -171,10 +172,32 @@ enum Command {
 pub struct Net {
     commands: mpsc::Sender<Command>,
     events: mpsc::Receiver<NetEvent>,
-    command_wake: Pipe,
+    command_wake: Arc<Pipe>,
     event_wake: Pipe,
     thread: Option<thread::JoinHandle<()>>,
     local_addr: SocketAddr,
+}
+
+/// A send-only handle for a running link. The owner remains the sole reader of
+/// `Net::events`; the owner must outlive every handle.
+#[derive(Clone)]
+pub struct NetSender {
+    commands: mpsc::Sender<Command>,
+    command_wake: Arc<Pipe>,
+}
+
+impl NetSender {
+    pub fn send_datagram(&self, datagram: Vec<u8>) {
+        self.command(Command::Datagram(datagram));
+    }
+    pub fn send_control(&self, record: Vec<u8>) {
+        self.command(Command::Control(record));
+    }
+    fn command(&self, command: Command) {
+        if self.commands.send(command).is_ok() {
+            self.command_wake.wake();
+        }
+    }
 }
 
 /// A non-blocking pipe used as a wake-up: a byte means "look at the queue".
@@ -271,7 +294,7 @@ impl Net {
         endpoint.set_local_networks(cmux_transport::local_networks());
         let (command_tx, command_rx) = mpsc::channel();
         let (event_tx, event_rx) = mpsc::channel();
-        let command_wake = Pipe::new().map_err(|e| LinkError::Io(e.to_string()))?;
+        let command_wake = Arc::new(Pipe::new().map_err(|e| LinkError::Io(e.to_string()))?);
         let event_wake = Pipe::new().map_err(|e| LinkError::Io(e.to_string()))?;
         let mut driver = Driver {
             socket,
@@ -382,6 +405,10 @@ impl Net {
     /// One control record (ordered, reliable).
     pub fn send_control(&self, record: Vec<u8>) {
         self.command(Command::Control(record));
+    }
+
+    pub fn sender(&self) -> NetSender {
+        NetSender { commands: self.commands.clone(), command_wake: Arc::clone(&self.command_wake) }
     }
 
     /// The machine's network changed (interface, address, wake from sleep).

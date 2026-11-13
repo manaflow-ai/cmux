@@ -118,6 +118,9 @@ impl<S: Read + Write + AsRawFd> Carrier for SocketCarrier<'_, S> {
 #[cfg(feature = "link")]
 pub struct LinkCarrier {
     pub net: cmux_rd_link::net::Net,
+    pub wg: crate::wg_carrier::Negotiation,
+    outer_established: bool,
+    connected_emitted: bool,
     /// Path changes for the caller (the pane's path badge, the congestion controller).
     pub paths: Vec<cmux_rd_link::EndpointEvent>,
     /// The current path's round trip, until the engine reads it.
@@ -133,7 +136,7 @@ impl Carrier for LinkCarrier {
     fn receive(&mut self, out: &mut Vec<Incoming>) -> Result<(), String> {
         use cmux_rd_link::net::NetEvent;
         use cmux_rd_link::{EndpointEvent, Event};
-        for event in self.net.events() {
+        for event in self.events() {
             match event {
                 NetEvent::Endpoint(EndpointEvent::Link(Event::Datagram(d))) => {
                     out.push(Incoming::Datagram(d));
@@ -146,7 +149,9 @@ impl Carrier for LinkCarrier {
                 NetEvent::Endpoint(EndpointEvent::Link(Event::Closed)) => {
                     return Err("viewer closed the link".into());
                 }
-                NetEvent::Failed(reason) => return Err(format!("link failed: {reason}")),
+                cmux_rd_link::net::NetEvent::Failed(reason) => {
+                    return Err(format!("link failed: {reason}"))
+                }
                 NetEvent::Endpoint(path @ EndpointEvent::PathChanged { rtt_us, .. }) => {
                     if rtt_us.is_some() {
                         self.rtt_us = rtt_us;
@@ -164,7 +169,12 @@ impl Carrier for LinkCarrier {
     }
 
     fn send_datagram(&mut self, datagram: &[u8]) -> io::Result<()> {
-        self.net.send_datagram(datagram.to_vec());
+        if !self.wg.send(datagram.to_vec()) {
+            return Err(io::Error::new(
+                io::ErrorKind::NotConnected,
+                "rd/1 WG media carrier is not ready",
+            ));
+        }
         Ok(())
     }
 
@@ -172,6 +182,66 @@ impl Carrier for LinkCarrier {
         let record = serde_json::to_vec(control).map_err(io::Error::other)?;
         self.net.send_control(record);
         Ok(())
+    }
+}
+
+#[cfg(feature = "link")]
+impl LinkCarrier {
+    pub fn new(net: cmux_rd_link::net::Net, role: crate::wg_carrier::Role) -> Self {
+        let sender = net.sender();
+        let mut wg = crate::wg_carrier::Negotiation::new(role);
+        if let Some(offer) = wg.offer() {
+            sender.send_control(offer);
+        }
+        Self {
+            net,
+            wg,
+            outer_established: false,
+            connected_emitted: false,
+            paths: Vec::new(),
+            rtt_us: None,
+        }
+    }
+
+    /// Drain link events, consuming only the private WG negotiation records and
+    /// replacing encrypted WG datagrams with decrypted media datagrams.
+    pub fn events(&mut self) -> Vec<cmux_rd_link::net::NetEvent> {
+        use cmux_rd_link::{EndpointEvent, Event};
+        let sender = self.net.sender();
+        let mut events = Vec::new();
+        for event in self.net.events() {
+            match event {
+                cmux_rd_link::net::NetEvent::Endpoint(EndpointEvent::Link(Event::Control(
+                    record,
+                ))) if self.wg.accept(&record, &sender) => {}
+                cmux_rd_link::net::NetEvent::Endpoint(EndpointEvent::Link(Event::Datagram(
+                    datagram,
+                ))) => {
+                    if self.wg.active() {
+                        self.wg.inject(datagram);
+                    }
+                }
+                cmux_rd_link::net::NetEvent::Endpoint(EndpointEvent::Link(Event::Established)) => {
+                    self.outer_established = true;
+                }
+                other => events.push(other),
+            }
+        }
+        self.wg.start_if_negotiated(&sender);
+        let mut decrypted = Vec::new();
+        self.wg.receive(&mut decrypted);
+        for datagram in decrypted {
+            events.push(cmux_rd_link::net::NetEvent::Endpoint(EndpointEvent::Link(
+                Event::Datagram(datagram),
+            )));
+        }
+        if self.outer_established && self.wg.is_ready() && !self.connected_emitted {
+            self.connected_emitted = true;
+            events.push(cmux_rd_link::net::NetEvent::Endpoint(EndpointEvent::Link(
+                Event::Established,
+            )));
+        }
+        events
     }
 }
 
