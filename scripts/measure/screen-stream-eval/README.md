@@ -23,9 +23,9 @@ run (the last successful one that dispatcher started).
 A Mac that must not build (a laptop cleared for benches only) runs the harness from a copy of
 `scripts/measure` with `prebuilt=DIR`, where DIR holds tools built elsewhere for that Mac: `cmux-rd`
 (`cargo build --release` in `cmux-tui/crates/cmux-rd-host`), `screen-eval-preflight`,
-`screen-eval-scene`, `screen-eval-ocr` (`swiftc -O` of the `.swift` files here) and `cmux-rd-marker`
-(`swiftc -O` of `cmux-tui/crates/cmux-rd-host/scripts/mac-marker/main.swift`), plus an optional `rev`
-file naming the commit they were built from (`run.rev`). A fleet step builds them all at one commit,
+`screen-eval-scene`, `screen-eval-ocr` and `screen-eval-window-id` (`swiftc -O` of the `.swift` files
+here), and `cmux-rd-marker` (`swiftc -O` of `cmux-tui/crates/cmux-rd-host/scripts/mac-marker/main.swift`),
+plus an optional `rev` file naming the commit they were built from (`run.rev`). A fleet step builds them all at one commit,
 with no console or grant needed:
 
 ```
@@ -33,12 +33,16 @@ cmux-ci run --class exclusive --measurement --label measure --script scripts/mea
   --ref SHA --arg=tools-only=1 --artifact artifacts/screen-stream-eval/tools.tar.gz
 ```
 
-The archive holds one folder, `tools/`. Nothing is compiled: only the `rd` target
-has this mode, and a Mac without the grants and without `CmuxScreenEvalLauncher.app` stops with exit 3
-instead of compiling the launcher.
+The archive holds one folder, `tools/`. Nothing is compiled on the bench Mac: the `rd`,
+`apple-high` and `apple-standard` targets have this mode; WebRTC still requires its own build folder.
+A Mac without the grants and without `CmuxScreenEvalLauncher.app` stops with exit 3 instead of compiling
+the launcher. Apple targets require `screen-eval-window-id` in the archive and fail closed if it is absent
+or not executable.
 
 ```
 bash scripts/measure/screen-stream-eval.sh prebuilt=DIR targets=rd [repeats=3] [samples=200]
+# On a second Mac with the prebuilt helper and a granted launcher:
+bash scripts/measure/screen-stream-eval.sh prebuilt=DIR targets=apple-high,apple-standard viewer-of=HOST_IP peer-token=HEX
 ```
 
 ## Scenarios (fixed)
@@ -94,6 +98,46 @@ Today's targets:
 - `rd-window`: the same window alone as a cmux.rd/1 stream at the same 360 px rung (`cmux-rd host
   --display window:ID --max-width 360 --max-fps 6`), with `cmux-rd bench` as the viewer.
   `rd-window-30` runs it at 30 fps. Both have window rows only.
+- `apple-high` and `apple-standard` open Apple's Screen Sharing.app against the
+  same host and sample the displayed connection for OCR and viewer CPU. They
+  request Standard + Full Quality and Standard + Adaptive Quality respectively;
+  neither is Apple's separate High Performance connection type. Connection
+  identity, readiness and the selected setting still need GUI validation.
+  The current adapter does not observe presented markers, decoded-frame
+  readiness or VNC payload bytes, so key/pointer latency, first-frame
+  latency, decoded FPS, and transport kbps remain explicitly unavailable. The
+  target records sampled screenshot changes separately as `sampled_fps`; this
+  is a normalized observation rate, not decoded transport FPS. The target
+  selects Full Quality for `apple-high` and Adaptive Quality for
+  `apple-standard` directly through the app's View menu and fails closed when
+  that menu cannot be selected. These items are available only in Standard
+  connections ([Apple's macOS 26 guide](https://support.apple.com/en-us/guide/mac-help/mh14066/26/mac/26)).
+  Select Standard during connection setup on the dedicated viewer. Apple
+  targets require a second Mac and explicit `targets=`; the daily loopback
+  defaults remain `rd,webrtc`.
+  A managed GUI step may pass `presented-observer=1` with numeric
+  `presented-pid=PID`, `presented-window=CGWINDOW_ID`,
+  `presented-marker-origin=X,Y`, `presented-cell-size=N` and
+  `presented-input-point=X,Y` (all coordinates are viewer capture pixels), plus
+  optional `presented-display=main`, `presented-timeout-ms=1000` and
+  `presented-seed=1`. The viewer step exports these values locally and runs its
+  bundled `cmux-rd observe` against that exact visible window; it accepts only
+  a complete `cmux.presented-marker/1` receipt. Without all values, Apple
+  latency stays explicitly unavailable; screenshot sampling never becomes a
+  latency claim. Each connection attempt reopens the documented View menu,
+  verifies the selected check mark, binds the observed PID/window, and records
+  `apple-connection.json` with the chosen quality profile and host.
+
+The existing `rd` and `webrtc` targets use their passive bench viewers and end
+at decode; those rows are not presentation comparisons with Apple. A common
+comparison must drive the approved production Mac Screen pane through the hub,
+put its visible window on the same viewer display, and pass that pane's exact
+PID/window and capture-pixel marker geometry through the `presented-*` arguments.
+The same `cmux-rd observe` receipt then supplies presented p50/p95 for each
+contender. Hub connection identity, selected profile, scene/marker identity,
+window bounds and capture dimensions are required artifacts; Apple transport
+bytes and decoded FPS remain unavailable unless an approved counter exists.
+No hidden decoder or alternate renderer is evidence for the table.
 
 The window targets add `extra.process_cpu_pct`, the CPU of the process that captures and encodes,
 over the view. Compare them in one run with `--arg=targets=cu-png,rd-window,rd-window-30`

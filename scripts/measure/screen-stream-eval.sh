@@ -16,6 +16,7 @@
 # 5: no target measured a window).
 set -uo pipefail
 targets="rd,webrtc" samples=200 repeats=3 lan="" viewer_of="" peer_token="" input_frame_now=0 prebuilt="" tools_only=0
+presented_observer=0 presented_pid="" presented_window="" presented_marker_origin="" presented_cell_size="" presented_input_point="" presented_display=main presented_timeout_ms=1000 presented_seed=1
 for arg in "$@"; do
   case "$arg" in
     targets=*) targets="${arg#targets=}" ;;
@@ -33,6 +34,17 @@ for arg in "$@"; do
     prebuilt=*) prebuilt="${arg#prebuilt=}" ;;
     # tools-only=1: build the rd tools for prebuilt= into artifacts/screen-stream-eval/tools.tar.gz, and stop.
     tools-only=*) tools_only="${arg#tools-only=}" ;;
+    # presented-observer=1: run cmux-rd observe on the viewer's visible window; the
+    # remaining values are capture-pixel geometry owned by that viewer step.
+    presented-observer=*) presented_observer="${arg#presented-observer=}" ;;
+    presented-pid=*) presented_pid="${arg#presented-pid=}" ;;
+    presented-window=*) presented_window="${arg#presented-window=}" ;;
+    presented-marker-origin=*) presented_marker_origin="${arg#presented-marker-origin=}" ;;
+    presented-cell-size=*) presented_cell_size="${arg#presented-cell-size=}" ;;
+    presented-input-point=*) presented_input_point="${arg#presented-input-point=}" ;;
+    presented-display=*) presented_display="${arg#presented-display=}" ;;
+    presented-timeout-ms=*) presented_timeout_ms="${arg#presented-timeout-ms=}" ;;
+    presented-seed=*) presented_seed="${arg#presented-seed=}" ;;
     *) echo "screen-stream-eval.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
@@ -49,6 +61,21 @@ for arg in "$@"; do
   case "$arg" in prebuilt=*) forward+=("prebuilt=$prebuilt") ;; *) forward+=("$arg") ;; esac
 done
 [[ "$tools_only" =~ ^[01]$ ]] || { echo "screen-stream-eval.sh: tools-only= is 0 or 1" >&2; exit 2; }
+[[ "$presented_observer" =~ ^[01]$ ]] || { echo "screen-stream-eval.sh: presented-observer= is 0 or 1" >&2; exit 2; }
+if [[ "$presented_observer" == 1 ]]; then
+  [[ "$presented_pid" =~ ^[1-9][0-9]*$ && "$presented_window" =~ ^[1-9][0-9]*$ ]] || {
+    echo "screen-stream-eval.sh: presented observer needs numeric presented-pid= and presented-window=" >&2
+    exit 2
+  }
+  [[ "$presented_marker_origin" =~ ^[0-9]+,[0-9]+$ && "$presented_cell_size" =~ ^([2-9]|[1-9][0-9]+)$ && "$presented_input_point" =~ ^[0-9]+,[0-9]+$ ]] || {
+    echo "screen-stream-eval.sh: presented observer needs capture-pixel marker origin, cell size >=2 and input point" >&2
+    exit 2
+  }
+  [[ "$presented_timeout_ms" =~ ^[1-9][0-9]*$ && "$presented_seed" =~ ^[0-9]+$ ]] || {
+    echo "screen-stream-eval.sh: presented-timeout-ms= must be positive and presented-seed= numeric" >&2
+    exit 2
+  }
+fi
 [[ "$repeats" =~ ^[1-9][0-9]*$ ]] || { echo "screen-stream-eval.sh: repeats= is a number from 1" >&2; exit 2; }
 ipv4='^([0-9]{1,3}\.){3}[0-9]{1,3}$'
 for value in "$lan" "$viewer_of"; do
@@ -84,6 +111,13 @@ rm -rf "$out" "$work"
 mkdir -p "$out" "$work/bin"
 chmod 700 "$work"
 export EVAL_ROOT="$root" EVAL_BIN="$work/bin"
+if [[ "$presented_observer" == 1 ]]; then
+  export EVAL_PRESENTED_OBSERVER_BIN="$EVAL_BIN/cmux-rd"
+  export EVAL_PRESENTED_OBSERVER_PID="$presented_pid" EVAL_PRESENTED_OBSERVER_WINDOW="$presented_window"
+  export EVAL_PRESENTED_MARKER_ORIGIN="$presented_marker_origin" EVAL_PRESENTED_CELL_SIZE="$presented_cell_size"
+  export EVAL_PRESENTED_INPUT_POINT="$presented_input_point" EVAL_PRESENTED_DISPLAY="$presented_display"
+  export EVAL_PRESENTED_TIMEOUT_MS="$presented_timeout_ms" EVAL_PRESENTED_SEED="$presented_seed"
+fi
 
 if [[ "$tools_only" == 1 ]]; then
   # The tools a prebuilt= Mac runs, as one folder `tools/` in tools.tar.gz. The Swift tools target
@@ -92,6 +126,7 @@ if [[ "$tools_only" == 1 ]]; then
   for tool in preflight scene ocr; do
     swiftc -O -target "$swift_target" -o "$EVAL_BIN/screen-eval-$tool" "$here/$tool.swift" || exit 4
   done
+  swiftc -O -target "$swift_target" -o "$EVAL_BIN/screen-eval-window-id" "$here/window-id.swift" || exit 4
   swiftc -O -target "$swift_target" -o "$EVAL_BIN/cmux-rd-marker" \
     "$root/cmux-tui/crates/cmux-rd-host/scripts/mac-marker/main.swift" || exit 4
   bash "$here/targets/rd.sh" build || exit 4
@@ -211,7 +246,15 @@ if ! granted "$grants" && [[ -z "${CMUX_SCREEN_EVAL_IN_LAUNCHER:-}" ]]; then
   launch="$root/.build/screen-stream-eval-launcher"
   rm -rf "$launch"
   mkdir -p "$launch"
-  if app=$(bash "$here/launcher/install.sh" 2>"$launch/install.log"); then
+  install_status=0
+  if [[ -n "$prebuilt" ]]; then
+    # The prebuilt route is for a bench Mac that must not compile anything. The
+    # installed launcher is checked above and already carries its console grants.
+    app="$home/Applications/CmuxScreenEvalLauncher.app"
+  else
+    app=$(bash "$here/launcher/install.sh" 2>"$launch/install.log") || install_status=$?
+  fi
+  if [[ "$install_status" == 0 ]]; then
     # --request also lists the app under Privacy & Security, where the grant is made.
     open -W -n -g -a "$app" --stdout "$launch/grants.json" --stderr "$launch/grants.err" --args --request \
       >"$launch/open.log" 2>&1 || echo "open exited $?" >>"$launch/open.log"
@@ -243,7 +286,7 @@ if ! granted "$grants" && [[ -z "${CMUX_SCREEN_EVAL_IN_LAUNCHER:-}" ]]; then
     fi
     finish "this worker's step processes lack Screen Recording or Accessibility, and so does $app; grant both to it once at the console (System Settings > Privacy & Security, where it is listed) ($grants)"
   else
-    finish "the step's processes lack Screen Recording or Accessibility, and the launcher app did not install ($(tail -1 "$launch/install.log"))"
+    finish "the step's processes lack Screen Recording or Accessibility, and the launcher app did not install ($(tail -1 "$launch/install.log" 2>/dev/null))"
   fi
   exit 3
 fi
@@ -361,7 +404,7 @@ for name in "${names[@]}"; do
     # Pointer first: its click gives the marker key focus for the key run.
     for input in pointer key; do
       raw="$EVAL_STATE/latency-$input.raw"
-      rm -f "$raw" "$raw.clock" "$raw.span"
+      rm -f "$raw" "$raw.first" "$raw.clock" "$raw.span"
       view latency-view "$input" "$samples" "$raw" || err "latency $input failed"
       with_offsets "$raw" bash "$script" latency-report "$input" "$raw" "$dir/latency-$input.json" || err "latency $input: no report"
     done
@@ -417,6 +460,9 @@ if [[ $ran == 0 ]]; then
   exit 4
 fi
 finish
-# A run with no window numbers at all is not a baseline a later run should diff against.
-python3 -I -c 'import json, sys; t = json.load(open(sys.argv[1]))["targets"].values(); sys.exit(0 if any(v is not None for x in t for v in (x.get("kbps") or {}).values()) else 5)' "$out/results.json" || exit 5
+# A run with no successful measured target is not a baseline a later run should
+# diff against. Apple transport kbps, decoded FPS and first-frame latency can be
+# unavailable; its OCR or sampled-change evidence still counts when the target
+# itself completed successfully.
+python3 -I -c 'import json, sys; t = json.load(open(sys.argv[1]))["targets"].values(); measured = lambda x: x.get("ok") and (any(v is not None for v in (x.get("kbps") or {}).values()) or any(v is not None for v in (x.get("fps") or {}).values()) or any(v is not None for v in (x.get("sampled_fps") or {}).values()) or (x.get("extra") or {}).get("first_frame_ms") is not None or (x.get("ocr") or {}).get("cer") is not None); sys.exit(0 if any(measured(x) for x in t) else 5)' "$out/results.json" || exit 5
 exit 0
