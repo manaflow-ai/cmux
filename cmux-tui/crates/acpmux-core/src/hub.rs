@@ -225,7 +225,7 @@ impl ListReceiver {
                 history.after_frame(cursor, target, max_bytes)
             }
         };
-        let Some(span) = span else {
+        let Some(span) = span.filter(history::RawSpan::is_valid) else {
             if let Ok(mut state) = self.subscriber.state.lock() {
                 state.ended = true;
             }

@@ -34,6 +34,22 @@ pub(super) struct History {
 pub(crate) struct RawSpan {
     pub(crate) bytes: Vec<u8>,
     pub(crate) last_seq: u64,
+    entries: Vec<Entry>,
+}
+
+impl RawSpan {
+    /// Check the copied bytes after releasing the ring lock. Entry offsets
+    /// address this span, so later ring writes cannot affect validation.
+    pub(super) fn is_valid(&self) -> bool {
+        self.entries.iter().all(|entry| {
+            let Some(bytes) = self.bytes.get(entry.start..entry.start + entry.len) else {
+                return false;
+            };
+            let mut checksum = DefaultHasher::new();
+            checksum.write(bytes);
+            checksum.finish() == entry.checksum
+        })
+    }
 }
 
 #[derive(Serialize)]
@@ -171,7 +187,7 @@ impl History {
         max_bytes: usize,
     ) -> Option<RawSpan> {
         if cursor >= through {
-            return Some(RawSpan { bytes: Vec::new(), last_seq: cursor });
+            return Some(RawSpan { bytes: Vec::new(), last_seq: cursor, entries: Vec::new() });
         }
         let first = cursor.checked_add(1)?;
         let offset = usize::try_from(first.checked_sub(self.first)?).ok()?;
@@ -185,6 +201,7 @@ impl History {
         // can contain thousands of operations.
         let max_bytes = max_bytes.min(256 * 1024);
         let mut out = Vec::with_capacity(max_bytes.min(self.used.saturating_add(count)));
+        let mut entries = Vec::with_capacity(count.min(max_bytes / MIN_OP_BYTES));
         let mut last_seq = cursor;
         for index in 0..count {
             let entry = *self.entries.get((self.head + offset + index) % self.entries.len())?;
@@ -195,12 +212,13 @@ impl History {
             if separator != 0 {
                 out.push(b',');
             }
+            entries.push(Entry { start: out.len(), ..entry });
             if !self.copy_entry_into(entry, &mut out) {
                 return None;
             }
             last_seq = first.saturating_add(index as u64);
         }
-        (!out.is_empty()).then_some(RawSpan { bytes: out, last_seq })
+        (!out.is_empty()).then_some(RawSpan { bytes: out, last_seq, entries })
     }
 
     fn copy_entry_into(&self, entry: Entry, out: &mut Vec<u8>) -> bool {
@@ -213,12 +231,6 @@ impl History {
         let Some(second) = self.bytes.get(..entry.len.saturating_sub(first_len)) else {
             return false;
         };
-        let mut checksum = DefaultHasher::new();
-        checksum.write(first);
-        checksum.write(second);
-        if checksum.finish() != entry.checksum {
-            return false;
-        }
         out.extend_from_slice(second);
         true
     }
@@ -352,6 +364,7 @@ mod tests {
         assert!(history.after_frame(0, 2, 1).is_none());
         let one_size = history.after(0, 1).unwrap().len();
         let one = history.after_frame(0, 2, one_size).unwrap();
+        assert!(one.is_valid());
         assert_eq!(one.last_seq, 1);
         let parsed: Vec<serde_json::Value> = serde_json::from_slice(
             format!("[{}]", String::from_utf8(one.bytes).unwrap()).as_bytes(),
@@ -359,12 +372,63 @@ mod tests {
         .unwrap();
         assert_eq!(parsed.len(), 1);
         let both = history.after_frame(0, 2, usize::MAX).unwrap();
+        assert!(both.is_valid());
         assert_eq!(both.last_seq, 2);
         let parsed: Vec<serde_json::Value> = serde_json::from_slice(
             format!("[{}]", String::from_utf8(both.bytes).unwrap()).as_bytes(),
         )
         .unwrap();
         assert_eq!(parsed.len(), 2);
+    }
+
+    #[test]
+    fn copied_span_validation_survives_overwrite_and_detects_damaged_bytes() {
+        let mut history = History::with_capacity(230);
+        history.append(&gone(1)).unwrap();
+        let copied = history.after_frame(0, 1, 230).unwrap();
+        // Damage the ring after the copy. Validation owns its bytes and may
+        // run while the writer replaces or evicts the original record.
+        let first = history.entries.get(history.head).unwrap().start;
+        *history.bytes.get_mut(first).unwrap() = b'!';
+        let damaged = history.after_frame(0, 1, 230).unwrap();
+        assert!(copied.is_valid());
+        assert!(!damaged.is_valid());
+        for seq in 2..100 {
+            history.append(&gone(seq)).unwrap();
+        }
+        assert!(copied.is_valid());
+        assert!(!damaged.is_valid());
+    }
+
+    #[test]
+    fn a_full_ring_replays_in_bounded_complete_operation_spans() {
+        let mut history = History::new();
+        let mut last = 0;
+        while history.first_seq().is_none_or(|first| first == 1) {
+            last += 1;
+            history.append(&gone(last)).unwrap();
+        }
+        assert!(history.used > CREDIT_WINDOW_BYTES - 100);
+        let mut cursor = history.first_seq().unwrap() - 1;
+        let mut frames = 0;
+        let mut rows = 0;
+        while cursor < last {
+            let span = history.after_frame(cursor, last, 256 * 1024).unwrap();
+            assert!(span.is_valid());
+            assert!(span.bytes.len() <= 256 * 1024);
+            let ops: Vec<serde_json::Value> =
+                serde_json::from_str(&format!("[{}]", String::from_utf8(span.bytes).unwrap()))
+                    .unwrap();
+            for (offset, op) in ops.iter().enumerate() {
+                assert_eq!(op["seq"], cursor + offset as u64 + 1);
+            }
+            assert_eq!(span.last_seq, cursor + ops.len() as u64);
+            cursor = span.last_seq;
+            rows += ops.len();
+            frames += 1;
+        }
+        assert_eq!(rows, history.len());
+        assert!(frames >= 4);
     }
 
     #[test]

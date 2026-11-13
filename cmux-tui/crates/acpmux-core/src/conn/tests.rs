@@ -1048,3 +1048,32 @@ async fn keyed_pages_reach_the_hub_through_the_connection() {
     drop(client);
     task.await.unwrap().unwrap();
 }
+
+#[tokio::test]
+async fn a_key_provider_read_error_is_not_a_missing_chat() {
+    struct Unreadable;
+    impl crate::hub::PageProvider for Unreadable {
+        fn row(&self, _: &acpmux_book::index::RowKey) -> std::io::Result<Option<Arc<Summary>>> {
+            Err(std::io::Error::other("checkpoint read failed"))
+        }
+    }
+    let (mut client, task, hub, _writer, _) = list_pair();
+    hub.set_page_provider(Arc::new(Unreadable));
+    hello(&mut client).await;
+    send(
+        &mut client,
+        json!({"method":"page","params":{
+            "sid":"keys","stream":"list","keys":[
+                {"origin":"local","chatId":"unreadable","lastActivity":0}
+            ]
+        }}),
+    )
+    .await;
+    let frame = receive(&mut client).await;
+    assert_eq!(frame.kind, FrameKind::Error);
+    let error: serde_json::Value = frame.decode_json().unwrap();
+    assert_eq!(error["code"], "request_failed");
+    assert!(error.get("missing").is_none());
+    drop(client);
+    task.await.unwrap().unwrap();
+}

@@ -174,6 +174,38 @@ async fn startup_reconciles_local_rows_and_marks_purge_and_recreation() {
 }
 
 #[tokio::test]
+async fn attending_a_chat_updates_the_tee_unread_count_through_seen() {
+    use acpmux_core::hub::ListItem;
+    let v1 = memory_hub();
+    let mut row = meta("unread");
+    row.unread = true;
+    row.unread_turns = 3;
+    let session = v1.insert_test_session(row);
+    let (hub, writer) = acpmux_core::hub::Hub::new(acpmux_book::index::SummaryIndex::new());
+    let v2 = Arc::new(V2::new(hub, writer));
+    let subscribed = v2.hub.subscribe(&acpmux_core::wire::Sub::new("test", "list")).unwrap();
+    let writer = tokio::spawn(v2.take_writer().unwrap().run());
+    let (handle, task) = start_v2_tee(v1.clone(), v2.clone());
+    v1.install_v2_tee(handle);
+    let tee = tokio::spawn(task);
+    let ListItem::Summary(before) = next(&subscribed.receiver).await else {
+        panic!("initial unread row");
+    };
+    assert_eq!(before.summary.unread, 3);
+    // This is the real attach/seen path, not an artificial tee mark.
+    v1.attach_count(&session, 1, true);
+    let ListItem::Summary(after) = next(&subscribed.receiver).await else {
+        panic!("seen row");
+    };
+    assert_eq!(after.summary.unread, 0);
+    assert_eq!(v1.session_list_summary(&session)["unread"], false);
+    tee.abort();
+    let _ = tee.await;
+    v2.hub.close();
+    writer.await.unwrap().unwrap();
+}
+
+#[tokio::test]
 async fn repeated_slot_waits_mark_only_the_two_edges_without_records() {
     use acpmux_core::hub::ListItem;
     let v1 = memory_hub();
