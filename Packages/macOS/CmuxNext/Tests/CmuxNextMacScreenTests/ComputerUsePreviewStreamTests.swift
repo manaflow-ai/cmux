@@ -193,6 +193,49 @@ import VideoToolbox
         #expect(ComputerUsePreviewStatus(["state": "streaming", "window": 2])?.window == 2)
     }
 
+    /// The agent's window closes: cmux Remote says `no_window`, and the last picture goes, the
+    /// still and the frame alike, and the overlay hides until a window's first picture (the person's
+    /// decision, 2026-11-13). The window coming back shows again.
+    @Test func aClosedWindowTakesItsPictureAway() throws {
+        var picture = ComputerUsePreviewPicture()
+        let stream = ComputerUsePreviewStream(session: "chat-1", longSide: 800) { picture.apply($0) }
+        // A still up.
+        stream.receive(.status(ComputerUsePreviewStatus(state: .still, window: 1)))
+        let sequence = try #require(stream.stills.put(jpeg: try jpeg(width: 40, height: 20)))
+        stream.receive(.stillReady(sequence: sequence))
+        #expect(picture.still != nil && !picture.hidesOverlay(presentation: .card))
+        stream.receive(.status(ComputerUsePreviewStatus(state: .noWindow)))
+        #expect(picture.still == nil, "no still of the closed window")
+        #expect(picture.hidesOverlay(presentation: .card) && picture.hidesOverlay(presentation: .expanded))
+        // A frame up, then the window closes.
+        let encoded = try encodeOneFrame(width: 320, height: 200)
+        let format = try #require(ComputerUsePreviewStream.format(sps: encoded.sps, pps: encoded.pps))
+        let sample = try #require(ComputerUsePreviewStream.sample(encoded.avcc, format: format, microseconds: 1))
+        stream.receive(.status(ComputerUsePreviewStatus(state: .streaming, window: 1)))
+        stream.receive(.sample(sample))
+        #expect(!picture.hidesOverlay(presentation: .card), "the window came back: it shows again")
+        stream.receive(.status(ComputerUsePreviewStatus(state: .noWindow)))
+        #expect(picture.hidesOverlay(presentation: .card) && picture.still == nil)
+        stream.receive(.sample(sample))
+        #expect(picture.hidesOverlay(presentation: .card), "no frame shows before streaming says so again")
+    }
+
+    /// `no_window` empties the still slot in wire order: a still read before it is never shown.
+    @Test func noWindowEmptiesTheSlotInWireOrder() throws {
+        let (ours, theirs) = try socketPair()
+        var bytes = message(0x53, Data(#"{"state":"still","window":1}"#.utf8))
+        bytes += message(0x4A, try jpeg(width: 40, height: 20))
+        bytes += message(0x53, Data(#"{"state":"no_window"}"#.utf8))
+        #expect(bytes.withUnsafeBytes { write(theirs, $0.baseAddress, $0.count) } == bytes.count)
+        close(theirs)
+        let seen = Collected()
+        let stills = ComputerUsePreviewStillSlot()
+        ComputerUsePreviewStream.read(ours, stills: stills) { seen.add($0) }
+        close(ours)
+        let word = try #require(seen.outputs.compactMap { if case .stillReady(let sequence) = $0 { sequence } else { nil } }.first)
+        #expect(stills.take(sequence: word) == nil)
+    }
+
     /// The reader empties the still slot in wire order: a still read before another window's
     /// status (or `blocked`) is never shown, and the new window's first still, read after it, is not
     /// dropped (round-6 review: clearing on the main thread could drop B's first still).

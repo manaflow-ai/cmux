@@ -13,8 +13,8 @@ public protocol ComputerUsePreviewHost: AnyObject {
 }
 
 /// What a preview may show now, from its stream's events (pure: tests feed it a real stream's
-/// events). A still shows until the video's first frame is in the layer; `blocked`, a closed
-/// channel and another window (`windowChanged`) take every picture away, and nothing shows again
+/// events). A still shows until the video's first frame is in the layer; `blocked`, `no_window`
+/// (the window closed), a closed channel and another window (`windowChanged`) take every picture away, and nothing shows again
 /// until a new frame or still comes.
 public struct ComputerUsePreviewPicture: Equatable {
     /// The stream said its window's app is private: nothing shows until it says `streaming` or
@@ -33,7 +33,9 @@ public struct ComputerUsePreviewPicture: Equatable {
             switch status.state {
             case .streaming, .still: blocked = false
             case .blocked: (blocked, pictured, still) = (true, false, nil)
-            case .noWindow, .paused: break
+            // The window is gone: nothing of it stays, and nothing shows until a window's picture.
+            case .noWindow: (pictured, still) = (false, nil)
+            case .paused: break
             }
         case .pictured: (pictured, still) = (true, nil)
         case .still(let image): (pictured, still) = (true, image)

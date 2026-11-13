@@ -220,7 +220,14 @@ public final class ComputerUsePreviewStream {
                 hasPicture = false
             case .streaming, .still:
                 acceptsStills = true
-            case .noWindow, .paused:
+            case .noWindow:
+                // The session's window is gone (closed, or it no longer has one): its last picture
+                // goes, as on a window change, and nothing shows until a window's first picture.
+                // The reader emptied the still slot when it read this status.
+                renderer.flush(removingDisplayedImage: true, completionHandler: nil)
+                hasPicture = false
+                pictureWindow = nil
+            case .paused:
                 break
             }
             onEvent(.status(status))
@@ -283,7 +290,8 @@ public final class ComputerUsePreviewStream {
                     // In wire order: a still read before `blocked` or another window is never shown,
                     // and one read after it (the new window's first) is never dropped.
                     let changed = Self.changesWindow(&window, status)
-                    if status.state == .blocked || changed { stills.clear() }
+                    if status.state == .blocked || status.state == .noWindow || changed { stills.clear() }
+                    if status.state == .noWindow { window = nil }
                     deliver(.status(status))
                 }
             case ComputerUsePreviewWire.parameterSets:
