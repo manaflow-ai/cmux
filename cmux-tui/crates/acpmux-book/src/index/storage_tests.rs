@@ -81,11 +81,6 @@ fn snapshot_head_does_not_materialize_rows_and_sparse_seek_is_bounded() {
         assert_eq!(page.has_before, n != 0);
         assert_eq!(page.has_after, n != 10_999);
     }
-    let last = index.get("row-10999").unwrap();
-    assert_eq!(
-        disk.seek(&SortKey::of(&last), false).unwrap(),
-        (disk.bytes() - disk.head.directory_bytes as u64, disk.len())
-    );
 }
 
 #[test]

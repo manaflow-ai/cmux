@@ -76,8 +76,6 @@ impl SortedSnapshot {
         let mut directory_bytes = 0;
         let mut last_checkpoint: Option<(u64, u64)> = None;
         let mut previous = None;
-        let mut last_key = None;
-        let mut last_len = 0;
         let mut first_lengths = Vec::new();
         for row in rows {
             let row = row?;
@@ -110,8 +108,6 @@ impl SortedSnapshot {
             writer.write_all(&(bytes.len() as u32).to_le_bytes())?;
             offset += len as u64;
             count += 1;
-            last_key = Some(key.clone());
-            last_len = len;
             previous = Some(key);
         }
         directory.flush()?;
@@ -131,8 +127,6 @@ impl SortedSnapshot {
             data_end: offset,
             directory_bytes,
             count,
-            last_key,
-            last_len,
             first_lengths,
         };
         let json = serde_json::to_vec(&head).map_err(io::Error::other)?;
