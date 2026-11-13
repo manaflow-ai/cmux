@@ -46,9 +46,8 @@
   --cv-ui-scale: var(--cmux-ui-scale, 1);
   --cv-column: clamp(calc(720px / var(--cv-ui-scale)), 100%, calc(800px / var(--cv-ui-scale)));
   --cv-edge: var(--grid-icon-box);
-  /* Resolved where it is used: 100% is the pane's width there. Rounded to a whole pixel only, so the
-     default column stays --cv-column's width. */
-  --cv-inset: max(var(--cv-edge), round(nearest, (100% - var(--cv-column)) / 2, 1px));
+  /* Keep fractional CSS pixels: rounding here makes the on-screen edges wobble as page zoom changes. */
+  --cv-inset: max(var(--cv-edge), calc((100% - var(--cv-column)) / 2));
   --cv-font: var(--font-ui);
   /* Code follows the terminal font; a chat or Markdown viewer code font (chatDisplay.ts) sets
      --cv-mono in front of it. */
@@ -5726,6 +5725,7 @@ a.cv-sha:focus-visible {
      same 80 ms arrival fade run from its first keyframe. */
   .acpmux-row--enter[data-entrance-held] {
     animation-play-state: paused;
+    opacity: 0;
   }
   /* Live activity is absolutely placed by VirtualTranscript. Its first paint must not slide the
      visible transcript when a subagent or command arrives; the row's measured box is already in

@@ -58,11 +58,20 @@ export function holdEntranceForFirstFrame(row: Element, frames: Frames | undefin
     animation.pause();
     animation.currentTime = 0;
   }
-  let handle: number | undefined = frames.request(() => {
+  let handle: number | undefined;
+  const release = () => {
     handle = undefined;
     if (marked) row.removeAttribute(HELD_ATTR);
     for (const animation of held) if (animation.playState === "paused") animation.play();
-  });
+  };
+  // If WebKit has not materialized the animation yet, leave the explicit hold through the first
+  // paint. The second callback starts it after that paint; releasing in the first callback would
+  // restore opacity 1 before the delayed first frame and recreate the pop.
+  const first = () => {
+    handle = held.length === 0 ? frames.request(release) : undefined;
+    if (held.length > 0) release();
+  };
+  handle = frames.request(first);
   return () => {
     if (handle !== undefined) frames.cancel(handle);
     handle = undefined;
