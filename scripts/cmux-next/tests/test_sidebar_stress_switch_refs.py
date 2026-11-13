@@ -47,12 +47,14 @@ class FakeApp:
     """The app's socket and its CLI, as far as the switch matrix uses them. A workspace is a sidebar row with a
     name, an id and a page count; a new one goes below the others, so only a move that works puts it at the top."""
 
-    def __init__(self, refuse=(), record=True, lists=True):
+    def __init__(self, refuse=(), record=True, lists=True, dead=(), deaf=()):
         self.rows = []
         self.selected = None
         self.refuse = set(refuse)   # actions that this app refuses whatever they name
         self.record = record        # False: `workspace create` answers a text with no id
         self.lists = lists          # False: the app's snapshot never lists a workspace that the CLI made
+        self.dead = set(dead)       # "click": the app takes each click and switches nothing (the click hits no row)
+        self.deaf = set(deaf)       # the inputs, counted from 1 over the run, that the app takes and that switch nothing
         self.snapshots = 0          # snapshot.get calls
         self.refused = []           # (action, the id it named) of each error answer
         self.inputs = 0             # clicks and keys
@@ -132,11 +134,14 @@ class FakeApp:
             if p.get("action") == "click":
                 self.inputs += 1
                 index = int((p["y"] - 100) // 30)
-                self.select(self.rows[index] if 0 <= index < len(self.rows) else None)
+                hit = 0 <= index < len(self.rows) and "click" not in self.dead and self.inputs not in self.deaf
+                self.select(self.rows[index] if hit else None)
             return {}
         if method == "debug.key":
             self.inputs += 1
             key, at = p.get("key"), next(i for i, r in enumerate(self.rows) if r["id"] == self.selected)
+            if self.inputs in self.deaf:
+                return {}
             if key.isdigit():
                 self.select(self.rows[int(key) - 1] if int(key) <= len(self.rows) else None)
             else:
@@ -221,6 +226,54 @@ class SwitchMatrixRefTests(unittest.TestCase):
         self.assertIn(made["id"], str(stop.exception))
         self.assertIn(made["name"], str(stop.exception))
         self.assertEqual((app.snapshots, len(app.refused), app.inputs), (1, 0, 0))
+
+
+class DeadCellTests(unittest.TestCase):
+    """A cell whose inputs switch nothing is a fact of the run, not a row: the app's switch timer counted fewer
+    switches than the cell sent inputs (a bench Mac, 2026-11-13, 400 workspaces: 40 clicks, 0 switches, and the cell
+    gave numbers with wrong_selection_checks 0, because the tool looks at the selection only after each 4th input,
+    which goes back to the workspace the cell started from)."""
+
+    def run_with(self, app):
+        return SwitchMatrixRefTests.run_with(self, app)
+
+    def gate_rows(self, out):
+        """The rows that perf-budgets.py (the Stable gate's mapper) makes from this matrix."""
+        spec = importlib.util.spec_from_file_location("perf_budgets", os.path.join(HERE, "..", "perf-budgets.py"))
+        budgets = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(budgets)
+        rows = budgets.rows_sidebar({"sizes": {"0": {"switch_matrix": out}}}, 0)
+        return sorted(name for name in rows if name.startswith("workspace_switch."))
+
+    def test_clicks_that_switch_nothing_mark_their_cells_and_give_no_row_to_the_gate(self):
+        app = FakeApp(dead={"click"})
+        out = self.run_with(app)
+        for cell in ("chromium.click", "terminal.click"):
+            self.assertEqual(out[cell].get("invalid"), f"invalid: 0 of {SWITCHES} inputs switched", cell)
+            self.assertEqual((out[cell]["switches"], out[cell]["app_switches"]), (SWITCHES, 0), cell)
+            self.assertNotIn("input_to_idle_ms", out[cell], cell)
+        rows = self.gate_rows(out)
+        self.assertEqual(len([r for r in rows if ".click." in r]), 0, "the gate got rows from cells whose clicks switched nothing")
+        self.assertEqual(len(rows), 4 * 3)  # the 4 key cells: idle, commit, longest frame
+        for cell in CELLS:
+            if not cell.endswith(".click"):
+                self.assertNotIn("invalid", out[cell], cell)
+        self.assertEqual(app.inputs, len(CELLS) * SWITCHES)  # the run goes on: each cell sent its inputs
+
+    def test_one_input_that_switches_nothing_marks_its_cell_only(self):
+        # Input 10 is the 2nd key of chromium.cmd_digit (Cmd-1, back to the cell's first workspace): the selection
+        # stays, so the next key (Cmd-2, to the one that is selected) switches nothing too. The selection checks pass.
+        app = FakeApp(deaf={SWITCHES + 2})
+        out = self.run_with(app)
+        self.assertEqual(out["chromium.cmd_digit"].get("invalid"), f"invalid: {SWITCHES - 2} of {SWITCHES} inputs switched")
+        self.assertEqual([cell for cell in CELLS if "invalid" in out[cell]], ["chromium.cmd_digit"])
+        self.assertEqual(len(self.gate_rows(out)), 5 * 3)
+
+    def test_a_cell_with_a_switch_for_each_input_has_no_mark(self):
+        out = self.run_with(FakeApp())
+        self.assertEqual([cell for cell in CELLS if "invalid" in out[cell]], [])
+        self.assertEqual([out[cell]["app_switches"] for cell in CELLS], [SWITCHES] * len(CELLS))
+        self.assertEqual(len(self.gate_rows(out)), 6 * 3)
 
 
 class StoppedRunKeepsItsRowsTests(unittest.TestCase):
