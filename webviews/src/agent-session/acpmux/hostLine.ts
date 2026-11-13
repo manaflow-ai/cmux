@@ -118,7 +118,10 @@ export function hostLineText(error: unknown, message: string, t: Translate, mach
   const written =
     raw === t("host.tooLarge") ||
     raw === knownRefusalText(error) ||
-    (error instanceof NativeError && error.code !== undefined && error.message === raw);
+    // Only the app's handshake refusal (AgentPaneHandshakeReply.swift, code host_unavailable) carries
+    // a localized line; other coded native errors (a protocol failure's `native.invalid_request`) keep
+    // their raw text, so they go behind Details.
+    (error instanceof NativeError && error.code === "host_unavailable" && error.message === raw);
   if (written && !isRawDaemonText(raw)) return { line: raw };
   return { line: t("host.unavailable"), detail: raw };
 }

@@ -121,6 +121,18 @@ test("any other failure's text reads as the plain line, its words behind Details
   }
 });
 
+// Review of #41975: pageHost.ts turns an unknown operation into a coded NativeError whose message is
+// the protocol's own text; a code is not the app's words unless it is the handshake refusal.
+test("a coded native error other than the app's refusal reads as the plain line, its text behind Details", () => {
+  const words = "unknown operation: agent.session.frobnicate";
+  for (const code of ["native.invalid_request", "native.not_connected", "machine.creator_or_admin"]) {
+    expect(hostLineText(new NativeError({ code, userMessage: words }), words, translate)).toEqual({
+      line: translate("host.unavailable"),
+      detail: words,
+    });
+  }
+});
+
 // The lint: the one line above the composer takes its words from hostLineText, so no raw daemon
 // text can reach it from a new call site.
 test("every HostUnavailableLine in the pane is worded by hostLineText", () => {
