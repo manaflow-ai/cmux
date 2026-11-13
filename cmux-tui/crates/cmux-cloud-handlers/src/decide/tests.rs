@@ -217,7 +217,7 @@ fn palette_desktop_targets_prioritize_capable_machines_and_inline_fixes() {
                 id: "starting".into(),
                 title: "Booting".into(),
                 state: PaletteTargetState::Starting,
-                intent: Some(PaletteTargetIntent::Choose)
+                intent: None
             },
             PaletteTargetRow {
                 id: "no-desktop".into(),

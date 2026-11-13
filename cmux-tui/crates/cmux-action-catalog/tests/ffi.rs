@@ -71,7 +71,8 @@ fn palette_target_metadata_marks_cloud_machine_actions_and_preserves_exemptions(
     assert_eq!(row("newTab")["paletteTarget"], serde_json::Value::Null);
     assert_eq!(row("machine.doctor")["paletteTargetSource"], "ssh");
     assert_eq!(row("remote.removeGroup")["paletteTargetSource"], "remote");
-    assert_eq!(row("machine.reconnect")["paletteTargetSource"], serde_json::Value::Null);
+    assert_eq!(row("machine.reconnect")["paletteTargetSource"], "remote");
+    assert_eq!(row("remote.newWorkspace")["paletteTargetSource"], "ssh");
     assert_eq!(row("bookmark.setIcon")["paletteTarget"], "bookmark");
     assert_eq!(row("bookmark.setIcon")["paletteTargetSource"], "bookmarkFolders");
     assert_eq!(row("bookmark.openAll")["paletteTargetSource"], "bookmarkFolders");
