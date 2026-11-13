@@ -74,6 +74,12 @@
       "title" : "Session Info Chip",
       "type" : "string"
     },
+    "agentPane.display.finishSound" : {
+      "default" : false,
+      "description" : "A soft sound when a long turn in the chat you're looking at ends, its checks pass or its pull request merges. Follows the Mac's Play user interface sound effects setting.",
+      "title" : "Play Sound When Work Finishes",
+      "type" : "boolean"
+    },
     "agentPane.display.font.lineHeight" : {
       "default" : 1.625,
       "description" : "agentPane.display.font.lineHeight",
@@ -271,7 +277,7 @@
       "type" : "boolean"
     },
     "agentPane.display.unreadBanner" : {
-      "default" : "expanded",
+      "default" : "off",
       "description" : "When you come back to a chat that kept working, a banner at the top left says how many turns are new and jumps to them. Collapsed, it is a small pill. Right-click the banner or the New line to hide it or bring it back.",
       "enum" : [
         "expanded",
@@ -296,7 +302,7 @@
       "type" : "number"
     },
     "agentPane.editedFiles.maxRows" : {
-      "default" : 5,
+      "default" : 3,
       "description" : "agentPane.editedFiles.maxRows",
       "maximum" : 50,
       "minimum" : 1,
@@ -695,8 +701,8 @@
     "app.uiScale" : {
       "default" : 1,
       "description" : "Zoom for chat, Settings and other app pages. Density and Text Size set the rest of the app.",
-      "maximum" : 1.5,
-      "minimum" : 0.85,
+      "maximum" : 5,
+      "minimum" : 0.25,
       "title" : "App Zoom",
       "type" : "number"
     },
@@ -1709,6 +1715,24 @@
       "title" : "Theme File",
       "type" : "string"
     },
+    "appearance.titleAreaContrast" : {
+      "default" : 1,
+      "description" : "How much darker the title bar, the tab bar and the sidebar are than the content, under Subtle Tone or a shaded window style. 1 is the default; lower is softer, higher is stronger.",
+      "maximum" : 2,
+      "minimum" : 0,
+      "title" : "Title Area Contrast",
+      "type" : "number"
+    },
+    "appearance.titleAreaTone" : {
+      "default" : "oneColor",
+      "description" : "One Color draws the title bar, the tab bar and the sidebar in the content's color, parted by thin dividers, with a highlighted selected tab. Subtle Tone shades them slightly apart from the content, and the selected tab opens into the content.",
+      "enum" : [
+        "oneColor",
+        "subtleTone"
+      ],
+      "title" : "Title Area",
+      "type" : "string"
+    },
     "appearance.wallpaperTint" : {
       "default" : true,
       "description" : "The glass takes the colors of your desktop picture and follows it when the picture or Space changes.",
@@ -2363,7 +2387,7 @@
     },
     "diagnostics.usagePatterns" : {
       "default" : false,
-      "description" : "Counts how you use cmux on this computer: commands, pane splits, agent chats, prompts and tokens, and connections, by day and hour. It never records prompts, terminal text, web addresses, file names or anything you type, and nothing is sent anywhere. See them with cmux usage-patterns or on the Agent Stats page.",
+      "description" : "Counts how you use cmux on this computer: commands, pane splits, agent chats, prompts and tokens, and connections, by day and hour. It never records prompts, terminal text, web addresses, file names or anything you type, and nothing is sent anywhere. See them with cmux usage-patterns or on the Agent Stats page. It also counts which packages agents install, by name.",
       "title" : "Record Usage Patterns",
       "type" : "boolean"
     },
@@ -5729,7 +5753,7 @@
       "type" : "number"
     },
     "workspaces.newPlacement" : {
-      "default" : "afterCurrent",
+      "default" : "top",
       "description" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. A workspace made in a group goes to the same place inside that group. Pinned workspaces stay above it.",
       "enum" : [
         "top",

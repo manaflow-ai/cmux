@@ -28,16 +28,17 @@ import Testing
 
     /// The buttons are the window's one chrome row (a sidebar row, a tab pill: Lawrence 2026-11-09,
     /// in place of Helium's `kToolbarButtonHeight` 28), and the glyph's ink is a tab icon's side.
-    /// toolbar.patch: the hover shape is a rounded square, `Emphasis::kHigh` (8), not Chrome's circle
-    /// (`kMaximum`).
-    @Test func toolbarButtonsAreHeliumsSquareWithAnEightPointHover() {
+    /// toolbar.patch: the hover shape is a rounded square, not Chrome's circle (`kMaximum`). Its corner is
+    /// the tab's (Lawrence 2026-11-12: "roundness of all buttons should match roundness of tabs/workspaces"),
+    /// Helium's `Emphasis::kHigh` 8 at Default, 6 at a compact row.
+    @Test func toolbarButtonsAreHeliumsSquareWithATabCornerHover() {
         let window = window(CGSize(width: 1000, height: 600))
         defer { window.close() }
         let chrome = chrome(in: window)
         let reload = chrome.reloadButton.convert(chrome.reloadButton.bounds, to: nil)
         let row = Metrics.chromeRowHeight
         #expect(reload.width == row && reload.height == row, "the reload button is \(reload.size), the row \(row)")
-        #expect(chrome.reloadButton.layer?.cornerRadius == 8, "hover corner \(String(describing: chrome.reloadButton.layer?.cornerRadius))")
+        #expect(chrome.reloadButton.layer?.cornerRadius == Metrics.tabCornerRadius, "hover corner \(String(describing: chrome.reloadButton.layer?.cornerRadius))")
         #expect(abs(OmnibarStyle.toolbarIconSize * DensityTokens.toolbarGlyphInkRatio - Metrics.iconSize) < 0.001)
     }
 
@@ -62,7 +63,7 @@ import Testing
     @Test func omnibarKeepsHeliumsLocationBarMetrics() {
         #expect(OmnibarStyle.trailingIconSize == 18)
         #expect(OmnibarStyle.barHeight == Metrics.chromeRowHeight)
-        #expect(OmnibarStyle.chipCornerRadius == max(0, OmnibarStyle.cardCornerRadius - OmnibarStyle.chipLeading))
+        #expect(OmnibarStyle.chipButtonCornerRadius == max(0, OmnibarStyle.cardCornerRadius - OmnibarStyle.chipLeading))
         #expect(OmnibarStyle.barMargin == 6)
         #expect(OmnibarStyle.buttonSpacing == 3)
     }

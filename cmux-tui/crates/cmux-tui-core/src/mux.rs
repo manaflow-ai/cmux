@@ -726,6 +726,8 @@ pub struct Mux {
     /// The chat-index project import's wake (`project_chats.rs`).
     #[cfg(unix)]
     project_chats: project_chats::ProjectChatsWake,
+    /// The editor and app project sources' file watch (`state/project_watch.rs`).
+    pub(crate) project_watch: crate::state::project_watch::ProjectWatch,
     /// Nonterminal notifications remain placement-local. Terminal unread state is keyed by
     /// stable content identity so every view of one terminal shares the same attention marker.
     placement_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
@@ -1106,17 +1108,6 @@ impl Mux {
     #[track_caller]
     pub fn with_state<R>(&self, f: impl FnOnce(&State) -> R) -> R {
         f(&self.state.lock().unwrap())
-    }
-
-    /// Run `f` with the session state if its lock is free now; `None`
-    /// instead of waiting while another thread holds it. A poisoned lock is
-    /// still read: its caller (the accept loop) must not stop on it.
-    pub(crate) fn try_with_state<R>(&self, f: impl FnOnce(&State) -> R) -> Option<R> {
-        match self.state.try_lock() {
-            Ok(state) => Some(f(&state)),
-            Err(std::sync::TryLockError::Poisoned(poison)) => Some(f(&poison.into_inner())),
-            Err(std::sync::TryLockError::WouldBlock) => None,
-        }
     }
 
     pub fn surface_count(&self) -> usize {

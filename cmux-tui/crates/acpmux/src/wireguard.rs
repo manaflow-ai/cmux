@@ -13,7 +13,7 @@
 //! two never share a key: the transport locks only its own key and runs as
 //! before, next to a serving link.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -208,12 +208,10 @@ impl Transport {
         let (_, private_key) = crate::cli::mesh_node_key::load_or_create_held(state_dir, &key)?;
         let mesh = WgMesh::start(mesh_config(private_key, settings.address), socket)?;
         let mut routes = BTreeMap::new();
-        let mut peers = Vec::new();
-        let mut identities = BTreeSet::new();
+        let mut peers: BTreeMap<[u8; 32], WgPeer> = BTreeMap::new();
         for (name, peer) in configured {
             let Some(peer) = &peer.wireguard else { continue };
             let public_key = public_key(&peer.public_key)?;
-            ensure!(identities.insert(public_key), "duplicate WireGuard peer key");
             ensure!(
                 peer.address.port() != 0
                     && peer.address.ip() != settings.address.ip()
@@ -253,9 +251,33 @@ impl Transport {
                 candidates: usable.into_iter().map(PeerCandidate::from).collect(),
                 persistent_keepalive: None,
             };
-            mesh.add_peer(wg_peer.clone()).await?;
-            peers.push(wg_peer);
+            // Configured names may alias one host. Its cryptographic identity
+            // owns one session, with all explicitly configured addresses and
+            // endpoint candidates; adding it twice would replace that session.
+            match peers.entry(public_key) {
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    entry.insert(wg_peer);
+                }
+                std::collections::btree_map::Entry::Occupied(mut entry) => {
+                    let existing = entry.get_mut();
+                    for address in wg_peer.allowed_ips {
+                        if !existing.allowed_ips.contains(&address) {
+                            existing.allowed_ips.push(address);
+                        }
+                    }
+                    for candidate in wg_peer.candidates {
+                        if !existing.candidates.contains(&candidate) {
+                            existing.candidates.push(candidate);
+                        }
+                    }
+                }
+            }
             routes.insert(name.clone(), peer.clone());
+        }
+        let peers: Vec<_> = peers.into_values().collect();
+        for peer in &peers {
+            // The mesh still refuses an address claimed by different keys.
+            mesh.add_peer(peer.clone()).await?;
         }
         let listener = mesh.listen(settings.address.port()).await?;
         let (stop, stopped) = watch::channel(false);
