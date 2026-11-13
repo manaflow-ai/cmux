@@ -46,23 +46,30 @@ def load(path: Path):
         return None
 
 
-def phase_numbers(series: list[dict], phases: dict[str, dict]) -> tuple[dict, dict, dict, dict]:
-    kbps, fps, encode, decode = {}, {}, {}, {}
+def phase_numbers(series: list[dict], phases: dict[str, dict]) -> tuple[dict, dict, dict, dict, dict]:
+    kbps, fps, sampled_fps, encode, decode = {}, {}, {}, {}, {}
     for name in WINDOW_PHASES:
         span = phases.get(name)
         rows = [] if not span else [s for s in series if span["start_unix_ms"] + PHASE_GUARD_MS < s["unix_ms"] <= span["end_unix_ms"]]
         if not rows:
-            kbps[name] = fps[name] = encode[name] = decode[name] = None
+            kbps[name] = fps[name] = sampled_fps[name] = encode[name] = decode[name] = None
             continue
         byte_rows = [s.get("bytes") for s in rows]
         kbps[name] = (round(sum(byte_rows) * 8 / 1000 / len(rows), 1)
                       if all(isinstance(value, (int, float)) for value in byte_rows) else None)
-        fps[name] = round(sum(s["frames"] for s in rows) / len(rows), 1)
+        frame_rows = [s.get("frames") for s in rows]
+        fps[name] = (round(sum(frame_rows) / len(frame_rows), 1)
+                     if all(isinstance(value, (int, float)) for value in frame_rows) else None)
+        sampled_rows = [s.get("sampled_changes") for s in rows]
+        elapsed_ms = (rows[-1].get("unix_ms", 0) - rows[0].get("unix_ms", 0)) if len(rows) > 1 else 0
+        sampled_fps[name] = (round(sum(sampled_rows) / (elapsed_ms / 1000), 1)
+                             if len(rows) > 1 and elapsed_ms > 0
+                             and all(isinstance(value, (int, float)) for value in sampled_rows) else None)
         enc = [s["encode_ms"] for s in rows if isinstance(s.get("encode_ms"), (int, float))]
         dec = [s["decode_ms"] for s in rows if isinstance(s.get("decode_ms"), (int, float))]
         encode[name] = round(statistics.median(enc), 2) if enc else None
         decode[name] = round(statistics.median(dec), 2) if dec else None
-    return kbps, fps, encode, decode
+    return kbps, fps, sampled_fps, encode, decode
 
 
 OCR_FIELDS = ["cer", "host_cer_vs_truth", "viewer_cer_vs_truth", "host_chars", "viewer_chars", "truth_chars", "host_image", "viewer_image"]
@@ -74,6 +81,7 @@ def empty_target(errors: list[str]) -> dict:
         "ok": False, "errors": errors,
         "latency": {k: {"p50_ms": None, "p95_ms": None, "n": None, "lost": None} for k in ("key", "pointer")},
         "kbps": dict.fromkeys(WINDOW_PHASES), "fps": dict.fromkeys(WINDOW_PHASES),
+        "sampled_fps": dict.fromkeys(WINDOW_PHASES),
         "ocr": dict.fromkeys(OCR_FIELDS),
         "split": {**{k: {"input_to_capture_ms": None, "encode_ms": None, "transport_ms": None, "decode_ms": None, "method": None}
                      for k in ("key", "pointer")}, "typing": {"encode_ms": None, "decode_ms": None}},
@@ -108,16 +116,16 @@ def target(name: str, folder: Path, out: Path) -> None:
                 if line.strip():
                     row = json.loads(line)
                     phases[row["phase"]] = row
-        kbps, fps, encode, decode = phase_numbers(window.get("series") or [], phases)
+        kbps, fps, sampled_fps, encode, decode = phase_numbers(window.get("series") or [], phases)
         ocr = load(folder / f"ocr-{rep}.json")
-        if None in fps.values():
-            errors.append(f"window {rep}: no frame numbers for {[k for k, v in fps.items() if v is None]} (phases logged: {sorted(phases)})")
+        if None in fps.values() and None in sampled_fps.values():
+            errors.append(f"window {rep}: no frame or sampled-change numbers for {[k for k, v in fps.items() if v is None and sampled_fps.get(k) is None]} (phases logged: {sorted(phases)})")
         if ocr is None:
             errors.append(f"ocr {rep}: no result")
         else:
             ocrs.append(ocr)
         extras.append(window.get("extra") or {})
-        per_rep.append({"repeat": rep, "kbps": kbps, "fps": fps, "typing_encode_ms": encode.get("typing"),
+        per_rep.append({"repeat": rep, "kbps": kbps, "fps": fps, "sampled_fps": sampled_fps, "typing_encode_ms": encode.get("typing"),
                         "typing_decode_ms": decode.get("typing"), "ocr_cer": (ocr or {}).get("cer"),
                         "ocr": {k: (ocr or {}).get(k) for k in OCR_FIELDS},
                         **{f"window_{k}": v for k, v in (window.get("extra") or {}).items()}})
@@ -149,11 +157,14 @@ def target(name: str, folder: Path, out: Path) -> None:
         errors.append("ocr: no result")
     first_extra = extras[0] if extras else {}
     metadata = {k: v for k, v in first_extra.items() if k not in {"first_frame_ms", "cpu_pct", "process_cpu_pct"}}
-    cpu_values = (e.get("cpu_pct") if isinstance(e.get("cpu_pct"), (int, float))
-                  else e.get("process_cpu_pct") for e in extras)
+    cpu_values = (e.get("cpu_pct") if isinstance(e.get("cpu_pct"), (int, float)) else None
+                  for e in extras)
     result["extra"] = {**metadata,
                         "first_frame_ms": median_of(e.get("first_frame_ms") for e in extras),
-                        "cpu_pct": median_of(cpu_values), "repeats": per_rep}
+                        "cpu_pct": median_of(cpu_values),
+                        "process_cpu_pct": median_of(e.get("process_cpu_pct") for e in extras),
+                        "repeats": per_rep}
+    result["sampled_fps"] = {k: median_of(r["sampled_fps"][k] for r in per_rep) for k in WINDOW_PHASES}
     result["ok"] = not errors
     out.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
 
@@ -213,7 +224,10 @@ def summary(results_path: Path, out: Path, previous_path: Path | None) -> None:
             lines.append(f"| kbps, {label} | {cell('kbps', phase, unit='', digits=0)} at {cell('fps', phase, unit=' fps')} |")
         lines.append(f"| Text OCR error (13 pt code, viewer vs host screenshot) | {cell('ocr', 'cer', unit='%', digits=2)}"
                      f" (host OCR vs drawn text {fmt(get(t, 'ocr', 'host_cer_vs_truth'), '%', 2)}) |")
-        lines.append(f"| First decoded frame / viewer CPU | {cell('extra', 'first_frame_ms')} / {cell('extra', 'cpu_pct', digits=1)} % |")
+        lines.append(f"| First decoded frame / viewer CPU / capture CPU | {cell('extra', 'first_frame_ms')} / {cell('extra', 'cpu_pct', unit=' %', digits=1)} / {cell('extra', 'process_cpu_pct', unit=' %', digits=1)} |")
+        if any(v is not None for v in (t.get('sampled_fps') or {}).values()):
+            lines.append(f"| Apple sampled screenshot changes (not decoded FPS) | "
+                         + " / ".join(cell('sampled_fps', phase, unit=' changes/s', digits=1) for phase in WINDOW_PHASES) + " |")
         for kind in ("key", "pointer"):
             lines.append(f"| {kind.capitalize()} split: input→capture / encode / transport / decode | "
                          f"{cell('split', kind, 'input_to_capture_ms')} / {cell('split', kind, 'encode_ms', digits=2)} / "

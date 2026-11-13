@@ -252,7 +252,7 @@ def agent(host: str, port: int, token: str, root: Path) -> int:
             if name in ("marker.log", "token"):
                 (work / name).write_bytes(base64.b64decode(data))
         raw, snapshot, go = work / f"{verb}.raw", work / "snapshot", work / "go"
-        for path in (raw, snapshot, go):
+        for path in (raw, snapshot, go, Path(f"{raw}.first")):
             path.unlink(missing_ok=True)
         argv = ["bash", str(root / "scripts/measure/screen-stream-eval/targets" / f"{target}.sh"), verb, *args]
         argv += [str(raw)] if verb == "latency-view" else [str(snapshot), str(go), str(raw)]

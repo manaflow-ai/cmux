@@ -1,6 +1,7 @@
 import CmuxVNCWebRTC
 import CoreImage
 import CoreVideo
+import Darwin
 import Foundation
 import ImageIO
 import Testing
@@ -48,6 +49,15 @@ struct StreamWindowTests {
 
     private func unixMs() -> Int { Int(Date().timeIntervalSince1970 * 1000) }
 
+    private func processCPUSeconds() -> Double {
+        var usage = rusage()
+        guard getrusage(RUSAGE_SELF, &usage) == 0 else { return 0 }
+        func seconds(_ time: timeval) -> Double {
+            Double(time.tv_sec) + Double(time.tv_usec) / 1_000_000
+        }
+        return seconds(usage.ru_utime) + seconds(usage.ru_stime)
+    }
+
     @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_EVAL_WINDOW_S"] != nil), .timeLimit(.minutes(5)))
     func passiveWindow() async throws {
         let env = ProcessInfo.processInfo.environment
@@ -61,6 +71,7 @@ struct StreamWindowTests {
         // The first frame (bounded: 15 s, as the rd bench).
         for _ in 0 ..< 150 where reader.rendered == 0 { try await Task.sleep(for: .milliseconds(100)) }
         try #require(reader.rendered > 0, "no video within 15 s")
+        let cpuStart = processCPUSeconds()
         // Unbuffered, for a person reading the log; the eval starts its scene from CMUX_EVAL_GO below.
         FileHandle.standardOutput.write(Data("streamwindow: first frame\n".utf8))
         if let go = env["CMUX_EVAL_GO"] { FileManager.default.createFile(atPath: go, contents: nil) }
@@ -94,6 +105,7 @@ struct StreamWindowTests {
             "packets_lost": last.packetsLost - first.packetsLost,
             "frames_dropped": last.framesDropped - first.framesDropped,
             "freezes": last.freezeCount - first.freezeCount,
+            "client_cpu_pct": (processCPUSeconds() - cpuStart) / Double(seconds) * 100,
         ]
         let json = try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys])
         print("streamwindow: \(String(decoding: json, as: UTF8.self))")

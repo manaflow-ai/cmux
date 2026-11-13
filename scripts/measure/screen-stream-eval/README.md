@@ -95,16 +95,16 @@ Today's targets:
   --display window:ID --max-width 360 --max-fps 6`), with `cmux-rd bench` as the viewer.
   `rd-window-30` runs it at 30 fps. Both have window rows only.
 - `apple-high` and `apple-standard` open Apple's Screen Sharing.app against the
-  same host and sample its displayed frames, bytes, first-frame time and viewer
-  CPU. They represent the two quality profiles selected in the app. Apple does
-  not expose a supported input-to-presented-frame timestamp, so their key and
-  pointer latency rows remain explicitly unavailable rather than mixing in a
-  different protocol. Screen Sharing.app also does not expose its VNC payload
-  byte counters; Apple rows therefore report frame rate, OCR, first frame and
-  CPU, with transport kbps explicitly unavailable. The target selects Full
-  Quality for `apple-high` and Adaptive Quality for `apple-standard` through
-  the app's View > Quality menu and fails closed when that menu cannot be
-  selected.
+  same host and sample the displayed connection for OCR and viewer CPU. They
+  represent the two quality profiles selected in the app. Apple does not expose
+  a supported input-to-presented-frame timestamp, decoded-frame readiness
+  marker, or VNC payload byte counter, so key/pointer latency, first-frame
+  latency, decoded FPS, and transport kbps remain explicitly unavailable. The
+  target records sampled screenshot changes separately as `sampled_fps`; this
+  is a normalized observation rate, not decoded transport FPS. The target
+  selects Full Quality for `apple-high` and Adaptive Quality for
+  `apple-standard` through the app's View > Quality menu and fails closed when
+  that menu cannot be selected.
 
 The window targets add `extra.process_cpu_pct`, the CPU of the process that captures and encodes,
 over the view. Compare them in one run with `--arg=targets=cu-png,rd-window,rd-window-30`

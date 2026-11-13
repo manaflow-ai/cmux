@@ -417,6 +417,9 @@ if [[ $ran == 0 ]]; then
   exit 4
 fi
 finish
-# A run with no window numbers at all is not a baseline a later run should diff against.
-python3 -I -c 'import json, sys; t = json.load(open(sys.argv[1]))["targets"].values(); sys.exit(0 if any(v is not None for x in t for v in (x.get("kbps") or {}).values()) else 5)' "$out/results.json" || exit 5
+# A run with no successful measured target is not a baseline a later run should
+# diff against. Apple transport kbps, decoded FPS and first-frame latency can be
+# unavailable; its OCR or sampled-change evidence still counts when the target
+# itself completed successfully.
+python3 -I -c 'import json, sys; t = json.load(open(sys.argv[1]))["targets"].values(); measured = lambda x: x.get("ok") and (any(v is not None for v in (x.get("kbps") or {}).values()) or any(v is not None for v in (x.get("fps") or {}).values()) or any(v is not None for v in (x.get("sampled_fps") or {}).values()) or (x.get("extra") or {}).get("first_frame_ms") is not None or (x.get("ocr") or {}).get("cer") is not None); sys.exit(0 if any(measured(x) for x in t) else 5)' "$out/results.json" || exit 5
 exit 0
