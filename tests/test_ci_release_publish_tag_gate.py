@@ -121,14 +121,17 @@ RELEASE_PATH = re.compile(r"releases|/git/(tags|refs)|(^|/)tags(/|$)")
 GH_API_VALUE_FLAGS = {"-X", "--method", "-f", "--raw-field", "-F", "--field", "-H", "--header", "--input", "-q",
                       "--jq", "-t", "--template", "--hostname", "--cache", "-p", "--preview"}
 GH_API_FIELD_FLAGS = {"-f", "-F", "--field", "--raw-field", "--input"}
+GRAPHQL_MUTATION = re.compile(r"(?<![A-Za-z0-9_])mutation(?![A-Za-z0-9_])")
 
 
 def gh_api_writes_release(args: list[str]) -> bool:
-    """Classify gh api release/tag paths, keeping explicit GET and HEAD reads and failing closed otherwise."""
+    """Classify gh api writes, including GraphQL mutations, and fail closed on unreadable inputs."""
     method: str | None = None
     method_known = True
     fields = False
     paths: list[str] = []
+    graphql_query: str | None = None
+    graphql_query_known = False
     index = 0
 
     def readable_method(value: str) -> bool:
@@ -153,13 +156,24 @@ def gh_api_writes_release(args: list[str]) -> bool:
                 method_known = readable_method(method)
         elif name in GH_API_FIELD_FLAGS or (len(word) > 2 and word[:2] in ("-f", "-F") and not word.startswith("--")):
             fields = True
-            if name in GH_API_VALUE_FLAGS and attached is None:
+            value = attached
+            if value is None and name in GH_API_VALUE_FLAGS and index < len(args):
+                value = args[index]
                 index += 1
+            if value is not None:
+                key, separator, field = value.partition("=")
+                if key == "query" and separator:
+                    graphql_query = field
+                    graphql_query_known = not field.startswith(("$", "@"))
         elif name in GH_API_VALUE_FLAGS:
             if attached is None:
                 index += 1
         elif not word.startswith("-"):
             paths.append(word)
+    if "graphql" in paths:
+        if not graphql_query_known or graphql_query is None:
+            return True
+        return bool(GRAPHQL_MUTATION.search(graphql_query))
     if not any(RELEASE_PATH.search(path) for path in paths):
         return False
     if not method_known:
@@ -348,6 +362,14 @@ class TagGate(unittest.TestCase):
             with self.subTest(args=args):
                 self.assertTrue(publishing_command(args), args)
 
+    def test_graphql_mutations_and_unreadable_queries_are_writes(self) -> None:
+        self.assertTrue(publishing_command(["gh", "api", "graphql", "-f",
+                                            "query=mutation { createRelease { id } }"]))
+        self.assertTrue(publishing_command(["gh", "api", "graphql", "--input", "query.json"]))
+        self.assertTrue(publishing_command(["gh", "api", "graphql", "-f", "query=$QUERY"]))
+        self.assertFalse(publishing_command(["gh", "api", "graphql", "-f",
+                                             "query=query { repository { name } }"]))
+
     def test_no_disallowed_event_term_can_hide_beside_an_allowed_one(self) -> None:
         policy = POLICIES["app-ffi-release.yml"]
         branch = "github.ref == 'refs/heads/feat-cmux-next'"
@@ -383,6 +405,7 @@ class TagGate(unittest.TestCase):
             "quoted env operator and publisher": '      - run: env X"="1 g"h" release create v1\n',
             "gh release create": "      - run: gh release create v1 dist/*\n",
             "gh api write": "      - run: gh api -X POST repos/o/r/releases -f tag_name=v1\n",
+            "gh api graphql mutation": "      - run: gh api graphql -f 'query=mutation { createRelease { id } }'\n",
             "codesign": "      - run: codesign --force --sign - dist/x\n",
             "notarytool": "      - run: xcrun notarytool submit x.zip\n",
             "secret": "      - run: ./sign.sh\n        env:\n          KEY: ${{ secrets.SIGNING_KEY }}\n",
