@@ -547,7 +547,8 @@
 :is(.acpmux-composer-bar, .nt-pickers) .acpmux-effort .acpmux-picker-button,
 :is(.acpmux-composer-bar, .nt-pickers) .acpmux-access .acpmux-picker-button {
   height: var(--acpmux-composer-control, 28px);
-  border-radius: var(--ds-radius-control);
+  /* The model and access chips are capsules at every density (Lucas 2026-11-14). */
+  border-radius: var(--acpmux-permission-pill-radius, 999px);
   color: var(--agent-muted);
 }
 /* Every chip: its text and icons the row's inset from both edges, an icon or chevron the same
