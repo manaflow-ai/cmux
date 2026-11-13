@@ -664,17 +664,24 @@ fn git_files_search_gives_no_path_below_a_folder_that_became_a_link_after_the_li
 /// No search result.
 const NO_PATH: [&str; 0] = [];
 
+/// Makes the tracked folder `dir` in `folder`, a folder of `repo`, with the tracked file
+/// `dir/below.txt`, and then puts a link to a folder outside the repository in the place of
+/// `dir`. That folder has one file, `outside_file`.
+fn link_in_the_place_of_a_tracked_folder_in(repo: &Path, folder: &Path, outside_file: &str) {
+    std::fs::create_dir_all(folder.join("dir")).unwrap();
+    std::fs::write(folder.join("dir/below.txt"), "inside\n").unwrap();
+    git(repo, &["add", "."]);
+    git(repo, &["commit", "--quiet", "-m", "dir"]);
+    let outside = outside_folder(outside_file, b"outside\n");
+    std::fs::rename(folder.join("dir"), repo.join(".git").join("dir-away")).unwrap();
+    std::os::unix::fs::symlink(&outside, folder.join("dir")).unwrap();
+}
+
 /// A new repository whose tracked folder `dir`, with the tracked file `dir/below.txt`, is now
 /// a link to a folder outside it. That folder has one file, `outside_file`.
 fn repository_with_a_link_to_a_folder_with(outside_file: &str) -> PathBuf {
     let repo = fresh_repository();
-    std::fs::create_dir_all(repo.join("dir")).unwrap();
-    std::fs::write(repo.join("dir/below.txt"), "inside\n").unwrap();
-    git(&repo, &["add", "dir/below.txt"]);
-    git(&repo, &["commit", "--quiet", "-m", "dir"]);
-    let outside = outside_folder(outside_file, b"outside\n");
-    std::fs::rename(repo.join("dir"), repo.join(".git").join("dir-away")).unwrap();
-    std::os::unix::fs::symlink(&outside, repo.join("dir")).unwrap();
+    link_in_the_place_of_a_tracked_folder_in(&repo, &repo, outside_file);
     repo
 }
 
@@ -740,4 +747,125 @@ fn git_files_list_gives_a_submodule_as_a_folder_and_the_search_gives_it_as_no_fi
     let mut client = Client::of_a_new_daemon();
     assert_eq!(client.listed_kind(&repo, "inner-repo"), "directory", "a real folder");
     assert_eq!(client.found(&repo, "inner-repo"), NO_PATH, "a folder is no file");
+}
+
+#[test]
+fn git_files_search_counts_no_match_below_a_link_in_a_folder_whose_name_ends_with_a_line_break() {
+    let mut client = Client::of_a_new_daemon();
+    for outside_file in BEHIND_THE_LINK {
+        let repo = fresh_repository();
+        let folder = repo.join("pkg\n");
+        link_in_the_place_of_a_tracked_folder_in(&repo, &folder, outside_file);
+        let result = client.search(&folder, "below");
+        assert_eq!(result["total_matches"], 0, "{outside_file} behind the link: {result}");
+        assert_eq!(result["results"], json!([]), "{outside_file} behind the link: {result}");
+        let searched = result["search_root"].as_str().unwrap_or_default();
+        assert!(searched.ends_with("/pkg\n"), "the folder that was searched: {result}");
+        let kind = client.listed_kind(&folder, "dir");
+        assert_eq!(kind, "file", "{outside_file} behind the link");
+    }
+}
+
+/// A name that is not UTF-8 is a name of Linux only. The client names the folder by a link
+/// to it, and git gives the folder's own name.
+#[cfg(target_os = "linux")]
+#[test]
+fn git_files_search_counts_no_match_below_a_link_in_a_folder_whose_name_is_not_utf8() {
+    use std::os::unix::ffi::OsStrExt as _;
+    let mut client = Client::of_a_new_daemon();
+    for outside_file in BEHIND_THE_LINK {
+        let repo = fresh_repository();
+        let name = std::ffi::OsStr::from_bytes(b"caf\xe9");
+        link_in_the_place_of_a_tracked_folder_in(&repo, &repo.join(name), outside_file);
+        let alias = repo.join("alias");
+        std::os::unix::fs::symlink(name, &alias).unwrap();
+        let result = client.search(&alias, "below");
+        assert_eq!(result["total_matches"], 0, "{outside_file} behind the link: {result}");
+        assert_eq!(result["results"], json!([]), "{outside_file} behind the link: {result}");
+        let kind = client.listed_kind(&alias, "dir");
+        assert_eq!(kind, "file", "{outside_file} behind the link");
+    }
+}
+
+/// The daemon looks at a path with 128 folders above its name, and it does not look at a
+/// path with more. A path with 129 is no candidate, as a path below a link is none.
+#[test]
+fn git_files_search_counts_no_match_below_a_link_with_more_than_128_folders_above_the_name() {
+    let mut client = Client::of_a_new_daemon();
+    for folders in [128, 129] {
+        for outside_file in BEHIND_THE_LINK {
+            let repo = fresh_repository();
+            // The link `dir` is the last of the folders above the name.
+            let real: PathBuf = (1..folders).map(|_| "d").collect();
+            link_in_the_place_of_a_tracked_folder_in(&repo, &repo.join(real), outside_file);
+            let result = client.search(&repo, "below");
+            let state = format!("{folders} folders, {outside_file} behind the link");
+            assert_eq!(result["total_matches"], 0, "{state}: {result}");
+            assert_eq!(result["results"], json!([]), "{state}: {result}");
+        }
+    }
+}
+
+/// Gives a folder its read permission back at the end of a test, also after a failed assert.
+struct ReadAgain(PathBuf);
+
+impl Drop for ReadAgain {
+    fn drop(&mut self) {
+        let _ = std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o755));
+    }
+}
+
+#[test]
+fn git_files_search_counts_no_match_below_a_link_in_a_folder_that_cannot_be_read() {
+    let mut client = Client::of_a_new_daemon();
+    for outside_file in BEHIND_THE_LINK {
+        let repo = fresh_repository();
+        let closed = repo.join("closed");
+        link_in_the_place_of_a_tracked_folder_in(&repo, &closed, outside_file);
+        // A user can go through the folder to a name below it, and cannot read the folder.
+        std::fs::set_permissions(&closed, std::fs::Permissions::from_mode(0o111)).unwrap();
+        let read_again = ReadAgain(closed.clone());
+        let no_read = std::fs::read_dir(&closed).is_err();
+        assert!(no_read, "the user of this test reads a folder that has no read permission");
+        let result = client.search(&repo, "below");
+        let names = client.listed_names(&repo);
+        drop(read_again);
+        assert_eq!(result["total_matches"], 0, "{outside_file} behind the link: {result}");
+        assert_eq!(result["results"], json!([]), "{outside_file} behind the link: {result}");
+        assert_eq!(names, ["a.txt"], "{outside_file} behind the link");
+    }
+}
+
+/// Puts a program at the hook `name` of `repo` that takes the link `dir` of `repo` away and
+/// puts the folder back that was there before the link: the stand-in git runs it after the
+/// listing that the hook names.
+fn swap_back_after(repo: &Path, name: &str) -> PathBuf {
+    let hook = repo.join(".git").join(name);
+    let script = format!(
+        "#!/bin/sh\nrm '{dir}' && mv '{away}' '{dir}'\n",
+        dir = repo.join("dir").display(),
+        away = repo.join(".git").join("dir-away").display(),
+    );
+    std::fs::write(&hook, script).unwrap();
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    hook
+}
+
+/// The folder `dir` is a link at git's listing and the real folder, with the tracked file
+/// `dir/below.txt`, at the daemon's look. The count is of the real folder: it is the same
+/// with and without a file of the tracked name behind the link.
+#[test]
+fn git_files_search_counts_a_file_of_a_folder_that_was_a_link_at_the_listing_by_the_folder() {
+    let mut client = Client::of_a_new_daemon();
+    for outside_file in BEHIND_THE_LINK {
+        let repo = repository_with_a_link_to_a_folder_with(outside_file);
+        let hook = swap_back_after(&repo, "after-deleted-listing");
+        let result = client.search(&repo, "below");
+        std::fs::remove_file(&hook).unwrap();
+        let dir = std::fs::symlink_metadata(repo.join("dir")).unwrap();
+        assert!(dir.is_dir(), "the stand-in git did not put the folder back");
+        assert_eq!(result["total_matches"], 1, "{outside_file} was behind the link: {result}");
+        let path = &result["results"][0]["path"];
+        assert_eq!(*path, "dir/below.txt", "{outside_file} was behind the link: {result}");
+    }
 }
