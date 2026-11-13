@@ -815,7 +815,10 @@ fn subscription_first_frame_past_remaining_budget_drops_with_named_cursor() {
     let control = state.control("s").unwrap();
     assert!(state.reserve_reply());
     state.begin_subscription_reply(control);
-    assert!(matches!(state.offer("s", frame(90), Cursor(8)), Offer::Taken));
+    assert!(matches!(
+        state.offer("s", frame(crate::wire::MAX_FRAME_BYTES - 8), Cursor(8)),
+        Offer::Taken
+    ));
     assert!(matches!(state.offer("s", frame(90), Cursor(9)), Offer::Dropped { .. }));
     assert_eq!(state.subscription_count(), 0);
     state.release_reply();
