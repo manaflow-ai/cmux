@@ -438,6 +438,10 @@ mod tests {
         let link = root.path().join("link.lock");
         std::os::unix::fs::symlink(&lock, &link).unwrap();
         assert!(!RunningProbe::is_lock_held(&link));
+        // Unlock before the close: a process another test starts may still hold a copy of the
+        // descriptor, and with it the lock.
+        // SAFETY: the descriptor is open for the call.
+        assert_eq!(unsafe { libc::flock(holder.as_raw_fd(), libc::LOCK_UN) }, 0);
         drop(holder);
         assert!(!RunningProbe::is_lock_held(&lock));
     }
