@@ -287,7 +287,7 @@ cmux hooks setup codex
 cmux hooks setup --agent opencode
 ```
 
-يثبّت `cmux hooks setup` الوكلاء المدعومين الذين يعثر عليهم ويطبع ملخصًا للوكلاء المتخطَّين. تشمل تكاملات الاستئناف المدعومة Claude Code وCodex وGrok وOpenCode وPi وAmp وCursor CLI وGemini وRovo Dev وCopilot وCodeBuddy وFactory وQoder. يتعامل مع Claude Code غلاف cmux الخاص بـ Claude عند تفعيل تكامل Claude في الإعدادات.
+يثبّت `cmux hooks setup` الوكلاء المدعومين الذين يعثر عليهم ويطبع ملخصًا للوكلاء المتخطَّين. تشمل تكاملات الاستئناف المدعومة Claude Code وCodex وGrok وOpenCode وPi وAmp وCursor CLI وGemini وRovo Dev وCopilot وCodeBuddy وFactory وQoder وQwen Code. يتعامل مع Claude Code غلاف cmux الخاص بـ Claude عند تفعيل تكامل Claude في الإعدادات.
 
 يمكن للمستخدمين المتقدمين والتكاملات ربط أمر استئناف مخصص بسطح الطرفية الحالي. هذا مفيد للأدوات التي تملك حالة دائمة خاصة بها، مثل جلسات tmux أو واجهات agent CLI مخصصة:
 

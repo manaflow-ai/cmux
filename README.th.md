@@ -287,7 +287,7 @@ cmux hooks setup codex
 cmux hooks setup --agent opencode
 ```
 
-`cmux hooks setup` จะติดตั้งเอเจนต์ที่รองรับซึ่งมันหาเจอ และพิมพ์สรุปสำหรับเอเจนต์ที่ถูกข้าม การผสานการกู้คืนที่รองรับรวมถึง Claude Code, Codex, Grok, OpenCode, Pi, Amp, Cursor CLI, Gemini, Rovo Dev, Copilot, CodeBuddy, Factory และ Qoder Claude Code จะถูกจัดการโดย cmux Claude wrapper เมื่อมีการเปิดใช้งานการผสาน Claude ในการตั้งค่า
+`cmux hooks setup` จะติดตั้งเอเจนต์ที่รองรับซึ่งมันหาเจอ และพิมพ์สรุปสำหรับเอเจนต์ที่ถูกข้าม การผสานการกู้คืนที่รองรับรวมถึง Claude Code, Codex, Grok, OpenCode, Pi, Amp, Cursor CLI, Gemini, Rovo Dev, Copilot, CodeBuddy, Factory, Qoder และ Qwen Code Claude Code จะถูกจัดการโดย cmux Claude wrapper เมื่อมีการเปิดใช้งานการผสาน Claude ในการตั้งค่า
 
 ผู้ใช้ขั้นสูงและการผสานสามารถแนบคำสั่งกู้คืนแบบกำหนดเองเข้ากับพื้นผิวเทอร์มินัลปัจจุบัน ซึ่งมีประโยชน์สำหรับเครื่องมือที่มีสถานะคงทนของตัวเอง เช่น เซสชัน tmux หรือ agent CLI แบบกำหนดเอง:
 

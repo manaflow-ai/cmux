@@ -293,7 +293,7 @@ cmux hooks setup --agent opencode
 `cmux hooks setup` installerer de understøttede agenter, den kan finde, og udskriver en oversigt
 over sprungne agenter. Understøttede genoptagelsesintegrationer omfatter Claude Code, Codex,
 Grok, OpenCode, Pi, Amp, Cursor CLI, Gemini, Rovo Dev, Copilot, CodeBuddy,
-Factory og Qoder. Claude Code håndteres af cmux' Claude-wrapper, når Claude-integration
+Factory, Qoder og Qwen Code. Claude Code håndteres af cmux' Claude-wrapper, når Claude-integration
 er aktiveret i Indstillinger.
 
 Avancerede brugere og integrationer kan knytte en brugerdefineret genoptagelseskommando til den

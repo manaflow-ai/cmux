@@ -18,6 +18,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
     case codebuddy
     case factory
     case qoder
+    case qwen
     case kimi
     case muse
     case ollama
@@ -41,8 +42,8 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         .codebuddy,
         .factory,
         .qoder,
-        // Kimi, Muse and Ollama are registry-owned like Pi/Grok/Antigravity: leaving them
-        // out keeps their ids available to pre-existing custom Vault registrations
+        // Kimi, Muse, Ollama and Qwen are registry-owned like Pi/Grok/Antigravity: leaving
+        // them out keeps their ids available to pre-existing custom Vault registrations
         // while direct native values still encode.
     ]
 
@@ -65,6 +66,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         case "codebuddy": self = .codebuddy
         case "factory": self = .factory
         case "qoder": self = .qoder
+        case "qwen": self = .qwen
         case "kimi": self = .kimi
         case "muse": self = .muse
         case "ollama": self = .ollama
@@ -103,6 +105,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         case .codebuddy: return "codebuddy"
         case .factory: return "factory"
         case .qoder: return "qoder"
+        case .qwen: return "qwen"
         case .kimi: return "kimi"
         case .muse: return "muse"
         case .ollama: return "ollama"
@@ -135,6 +138,8 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         case .codebuddy: return "CodeBuddy"
         case .factory: return "Factory"
         case .qoder: return "Qoder"
+        case .qwen:
+            return String(localized: "agent.qwen.displayName", defaultValue: "Qwen Code")
         case .kimi:
             return String(localized: "agent.kimi.displayName", defaultValue: "Kimi Code")
         case .muse:

@@ -449,6 +449,34 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 ],
                 expectedEnvironment: ["QODER_CONFIG_DIR": "/tmp/qoder config"]
             ),
+            GenericHookPersistenceScenario(
+                agent: "qwen",
+                subcommand: "session-start",
+                sessionId: "qwen-session-123",
+                executable: "/Users/example/.npm/bin/qwen",
+                launchArguments: [
+                    "/Users/example/.npm/bin/qwen",
+                    "--model",
+                    "qwen3-coder-plus",
+                    "--resume",
+                    "old-session",
+                    "--approval-mode",
+                    "yolo",
+                    "initial prompt should not persist"
+                ],
+                extraEnvironment: [
+                    "QWEN_HOME": "/tmp/qwen config",
+                    "OPENAI_API_KEY": "secret"
+                ],
+                expectedArguments: [
+                    "/Users/example/.npm/bin/qwen",
+                    "--model",
+                    "qwen3-coder-plus",
+                    "--approval-mode",
+                    "yolo"
+                ],
+                expectedEnvironment: ["QWEN_HOME": "/tmp/qwen config"]
+            ),
         ]
 
         for scenario in scenarios {

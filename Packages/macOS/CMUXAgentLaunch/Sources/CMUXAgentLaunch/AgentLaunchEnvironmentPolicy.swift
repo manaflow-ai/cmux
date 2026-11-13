@@ -165,6 +165,7 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         "PI_PACKAGE_DIR",
         "PI_SKIP_VERSION_CHECK",
         "QODER_CONFIG_DIR",
+        "QWEN_HOME",
         "USE_BUILTIN_RIPGREP",
         "XDG_CONFIG_HOME",
         "XDG_DATA_HOME",

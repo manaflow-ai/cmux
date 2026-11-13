@@ -104,6 +104,17 @@ public enum AgentLaunchSanitizer {
         case "rovodev":
             guard let preserved = preservedArguments(kind: fallbackKind, args: tail) else { return nil }
             return [executable, "rovodev", "run"] + preserved
+        case "qwen":
+            // A Node-hosted capture (`node [--runtime-opts] …/cli.js …`) must keep the
+            // runtime and the Qwen entrypoint together; the qwen policy would otherwise
+            // drop the script (a positional) and every option after it, leaving resume
+            // with bare `node`.
+            if let split = AgentLaunchCaptureTrust.qwenScriptHostSplit(executable: executable, tail: tail) {
+                guard let preserved = preservedArguments(kind: fallbackKind, args: split.rest) else { return nil }
+                return split.prefix + preserved
+            }
+            guard let preserved = preservedArguments(kind: fallbackKind, args: tail) else { return nil }
+            return [executable] + preserved
         default:
             guard let preserved = preservedArguments(kind: fallbackKind, args: tail) else { return nil }
             return [executable] + preserved
@@ -202,6 +213,8 @@ public enum AgentLaunchSanitizer {
             return preserveOptions(args, policy: factoryPolicy)
         case "qoder":
             return preserveOptions(args, policy: qoderPolicy)
+        case "qwen":
+            return preserveOptions(args, policy: qwenPolicy)
         case "kimi":
             return preserveOptions(args, policy: kimiPolicy)
         case "muse":

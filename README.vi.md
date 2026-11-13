@@ -285,7 +285,7 @@ cmux hooks setup codex
 cmux hooks setup --agent opencode
 ```
 
-`cmux hooks setup` cài các agent được hỗ trợ mà nó tìm thấy và in bản tóm tắt cho các agent bị bỏ qua. Các tích hợp resume được hỗ trợ gồm Claude Code, Codex, Grok, OpenCode, Pi, Amp, Cursor CLI, Gemini, Rovo Dev, Copilot, CodeBuddy, Factory, và Qoder. Claude Code được xử lý bởi wrapper Claude của cmux khi tích hợp Claude được bật trong Settings.
+`cmux hooks setup` cài các agent được hỗ trợ mà nó tìm thấy và in bản tóm tắt cho các agent bị bỏ qua. Các tích hợp resume được hỗ trợ gồm Claude Code, Codex, Grok, OpenCode, Pi, Amp, Cursor CLI, Gemini, Rovo Dev, Copilot, CodeBuddy, Factory, Qoder, và Qwen Code. Claude Code được xử lý bởi wrapper Claude của cmux khi tích hợp Claude được bật trong Settings.
 
 Người dùng nâng cao và tích hợp có thể gắn lệnh khôi phục tùy chỉnh vào surface terminal hiện tại. Điều này hữu ích cho công cụ có trạng thái bền riêng, như phiên tmux hoặc CLI agent tùy chỉnh:
 

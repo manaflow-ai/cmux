@@ -287,7 +287,7 @@ cmux hooks setup codex
 cmux hooks setup --agent opencode
 ```
 
-`cmux hooks setup` bulabildiği desteklenen agentleri kurar ve atlanan agentler için bir özet yazdırır. Desteklenen resume entegrasyonları arasında Claude Code, Codex, Grok, OpenCode, Pi, Amp, Cursor CLI, Gemini, Rovo Dev, Copilot, CodeBuddy, Factory ve Qoder bulunur. Claude entegrasyonu Ayarlar'da etkinleştirildiğinde Claude Code, cmux Claude wrapper tarafından işlenir.
+`cmux hooks setup` bulabildiği desteklenen agentleri kurar ve atlanan agentler için bir özet yazdırır. Desteklenen resume entegrasyonları arasında Claude Code, Codex, Grok, OpenCode, Pi, Amp, Cursor CLI, Gemini, Rovo Dev, Copilot, CodeBuddy, Factory, Qoder ve Qwen Code bulunur. Claude entegrasyonu Ayarlar'da etkinleştirildiğinde Claude Code, cmux Claude wrapper tarafından işlenir.
 
 Gelişmiş kullanıcılar ve entegrasyonlar mevcut terminal surface'ine özel bir resume komutu bağlayabilir. Bu, tmux oturumları veya özel agent CLI'ları gibi kendi kalıcı durumuna sahip araçlar için kullanışlıdır:
 

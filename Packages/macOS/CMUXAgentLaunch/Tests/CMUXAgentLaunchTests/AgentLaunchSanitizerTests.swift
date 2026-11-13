@@ -58,6 +58,104 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
+    @Test("Qwen preserves safe launch flags and drops session selectors and the prompt")
+    func qwenPreservesSafeFlagsAndDropsSessionSelectors() {
+        #expect(
+            AgentLaunchSanitizer.preservedArguments(
+                kind: "qwen",
+                args: [
+                    "--model", "qwen3-coder-plus",
+                    "--approval-mode", "yolo",
+                    "--yolo",
+                    "--resume", "old-session",
+                    "--continue",
+                    "--session-id", "old-id",
+                    "initial prompt should not replay",
+                ]
+            ) == [
+                "--model", "qwen3-coder-plus",
+                "--approval-mode", "yolo",
+                "--yolo",
+            ]
+        )
+    }
+
+    @Test("Qwen drops the OpenAI API key secret and keeps the base URL")
+    func qwenDropsOpenAIAPIKeySecret() {
+        #expect(
+            AgentLaunchSanitizer.preservedArguments(
+                kind: "qwen",
+                args: [
+                    "--openai-api-key", "sk-secret",
+                    "--openai-base-url", "https://example.invalid/v1",
+                ]
+            ) == ["--openai-base-url", "https://example.invalid/v1"]
+        )
+        #expect(
+            AgentLaunchSanitizer.preservedArguments(
+                kind: "qwen",
+                args: ["--openai-api-key=sk-secret", "--yolo"]
+            ) == ["--yolo"]
+        )
+    }
+
+    @Test("Qwen headless and subcommand launches are not restorable")
+    func qwenRejectsHeadlessAndSubcommands() {
+        #expect(AgentLaunchSanitizer.preservedArguments(kind: "qwen", args: ["--prompt", "fix this"]) == nil)
+        #expect(AgentLaunchSanitizer.preservedArguments(kind: "qwen", args: ["-p", "fix this"]) == nil)
+        #expect(AgentLaunchSanitizer.preservedArguments(kind: "qwen", args: ["--output-format", "json"]) == nil)
+        #expect(AgentLaunchSanitizer.preservedArguments(kind: "qwen", args: ["--acp"]) == nil)
+        #expect(AgentLaunchSanitizer.preservedArguments(kind: "qwen", args: ["sessions", "list"]) == nil)
+        #expect(AgentLaunchSanitizer.preservedArguments(kind: "qwen", args: ["mcp"]) == nil)
+    }
+
+    @Test("Qwen interactive initial prompt stays restorable and its prompt value is dropped")
+    func qwenPromptInteractiveIsRestorable() {
+        #expect(
+            AgentLaunchSanitizer.preservedArguments(
+                kind: "qwen",
+                args: ["--prompt-interactive", "do the thing", "--yolo"]
+            ) == ["--yolo"]
+        )
+        #expect(
+            AgentLaunchSanitizer.preservedArguments(
+                kind: "qwen",
+                args: ["-i", "do the thing", "--model", "qwen3-coder-plus"]
+            ) == ["--model", "qwen3-coder-plus"]
+        )
+    }
+
+    @Test("Qwen Node-hosted capture keeps runtime + entrypoint and trailing options")
+    func qwenNodeHostedCaptureKeepsEntrypoint() {
+        let script = "/opt/qwen/node_modules/@qwen-code/qwen-code/dist/cli.js"
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["node", script, "--model", "qwen3-coder-plus", "--yolo"],
+                launcher: "qwen",
+                fallbackKind: "qwen"
+            ) == ["node", script, "--model", "qwen3-coder-plus", "--yolo"]
+        )
+        // Leading runtime-only options must stay in the prefix, not break entrypoint detection.
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["node", "--use-system-ca", script, "--yolo"],
+                launcher: "qwen",
+                fallbackKind: "qwen"
+            ) == ["node", "--use-system-ca", script, "--yolo"]
+        )
+    }
+
+    @Test("Qwen resume renders the captured executable with --resume and preserved flags")
+    func qwenResumeCommandPreservesFlags() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["/Users/example/.npm/bin/qwen", "--yolo", "--model", "qwen3-coder-plus"],
+                launcher: "qwen",
+                fallbackKind: "qwen"
+            ) == ["/Users/example/.npm/bin/qwen", "--yolo", "--model", "qwen3-coder-plus"]
+        )
+    }
+
     @Test("Drops Codex restored image placeholder and prompt")
     func dropsCodexRestoredImagePlaceholderAndPrompt() {
         #expect(
