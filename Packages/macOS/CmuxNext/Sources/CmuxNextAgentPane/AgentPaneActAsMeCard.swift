@@ -211,7 +211,7 @@ public final class AgentPaneActAsMeCardView: NSView {
 @MainActor
 final class AgentPaneActAsMeBadge: NSView {
     let grant: AgentPaneActAsMe
-    private let text = NSTextField(labelWithString: "")
+    private let text = ThemedLabel(labelWithString: "")
     private var following: Task<Void, Never>?
     private var row: NSStackView?
     private var width: NSLayoutConstraint?
@@ -226,7 +226,8 @@ final class AgentPaneActAsMeBadge: NSView {
         translatesAutoresizingMaskIntoConstraints = false
         setAccessibilityIdentifier("cmux.agentPane.actAsMe")
         text.font = Typography.caption
-        text.textColor = Palette.textPrimary
+        // Fitted to the toast glass it draws on, in the theme's tint, again on every theme change.
+        text.themeColor = { Palette.toastText(.primary) }
         let turnOff = NSButton(title: AgentPaneActAsMeStrings.turnOff, target: self, action: #selector(turnOffPressed))
         turnOff.bezelStyle = .inline
         turnOff.controlSize = .small

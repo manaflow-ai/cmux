@@ -23,7 +23,7 @@ extension UpdateSheetContent {
                                       detail: UpdaterStrings.onChannel(identity.shortVersion, identity.build, UpdaterStrings.channel(identity.track)),
                                       buttons: [.done])
         case .error(let failure):
-            let detail = (failure.error as NSError).localizedDescription
+            let detail = UpdateFailureText.plain(failure.error)
             // A failure the in-app installer cannot get past offers the channel's installer.
             let manual = UpdateManualDownloadRecovery().url(for: failure.error, feedURLString: failure.feedURLString)
             return UpdateSheetContent(symbol: "exclamationmark.triangle", title: UpdaterStrings.updateFailed, detail: detail,

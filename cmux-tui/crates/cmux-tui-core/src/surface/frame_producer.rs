@@ -254,7 +254,18 @@ fn run() {
                 continue;
             }
             let surface = slot.surface.lock().recover_poison().clone();
-            match produce(&slot, &surface, requested, announce) {
+            // One thread builds every terminal's frames: a panic building one
+            // (a bug, a poisoned lock) must not end it for all of them. The
+            // request is dropped; the terminal's next request queues it again.
+            let produced = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                produce(&slot, &surface, requested, announce)
+            }))
+            .unwrap_or_else(|_| {
+                // Not eprintln, which panics when stderr fails.
+                let _ = writeln!(std::io::stderr(), "cmux-tui: building a render frame panicked");
+                Produced::Done(false)
+            });
+            match produced {
                 Produced::Done(true) => {
                     slot.last_frame.store(nanos_since_epoch(Instant::now()), Ordering::Release);
                 }
@@ -338,8 +349,12 @@ fn produce(slot: &Slot, surface: &Weak<Surface>, requested: u64, announce: bool)
     let Some(surface) = surface.upgrade() else { return Produced::Done(false) };
     let Some(pty) = surface.as_pty() else { return Produced::Done(false) };
     #[cfg(test)]
-    if let Some(hook) = pty.frame_producer_before_upgrade.lock().recover_poison().clone() {
-        hook();
+    {
+        // Cloned first: the hook runs (and may panic) without the hook's lock.
+        let hook = pty.frame_producer_before_upgrade.lock().recover_poison().clone();
+        if let Some(hook) = hook {
+            hook();
+        }
     }
     // A poisoned terminal lock skips this frame; the next output requests one.
     let Ok(term) = pty.term.lock() else { return Produced::Done(false) };

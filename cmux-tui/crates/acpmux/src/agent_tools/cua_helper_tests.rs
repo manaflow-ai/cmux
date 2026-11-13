@@ -64,6 +64,7 @@ impl Fixture {
             subsessions: false,
             displays: None,
             hosted: false,
+            github: false,
         }
     }
 

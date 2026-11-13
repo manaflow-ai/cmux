@@ -1,7 +1,8 @@
-//! `workspace.create {created_by}` (ask-48544d7525): a workspace an agent or
-//! a script makes goes next to the workspace that made it, below it and its
-//! earlier children, in its group; with no creator, at the end. Never next to
-//! the person's selection, and the selection stays. The creator is stored,
+//! `workspace.create {created_by}` (ask-48544d7525): under `afterCurrent` a
+//! workspace an agent or a script makes goes next to the workspace that made
+//! it, below it and its earlier children, in its group; with no creator,
+//! first (never the end). Never next to the person's selection, and the
+//! selection stays. Under `top` (the default) it goes first like any create. The creator is stored,
 //! shown as `extra.created_by`, and kept across a restart.
 
 use serde_json::json;
@@ -164,9 +165,9 @@ fn an_agent_terminal_workspace_goes_below_its_creator() {
 }
 
 /// An agent or script create with no creator workspace (none named, or one
-/// that is gone) goes at the end, never below the selection.
+/// that is gone) goes first, never below the selection and never the end.
 #[test]
-fn an_agent_workspace_with_no_creator_goes_last() {
+fn an_agent_workspace_with_no_creator_goes_first() {
     let _after = NewWorkspacePlacement::AfterCurrent.set_for_test();
     let session = Session::new("created-by-none");
     let mux = session.open();
@@ -177,7 +178,7 @@ fn an_agent_workspace_with_no_creator_goes_last() {
     let y = created(&mux, "y", json!({"kind": "script", "workspace": "no-such-workspace"}));
     let ids = [&a, &b, &x, &y].map(String::as_str);
     let [a, b, x, y] = ids;
-    assert_eq!(listed(&mux, &ids), [a, b, x, y].map(str::to_string).to_vec());
+    assert_eq!(listed(&mux, &ids), [y, x, a, b].map(str::to_string).to_vec());
     assert_eq!(workspace(&mux, a)["focused"], true);
     assert_eq!(
         workspace(&mux, x)["extra"]["created_by"],

@@ -33,6 +33,11 @@ REVIEWED_TYPES = {
                         "201877f6931063f5"),
 }
 REVIEWED_FIELDS = {
+    # The same browser tab new-frontend-browser-tab makes (a URL, an engine name and display strings),
+    # made as the new workspace's first tab; no program, directory or environment.
+    ("create-workspace", "first_tab"): ("WorkspaceFirstTab: a browser tab's url, engine, title, favicon, profile, "
+                                         "owner, size, activate and idempotency key",
+                                         "c7e82d092e3ba83a"),
     ("put-frontend-projection", "projection"): ("the phone's own personal projection; the lane checks scope and subject",
                                                 "d7e14019f9227131"),
     ("move-tab-to-column", "dock"): ("ColumnPin: an edge and a width for docking a column",

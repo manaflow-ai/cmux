@@ -78,8 +78,8 @@ enum MainMenu {
         ],
         .view: [
             "browserBack", "browserForward", "browserReload", "browserStop", "browserHardReload",
-            "browserZoomIn", "browserZoomOut", "browserZoomReset", "toggleSidebar", "toggleRightSidebar",
-            "focusRightSidebar", "appearance.customize",
+            "browserZoomIn", "browserZoomOut", "browserZoomReset", "toggleSidebar",
+            "appearance.customize",
         ],
         .server: ["server.addServer", "server.showPanel"],
         .window: [

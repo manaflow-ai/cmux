@@ -178,7 +178,9 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                     .accessibilityAddTraits(store.filter == filter ? .isSelected : [])
                 }
             }
-            .padding(.horizontal, 20)
+            // 16 pt: the first chip's capsule shares a left edge with the rows' avatars
+            // (FeedRowLayout's avatar x) and the navigation bar's leading button.
+            .padding(.horizontal, 16)
         }
         .scrollIndicators(.hidden)
         .trailingOverflowFade(width: 32)

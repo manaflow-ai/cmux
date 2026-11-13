@@ -47,18 +47,13 @@ await requireBrowserLane("transcript-continuation-spacing.test.ts", async () => 
       const node = (id: string) => document.querySelector<HTMLElement>(`[data-row-id="continuation-${id}"]`)!;
       const box = (id: string) => node(id).getBoundingClientRect();
       const actions = (id: string) => node(id).querySelector(".cv-turn-actions")!.getBoundingClientRect();
-      // The empty footer's first button: its glyph is centred in it (grid.md 4), and that glyph, not
-      // the 28 hit box, is what keeps clear of both rows.
-      const button = (
-        node("footer-a").querySelector(".cv-turn-actions .cv-iconbtn") ??
-        node("footer-a").querySelector(".cv-turn-actions")!
-      ).getBoundingClientRect();
-      const centre = (button.top + button.bottom) / 2;
       return {
         // Reply to reply: the footer between them draws nothing at rest and takes no room.
         same: box("b").top - box("a").bottom,
-        glyphOverSame: centre - box("a").bottom,
-        glyphUnderSame: box("b").top - centre,
+        emptyFooters: ["footer-a", "footer-b"].map((id) => ({
+          actions: Boolean(node(id).querySelector(".cv-turn-actions")),
+          height: box(id).height,
+        })),
         peer: box("peer").top - box("b").bottom,
         footerUnderReply: box("footer-c").top - box("c").bottom,
         user: box("user").top - actions("footer-c").bottom,
@@ -80,10 +75,10 @@ await requireBrowserLane("transcript-continuation-spacing.test.ts", async () => 
     );
     const actual = await measure(page);
     expect(actual.same).toBeCloseTo(gridLength("gap-block"), 1);
-    // grid.md 5.5: the hover row laid in the gap keeps its glyphs at least the foot gap from both rows.
-    const halfGlyph = gridLength("transcript-icon-box") / 2;
-    expect(actual.glyphOverSame - halfGlyph).toBeGreaterThanOrEqual(gridLength("gap-foot") - 0.5);
-    expect(actual.glyphUnderSame - halfGlyph).toBeGreaterThanOrEqual(gridLength("gap-foot") - 0.5);
+    expect(actual.emptyFooters).toEqual([
+      { actions: false, height: 0 },
+      { actions: false, height: 0 },
+    ]);
     expect(actual.peer).toBeCloseTo(transcriptGap(MARK_MESSAGE, MARK_STATUS), 1);
     expect(actual.footerUnderReply).toBeCloseTo(gridLength("gap-footer"), 1);
     expect(actual.user).toBeCloseTo(gridLength("gap-turn"), 1);

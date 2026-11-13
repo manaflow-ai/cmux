@@ -9,7 +9,7 @@ Launches the tagged app (no-activate, scratch config), then:
   3. `home.tab` opens the native Home as a tab in that pane, and a second
      `home.tab` opens one more Home tab (several Home tabs);
   4. both Home tabs show the same conversation; a message typed and sent in
-     one Home tab (home_page.py, the key window's page) shows in the other tab and
+     one Home tab (`debug.home.drive` with `tab`) shows in the other tab and
      in the store at once (`debug.home` page.tabs, conversations.shown_tail);
   5. window screenshots after each step (the channels tab is checked only on
      the screenshot: its React page has no debug read verb).
@@ -27,7 +27,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import dev_account_guard  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import home_classic  # noqa: E402
-import home_page  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -129,7 +129,7 @@ try:
         env["CMUX_AUTH_CREDENTIALS_FILE"] = opts.credentials_file
     log = open(os.path.join(opts.out, f"app-{opts.tag}.log"), "a")
     app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-    print(f"launched pid {app.pid}", flush=True)
+    safe_print(f"launched pid {app.pid}", flush=True)
     if not wait(lambda: os.path.exists(SOCKET) and rpc("debug.surfaces").get("ok"), 180):
         sys.exit("the tagged app did not come up")
     if not home_classic.require(lambda m: rpc(m).get("result") or {}):  # classic Home: these checks drive the native transcript
@@ -139,7 +139,7 @@ try:
         wait(lambda: (rpc("debug.surfaces").get("result") or {}).get("windows"), 30)
     if opts.expected_account:
         account = dev_account_guard.require_account(lambda m, p: rpc(m, p).get("result") or {}, opts.expected_account, timeout=120)
-        print("signed in as", dev_account_guard.mask(account.get("email")), flush=True)
+        safe_print("signed in as", dev_account_guard.mask(account.get("email")), flush=True)
     wait(lambda: home().get("available"), 90)
 
     # 1. The channels Home as a tab in the first pane.
@@ -152,7 +152,7 @@ try:
     step("splitRight", ran(run("splitRight")))
     # The CLI's path (`cmux home tab` sends action.run with the CLI name).
     first = rpc("action.run", {"action": "home tab", "cli": True, "focus": True, "wait": True}, timeout=90)
-    print("cli home tab ->", json.dumps(first)[:400], flush=True)
+    safe_print("cli home tab ->", json.dumps(first)[:400], flush=True)
     opened = wait(lambda: len(tabs()) >= 1, 30)
     step("home.tab opens a Home tab", ran(first) and opened, {"reply": first, "tabs": tabs()})
     if not opened:
@@ -175,11 +175,9 @@ try:
     same = wait(lambda: len({t.get("shown") for t in tabs()}) == 1 and tabs()[0].get("shown"), 30)
     step("both Home tabs show one conversation", same, tabs())
     sender = listed[-1].get("key")
-    # The page in the key window (the newest Home tab, `sender`) takes the send.
-    result = lambda method, params: (rpc(method, params) or {}).get("result") or {}
-    typed = home_page.drive(result, {"action": "type", "text": TEXT})
-    sent = home_page.drive(result, {"action": "send"})
-    step("send in one Home tab", bool(typed.get("ok")) and bool(sent.get("ok")),
+    typed = rpc("debug.home.drive", {"tab": sender, "action": "type", "text": TEXT})
+    sent = rpc("debug.home.drive", {"tab": sender, "action": "send"})
+    step("send in one Home tab", bool((typed.get("result") or {}).get("ok")) and bool((sent.get("result") or {}).get("ok")),
          {"type": typed, "send": sent})
     in_store = wait(lambda: TEXT in shown_texts(conversation), 30)
     step("the store shows the message", in_store, shown_texts(conversation)[-3:])
@@ -205,5 +203,5 @@ finally:
             app.wait(20)
         except subprocess.TimeoutExpired:
             app.kill()
-    print("RESULT", "FAIL" if failed else "PASS", flush=True)
+    safe_print("RESULT", "FAIL" if failed else "PASS", flush=True)
     sys.exit(1 if failed else 0)
