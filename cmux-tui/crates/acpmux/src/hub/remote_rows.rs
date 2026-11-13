@@ -34,6 +34,11 @@ pub(crate) struct RemoteRows {
     names: Names,
     /// Writes so far: a shared session list is rebuilt after one (`list_guard.rs`).
     pub(crate) writes: u64,
+    /// The summary each row had before a dropped link marked it stale
+    /// ([`Self::mark_peer_stale`]): a follow of the peer's list after the link is back sends only
+    /// the rows that changed (`row_log.rs`), so the rest are put back as they were. Any other
+    /// write of the row drops it.
+    stale_from: PMap<String, Arc<Value>>,
 }
 
 impl std::ops::Deref for RemoteRows {
@@ -68,6 +73,7 @@ impl RemoteRows {
     // A write replaces the row; a reader keeps the version its snapshot holds until it ends.
     pub(crate) fn take(&mut self, key: &str) -> Option<Arc<RemoteSession>> {
         let row = self.rows.remove(key)?;
+        self.stale_from.remove(key);
         self.writes += 1;
         self.names.remove(key, &row);
         if let Some(pair) = pair_of(&row.summary)
@@ -118,13 +124,22 @@ impl RemoteRows {
             .collect();
         let mut changed = Vec::new();
         for key in keys {
+            let live = self.stale_from.get(&key).cloned();
             let Some(mut row) = self.remove(&key) else { continue };
+            let live = live.unwrap_or_else(|| Arc::new(row.summary.clone()));
             if super::peer_cache::mark_stale(&mut row.summary, last_seen) {
                 changed.push(row.summary.clone());
             }
-            self.insert(key, row);
+            self.insert(key.clone(), row);
+            self.stale_from.insert(key, live);
         }
         changed
+    }
+
+    /// Peer `peer`'s rows as the peer last listed them: a row a dropped link marked stale, as it
+    /// was before.
+    pub(crate) fn live_of_peer<'a>(&'a self, peer: &str) -> impl Iterator<Item = &'a Value> + 'a {
+        self.of_peer(peer).map(|(key, row)| self.stale_from.get(key).map_or(&row.summary, |v| v))
     }
 
     /// Peer `peer`'s rows with their keys, reading no other peer's.
