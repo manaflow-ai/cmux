@@ -757,3 +757,6 @@ code {
     gap: var(--ds-space-3);
   }
 }
+.ab-block {
+  display: block;
+}

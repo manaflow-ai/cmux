@@ -50,9 +50,10 @@ enum StatsPageTab {
         // The Agent Board page (``AgentBoardPageProvider``): always available; off, it shows the onboarding.
         services.pages.register(WebPageTab(.agentBoard, symbol: "square.grid.3x3.topleft.filled", title: AgentBoardPageProvider.title) {
             [weak services] in
-            let provider = AgentBoardPageProvider(settings: services?.settings, openFile: { NSWorkspace.shared.openInBackground($0) }) {
-                [weak services] url in services?.linkOpener.openWeb(url, from: nil, background: false) ?? false
-            }
+            let provider = AgentBoardPageProvider(
+                settings: services?.settings, openFile: { NSWorkspace.shared.openInBackground($0) },
+                openLink: { [weak services] url in services?.linkOpener.openWeb(url, from: nil, background: false) ?? false },
+                revealFile: { NSWorkspace.shared.revealInBackground([$0]) })
             return PageWebView(descriptor: .agentBoard, routes: [PageRoute(prefix: "cmux.agentBoard.", provider: provider)])
         })
         registry.bindEffect("agentBoard.show") { [weak services] invocation in

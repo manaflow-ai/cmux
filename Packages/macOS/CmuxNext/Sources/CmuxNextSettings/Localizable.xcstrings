@@ -5317,6 +5317,60 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "其他代理（Gemini、OpenCode 及你新增的代理）會得到相同的指引，說明 cmux 如何呈現其工作。"}}
       }
     },
+    "settings.agents.board.enabled": {
+      "comment": "Settings > Agents > Guidance and Skills: Agent Board toggle title",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Agent Board"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "لوحة الوكلاء"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Ploča agenata"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Agenttavle"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Agent-Board"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Tablero de agentes"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Tableau des agents"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Bacheca degli agenti"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "エージェントボード"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ក្ដារភ្នាក់ងារ"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "에이전트 보드"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Agenttavle"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Tablica agentów"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Quadro de agentes"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Доска агентов"}},
+        "th": {"stringUnit": {"state": "translated", "value": "บอร์ดเอเจนต์"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Ajan Panosu"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Дошка агентів"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Bảng tác tử"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "智能体看板"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "代理程式看板"}}
+      }
+    },
+    "settings.agents.board.enabled.help": {
+      "comment": "Settings > Agents > Guidance and Skills: Agent Board toggle help, names the token cost",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "New agent sessions keep a ledger of what they build, the decisions they make and the evidence for each state, shown on the Agent Board. Uses more tokens: one more skill in every session, and extra steps to record and capture evidence."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تحتفظ جلسات الوكلاء الجديدة بسجل لما تبنيه والقرارات التي تتخذها والدليل على كل حالة، ويظهر في لوحة الوكلاء. يستهلك رموزًا أكثر: مهارة إضافية في كل جلسة، وخطوات إضافية للتسجيل والتقاط الأدلة."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Nove sesije agenata vode zapis o tome šta prave, koje odluke donose i dokaz za svako stanje, prikazan na ploči agenata. Troši više tokena: jedna vještina više u svakoj sesiji i dodatni koraci za bilježenje i dokaze."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Nye agentsessioner fører en log over, hvad de bygger, de beslutninger de træffer og beviset for hver tilstand, vist på Agenttavlen. Bruger flere tokens: én færdighed mere i hver session og ekstra trin til at registrere og gemme beviser."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Neue Agentensitzungen führen ein Protokoll darüber, was sie bauen, welche Entscheidungen sie treffen und wie jeder Zustand belegt ist – sichtbar im Agent-Board. Verbraucht mehr Tokens: eine zusätzliche Fähigkeit pro Sitzung und zusätzliche Schritte für Protokoll und Nachweise."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Las nuevas sesiones de agente llevan un registro de lo que construyen, las decisiones que toman y la prueba de cada estado, visible en el tablero de agentes. Usa más tokens: una habilidad más en cada sesión y pasos extra para registrar y capturar pruebas."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Les nouvelles sessions d’agent tiennent un registre de ce qu’elles construisent, de leurs décisions et de la preuve de chaque état, affiché dans le tableau des agents. Consomme plus de jetons : une compétence de plus par session, et des étapes en plus pour consigner et capturer des preuves."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Le nuove sessioni dell’agente tengono un registro di ciò che costruiscono, delle decisioni prese e della prova di ogni stato, mostrato nella bacheca degli agenti. Usa più token: una competenza in più in ogni sessione e passaggi extra per registrare e raccogliere prove."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "新しいエージェントセッションは、作ったもの、下した判断、各状態の証拠を記録し、エージェントボードに表示します。トークンを多く使います：各セッションにスキルが 1 つ増え、記録と証拠の取得に追加の手順がかかります。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "វគ្គភ្នាក់ងារថ្មីរក្សាកំណត់ត្រាអំពីអ្វីដែលវាបង្កើត ការសម្រេចចិត្តដែលវាធ្វើ និងភស្តុតាងសម្រាប់ស្ថានភាពនីមួយៗ ដែលបង្ហាញនៅលើក្ដារភ្នាក់ងារ។ ប្រើ token ច្រើនជាង៖ ជំនាញមួយបន្ថែមក្នុងវគ្គនីមួយៗ និងជំហានបន្ថែមដើម្បីកត់ត្រា និងថតភស្តុតាង។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "새 에이전트 세션은 만든 것, 내린 결정, 각 상태의 증거를 기록하고 에이전트 보드에 표시합니다. 토큰을 더 씁니다. 세션마다 스킬이 하나 늘고, 기록하고 증거를 남기는 단계가 추가됩니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Nye agentøkter fører en logg over hva de bygger, beslutningene de tar og beviset for hver tilstand, vist på Agenttavlen. Bruker flere tokens: én ferdighet til i hver økt, og ekstra steg for å registrere og ta bevis."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Nowe sesje agentów prowadzą dziennik tego, co budują, jakie decyzje podejmują i jaki jest dowód każdego stanu, widoczny na tablicy agentów. Zużywa więcej tokenów: jedna umiejętność więcej w każdej sesji i dodatkowe kroki na zapis i dowody."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Novas sessões de agente mantêm um registro do que constroem, das decisões que tomam e da evidência de cada estado, mostrado no quadro de agentes. Usa mais tokens: uma habilidade a mais em cada sessão e etapas extras para registrar e capturar evidências."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Новые сеансы агентов ведут журнал того, что они делают, какие решения принимают и чем подтверждено каждое состояние; он показан на доске агентов. Расходует больше токенов: на один навык больше в каждом сеансе и дополнительные шаги для записи и сбора доказательств."}},
+        "th": {"stringUnit": {"state": "translated", "value": "เซสชันเอเจนต์ใหม่จะบันทึกสิ่งที่สร้าง การตัดสินใจ และหลักฐานของแต่ละสถานะ แสดงบนบอร์ดเอเจนต์ ใช้โทเค็นมากขึ้น: เพิ่มทักษะหนึ่งอย่างในทุกเซสชัน และมีขั้นตอนเพิ่มในการบันทึกและเก็บหลักฐาน"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Yeni ajan oturumları ne yaptıklarını, verdikleri kararları ve her durumun kanıtını kaydeder; bunlar Ajan Panosunda gösterilir. Daha fazla token kullanır: her oturumda bir beceri daha ve kaydetmek ile kanıt almak için ek adımlar."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Нові сеанси агентів ведуть журнал того, що вони роблять, які рішення ухвалюють і чим підтверджено кожен стан; його показано на дошці агентів. Витрачає більше токенів: на одну навичку більше в кожному сеансі й додаткові кроки для записування та збирання доказів."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Các phiên tác tử mới ghi nhật ký những gì chúng làm, các quyết định đã đưa ra và bằng chứng cho từng trạng thái, hiển thị trên bảng tác tử. Dùng nhiều token hơn: thêm một kỹ năng trong mỗi phiên và thêm bước để ghi lại và lưu bằng chứng."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "新的智能体会话会记录构建的内容、所做的决定以及每种状态的证据，并显示在智能体看板上。会使用更多 token：每个会话多一项技能，并需要额外步骤来记录和截取证据。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "新的代理程式工作階段會記錄建置的內容、所做的決定以及每種狀態的證據，並顯示在代理程式看板上。會使用更多 token：每個工作階段多一項技能，並需要額外步驟來記錄和擷取證據。"}}
+      }
+    },
     "settings.agents.guidance.userSkills": {
       "comment": "Settings > Agents > Guidance and Skills: toggle title",
       "extractionState": "manual",

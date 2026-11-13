@@ -17,7 +17,7 @@ import {
   type EvidenceRecord,
   type PermutationRecord,
 } from "./ledger";
-import type { AgentBoardStore, AgentLedger } from "./store";
+import { failureMessage, type AgentBoardStore, type AgentLedger } from "./store";
 import type { EvidenceImage } from "./types";
 
 type Props = { store: AgentBoardStore; strings: Strings };
@@ -44,7 +44,15 @@ export function AgentBoardPage({ store, strings }: Props) {
     );
   if (!snapshot.enabled) return <Onboarding store={store} strings={strings} />;
   if (snapshot.agents.length === 0) return <Waiting store={store} strings={strings} folder={snapshot.folder} />;
-  return <BoardView store={store} strings={strings} agents={snapshot.agents} />;
+  return (
+    <BoardView
+      store={store}
+      strings={strings}
+      agents={snapshot.agents}
+      readAtMs={snapshot.readAtMs}
+      stale={snapshot.failed ? (snapshot.failed.message ?? t("agentBoard.failed")) : undefined}
+    />
+  );
 }
 
 // MARK: - Off
@@ -111,7 +119,7 @@ function Onboarding({ store, strings }: Props) {
             setError(undefined);
             store
               .setEnabled(true)
-              .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : t("agentBoard.failed")));
+              .catch((reason: unknown) => setError(failureMessage(reason) ?? t("agentBoard.failed")));
           }}
         >
           <DialogTitle className="ab-dialog-title">{t("agentBoard.dialog.title")}</DialogTitle>
@@ -166,16 +174,29 @@ function Waiting({ store, strings, folder }: Props & { folder: string }) {
 }
 
 function TurnOff({ store, strings }: Props) {
+  const [error, setError] = useState<string>();
   return (
-    <button
-      type="button"
-      className="ui-button ui-btn"
-      data-variant="subtle"
-      data-size="md"
-      onClick={() => void store.setEnabled(false)}
-    >
-      {strings.t("agentBoard.turnOff")}
-    </button>
+    <>
+      <button
+        type="button"
+        className="ui-button ui-btn"
+        data-variant="subtle"
+        data-size="md"
+        onClick={() => {
+          setError(undefined);
+          store
+            .setEnabled(false)
+            .catch((reason: unknown) => setError(failureMessage(reason) ?? strings.t("agentBoard.failed")));
+        }}
+      >
+        {strings.t("agentBoard.turnOff")}
+      </button>
+      {error && (
+        <span className="ab-error" role="alert">
+          {error}
+        </span>
+      )}
+    </>
   );
 }
 
@@ -209,7 +230,13 @@ function needsYouCapabilities(board: Board): Set<string> {
   );
 }
 
-function BoardView({ store, strings, agents }: Props & { agents: AgentLedger[] }) {
+function BoardView({
+  store,
+  strings,
+  agents,
+  readAtMs,
+  stale,
+}: Props & { agents: AgentLedger[]; readAtMs: number; stale?: string }) {
   const { t } = strings;
   const [selected, setSelected] = useState(agents[0]?.file ?? "");
   const [needsYou, setNeedsYou] = useState(false);
@@ -254,8 +281,15 @@ function BoardView({ store, strings, agents }: Props & { agents: AgentLedger[] }
           <TurnOff store={store} strings={strings} />
         </div>
       </header>
+      {stale && <output className="ab-note-line ab-block">{stale}</output>}
       <div className="ab-board">
-        <AgentList agents={agents} selected={active?.file ?? ""} onSelect={setSelected} strings={strings} />
+        <AgentList
+          agents={agents}
+          now={readAtMs}
+          selected={active?.file ?? ""}
+          onSelect={setSelected}
+          strings={strings}
+        />
         {active && (
           <Detail
             key={`${active.file}:${needsYou}`}
@@ -274,20 +308,22 @@ const LIVE_MS = 5 * 60_000;
 
 function AgentList({
   agents,
+  now,
   selected,
   onSelect,
   strings,
 }: {
   agents: AgentLedger[];
+  /** When the ledgers were read: ages and the live dot count from it, never from the first mount. */
+  now: number;
   selected: string;
   onSelect(file: string): void;
   strings: Strings;
 }) {
   const { t } = strings;
-  const [now] = useState(() => Date.now());
   const ago = new Intl.RelativeTimeFormat(strings.language, { numeric: "auto", style: "short" });
   const when = (ms: number) => {
-    const minutes = Math.round((ms - now) / 60_000);
+    const minutes = Math.min(0, Math.round((ms - now) / 60_000));
     if (Math.abs(minutes) < 60) return ago.format(minutes, "minute");
     const hours = Math.round(minutes / 60);
     return Math.abs(hours) < 48 ? ago.format(hours, "hour") : ago.format(Math.round(hours / 24), "day");
@@ -715,9 +751,7 @@ function EvidenceViewer({
                 onClick={() =>
                   store
                     .open(target)
-                    .catch((reason: unknown) =>
-                      setOpenError(reason instanceof Error ? reason.message : t("agentBoard.failed")),
-                    )
+                    .catch((reason: unknown) => setOpenError(failureMessage(reason) ?? t("agentBoard.failed")))
                 }
               >
                 {t("agentBoard.viewer.open")}

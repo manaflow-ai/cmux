@@ -20,6 +20,8 @@ export interface AgentBoardSnapshot {
   enabled: boolean;
   folder: string;
   agents: AgentLedger[];
+  /** When the ledgers were last read: the board's "now" for ages and the live dot. */
+  readAtMs: number;
   /** Why the ledgers did not load (the host's own words when it gave them). */
   failed?: { message?: string };
   /** No host to ask (opened outside cmux). */
@@ -27,7 +29,14 @@ export interface AgentBoardSnapshot {
 }
 
 export class AgentBoardStore {
-  private snapshot: AgentBoardSnapshot = { loading: false, loaded: false, enabled: false, folder: "", agents: [] };
+  private snapshot: AgentBoardSnapshot = {
+    loading: false,
+    loaded: false,
+    enabled: false,
+    folder: "",
+    agents: [],
+    readAtMs: 0,
+  };
   private listeners = new Set<() => void>();
   private again = false;
   private images = new Map<string, Promise<EvidenceImage>>();
@@ -74,6 +83,7 @@ export class AgentBoardStore {
         enabled: state.enabled,
         folder: state.folder,
         agents: state.ledgers.map(fold),
+        readAtMs: Date.now(),
       });
     } catch (error) {
       const owner = isPageError(error) && error.code.startsWith("cmux.agentBoard.");
@@ -120,6 +130,14 @@ export class AgentBoardStore {
     this.snapshot = snapshot;
     for (const listener of this.listeners) listener();
   }
+}
+
+/** The words to show for a failed call: the host's own sentence for the board's errors, else none
+ * (the page says it failed in its own words). */
+export function failureMessage(error: unknown): string | undefined {
+  return isPageError(error) && error.code.startsWith("cmux.agentBoard.")
+    ? userMessage(error, { [error.code]: OWNER_SENTENCE })
+    : undefined;
 }
 
 function fold(ledger: LedgerFile): AgentLedger {

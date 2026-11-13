@@ -18,15 +18,22 @@ public extension PageDescriptor {
 ///   without the person's click or key, since it changes what every new agent session is given.
 /// - `cmux.agentBoard.evidence {path}` -> `{dataURL}` or `{tooLarge}`: an image a ledger names,
 ///   up to ``imageByteLimit``. A path no ledger names is refused, so the page cannot read other files.
-/// - `cmux.agentBoard.open {path}` or `{url}`: opens a file or an https link a ledger names
-///   (person only).
+/// - `cmux.agentBoard.open {path}` or `{url}`: opens a document or an https link a ledger names
+///   (person only); any other file (an app, a script) is shown in Finder instead of run.
 /// - stream `cmux.agentBoard.changes`: one empty event per change in the folder (FSEvents, no polling).
 @MainActor
 public final class AgentBoardPageProvider: PageProvider {
-    public static let ledgerLimit = 200
-    public static let ledgerByteLimit = 2 * 1024 * 1024
-    public static let imageByteLimit = 12 * 1024 * 1024
-    static let imageTypes: [String: String] = [
+    public nonisolated static let ledgerLimit = 200
+    public nonisolated static let ledgerByteLimit = 2 * 1024 * 1024
+    public nonisolated static let imageByteLimit = 12 * 1024 * 1024
+    /// The most ledger text one `state` reply carries; older ledgers past it are left out.
+    public nonisolated static let stateByteLimit = 16 * 1024 * 1024
+    /// Files `open` hands to their app: documents an agent records as evidence. Anything else (an app,
+    /// a script, a `.command`) is shown in Finder instead, so a ledger line cannot make a click run it.
+    nonisolated static let openableTypes: Set<String> = [
+        "png", "jpg", "jpeg", "gif", "webp", "heic", "mov", "mp4", "m4v", "webm", "pdf", "txt", "log", "md", "json", "html", "csv",
+    ]
+    nonisolated static let imageTypes: [String: String] = [
         "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "gif": "image/gif", "webp": "image/webp",
     ]
 
@@ -35,7 +42,11 @@ public final class AgentBoardPageProvider: PageProvider {
     private let write: @MainActor (Bool) async throws -> Void
     private let openFile: @MainActor (URL) -> Void
     private let openLink: @MainActor (URL) -> Bool
+    private let revealFile: @MainActor (URL) -> Void
     private let watcher: any FolderWatching
+    /// The ledger text of the last `state` read: evidence and open check a path against it first,
+    /// and read the folder again only when it does not name the path.
+    private var lastText: [String] = []
 
     public init(
         folder: URL = AgentBoardPageProvider.defaultFolder(),
@@ -43,6 +54,7 @@ public final class AgentBoardPageProvider: PageProvider {
         write: @escaping @MainActor (Bool) async throws -> Void,
         openFile: @escaping @MainActor (URL) -> Void,
         openLink: @escaping @MainActor (URL) -> Bool,
+        revealFile: @escaping @MainActor (URL) -> Void = { _ in },
         watcher: any FolderWatching = FolderWatcher()
     ) {
         self.folder = folder
@@ -50,6 +62,7 @@ public final class AgentBoardPageProvider: PageProvider {
         self.write = write
         self.openFile = openFile
         self.openLink = openLink
+        self.revealFile = revealFile
         self.watcher = watcher
     }
 
@@ -58,7 +71,8 @@ public final class AgentBoardPageProvider: PageProvider {
     public convenience init(
         settings: SettingsController?,
         openFile: @escaping @MainActor (URL) -> Void,
-        openLink: @escaping @MainActor (URL) -> Bool
+        openLink: @escaping @MainActor (URL) -> Bool,
+        revealFile: @escaping @MainActor (URL) -> Void
     ) {
         self.init(
             enabled: { [weak settings] in settings.map { Self.isEnabled($0.snapshot.root) } ?? false },
@@ -69,7 +83,8 @@ public final class AgentBoardPageProvider: PageProvider {
                 try await settings.setSetting(at: AgentGuidanceSettings.boardEnabledPath, to: .bool(on), by: .user)
             },
             openFile: openFile,
-            openLink: openLink)
+            openLink: openLink,
+            revealFile: revealFile)
     }
 
     /// Whether the settings file turns the board on; the flat dotted key counts as the nested one.
@@ -90,6 +105,7 @@ public final class AgentBoardPageProvider: PageProvider {
         case "cmux.agentBoard.state":
             let folder = self.folder
             let ledgers = await Task.detached(priority: .userInitiated) { Self.readLedgers(in: folder) }.value
+            lastText = ledgers.map(\.text)
             return .object([
                 "enabled": .bool(enabled()),
                 "folder": .string(folder.path),
@@ -105,8 +121,11 @@ public final class AgentBoardPageProvider: PageProvider {
         case "cmux.agentBoard.evidence":
             guard let path = params["path"]?.stringValue, !path.isEmpty else { throw PageError.invalidParams("path is required") }
             let folder = self.folder
-            let image = try await Task.detached(priority: .userInitiated) { try Self.readImage(path, in: folder) }.value
-            return image
+            let known = Self.names(path, in: lastText)
+            return try await Task.detached(priority: .userInitiated) {
+                guard known || Self.ledgersName(path, in: folder) else { throw Self.notInLedger }
+                return try Self.readImage(path)
+            }.value
         case "cmux.agentBoard.open":
             guard context.userGesture || context.isConfirmedUser else {
                 throw PageError(code: PageNativeOp.userOnlyCode, message: Self.personOnly)
@@ -114,16 +133,22 @@ public final class AgentBoardPageProvider: PageProvider {
             let target = params["url"]?.stringValue ?? params["path"]?.stringValue ?? ""
             guard !target.isEmpty else { throw PageError.invalidParams("path or url is required") }
             let folder = self.folder
-            let link = URL(string: target).flatMap { $0.scheme == "https" || $0.scheme == "http" ? $0 : nil }
+            let link = URL(string: target).flatMap { $0.scheme == "https" ? $0 : nil }
             let file = URL(fileURLWithPath: (target as NSString).expandingTildeInPath)
+            let known = Self.names(target, in: lastText)
             let (named, exists) = await Task.detached(priority: .userInitiated) {
-                (Self.ledgersName(target, in: folder), link != nil || FileManager.checked.fileExists(atPath: file.path))
+                (known || Self.ledgersName(target, in: folder), link != nil || FileManager.checked.fileExists(atPath: file.path))
             }.value
             guard named else { throw Self.notInLedger }
             if let link { return .object(["opened": .bool(openLink(link))]) }
+            guard link == nil, !target.contains("://") else { throw Self.notInLedger }
             guard exists else { throw PageError(code: "cmux.agentBoard.missing", message: Self.missing) }
-            openFile(file)
-            return .object(["opened": .bool(true)])
+            if Self.openableTypes.contains(file.pathExtension.lowercased()) {
+                openFile(file)
+                return .object(["opened": .bool(true)])
+            }
+            revealFile(file)
+            return .object(["revealed": .bool(true)])
         default:
             throw PageError.unknownOp(op)
         }
@@ -148,7 +173,7 @@ public final class AgentBoardPageProvider: PageProvider {
 
     // MARK: - Reading (off the main actor)
 
-    struct Ledger: Sendable {
+    nonisolated struct Ledger: Sendable {
         var file: String
         var modified: Date
         var text: String
@@ -175,7 +200,9 @@ public final class AgentBoardPageProvider: PageProvider {
             else { return nil }
             return (url, values.contentModificationDate ?? .distantPast)
         }
+        var total = 0
         return files.sorted { $0.1 > $1.1 }.prefix(ledgerLimit).compactMap { url, modified in
+            guard total < stateByteLimit else { return nil }
             guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
             defer { try? handle.close() }
             let data = (try? handle.blockingRead(upToCount: ledgerByteLimit + 1)) ?? Data()
@@ -184,34 +211,40 @@ public final class AgentBoardPageProvider: PageProvider {
             // A cut line at the end is dropped rather than shown as an unreadable line.
             var text = String(decoding: kept, as: UTF8.self)
             if truncated, let lastBreak = text.lastIndex(of: "\n") { text = String(text[..<lastBreak]) }
+            total += text.utf8.count
             return Ledger(file: url.lastPathComponent, modified: modified, text: text, truncated: truncated)
         }
     }
 
     /// Whether any ledger in `folder` names `target`, as the JSON string a ledger line holds.
     nonisolated static func ledgersName(_ target: String, in folder: URL) -> Bool {
+        names(target, in: readLedgers(in: folder).map(\.text))
+    }
+
+    /// Whether any of `texts` holds `target` as a whole JSON string (quoted), the way a ledger line names it.
+    nonisolated static func names(_ target: String, in texts: [String]) -> Bool {
         guard let encoded = try? JSONEncoder().encode(target), let quoted = String(data: encoded, encoding: .utf8) else {
             return false
         }
         // JSONEncoder escapes "/" as "\/"; agents write it plain. Accept either spelling.
         let plain = quoted.replacingOccurrences(of: "\\/", with: "/")
-        return readLedgers(in: folder).contains { $0.text.contains(plain) || $0.text.contains(quoted) }
+        return texts.contains { $0.contains(plain) || $0.contains(quoted) }
     }
 
-    nonisolated static func readImage(_ path: String, in folder: URL) throws -> JSONValue {
-        let file = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
-        guard let type = imageTypes[file.pathExtension.lowercased()] else {
+    /// An image file as a data URL: the link resolved, a regular file only (never a FIFO or device),
+    /// read up to ``imageByteLimit`` + 1 bytes so a large or growing file cannot be read whole.
+    nonisolated static func readImage(_ path: String) throws -> JSONValue {
+        let file = URL(fileURLWithPath: (path as NSString).expandingTildeInPath).resolvingSymlinksInPath()
+        guard let type = imageTypes[file.pathExtension.lowercased()] ?? imageTypes[URL(fileURLWithPath: path).pathExtension.lowercased()] else {
             throw PageError(code: "cmux.agentBoard.notImage", message: notImage)
         }
-        guard ledgersName(path, in: folder) else { throw notInLedger }
-        let attributes = try? FileManager.checked.attributesOfItem(atPath: file.path)
-        guard let size = (attributes?[.size] as? NSNumber)?.intValue else {
+        let values = try? file.blockingResourceValues(forKeys: [.isRegularFileKey])
+        guard values?.isRegularFile == true, let handle = try? FileHandle(forReadingFrom: file) else {
             throw PageError(code: "cmux.agentBoard.missing", message: missing)
         }
-        if size > imageByteLimit { return .object(["tooLarge": .bool(true), "size": .number(Double(size))]) }
-        guard let data = try? Data(blockingContentsOf: file) else {
-            throw PageError(code: "cmux.agentBoard.missing", message: missing)
-        }
+        defer { try? handle.close() }
+        let data = (try? handle.blockingRead(upToCount: imageByteLimit + 1)) ?? Data()
+        if data.count > imageByteLimit { return .object(["tooLarge": .bool(true), "size": .number(Double(data.count))]) }
         return .object(["dataURL": .string("data:\(type);base64,\(data.base64EncodedString())")])
     }
 

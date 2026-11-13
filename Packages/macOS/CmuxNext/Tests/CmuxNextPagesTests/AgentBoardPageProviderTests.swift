@@ -15,12 +15,14 @@ struct AgentBoardPageProviderTests {
         var writes: [Bool] = []
         var openedFiles: [URL] = []
         var openedLinks: [URL] = []
+        var revealed: [URL] = []
     }
 
     struct Folder {
         let url: URL
         let image: URL
         let other: URL
+        let script: URL
     }
 
     /// A ledger folder with one ledger naming `shot.png` and a PR link, plus an image no ledger names.
@@ -32,13 +34,16 @@ struct AgentBoardPageProviderTests {
         let other = root.appendingPathComponent("private.png")
         try Data([0x89, 0x50, 0x4E, 0x47]).write(to: image)
         try Data([0x89, 0x50, 0x4E, 0x47]).write(to: other)
+        let script = root.appendingPathComponent("run.command")
+        try "#!/bin/sh\necho hi\n".write(to: script, atomically: true, encoding: .utf8)
         let lines = [
             #"{"kind":"task","id":"t","title":"Invite link","pr":"https://github.com/example/cmux/pull/1"}"#,
             #"{"kind":"evidence","id":"ev","type":"screenshot","path":"\#(image.path)"}"#,
+            #"{"kind":"evidence","id":"ev2","type":"log","path":"\#(script.path)"}"#,
         ]
         try (lines.joined(separator: "\n") + "\n").write(to: ledgers.appendingPathComponent("s-1.jsonl"), atomically: true, encoding: .utf8)
         try "not a ledger".write(to: ledgers.appendingPathComponent("notes.txt"), atomically: true, encoding: .utf8)
-        return Folder(url: ledgers, image: image, other: other)
+        return Folder(url: ledgers, image: image, other: other, script: script)
     }
 
     static func provider(_ folder: Folder, enabled: Bool = false, recorder: Recorder) -> AgentBoardPageProvider {
@@ -47,7 +52,8 @@ struct AgentBoardPageProviderTests {
             enabled: { enabled },
             write: { recorder.writes.append($0) },
             openFile: { recorder.openedFiles.append($0) },
-            openLink: { recorder.openedLinks.append($0); return true })
+            openLink: { recorder.openedLinks.append($0); return true },
+            revealFile: { recorder.revealed.append($0) })
     }
 
     @Test func stateListsOnlyTheLedgersWithTheSetting() async throws {
@@ -61,7 +67,7 @@ struct AgentBoardPageProviderTests {
     }
 
     @Test func aMissingFolderIsNoLedgers() async throws {
-        let missing = Folder(url: URL(fileURLWithPath: "/nonexistent/agent-board-\(UUID().uuidString)"), image: URL(fileURLWithPath: "/x"), other: URL(fileURLWithPath: "/y"))
+        let missing = Folder(url: URL(fileURLWithPath: "/nonexistent/agent-board-\(UUID().uuidString)"), image: URL(fileURLWithPath: "/x"), other: URL(fileURLWithPath: "/y"), script: URL(fileURLWithPath: "/z"))
         let state = try await Self.provider(missing, recorder: Recorder()).call("cmux.agentBoard.state", params: .object([:]), context: Self.page)
         #expect(state["ledgers"]?.arrayValue?.isEmpty == true)
         #expect(state["enabled"] == false)
@@ -112,6 +118,22 @@ struct AgentBoardPageProviderTests {
         #expect(recorder.openedFiles.map(\.path) == [folder.image.path])
         #expect(recorder.openedLinks.map(\.absoluteString) == ["https://github.com/example/cmux/pull/1"])
         #expect(recorder.openedFiles.allSatisfy { $0.path != folder.other.path })
+    }
+
+    /// A file a ledger names that is not a document (a script, an app) is shown in Finder, never run:
+    /// a line an agent copied from somewhere cannot turn one click into running it.
+    @Test func openRevealsWhatItWouldRun() async throws {
+        let folder = try Self.folder()
+        let recorder = Recorder()
+        let provider = Self.provider(folder, recorder: recorder)
+        let reply = try await provider.call("cmux.agentBoard.open", params: ["path": .string(folder.script.path)], context: Self.click)
+        #expect(reply["revealed"] == true)
+        #expect(recorder.openedFiles.isEmpty)
+        #expect(recorder.revealed.map(\.path) == [folder.script.path])
+        let other = await #expect(throws: PageError.self) {
+            try await provider.call("cmux.agentBoard.open", params: ["url": "file:///etc/hosts"], context: Self.click)
+        }
+        #expect(other?.code == "cmux.agentBoard.notInLedger")
     }
 
     /// A new ledger line reaches the page as an event (FSEvents on the folder), with no polling.

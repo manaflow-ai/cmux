@@ -22,7 +22,7 @@ shell, so every append computes the path itself; never keep it in a variable acr
 ```bash
 d="${CMUX_AGENT_BOARD_DIR:-$HOME/.cmux/agent-board}"; mkdir -p "$d"
 cat >> "$d/${CMUX_AGENT_SESSION:-$(basename "$PWD")}.jsonl" <<'EOF'
-{"kind":"capability","id":"cap-onboarding","title":"Agent Board onboarding","summary":"Off-by-default card that explains the token cost and turns the board on.","area":"Settings","status":"done","files":["webviews/src/prototypes/agent-board/Onboarding.tsx"]}
+{"kind":"capability","id":"cap-onboarding","title":"Agent Board onboarding","summary":"Off-by-default card that explains the token cost and turns the board on.","area":"Settings","status":"done","files":["webviews/src/pages/agent-board/AgentBoardPage.tsx"]}
 EOF
 ```
 
