@@ -28,7 +28,7 @@ import Testing
 struct CloudMoveTests {
     /// The live chat moves: its folder is synced under the machine's work root, the chat is moved
     /// from this Mac's tab to that folder, and the machine shows it in a Cloud workspace whose
-    /// terminal runs in the synced folder. The chat's tab there is bound to the moved session
+    /// only tab is the chat: no terminal is made beside it. The chat's tab there is bound to the moved session
     /// through the machine's store (so it attaches through that machine and carries its badge),
     /// and this Mac's tab, whose chat closed, is gone.
     @Test func aCLIMoveOfALiveChatEndsWithTheTabAttachedToTheMachineChat() async throws {
@@ -51,7 +51,7 @@ struct CloudMoveTests {
             #expect(tab.agentSession?.harness == "claude")
             #expect(moved.attachesThroughMachine, "the moved chat does not attach through the machine")
             #expect(moved.badge == "Move VM", "the moved chat's tab carries no Cloud badge")
-            #expect(moved.terminalFolders == [synced], "the machine workspace's terminal is not in the synced folder")
+            #expect(moved.terminalFolders.isEmpty, "the machine workspace has a terminal beside the chat: \(moved.terminalFolders)")
             // This Mac's tab is gone (its chat closed with the move), with nothing left to retry.
             #expect(!moved.macStillHasTab)
             #expect(move.services.cloud.moveRetries[move.key] == nil)
@@ -88,7 +88,10 @@ struct CloudMoveTests {
             let moved = try await move.read()
             let tab = try #require(moved.machineTab, "no chat tab on the machine")
             let cloud = try #require(move.machine.daemon.store.workspaces.first { $0.screens.flatMap(\.panes).contains { $0.tabs.contains { $0.id == tab.id } } }).id
-            try await Self.waitUntil { rows().contains(cloud) && PendingWorkspaceRows.shared.rows(in: controller.state.id).isEmpty }
+            // Placed once its pending placement resolved (it may wait for the selected row: `anchorWaitLimit`), not when its row first lists.
+            try await Self.waitUntil {
+                rows().contains(cloud) && PendingWorkspaceRows.shared.rows(in: controller.state.id).isEmpty && services.windows.pendingPlacements[cloud] == nil
+            }
             let shown = rows()
             #expect(shown.firstIndex(of: cloud) == shown.firstIndex(of: selected).map { $0 + 1 },
                     "the Cloud workspace is not right below the selected one: \(shown), selected \(selected), cloud \(cloud)")
@@ -248,13 +251,13 @@ struct CloudMoveTests {
                 }
                 let synced = try #require(calls.first?.last)
                 #expect(shown.session == "chat-on-vm" && shown.machineID == "vm-move" && shown.folder == synced && shown.key == "tr-1")
-                // Retry, once the folder is there: only the tab opens.
-                try FileManager.default.createDirectory(atPath: synced, withIntermediateDirectories: true)
+                // Retry, once the machine's daemon knows the chat landed: only the tab opens.
+                try await move.land()
                 if let again = await move.run() { Issue.record("Retry failed: \(again.code) \(again.message)") }
                 let moved = try await move.read()
                 #expect(moved.calls.count == 2, "Retry synced or moved the chat again: \(moved.calls)")
                 #expect(moved.machineTab?.agentSession?.session == "chat-on-vm", "Retry did not open the moved chat's tab")
-                #expect(moved.terminalFolders == [synced])
+                #expect(moved.terminalFolders.isEmpty, "the reopened chat's workspace has a terminal beside it: \(moved.terminalFolders)")
                 #expect(!moved.macStillHasTab)
                 #expect(move.services.cloud.moveRetries[move.key] == nil)
             }
@@ -309,7 +312,7 @@ struct CloudMoveTests {
                 return
             }
             #expect(shown.session == "chat-on-vm" && shown.machineID == "vm-move" && shown.folder == synced)
-            try FileManager.default.createDirectory(atPath: synced, withIntermediateDirectories: true)
+            try await move.land()
             if let again = await move.run() { Issue.record("Retry after the relaunch failed: \(again.code) \(again.message)") }
             let moved = try await move.read()
             #expect(moved.calls.count == 2, "Retry after the relaunch synced or moved the chat again: \(moved.calls)")
@@ -580,6 +583,26 @@ struct CloudMoveTests {
         let log: URL
         let vmSocket: String
         var tabID = ""
+
+        /// The machine's daemon, which ``land()`` restarts.
+        var machineLauncher: DaemonLauncher?
+
+        /// Leaves the landed chat's record a `tabFailed` move left out (``standInCLI(in:log:mode:vmState:)``), then
+        /// restarts the machine's daemon, which reads its landed chats once, and relaunches the app on it: the
+        /// machine's daemon then takes a `registry:` tab naming the chat.
+        func land() async throws {
+            let state = log.deletingLastPathComponent().appendingPathComponent("vm-state")
+            let files = FileManager.default.enumerator(at: state, includingPropertiesForKeys: nil)?.compactMap { $0 as? URL } ?? []
+            let registry = try #require(files.first { $0.lastPathComponent == "workspace-registry.sqlite3" }, "the machine's daemon has no registry")
+            let landed: [[String: Any]] = [["session": "chat-on-vm", "landed_at_ms": Int(Date().timeIntervalSince1970 * 1000)]]
+            try JSONSerialization.data(withJSONObject: landed).write(to: registry.deletingLastPathComponent().appendingPathComponent("agent-transfer-landed.json"))
+            let launcher = try #require(machineLauncher)
+            await CloudMoveTests.end(machine.daemon)
+            let gone = ContinuousClock.now + .seconds(5)
+            while FileManager.default.fileExists(atPath: vmSocket), ContinuousClock.now < gone { try? await Task.sleep(for: .milliseconds(100)) }
+            _ = try await launcher.endpointProvider()
+            try await relaunch()
+        }
         /// The chat tab's id on this Mac, as the app keys it.
         var key = ""
         /// The chat tab's surface on this Mac.
@@ -711,7 +734,7 @@ struct CloudMoveTests {
                 moved.badge = services.machines.machineBadge(daemon.machineID)
                 if let key = machine.daemon.store.workspace(containing: pane.handle)?.key,
                    let listed = try await machine.daemon.connection?.listWorkspaces().workspaces.first(where: { $0.key == key }) {
-                    moved.terminalFolders = listed.screens.flatMap(\.panes).flatMap(\.tabs).filter { $0.kind == .pty }.compactMap(\.cwd)
+                    moved.terminalFolders = listed.screens.flatMap(\.panes).flatMap(\.tabs).filter { $0.kind == .pty }.map { $0.cwd ?? "" }
                 }
             }
             moved.macStillHasTab = services.locateTab(tabID, onMachine: services.machines.local.machineID) != nil
@@ -786,6 +809,7 @@ struct CloudMoveTests {
 
         let move = Move(services: services, machine: machine, project: project, workRoot: workRoot, log: log, vmSocket: vmSocket)
         move.relaunched = app
+        move.machineLauncher = vm
         let result: Result<Void, any Error>
         do {
             try await openChat(move)
@@ -821,12 +845,12 @@ struct CloudMoveTests {
     }
 
     /// A stand-in `cmux`: records each call's arguments (unit-separated). Like the real sync,
-    /// `link seed push` creates the synced folder (not in `tabFailed`, so the machine's terminal
-    /// can't start there; in `syncTimeout` it outlives the CLI timeout); `link agent move`
-    /// answers as `mode` says. A move that answers ok also leaves what the machine daemon's own
-    /// `agent-transfer-finish` would: the landed chat's record (`agent-transfer-landed.json` next
-    /// to that daemon's registry in `vmState`), without which the daemon refuses a `registry:` tab
-    /// naming the chat (cx-k21v).
+    /// `link seed push` creates the synced folder (in `syncTimeout` it outlives the CLI timeout);
+    /// `link agent move` answers as `mode` says. A move that answers ok also leaves what the machine
+    /// daemon's own `agent-transfer-finish` would: the landed chat's record (`agent-transfer-landed.json`
+    /// next to that daemon's registry in `vmState`), without which the daemon refuses a `registry:` tab
+    /// naming the chat (cx-k21v). `tabFailed` leaves it out, so the machine's chat tab can't open
+    /// until ``Move/land()``.
     private static func standInCLI(in root: URL, log: URL, mode: String, vmState: URL) throws -> URL {
         let url = root.appendingPathComponent("cmux")
         let script = """
@@ -842,7 +866,7 @@ struct CloudMoveTests {
                     exit 1
                 fi
                 for target in "$@"; do :; done
-                [ '\(mode)' = tabFailed ] || mkdir -p "$target"
+                mkdir -p "$target"
                 echo '{"ok":true,"written":1,"unchanged":0,"deleted":0,"skipped":0,"bytes":4}' ;;
             "link machine update")
                 case '\(mode)' in
@@ -870,7 +894,7 @@ struct CloudMoveTests {
                 *)
                     registry=$(find '\(vmState.path)' -name workspace-registry.sqlite3 -print | head -n 1)
                     [ -n "$registry" ] || exit 70
-                    printf '[{"session":"chat-on-vm","landed_at_ms":%s000}]' "$(date +%s)" > "$(dirname "$registry")/agent-transfer-landed.json"
+                    [ '\(mode)' = tabFailed ] || printf '[{"session":"chat-on-vm","landed_at_ms":%s000}]' "$(date +%s)" > "$(dirname "$registry")/agent-transfer-landed.json"
                     echo '{"ok":true,"session_id":"chat-on-vm","transfer_id":"tr-1","bytes":42,"resolved":false}' ;;
                 esac ;;
             *) exit 64 ;;
