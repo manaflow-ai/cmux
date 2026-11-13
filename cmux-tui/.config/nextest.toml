@@ -159,6 +159,13 @@ success-output = "final"
 filter = 'binary_id(cmux-tui-core::git_fingerprint)'
 success-output = "final"
 
+# VEHICLE ONLY (never merges): the fingerprint measure prints its "fp-measure:" lines on
+# stderr and runs for minutes (2 work trees, 3 states, 30 rounds of 4 forms in 2 scopes).
+[[profile.ci.overrides]]
+filter = 'binary_id(cmux-tui-core::git_fingerprint_measure)'
+success-output = "final"
+slow-timeout = { period = "60s", terminate-after = 20, grace-period = "5s" }
+
 # The idle tests (cmux-tui tests/idle_wakeups.rs) print one "idle daemon:" line for each
 # process on stderr: its CPU time, context switches and wakeups in each of the 3 quiet
 # windows. A fleet step shows them only when a passing test's output is kept; a pass with no
