@@ -28,7 +28,13 @@ extension HomeStore {
     /// - The summary changes with it and stays changed in this store and its cache file: `lastSeq`
     ///   and `rev` are at least `rows`, the newest message is a seeded one, and my read cursor is
     ///   at `rows` (so no view reports a seeded seq to the owner as read). Owner events at or
-    ///   below the seeded `rev` are ignored.
+    ///   below the seeded `rev` are ignored. One case differs: when the owner's `lastSeq` is above
+    ///   `rows`, the list row keeps the owner's `lastSeq` and newest message (a summary never moves
+    ///   the last message backward).
+    /// - NEVER ON A REAL ACCOUNT. The list row of the conversation stays changed for good: a merge
+    ///   with the owner's summary keeps the larger `lastSeq` and read cursor, and the Home cache
+    ///   file stores them. Seed only in a home made for the film, and remove the Home cache of
+    ///   that home after the film.
     ///
     /// It goes the way of a real read of the tail (`readTranscript`): the page into the mirror,
     /// then `confirm`, `bumpTranscript`, `settle`, `rebuildRows`. One step more comes first: the
