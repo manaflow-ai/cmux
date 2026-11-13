@@ -74,7 +74,9 @@ const replyVariant = (stage: "writing" | "replied" | "silent" | "ended", note: s
       // Leo, 2026-11-12: "the whatever ms gets stuck and becomes false really quickly": a reply
       // followed by silence never stays "Thinking"; it reads "Waiting" with the time since it last heard.
       await ctx.waitFor(() =>
-        /^Waiting/.test(ctx.document.querySelector(".acpmux-scroll .cv-worked--live .cv-thinking")?.textContent ?? ""),
+        (ctx.document.querySelector(".acpmux-scroll .cv-worked--live .cv-thinking")?.textContent ?? "").startsWith(
+          "Waiting",
+        ),
       );
       if (ctx.document.querySelector(".acpmux-scroll .cv-worked--live .cv-thinking.is-shimmer"))
         throw new Error("a silent line still shimmers as if work went on");
