@@ -28,6 +28,10 @@ push or the loop's retry dispatch; run_holds_group): a published run still holds
 through its tail, and a run that has sat 10 minutes with nothing running and every
 queued job without a runner holds nothing. A promotion run on
 main that is still moving nightly-next counts as building for --promotion-minutes.
+One exception: a retry of nightly-next's own head while a newer commit waits neither
+holds nor counts as a start (retry_of). It leaves the slot only when a newer push
+arrives, which waiting for it never let happen (19-41 min per retry, runs
+43395284047 and 43440656795), so the rule promotes and the retry yields.
 
 A dispatch for one commit (a person, or the feed watch's starvation guard) never
 reaches this rule: the tick runs it only when its `sha` input is empty.
@@ -107,6 +111,12 @@ def youngest_start(now: dt.datetime, starts: list[dict], promotions: list[dict],
     return min(ages) if ages else None
 
 
+def retry_of(run: dict, head: str) -> bool:
+    """Whether a run is the loop's retry dispatch ('Retry nightly-next (N of 2)') of `head`."""
+    return (run.get("event") == "workflow_dispatch" and bool(watch.RETRY_TITLE.match(str(run.get("display_title") or "")))
+            and (run.get("head_sha") or "").lower() == head.lower())
+
+
 def decide(now: dt.datetime, *, head: str, head_runs: list[dict], jobs_of,
            promotions: list[dict], oldest_waiting,
            window_minutes: float = WINDOW_MINUTES,
@@ -125,6 +135,14 @@ def decide(now: dt.datetime, *, head: str, head_runs: list[dict], jobs_of,
     must be a window old too. A started build is never cancelled."""
     if not head:
         return True, "nightly-next is unreadable; asking as before"
+    if oldest_waiting is not None:
+        # A retry of nightly-next's own head while a newer commit waits rebuilds a commit that already
+        # failed, and it leaves the build slot only when a newer push arrives (feat-cmux-next's
+        # resolve-leave-build-slot.sh). Waiting for it meant no newer push ever came: 19-41 min per
+        # retry (runs 43395284047, 43440656795; tick 43440928169). It is neither a holder nor a start.
+        # A retry of an older commit (nightly-next already moved past it) and every push still hold.
+        head_runs = [run for run in head_runs if not retry_of(run, head)]
+        starts = [run for run in starts or [] if not retry_of(run, head)]
     building = ""
     since_start = youngest_start(now, starts or [], promotions, promotion_minutes)
     if since_start is not None and since_start < PROMOTION_RACE_MINUTES:
