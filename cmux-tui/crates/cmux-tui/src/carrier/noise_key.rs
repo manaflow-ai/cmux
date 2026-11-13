@@ -35,34 +35,41 @@ pub(super) fn lasting_identity() -> Result<StaticIdentity, String> {
 ///
 /// A DEV build whose Keychain refuses the shared item (a locally built,
 /// ad-hoc signed `cmux` is a new app to the Keychain after each rebuild, and
-/// an unanswered prompt is `-128`) never shows the Keychain's prompt and, when
-/// the item is not readable without one, dials with a key made for this one dial,
+/// an unanswered prompt is `-128`) waits at most ``DEV_KEYCHAIN_WAIT`` for the
+/// Keychain and otherwise dials with a key made for this one dial,
 /// as a Linux dial does, instead of failing the handshake. The key is never
 /// written down. Release builds keep failing, so they never drift off their
 /// lasting device key.
 pub(super) fn device_identity() -> Result<StaticIdentity, String> {
     #[cfg(target_os = "macos")]
     {
-        let dev = is_dev_build();
-        if dev {
-            // Never wait on a Keychain prompt: an unanswered one held `carrier serve` past
-            // its deadline, so the link failed before the person even saw the question.
-            keychain::forbid_prompts();
+        if !is_dev_build() {
+            return keychain::load_or_create(SERVICE, ACCOUNT).map(StaticIdentity::from_private);
         }
-        match keychain::load_or_create(SERVICE, ACCOUNT) {
-            Ok(key) => Ok(StaticIdentity::from_private(key)),
-            Err(why) if dev => {
-                eprintln!("cmux carrier: {why}; this DEV build dials with a key made for this dial");
-                StaticIdentity::generate().map_err(|e| format!("no Noise key: {e}"))
-            }
-            Err(why) => Err(why),
-        }
+        // Never wait on a Keychain prompt: an unanswered one held `carrier serve` past its
+        // deadline, so the link failed before the person even saw the question. The read
+        // gets a short bound; a prompt left open is answered later or not at all.
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = sender.send(keychain::load_or_create(SERVICE, ACCOUNT));
+        });
+        let why = match receiver.recv_timeout(DEV_KEYCHAIN_WAIT) {
+            Ok(Ok(key)) => return Ok(StaticIdentity::from_private(key)),
+            Ok(Err(why)) => why,
+            Err(_) => "the Keychain did not answer for the carrier key (a prompt is open)".to_owned(),
+        };
+        eprintln!("cmux carrier: {why}; this DEV build dials with a key made for this dial");
+        StaticIdentity::generate().map_err(|e| format!("no Noise key: {e}"))
     }
     #[cfg(not(target_os = "macos"))]
     {
         StaticIdentity::generate().map_err(|e| format!("no Noise key: {e}"))
     }
 }
+
+/// How long a DEV build waits for the Keychain before dialing with a per-dial key.
+#[cfg(target_os = "macos")]
+const DEV_KEYCHAIN_WAIT: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// Whether this process belongs to a DEV build (`com.cmuxterm.app.debug[.<tag>]`).
 #[cfg(target_os = "macos")]
@@ -89,14 +96,6 @@ mod keychain {
     #[link(name = "Security", kind = "framework")]
     unsafe extern "C" {
         static kSecAttrAccessible: CFStringRef;
-    }
-
-    /// Keychain reads in this process fail with `errSecInteractionNotAllowed` instead of asking.
-    pub(super) fn forbid_prompts() {
-        // SAFETY: a plain call with a boolean; it only changes this process's Keychain prompt policy.
-        unsafe {
-            security_framework_sys::keychain::SecKeychainSetUserInteractionAllowed(0);
-        }
     }
 
     fn options(service: &str, account: &str) -> PasswordOptions {
