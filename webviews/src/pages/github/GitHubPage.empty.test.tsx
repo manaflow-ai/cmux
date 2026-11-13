@@ -8,6 +8,7 @@ import type { Strings } from "../shared/i18n";
 import generated from "./generated/strings.json";
 import { GitHubPage } from "./GitHubPage";
 import type { GitHubSnapshot, GitHubStore } from "./store";
+import { settleReact } from "../../../test/support/domTeardown";
 
 const en = (generated as Record<string, Record<string, string>>).en!;
 const strings: Strings = { language: "en", t: (key) => en[key] ?? key, format: (key) => en[key] ?? key };
@@ -20,6 +21,7 @@ const saved = new Map<string, unknown>();
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
