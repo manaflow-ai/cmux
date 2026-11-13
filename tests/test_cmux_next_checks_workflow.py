@@ -4295,10 +4295,10 @@ class ChecksBringNodeAndTimeoutToAMini(unittest.TestCase):
 
     def prepare(self) -> subprocess.CompletedProcess[str]:
         run = next(s for s in steps() if s.get("name") == "Prepare check Python (PyYAML) and timeout")["run"]
-        env = {"PATH": str(self.bin), "HOME": str(self.tmp), "RUNNER_TEMP": str(self.temp),
+        env = git_fixture_env.fixture_env({"PATH": str(self.bin), "HOME": str(self.tmp), "RUNNER_TEMP": str(self.temp),
                "RUNNER_NAME": "cmux10s-mac-mini-glaeda-3", "GITHUB_PATH": str(self.github_path),
                "GITHUB_WORKSPACE": str(ROOT), "RUNNER_TOOL_CACHE": str(self.tmp / "toolcache"),
-               "ENSURE_NODE_DIST": (self.tmp / "no-dist").as_uri()}  # no download: node stays missing
+               "ENSURE_NODE_DIST": (self.tmp / "no-dist").as_uri()})  # no download: node stays missing
         return subprocess.run(["bash", "-e", "-c", run], cwd=ROOT, env=env, capture_output=True, text=True,
                               timeout=120)
 
@@ -4318,12 +4318,12 @@ class ChecksBringNodeAndTimeoutToAMini(unittest.TestCase):
         for tool in ("bash", "sleep"):
             (few / tool).symlink_to(shutil.which(tool, path=str(self.bin)))
         (few / "gtimeout").symlink_to(venv_bin / "timeout")
-        started = time.monotonic()
-        ended = subprocess.run(["gtimeout", "1", "sleep", "20"], env={"PATH": str(few)}, capture_output=True,
+        few_env = git_fixture_env.fixture_env({"PATH": str(few)})
+        # 124 is the deadline's own status: a `sleep 20` that ran out its time would exit 0.
+        ended = subprocess.run(["gtimeout", "1", "sleep", "20"], env=few_env, capture_output=True,
                                text=True, timeout=30)
         self.assertEqual(ended.returncode, 124, ended.stderr)
-        self.assertLess(time.monotonic() - started, 15)
-        ran = subprocess.run(["gtimeout", "5", "bash", "-c", "exit 3"], env={"PATH": str(few)}, timeout=30)
+        ran = subprocess.run(["gtimeout", "5", "bash", "-c", "exit 3"], env=few_env, timeout=30)
         self.assertEqual(ran.returncode, 3)
 
     def test_the_preflight_names_a_missing_node_and_stops_the_job_there(self):
