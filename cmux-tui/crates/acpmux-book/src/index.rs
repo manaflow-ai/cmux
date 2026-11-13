@@ -84,6 +84,8 @@ pub struct Summary {
     pub origin: String,
     pub pinned: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer_form: Option<Box<RawValue>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<RowKey>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fork_of: Option<ForkOf>,
@@ -137,6 +139,7 @@ impl Clone for Summary {
             workspace: self.workspace.clone(),
             origin: self.origin.clone(),
             pinned: self.pinned,
+            peer_form: self.peer_form.as_ref().map(|value| value.to_owned()),
             parent: self.parent.clone(),
             fork_of: self.fork_of.clone(),
             folder: self.folder.clone(),
@@ -158,6 +161,7 @@ impl Summary {
             workspace: None,
             origin: "local".to_owned(),
             pinned: false,
+            peer_form: None,
             parent: None,
             fork_of: None,
             folder: None,
@@ -217,6 +221,7 @@ impl Summary {
             workspace,
             origin,
             pinned,
+            peer_form,
             parent,
             fork_of,
             folder,
@@ -231,6 +236,8 @@ impl Summary {
             && workspace == &other.workspace
             && origin == &other.origin
             && pinned == &other.pinned
+            && peer_form.as_ref().map(|value| value.get())
+                == other.peer_form.as_ref().map(|value| value.get())
             && parent == &other.parent
             && fork_of == &other.fork_of
             && folder == &other.folder
@@ -352,6 +359,7 @@ pub struct SummaryIndex {
     edition: u32,
     by_id: OrdMap<RowKey, Arc<Summary>>,
     ordered: OrdMap<SortKey, Arc<Summary>>,
+    live_ordered: OrdMap<SortKey, Arc<Summary>>,
     disk: Option<Arc<DiskSnapshot>>,
     shadowed: OrdSet<RowKey>,
 }
@@ -369,6 +377,7 @@ impl SummaryIndex {
             edition: 1,
             by_id: OrdMap::new(),
             ordered: OrdMap::new(),
+            live_ordered: OrdMap::new(),
             disk: None,
             shadowed: OrdSet::new(),
         }
@@ -434,6 +443,7 @@ impl SummaryIndex {
             && let Some(row) = self.by_id.remove(key)
         {
             self.ordered.remove(&SortKey::of(&row));
+            self.live_ordered.remove(&SortKey::of(&row));
             return true;
         }
         false
@@ -446,6 +456,9 @@ impl SummaryIndex {
         if !self.shadowed.contains(&key) && !self.by_id.contains_key(&key) {
             self.by_id.insert(key, row.clone());
             self.ordered.insert(SortKey::of(&row), row);
+            if row.is_live() {
+                self.live_ordered.insert(SortKey::of(&row), row);
+            }
         }
     }
 
@@ -466,6 +479,9 @@ impl SummaryIndex {
         let mut next = self.clone();
         next.by_id.insert(row.key(), row.clone());
         next.ordered.insert(SortKey::of(&row), row);
+        if row.is_live() {
+            next.live_ordered.insert(SortKey::of(&row), row);
+        }
         next
     }
 
@@ -494,17 +510,23 @@ impl SummaryIndex {
         let summary = Arc::new(summary.bounded());
         let mut by_id = self.by_id.clone();
         let mut ordered = self.ordered.clone();
+        let mut live_ordered = self.live_ordered.clone();
         let key = summary.key();
         if let Some(old) = by_id.get(&key) {
             ordered.remove(&SortKey::of(old));
+            live_ordered.remove(&SortKey::of(old));
         }
-        ordered.insert(SortKey::of(&summary), summary.clone());
+        let sort_key = SortKey::of(&summary);
+        ordered.insert(sort_key.clone(), summary.clone());
+        if summary.is_live() {
+            live_ordered.insert(sort_key, summary.clone());
+        }
         by_id.insert(key.clone(), summary);
         let mut shadowed = self.shadowed.clone();
         if self.disk.is_some() {
             shadowed.insert(key);
         }
-        Self { seq: self.seq.max(seq), by_id, ordered, shadowed, ..self.clone() }
+        Self { seq: self.seq.max(seq), by_id, ordered, live_ordered, shadowed, ..self.clone() }
     }
 
     /// Test/telemetry hook: applying one summary records the number of
@@ -523,6 +545,28 @@ impl SummaryIndex {
 
     pub fn page(&self, start: usize, limit: usize) -> Vec<Arc<Summary>> {
         self.iter().skip(start).take(limit).cloned().collect()
+    }
+
+    /// The published live view, ordered identically to the all-chat view.
+    pub fn live_after(&self, key: Option<&SortKey>, limit: usize) -> Vec<Arc<Summary>> {
+        let lower = key.map_or(Unbounded, Excluded);
+        self.live_ordered
+            .range::<_, SortKey>((lower, Unbounded))
+            .take(limit)
+            .map(|(_, row)| row.clone())
+            .collect()
+    }
+
+    pub fn live_before(&self, key: &SortKey, limit: usize) -> Vec<Arc<Summary>> {
+        let mut rows: Vec<_> = self
+            .live_ordered
+            .range::<_, SortKey>((Unbounded, Excluded(key)))
+            .rev()
+            .take(limit)
+            .map(|(_, row)| row.clone())
+            .collect();
+        rows.reverse();
+        rows
     }
 
     /// Exclusive keyset seek: tree search plus only the requested rows.
@@ -574,15 +618,24 @@ impl SummaryIndex {
         }
         let mut by_id = self.by_id.clone();
         let mut ordered = self.ordered.clone();
+        let mut live_ordered = self.live_ordered.clone();
         by_id.remove(key);
         if let Some(old) = old {
             ordered.remove(&SortKey::of(old));
+            live_ordered.remove(&SortKey::of(old));
         }
         let mut shadowed = self.shadowed.clone();
         if self.disk.is_some() {
             shadowed.insert(key.clone());
         }
-        Some(Self { seq: self.seq.max(seq), by_id, ordered, shadowed, ..self.clone() })
+        Some(Self {
+            seq: self.seq.max(seq),
+            by_id,
+            ordered,
+            live_ordered,
+            shadowed,
+            ..self.clone()
+        })
     }
 }
 

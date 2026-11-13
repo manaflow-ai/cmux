@@ -14,6 +14,7 @@ struct TextRef<'a> {
     unread: u32,
     workspace: &'a Option<String>,
     pinned: bool,
+    peer_form: &'a Option<Box<RawValue>>,
     extra: &'a RawValue,
 }
 
@@ -27,6 +28,7 @@ struct Text {
     unread: u32,
     workspace: Option<String>,
     pinned: bool,
+    peer_form: Option<Box<RawValue>>,
     extra: Box<RawValue>,
 }
 
@@ -39,6 +41,7 @@ fn text(summary: &Summary) -> TextRef<'_> {
         unread: summary.unread,
         workspace: &summary.workspace,
         pinned: summary.pinned,
+        peer_form: &summary.peer_form,
         extra: &summary.extra,
     }
 }
@@ -158,6 +161,7 @@ pub(super) fn decode(mut input: &[u8]) -> io::Result<IndexRecord> {
         summary.unread = text.unread;
         summary.workspace = text.workspace;
         summary.pinned = text.pinned;
+        summary.peer_form = text.peer_form;
         summary.extra = text.extra;
         summary.validate()?;
     } else if !input.is_empty() {

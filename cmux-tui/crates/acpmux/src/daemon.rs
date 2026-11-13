@@ -584,6 +584,11 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     };
     // Serve before reading session metadata or logs. Exact-id chat reads load on demand.
     let hub = Hub::new_loading_with_wireguard(config, store, mailbox, wireguard.clone());
+    if let Some(v2) = v2.as_ref() {
+        let (tee, task) = crate::hub::list_guard::start_v2_tee(hub.clone(), v2.clone());
+        hub.install_v2_tee(tee);
+        v2_tasks.spawn(task);
+    }
     // A copied machine's first start settles what the logs left open as stopped
     // (`hub/clone_boot.rs`); read before any log is.
     let cloned = hub.take_clone_marker(&home()).is_some();

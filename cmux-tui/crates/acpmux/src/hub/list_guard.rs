@@ -14,8 +14,12 @@
 
 use super::session_pages::PageRow;
 use super::*;
+use acpmux_book::index::{ForkOf, RowKey, Summary};
+use acpmux_core::life::V2;
 use cmux_json::JsonSet as _;
+use std::collections::HashSet;
 use std::ops::Range;
+use tokio::sync::Notify;
 
 /// The hub's event channel. Every send is a change some list shows.
 pub(crate) struct Events {
@@ -39,6 +43,157 @@ pub(crate) struct Events {
     reaching: std::sync::Mutex<Vec<(String, Option<String>)>>,
     /// This run's id for list positions: a cursor of another run is no cursor here.
     epoch: String,
+    tee: std::sync::Mutex<Option<Arc<TeeHandle>>>,
+}
+
+/// A non-blocking mark channel from v1 list changes to the one v2 summary task.
+pub(crate) struct TeeHandle {
+    state: Arc<TeeState>,
+}
+
+impl TeeHandle {
+    fn mark(&self, id: &str) {
+        let mut pending = self.state.pending.lock().unwrap_or_else(|e| e.into_inner());
+        pending.insert(id.to_owned());
+        drop(pending);
+        self.state.notify.notify_one();
+    }
+}
+
+struct TeeState {
+    pending: std::sync::Mutex<HashSet<String>>,
+    notify: Notify,
+}
+
+impl TeeState {
+    fn take(&self, limit: usize) -> Vec<String> {
+        let mut pending = self.pending.lock().unwrap_or_else(|e| e.into_inner());
+        let ids: Vec<String> = pending.iter().take(limit).cloned().collect();
+        for id in &ids {
+            pending.remove(id);
+        }
+        ids
+    }
+}
+
+/// Installs the v1-to-v2 mark queue and returns its single draining task.
+/// Marks are deduplicated under a short mutex and never wait on the writer.
+pub(crate) fn start_v2_tee(
+    v1: Arc<Hub>,
+    v2: Arc<V2>,
+) -> (Arc<TeeHandle>, impl std::future::Future<Output = ()> + Send + 'static) {
+    let state = Arc::new(TeeState { pending: Default::default(), notify: Notify::new() });
+    let handle = Arc::new(TeeHandle { state: Arc::clone(&state) });
+    let task = async move {
+        v1.wait_store().await;
+
+        // The first walk is deliberately after the complete v1 store load. It feeds the
+        // published index in bounded batches and yields between batches so startup work remains
+        // responsive. A later mark always rebuilds from the current session, never from the
+        // event that caused it.
+        let sessions = v1.session_handles();
+        for batch in sessions.chunks(256) {
+            for session in batch {
+                if let Some(summary) = summary_from_session(&v1, session) {
+                    let _ = v2.hub.submit(summary);
+                }
+            }
+            tokio::task::yield_now().await;
+        }
+
+        loop {
+            let ids = state.take(256);
+            if ids.is_empty() {
+                state.notify.notified().await;
+                continue;
+            }
+            let sessions: std::collections::HashMap<_, _> = v1
+                .session_handles()
+                .into_iter()
+                .map(|session| (session.id.clone(), session))
+                .collect();
+            for id in ids {
+                match sessions.get(&id) {
+                    Some(session) => {
+                        if let Some(summary) = summary_from_session(&v1, session) {
+                            let _ = v2.hub.submit(summary);
+                        }
+                    }
+                    None => {
+                        let _ = v2.hub.remove("local", &id);
+                    }
+                }
+            }
+            tokio::task::yield_now().await;
+        }
+    };
+    (handle, task)
+}
+
+/// Converts the v1 list row once, retaining v1's extension keys in `extra` while moving the
+/// durable identity and lineage edges into typed summary fields.
+fn summary_from_session(v1: &Hub, session: &Session) -> Option<Summary> {
+    let mut row = v1.session_list_summary(session);
+    let object = row.as_object_mut()?;
+    let meta = session.meta();
+    let chat_id = object.remove("sessionId")?.as_str()?.to_owned();
+    let title = object
+        .remove("title")
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .unwrap_or_else(|| meta.name.clone());
+    let harness = object.remove("harness").and_then(|value| value.as_str().map(str::to_owned))?;
+    let state = object
+        .remove("state")
+        .or_else(|| object.remove("status"))
+        .and_then(|value| value.as_str().map(str::to_owned))?;
+    let last_activity = object.remove("updatedAt").and_then(|value| value.as_u64()).unwrap_or(0);
+    let unread_turns = object.remove("unreadTurns").and_then(|value| value.as_u64()).unwrap_or(0);
+    let unread = object.remove("unread").and_then(|value| value.as_bool()).unwrap_or(false);
+    let workspace = object.remove("workspaceId").and_then(|value| {
+        (!value.is_null()).then(|| value.as_str().unwrap_or_default().to_owned())
+    });
+    let cwd = object.remove("cwd").and_then(|value| value.as_str().map(str::to_owned));
+    let parent = crate::hub::views::activity_parent_id(&meta).map(|id| RowKey::new("local", id));
+    let fork_of = meta
+        .parent_id
+        .clone()
+        .map(|id| ForkOf { key: RowKey::new("local", id), seq: meta.fork_seq.unwrap_or(0) });
+    object.remove("spawnedBy");
+    for key in [
+        "sessionId",
+        "status",
+        "parent",
+        "parentId",
+        "forkSeq",
+        "origin",
+        "pinned",
+        "peer",
+        "stale",
+    ] {
+        object.remove(key);
+    }
+    let extra = serde_json::value::to_raw_value(&row).ok()?;
+    let summary = Summary {
+        chat_id,
+        title,
+        harness,
+        state,
+        last_activity,
+        unread: if unread_turns == 0 && unread {
+            1
+        } else {
+            unread_turns.min(u32::MAX as u64) as u32
+        },
+        workspace,
+        origin: "local".to_owned(),
+        pinned: false,
+        peer_form: None,
+        parent,
+        fork_of,
+        folder: cwd.map(|path| path.trim_end_matches('/').to_owned()),
+        extra,
+    };
+    summary.prepare().ok()
 }
 
 impl Events {
@@ -50,6 +205,17 @@ impl Events {
             untold: Default::default(),
             reaching: Default::default(),
             epoch: super::row_log::new_epoch(),
+            tee: Default::default(),
+        }
+    }
+
+    pub(crate) fn install_tee(&self, tee: Arc<TeeHandle>) {
+        *self.tee.lock().unwrap_or_else(|e| e.into_inner()) = Some(tee);
+    }
+
+    fn mark_tee(&self, id: &str) {
+        if let Some(tee) = self.tee.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+            tee.mark(id);
         }
     }
 
@@ -119,6 +285,11 @@ impl Events {
     ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
         debug_assert!(event.remote.is_none(), "a peer's event goes through Events::send_remote");
         self.all_rows_stale();
+        if crate::server::session_change_kind(&event.record.kind).is_some()
+            || event.record.kind == "purged"
+        {
+            self.mark_tee(&event.session_id);
+        }
         self.stamped(event)
     }
 
@@ -160,6 +331,7 @@ impl Events {
         event: HubEvent,
     ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
         session.summary_gen.fetch_add(1, Ordering::SeqCst);
+        self.mark_tee(&session.id);
         if super::row_log::row_change(&event).is_none() {
             self.stamp_own(&session.id);
         }
@@ -171,6 +343,7 @@ impl Events {
     pub(super) fn row_changed(&self, session: &Session) {
         self.stamp_own(&session.id);
         session.summary_gen.fetch_add(1, Ordering::SeqCst);
+        self.mark_tee(&session.id);
     }
 
     /// Every closed row's cached bytes go stale (a session came that may be another's parent).

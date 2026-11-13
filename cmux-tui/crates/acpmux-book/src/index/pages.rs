@@ -38,6 +38,65 @@ pub struct IndexPage {
 }
 
 impl SummaryIndex {
+    /// Bounded page over the published live set. Unlike a state filter this
+    /// starts from the live ordered tree, so closed rows are never scanned.
+    pub fn read_live_page(
+        &self,
+        anchor: Option<&SortKey>,
+        side: ReadSide,
+        limit: usize,
+        max_bytes: usize,
+    ) -> io::Result<IndexPage> {
+        if limit == 0 || limit > 400 || max_bytes == 0 {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid live page bound"));
+        }
+        let candidates = match (anchor, side) {
+            (None, _) => self.live_after(None, limit + 1),
+            (Some(key), ReadSide::After) => self.live_after(Some(key), limit + 1),
+            (Some(key), ReadSide::Before) => self.live_before(key, limit + 1),
+            (Some(key), ReadSide::Around) => {
+                let mut rows = self.live_before(key, limit + 1);
+                rows.extend(self.live_after(Some(key), limit + 1));
+                rows
+            }
+        };
+        let mut rows = Vec::new();
+        let mut bytes_read = 0;
+        for row in candidates.iter().take(limit) {
+            let size = row.encoded_len().saturating_add(1);
+            if bytes_read.saturating_add(size) > max_bytes {
+                if rows.is_empty() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "page byte budget cannot fit the next live row",
+                    ));
+                }
+                break;
+            }
+            bytes_read = bytes_read.saturating_add(size);
+            rows.push(row.clone());
+        }
+        let first = rows.first().map(|row| SortKey::of(row));
+        let last = rows.last().map(|row| SortKey::of(row));
+        let has_more = candidates.len() > rows.len();
+        let has_before = match side {
+            ReadSide::Before => has_more,
+            ReadSide::Around | ReadSide::After => anchor.is_some(),
+        };
+        let has_after = match side {
+            ReadSide::Before => anchor.is_some(),
+            ReadSide::Around | ReadSide::After => has_more,
+        };
+        Ok(IndexPage {
+            rows,
+            has_before,
+            has_after,
+            before_key: first,
+            after_key: last,
+            bytes_read,
+        })
+    }
+
     /// One physical piece. Flags and continuation name remaining candidates,
     /// including rows a filter or a newer summary will hide (decision 93).
     pub fn read_page(

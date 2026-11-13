@@ -344,6 +344,10 @@ pub struct Page {
     pub before: Option<Position>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub after: Option<Position>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keys: Option<Vec<ListKey>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub view: Option<ListView>,
     #[serde(default = "default_page_bytes")]
     pub max_bytes: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -369,6 +373,8 @@ impl Page {
             stream: stream.into(),
             before: (side == PageSide::Before).then_some(Position::Row(row_id)),
             after: (side == PageSide::After).then_some(Position::Row(row_id)),
+            keys: None,
+            view: None,
             max_bytes: default_page_bytes(),
             filter: None,
         }
@@ -392,6 +398,8 @@ impl Page {
             stream: stream.into(),
             before: (side == PageSide::Before).then_some(Position::List(key.clone())),
             after: (side == PageSide::After).then_some(Position::List(key)),
+            keys: None,
+            view: None,
             max_bytes: default_page_bytes(),
             filter: None,
         }
@@ -434,6 +442,10 @@ pub struct PageResult<T> {
     pub has_after: bool,
     pub before_key: Option<ListKey>,
     pub after_key: Option<ListKey>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub missing: Vec<ListKey>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unknown: Vec<ListKey>,
 }
 
 /// One bounded delta frame. Resume frames carry at most 256 KiB of operations;

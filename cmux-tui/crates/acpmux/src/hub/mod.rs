@@ -2059,6 +2059,12 @@ impl Hub {
         self.sessions.lock().unwrap_or_else(|e| e.into_inner()).values().cloned().collect()
     }
 
+    /// Connect the optional v2 list tee. The v1 event path remains unchanged when no tee is
+    /// installed, which is the default for an empty `acpmux.v2` setting.
+    pub(crate) fn install_v2_tee(&self, tee: Arc<list_guard::TeeHandle>) {
+        self.events.install_tee(tee);
+    }
+
     pub(crate) fn session_count(&self) -> usize {
         self.sessions.lock().unwrap_or_else(|e| e.into_inner()).len()
     }

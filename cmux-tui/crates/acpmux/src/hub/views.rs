@@ -85,7 +85,7 @@ fn activity_parent(m: &SessionMeta) -> Option<&str> {
 }
 
 /// [`activity_parent`], for the closed-row cache (`Hub::cached_closed_summary`).
-pub(super) fn activity_parent_id(m: &SessionMeta) -> Option<&str> {
+pub(crate) fn activity_parent_id(m: &SessionMeta) -> Option<&str> {
     activity_parent(m)
 }
 

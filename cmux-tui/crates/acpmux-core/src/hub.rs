@@ -502,14 +502,23 @@ impl Hub {
             ),
             _ => (None, ReadSide::After),
         };
-        let page = index.read_page(
-            key.as_ref(),
-            side,
-            true,
-            requested,
-            crate::wire::MAX_PAGE_BYTES.saturating_sub(8192 + sub.sid.len()),
-            sub.filter.as_ref(),
-        )?;
+        let page = if matches!(sub.view, Some(crate::wire::ListView::Live)) {
+            index.read_live_page(
+                key.as_ref(),
+                side,
+                requested,
+                crate::wire::MAX_PAGE_BYTES.saturating_sub(8192 + sub.sid.len()),
+            )?
+        } else {
+            index.read_page(
+                key.as_ref(),
+                side,
+                true,
+                requested,
+                crate::wire::MAX_PAGE_BYTES.saturating_sub(8192 + sub.sid.len()),
+                sub.filter.as_ref(),
+            )?
+        };
         let window = Window {
             sid: sub.sid.clone(),
             cursor,
@@ -520,6 +529,8 @@ impl Hub {
             origins: Vec::new(),
             before_key: page.before_key.map(wire_key),
             after_key: page.after_key.map(wire_key),
+            missing: Vec::new(),
+            unknown: Vec::new(),
         };
         let frame = Frame::json(FrameKind::Window, &window)?;
         if frame.encoded_len() > crate::wire::MAX_PAGE_BYTES {
@@ -532,26 +543,73 @@ impl Hub {
         if request.stream.as_str() != "list" {
             return Err(HubError::WrongStream(request.stream.as_str().to_owned()));
         }
-        let Some((side, crate::wire::Position::List(key))) = request.side() else {
-            return Err(HubError::InvalidPage);
-        };
         let max = request.max_bytes as usize;
         if max > crate::wire::MAX_PAGE_BYTES || max <= 8192 + request.sid.len() {
             return Err(HubError::InvalidPage);
         }
+        if let Some(keys) = request.keys.as_ref() {
+            if keys.is_empty()
+                || keys.len() > 100
+                || request.before.is_some()
+                || request.after.is_some()
+            {
+                return Err(HubError::InvalidPage);
+            }
+            let index = self.snapshot();
+            let mut rows = Vec::with_capacity(keys.len());
+            let mut missing = Vec::new();
+            let mut unknown = Vec::new();
+            for key in keys {
+                let row_key = book_key(key).row;
+                if let Some(row) = index.get_row(&row_key) {
+                    rows.push(row);
+                } else if key.origin == "local" {
+                    missing.push(key.clone());
+                } else {
+                    unknown.push(key.clone());
+                }
+            }
+            let reply = crate::wire::PageResult {
+                sid: request.sid.clone(),
+                rows: rows.iter().map(Arc::as_ref).collect::<Vec<_>>(),
+                has_before: false,
+                has_after: false,
+                before_key: None,
+                after_key: None,
+                missing,
+                unknown,
+            };
+            let frame = Frame::json(FrameKind::Page, &reply)?;
+            if frame.encoded_len() > max {
+                return Err(HubError::InvalidPage);
+            }
+            return Ok(frame);
+        }
+        let Some((side, crate::wire::Position::List(key))) = request.side() else {
+            return Err(HubError::InvalidPage);
+        };
         let side = match side {
             crate::wire::PageSide::Before => ReadSide::Before,
             crate::wire::PageSide::After => ReadSide::After,
         };
         let index = self.snapshot();
-        let page = index.read_page(
-            Some(&book_key(key)),
-            side,
-            false,
-            MAX_WINDOW_ROWS,
-            max - 8192 - request.sid.len(),
-            request.filter.as_ref(),
-        )?;
+        let page = if matches!(request.view, Some(crate::wire::ListView::Live)) {
+            index.read_live_page(
+                Some(&book_key(key)),
+                side,
+                MAX_WINDOW_ROWS,
+                max - 8192 - request.sid.len(),
+            )?
+        } else {
+            index.read_page(
+                Some(&book_key(key)),
+                side,
+                false,
+                MAX_WINDOW_ROWS,
+                max - 8192 - request.sid.len(),
+                request.filter.as_ref(),
+            )?
+        };
         let reply = crate::wire::PageResult {
             sid: request.sid.clone(),
             rows: page.rows.iter().map(Arc::as_ref).collect::<Vec<_>>(),
@@ -559,6 +617,8 @@ impl Hub {
             has_after: page.has_after,
             before_key: page.before_key.map(wire_key),
             after_key: page.after_key.map(wire_key),
+            missing: Vec::new(),
+            unknown: Vec::new(),
         };
         let frame = Frame::json(FrameKind::Page, &reply)?;
         if frame.encoded_len() > max {
