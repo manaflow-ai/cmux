@@ -1,0 +1,77 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43405167261",
+  "recorded_at": "2026-11-13T10:09:53Z",
+  "reason": "cmux-tui eb88ec0386b5 changes the image's cmux-tui (pinned 0dcc1c642373)",
+  "dry_run": false,
+  "cmux_tui": "eb88ec0386b59acc376302c14173e96390d4fe0e",
+  "fixes": [
+    {
+      "sha": "5544ae233caa54d405a24e9596e41475f9a8ae7e",
+      "mergedAt": "2026-11-13T03:31:22-06:00",
+      "subject": "Cloud: the session host and devbox boot name the terminal cmux"
+    },
+    {
+      "sha": "5ab397f45bd34869e19e526c6229a8830e8e6c4b",
+      "mergedAt": "2026-11-13T03:31:22-06:00",
+      "subject": "Test: the Cloud session host names its terminal cmux (red)"
+    },
+    {
+      "sha": "2670a3b985929857a15373bf789b7617b4400aa4",
+      "mergedAt": "2026-11-13T03:31:22-06:00",
+      "subject": "Agent identity: hand the edits to the wrapper's own command"
+    },
+    {
+      "sha": "82befb443b3683df37a11ddf1e4b6817b51126bb",
+      "mergedAt": "2026-11-13T03:31:22-06:00",
+      "subject": "cmux terminals say TERM_PROGRAM=cmux with cmux's version"
+    },
+    {
+      "sha": "541dfc14edf97999cf0c9107e80b49a52f73b599",
+      "mergedAt": "2026-11-13T03:31:14-06:00",
+      "subject": "Test: cmux terminals say TERM_PROGRAM=cmux; agents keep the Ghostty identity (red)"
+    },
+    {
+      "sha": "fa9858c541e3b806723545dc7157dfdf134e8d66",
+      "mergedAt": "2026-11-13T01:24:39-08:00",
+      "subject": "cmux-next: attribute and slim web bundles (#42276)"
+    },
+    {
+      "sha": "5dd5c9cb5610f101ddf5dbcef924307a7044f6ef",
+      "mergedAt": "2026-11-13T01:24:21-08:00",
+      "subject": "fix(acpmux): restart to chat in seconds (#42296)"
+    },
+    {
+      "sha": "a7e61136aadd4e27e94e0d549ab7ac4cea969a8c",
+      "mergedAt": "2026-11-13T01:08:04-08:00",
+      "subject": "acpmux: Resume on a stopped sub-session continues it in the same chat, from its row, card and Session Info (#42385)"
+    },
+    {
+      "sha": "281b8aac4da34a4349d170b9960959f00a80db50",
+      "mergedAt": "2026-11-13T00:55:22-08:00",
+      "subject": "acpmux: the time breakdown seed checks its copy against the log, keeps a turn's backfill, and never saves into a recreated chat (review of #42481) (#42497)"
+    },
+    {
+      "sha": "6e88ae63aff107954ff2e7a09462b1d2831ab4f1",
+      "mergedAt": "2026-11-13T00:53:44-08:00",
+      "subject": "Toasts: Don't Show Again on notices, show longer, readable Liquid Glass, live toast tuning"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T10:09:53Z",
+    "snapshot_id": "sh-f8c416eea753419a9e5b260920331287",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43405167261): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "4ea8c5f96289a90821837a43f7b8d4092e151923",
+    "image": "cloud-native-auto-eb88ec03-43405167261-1",
+    "revision": "ci-43405167261-1",
+    "at": "2026-11-13T10:09:53Z"
+  },
+  "rolled_back": false
+}
