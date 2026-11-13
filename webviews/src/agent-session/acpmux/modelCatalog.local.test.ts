@@ -35,7 +35,8 @@ test("new releases retain metadata and daemon order over a stale session menu", 
   expect(harness.topModels).toEqual(ids);
   const shown = relevantModelSections(harness.models, harness.topModels).shown;
   expect(shown.map((model) => model.id)).toEqual(ids);
-  expect(shown.map((model) => model.name)).toEqual(["4 Carbon", "4 Hydrogen"]);
+  expect(shown.map((model) => model.name)).toEqual(["Gemini 4 Carbon", "Gemini 4 Hydrogen"]);
+  expect(shown.map((model) => model.shortName)).toEqual(["4 Carbon", "4 Hydrogen"]);
   expect(shown.map((model) => model.contextWindow)).toEqual([1_048_576, 1_048_576]);
   expect(harness.models.some((model) => model.id === "gemini-4-argon")).toBe(false);
 });
