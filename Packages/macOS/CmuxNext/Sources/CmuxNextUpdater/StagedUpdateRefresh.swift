@@ -62,6 +62,15 @@ final class StagedUpdateRefresh {
     let clickTimer: DemandTimer
     /// How long the install click waits for the feed before it installs the staged build.
     static let clickProbeDeadline: Duration = .seconds(3)
+    /// How recent a read of both the feed and the pulled list lets the install click decide at
+    /// once, with no network wait between the click and the relaunch (Leo 2026-11-08: "just you
+    /// click the button and that just simply restarts the app really quickly"). The reads happen
+    /// ahead of the click: Sparkle's own read as it stages the build, a plain read when cmux becomes
+    /// active (``prefetch(updater:)``), and the staged update's scheduled probe.
+    static let clickReadFreshness: TimeInterval = 60
+    /// Whether the flow was in Update Ready at the last ``follow(_:updater:)``: the read ahead runs
+    /// once as the card appears, not on every phase sync.
+    private var wasReady = false
 
     init(clock: any Clock<Duration>) {
         timer = DemandTimer(owner: "UpdaterService.stagedRefresh", clock: clock)
@@ -93,7 +102,23 @@ final class StagedUpdateRefresh {
             updater.presentUpdateUI?()
             return
         }
+        if hasFreshRead(updater), !updater.isKnownPulled(staged) {
+            // The feed and the pulled list were read just before the click: they decide it now. A
+            // staged build known pulled takes the path below: settling here, inside the phase sync
+            // that ran the click, would end ``clickWaits`` before that sync's own pulled follow-up
+            // (``UpdaterService/followPulled()``) and drop the build twice.
+            clicks += 1
+            pendingClick = PendingClick(install: install, click: clicks, probed: true, listAnswered: true)
+            updater.log.append("install click: the feed and the pulled list were read in the last \(Int(Self.clickReadFreshness)) s; deciding now")
+            #if DEBUG || CMUX_BENCH_HOOKS
+            UpdateHarness.mark("install_click.read_ahead")
+            #endif
+            return settleClick(answered: true, updater: updater)
+        }
         updater.log.append("install click: looking for a build newer than staged build \(staged)")
+        #if DEBUG || CMUX_BENCH_HOOKS
+        UpdateHarness.mark("install_click.feed_read")
+        #endif
         clicks += 1
         let click = clicks
         pendingClick = PendingClick(install: install, click: click)
@@ -132,8 +157,9 @@ final class StagedUpdateRefresh {
 
     /// The probed ring's build when it is strictly newer than `staged`, else nil.
     private static func probedNewer(than staged: String, updater: UpdaterService) -> String? {
-        guard case .updateAvailable(let item)? = updater.lastProbe?.outcome, AppcastSelector.isOlder(staged, than: item.version) else { return nil }
-        return item.version
+        guard let read = updater.lastFeedRead, read.ring == updater.ring, let newest = read.newest,
+              AppcastSelector.isOlder(staged, than: newest) else { return nil }
+        return newest
     }
 
     /// The feed and the pulled list answered, or the deadline passed with whatever the appcast
@@ -187,13 +213,52 @@ final class StagedUpdateRefresh {
         updater.startNewestCheck(.click)
     }
 
-    /// Follows the flow's phase: an update waiting arms the next probe; anything else ends it.
-    func follow(_ phase: UpdateIndicatorPhase, updater: UpdaterService) {
+    /// Follows the flow's phase: an update waiting arms the next probe; anything else ends it. A
+    /// build Sparkle just checked for or downloaded (its silent driver may stage straight from the
+    /// check) is the feed's newest for the followed ring as of now (Sparkle
+    /// read the feed to pick it, and read the pulled list just before, ``UpdateController/prepareUpdate``),
+    /// so the card's appearance records that answer (``UpdaterService/lastFeedRead``) and reads
+    /// nothing: a read here would land after a click it raced and act on the staged build again.
+    func follow(_ phase: UpdateIndicatorPhase, previous: UpdateIndicatorPhase, updater: UpdaterService) {
         guard case .ready = phase else {
             installing = false
+            wasReady = false
             return timer.cancel()
         }
+        if !wasReady {
+            wasReady = true
+            if previous == .checking || previous.isDownloading, let staged = updater.stagedBuild(), !staged.isEmpty {
+                updater.lastFeedRead = FeedRead(newest: staged, at: updater.now(), ring: updater.ring)
+            }
+        }
         arm(updater)
+    }
+
+    /// Whether the feed answered for the followed ring and every pulled list was read within
+    /// ``clickReadFreshness``.
+    func hasFreshRead(_ updater: UpdaterService) -> Bool {
+        guard let feed = updater.lastFeedRead, feed.ring == updater.ring,
+              updater.now().timeIntervalSince(feed.at) <= Self.clickReadFreshness else { return false }
+        return hasFreshList(updater)
+    }
+
+    /// Whether every pulled list was read within ``clickReadFreshness``.
+    private func hasFreshList(_ updater: UpdaterService) -> Bool {
+        guard let list = updater.pulledWatch.lastReadAt else { return false }
+        return updater.now().timeIntervalSince(list) <= Self.clickReadFreshness
+    }
+
+    /// Reads the feed and the pulled list ahead of the install click while an update waits on
+    /// Update Ready, unless a fresh read is at hand or a click already took it. The feed read is a
+    /// plain read (``UpdaterService/readFeedAhead()``): it never takes, delays or re-arms the
+    /// pending probe, and never answers a ring pick or an install click, so the schedule and every
+    /// check keep their own feed reads. Each has its own request deadline; nothing repeats until
+    /// the next call.
+    func prefetch(updater: UpdaterService) {
+        guard case .ready = updater.flow.phase, !installing, pendingClick == nil, updater.disabledReason == nil,
+              !hasFreshRead(updater) else { return }
+        updater.readFeedAhead()
+        updater.pulledWatch.refresh()
     }
 
     /// The followed ring moved: a probe in flight read the ring before it.

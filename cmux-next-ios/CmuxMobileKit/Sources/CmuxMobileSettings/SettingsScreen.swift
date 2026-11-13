@@ -32,11 +32,12 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
     let callChief: (() -> Void)?
     /// Screen Sharing with the account's Macs (nil in mock mode: no row).
     let screenSharing: ScreenSharingService?
-    /// The account's Cloud page (Automations) and Connect GitHub (nil: no Cloud rows).
+    /// The account's Cloud pages (Cloud Machines, Automations) and Connect GitHub (nil: no Cloud rows).
     let cloudPages: SettingsCloudPages?
     private let callKeys = OpenAIKeyModel.shared
     private let callPreferences = VoiceCallPreferences.shared
     private let accentTheme = CmuxMobileAccentTheme.shared
+    @Bindable private var macTheme = CmuxMobileMacTheme.shared
     @State private var confirmsSignOut = false
     @State private var editingTeam: Team?
     /// One device list for the "Devices" count here and the Devices page.
@@ -98,6 +99,10 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                 if let cloudPages {
                     // The Mac's Automations and Artifacts pages and Connect GitHub, with this account's own sign-in.
                     Section {
+                        NavigationLink(value: SettingsRoute.cloudMachines) {
+                            SettingsLabel("Cloud Machines", symbol: "cloud")
+                        }
+                        .accessibilityIdentifier("settings.cloudMachines")
                         NavigationLink(value: SettingsRoute.automations) {
                             SettingsLabel("Automations", symbol: "clock.badge.checkmark")
                         }
@@ -132,8 +137,13 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                 Section {
                     AppearanceTiles(selection: $settings.appearance)
                         .listRowInsets(EdgeInsets(top: 14, leading: 16, bottom: 14, trailing: 16))
+                    // ask-87d30da8e5: the chrome takes the theme and wallpaper of the Mac.
+                    Toggle(isOn: $macTheme.matchesMac) {
+                        SettingsLabel("Match Mac theme", symbol: "macbook.and.iphone")
+                    }
+                    .accessibilityIdentifier("settings.matchMacTheme")
                     NavigationLink(value: SettingsRoute.accentColor) {
-                        SettingsLabel("Accent color", symbol: "paintpalette", value: accentTheme.accent.title)
+                        SettingsLabel("Accent color", symbol: "paintpalette", value: AccentColorPage.title(accentTheme))
                     }
                     .accessibilityIdentifier("settings.accentColor")
                     Toggle(isOn: $settings.hapticsEnabled) {
@@ -286,6 +296,8 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
         case .chiefCalls: ChiefCallsPage(keys: callKeys, preferences: callPreferences, callChief: callChief)
         case .screenSharing:
             if let screenSharing { ScreenSharingPage(service: screenSharing) }
+        case .cloudMachines:
+            cloudPages?.machines()
         case .automations:
             cloudPages?.automations()
         case .longPressMenus:
@@ -306,6 +318,8 @@ public enum SettingsRoute: Hashable, Sendable {
     case screenSharing
     /// Appearance → Accent color: the one accent every chrome tint reads.
     case accentColor
+    /// Cloud → Cloud Machines (the account's Cloud machines).
+    case cloudMachines
     /// Cloud → Automations (the account's Cloud automations).
     case automations
     /// Long-Press Menus: the menu items the person hid.
@@ -319,7 +333,7 @@ public enum SettingsRoute: Hashable, Sendable {
             return
         }
         let all: [SettingsRoute] = [.account, .team, .transport, .devices, .terminal, .terminalSizing, .composer, .notifications,
-                                    .acknowledgements, .chiefCalls, .screenSharing, .accentColor, .automations,
+                                    .acknowledgements, .chiefCalls, .screenSharing, .accentColor, .cloudMachines, .automations,
                                     .longPressMenus]
         guard let route = all.first(where: { "\($0)" == name }) else { return nil }
         self = route

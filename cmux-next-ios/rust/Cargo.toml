@@ -30,6 +30,7 @@ cmux-terminal-prediction = { path = "../../cmux-tui/crates/cmux-terminal-predict
 anyhow = "1"
 base64 = "0.22"
 bytes = "1"
+flate2 = "1"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 getrandom = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-webpki-roots"] }

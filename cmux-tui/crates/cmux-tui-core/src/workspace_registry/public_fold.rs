@@ -244,7 +244,20 @@ impl WorkspaceRegistry {
             self.public_fold = None;
             return;
         }
-        let journaled = &decorated;
+        self.record_journaled_public_fold(previous_revision, revision, &decorated, full_projection);
+    }
+
+    /// [`Self::record_public_fold`] for changes that are already what the journal record of the
+    /// revision states (`journal_resource_record` gives them): they are folded as they are, with
+    /// no second read of the state rows. A commit that states many workspaces (a workspace close
+    /// states each workspace after the closed one) read the state fields of each one two times.
+    pub(super) fn record_journaled_public_fold(
+        &mut self,
+        previous_revision: u64,
+        revision: u64,
+        journaled: &Value,
+        full_projection: bool,
+    ) {
         match self.public_fold.as_mut() {
             Some(fold) if fold.revision == previous_revision => {
                 fold.apply(journaled);

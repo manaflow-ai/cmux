@@ -19,7 +19,10 @@
 //! transcript before its first turn) makes the next scan read the folder again. Codex's writer-lock folder is read the same
 //! way: only when it changed (a thread opened or closed), and of it only the held locks; a thread
 //! with no rollout yet is tried again at each scan until it is listed. While the setting is off it
-//! only rereads the setting. It ends when the daemon shuts down.
+//! sets no timer: it waits for the settings watch (`settings_watch.rs`) to see the settings file
+//! change (written in place, created later, replaced by rename) and then rereads the setting. It
+//! used to reread it every 15 s, which woke an idle daemon 4 times a minute. It ends when the
+//! daemon shuts down.
 
 use super::Hub;
 use crate::claude_peers::Peer;
@@ -30,26 +33,44 @@ use std::time::{Duration, SystemTime};
 
 /// How often the registry folder's modification time is checked while the bridge is on.
 const SCAN: Duration = Duration::from_secs(2);
-/// How often the setting is reread while the bridge is off.
-const OFF: Duration = Duration::from_secs(15);
 
 impl Hub {
     /// Lists live desktop sessions as watched chats until the daemon shuts down.
     pub async fn desktop_bridge_loop(hub: Weak<Hub>) {
         let mut seen: Option<SystemTime> = None;
         let mut codex_seen: Option<SystemTime> = None;
+        let Some(mut settings) = hub.upgrade().map(|h| h.settings_changes.subscribe()) else {
+            return;
+        };
+        let mut was_on = false;
         loop {
             let Some(h) = hub.upgrade() else { return };
             if h.shutting_down() {
                 return;
             }
+            // Marked seen before the read: a change after it ends the wait below at once.
+            settings.borrow_and_update();
             let on =
                 tokio::task::spawn_blocking(crate::claude_peers::enabled).await.unwrap_or(false);
-            if !on || !h.startup_settled() {
+            if on != was_on {
+                was_on = on;
+                tracing::info!("desktop bridge: {}", if on { "on" } else { "off" });
+            }
+            if !on {
                 seen = None;
                 codex_seen = None;
                 drop(h);
-                tokio::time::sleep(if on { SCAN } else { OFF }).await;
+                // No timer while off: the next settings file change, or the hub's end.
+                if settings.changed().await.is_err() {
+                    return;
+                }
+                continue;
+            }
+            if !h.startup_settled() {
+                seen = None;
+                codex_seen = None;
+                drop(h);
+                tokio::time::sleep(SCAN).await;
                 continue;
             }
             let config = h.harness_homes.lock().unwrap_or_else(|e| e.into_inner()).claude.clone();
@@ -165,7 +186,7 @@ impl Hub {
                 listing.agent_session_id,
             )
             .is_some();
-            let taken = |n: &str| sessions.values().any(|s| s.meta().name == n);
+            let taken = |n: &str| sessions.values().any(|s| s.read_meta(|m| m.name == n));
             (shown, unique_name(listing.base, listing.suffix, taken))
         };
         if shown {
@@ -253,14 +274,18 @@ impl Hub {
         let mut registered: Vec<String> = Vec::new();
         let (claude, codex): (Vec<(String, String)>, Vec<(String, String)>) = {
             let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+            // Read each chat's three fields in place: copying every meta made a prompt cost
+            // grow with the number of chats, under the lock every `resolve` waits on.
             let chats = sessions.values().filter_map(|s| {
-                let meta = s.meta();
-                let family = meta.watching.as_ref()?.family.clone();
-                meta.tags.get("bridge").filter(|t| t.value == family)?;
+                let (family, native) = s.read_meta(|meta| {
+                    let family = &meta.watching.as_ref()?.family;
+                    meta.tags.get("bridge").filter(|t| &t.value == family)?;
+                    Some((family.clone(), meta.agent_session_id.clone()))
+                })?;
                 if super::register::is_registered(s) {
                     registered.push(s.id.clone());
                 }
-                Some((family, (s.id.clone(), meta.agent_session_id?)))
+                Some((family, (s.id.clone(), native?)))
             });
             let (claude, codex): (Vec<_>, Vec<_>) = chats
                 .filter(|(family, _)| family == "claude" || family == "codex")

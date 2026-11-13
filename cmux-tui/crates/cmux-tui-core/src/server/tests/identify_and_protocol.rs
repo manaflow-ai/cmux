@@ -91,6 +91,7 @@ fn receipted_workspace_create_keeps_legacy_workspace_cas_consistent() {
         Command::CreateWorkspace {
             name: Some("alt-n".into()),
             key: Some("018f6e21-7b70-7e70-8000-0000000000aa".into()),
+            first_tab: None,
             mutation: MutationRequest {
                 origin: Some("chrome-gui".into()),
                 mutation_id: Some("alt-n-create".into()),
@@ -411,6 +412,7 @@ fn identify_advertises_additive_capabilities() {
         crate::git_ops::FILES_LIST_CAPABILITY,
         crate::git_ops::BRANCHES_CAPABILITY,
         crate::git_ops::DIFF_COMMENTS_CAPABILITY,
+        crate::git_ops::DIFF_COMMENTS_SEND_CAPABILITY,
     ] {
         assert!(capabilities.iter().any(|value| value.as_str() == Some(expected)));
     }

@@ -162,6 +162,7 @@ impl Surface {
                 terminal_public_id: terminal_public_id.map(Arc::new),
                 journal_generation: Arc::from(format!("test-{id}")),
                 journal_capture_supported: true,
+                output_log: Default::default(),
                 #[cfg(unix)]
                 local_output: None,
                 journal_capture_epoch: AtomicU64::new(0),
@@ -209,7 +210,7 @@ impl Surface {
                 pending_host_binding: Mutex::new(None),
                 #[cfg(any(unix, windows))]
                 host_exit_record_path: None,
-                pid: Some(id as u32),
+                pid: terminal_runtime::terminal_seat(&mux, Some(id as u32)),
                 command: opts.command.unwrap_or_else(|| vec![platform::default_shell()]),
                 cwd: opts.cwd,
                 exit: Mutex::new(None),
@@ -301,6 +302,37 @@ impl Surface {
                 kitty_reservation: None,
                 terminate_on_error: false,
                 defer_launch_activation: true,
+                lifetime: PtyLifetime::SessionOwned,
+                terminal_public_id: Some(terminal_public_id),
+                resource_identity: Some(identity),
+            },
+        )
+    }
+
+    /// A hosted terminal surface on `attachment` (a fake host connection) whose program already
+    /// runs, as an adoption at daemon start makes one after its connect
+    /// (`adopt_hosted_with_resource_identity`), with the tab and terminal identity `identity`.
+    #[cfg(all(test, unix))]
+    pub(crate) fn spawn_hosted_adopted_for_test(
+        id: SurfaceId,
+        mux: Weak<Mux>,
+        attachment: crate::terminal_host_runtime::HostAttachment,
+        identity: TabResourceIdentity,
+    ) -> anyhow::Result<Arc<Surface>> {
+        let terminal_public_id = terminal_public_id_from_resource_identity(
+            &identity,
+            "a hosted terminal cannot use a browser resource identity",
+        )?;
+        Self::spawn_hosted(
+            id,
+            SurfaceOptions::default(),
+            mux,
+            HostedSurfaceLaunch {
+                adopted: true,
+                attachment,
+                kitty_reservation: None,
+                terminate_on_error: false,
+                defer_launch_activation: false,
                 lifetime: PtyLifetime::SessionOwned,
                 terminal_public_id: Some(terminal_public_id),
                 resource_identity: Some(identity),

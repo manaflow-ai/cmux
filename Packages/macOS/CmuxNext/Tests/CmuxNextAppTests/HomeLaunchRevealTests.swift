@@ -28,6 +28,17 @@ struct HomeLaunchRevealTests {
         #expect(content.contentView.alphaValue == 1, "only Home waits for its conversation")
     }
 
+    @Test func homeIsReadyOnceItsConversationsFirstPageIsIn() async {
+        let (services, reveal) = Self.services()
+        let view = HomeHostView(services: services, conversation: "conv_local")
+        view.frame = NSRect(x: 0, y: 0, width: 600, height: 700)
+        let deadline = ContinuousClock.now + .seconds(10)
+        // Polls a state the view reaches on its own turns (the offline store answering the open).
+        while !reveal.isReady(.home), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(20)) }
+        #expect(reveal.isReady(.home), "Home's first page came in and the launch still held Home")
+        withExtendedLifetime(view) {}
+    }
+
     /// Home is made after the launch window (3049 ms on a cold launch, the sidebar's hold long
     /// before): the launch deadline must not release it before it is held, and its own wait runs
     /// from its own hold. The other regions still show at the launch deadline.
