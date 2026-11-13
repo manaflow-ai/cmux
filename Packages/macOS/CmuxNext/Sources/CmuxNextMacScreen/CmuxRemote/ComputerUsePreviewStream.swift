@@ -3,6 +3,7 @@ public import AVFoundation
 import CoreMedia
 import Darwin
 public import Foundation
+import CmuxNextCompat
 import CmuxNextWakeups
 import os
 
@@ -40,7 +41,7 @@ public final class ComputerUsePreviewStream {
     /// The picture's long side asked for now (the request, then `L` lines).
     private let side: OSAllocatedUnfairLock<Int>
     /// Every line the app writes on the channel goes through this queue, in order, off the main thread.
-    private let control = DispatchQueue(label: "cmux-cu-preview-control", qos: .userInteractive)
+    private let control = DispatchQueue(label: "cmux-cu-preview-control", qos: .userInitiated)
     /// The channel's socket (the reader thread closes it when it ends) and whether ``stop()`` ran.
     private let state = OSAllocatedUnfairLock(initialState: (socket: Int32(-1), closed: false))
     /// Frames handed to the main queue and not enqueued yet (the reader drops frames past
@@ -100,7 +101,7 @@ public final class ComputerUsePreviewStream {
                     // queue's writes (none starts once the socket is cleared): `stop` only shuts it
                     // down, so the descriptor number is never reused under a read or write in flight.
                     state.withLock { $0.socket = -1 }
-                    control.sync {}
+                    control.blockingSync {}
                     close(socket)
                 }
                 reader.name = "cmux-cu-preview-read"

@@ -175,7 +175,7 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   main queue in order; at most one per shown preview, about 30 frames a second, and the preview's close
   shuts the socket, which ends it; ComputerUsePreviewStream), `cmux-cu-preview-control` (the same
   preview's lines to cmux Remote: its request, `L <side>` size changes and `K` keyframe asks,
-  user-interactive, serial, so they keep their order: its small socket writes block only it; a few
+  user-initiated, serial, so they keep their order: its small socket writes block only it; a few
   lines per preview, K at most every 300 ms, and it skips every write once the reader cleared the
   socket; ComputerUsePreviewStream),
   `cmux.remote-view.mock-host`, `cmux.next.mobile.unix-lane`, `com.cmuxterm.mobile.paired-devices` (the iPhone
