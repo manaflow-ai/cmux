@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43497228147",
+  "recorded_at": "2026-11-13T20:04:19Z",
+  "reason": "cmux-tui a06312d40bac changes the image's cmux-tui (pinned 02d7de222c5d)",
+  "dry_run": false,
+  "cmux_tui": "a06312d40bac75a1ebd2cf0fa7f10e4ccf102686",
+  "fixes": [
+    {
+      "sha": "a06312d40bac75a1ebd2cf0fa7f10e4ccf102686",
+      "mergedAt": "2026-11-13T11:32:01-08:00",
+      "subject": "ci(cmux-tui): the tree key hashes what the artifacts build calls build, not the artifacts workflow (#42643)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-13T20:04:19Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
