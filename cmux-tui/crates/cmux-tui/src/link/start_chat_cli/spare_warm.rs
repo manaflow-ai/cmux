@@ -384,6 +384,13 @@ pub(super) fn run(
         let answer = json!({"ok": true, "machine": null, "fresh": false, "reason": reason});
         return Some(attempted(&path, file, &request.account, &team, now_ms, answer));
     };
+    // Scope changes invalidate proof, not an active guest writer. Wait for its bounded work to
+    // finish before handing the same machine to a replacement credential copy.
+    if file.copies.iter().any(|copy| copy.machine.as_deref() == Some(machine.as_str())) {
+        write(&path, &file);
+        return Some(json!({"ok": true, "machine": machine, "team": team,
+            "fresh": false, "in_flight": true}));
+    }
     let warm_until = body.get("warm_until").and_then(Value::as_u64).unwrap_or(now_ms);
     let vm_kind = body.get("vm_kind").and_then(Value::as_str);
     let owner = vm_kind == Some("owner");
@@ -453,12 +460,16 @@ fn claim(
     let ours = |other_account: &str, other_team: Option<&str>, other: &str| {
         other_account == account && other_team == Some(team) && other == machine
     };
-    let in_flight = file.copies.iter().any(|copy| {
-        copy.account == account
-            && copy.team == team
-            && copy.machine.as_deref() == Some(machine)
-            && copy.scope == scope
-    });
+    let in_flight = file.copies.iter().any(|copy| copy.machine.as_deref() == Some(machine));
+    if in_flight {
+        for record in &mut file.warms {
+            if record.machine == machine {
+                record.claimed = true;
+            }
+        }
+        return json!({"ok": true, "machine": machine, "team": team,
+            "fresh": false, "in_flight": true});
+    }
     let given = file.warms.iter().any(|record| {
         ours(&record.account, record.team.as_deref(), &record.machine)
             && record.copy_given
@@ -488,7 +499,7 @@ fn claim(
         });
     }
     let mut answer = json!({"ok": true, "machine": machine, "team": team});
-    if in_flight || given {
+    if given {
         answer.set("fresh", json!(false));
         answer.set("in_flight", json!(in_flight));
         return answer;

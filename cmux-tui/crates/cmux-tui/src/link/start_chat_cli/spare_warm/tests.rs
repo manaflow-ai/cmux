@@ -735,3 +735,36 @@ fn a_scoped_receipt_question_goes_through_the_cli_without_guest_or_platform_io()
         Some(json!({"ok":true,"installed":true}))
     );
 }
+
+#[test]
+fn a_changed_scope_waits_for_the_existing_guest_writer() {
+    for claimed in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let original = scope();
+        let changed = ReceiptScope { credential: "rotated".into(), ..original.clone() };
+        let first = scoped_call(dir.path(), json!({"account":"user_a"}), 1_000_000, &original);
+        let mut request = json!({"account":"user_a"});
+        if claimed {
+            request["claimed"] = json!(MACHINE);
+        }
+        let waiting = scoped_call(dir.path(), request, 1_000_100, &changed);
+        assert!(waiting.get("copy").is_none());
+        assert_eq!(waiting["in_flight"], true);
+        assert_eq!(read(dir.path()).copies.len(), 1);
+        scoped_call(
+            dir.path(),
+            json!({"account":"user_a", "finished":MACHINE,
+            "generation":first["copy"]["generation"]}),
+            1_000_200,
+            &original,
+        );
+        let next = scoped_call(
+            dir.path(),
+            json!({"account":"user_a", "claimed":MACHINE}),
+            1_000_300,
+            &changed,
+        );
+        assert!(next.get("copy").is_some());
+        assert_ne!(next["copy"]["generation"], first["copy"]["generation"]);
+    }
+}
