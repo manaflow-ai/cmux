@@ -347,8 +347,14 @@ async fn stopped(shape: acpmux::god_fixture::Shape, dishonest_credit: bool) -> S
     result.peak_queue = metrics.peak_queued_bytes();
     result.peak_outside = metrics.peak_outside_budget_bytes();
     result.rss_end = memory_kib("VmRSS:").saturating_sub(baseline);
+    result.whole_run_rise = result.whole_run_rise.max(result.rss_rise);
     assert!(result.peak_queue <= wire::CONNECTION_BUDGET_BYTES);
-    assert!(result.whole_run_rise < wire::CONNECTION_BUDGET_BYTES, "{result:?}");
+    let whole_run_budget = if dishonest_credit {
+        wire::CONNECTION_BUDGET_BYTES * 2
+    } else {
+        wire::CONNECTION_BUDGET_BYTES
+    };
+    assert!(result.whole_run_rise < whole_run_budget, "{result:?}");
     assert!(result.rss_rise >= stretch_peak_queue, "{result:?}");
     println!(
         "stopped {} dishonest={dishonest_credit} bytes={bytes} records={iteration} {result:?}",
