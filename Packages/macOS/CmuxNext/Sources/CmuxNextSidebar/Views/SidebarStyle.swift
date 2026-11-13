@@ -113,7 +113,7 @@ enum SidebarStyle {
     /// mark, a symbol, Home's house and a pin all fill this square along their larger side, at every density (Lawrence
     /// 2026-11-09, 6:55 PM: "the cmux app icon looks smaller ... GitHub logo and the globe are different sizes"). It
     /// fills the icon column exactly, so the gap from any glyph's ink to its title is the one column gap.
-    static var rowGlyphOpticalSide: CGFloat { workspaceFaviconSide }
+    static var rowGlyphOpticalSide: CGFloat { SidebarRowTuning.glyphSize.value }
     static var rowGlyphOptics: SidebarOpticalGlyph { SidebarOpticalGlyph(target: rowGlyphOpticalSide) }
     /// Reserve the icon column only when a visible icon precedes the title.
     static func titleTextX(leading: CGFloat, iconSide: CGFloat, swatch: Bool = false) -> CGFloat {
@@ -165,7 +165,7 @@ enum SidebarStyle {
     /// "INCREASE THE SIZE OF THESE BLUE DOTS ON THE SIDEBAR"). Lawrence msg 19696 ("dots are different
     /// size now which is very bad"): the blue dot grew and the orange one did not, so every dot path reads
     /// this one token (`StatusIndicatorView.dotDiameter` for the indicator's dots); no view sizes its own.
-    static var statusDotSize: CGFloat { Metrics.space4 }
+    static var statusDotSize: CGFloat { SidebarRowTuning.statusDot.value }
     /// A window rail button's glyph box and glyph (the Codex rail's 15pt
     /// glyphs on 32pt tiles), and its tile's rounding.
     static var railIconBox: CGFloat { Metrics.iconSize + Metrics.space3 }
@@ -204,7 +204,25 @@ enum SidebarStyle {
     /// (Lawrence 2026-10-14: "sidebar text should not be bold by default"),
     /// and every title in the primary text color ("All titles primary"):
     /// unread shows by the badge, selection by the fill.
-    static var titleFont: NSFont { sized(Typography.body, weight: .regular) }
+    static var titleFont: NSFont {
+        tuned(derivedTitleFont, size: SidebarRowTuning.titleSize.tunable.override, weight: SidebarRowTuning.titleWeight)
+    }
+    /// ``titleFont`` before the Sidebar Row Tuner (`sidebarRows.titleSize`'s default).
+    static var derivedTitleFont: NSFont { sized(Typography.body, weight: .regular) }
+    /// `base`, or the system face at a tuned size or weight when the tuner sets either.
+    private static func tuned(_ base: NSFont, size: CGFloat?, weight: Tunable<SidebarTunedWeight>) -> NSFont {
+        let tunedWeight = weight.override
+        guard size != nil || tunedWeight != nil else { return base }
+        return Typography.system(.default, size: size ?? base.pointSize, weight: (tunedWeight ?? .regular).font)
+    }
+    /// The theme's sidebar title ink at the tuner's title opacity (`sidebarRows.titleOpacity`). Call inside the
+    /// view's theme scope.
+    static var titleInk: NSColor {
+        let opacity = SidebarRowTuning.titleOpacity.value
+        return opacity >= 1 ? Palette.sidebarTitle : Palette.sidebarTitle.withAlphaComponent(Palette.sidebarTitle.alphaComponent * opacity)
+    }
+    /// How strong every leading glyph draws (`sidebarRows.glyphOpacity`): 1 unless tuned.
+    static var glyphOpacity: CGFloat { CGFloat(SidebarRowTuning.glyphOpacity.value) }
     /// Length of the fade that ends a clipped row title (no ellipsis): 24 pt at Compact. At
     /// 16 pt the fade ended at a word gap and read as a hard cut.
     static var titleFadeWidth: CGFloat { Metrics.space6 + Metrics.space4 }
@@ -299,7 +317,11 @@ enum SidebarStyle {
     /// heading (https://github.com/manaflow-ai/cmux/issues/39956), the rows' own size at the regular weight in the
     /// secondary ink, not a smaller semibold label. The Codex heading measures 13 px over 13 px rows, about 59% of
     /// the way from its ground to white, which `textSecondary` (62%) matches.
-    static var headerFont: NSFont { sized(Typography.body, weight: .regular) }
+    static var headerFont: NSFont {
+        tuned(derivedHeaderFont, size: SidebarRowTuning.headingSize.tunable.override, weight: SidebarRowTuning.headingWeight)
+    }
+    /// ``headerFont`` before the Sidebar Row Tuner (`sidebarRows.headingSize`'s default).
+    static var derivedHeaderFont: NSFont { sized(Typography.body, weight: .regular) }
     /// The count: tabular digits in the system face (a monospaced face read
     /// boxy and cramped, Leo 2026-10-13), at the shortcut size.
     static var badgeFont: NSFont { Typography.system(.monospacedDigit, size: Typography.shortcut.pointSize, weight: .medium) }

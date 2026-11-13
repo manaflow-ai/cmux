@@ -1585,30 +1585,6 @@ impl Hub {
         self.visit_remote_sessions(|r| keep(&r.summary), visit);
     }
 
-    /// The rows `keep` takes as a list writes them (`PeerRow::listed`), with tools when
-    /// `tools`: each row's text and the row, parsing none.
-    pub(super) fn visit_remote_texts(
-        &self,
-        keep: impl Fn(&PeerRow) -> bool,
-        tools: bool,
-        mut visit: impl FnMut(&RemoteSession, String),
-    ) {
-        let states = self.peer_link_states();
-        let rows = self.remote_sessions.snapshot();
-        let mut emit = |r: &RemoteSession| {
-            #[cfg(test)]
-            self.remote_rows_copied.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            visit(r, listed_remote_text(r, &states, tools));
-        };
-        for r in rows.values().filter(|r| keep(&r.summary)) {
-            emit(r);
-        }
-        drop(rows);
-        for r in self.mesh_book_rows(|r| keep(&r.summary)) {
-            emit(&r);
-        }
-    }
-
     /// [`Self::visit_remote_rows`] of the rows `keep` takes, judged on the whole row (its peer
     /// and receipt as well as its summary).
     pub(super) fn visit_remote_sessions(
@@ -1648,7 +1624,7 @@ impl Hub {
 
     /// This daemon's own sessions' summaries, without retaining the JSON trees: each closed row
     /// parsed back from its bytes. Tests compare with it; a list copies the bytes in their kept
-    /// order instead (`Hub::own_rows_in_order`).
+    /// order instead (`Hub::own_row_text`).
     #[cfg(test)]
     pub(super) fn visit_own_session_summaries(
         &self,
@@ -1678,7 +1654,13 @@ impl Hub {
         with_tools: bool,
         mut visit: impl FnMut(Value),
     ) {
-        self.visit_live_own_summaries(with_tools, &mut visit);
+        for session in self.indexed_live_sessions() {
+            visit(if with_tools {
+                self.session_summary(&session)
+            } else {
+                self.session_list_summary(&session)
+            });
+        }
         self.visit_remote_rows(
             |row| !row.closed(),
             |row| {
@@ -1687,23 +1669,11 @@ impl Hub {
         );
     }
 
-    /// This daemon's live sessions' summaries: [`Self::visit_live_session_summaries`] without
-    /// the peers' rows, which a list writes as text (`Hub::visit_remote_texts`).
-    pub(super) fn visit_live_own_summaries(&self, with_tools: bool, mut visit: impl FnMut(Value)) {
-        for session in self.indexed_live_sessions() {
-            visit(if with_tools {
-                self.session_summary(&session)
-            } else {
-                self.session_list_summary(&session)
-            });
-        }
-    }
-
     /// The sessions with a pending permission or question, local and remote, newest first and
     /// without tools, summarizing no other chat: `_acpmux/sessions {pendingOnly}`
     /// (`server/list_reply.rs`). A local one is a live chat with an ask; a peer's is a row whose
-    /// `pendingPermissions` is above zero. It reads no list snapshot, so no list pace holds it:
-    /// a host mirroring 8,500 chats paced its list pages 4-9 s each, and the app's dialog list
+    /// `pendingPermissions` is above zero. It builds no other row: when list pages were paced, a
+    /// host mirroring 8,500 chats paced its pages 4-9 s each, and the app's dialog list
     /// (`cmux agents dialog list`) read every page before it found one ask.
     pub(crate) fn pending_session_summaries(&self) -> Vec<Value> {
         let mut rows: Vec<Value> = self

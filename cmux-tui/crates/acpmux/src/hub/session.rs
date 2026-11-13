@@ -1033,9 +1033,9 @@ impl SessionStderr {
     }
 }
 
-/// A held `spawn_lock` that a list sees: taking it and letting it go each count as a change
-/// (`list_guard::Events::changed`), so a cached session list never shows a start that began or
-/// ended since it was built. A row's `starting` reads the lease; an update waits on it.
+/// A held `spawn_lock` that a list sees: taking it and letting it go each change the row
+/// (`list_guard::Events::row_changed`), told before the next list read, so a follow never misses a
+/// start that began or ended. A row's `starting` reads the lease; an update waits on it.
 pub(super) struct SpawnLease<'a> {
     guard: Option<tokio::sync::MutexGuard<'a, ()>>,
     session: &'a Session,
@@ -1044,7 +1044,7 @@ pub(super) struct SpawnLease<'a> {
 
 impl Drop for SpawnLease<'_> {
     fn drop(&mut self) {
-        // Released first, then counted: a list built after the count reads it free.
+        // Released first, then marked: a row built after the mark reads it free.
         drop(self.guard.take());
         self.events.row_changed(self.session);
     }
