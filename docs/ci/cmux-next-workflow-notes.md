@@ -3000,3 +3000,14 @@ request until the verdict comes. A feat-cmux-next push with no fallback (superse
 
 `tests/test_ci_cmux_next_compile_status.py` `test_a_pull_request_with_no_fallback_hands_off_to_the_overflow_compile`
 runs the real step against a 530.
+
+## note-347
+
+Above `release-compile-revert: Mint the cmux-bot read token` in `.github/workflows/cmux-next.yml`.
+
+The Actions reads (the run's jobs, then up to the scanned runs' jobs) use a cmux-bot token, off
+the repository token's hourly budget, as push attribution does (note-343). On 2026-11-13 from
+05:14Z to 05:40Z the repository token's reads failed in this step on every base push (runs
+43370687308 through 43372812335), so the job went red on its own read, not on a compile, and
+named no culprit. A failed mint leaves every read on the workflow token; a refused read prints
+gh's message and body (`gh_failure` in `scripts/ci/cmux_next_push_attribution.py`).
