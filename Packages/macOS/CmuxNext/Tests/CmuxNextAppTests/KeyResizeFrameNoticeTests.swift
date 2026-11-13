@@ -373,11 +373,24 @@ struct KeyResizeFrameNoticeTests {
         #expect(muted().isEmpty, "a live window resize in the key spring left \(muted().count) pane views without frame notices")
     }
 
+    /// A press on a hidden root starts no spring (`LayoutRootView.syncBatched` animates only a screen that stays shown),
+    /// so it starts no hold: no landing frame would come to end one. A guard of that rule, not a red test: the
+    /// hold's start has no hidden or parked condition of its own.
+    @Test func aPressOnAHiddenRootHoldsNoFrameNotice() {
+        let rig = Rig()
+        defer { rig.window.closeAfterTest() }
+        rig.root.isHidden = true
+        #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root), "SETUP: the press on a hidden root was refused")
+        _ = rig.frame()
+        let muted = rig.root.context.hosts.values.flatMap(ResizeDragFrameNoticeTests.subtree).filter { !$0.postsFrameChangedNotifications }
+        #expect(muted.isEmpty, "a key resize press on a hidden root holds \(muted.count) pane views' frame notices")
+    }
+
     /// The same live window resize while the strip's camera is still on its way (the focus went to another column just
-    /// before the press): the resize snaps the panes, and the camera's frames go on. The key spring is over, so the key
-    /// hold and its frame notice hold end in the resize's turn, not at the camera's landing: the pane views post as in
-    /// any camera scroll, and a spring that starts before the camera lands is not taken for a key resize's.
-    @Test func aLiveWindowResizeEndsTheHoldWhileTheCameraStillMoves() throws {
+    /// before the press): the resize snaps the panes, and the camera's frames go on, so a landing frame still comes.
+    /// The hold stays to that landing, as it does while a pane moves: the resize's turn and the camera's frames post
+    /// nothing from a pane view (a hold that ended at the snap would post in each of them), and the landing posts once.
+    @Test func aLiveWindowResizeKeepsTheHoldToTheCamerasLanding() throws {
         let rig = Rig(strip: true, focused: "p4")
         defer { rig.window.closeAfterTest() }
         let screen = try rig.screen
@@ -400,6 +413,9 @@ struct KeyResizeFrameNoticeTests {
         // SETUP: the press is on its spring, and the camera is still on its own.
         try #require(panesMove() && cameraMoves() && screen.holdsContentForKeyResize, "SETUP: after one frame of the press the panes \(panesMove() ? "move" : "rest") and the camera \(cameraMoves() ? "moves" : "rests")")
         try #require(!muted().isEmpty, "a key resize on its spring holds no pane view's frame notices, so a live resize can end no hold")
+        let host = try #require(rig.root.context.hosts["p2"])
+        let notices = Notices(watching: [host])
+        defer { notices.stop() }
 
         let before = screen.frame.size
         rig.window.isLive = true
@@ -411,17 +427,21 @@ struct KeyResizeFrameNoticeTests {
         try #require(!panesMove(), "SETUP: the live resize did not snap the panes of the key spring")
         try #require(cameraMoves() && screen.hasMotion, "SETUP: the camera does not move after the live resize (offset \(screen.scroll.value), target \(screen.scroll.target))")
 
-        #expect(!screen.holdsContentForKeyResize, "the key hold outlived the pane spring a live window resize snapped, for as long as the camera moves")
-        #expect(muted().count == 0, "a live window resize in the key spring left \(muted().count) pane views without frame notices while the camera moves")
-        // THE COUNT: a pane view resized now posts its one frame notice.
-        let host = try #require(rig.root.context.hosts["p2"])
-        let notices = Notices(watching: [host])
-        defer { notices.stop() }
-        host.setFrameSize(CGSize(width: host.frame.width - 4, height: host.frame.height))
-        #expect(notices.counts[ObjectIdentifier(host)] == 1, "a pane resized while the camera moves posted \(notices.counts[ObjectIdentifier(host)] ?? 0) frame notices, not 1")
-        // The camera lands: nothing is held at rest.
+        #expect(screen.holdsContentForKeyResize && !muted().isEmpty, "the hold ended at the snap of the panes, with the camera still on its way (\(muted().count) pane views held)")
+        #expect(notices.total == 0, "the pane's view posted \(notices.total) frame notices in the turn of the live resize")
+        // THE COUNT: the camera's frames post nothing from the pane's view, and its landing posts once.
+        var perFrame: [Int] = []
         frames = 0
-        while frames < 600, rig.frame() { frames += 1 }
+        while frames < 600 {
+            notices.reset()
+            guard rig.frame() else { break }
+            perFrame.append(notices.total)
+            frames += 1
+        }
+        // SETUP: the camera went on for some frames after the resize.
+        try #require(frames > 3 && frames < 600, "SETUP: the camera landed \(frames) frames after the live resize")
+        #expect(perFrame.allSatisfy { $0 == 0 }, "the camera's frames after the live resize posted frame notices from the pane's view: \(perFrame)")
+        #expect(notices.total == 1, "the pane's view posted \(notices.total) frame notices at the camera's landing, not 1")
         #expect(!screen.hasMotion && !screen.holdsContentForKeyResize && muted().isEmpty, "at the camera's landing \(muted().count) pane views post no frame notice")
     }
 

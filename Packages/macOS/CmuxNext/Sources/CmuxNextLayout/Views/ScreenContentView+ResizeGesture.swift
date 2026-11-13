@@ -32,7 +32,6 @@ struct PaneResizeGestureListener {
 ///
 /// From the first move to that end, the displayed panes' views post no frame notices (``FrameNoticeHold``):
 /// each drag frame's commit then skips AppKit's titlebar drag-shape walk, and each moved view posts once at the end.
-/// A keyboard resize's spring holds them the same way (``holdPaneFrameNoticesForKeyResize()``).
 extension ScreenContentView {
     func resizeGestureMoved() {
         // A hidden or parked screen steps no frames, so a drag there could not land; its pages lay out as before.
@@ -93,25 +92,10 @@ extension ScreenContentView {
         context.requestFrames()
     }
 
-    /// Gives the pane views their frame notices back once no resize drag, no zoom and no key resize moves them
-    /// (``FrameNoticeHold``).
+    /// Gives the pane views their frame notices back once no resize drag, zoom or key resize moves them (``FrameNoticeHold``).
     func releasePaneFrameNoticesIfSettled() {
         guard resizeGesture == .idle, zoomMotion.pane == nil, !holdsContentForKeyResize, paneFrameNotices.isHolding else { return }
         paneFrameNotices.release()
-    }
-
-    /// A key resize's press put this screen on its spring (``holdsContentForKeyResize``, the press's own layout in
-    /// `update`): the displayed panes' views post no frame notice from the key's turn to the frame the spring lands in,
-    /// as in a divider drag. Each frame then posts the notice of a reader alone (a Chromium page's host view: the fork's
-    /// tracker runs its update once, not once more for each of the page's ancestors), and no notice of a pane view
-    /// makes AppKit walk the titlebar drag shapes in the frame's commit. A press on a spring that already holds (a key
-    /// repeat, a drag or a zoom in motion) keeps that hold: a release between two presses would post each moved view's
-    /// notice once per press. The key hold's end gives the notices back (``holdsContentForKeyResize``).
-    /// A hidden or parked screen steps no frames, so it holds nothing.
-    func holdPaneFrameNoticesForKeyResize() {
-        guard holdsContentForKeyResize, !paneFrameNotices.isHolding, window != nil, !isHiddenOrHasHiddenAncestor,
-              !isParkedOrHasParkedAncestor else { return }
-        paneFrameNotices.hold(displayedHosts)
     }
 
     /// Tells the contents that heard the start that the drag is over, now.
