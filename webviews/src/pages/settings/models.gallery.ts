@@ -24,7 +24,7 @@ export default settingsPageEntry({
     empty: variant(mockModels.empty, "No connections and no team: the empty rows and the + to add one."),
     "mac-logins": variant(
       mockModels.macLogins,
-      "This Mac's Codex and Claude Code logins (This Mac only), a ChatGPT plan, a Claude Code token and an OpenRouter key in thread order; the team's shared key; the members policy.",
+      "This Mac's Codex and Claude Code logins and an OpenRouter key (each This Mac only), a ChatGPT plan and a Claude Code token in thread order; the team's shared key; the members policy.",
     ),
     "chatgpt-pending": variant(
       mockModels.chatgptPending,

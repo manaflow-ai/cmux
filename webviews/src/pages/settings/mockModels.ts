@@ -8,7 +8,7 @@ const codexLogin: ModelConnection = {
   kind: "codex-login",
   provider: "openai",
   families: ["codex"],
-  label: "ChatGPT",
+  label: "ChatGPT (Codex CLI login)",
   email: "alex@example.com",
   plan: "pro",
   signedIn: true,
@@ -22,7 +22,7 @@ const claudeLogin: ModelConnection = {
   kind: "claude-login",
   provider: "anthropic",
   families: ["claude"],
-  label: "Claude Code",
+  label: "Claude Code login",
   email: "alex@example.com",
   plan: "max",
   signedIn: true,
@@ -32,11 +32,11 @@ const claudeLogin: ModelConnection = {
 };
 
 const chatgptPlan: ModelConnection = {
-  id: "chatgpt-plan-1",
+  id: "chatgpt",
   kind: "chatgpt-plan",
   provider: "openai",
   families: ["codex"],
-  label: "ChatGPT",
+  label: "ChatGPT plan (alex@work.example.com)",
   email: "alex@work.example.com",
   plan: "plus",
   signedIn: true,
@@ -46,11 +46,11 @@ const chatgptPlan: ModelConnection = {
 };
 
 const claudeToken: ModelConnection = {
-  id: "claude-token-1",
+  id: "claude-token",
   kind: "claude-token",
   provider: "anthropic",
   families: ["claude"],
-  label: "Claude Code",
+  label: "Claude Code token",
   email: null,
   plan: null,
   signedIn: true,
@@ -60,17 +60,18 @@ const claudeToken: ModelConnection = {
 };
 
 const openrouterKey: ModelConnection = {
-  id: "key-openrouter",
+  id: "openrouter-key",
   kind: "api-key",
   provider: "openrouter",
-  families: ["codex", "claude"],
-  label: "OpenRouter",
+  families: ["claude", "codex"],
+  label: "OpenRouter API key",
   email: null,
   plan: null,
   signedIn: true,
   enabled: false,
   defaultFor: [],
-  servesCloud: true,
+  // Only Anthropic and OpenAI keys reach Cloud chats (acpmux connections.rs `serves_cloud`).
+  servesCloud: false,
 };
 
 const empty: ModelsState = {
@@ -133,9 +134,12 @@ export function runMockModels(state: ModelsState, run: ModelsRun): ModelsState {
     case "enable":
       find(run.id);
       return personal({ connections: connections.map((c) => (c.id === run.id ? { ...c, enabled: run.on } : c)) });
-    case "remove":
-      find(run.id);
+    case "remove": {
+      const found = find(run.id);
+      if (found.kind === "codex-login" || found.kind === "claude-login")
+        throw new Error(`${run.id} is the CLI's own login: sign out in the CLI, or turn it off`);
       return personal({ connections: connections.filter((c) => c.id !== run.id) });
+    }
     case "connectChatGPT":
       return { ...state, chatgpt: { attempt: "attempt-mock", error: null } };
     case "cancelChatGPT":
@@ -149,35 +153,28 @@ export function runMockModels(state: ModelsState, run: ModelsRun): ModelsState {
       return state;
     case "addClaudeToken": {
       if (!/^sk-ant-oat\S*$/.test(run.token)) throw new Error("not a Claude setup token");
-      let number = 1;
-      while (connections.some((c) => c.id === `claude-token-${number}`)) number += 1;
+      const id = nextId("claude-token", connections);
       // The token itself never lands in the state: the app keeps it in the Keychain.
       return personal({
-        connections: [
-          ...connections,
-          { ...claudeToken, id: `claude-token-${number}`, label: run.label?.trim() || "Claude Code" },
-        ],
+        connections: [...connections, { ...claudeToken, id, label: run.label?.trim() || "Claude Code token" }],
       });
     }
     case "addKey": {
       if (!run.key.trim()) throw new Error("a key is required");
-      let number = 1;
-      while (connections.some((c) => c.id === `key-${run.provider}-${number}`)) number += 1;
-      const label = run.label?.trim() || PROVIDER_LABELS[run.provider];
-      const families = run.provider === "anthropic" ? ["claude"] : run.provider === "openai" ? ["codex"] : [];
+      const provider = KEY_PROVIDERS[run.provider];
       // The key itself never lands in the state: the app keeps it in the Keychain.
       const added: ModelConnection = {
-        id: `key-${run.provider}-${number}`,
+        id: nextId(`${run.provider}-key`, connections),
         kind: "api-key",
         provider: run.provider,
-        families,
-        label,
+        families: [...provider.families],
+        label: run.label?.trim() || provider.label,
         email: null,
         plan: null,
         signedIn: true,
         enabled: true,
         defaultFor: [],
-        servesCloud: true,
+        servesCloud: run.provider === "anthropic" || run.provider === "openai",
       };
       return personal({ connections: [...connections, added] });
     }
@@ -198,10 +195,20 @@ export function runMockModels(state: ModelsState, run: ModelsRun): ModelsState {
   }
 }
 
-const PROVIDER_LABELS: Record<ModelConnection["provider"], string> = {
-  anthropic: "Anthropic",
-  openai: "OpenAI",
-  openrouter: "OpenRouter",
-  google: "Google",
-  xai: "xAI",
+/** acpmux's API-key providers (connections.rs `PROVIDERS`): the label and families each serves. */
+const KEY_PROVIDERS: Record<ModelConnection["provider"], { label: string; families: readonly string[] }> = {
+  anthropic: { label: "Anthropic API key", families: ["claude"] },
+  openai: { label: "OpenAI API key", families: ["codex"] },
+  openrouter: { label: "OpenRouter API key", families: ["claude", "codex"] },
+  google: { label: "Google AI API key", families: ["gemini"] },
+  xai: { label: "xAI API key", families: ["codex"] },
 };
+
+/** acpmux's id for a new route: `base`, then `base-2`, `base-3`, ... (the first one free). */
+function nextId(base: string, connections: ModelConnection[]): string {
+  const taken = new Set(connections.map((c) => c.id));
+  if (!taken.has(base)) return base;
+  let number = 2;
+  while (taken.has(`${base}-${number}`)) number += 1;
+  return `${base}-${number}`;
+}
