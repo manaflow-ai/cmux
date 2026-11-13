@@ -5390,15 +5390,17 @@ function TranscriptView({
       noteReaderScroll();
       followTrace.input();
       if (slimFollow) {
-        // The slim arm (the product's): whatever still glides (a send's rise, a chase, the rows under
-        // a change) ends where the rows lay out, at once, and nothing of it plays again when the view
-        // follows again. A chase the input held and then played on when a wheel at the bottom left
-        // the view followed was the "little readjustment" after the reader's own scroll (Leo,
-        // 2026-11-09: "when i scroll down now there's a little readjustment sometimes that shold never
-        // happen"). The composer growth's rise freezes into the chase first (followChase.carry), so
-        // the stop ends that part too and nothing stays drawn off the layout.
+        // The slim arm (the product's): what still glides holds where it is drawn, so nothing jumps
+        // under the reader's input (the composer growth's rise freezes into the chase there,
+        // followChase.carry), and once the input goes quiet the whole offset goes to the scroll
+        // position (`settleHeldFollowMotion`), followed or not, so nothing settles on after it either
+        // (Leo, 2026-11-09: "when i scroll down now there's a little readjustment sometimes that shold
+        // never happen").
+        followGlide.current?.stop();
+        tailGlide.current?.hold();
         freezeGrowthRise.current();
-        stopFollowMotion();
+        followChase.current?.hold();
+        chaseAnchor.current = undefined;
       } else {
         // The other arms: a glide still easing lands where it lays out, and the chase holds where it
         // is drawn, so nothing moves but the reader's own scroll (a snap home moved the rows a frame
@@ -5451,7 +5453,9 @@ function TranscriptView({
     // is out of view ends here and as the reader scrolls (`dropUnseen`), unseen; one still in view stays
     // paused where it is drawn (cutting it short snapped the row). O(1); runs once per quiet input.
     const settleHeldFollowMotion = () => {
-      if (followingRef.current || jumpTarget.current !== undefined) return;
+      // The slim arm hands a held chase to the scroll offset in a followed view too: played on from
+      // where it was held, it was the "little readjustment" after the reader's own scroll.
+      if ((followingRef.current && !slimFollow) || jumpTarget.current !== undefined) return;
       tailGlide.current?.dropUnseen(() => node.getBoundingClientRect());
       const chase = followChase.current;
       // Whole pixels only: the offset moves by an exact number of its own ticks, so the browser never
