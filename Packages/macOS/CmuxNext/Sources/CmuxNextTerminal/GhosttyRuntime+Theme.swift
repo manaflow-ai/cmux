@@ -81,3 +81,58 @@ extension GhosttyRuntime {
         return GhosttyThemeColors.RGB(r: color.r, g: color.g, b: color.b)
     }
 }
+
+// MARK: The iPhone's terminal theme
+
+extension GhosttyRuntime {
+    /// The Ghostty keys of the terminal theme the iPhone takes from this Mac. hostd keeps only
+    /// these (`cmux-mobile-host` `appearance.rs` `TERMINAL_KEYS`) and the phone resets and loads
+    /// these (`CmuxMobileTerminalTheme.keys`); keep the three lists the same.
+    public nonisolated static let phoneTerminalThemeKeys: Set<String> = [
+        "background", "foreground", "palette",
+        "cursor-color", "cursor-text", "cursor-opacity",
+        "selection-background", "selection-foreground", "bold-color",
+        "minimum-contrast", "faint-opacity", "palette-generate", "palette-harmonious",
+        "alpha-blending", "window-colorspace",
+        "search-background", "search-foreground", "search-selected-background", "search-selected-foreground",
+    ]
+
+    /// The terminal theme of the config applied to every surface, as Ghostty config lines
+    /// (`key = value`, one per palette entry), for the iPhone. Ghostty writes them itself
+    /// (`ghostty_config_serialize`, every effective value), so they hold what this Mac's terminals
+    /// show: the light or dark variant now applied, `bold-color = bright`, cell-relative cursor and
+    /// selection colors, all 256 palette entries. Empty when libghostty has no config.
+    public var phoneTerminalThemeLines: [String] {
+        guard let config else { return [] }
+        return Self.phoneTerminalThemeLines(of: config)
+    }
+
+    static func phoneTerminalThemeLines(of config: ghostty_config_t) -> [String] {
+        let serialized = ghostty_config_serialize(config)
+        defer { ghostty_string_free(serialized) }
+        guard let pointer = serialized.ptr, serialized.len > 0 else { return [] }
+        let text = String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(serialized.len)), as: UTF8.self)
+        return phoneTerminalThemeLines(serialized: text)
+    }
+
+    /// The lines of `text` (a serialized Ghostty config) whose key is a terminal theme key.
+    nonisolated static func phoneTerminalThemeLines(serialized text: String) -> [String] {
+        text.split(whereSeparator: \.isNewline).compactMap { line in
+            guard let equals = line.firstIndex(of: "=") else { return nil }
+            let key = line[..<equals].trimmingCharacters(in: .whitespaces)
+            guard phoneTerminalThemeKeys.contains(key) else { return nil }
+            let value = line[line.index(after: equals)...].trimmingCharacters(in: .whitespaces)
+            return value.isEmpty ? "\(key) =" : "\(key) = \(value)"
+        }
+    }
+
+    /// The iPhone terminal theme lines of a config made of `text`, for tests.
+    static func phoneTerminalThemeLines(configText text: String) -> [String] {
+        _ = shared // runs ghostty_init, which config_new needs
+        guard let config = ghostty_config_new() else { return [] }
+        defer { ghostty_config_free(config) }
+        text.withCString { ghostty_config_load_string(config, $0, UInt(text.utf8.count), "test") }
+        ghostty_config_finalize(config)
+        return phoneTerminalThemeLines(of: config)
+    }
+}

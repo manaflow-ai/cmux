@@ -336,12 +336,36 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         if outputPaused { model.session.setOutputPaused(false) }
     }
 
+    /// The terminal's background: its Mac's terminal theme, else the app default.
+    private var terminalBackground: UIColor { surface.hostTheme?.backgroundColor ?? CmuxMobileGhosttyApp.background }
+    private var terminalInterfaceStyle: UIUserInterfaceStyle {
+        surface.hostTheme?.interfaceStyle ?? CmuxMobileGhosttyApp.interfaceStyle
+    }
+
+    /// The Mac sent a new terminal theme: the page around the surface takes its background and look.
+    private func terminalThemeDidChange(_ theme: CmuxMobileTerminalTheme) {
+        model.hostTheme = theme
+        guard isViewLoaded else { return }
+        let base = theme.backgroundColor
+        view.backgroundColor = base
+        overrideUserInterfaceStyle = theme.interfaceStyle
+        bottomBacking.backgroundColor = base
+        bottomFade.gradient.colors = [base.withAlphaComponent(0).cgColor, base.cgColor]
+        if statusScrim.superview != nil {
+            statusScrim.gradient.colors = [base.cgColor, base.cgColor, base.withAlphaComponent(0).cgColor]
+        }
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = CmuxMobileGhosttyApp.background
-        // Chrome, glass and the keyboard follow the terminal theme (dark, or the Mac theme's look).
-        overrideUserInterfaceStyle = CmuxMobileGhosttyApp.interfaceStyle
+        view.backgroundColor = terminalBackground
+        // Chrome, glass and the keyboard follow the terminal theme (its Mac's look).
+        overrideUserInterfaceStyle = terminalInterfaceStyle
         view.clipsToBounds = true
+        // The terminal shows the terminal theme of the Mac its session runs on, live.
+        surface.onHostTheme = { [weak self] theme in self?.terminalThemeDidChange(theme) }
+        surface.themeMacID = model.hostMacID
+        if let theme = surface.hostTheme { model.hostTheme = theme }
 
         scrollView.delegate = self
         scrollView.contentInsetAdjustmentBehavior = .never
@@ -406,11 +430,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // composer card's top to the page's bottom: rows scrolled under it are
         // not legible between and below the toolbar pills or at the
         // composer's corners (R1-2). Above the card the soft edge fades.
-        bottomBacking.backgroundColor = CmuxMobileGhosttyApp.background
+        bottomBacking.backgroundColor = terminalBackground
         bottomBacking.isUserInteractionEnabled = false
         bottomBacking.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(bottomBacking)
-        let base = CmuxMobileGhosttyApp.background
+        let base = terminalBackground
         bottomFade.gradient.colors = [base.withAlphaComponent(0).cgColor, base.cgColor]
         bottomFade.isUserInteractionEnabled = false
         bottomFade.alpha = 0
@@ -485,7 +509,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             if #unavailable(iOS 27) {
                 statusScrim.isUserInteractionEnabled = false
                 statusScrim.translatesAutoresizingMaskIntoConstraints = false
-                let base = CmuxMobileGhosttyApp.background
+                let base = terminalBackground
                 // A top bar under the status bar: solid terminal background
                 // to the status bar's bottom, then a short fade. (A 92 %
                 // gradient left scrollback legible under the clock; on iOS 26
@@ -904,7 +928,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             .intersection(host.convert(host.bounds, to: view))
         var capture = TerminalPageCapture(bounds: view.bounds, scale: Self.snapshotScale, surface: nil, fallback: nil,
                                           surfaceClip: rows.isNull ? .zero : rows, surfaceFrame: .null, cursor: cursor,
-                                          background: CmuxMobileGhosttyApp.background)
+                                          background: terminalBackground)
         guard !rows.isNull, !rows.isEmpty, surface.isDescendant(of: host) else { return capture }
         let clip = view.convert(rows, to: surface)
         if let copy = surface.presentedCopy(clip: clip) {
@@ -3033,7 +3057,7 @@ struct TerminalPageCapture: @unchecked Sendable {
     let surfaceClip: CGRect
     var surfaceFrame: CGRect
     let cursor: CGRect?
-    /// The terminal's background (`CmuxMobileGhosttyApp.background`).
+    /// The terminal's background (its Mac's terminal theme, `TerminalViewController.terminalBackground`).
     let background: UIColor
 
     func render() -> UIImage? {
