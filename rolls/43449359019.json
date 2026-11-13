@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43449359019",
+  "recorded_at": "2026-11-13T15:24:42Z",
+  "reason": "cmux-tui 5e1f7278b3d8 changes the image's cmux-tui (pinned 0d35ad2e4422)",
+  "dry_run": false,
+  "cmux_tui": "5e1f7278b3d8246bd2c7eeb06c9ad7298d8723df",
+  "fixes": [
+    {
+      "sha": "b1cdfcd1e9172722b9e0539f07e3c238ad98d923",
+      "mergedAt": "2026-11-13T14:36:46Z",
+      "subject": "acpmux v2: the gate registry reads gate names from the sources (#42602)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T15:24:42Z",
+    "snapshot_id": "sh-8bf24132e186405ba5de00fa86a933bf",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43449359019): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "03a68d01767bab562487a81925679339c467be20",
+    "image": "cloud-native-auto-5e1f7278-43449359019-1",
+    "revision": "ci-43449359019-1",
+    "at": "2026-11-13T15:24:42Z"
+  },
+  "rolled_back": false
+}
