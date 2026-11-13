@@ -401,6 +401,9 @@ public final class ComputerUsePreviewExpanded: NSView {
         needsLayout = true
     }
 
+    /// The picture's frame in this view.
+    public var pictureFrame: NSRect { picture.frame }
+
     public override func layout() {
         super.layout()
         scrim.frame = bounds

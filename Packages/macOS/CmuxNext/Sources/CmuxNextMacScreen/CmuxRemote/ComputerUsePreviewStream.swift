@@ -38,12 +38,22 @@ public final class ComputerUsePreviewStream {
     private let session: String
     private let longSide: Int
     private let onEvent: @MainActor (Event) -> Void
+    /// The channel's socket (the reader thread closes it when it ends) and whether ``stop()`` ran.
     private let state = OSAllocatedUnfairLock(initialState: (socket: Int32(-1), closed: false))
+    /// Frames handed to the main queue and not enqueued yet (the reader drops frames past
+    /// ``maximumPendingSamples`` until a keyframe).
+    private let pending = OSAllocatedUnfairLock(initialState: 0)
+    /// Stills are shown only after a `streaming` or `still` status: never after `blocked` until the
+    /// worker says the window may show again.
+    private var acceptsStills = false
+
+    /// The most frames waiting for the main queue; past it the reader drops frames until a keyframe.
+    nonisolated static let maximumPendingSamples = 3
 
     /// - Parameters:
     ///   - session: The agent session whose window to stream.
     ///   - longSide: The picture's longest side in pixels.
-    ///   - onEvent: Statuses, stills and the close, in the order the channel sent them.
+    ///   - onEvent: Statuses, stills and the close, in the order the channel sent them; none after ``stop()``.
     public init(session: String, longSide: Int, onEvent: @escaping @MainActor (Event) -> Void) {
         self.session = session
         self.longSide = longSide
@@ -52,15 +62,18 @@ public final class ComputerUsePreviewStream {
         displayLayer.videoGravity = .resizeAspect
     }
 
-    /// Opens the channel through `remote` and starts reading; an error closes the stream at once.
+    /// The picture's longest side this stream asked for.
+    public var requestedLongSide: Int { longSide }
+
+    /// Opens the channel through `remote` and starts the reader thread, which sends the request and
+    /// reads until the channel closes; an error closes the stream at once.
     public func start(remote: CmuxRemoteService) {
         let session = session, longSide = longSide, state = state
-        // task-owner: opens this stream's channel; the reader thread then owns it until `stop`.
+        // task-owner: opens this stream's channel; the reader thread then owns it until it ends.
         Task { [weak self] in
             do {
                 let (socket, _, _) = try await remote.openChannel("computer-use-preview")
-                let request = try JSONSerialization.data(withJSONObject: ["session": session, "long_side": longSide]) + Data([0x0A])
-                let keep = RemoteSocket.writeAll(socket, request) && state.withLock { state -> Bool in
+                let keep = state.withLock { state -> Bool in
                     guard !state.closed else { return false }
                     state.socket = socket
                     return true
@@ -69,8 +82,20 @@ public final class ComputerUsePreviewStream {
                     close(socket)
                     return
                 }
-                let deliver = self.deliverer()
-                let reader = Thread { Self.read(socket, deliver) }
+                let deliver = self.deliverer(), pending = self.pending
+                let reader = Thread {
+                    // The request line, then the stream, all off the main actor.
+                    if let request = try? JSONSerialization.data(withJSONObject: ["session": session, "long_side": longSide]),
+                       RemoteSocket.writeAll(socket, request + Data([0x0A])) {
+                        Self.read(socket, backlog: { pending.withLock { $0 } }, deliver)
+                    } else {
+                        deliver(.event(.closed))
+                    }
+                    // Only this thread closes the socket, after its last read: `stop` only shuts it
+                    // down, so the descriptor number is never reused under a read still in flight.
+                    state.withLock { $0.socket = -1 }
+                    close(socket)
+                }
                 reader.name = "cmux-cu-preview-read"
                 reader.qualityOfService = .userInteractive
                 reader.start()
@@ -81,17 +106,12 @@ public final class ComputerUsePreviewStream {
         }
     }
 
-    /// Stops the stream: the channel closes, and cmux Remote stops capturing.
+    /// Stops the stream: the channel shuts down (the reader then ends and closes it), cmux Remote
+    /// stops capturing, and no event or frame is delivered after this.
     public nonisolated func stop() {
-        let socket = state.withLock { state -> Int32 in
+        state.withLock { state in
             state.closed = true
-            let socket = state.socket
-            state.socket = -1
-            return socket
-        }
-        if socket >= 0 {
-            shutdown(socket, SHUT_RDWR)
-            close(socket)
+            if state.socket >= 0 { shutdown(state.socket, SHUT_RDWR) }
         }
     }
 
@@ -99,20 +119,42 @@ public final class ComputerUsePreviewStream {
 
     /// The reader's outputs onto the main queue, in order, for this stream while it lives.
     func deliverer() -> @Sendable (Output) -> Void {
-        { [weak self] output in MainDelivery().later { self?.receive(output) } } // the main queue keeps their order
+        let pending = pending
+        return { [weak self] output in
+            if case .sample = output { pending.withLock { $0 += 1 } }
+            MainDelivery().later { // the main queue keeps their order
+                if case .sample = output { pending.withLock { $0 -= 1 } }
+                self?.receive(output)
+            }
+        }
     }
 
     /// One output on the main actor: a frame goes to the layer (a failed renderer is flushed first),
-    /// a private window takes the picture off at once, every event goes on.
+    /// a private window takes the picture off at once and stills stop until it may show again, every
+    /// event goes on. Nothing after ``stop()``.
     func receive(_ output: Output) {
+        guard !state.withLock({ $0.closed }) else { return }
         let renderer = displayLayer.sampleBufferRenderer
         switch output {
         case .sample(let sample):
             if renderer.status == .failed { renderer.flush() }
             renderer.enqueue(sample)
         case .event(let event):
-            if case .status(let status) = event, status.state == .blocked {
-                renderer.flush(removingDisplayedImage: true, completionHandler: nil)
+            switch event {
+            case .status(let status):
+                switch status.state {
+                case .blocked:
+                    renderer.flush(removingDisplayedImage: true, completionHandler: nil)
+                    acceptsStills = false
+                case .streaming, .still:
+                    acceptsStills = true
+                case .noWindow, .paused:
+                    break
+                }
+            case .still:
+                guard acceptsStills else { return }
+            case .closed:
+                break
             }
             onEvent(event)
         }
@@ -122,10 +164,13 @@ public final class ComputerUsePreviewStream {
 
     /// Reads the channel until it closes, then says so: statuses and stills as events, parameter
     /// sets into the format, frames into ready samples. An unknown kind or state is skipped; a
-    /// payload past the wire's limit ends the stream.
-    nonisolated static func read(_ socket: Int32, _ deliver: @Sendable (Output) -> Void) {
+    /// payload past the wire's limit ends the stream. While `backlog` (frames not yet enqueued) is
+    /// at ``maximumPendingSamples`` the reader drops frames, and then every frame until a keyframe,
+    /// so the decoder never gets a frame whose reference it lost.
+    nonisolated static func read(_ socket: Int32, backlog: () -> Int = { 0 }, _ deliver: @Sendable (Output) -> Void) {
         var header = [UInt8](repeating: 0, count: 5)
         var format: CMVideoFormatDescription?
+        var skipping = false
         while readExactly(socket, &header, count: 5) {
             let length = Int(UInt32(header[1]) << 24 | UInt32(header[2]) << 16 | UInt32(header[3]) << 8 | UInt32(header[4]))
             guard length <= ComputerUsePreviewWire.maximumPayload else { break }
@@ -139,8 +184,12 @@ public final class ComputerUsePreviewStream {
             case ComputerUsePreviewWire.parameterSets:
                 if let sets = ComputerUsePreviewWire.parameterSets(data) { format = Self.format(sps: sets.sps, pps: sets.pps) }
             case ComputerUsePreviewWire.frame:
-                if let format, let frame = ComputerUsePreviewWire.frame(data),
-                   let sample = Self.sample(frame.avcc, format: format, microseconds: frame.microseconds) { deliver(.sample(sample)) }
+                guard let format, let frame = ComputerUsePreviewWire.frame(data) else { break }
+                if frame.keyframe { skipping = false }
+                if !skipping, backlog() >= maximumPendingSamples { skipping = true }
+                if !skipping, let sample = Self.sample(frame.avcc, format: format, microseconds: frame.microseconds) {
+                    deliver(.sample(sample))
+                }
             case ComputerUsePreviewWire.still:
                 deliver(.event(.still(data)))
             default:

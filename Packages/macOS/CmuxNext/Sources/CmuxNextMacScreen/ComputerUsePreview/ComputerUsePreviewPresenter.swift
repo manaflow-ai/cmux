@@ -4,6 +4,9 @@ public import CmuxNextComputerUse
 public import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextWakeups
+import os
+
+private let previewPresenterLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "computer-use-preview")
 
 /// What the live preview reads from the App: the setting and the surface the person looks at. The App conforms (AppServices); tests can stand in.
 @MainActor
@@ -40,9 +43,22 @@ public final class ComputerUsePreviewPresenter {
         weak var host: NSView?
         let overlay: ComputerUsePreviewOverlay
         var stream: ComputerUsePreviewStream?
-        /// The stream said its window's app is private: no picture is shown.
+        /// The stream said its window's app is private: no picture is shown until it says
+        /// `streaming` or `still` again (the channel stays open; cmux Remote looks every 500 ms).
         var blocked = false
     }
+    /// The picture's long side asked of cmux Remote: the card at 2x its largest size, the expanded
+    /// view at the wire's largest.
+    private static let cardStreamLongSide = Int(ComputerUsePreviewLayout.maximumLongSide * 2)
+    private static let expandedStreamLongSide = 1600
+    /// The wait before the channel opens again after it closed: 1 s, doubling to 30 s while cmux
+    /// Remote keeps refusing (an older host, or no worker), back to 1 s once a picture comes.
+    private var retryDelay: Duration = .seconds(1)
+    private static let maximumRetryDelay: Duration = .seconds(30)
+    /// A retry is scheduled: the stream stays closed until then.
+    private var retrying = false
+    /// The current outage was logged (once per outage).
+    private var outageLogged = false
     private var shown: Shown?
     /// What the person chose per surface (a new surface starts as a card).
     private var choices: [ComputerUsePreviewSurface: ComputerUsePreviewPresentation] = [:]
@@ -164,19 +180,23 @@ public final class ComputerUsePreviewPresenter {
         let presentation = presentation(for: current.surface)
         current.overlay.isHidden = current.blocked
         current.overlay.present(presentation)
-        // The stream runs while a picture shows; a hidden preview (a chip) streams nothing.
-        if presentation == .hidden || current.blocked {
+        // The stream runs while the preview is up, a blocked one too (cmux Remote sends nothing but
+        // its status, and says when the window may show again); a hidden preview (a chip) streams
+        // nothing. The expanded view asks for a larger picture.
+        let side = presentation == .expanded ? Self.expandedStreamLongSide : Self.cardStreamLongSide
+        if presentation == .hidden {
             current.stream?.stop()
             current.stream = nil
-        } else if current.stream == nil {
-            current.stream = openStream(for: pick.session, overlay: current.overlay)
+        } else if current.stream?.requestedLongSide != side, !retrying {
+            current.stream?.stop()
+            current.stream = openStream(for: pick.session, longSide: side, overlay: current.overlay)
         }
         shown = current
         followEscape(presentation == .expanded)
     }
 
-    private func openStream(for session: String, overlay: ComputerUsePreviewOverlay) -> ComputerUsePreviewStream {
-        let stream = ComputerUsePreviewStream(session: session, longSide: Int(ComputerUsePreviewLayout.maximumLongSide * 2)) { [weak self] event in
+    private func openStream(for session: String, longSide: Int, overlay: ComputerUsePreviewOverlay) -> ComputerUsePreviewStream {
+        let stream = ComputerUsePreviewStream(session: session, longSide: longSide) { [weak self] event in
             self?.streamEvent(event, session: session)
         }
         overlay.show(video: stream.displayLayer)
@@ -191,22 +211,46 @@ public final class ComputerUsePreviewPresenter {
             if let width = status.width, let height = status.height, width > 0, height > 0 {
                 current.overlay.aspect = CGFloat(width) / CGFloat(height)
             }
-            if status.state == .streaming { current.overlay.show(still: nil) }
-            // A private window shows nothing at all; its stream has stopped on cmux Remote's side.
-            current.blocked = status.state == .blocked
+            switch status.state {
+            case .streaming, .still:
+                if status.state == .streaming { current.overlay.show(still: nil) }
+                current.blocked = false
+                retryDelay = .seconds(1)
+                outageLogged = false
+            case .blocked:
+                // A private window shows nothing at all, not even the last still, until cmux Remote
+                // says it may show again (a later paused or no_window status does not).
+                current.blocked = true
+                current.overlay.show(still: nil)
+            case .noWindow, .paused:
+                break
+            }
             current.overlay.isHidden = current.blocked
         case .still(let data):
             current.overlay.show(still: data)
         case .closed:
-            // cmux Remote went away or refused: try again in a moment while the preview still shows.
+            // cmux Remote went away or refused (an older host has no such channel): try again,
+            // waiting longer each time up to 30 s, and say so once.
             current.stream = nil
-            reopen.schedule(after: .seconds(1)) { @MainActor [weak self] in self?.update() }
+            if !outageLogged {
+                outageLogged = true
+                previewPresenterLogger.notice("Computer Use preview: the channel closed; retrying with backoff")
+            }
+            retrying = true
+            let delay = retryDelay
+            retryDelay = min(retryDelay * 2, Self.maximumRetryDelay)
+            reopen.schedule(after: delay) { @MainActor [weak self] in
+                self?.retrying = false
+                self?.update()
+            }
         }
         shown = current
     }
 
     private func dismiss(completing: Bool) {
         linger.cancel()
+        reopen.cancel()
+        retrying = false
         followEscape(false)
         guard let current = shown else { return }
         shown = nil
@@ -250,12 +294,15 @@ public final class ComputerUsePreviewPresenter {
         registry.perform("computerUseFocus", invocation: ActionInvocation(arguments: ["session": .string(session)]))
     }
 
-    /// Escape closes the expanded view in its window, without taking the keyboard from anything.
+    /// Escape closes the expanded view only while the pointer is over its picture. Anywhere else it
+    /// goes on to the surface: in the agent's own terminal Escape interrupts Claude Code or Codex,
+    /// and a preview must never swallow that. A click anywhere closes the expanded view too.
     private func followEscape(_ on: Bool) {
         if on, escapeMonitor == nil {
             escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                guard event.keyCode == 53, let self, let current = self.shown, event.window === current.overlay.window,
-                      self.presentation(for: current.surface) == .expanded else { return event }
+                guard event.keyCode == 53, let self, let current = self.shown, let window = current.overlay.window,
+                      event.window === window, self.presentation(for: current.surface) == .expanded,
+                      current.overlay.expandedPictureContains(windowPoint: window.mouseLocationOutsideOfEventStream) else { return event }
                 self.handle(.collapse)
                 return nil
             }

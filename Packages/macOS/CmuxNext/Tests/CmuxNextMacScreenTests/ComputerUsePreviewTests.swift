@@ -213,6 +213,69 @@ import VideoToolbox
         #expect(layer.sampleBufferRenderer.status != .failed)
     }
 
+    /// After `blocked` the picture stays off: stills are refused, and a later paused or no_window
+    /// status does not bring them back; only `streaming` or `still` does.
+    @Test func afterBlockedNoStillShowsUntilTheWindowMayShowAgain() {
+        var events: [ComputerUsePreviewStream.Event] = []
+        let stream = ComputerUsePreviewStream(session: "chat-1", longSide: 800) { events.append($0) }
+        let jpeg = Data([0xFF, 0xD8, 0xFF, 0xD9])
+        stream.receive(.event(.still(jpeg)))
+        #expect(events.isEmpty, "no still before the worker says one may show")
+        stream.receive(.event(.status(ComputerUsePreviewStatus(state: .still))))
+        stream.receive(.event(.still(jpeg)))
+        stream.receive(.event(.status(ComputerUsePreviewStatus(state: .blocked))))
+        stream.receive(.event(.still(jpeg)))
+        stream.receive(.event(.status(ComputerUsePreviewStatus(state: .paused))))
+        stream.receive(.event(.still(jpeg)))
+        #expect(events == [.status(ComputerUsePreviewStatus(state: .still)), .still(jpeg),
+                           .status(ComputerUsePreviewStatus(state: .blocked)), .status(ComputerUsePreviewStatus(state: .paused))])
+        stream.receive(.event(.status(ComputerUsePreviewStatus(state: .streaming))))
+        stream.receive(.event(.still(jpeg)))
+        #expect(events.suffix(2) == [.status(ComputerUsePreviewStatus(state: .streaming)), .still(jpeg)])
+    }
+
+    /// Nothing reaches the presenter after `stop()`: no late frame, still or close of the old
+    /// channel (a close would schedule a reopen of a stream nobody wants).
+    @Test func nothingIsDeliveredAfterStop() {
+        var events: [ComputerUsePreviewStream.Event] = []
+        let stream = ComputerUsePreviewStream(session: "chat-1", longSide: 800) { events.append($0) }
+        stream.receive(.event(.status(ComputerUsePreviewStatus(state: .streaming))))
+        stream.stop()
+        stream.receive(.event(.still(Data([1]))))
+        stream.receive(.event(.closed))
+        #expect(events == [.status(ComputerUsePreviewStatus(state: .streaming))])
+    }
+
+    /// A busy main thread: at three frames waiting the reader drops frames, then every frame until
+    /// the next keyframe, so the decoder never gets a frame whose reference it lost.
+    @Test func aBusyMainThreadDropsFramesUntilAKeyframe() throws {
+        let encoded = try encodeOneFrame(width: 320, height: 200)
+        let (ours, theirs) = try socketPair()
+        var parameters = Data()
+        for set in [encoded.sps, encoded.pps] { parameters += Data([UInt8(set.count >> 8), UInt8(set.count & 0xFF)]) + set }
+        func frame(_ keyframe: Bool, _ time: UInt8) -> Data {
+            message(0x46, Data([keyframe ? 1 : 0, 0, 0, 0, 0, 0, 0, 0, time]) + encoded.avcc)
+        }
+        // Times 1-3 pass; the backlog is full at 4 and 5 (a delta, then a delta while it has room
+        // again), and the keyframe at 6 resumes the stream.
+        var bytes = message(0x50, parameters)
+        for (key, time) in [(true, 1), (false, 2), (false, 3), (false, 4), (false, 5), (true, 6), (false, 7)] as [(Bool, UInt8)] {
+            bytes += frame(key, time)
+        }
+        #expect(bytes.withUnsafeBytes { write(theirs, $0.baseAddress, $0.count) } == bytes.count)
+        close(theirs)
+        let seen = Collected()
+        // The reader asks for the backlog before each frame it may pass: full only at the 4th ask
+        // (frame 4); frame 5 is not asked about (it waits for a keyframe), frame 6 finds room.
+        let asks = OSAllocatedUnfairLock(initialState: 0)
+        ComputerUsePreviewStream.read(ours, backlog: {
+            asks.withLock { $0 += 1; return $0 == 4 ? ComputerUsePreviewStream.maximumPendingSamples : 0 }
+        }) { seen.add($0) }
+        close(ours)
+        let times = seen.samples.map { CMSampleBufferGetPresentationTimeStamp($0).value }
+        #expect(times == [1, 2, 3, 6, 7])
+    }
+
     // MARK: Helpers
 
     /// What the reader delivered, in order (the reader runs on the test's thread here).

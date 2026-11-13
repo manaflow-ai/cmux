@@ -80,6 +80,12 @@ public final class ComputerUsePreviewOverlay: NSView {
         needsLayout = true
     }
 
+    /// Whether `point` (window coordinates) is over the expanded view's picture.
+    public func expandedPictureContains(windowPoint point: NSPoint) -> Bool {
+        guard presentation == .expanded, expanded.superview === self else { return false }
+        return expanded.pictureFrame.contains(expanded.convert(point, from: nil))
+    }
+
     /// The thumbnail's corner and long side (the person's drag and resize).
     public func place(corner: ComputerUsePreviewLayout.Corner, longSide: CGFloat) {
         thumbnail.corner = corner
