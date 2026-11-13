@@ -315,6 +315,15 @@ struct LinkOpenPlacementTests {
         #expect(Self.nearest([["chat"], ["terminal", "browser"]], browsers: ["browser"]) == "browser")
     }
 
+    @Test func aLowerRightPaneDoesNotCountAsTheSourcesRightNeighbor() {
+        let frames: [String: CGRect] = [
+            "chat": CGRect(x: 0, y: 0, width: 480, height: 380),
+            "lowerRight": CGRect(x: 500, y: 400, width: 480, height: 380),
+            "far": CGRect(x: 1000, y: 0, width: 480, height: 780),
+        ]
+        #expect(Self.nearest([["chat", "lowerRight", "far"]], browsers: ["lowerRight", "far"], frames: frames) == "far")
+    }
+
     /// Same Pane keeps its tab in the source.
     @Test func samePaneStillOpensInTheSource() {
         #expect(Rule(setting: .samePane).target(source: "chat", takesTabs: true, right: "browser", kind: .browser, holder: "browser")

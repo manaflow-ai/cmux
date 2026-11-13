@@ -137,7 +137,13 @@ package struct LinkOpenPlacement<Pane: Equatable> {
         guard let index = columns.firstIndex(where: { $0.contains(source) }) else { return nil }
         if let origin = frames[source] {
             let beside = columns[index].filter { $0 != source }.compactMap { pane in
-                frames[pane].flatMap { $0.minX >= origin.maxX - 1 ? (pane, $0) : nil }
+                frames[pane].flatMap { frame in
+                    // A pane below and to the right belongs to a different row, not to the
+                    // source's right edge. Keep the same vertical-overlap rule as the measured
+                    // right-column geometry so it cannot steal a link from the next row.
+                    frame.minX >= origin.maxX - 1 && frame.minY < origin.maxY && origin.minY < frame.maxY
+                        ? (pane, frame) : nil
+                }
             }
             if let found = lowestHolder(inNearest: beside, kind: kind, holds: holds) { return found }
         }
