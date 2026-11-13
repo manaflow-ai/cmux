@@ -551,7 +551,8 @@ class NoVerdictNeverSubtracts(unittest.TestCase):
     def test_tool_output_arch_line_is_bounded(self) -> None:
         from unittest import mock  # noqa: PLC0415
         huge = "9" * 5000
-        module = type("Arch", (), {"push_refusals": lambda *_: [("row", f"arch-ratchet: bad\n  A.swift:{huge}: text")]})()
+        module = type("Arch", (), {"push_refusals": lambda *_: (
+            [("row", f"arch-ratchet: bad\n  A.swift:{huge}: text")], [])})()
         with mock.patch.object(self.gate, "_load_script", return_value=module):
             self.assertToolIntegerNoVerdict(
                 lambda: self.gate.advisory_arch(self.repo, []), "arch line")
