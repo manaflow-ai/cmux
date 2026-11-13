@@ -1,6 +1,7 @@
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextCompat
+import CmuxNextTestSupport
 @testable import CmuxNextUpdater
 import Darwin
 import Foundation
@@ -19,7 +20,7 @@ struct TipActionRunAllocationTests {
 
     private func defaults() throws -> UserDefaults {
         let suite = "TipActionRunAllocationTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defaults.removePersistentDomain(forName: suite)
         return defaults
     }

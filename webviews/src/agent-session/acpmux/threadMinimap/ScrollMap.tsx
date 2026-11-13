@@ -26,6 +26,7 @@ import {
   THREAD_PADDING_TOP,
   TICK_BOX,
   type MinimapTurn,
+  replyMore,
 } from "./model";
 import {
   MAP_MARGIN,
@@ -355,6 +356,7 @@ export function ScrollMap({
           scroller={scroller.current}
           prompt={cardTurn?.prompt}
           reply={cardTurn ? cardTurn.reply : agentReply}
+          more={cardTurn ? () => replyMore(cardTurn) : undefined}
           metadata={cardTurn?.metadata}
           bookmark={
             cardTurn && bookmarks.can(cardTurn)

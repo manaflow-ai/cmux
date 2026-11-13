@@ -106,27 +106,36 @@ test("times in the same day need no day step", () => {
 
 test("times without a shared zone, and versions, ratios and scores, stay plain", () => {
   for (const text of [
-    "23:55 and 01:28",
     "23:55 and 01:28 PST",
     "a 16:9 screen",
     "the ratio 16:9 and 4:3 UTC",
     "won 12:10 in 2.1.14:30 UTC",
     "score 24:17 and 31:28",
     "v1.2:30 and 3:45",
-    "the 23:55 and 01:28 meeting",
   ]) {
     expect(dateTimes(text)).toEqual([]);
   }
 });
 
+test("times without a zone are each in the person's zone, nearest the message", () => {
+  // Bare clock times hover anywhere in prose (ask-15a0d92575); this file runs in the page's zone.
+  expect(sources("23:55 and 01:28")).toEqual(["23:55", "01:28"]);
+  expect(sources("the 23:55 and 01:28 meeting")).toEqual(["23:55", "01:28"]);
+});
+
+test("a time after a date is that date's, not part of a list", () => {
+  expect(sources("2026-10-24 23:55 and 01:28 UTC")).toEqual(["2026-10-24 23:55", "01:28 UTC"]);
+});
+
 test("a single time with a zone, and times in code, behave as before", () => {
-  expect(sources("at 01:28 UTC and 23:55")).toEqual(["01:28 UTC"]);
+  expect(sources("at 01:28 UTC and 23:55")).toEqual(["01:28 UTC", "23:55"]);
   expect(sources("`23:55 and 01:28 UTC` stays code")).toEqual([]);
 });
 
 test("a very long run of times without a zone scans in linear time", () => {
   const started = performance.now();
-  expect(dateTimes("00:00, ".repeat(60_000))).toEqual([]);
+  expect(dateTimes("00:00 PST, ".repeat(30_000))).toEqual([]);
+  expect(dateTimes("00:00, ".repeat(6_000)).length).toBe(6_000);
   expect(performance.now() - started).toBeLessThan(5000);
   expect(dateTimes("00:00, ".repeat(500) + "01:00 UTC").length).toBe(501);
 });

@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement, Fragment } from "react";
-import { type MdBlock, parseMarkdown, renderInline } from "../src/agent-session/acpmux/conversation/Markdown";
+import { type MdBlock, parseMarkdown } from "../src/agent-session/acpmux/conversation/markdownModel";
+import { renderInline } from "../src/agent-session/acpmux/conversation/inlineMarkdown";
 import { IncrementalMarkdown } from "../src/agent-session/acpmux/conversation/incrementalMarkdown";
 
 // A streaming reply draws every prefix of its text (RevealedMarkdown reveals it a few characters a

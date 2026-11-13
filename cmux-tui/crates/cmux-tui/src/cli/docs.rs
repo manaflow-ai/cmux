@@ -217,13 +217,17 @@ pub(super) const GUIDES: &[Guide] = &[
             "effort",
             "screenshot",
             "capture",
+            "attach",
+            "attachment",
         ],
         text: "Start an ordinary agent chat the user sees in the app, as New Agent Chat and a \
         first message do, without moving their focus: `cmux agents chat new [--workspace WS | \
         --pane PANE] [--harness claude|codex|...] [--model M] [--effort \
         low|medium|high|xhigh|max] [--mode M] [--policy ask|approve-reads|deny-all] [--cwd DIR] \
-        [--name N] -- PROMPT` (MCP agents_chat_new); with neither --workspace nor --pane it gets \
-        a new workspace. It runs in the app's own acpmux (not as your subagent) and PROMPT is its \
+        [--name N] [--attach FILE]... -- PROMPT` (MCP agents_chat_new, attachments: absolute \
+        paths); with neither --workspace nor --pane it gets a new workspace. --attach sends a \
+        file of any type and size with PROMPT (`cmux chat --attach FILE TEXT` too); a send to a \
+        running chat carries text only (chat.attach_send_unsupported). It runs in the app's own acpmux (not as your subagent) and PROMPT is its \
         first prompt, as if the user typed it. Its receipt names the chat (an acpmux session \
         id), tab, pane and workspace. Drive a chat of this cmux session (never your own): `cmux \
         agents chat send CHAT -- TEXT` (agents_chat_send, an agent message), `chat read CHAT \

@@ -41,17 +41,17 @@ extension WindowRules {
     public nonisolated enum Toast: Decodable, Equatable, Sendable {
         case show
         case skip
-        /// Shows only if one of these live terminals (indices into the closing tabs) runs a program.
-        case askTerminals([Int])
 
-        private enum CodingKeys: String, CodingKey { case decision, terminals }
+        private enum CodingKeys: String, CodingKey { case decision }
 
         public init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             switch try container.decode(String.self, forKey: .decision) {
             case "show": self = .show
             case "skip": self = .skip
-            case "askTerminals": self = .askTerminals(try container.decode([Int].self, forKey: .terminals))
+            // Transitional: the FFI pinned before cmux-window-rules dropped `AskTerminals` answers it for exactly
+            // the tabs the new rule closes with no toast (one tab, none working). Remove after the re-pin.
+            case "askTerminals": self = .skip
             case let other: throw DecodingError.dataCorruptedError(forKey: .decision, in: container, debugDescription: "toast \(other)")
             }
         }
@@ -150,16 +150,23 @@ extension WindowRules {
         let asked = closeReads(tabs, warnings)
         if asked.answered { return asked.reads }
         guard warnings.warnTab || warnings.warnAgent else { return nil }
-        let live = tabs.enumerated().filter { $0.element.kind == "pty" && !$0.element.dead }.map(\.offset)
-        return live.isEmpty ? nil : Reads(agents: [], others: live)
+        let live = tabs.enumerated().filter { $0.element.kind == "pty" && !$0.element.dead }
+        guard !live.isEmpty else { return nil }
+        // As the rule reads them: a working agent is its own question; only the program warning reads the rest.
+        let agents = live.filter(\.element.agentAtWork).map(\.element.agent)
+        let others = warnings.warnTab ? live.filter { !$0.element.agentAtWork }.map(\.offset) : []
+        return Reads(agents: agents, others: others)
     }
 
-    /// `closeWarning`, failing closed: when the FFI does not answer, the close asks by `titles` (the
-    /// terminals it read) instead of closing at once.
+    /// `closeWarning`, failing closed: when the FFI does not answer, a working agent asks (with
+    /// `warnAgent`), else the close asks by `titles` (the terminals it read, with `warnTab`) instead of
+    /// closing at once.
     public func closeWarningFailingClosed(agents: [String?], answers: [TerminalAnswer], unansweredAsks: Bool,
                                           _ warnings: Warnings, titles: [String]) -> Warning? {
         let decided = closeWarning(agents: agents, answers: answers, unansweredAsks: unansweredAsks, warnings)
         if decided.answered { return decided.warning }
-        return titles.isEmpty ? nil : .programs([], unanswered: titles)
+        // Each warning still obeys its own setting.
+        if warnings.warnAgent, let agent = agents.first { return .agent(agent) }
+        return warnings.warnTab && !titles.isEmpty ? .programs([], unanswered: titles) : nil
     }
 }

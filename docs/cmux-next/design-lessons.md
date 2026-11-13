@@ -77,6 +77,9 @@ answer).
 
 **Cost:** 503 fixes.
 
+**Guards:** in webviews, the dev-server `dom-breadth`, `live-intervals` and `long-frame` budgets (pages the dev server serves; built bundles
+carry none) and the `layout-thrash-in-loop` lint ([modding-kit.md](modding-kit.md)); in cmux-tui, clippy's `await_holding_lock`.
+
 ## 6. A visible change is one state transition
 
 **Class:** flicker, a jump, pop-in, a blink, or a layout that moved after the animation finished.
@@ -89,6 +92,9 @@ live resize), [#24902](https://github.com/manaflow-ai/cmux/pull/24902) (reply fa
 [#10518](https://github.com/manaflow-ai/cmux/pull/10518).
 
 **Cost:** 597 fixes, the largest product class. The sidebar and the browser have the most.
+
+**Guards:** in webviews, the dev-server `layout-shift` and `react-commit` budgets ([modding-kit.md](modding-kit.md));
+the no-flicker browser tests. Native UI has none yet beyond tests.
 
 ## 7. Lifecycle edges are the normal case
 

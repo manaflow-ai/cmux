@@ -213,14 +213,30 @@ N1 and N2 start now (webviews only). N4 needs a fleet build for every measuremen
   The thumb moves by transform on its own layer before the rows render, so it stays smooth under
   CPU load.
 - Switch removed (Leo, 2026-10-20: "no mode toggle: type and press Return", #22816): one pure
-  classifier (`classifyNewTabInput` in `newTabIntent.ts`, webviews) picks open, ask or search, and its pick is the first row,
+  classifier (`classifyNewTabInput` in `newTabIntent.ts`, webviews) reads the input as an address or a prompt, and
+  `newtab/screenModel.ts` orders the open, ask and search rows from it; its pick is the first row,
   so Down picks the other action for a miss. Tab steps the rows and leaves the field from the
   last one; with no agent installed a question searches. The `tabs.newTabWidgets.modeSwitch`
   widget is retired (#22883).
+- No widgets (Lawrence 2026-11-09: "remove widgets completely"): the New Tab widget system is
+  deleted, not flagged off. Minimal, the default template, is the composer alone; it has no
+  headline, clock, stopwatch, time-of-day greeting, quote, weather, machines row, project card,
+  quick actions, recent chats, template dots or edit mode (right-click > Edit New Tab, its drag,
+  ✕ and Escape). The other templates draw their own parts, with no toggles. Every
+  `tabs.newTabWidgets.*` key is retired (schemas/settings/retired-keys.json): an old cmux-next.json
+  that still sets one loads with no diagnostic. The look dots under the page are Claude Minimal and
+  Codex Minimal; the other templates also show the template dots.
 - Cmd-Return always asks (lens review 2026-11-05, Nielsen's user control and freedom): whatever row
   leads (an address, a tab's exact name, a command, a row the arrows picked), Cmd-Return sends the
   typed text to the agent on the chip. The Ask row shows `⌘↵` when it is not the selected row.
   In shell mode (`!`) it runs the command, as Return does.
+- Return navigates (Lawrence 2026-11-11: "we should instead just open it as replacement of current page, so a
+  navigation"): a browser pick (a typed address, a web search, a visited page, a profile pick) takes the page's
+  own tab, also beside another tab with `newTab.picksFollowLinks` on; terminals and chats still go where links
+  do. Option-Return, or an Option- or Cmd-click on a row, sends `tab.open {beside: true}`: a new tab where links
+  go, as Chrome's Alt-Enter. Cmd-Return still asks; Shift-Return still adds a line. A page in the chat dock keeps
+  opening beside the dock (Leo 2026-10-30). The bench command is `instant-new-surfaces --commands
+  newtab_url,newtab_url_beside`.
 - Pick history (lens review 2026-11-05, Slack/Firefox frecency): the Commands palette's FrecencyStore
   is the one history. The host sends its counts for `tab:`, `workspace:` and `action:` keys
   (`omnibar.uses`); the rows order matches of one kind by them, never above a better text match. A

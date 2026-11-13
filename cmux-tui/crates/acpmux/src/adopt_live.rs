@@ -104,14 +104,12 @@ fn claude_holder(config: &Path, id: &str) -> Option<LiveUse> {
 /// where its start time can be read, started no later than the entry's
 /// `startedAt` (milliseconds since the epoch), so a pid reused by a later
 /// process does not stand in for the ended one.
-fn registered_runs(pid: u32, started_at_ms: Option<u64>) -> bool {
-    /// Clock granularity between the process start and the time it records.
-    const SLACK_MS: u64 = 1_000;
+pub(crate) fn registered_runs(pid: u32, started_at_ms: Option<u64>) -> bool {
     if !pid_exists(pid) {
         return false;
     }
     match (started_at_ms, pid_start_ms(pid)) {
-        (Some(recorded), Some(started)) => started <= recorded.saturating_add(SLACK_MS),
+        (Some(recorded), Some(started)) => started_matches(started, recorded),
         _ => true,
     }
 }
@@ -139,11 +137,48 @@ fn pid_start_ms(pid: u32) -> Option<u64> {
     Some(sec.saturating_mul(1000).saturating_add(usec / 1000))
 }
 
+/// When `pid` started, in milliseconds since the epoch (Linux): `/proc/<pid>/stat`'s `starttime`
+/// (clock ticks since boot) after `/proc/stat`'s `btime` (the boot, seconds since the epoch).
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn pid_start_ms(pid: u32) -> Option<u64> {
+    let ticks = crate::daemon::owner_exit::process_start(pid)?;
+    let stat = std::fs::read_to_string("/proc/stat").ok()?;
+    let boot: u64 =
+        stat.lines().find_map(|line| line.strip_prefix("btime "))?.trim().parse().ok()?;
+    // SAFETY: sysconf reads a constant of the running system.
+    let hz =
+        u64::try_from(unsafe { libc::sysconf(libc::_SC_CLK_TCK) }).ok().filter(|hz| *hz > 0)?;
+    boot.checked_mul(1000)?.checked_add(ticks.checked_mul(1000)? / hz)
+}
+
 /// Elsewhere the registry's pid decides alone.
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "android")))]
 fn pid_start_ms(_pid: u32) -> Option<u64> {
     None
 }
+
+/// Whether a registry entry provably names the process it was written by: `pid` runs, the
+/// entry recorded `startedAt` and the process's start time reads and is no later than it. What
+/// names a message's sender (claude_peers.rs, hub/desktop_bridge.rs) asks this, not
+/// [`registered_runs`]: a pid reused after the app exited never stands in for its stale entry,
+/// and where either time is unknown the entry is refused.
+pub(crate) fn registered_proven(pid: u32, started_at_ms: Option<u64>) -> bool {
+    let (Some(recorded), Some(started)) =
+        (started_at_ms, pid_exists(pid).then(|| pid_start_ms(pid)).flatten())
+    else {
+        return false;
+    };
+    started_matches(started, recorded)
+}
+
+/// A process started at `started` (ms) is the one an entry recorded at `recorded` (ms): it started
+/// no later, within the clock granularity between its start and the time it wrote.
+fn started_matches(started: u64, recorded: u64) -> bool {
+    started <= recorded.saturating_add(START_SLACK_MS)
+}
+
+/// Clock granularity between a process's start and the time it records.
+const START_SLACK_MS: u64 = 1_000;
 
 /// A running Codex that holds thread `id`'s writer lock. Probed as Codex
 /// probes it before it publishes a thread: under the home's coordination lock
@@ -151,31 +186,35 @@ fn pid_start_ms(_pid: u32) -> Option<u64> {
 /// `flock` on the thread lock, released at once. No lock file: no writer.
 #[cfg(unix)]
 fn codex_holder(home: &Path, id: &str) -> Option<LiveUse> {
-    use std::os::fd::AsRawFd;
     let dir = home.join("thread-writer-locks");
     let thread = std::fs::File::open(dir.join(format!("{id}.lock"))).ok()?;
     let coordination = std::fs::File::open(dir.join(".coordination.lock")).ok();
-    if let Some(file) = &coordination {
-        // A writer holds it only while it opens its thread lock; wait briefly, never forever.
-        // Still held after that: a writer is taking the thread lock now, so the chat is busy.
-        let taken = (0..50).any(|attempt| {
-            if attempt > 0 {
-                std::thread::sleep(std::time::Duration::from_millis(10));
-            }
-            // SAFETY: flock on an open descriptor this function owns.
-            unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) == 0 }
-        });
-        if !taken {
-            return Some(LiveUse::WriterLock);
-        }
-    }
-    // SAFETY: flock on the thread lock descriptor this function opened.
-    let held = unsafe { libc::flock(thread.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0
-        && std::io::Error::last_os_error().raw_os_error() == Some(libc::EWOULDBLOCK);
-    // Closing both descriptors (end of scope) releases what was taken.
-    drop(thread);
-    drop(coordination);
-    held.then_some(LiveUse::WriterLock)
+    writer_holds(coordination, &thread).then_some(LiveUse::WriterLock)
+}
+
+/// Whether a Codex writer holds the thread lock `thread`, probed under the home's `coordination`
+/// lock (when the home has one). Neither probe leaves a lock behind: each unlocks before its file
+/// closes ([`cmux_file_lock`]), so a child that another daemon thread forks meanwhile keeps no
+/// Codex lock held through its copy of the descriptor.
+#[cfg(unix)]
+fn writer_holds(coordination: Option<std::fs::File>, thread: &std::fs::File) -> bool {
+    use cmux_file_lock::{FileLock, Kind};
+    // A writer holds it only while it opens its thread lock; wait briefly (50 looks, 10 ms
+    // apart), never forever. Still held after that: a writer is taking the thread lock now, so
+    // the chat is busy.
+    let _coordination = match coordination.map(|file| {
+        FileLock::take_within(
+            file,
+            Kind::Exclusive,
+            std::time::Duration::from_millis(490),
+            std::time::Duration::from_millis(10),
+        )
+    }) {
+        Some(Err(_)) => return true,
+        Some(Ok(lock)) => Some(lock),
+        None => None,
+    };
+    FileLock::held_elsewhere(thread, Kind::Exclusive).unwrap_or(false)
 }
 
 #[cfg(not(unix))]
@@ -295,6 +334,48 @@ fn acpmux_tree(procs: &[Proc]) -> HashSet<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The probe of a Codex writer leaves no lock on either lock file, also while the descriptions
+    /// it probed through stay open: a child that another daemon thread forked during the probe
+    /// keeps a copy of each until it execs, and a lock the probe took and only closed stays held
+    /// through that copy. Codex then finds its thread busy (or its coordination lock held) and
+    /// refuses to write (LOCK-AUDIT adopt_live.rs:201 and :208).
+    #[cfg(unix)]
+    #[test]
+    fn a_writer_probe_leaves_no_lock_while_its_descriptions_stay_open() {
+        let dir = std::env::temp_dir().join(format!(
+            "acpmux-writer-probe-{}-{}",
+            std::process::id(),
+            uuid::Uuid::now_v7()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = |name: &str| dir.join(name);
+        std::fs::write(path(".coordination.lock"), b"").unwrap();
+        std::fs::write(path("t.lock"), b"").unwrap();
+        let open = |name: &str| std::fs::File::open(path(name)).unwrap();
+        let free = |name: &str| {
+            let file = open(name);
+            let taken = file.try_lock().is_ok();
+            let _ = file.unlock();
+            taken
+        };
+        // The probe's descriptions stay open, as a forked child's copies of them do.
+        let (coordination, thread) = (open(".coordination.lock"), open("t.lock"));
+        let copy = coordination.try_clone().unwrap();
+        assert!(!writer_holds(Some(copy), &thread), "no writer holds the thread");
+        let (coordination_free, thread_free) = (free(".coordination.lock"), free("t.lock"));
+        // The probe's descriptions go (as a forked child's copies do at its exec): a writer that
+        // holds the thread lock is then seen.
+        drop((coordination, thread));
+        let writer = open("t.lock");
+        let seen = writer.try_lock().is_ok()
+            && writer_holds(Some(open(".coordination.lock")), &open("t.lock"));
+        let _ = writer.unlock();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(coordination_free, "the probe left the coordination lock held");
+        assert!(thread_free, "the probe left the thread lock held");
+        assert!(seen, "a writer that holds the thread lock is not seen");
+    }
 
     fn procs(rows: &[(u32, u32, &str)]) -> Vec<Proc> {
         rows.iter()

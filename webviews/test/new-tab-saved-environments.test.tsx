@@ -12,6 +12,7 @@ import { translate as t } from "../src/agent-session/acpmux/i18n";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -89,12 +90,8 @@ afterEach(() => {
   host.replaceChildren();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of kept) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(kept, { window: dom.window, scope });
 });
 
 const APP = "/Users/you/src/app";
@@ -132,7 +129,7 @@ async function mount({
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   const { SignInContext } = await import("../src/agent-session/acpmux/signIn");
   const { newTabScreenActions } = await import("../src/agent-session/acpmux/newtab/screenActions");
-  const { newWorktree, pickFolder } = await import("../src/agent-session/acpmux/startFolder");
+  const { newWorktree, pickFolder } = await import("../src/agent-session/acpmux/startFolderModel");
   const calls: Call[] = [];
   const callNative = async (method: string, params?: Record<string, unknown>) => {
     calls.push({ method, ...(params ? { params } : {}) });
@@ -372,12 +369,15 @@ test("a saved local environment with Use worktree asks in a new worktree of its 
   expect(asked.peer).toBeUndefined();
 });
 
-test("a refused worktree shows the host's reason, starts nothing and keeps the prompt", async () => {
+test("a refused worktree says so plainly, starts nothing and keeps the prompt", async () => {
   const calls = await mount({ worktree: "refused" });
   await openMachines();
   await click(row("API worktree"));
   await ask("fix the build");
-  expect(host.querySelector('[role="alert"]')?.textContent).toContain("not a git repository");
+  // Said plainly; the host's own words (git's) go to the log (Leo, 2026-11-12: "we want good error
+  // states. We don't want busted errors.").
+  expect(host.querySelector('[role="alert"]')?.textContent).toBe(t("worktree.failedPlain"));
+  expect(host.textContent).not.toContain("not a git repository");
   expect(calls.some((call) => call.method === "chat.new")).toBe(false);
   expect(host.querySelector<MarkdownFieldElement>(".nt-field")?.acpmuxMarkdownField?.value()).toBe("fix the build");
 });
@@ -573,7 +573,10 @@ test("New chat after a refused worktree leaves the page's create buttons working
   await click(row("API worktree"));
   await typePrompt("fix the build");
   await click(host.querySelector('[data-create="chat"]'));
-  expect(host.querySelector('[role="alert"]')?.textContent).toContain("not a git repository");
+  // Said plainly; the host's own words (git's) go to the log (Leo, 2026-11-12: "we want good error
+  // states. We don't want busted errors.").
+  expect(host.querySelector('[role="alert"]')?.textContent).toBe(t("worktree.failedPlain"));
+  expect(host.textContent).not.toContain("not a git repository");
   await click(host.querySelector('[data-create="terminal"]'));
   expect(calls.some((call) => call.method === "tab.open")).toBe(true);
 });

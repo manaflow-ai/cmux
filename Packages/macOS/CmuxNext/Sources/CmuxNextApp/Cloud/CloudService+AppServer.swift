@@ -39,14 +39,6 @@ extension CloudService {
         return machine
     }
 
-    /// The backend team a composer reservation and its bind name: the team the machine list and creates
-    /// use (the install token's team claim), so the reserved machine is one the list shows. Naming the
-    /// active Stack team instead put a team account's reserved machine in that team's store, which this
-    /// list never reads ("No Cloud machine has the id vm_…").
-    func reservationTeam() async throws -> String? {
-        MacInstallIdentity.team(ofToken: try await installIdentity.installToken())
-    }
-
     /// The record and stats; the Worker has no stats route, so there the stats are the record's state.
     func machineStatus(_ id: String) async throws -> (record: CloudMachine, stats: CloudMachineStats) {
         let record = try await machineRecord(id)
@@ -103,10 +95,17 @@ extension CloudService {
         return try await appServerFlow(team: team, run: appOps).approvedCall(op, args: args, confirm: confirm)
     }
 
-    /// The team's Cloud environments for the New Cloud Workspace dialog; none when the list fails
-    /// (the dialog then offers only a new one).
-    func appServerEnvironmentOptions() async -> [CloudWorkspaceSetupWizard.EnvironmentOption] {
-        guard let answer = try? await appOps("cloud.environment.list", .object([:]), nil, .script) else { return [] }
+    /// A machine's resize and snapshot ops (`cloud.machine.resize`, `cloud.snapshot.*`) to cmux-platform's op of the same name
+    /// (never `/api/vm`), as the person's own: the approval loop (one key, same-key retries), once `allow` says yes. The id of the answer's `record`.
+    @discardableResult
+    func machineChange(_ op: String, _ args: [String: JSONValue], answers record: String? = nil, allow: @MainActor () async -> Bool) async throws -> String? {
+        guard await allow() else { throw CloudMachineCreateFlow.Failure.declined }
+        return try await appServerApprovedCall(op, args: .object(args), confirm: { true }).recordID(record, op: op)
+    }
+
+    /// The team's Cloud environments; throws when the list fails (`cloud new-machine --environment NAME` refuses it).
+    func appServerEnvironmentOptions() async throws -> [CloudWorkspaceSetupWizard.EnvironmentOption] {
+        let answer = try await appOps("cloud.environment.list", .object([:]), nil, .script)
         return (answer["environments"]?.arrayValue ?? []).compactMap { value in
             guard let id = value["id"]?.stringValue, let name = value["name"]?.stringValue else { return nil }
             return CloudWorkspaceSetupWizard.EnvironmentOption(id: id, name: name)

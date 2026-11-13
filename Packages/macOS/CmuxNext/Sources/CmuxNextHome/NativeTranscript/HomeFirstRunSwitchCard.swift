@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextHomeModel
 
 /// The first-run panel's "Switching" card: the core switching keys as the
 /// live binding table has them (``HomeSwitchKeys``), a Hide button that

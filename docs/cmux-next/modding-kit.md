@@ -16,7 +16,7 @@ each:
 [cmux perf lint] src/my-mod/List.tsx:42 cmux-perf/layout-thrash-in-loop: This loop reads layout ...
 ```
 
-Nothing on save blocks a reload. `bun run check` and the pre-push hook run the same rules; the ones
+Nothing on save blocks a reload. The page also runs [runtime budgets](#runtime-budgets) for what only shows up live. `bun run check` and the pre-push hook run the same rules; the ones
 marked **fails** below stop a push.
 
 ## The rules
@@ -34,6 +34,21 @@ reason on the line above it:
 ```ts
 // oxlint-disable-next-line cmux-perf/layout-thrash-in-loop -- the writes go to a detached copy
 ```
+
+## Runtime budgets
+
+While a page runs from the dev server, it also watches for what only shows up live and warns once per place in the
+page's console, as `[cmux perf budget] <class>: <value> over the budget of <budget> ... Fix: ...`:
+
+| Budget | Fires when |
+|---|---|
+| `layout-shift` | Something moved 8 px or more after it painted with no input (Chromium) |
+| `dom-breadth` | One element has more than 300 element children |
+| `live-intervals` | More than 20 `setInterval` handles are live |
+| `long-frame` | A frame takes over 50 ms (Chromium) |
+| `react-commit` | A React root commits more than 120 times a second, or one update renders over 16 ms |
+
+How to silence one, turn them off and read them in tests: [hot-reload.md](hot-reload.md#runtime-perf-budgets).
 
 ## Primitives that avoid them
 

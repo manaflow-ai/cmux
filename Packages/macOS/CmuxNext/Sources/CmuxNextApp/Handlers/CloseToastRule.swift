@@ -9,8 +9,6 @@ struct CloseToastRule {
     enum Decision {
         case show
         case skip
-        /// Shows only if one of these live terminals runs a program.
-        case askTerminals([TabModel])
     }
 
     var titles: TabTitleResolver
@@ -24,7 +22,7 @@ struct CloseToastRule {
     init(services: AppServices) {
         titles = TabTitleResolver(services: services)
         let agentTabs = services.madeAgentTabs
-        hasUnsentDraft = { tab in agentTabs.map { $0.unsentDrafts.hasDraft($0.resolve(tab.id)) } ?? false }
+        hasUnsentDraft = { tab in agentTabs.map { $0.unsentDrafts.hasDraft($0.resolve(tab.id), machine: $0.daemonListing(tab)?.machineID) } ?? false }
     }
 
     /// The facts the rule reads of `tab`.
@@ -41,7 +39,6 @@ struct CloseToastRule {
         switch toast {
         case .show: return .show
         case .skip: return .skip
-        case .askTerminals(let indices): return .askTerminals(indices.filter(tabs.indices.contains).map { tabs[$0] })
         }
     }
 }

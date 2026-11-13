@@ -399,7 +399,8 @@ public final class AgentTurnStateStore {
     /// notification does: acpmux reads a turn that ends in a shown chat at once (cx-n8ou).
     @ObservationIgnored public var onTurnEnded: ((String) -> Void)?
     /// Also told when a session's running turn ends, with its folder (`cwd`, when known): the diff
-    /// viewer precomputes that repository's diff before anyone clicks (DiffPageRuntime+Warm.swift).
+    /// viewer precomputes that repository's diff once someone can see the chat, before anyone clicks
+    /// (DiffPageRuntime+Warm.swift; a chat nobody sees owes it until it shows, `AgentPaneOwedWork`).
     @ObservationIgnored public var turnEndedObservers: [(_ session: String, _ folder: String?) -> Void] = []
 
     public init() {}
@@ -529,6 +530,9 @@ public final class AgentTurnStateStore {
 
     /// The last message of the session an agent chat tab shows.
     public func lastMessage(for ref: AgentSessionRef) -> String? { local(ref)?.lastMessage }
+    /// The last message of `session` as any watch wrote it, this Mac's or an acpmux peer's chat (the
+    /// records are keyed by session id): the Chief pet's chat (Show in Mini) may run on a peer.
+    public func lastMessage(session: String) -> String? { sessions[session]?.lastMessage }
 
     /// The recent moments of the chat an agent chat tab shows (u3320); empty off this Mac.
     public func timeline(for ref: AgentSessionRef) -> AgentTimeline {

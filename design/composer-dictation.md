@@ -6,7 +6,12 @@ The composer's mic (`webviews/src/agent-session/acpmux/DictationButton.tsx`, `Di
 page covers the other case: the person already dictates with another app and pastes or types the
 result into the composer.
 
-## The ask (Leo 2026-11-07)
+## Current behavior (2026-11-13)
+
+The microphone button starts dictation only through an explicit action. cmux does not detect or
+meter another app's microphone use, including calls. The earlier request below is historical.
+
+## The original ask (Leo 2026-11-07)
 
 > "could you do a thing where it's like, you know, you can optionally have it be like, oh, you use
 > Claude's thing, or ChatGPT's thing, or like it detects Claude's thing or ChatGPT's thing if you
@@ -54,27 +59,6 @@ What follows from the table:
   events needs the Accessibility (post event) grant: `CGPreflightPostEventAccess()`, and
   `CGRequestPostEventAccess()` the first time.
 
-## Detecting the app and the microphone
-
-Nothing here opens the microphone; cmux never captures audio to detect anything.
-
-- **Installed and running:** `NSWorkspace.urlForApplication(withBundleIdentifier:)` for each
-  known bundle id above, and `NSWorkspace.runningApplications`. The list is fixed in the host, so
-  the page cannot ask whether an arbitrary app is installed (the same rule as
-  `AttachmentSourceIcons`).
-- **Microphone in use somewhere:** `kAudioDevicePropertyDeviceIsRunningSomewhere` on the default
-  input device, with `AudioObjectAddPropertyListenerBlock`; also listen to
-  `kAudioHardwarePropertyDefaultInputDevice` on the system object to follow a device change. A
-  read of a property, no TCC prompt.
-- **Which app holds it (macOS 14.2+):** `kAudioHardwarePropertyProcessObjectList`, then per process
-  `kAudioProcessPropertyIsRunningInput`, `kAudioProcessPropertyBundleID` and
-  `kAudioProcessPropertyPID`. Caveats: the list's listener can fire before IO starts (re-read once
-  shortly after); helpers hold the mic under their own ids (match by prefix, or map the pid with
-  `NSRunningApplication`); cmux's own process shows up and is filtered out. Before 14.2 the
-  indicator says only that the mic is in use.
-- **No level without capture.** CoreAudio says whether input runs, not how loud it is. The
-  indicator's motion is drawn, not measured: it must never claim to show the person's voice.
-
 ## What cmux builds
 
 ### 1. Dictation source (`agentPane.dictationSource`)
@@ -94,31 +78,14 @@ installed source as checked items above Hide Dictation Button (as the usage ring
 picks Context or Plan Usage), and Settings > Agent Chat has the same choice. The mic's tooltip
 names the source ("Dictate with ChatGPT").
 
-### 2. Outside dictation indicator
+### 2. Burst arrival
 
-While another app holds the microphone and a composer has focus, the composer shows a small live
-mark. Rules:
-
-- It never takes focus, never blocks typing, never moves or resizes the composer: it sits in the
-  slot the dictation strip uses beside the mic, absolutely placed, `pointer-events: none`.
-- It names the app when the host knows it (its icon, "ChatGPT is using the microphone") and is
-  silent about audio it does not hear: motion is a slow drawn pulse, not a level meter.
-- It goes away when the microphone is released. When the composer loses focus the host drops its
-  listener: no observer runs while no composer is focused, and none runs while the source is
-  `cmux` and the indicator is off.
-- cmux's own dictation keeps its own waveform; the indicator never shows for cmux's own session.
-
-Variants live in `webviews/src/agent-session/acpmux/OutsideDictation.gallery.tsx`.
-
-### 3. Burst arrival
-
-A burst paste that lands while (or shortly after) an outside app held the microphone is a normal
-paste. The composer's growth to fit it is the composer's own growth (chat-rendering owns it); this
+A burst paste from another app is a normal paste. The composer's growth to fit it is the composer's own growth (chat-rendering owns it); this
 work reuses it and adds no animation of its own.
 
 ## Out of scope
 
 - Reading another app's transcript (Accessibility scraping, the clipboard while it is not
   pasted). The words come to cmux only as the person's paste or the app's own typing.
-- Capturing audio to draw a level for an outside session.
+- Detecting or metering another app's microphone use. Only an explicit dictation action opens cmux's microphone.
 - Bundling or launching any third-party app.

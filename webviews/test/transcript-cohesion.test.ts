@@ -1,10 +1,15 @@
 // cmux-web-test-timeout: 480
 // l10n-allow-file: synthetic transcript assertions.
+//
+// The live-tools cases test the `runs` arm of live-turn-work, not the shipped `line` arm: the row over
+// the live line is a finished call of a turn that still runs, which only `runs` draws
+// (support/liveTurnRuns.ts). The other cases take the shipped arms.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { pinLiveTurnRuns } from "./support/liveTurnRuns";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("transcript-cohesion.test.ts", async () => {
@@ -77,6 +82,7 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
             const page = await context.newPage();
             try {
               const base = `http://127.0.0.1:${(vite.httpServer!.address() as { port: number }).port}`;
+              if (variant === "live-tools") await pinLiveTurnRuns(page);
               await page.goto(
                 base + galleryFrame(ENTRY, { variant, theme, density, interfaceScale, reducedMotion: "true" }),
                 {
@@ -106,6 +112,7 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
                 `transcript-live-gap ${phase} ${variant} ${label} ${density} ${interfaceScale}: ${JSON.stringify(measured)}`,
               );
               if (process.env.CMUX_COHESION_MEASURE_ONLY !== "1")
+                // The Codex transcript's run gap is 16px at scale 1 (transcriptGrid.ts TRANSCRIPT_RUN_GAP).
                 expect(measured.gap).toBeCloseTo(16 * interfaceScale, 1);
               expect(measured.wholeTurnFolds).toBe(0);
               if (process.env.FAST_CHECKS_OUT) {
@@ -221,12 +228,14 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
             });
             console.log(`transcript-cohesion ${variant} ${label}: ${JSON.stringify(measured)}`);
             if (process.env.CMUX_COHESION_MEASURE_ONLY !== "1") {
-              expect(measured.headerHeight).toBeCloseTo(22, 1);
-              // Worked for keeps a grid gap (8) under its line, open or closed (Codex parity;
-              // conversation.css `.cv-worked.has-divider.is-toggle`, model.ts WORKED_GAP_PT).
+              // Worked for's rule sits between its words and the next row, open or closed:
+              // 4 under its 22px line, 8 over the next row, and no stack gap after it (Codex parity,
+              // Lucas, 2026-11-07; conversation.css `.cv-worked.has-divider.is-toggle`, model.ts
+              // WORKED_GAP_PT, transcriptGrid.ts MARK_WORKED).
+              expect(measured.headerHeight).toBeCloseTo(22 + 4, 1);
               if (variant === "codex-closed") {
-                expect(measured.replyGap).toBeCloseTo(16 + 8, 1);
-                expect(Math.abs(measured.replyCenterGap - (38.375 + 8))).toBeLessThan(1);
+                expect(measured.replyGap).toBeCloseTo(8, 1);
+                expect(Math.abs(measured.replyCenterGap - 34.375)).toBeLessThan(1);
               } else expect(measured.nextGap).toBeCloseTo(8, 1);
             }
           }

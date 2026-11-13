@@ -9,9 +9,8 @@ import Testing
 typealias ZoomStripID = CmuxNextTabs.TabID
 
 /// #25624, cmux classic's pane zoom: double-clicking a tab zooms its pane to fill the workspace
-/// (Toggle Pane Zoom, Cmd-Shift-Return's action) and again restores the layout; while the pane is
-/// zoomed its selected tab shows the zoom indicator, whose click restores the layout. The indicator
-/// is inside the tab, so a zoom never narrows the strip and no tab moves.
+/// (Toggle Pane Zoom, Cmd-Shift-Return's action) and again restores the layout. The zoom indicator is
+/// the pane's, at its top-right (PaneZoomIndicatorTests): a zoom never narrows the strip and no tab moves.
 @MainActor @Suite(.serialized, .closesItsWindows) struct TabDoubleClickZoomTests {
     final class StripHarness {
         let model: TabStripModel
@@ -61,14 +60,6 @@ typealias ZoomStripID = CmuxNextTabs.TabID
             model.zoomsSelected = zoomed
             strip.syncFromModel()
             strip.layoutSubtreeIfNeeded()
-        }
-
-        /// Tab `id`'s zoom indicator, in window coordinates.
-        func zoomButton(_ id: ZoomStripID) throws -> CGPoint {
-            let cell = try #require(strip.cells[id])
-            let rect = try #require(cell.zoomButtonRect)
-            let point = CGPoint(x: cell.frame.minX + rect.midX, y: cell.frame.minY + rect.midY)
-            return strip.convert(strip.convert(point, from: strip.tabsClip), to: nil)
         }
 
         var zooms: [ZoomStripID] { intents.compactMap { if case .toggleZoom(let id) = $0 { id } else { nil } } }
@@ -129,136 +120,7 @@ typealias ZoomStripID = CmuxNextTabs.TabID
         #expect(invocation.origin == .user)
     }
 
-    // MARK: The indicator on the selected tab
-
-    /// Zoomed: the selected tab, and only it, shows the indicator; it follows the selection and goes
-    /// with the zoom.
-    @Test func theSelectedTabOfAZoomedPaneShowsTheIndicator() throws {
-        let harness = StripHarness()
-        defer { harness.tearDown() }
-        let cells = harness.strip.cells
-        #expect(cells.values.allSatisfy { $0.zoomButtonRect == nil }, "no indicator while the pane is not zoomed")
-
-        harness.setZoomed(true)
-        #expect(cells[ZoomStripID("tab0")]?.zoomButtonRect != nil, "the selected tab shows the zoom indicator")
-        #expect(cells[ZoomStripID("tab1")]?.zoomButtonRect == nil)
-        #expect(cells[ZoomStripID("tab2")]?.zoomButtonRect == nil)
-
-        harness.model.selectedID = ZoomStripID("tab2")
-        harness.strip.syncFromModel()
-        harness.strip.layoutSubtreeIfNeeded()
-        #expect(cells[ZoomStripID("tab0")]?.zoomButtonRect == nil)
-        #expect(cells[ZoomStripID("tab2")]?.zoomButtonRect != nil, "the indicator follows the selection")
-
-        harness.setZoomed(false)
-        #expect(cells.values.allSatisfy { $0.zoomButtonRect == nil }, "the indicator goes with the zoom")
-    }
-
-    /// A click on the indicator asks once to toggle the zoom (the App restores the layout); it
-    /// neither selects again nor starts a drag.
-    @Test func clickingTheIndicatorRestoresTheLayout() throws {
-        let harness = StripHarness()
-        defer { harness.tearDown() }
-        harness.setZoomed(true)
-        let tab = ZoomStripID("tab0")
-        harness.click(try harness.zoomButton(tab))
-        #expect(harness.zooms == [tab], "\(harness.intents)")
-        #expect(!harness.intents.contains(.select(tab)))
-    }
-
-    /// A double-click on the indicator is one restore: its second press toggles nothing again.
-    @Test func doubleClickingTheIndicatorRestoresOnce() throws {
-        let harness = StripHarness()
-        defer { harness.tearDown() }
-        harness.setZoomed(true)
-        let tab = ZoomStripID("tab0")
-        harness.doubleClick(try harness.zoomButton(tab))
-        #expect(harness.zooms == [tab], "\(harness.intents)")
-    }
-
-    /// The real double-click: the first click restores the layout, the indicator goes, and the second
-    /// press lands on the tab's title there. It toggles nothing again.
-    @Test func theSecondPressAfterTheIndicatorLeftRestoresNothing() throws {
-        let harness = StripHarness()
-        defer { harness.tearDown() }
-        harness.setZoomed(true)
-        let tab = ZoomStripID("tab0")
-        let point = try harness.zoomButton(tab)
-        harness.click(point)
-        harness.setZoomed(false)
-        harness.click(point, clickCount: 2)
-        #expect(harness.zooms == [tab], "\(harness.intents)")
-    }
-
-    /// Restoring removes the zoom badge and moves the speaker into its old slot. The rest of
-    /// that click sequence must not mute it; a new single click on the speaker still can.
-    @Test(arguments: [TabAudio.playing, .muted])
-    func repeatedExitZoomClicksDoNotMuteTheSpeaker(_ audio: TabAudio) throws {
-        let harness = StripHarness()
-        defer { harness.tearDown() }
-        let tab = ZoomStripID("tab0")
-        harness.model.tabs[0].audio = audio
-        harness.strip.sync(fromModel: true, animating: false)
-        harness.setZoomed(true)
-        // A real pointer enters the tab before pressing its badge; reveal the close button
-        // before measuring, so its appearance cannot move the trailing controls on release.
-        TabStripDebug.pointerMoved(in: harness.strip, to: harness.strip.convert(try harness.body(tab), from: nil))
-        let point = try harness.zoomButton(tab)
-        harness.click(point)
-        harness.setZoomed(false)
-        try #require(harness.strip.isInAudioButton(tab, harness.strip.convert(point, from: nil)),
-                     "the speaker now occupies the old zoom badge position")
-        harness.click(point, clickCount: 2)
-        harness.click(point, clickCount: 3)
-        #expect(harness.intents == [.toggleZoom(tab)], "\(harness.intents)")
-
-        harness.click(point)
-        #expect(harness.intents.last == .toggleAudioMute(tab), "a fresh click still mutes or unmutes")
-    }
-
-    /// A triple-click: the double-click zooms, the indicator appears under the pointer, and the
-    /// third press on it restores nothing.
-    @Test func aTripleClicksThirdPressOnTheIndicatorRestoresNothing() throws {
-        let harness = StripHarness()
-        defer { harness.tearDown() }
-        let tab = ZoomStripID("tab0")
-        harness.setZoomed(true)
-        let point = try harness.zoomButton(tab)
-        harness.setZoomed(false)
-        harness.click(point)
-        harness.click(point, clickCount: 2)
-        let before = harness.zooms
-        harness.setZoomed(true)
-        harness.click(point, clickCount: 3)
-        #expect(harness.zooms == before, "\(harness.intents)")
-    }
-
-    /// Closing the selected tab while zoomed: the new selection shows the indicator (a full sync).
-    @Test func theIndicatorMovesToTheNextSelectionWhenTheSelectedTabCloses() throws {
-        let harness = StripHarness()
-        defer { harness.tearDown() }
-        harness.setZoomed(true)
-        harness.model.tabs.removeAll { $0.id == ZoomStripID("tab0") }
-        harness.model.selectedID = ZoomStripID("tab1")
-        harness.strip.sync(fromModel: true, animating: false)
-        harness.strip.layoutSubtreeIfNeeded()
-        #expect(harness.strip.cells[ZoomStripID("tab1")]?.zoomButtonRect != nil)
-        #expect(harness.strip.cells[ZoomStripID("tab2")]?.zoomButtonRect == nil)
-    }
-
-    /// A selection-only sync that keeps the selected tab (a multi-selection change) keeps its
-    /// indicator's layers, so a hover or press on it survives.
-    @Test func aMultiSelectionChangeKeepsTheIndicator() throws {
-        let harness = StripHarness()
-        defer { harness.tearDown() }
-        harness.setZoomed(true)
-        let tab = ZoomStripID("tab0")
-        let layer = try #require(harness.strip.cells[tab]?.zoomLayer)
-        let order = harness.model.tabs.map(\.id)
-        _ = harness.model.multiSelection.click(ZoomStripID("tab1"), .toggle, order: order, active: tab)
-        harness.strip.syncFromModel()
-        #expect(harness.strip.cells[tab]?.zoomLayer === layer)
-    }
+    // MARK: The zoomed state on the selected tab (the indicator is the pane's: PaneZoomIndicatorTests)
 
     /// VoiceOver: a zoomed pane's selected tab says so and offers Exit Zoom, which toggles the zoom.
     @Test func voiceOverReadsAndExitsTheZoom() throws {
@@ -319,7 +181,7 @@ typealias ZoomStripID = CmuxNextTabs.TabID
         #expect(toolbar.view.reservedCount == 1)
 
         toolbar.update(target: "tab0", kind: .terminal, zoomed: true, paneKinds: [.terminal])
-        #expect(toolbar.view.buttons.isEmpty, "the indicator is on the tab, not a toolbar button")
+        #expect(toolbar.view.buttons.isEmpty, "the indicator is the pane's, not a toolbar button")
         #expect(toolbar.view.reservedCount == 1)
         #expect(toolbar.view.intrinsicContentSize.width == width, "the strip keeps its width")
         #expect(toolbar.view.lit)

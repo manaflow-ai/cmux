@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Fleet entry for fork-open-bench.py: Fork Conversation to a usable fork (pane made, first content,
-# focused composer showing the fork) for a split right, a new tab and a new workspace, on a small and a
+# focused composer showing the fork) for every Fork To destination, on a small and a
 # big chat, with each fork checked to open exactly one pane in the right place (Leo, 2026-11-06: "just
 # the fork does what you'd expect ... just make it fast and make it work well"). Builds a tagged
 # cmux-next app at this checkout (bench configuration: Release optimization with the debug.* control

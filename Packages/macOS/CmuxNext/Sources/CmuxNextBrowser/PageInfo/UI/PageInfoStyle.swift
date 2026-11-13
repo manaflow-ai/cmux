@@ -15,23 +15,18 @@ enum PageInfoStyle {
     static var iconSize: CGFloat { Metrics.iconSize }
     static var iconColumn: CGFloat { Metrics.iconSize + Metrics.panelInset * 2 }
     static var cornerRadius: CGFloat { PopupStyle.standard.cornerRadius }
-    static var itemCornerRadius: CGFloat { Metrics.itemCornerRadius }
+    static var buttonCornerRadius: CGFloat { Metrics.buttonCornerRadius }
     static var spacing: CGFloat { Metrics.panelInset }
-    static var shadowMargin: CGFloat { PopupStyle.standard.shadowMargin }
     static var toggleSize: CGSize { Metrics.density == .compact ? CGSize(width: 28, height: 16) : CGSize(width: 32, height: 18) }
 
     static var titleFont: NSFont { Typography.bodyEmphasized }
-    static var bodyFont: NSFont { Typography.body }
     static var captionFont: NSFont { Typography.caption }
-    static var headerFont: NSFont { Typography.header }
 
     static var background: NSColor { Palette.elevatedBackground } // theme-scoped
     static var text: NSColor { Palette.textPrimary } // theme-scoped
     static var secondaryText: NSColor { Palette.textSecondary } // theme-scoped
-    static var tertiaryText: NSColor { Palette.textTertiary } // theme-scoped
     static var hover: NSColor { Palette.hoverFill } // theme-scoped
     static var pressed: NSColor { Palette.pressedFill } // theme-scoped
-    static var separator: NSColor { Palette.separator } // theme-scoped
     static var focusRing: NSColor { Palette.focusRing } // theme-scoped
     static var danger: NSColor { Palette.danger } // theme-scoped
 

@@ -5,7 +5,7 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Markdown } from "./Markdown";
-import { timestampHoverLabel } from "./timeHover";
+import { timestampHoverLabel } from "./timeHoverModel";
 
 // Local-zone rows read in the person's zone; this one is on standard time on 2026-11-07.
 process.env.TZ = "America/Los_Angeles";
@@ -112,7 +112,8 @@ test("a time exactly 12 hours away reads as the earlier one", () => {
 
 test("bare numbers that are not clock times stay plain", () => {
   const sent = at("2026-11-07T08:21:00Z");
-  for (const text of ["a 16:9 screen", "the 23:55 meeting", "score 24:17", "I am 5", "2 PMs joined", "at 16:9 ratio"]) {
+  // "the 23:55 meeting" is a time now (bareClockDetect.test.tsx): a clock time hovers anywhere in prose.
+  for (const text of ["a 16:9 screen", "score 24:17", "I am 5", "2 PMs joined", "at 16:9 ratio"]) {
     expect(dateTimes(text, sent)).toEqual([]);
   }
 });
@@ -121,18 +122,18 @@ const sent = at("2026-11-07T08:21:00Z");
 const ahead = at("2026-11-07T08:36:00Z");
 
 test("a time still ahead of now says how long until it", () => {
-  expect(timestampHoverLabel(ahead, sent, "en", sent)).toBe("12:36 AM PST, in 15 min");
-  expect(timestampHoverLabel(at("2026-11-07T11:21:00Z"), sent, "en", sent)).toBe("3:21 AM PST, in 3 hr");
+  expect(timestampHoverLabel(ahead, sent, "en", sent)).toBe("Nov 7, 12:36 AM PST, in 15 min");
+  expect(timestampHoverLabel(at("2026-11-07T11:21:00Z"), sent, "en", sent)).toBe("Nov 7, 3:21 AM PST, in 3 hr");
 });
 
 test("a time after its message, read once it has passed, says how long after the message", () => {
   expect(timestampHoverLabel(ahead, at("2026-11-07T12:00:00Z"), "en", sent)).toBe(
-    "12:36 AM PST, 15 min after this message",
+    "Nov 7, 12:36 AM PST, 15 min after this message",
   );
 });
 
 test("a time before its message still says how long ago", () => {
   expect(timestampHoverLabel(at("2026-11-07T08:06:00Z"), at("2026-11-07T08:21:00Z"), "en", sent)).toBe(
-    "12:06 AM PST, 15 min ago",
+    "Nov 7, 12:06 AM PST, 15 min ago",
   );
 });

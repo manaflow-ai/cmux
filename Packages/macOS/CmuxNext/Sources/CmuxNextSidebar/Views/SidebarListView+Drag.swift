@@ -19,25 +19,19 @@ extension SidebarListViewComponents {
         var standing: WorkspaceID?
         if let header = pressed.standingHeader, case let .workspace(id) = press.key,
            !(model.selection.contains(id) && model.selection.count > 1 && press.switchedOnPress == nil) {
-            if let before = press.switchedOnPress {
-                if let shown = before.shown, shown != model.activeWorkspaceID { model.click(shown) }
-                model.selection = before.selection
-                if !patchSelection(from: .workspace(id), oldSelection: [id]) { reload(animated: false) }
-            }
             key = header.key
             standing = id
         }
         switch key {
         case let .workspace(id):
-            guard !model.isPlaceholder(id) else { return }
+            // A creating row drags alone (it is never selected); a placeholder bar never drags.
+            guard !model.isPlaceholder(id) || model.isCreating(id) else { return }
             let ids = model.selection.contains(id) && press.switchedOnPress == nil ? model.orderedSelection : [id]
-            // A plain press's drag moves the row and leaves the shown workspace (and the selection) as it was
-            // before the press: a press that switched on mouse-down switches back.
-            if let before = press.switchedOnPress {
-                if let shown = before.shown, shown != model.activeWorkspaceID { model.click(shown) }
-                model.selection = before.selection
-                if !patchSelection(from: .workspace(id), oldSelection: [id]) { reload(animated: false) }
-            } else if !model.selection.contains(id), press.clickOnRelease != id { model.click(id) }
+            // A plain press's drag keeps the switch its press made: the dragged workspace stays shown and selected,
+            // as a tab drag in Chrome and Edge does (Leo 2026-11-08: "The second you click, it focuses. So we might
+            // as well make the thing be better"). Putting the old workspace back as the row lifted switched twice
+            // in one gesture, the "really weird shifting of focus".
+            if press.switchedOnPress == nil, !model.selection.contains(id), press.clickOnRelease != id { model.click(id) }
             payload = .workspaces(ids)
             hidden = Set(ids.map(SidebarRowKey.workspace))
             origin = ids.first.flatMap { SidebarEdits.position(of: $0, in: model.sections) }.map(DropTarget.position)
@@ -64,9 +58,21 @@ extension SidebarListViewComponents {
         }
         // A group lifts as one block: its header and the member rows under it (cx-bp40).
         let rows = SidebarListLift.rows(self, for: key, hidden: hidden)
-        guard let rowFrame = SidebarListLift.blockFrame(self, rows), let content = SidebarListLift.content(self, rows, in: rowFrame) else { return }
-        let count: Int
-        if case let .workspaces(ids) = payload { count = ids.count } else { count = 1 }
+        let rowFrame: NSRect, content: NSView, count: Int, head: CGFloat?
+        var stacked = false
+        if case let .workspaces(ids) = payload, let stack = SidebarListLift.stack(self, ids: ids, pressed: key) {
+            // A selection lifts as the stack it drops as, as in a browser's vertical tabs: every row on the card, the gap its
+            // height. The count badge and stacked backs stay only for rows the card cannot show.
+            // Its drops resolve against the whole card, as a one-row card's do against its one-row gap: cut to its
+            // first row, the probe would stay inside the gap until the stack had moved its whole height.
+            (rowFrame, content, head) = (stack.frame, stack.content, nil)
+            count = stack.shown < ids.count ? ids.count : 1
+            stacked = true
+        } else {
+            guard let frame = SidebarListLift.blockFrame(self, rows), let block = SidebarListLift.content(self, rows, in: frame) else { return }
+            (rowFrame, content, head) = (frame, block, rows.first?.height)
+            if case let .workspaces(ids) = payload { count = ids.count } else { count = 1 }
+        }
         let lift = SidebarReorderLift.lift(content, count: count, frame: rowFrame, in: self)
         let drag = Drag(
             payload: payload,
@@ -74,7 +80,7 @@ extension SidebarListViewComponents {
             hiddenKeys: hidden,
             grabOffsetY: press.point.y - rowFrame.minY,
             gapHeight: rowFrame.height,
-            lift: lift, head: rows.first?.height,
+            lift: lift, head: head,
             target: origin
         )
         drag.grabOffsetX = press.point.x - rowFrame.minX
@@ -85,7 +91,7 @@ extension SidebarListViewComponents {
         let stepIn = max(0, rowFrame.minX - inset)
         drag.restFrame.origin.x -= stepIn
         drag.restFrame.size.width += stepIn
-        drag.morphs = rows.count == 1
+        drag.morphs = rows.count == 1 && !stacked // a stack keeps its shape, as a group's block does
         self.drag = drag
         // The document's acceptance table: the drag's one reducer call before its drop.
         if let doc = model.docDrag, let items = doc.items(payload) {
@@ -97,8 +103,10 @@ extension SidebarListViewComponents {
         suppressed.formUnion(hidden)
         setHovered(nil)
         for key in hidden { rowViews[key]?.alphaValue = 0 }
+        SidebarEmptyZones.keepPinned(self, drag)
         // The source slot closes on the drag's spring; the list does not reload while the drag is held.
         showDragLayout()
+        SidebarEmptyZones.begin(self, drag)
     }
     func updateDrag(windowPoint: NSPoint) {
         guard let drag else { return }
@@ -119,6 +127,7 @@ extension SidebarListViewComponents {
             drag.movingUp = point.y < drag.lastY
             drag.lastY = point.y
         }
+        SidebarEmptyZones.update(self, drag, at: point)
         if drag.group != nil { return updateGroupDrag(drag) }
         if drag.docItems != nil { return updateDocDrag(drag, point: point) }
         let (base, rules) = dragBase(drag)
@@ -131,16 +140,25 @@ extension SidebarListViewComponents {
     }
     /// The drag's base layout (no gap) and its drop rules in the Rust reducer, made again only when the rows or their
     /// look change: a move builds no options, lays out nothing and crosses into Rust with the card's points only, so its
-    /// cost does not grow with the rows the list holds (`SidebarDragMoveCostTests`, `SidebarDragFullMoveCostTests`). The rows are the held ones as shown (`SidebarRowHold`).
+    /// cost does not grow with the rows the list holds (`SidebarDragMoveCostTests`, `SidebarDragFullMoveCostTests`).
     func dragBase(_ drag: Drag) -> (layout: SidebarLayout, rules: DropResolver.DragRules?) {
-        let key = SidebarDragBaseKey(content: model.contentRevision, reloads: reloads, width: bounds.width, metrics: metrics,
-                                     ungroupedFirst: model.ungroupedFirst)
+        let key = dragBaseKey(drag)
         if let base = drag.base, base.key == key { return (base.layout, base.rules) }
         let sections = listSections
-        let layout = SidebarLayout.make(sections: sections, metrics: metrics, options: options(includeGap: false))
+        let o = options(includeGap: false)
+        let layout = SidebarLayout.make(sections: sections, metrics: metrics, options: o)
         let rules = DropResolver.DragRules(payload: drag.payload, base: layout, sections: sections, ungroupedFirst: model.ungroupedFirst)
-        drag.base = (key, layout, rules)
+        var look: SidebarDragLook?
+        if case let .workspaces(ids) = drag.payload {
+            look = SidebarDragLook(base: layout, sections: sections, options: SidebarDragLook.shown(o, leaving: leaving), moving: ids)
+        }
+        drag.base = (key, layout, rules, look)
         return (layout, rules)
+    }
+    /// What the drag's base is made from now: while it equals the base's key, the base and its look hold.
+    func dragBaseKey(_ drag: Drag) -> SidebarDragBaseKey {
+        SidebarDragBaseKey(content: model.contentRevision, reloads: reloads, width: bounds.width, metrics: metrics,
+                           ungroupedFirst: model.ungroupedFirst, openZone: drag.openZone)
     }
     func finishDrag(at windowPoint: NSPoint? = nil) {
         guard let drag else { return }
@@ -158,7 +176,7 @@ extension SidebarListViewComponents {
             settling = SidebarSettlingDrop(drag: drag, revision: model.sectionsRevision, blocks: blocks)
             self.drag = nil
             // A drop is no focus change (hq-2d, cx-8quut): the reloads that show it anchor, and scroll only when the
-            // focused row moved or was pushed out of view (sidebar-focused-visible, `ListViewport.settle`).
+            // focused row moved or was pushed out of view (sidebar-focused-visible, `ListViewportChange.settle`).
             revealedActive = selectionRevealKey
             let sentBefore = doc.document?.lastIntentKey
             doc.drop(items, target)
@@ -368,8 +386,6 @@ extension SidebarListViewComponents {
             groupLineViews.showMissing(groupLines(displayed), in: self, above: decorations)
         }
         updateHover()
-        // The rows the ticks patched meanwhile show their new content now, together (`SidebarRowHold`).
-        releaseRowHold()
         if let anchor = drag.renameOnLand { inlineRename.beginGroup(of: anchor) }
     }
 
@@ -505,10 +521,14 @@ extension SidebarListViewComponents {
         displayed = layout
         spliceBase = nil // the drag's look is no full layout of the model
         updateDocumentHeight()
+        // A header stuck over the dragged rows stays stuck over the drag's look.
+        let wasStuck = stuckHeader
+        stuckHeader = findStuckHeader(in: layout)
+        defer { endStuckPass(from: wasStuck) }
         let realize = realizationRect()
         for i in dragLookRows(layout, realize: realize) {
             let row = layout.rows[i]
-            let target = frame(for: row)
+            let target = drawnFrame(for: row)
             guard let view = rowViews[row.key] else {
                 // A row the look adds (an empty Pinned that takes the drop) fades in at its slot.
                 guard target.intersects(realize) else { continue }

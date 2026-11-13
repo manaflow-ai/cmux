@@ -3,16 +3,22 @@
 // it waits. Once answered it left nothing in the chat: the card went, and so did what the person
 // chose. Codex and Claude Code keep a compact record where the question was asked. The transcript
 // now keeps one, a compact card: the question with "OAuth 2.0" in grey under it for an answer,
-// "Skipped" for a question declined and "Stopped before an answer" for one the turn's stop cancelled. It comes from acpmux's own log
+// "Stopped before an answer" for one the turn's stop cancelled. Skipped receipts stay hidden while
+// the original question tool remains in the turn's work. Records come from acpmux's own log
 // (`permission_request`, then its `permission_decision`), so a reload shows it as before, and it
 // stays out of the turn's
 // "Worked for" fold. The page is the pane's dev entry with its browser host, talking JSON-RPC to
 // a stand-in acpmux daemon that can push live events.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
+//
+// The answered-live case tests the `runs` arm of live-turn-work, not the shipped `line` arm (`open` with
+// `liveRuns`): the read under the record is a finished call of a turn that still runs, which only `runs`
+// draws (support/liveTurnRuns.ts). The other cases take the shipped arms.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { pinLiveTurnRuns } from "./support/liveTurnRuns";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -33,6 +39,10 @@ await requireBrowserLane("agent-pane-question-records.test.ts", async () => {
   const DECLINED = "0190a000-0000-7000-8000-0000000000d3";
   const LIVE = "0190a000-0000-7000-8000-0000000000d4";
   const LAG = "0190a000-0000-7000-8000-0000000000d5";
+  const IN_CHAT = "0190a000-0000-7000-8000-0000000000d6";
+  const TYPED = "0190a000-0000-7000-8000-0000000000d7";
+  const TWO = "0190a000-0000-7000-8000-0000000000d8";
+  const STEERED = "0190a000-0000-7000-8000-0000000000d9";
   const START = Date.now() - 90_000;
   const PROMPT = "Which auth method should the API use?";
   const update = (update: Record<string, unknown>) => ({
@@ -57,6 +67,17 @@ await requireBrowserLane("agent-pane-question-records.test.ts", async () => {
     status: "pending",
     rawInput,
     _meta: { claude: { tool: "AskUserQuestion", interactive: true } },
+  };
+  const SECOND = "Ship it behind the setting?";
+  const secondCall = {
+    ...toolCall,
+    toolCallId: "toolu_ask_2",
+    title: `Question: ${SECOND}`,
+    rawInput: {
+      questions: [
+        { question: SECOND, header: "Check-in", multiSelect: false, options: [{ label: "Yes" }, { label: "No" }] },
+      ],
+    },
   };
   const asked: Step[] = [
     ["mux", "user_message", { text: "Add auth to the API" }],
@@ -115,6 +136,49 @@ await requireBrowserLane("agent-pane-question-records.test.ts", async () => {
       ...ended("I'll pick one myself.", "completed"),
     ]),
     [LIVE]: log(LIVE, asked),
+    [TYPED]: log(TYPED, asked),
+    // Two asks at once (subagents side by side): the card shows the first, the hat steps to both.
+    [TWO]: log(TWO, [
+      ...asked,
+      ["in", "tool_call", update({ sessionUpdate: "tool_call", ...secondCall })],
+      [
+        "mux",
+        "permission_request",
+        {
+          permissionId: "perm-two",
+          request: { sessionId: "agent-1", toolCall: secondCall, options: (asked[3]![2] as any).request.options },
+        },
+      ],
+    ]),
+    // Two asks wait and the person steers a reply in: it answers the card's question, the first; the
+    // second, skipped later, leaves no receipt card.
+    [STEERED]: log(STEERED, [
+      ...asked,
+      ["in", "tool_call", update({ sessionUpdate: "tool_call", ...secondCall })],
+      [
+        "mux",
+        "permission_request",
+        {
+          permissionId: "perm-two",
+          request: { sessionId: "agent-1", toolCall: secondCall, options: (asked[3]![2] as any).request.options },
+        },
+      ],
+      ["mux", "user_message", { text: "Passkeys, and keep API keys for the CLI", steer: true }],
+      decision({ outcome: "selected", optionId: "reject_once" }),
+      [
+        "mux",
+        "permission_decision",
+        { permissionId: "perm-two", outcome: { outcome: "selected", optionId: "reject_once" } },
+      ],
+      ...ended("Passkeys it is; I'll leave the setting alone.", "completed"),
+    ]),
+    // The person typed a reply instead of picking: the composer declined the question, then sent it.
+    [IN_CHAT]: log(IN_CHAT, [
+      ...asked,
+      decision({ outcome: "selected", optionId: "reject_once" }),
+      ["mux", "user_message", { text: "Passkeys, and keep API keys for the CLI", steer: true }],
+      ...ended("Passkeys it is, with API keys for the CLI.", "completed"),
+    ]),
     // The ask, its answer and the reply's first words reach the pane only through a resync.
     [LAG]: log(LAG, asked.slice(0, 3)),
   };
@@ -130,12 +194,32 @@ await requireBrowserLane("agent-pane-question-records.test.ts", async () => {
     title: "Auth",
     harness: "claude",
     family: "claude",
-    status: sessionId === LIVE || sessionId === LAG ? "waiting" : "idle",
+    status: [LIVE, LAG, TYPED, TWO].includes(sessionId) ? "waiting" : "idle",
     turnCount: 1,
     updatedAt: START,
   });
 
+  /// What the pane asked of acpmux, in order: the hat's answers and the composer's sends.
+  const calls: { method: string; params: Record<string, any> }[] = [];
+  let heard: (() => void) | undefined;
+  /// Resolves once a call names `method` (fails after 10 s).
+  const called = (method: string) =>
+    new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`no ${method}`)), 10_000);
+      const check = () => {
+        if (!calls.some((call) => call.method === method)) return;
+        clearTimeout(timer);
+        heard = undefined;
+        resolve();
+      };
+      heard = check;
+      check();
+    });
   function reply(method: string, params: Record<string, any> = {}): unknown {
+    if (method === "_acpmux/permission_respond" || method === "session/prompt") {
+      calls.push({ method, params });
+      heard?.();
+    }
     switch (method) {
       case "initialize":
         return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
@@ -168,9 +252,11 @@ await requireBrowserLane("agent-pane-question-records.test.ts", async () => {
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     return `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${session}`;
   };
-  const open = async (session: string, shown: string) => {
+  /// `liveRuns`: the `runs` arm of live-turn-work, for a test of a finished call of the running turn.
+  const open = async (session: string, shown: string, liveRuns = false) => {
     sockets.clear();
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    if (liveRuns) await pinLiveTurnRuns(page);
     await page.goto(url(session));
     await page.getByText(shown).first().waitFor({ timeout: 25_000 });
     return page;
@@ -232,19 +318,73 @@ await requireBrowserLane("agent-pane-question-records.test.ts", async () => {
     await page.close();
   });
 
-  test("a question the turn stopped or the person skipped says so", async () => {
+  test("a stopped question keeps its receipt while a skipped question leaves none", async () => {
     const cancelled = await open(CANCELLED, "Stopped.");
     await cancelled.locator(".acpmux-question-cancelled").first().waitFor({ timeout: 5_000 });
     expect(await records(cancelled)).toEqual([`${PROMPT} Stopped before an answer`]);
     await cancelled.close();
     const declined = await open(DECLINED, "I'll pick one myself.");
-    await declined.locator(".acpmux-question-cancelled").first().waitFor({ timeout: 5_000 });
-    expect(await records(declined)).toEqual([`${PROMPT} Skipped`]);
+    expect(await records(declined)).toEqual([]);
     await declined.close();
   });
 
+  // Leo, 2026-11-07: "what happens if they respond to it in another way, right?"
+  test("a question the person answered by typing a reply says so", async () => {
+    const page = await open(IN_CHAT, "Passkeys it is");
+    await page.locator(".acpmux-question-cancelled").first().waitFor({ timeout: 5_000 });
+    expect(await records(page)).toEqual([`${PROMPT} Answered in chat`]);
+    await page.close();
+  });
+
+  test("one typed reply answers one question while a second skipped receipt stays hidden", async () => {
+    const page = await open(STEERED, "Passkeys it is");
+    await page.locator(".acpmux-question-cancelled").first().waitFor({ timeout: 5_000 });
+    expect(await records(page)).toEqual([`${PROMPT} Answered in chat`]);
+    await page.close();
+  });
+
+  // The composer hat (question/HatQuestions.tsx) relevance fade: a reply typed while the question
+  // waits declines it first, so the agent reads the reply rather than waiting on it.
+  test("a typed reply declines the waiting question before it goes", async () => {
+    const page = await open(TYPED, "Add auth to the API");
+    await page.getByRole("radio", { name: /OAuth 2\.0/ }).waitFor({ timeout: 5_000 });
+    // One question, on its card: no band over the composer asks it a second time.
+    expect(await page.locator(".acpmux-hat-questions__body").count()).toBe(0);
+    calls.length = 0;
+    await page.locator(".acpmux-composer .ProseMirror").first().click();
+    await page.keyboard.type("Passkeys, and keep API keys for the CLI");
+    await page.keyboard.press("Enter");
+    await called("session/prompt");
+    expect(calls.map((call) => call.method)).toEqual(["_acpmux/permission_respond", "session/prompt"]);
+    expect(calls[0]!.params).toMatchObject({ permissionId: "perm-ask", optionId: "reject_once" });
+    expect(calls[0]!.params.answers).toBeUndefined();
+    await page.close();
+  });
+
+  // Leo, 2026-11-07: "click left and right through things and be able to answer things as they come".
+  test("with two asks waiting, the hat steps to the second and a click answers it", async () => {
+    const page = await open(TWO, "Add auth to the API");
+    const hat = page.locator(".acpmux-hat-questions");
+    await hat.locator(".acpmux-hat-questions__position").waitFor({ timeout: 5_000 });
+    expect((await hat.locator(".acpmux-hat-questions__position").innerText()).trim()).toBe("1 of 2");
+    // The first is the card's: the hat points to it.
+    expect(await hat.locator(".acpmux-hat-questions__prompt").innerText()).toBe(PROMPT);
+    await hat.getByRole("button", { name: "Answer Below" }).waitFor({ timeout: 5_000 });
+    await hat.getByRole("button", { name: "Next Question" }).click();
+    await hat.getByText(SECOND).waitFor({ timeout: 5_000 });
+    calls.length = 0;
+    await hat.locator(".acpmux-hat-questions__answer", { hasText: "Yes" }).click();
+    await called("_acpmux/permission_respond");
+    expect(calls[0]!.params).toMatchObject({
+      permissionId: "perm-two",
+      optionId: "allow_once",
+      answers: { [SECOND]: "Yes" },
+    });
+    await page.close();
+  });
+
   test("answered live, the card goes and the record takes its place", async () => {
-    const page = await open(LIVE, "Add auth to the API");
+    const page = await open(LIVE, "Add auth to the API", true);
     await page.getByRole("radio", { name: /OAuth 2\.0/ }).waitFor({ timeout: 5_000 });
     expect(await records(page)).toEqual([]);
     push(answer);

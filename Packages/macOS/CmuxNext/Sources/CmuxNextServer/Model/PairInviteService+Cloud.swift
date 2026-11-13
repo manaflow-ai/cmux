@@ -120,16 +120,6 @@ extension PairInviteService {
     nonisolated static let expirySlack: TimeInterval = 15
 }
 
-extension PairInviteCardPanel {
-    /// The previews' and tests' card: the mock invite over the mock server's preview.
-    @MainActor
-    public static func mock() -> PairInviteCardPanel {
-        let approver = ServerModel(source: MockServerSource(scenario: .healthyMac))
-        approver.start()
-        return PairInviteCardPanel(model: PairInviteModel(service: .mock(), approver: approver))
-    }
-}
-
 /// A server source with no local server behind it: a cloud-only approver (the invite card's: preview
 /// and approve go to the cloud) wraps it, so it answers nothing.
 @MainActor

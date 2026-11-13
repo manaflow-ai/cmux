@@ -2431,6 +2431,73 @@
    "op": "nope",
    "request": {},
    "code": -3
+  },
+  {
+   "name": "upload: a u64::MAX original plans as one piece, no chunk list",
+   "op": "upload_plan",
+   "shape": "plan",
+   "request": {
+    "attachment": {
+     "byte_count": 18446744073709551615
+    }
+   },
+   "expect": {
+    "total": 18446744073709551615,
+    "chunk_bytes": 4194304,
+    "pieces": [
+     {
+      "variant": "original",
+      "size": 18446744073709551615,
+      "sent_before": 0,
+      "chunk_count": 4398046511104
+     }
+    ]
+   },
+   "source": "constant-memory plan (review follow-up on #37396)"
+  },
+  {
+   "name": "upload: the last chunk of a u64::MAX original, on demand",
+   "op": "upload_chunk",
+   "request": {
+    "size": 18446744073709551615,
+    "sent_before": 0,
+    "total": 18446744073709551615,
+    "index": 4398046511103
+   },
+   "expect": {
+    "offset": 18446744073705357312,
+    "length": 4194303,
+    "progress": 0.99
+   },
+   "source": "constant-memory plan (review follow-up on #37396)"
+  },
+  {
+   "name": "upload: a chunk past the last is invalid",
+   "op": "upload_chunk",
+   "request": {
+    "size": 18446744073709551615,
+    "sent_before": 0,
+    "total": 18446744073709551615,
+    "index": 4398046511104
+   },
+   "expect": {
+    "error": "invalid"
+   },
+   "source": "constant-memory plan"
+  },
+  {
+   "name": "upload: a piece that ends past the total is invalid",
+   "op": "upload_chunk",
+   "request": {
+    "size": 10,
+    "sent_before": 5,
+    "total": 12,
+    "index": 0
+   },
+   "expect": {
+    "error": "invalid"
+   },
+   "source": "constant-memory plan"
   }
  ]
 }

@@ -27,6 +27,9 @@ await requireBrowserLane("working-loops-compositor.test.tsx", async () => {
   ]
     .map((file) => readFileSync(path.join(src, file), "utf8"))
     .join("\n");
+  const cadence = new Bun.Transpiler({ loader: "ts" }).transformSync(
+    readFileSync(path.join(src, "agent-session/acpmux/conversation/shimmerCadence.ts"), "utf8"),
+  );
   const START = Date.UTC(2026, 9, 21, 9, 0, 0);
   const markup = renderToStaticMarkup(
     <div>
@@ -87,6 +90,13 @@ await requireBrowserLane("working-loops-compositor.test.tsx", async () => {
             `<head><style>${css}</style></head>` +
             `<body>${markup}</body></html>`,
         );
+        // Static markup does not run ShimmerText's mount effect.
+        await page.addScriptTag({
+          type: "module",
+          content: `${cadence}\nfor (const band of document.querySelectorAll('.cv-shimmer__band')) startShimmerCadence(band);`,
+        });
+        if (reducedMotion === "no-preference")
+          await page.waitForFunction(() => document.querySelector(".cv-shimmer__band.is-shimmer-active"));
         await page.evaluate(
           () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
         );
@@ -162,7 +172,7 @@ await requireBrowserLane("working-loops-compositor.test.tsx", async () => {
             const litLabel = row.querySelector<HTMLElement>(".cv-shimmer__lit-label")!;
             const litTimer = row.querySelector<HTMLElement>(".cv-shimmer__lit-time")!;
             const animation = [...document.getAnimations()].find(
-              (entry) => (entry as CSSAnimation).animationName === "cmux-shimmer-band",
+              (entry) => (entry as CSSAnimation).animationName === "cmux-cadenced-shimmer-band",
             );
             band.style.animation = "none";
             lit.style.animation = "none";
@@ -204,7 +214,7 @@ await requireBrowserLane("working-loops-compositor.test.tsx", async () => {
             expect(slots.shimmerTimerOffset).toBeCloseTo(6, 1);
             expect(slots.shimmerTimerRight).toBeCloseTo(slots.actualTimerRight, 1);
           }
-          expect(measure.duration).toBe(2_800);
+          expect(measure.duration).toBe(1_000);
         } finally {
           await page.close();
         }

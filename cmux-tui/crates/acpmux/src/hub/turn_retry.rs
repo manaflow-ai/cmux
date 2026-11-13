@@ -16,7 +16,7 @@
 //! with the 401 the person needs to see (cloud-chaos staging run 42292894478:
 //! seven retries, then the relay gave up, and no sign-in error ever showed).
 //! Its first retry lets an OAuth refresh or a token that is a moment late
-//! (cmux#28111) go through. At the third, acpmux ends the turn as the stalled
+//! (cmux#28111) go through. At the second, acpmux ends the turn as the stalled
 //! end does (`stalled_turn.rs`): the agent gets the cancel, the turn ends
 //! failed with the 401 (`sign_in_refused_error`), and `finish_turn` gives it
 //! the sign-in's kind and recovery text (`claude_auth.rs`, `recovery.rs`).
@@ -103,7 +103,7 @@ fn http_status(info: &Value) -> Option<u64> {
 }
 
 /// The retry at which a model request refused for its sign-in ends the turn (module docs).
-const SIGN_IN_REFUSED_END_ATTEMPT: u64 = 3;
+const SIGN_IN_REFUSED_END_ATTEMPT: u64 = 2;
 
 /// Whether `retry` ([`claude_retry`]'s fields) is Claude Code retrying a request the model API
 /// refused for its sign-in: a 401, or Claude's `authentication_failed`.
@@ -245,6 +245,21 @@ mod tests {
             "error": "authentication_failed"}))
     }
 
+    /// The first refused retry may be a sign-in being refreshed: it ends nothing. The second
+    /// ends the turn.
+    #[tokio::test]
+    async fn a_refused_sign_in_ends_its_turn_at_the_second_retry() {
+        let (hub, session) = running_turn().await;
+        hub.end_sign_in_refused(&session, &refused(1));
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(session.steer_end.borrow().is_none(), "the first refused retry ends nothing");
+        hub.end_sign_in_refused(&session, &refused(2));
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let ended = session.steer_end.borrow().clone();
+        let (_, answer) = ended.expect("the second refused retry ends the turn");
+        assert_eq!(answer.pointer("/_meta/acpmux/signInRefused/attempt"), Some(&json!(2)));
+    }
+
     /// The end at the third retry, then the fourth: one end, the third's (review F2).
     #[tokio::test]
     async fn a_refused_sign_in_schedules_one_end_per_turn() {
@@ -264,7 +279,7 @@ mod tests {
     async fn a_refused_sign_in_end_spares_the_turns_next_agent() {
         let (hub, session) = running_turn().await;
         hub.end_sign_in_refused(&session, &refused(3));
-        Hub::hold_stalled_count(&session);
+        hub.hold_stalled_count(&session);
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         assert!(session.steer_end.borrow().is_none(), "the next agent's turn is not ended");
         // That agent's own refused retries still end the turn.

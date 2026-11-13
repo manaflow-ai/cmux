@@ -174,8 +174,10 @@ export function referenceScopes(
     cache.generation += 1;
     cache.rowTurn.clear();
   }
-  const reading = kept ? copy(cache.prefix!) : empty();
   const last = source.length - 1;
+  // The kept reading is only read from when no row before the last is new: copied only when the
+  // loop below reads more into it (a copy is O(turns), once per snapshot).
+  const reading = kept ? (cache.prefixLength < last ? copy(cache.prefix!) : cache.prefix!) : empty();
   for (let index = kept ? cache.prefixLength : 0; index < last; index++) {
     read(reading, source[index]!, index);
     cache.rowTurn.set(source[index]!.id, reading.turn);
@@ -183,10 +185,14 @@ export function referenceScopes(
   cache.source = source;
   cache.prefix = reading;
   cache.prefixLength = Math.max(0, last);
-  const whole = last >= 0 ? copy(reading) : reading;
-  if (last >= 0) {
-    read(whole, source[last]!, last);
-    cache.rowTurn.set(source[last]!.id, whole.turn);
+  // The last row read over a copy, unless reading it changes nothing (no prompt, nothing named: a
+  // running call's output that names no pull request), so a snapshot copies no O(turns) reading.
+  const lastRow = last >= 0 ? source[last]! : undefined;
+  const changes = lastRow !== undefined && (lastRow.kind === "user" || rowNamed(lastRow).length > 0);
+  const whole = changes ? copy(reading) : reading;
+  if (lastRow) {
+    if (changes) read(whole, lastRow, last);
+    cache.rowTurn.set(lastRow.id, whole.turn);
   }
   // The prefix's reading changes only with a new generation or a longer prefix; the last row is
   // the rest of what the evidence depends on.

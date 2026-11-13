@@ -31,10 +31,13 @@ extension PageInfoController {
             windows.showSiteSettings(origin: origin, site: site, store: store, provider: provider, send: { [weak self] in self?.send($0) })
         case .manageSiteData:
             guard let provider else { return }
+            // Managing the site's data can change its counts: the next opening waits for the engine.
+            siteDataMemory.forget(site)
             close()
             windows.showSiteData(site: site, provider: provider, send: { [weak self] in self?.send($0) })
         case .deleteSiteData(let domain):
             guard let provider else { return }
+            siteDataMemory.forget(site)
             let host = site.host
             Task { [weak self] in
                 let targets: [String]
@@ -158,6 +161,7 @@ extension PageInfoController {
             let data = await provider.pageInfoSiteData(pageHost: host)
             guard !Task.isCancelled else { return }
             self.model.siteData = data
+            self.siteDataMemory.remember(data, for: self.model.site)
             if self.isShown, self.model.page == .cookies { self.render() }
         }
     }
@@ -167,9 +171,12 @@ extension PageInfoController {
         let host = model.site.host
         Task { [weak self] in
             let data = await provider.pageInfoSiteData(pageHost: host)
-            self?.model.siteData = data
-            self?.windows.siteDataChanged(data)
-            if self?.isShown == true, self?.model.page == .cookies { self?.render() }
+            guard let self else { return }
+            self.model.siteData = data
+            self.windows.siteDataChanged(data)
+            guard self.isShown else { return }
+            self.siteDataMemory.remember(data, for: self.model.site)
+            if self.model.page == .cookies { self.render() }
         }
     }
 }

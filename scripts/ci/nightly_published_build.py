@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """nightly.yml: the published build that the post-publication jobs describe.
 
-nightly-next is one loop (Leo, 2026-11-06): one run at a time builds, signs, publishes and then runs
-what follows the feed (GitHub release, deltas, dSYMs, release notes, reel, PR comments), and the push
-group's newest head runs next. A separately dispatched tail run (cmux#37030) took the nightly mini beside
-the next push run, so every track now runs those jobs in the run that published, from the record of
-that run's own jobs. An older push run's post-publication dispatch (nightly_next_post_publish) is still
-read from its checked artifact.
+nightly-next is one loop (Leo, 2026-11-06): one run at a time builds, signs, publishes and writes the
+GitHub release, whose body and tag the next run's decide reads, and the push group's newest head runs
+next. Then the loop run's dispatch-published-in uploads this record and dispatches nightly.yml
+(nightly_next_post_publish), whose published-build checks it and hands it to the deltas, notes, reel and
+PR comments, outside the push group. Main's nightly, RC and manual nightly-next runs run the whole tail
+in their own run, from the same record of that run's own jobs.
 
     nightly_published_build.py pack
-        NEEDS (toJSON(needs)), RUN_ID, RUN_ATTEMPT, SHA: writes the record to RECORD_FILE, for this run's
+        NEEDS (toJSON(needs)), RUN_ID, RUN_ATTEMPT, SHA, SIGN_STAGE: writes the record to RECORD_FILE, for this run's
         nightly-published-build-<attempt> artifact, and prints the dispatch input: this run's id and attempt.
     nightly_published_build.py source
         SOURCE (the dispatch input): writes the run and attempt to check to GITHUB_OUTPUT (none for an input
@@ -19,7 +19,7 @@ read from its checked artifact.
         push or manual run of this repository's nightly.yml on nightly-next.
     nightly_published_build.py outputs
         SOURCE and RECORD_FILE (the checked run's artifact), or with no SOURCE: NEEDS, RUN_ID, RUN_ATTEMPT,
-        SHA: writes the record to GITHUB_OUTPUT.
+        SHA, SIGN_STAGE: writes the record to GITHUB_OUTPUT.
 
 Anyone who may dispatch the workflow writes the input, and the tail checks out the record's build commit
 with the Sparkle key and release credentials. So the input names only the run, the API confirms what that
@@ -47,13 +47,24 @@ FIELDS = {
 }
 # push_clean: no job this one needs failed or was cancelled. In the dispatched run, close-nightly-failure-issue
 # cannot see the run that published, whose own failed build (a recovered build published after it) reports.
-RUN_FIELDS = ("source_run", "source_attempt", "source_sha", "publish_result", "push_clean")
+# sign_stage: a nightly-next sign run (nightly_next_sign_stage) published, so its tail run keeps the dSYMs and the
+# sign group frees at the feed. A record of an older run has no sign_stage, and reads as "".
+RUN_FIELDS = ("source_run", "source_attempt", "source_sha", "publish_result", "push_clean", "sign_stage")
 NAMES = RUN_FIELDS + tuple(prefix + name for prefix, names in FIELDS.values() for name in names)
+OPTIONAL = {"sign_stage"}
 SHA = re.compile(r"[0-9a-f]{40}")
 
 
-def record(needs: dict, run_id: str, attempt: str, sha: str) -> dict[str, str]:
+# nightly-next-one (vars.NIGHTLY_NEXT_ONE_JOB) builds and publishes in one job, with the outputs both name.
+ONE_JOB = "nightly-next-one"
+
+
+def record(needs: dict, run_id: str, attempt: str, sha: str, sign_stage: str = "") -> dict[str, str]:
+    one = needs.get(ONE_JOB) or {}
+    if one.get("result") not in (None, "", "skipped"):
+        needs = {**needs, "publish-nightly": one, "build-nightly-app": one}
     out = {"source_run": run_id, "source_attempt": attempt, "source_sha": sha,
+           "sign_stage": "true" if sign_stage == "true" else "",
            "publish_result": str((needs.get("publish-nightly") or {}).get("result") or ""),
            "push_clean": "false" if any((job or {}).get("result") in ("failure", "cancelled")
                                         for job in needs.values()) else "true"}
@@ -73,13 +84,13 @@ def comments(rec: dict[str, str]) -> bool:
 
 
 def valid(rec: dict) -> bool:
-    return (isinstance(rec, dict) and set(rec) == set(NAMES) and all(isinstance(v, str) for v in rec.values())
+    return (isinstance(rec, dict) and set(NAMES) - OPTIONAL <= set(rec) <= set(NAMES) and all(isinstance(v, str) for v in rec.values())
             and rec["source_run"].isdigit() and rec["source_attempt"].isdigit() and bool(SHA.fullmatch(rec["source_sha"])))
 
 
 def from_env() -> dict[str, str]:
     return record(json.loads(os.environ.get("NEEDS") or "{}"), os.environ["RUN_ID"], os.environ["RUN_ATTEMPT"],
-                  os.environ["SHA"])
+                  os.environ["SHA"], os.environ.get("SIGN_STAGE", ""))
 
 
 def pack() -> int:

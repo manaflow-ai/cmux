@@ -269,6 +269,10 @@ struct FakePeer {
     copy_drops: std::cell::Cell<Option<&'static str>>,
     /// Set once the host went away ([`FakePeer::gone_after_copy`]).
     gone: std::cell::Cell<Option<&'static str>>,
+    /// The next restart runs, then ssh's link drops before it reports (a
+    /// keepalive timeout through a ProxyJump, huge-blue 2026-11-06); `true`:
+    /// the host stays gone after.
+    link_drops_on_restart: std::cell::Cell<Option<bool>>,
 }
 
 #[cfg(unix)]
@@ -283,6 +287,19 @@ impl Remote for FakePeer {
             return Ok(RemoteOut { ok: false, stdout: String::new(), stderr: why.to_owned() });
         }
         let out = self.sh(script).output()?;
+        if script.contains("systemctl --user restart acpmux.service")
+            && let Some(stays_gone) = self.link_drops_on_restart.take()
+        {
+            let why = "Connection to UNKNOWN port 65535 timed out";
+            if stays_gone {
+                self.gone.set(Some(why));
+            }
+            return Ok(RemoteOut {
+                ok: false,
+                stdout: String::new(),
+                stderr: format!("{why}\r\n"),
+            });
+        }
         Ok(RemoteOut {
             ok: out.status.success(),
             stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
@@ -339,6 +356,7 @@ impl FakePeer {
             gone_after_copy: Default::default(),
             copy_drops: Default::default(),
             gone: Default::default(),
+            link_drops_on_restart: Default::default(),
         };
         for dir in ["fakebin", ".local/bin", UNITS, "proc/4242", "run", "binaries", ".acpmux"] {
             std::fs::create_dir_all(peer.home.join(dir)).unwrap();
@@ -928,6 +946,48 @@ fn a_daemon_that_does_not_answer_with_the_pushed_build_is_rolled_back() {
     }
 }
 
+/// huge-blue, 2026-11-06: the restart ran, then ssh's link to the host
+/// timed out ("Connection to UNKNOWN port 65535 timed out", ssh's words for
+/// a ProxyJump peer) and the update rolled back a daemon that served the new
+/// build. A dropped link says nothing about the daemon: asked again on a new
+/// connection, it is updated; a host still gone is unreachable, never rolled
+/// back blind.
+#[test]
+#[cfg(unix)]
+fn a_link_that_drops_under_the_restart_is_no_rollback() {
+    let peer = FakePeer::new("link-drop");
+    peer.offer(NEW, Some(NEW));
+    peer.link_drops_on_restart.set(Some(false));
+    let up = peer.update(true);
+    assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
+    assert_eq!(peer.daemon(), NEW);
+    assert_eq!(up.build.as_deref(), Some(NEW));
+    assert_eq!(peer.read(".local/bin/acpmux"), fake_acpmux(NEW, Some(NEW)), "nothing put back");
+
+    let peer = FakePeer::new("link-gone");
+    peer.offer(NEW, Some(NEW));
+    peer.link_drops_on_restart.set(Some(true));
+    let up = peer.update(true);
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::Failed, Some("unreachable")),
+        "{up:?}"
+    );
+    let restarts = peer
+        .take_calls()
+        .iter()
+        .filter(|c| *c == "systemctl --user restart acpmux.service")
+        .count();
+    assert_eq!(restarts, 1, "no rollback restart over a link that is gone");
+}
+
+#[test]
+fn ssh_keepalive_timeouts_are_a_lost_host() {
+    assert!(lost_the_host_text("Connection to UNKNOWN port 65535 timed out\r\n"));
+    assert!(lost_the_host_text("Connection to 100.64.0.7 port 22 timed out"));
+    assert!(!lost_the_host_text("restart timed out waiting for acpmux.service"));
+}
+
 #[test]
 #[cfg(unix)]
 fn without_systemd_the_detached_daemon_is_updated_checked_and_rolled_back() {
@@ -1025,6 +1085,7 @@ fn a_daemon_under_a_hand_written_unit_moves_to_acpmux_service_with_its_agents() 
     assert!(peer.exists(&format!("{UNITS}/{FOREIGN}.migrated")));
 }
 
+#[cfg(unix)]
 impl FakePeer {
     /// The daemon of [`FakePeer::under_foreign_unit`] is down and its unit
     /// stopped and disabled, with no `Restart=`: a Linux host whose daemon the

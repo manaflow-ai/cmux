@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxSpinner
 import SwiftUI
 
 /// The shared recovery action. Its work belongs to the visible control and is
@@ -23,6 +24,7 @@ public struct RetryButton: View {
     let style: Style
     let action: @MainActor () async -> Void
     @State private var isRetrying = false
+    @State private var taps = 0
 
     /// `title` defaults to "Retry"; pass the surface's own wording ("Try Again").
     public init(_ title: LocalizedStringKey? = nil, style: Style = .capsule, action: @escaping @MainActor () async -> Void) {
@@ -31,26 +33,58 @@ public struct RetryButton: View {
         self.action = action
     }
 
+    private var titleText: Text { title ?? Text(verbatim: Self.defaultTitle) }
+
     /// The default title: "Retry".
     public static var defaultTitle: String {
         String(localized: "recovery.retry", defaultValue: "Retry", bundle: .module)
     }
 
+    /// Once shown, the spinner stays at least this long: a load that answers in a
+    /// frame or two otherwise flashes it (and the press) as a flicker.
+    public static let minimumSpin: Duration = .milliseconds(450)
+
     public var body: some View {
         styled(Button {
+            guard !isRetrying else { return }
+            taps += 1
             isRetrying = true
         } label: {
-            HStack(spacing: 8) {
-                if isRetrying { ProgressView().controlSize(.small) }
-                title ?? Text(verbatim: Self.defaultTitle)
-            }
+            // The title keeps its place and width while loading; the spinner replaces it
+            // in place, so the capsule never resizes and nothing around it moves. The
+            // capsule keeps its colors too: no disabled-state color flash on the tap.
+            titleText
+                .opacity(isRetrying ? 0 : 1)
+                .overlay {
+                    if isRetrying {
+                        CmuxSpinner(tint: Color(uiColor: .label))
+                            .controlSize(.small)
+                            .transition(.opacity.combined(with: .scale(scale: 0.6)))
+                            .accessibilityHidden(true)
+                    }
+                }
+                .animation(CmuxMobileTheme.standard.motion.snap.animation.unlessReduceMotion, value: isRetrying)
         })
-        .disabled(isRetrying)
+        // Repeated taps cannot overlap a load; not `.disabled`, which would swap the colors.
+        .allowsHitTesting(!isRetrying)
+        // The hidden title still names the button for VoiceOver while it loads.
+        .accessibilityLabel(titleText)
+        .accessibilityAddTraits(isRetrying ? .updatesFrequently : [])
+        .cmuxMobileSensoryFeedback(.impact(weight: .light), trigger: taps)
         .task(id: isRetrying) {
             guard isRetrying else { return }
-            await action()
+            await Self.run(action, holdingFor: Self.minimumSpin, on: ContinuousClock())
             isRetrying = false
         }
+    }
+
+    /// Runs `action`, then holds until `minimum` has passed since it started, so a
+    /// fast answer reads as a load, not a flicker. A cancelled hold ends at once.
+    public static func run<C: Clock<Duration>>(_ action: @MainActor () async -> Void, holdingFor minimum: Duration,
+                                        on clock: C) async {
+        let started = clock.now
+        await action()
+        try? await clock.sleep(until: started.advanced(by: minimum), tolerance: nil)
     }
 
     @ViewBuilder

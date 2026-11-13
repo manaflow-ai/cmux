@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextPages
+import CmuxNextWindowRules
 
 /// Workspace lifecycle, navigation, order, and bulk close (category
 /// `workspace`). Names, colors, and notifications are in
@@ -67,11 +68,16 @@ enum WorkspaceHandlers {
     static func createAndShow(services: AppServices, name: String? = nil, cwd: String? = nil,
                               newWindow: Bool = false, window: String? = nil, room: ProfileID? = nil, daemon chosen: DaemonService? = nil,
                               then configure: (@Sendable (DaemonConnection, CreateTerminalResult) async throws -> Void)? = nil) {
+        var spawn = WorkspaceSpawn(cwd: cwd, name: name, profile: room)
+        spawn.onFirstTerminal = configure
+        show(spawn, services: services, newWindow: newWindow, window: window, daemon: chosen)
+    }
+
+    /// Creates `spawn`'s workspace and shows it (a browser workspace: `WorkspaceSpawn.browser`, one request, no terminal).
+    static func show(_ spawn: WorkspaceSpawn, services: AppServices, newWindow: Bool = false, window: String? = nil, daemon chosen: DaemonService? = nil) {
         let daemon = chosen ?? services.activeDaemon
         let windows = services.windows
         let target = windows.targetWindow(preferring: newWindow ? nil : window ?? windows.active?.state.id)
-        var spawn = WorkspaceSpawn(cwd: cwd, name: name, profile: room)
-        spawn.onFirstTerminal = configure
         let create = windows.startWorkspace(spawn, on: daemon, into: target)
         // One ticket for the whole creation, opened now: an action run
         // answers after it (and the barrier covers its echo), so `created`
@@ -128,15 +134,12 @@ enum WorkspaceHandlers {
         guard case .open(let choice) = browserTabs.resolve(requested: nil) else { return }
         let fallbacks = browserTabs.fallbacks, machine = services.activeDaemon.machineID
         let address = url ?? services.newTabAddress(for: choice)
-        createAndShow(services: services) { connection, terminal in
-            guard let pane = terminal.pane else { return }
-            // On the active machine's connection (it may be a Cloud machine).
-            let created = try await connection.newFrontendBrowserTab(url: address, engine: choice.engine, in: pane)
+        // On the active machine's connection (it may be a Cloud machine).
+        show(.browser(WorkspaceFirstBrowserTab(url: address, engine: choice.engine)) { _, created in
             if let reason = choice.fallback {
                 await fallbacks.record(reason, source: .newTab, machine: machine, surface: created.surface)
             }
-            if let surface = terminal.surface { try await connection.closeTab(surface) }
-        }
+        }, services: services)
     }
 
     // MARK: Navigation
@@ -151,9 +154,10 @@ enum WorkspaceHandlers {
             throw ActionFailure.noTarget(RefusalStrings.workspaceNotInGroup)
         }
         let peers = group.workspaces.map(\.id.rawValue)
-        guard let index = peers.firstIndex(of: current.id), peers.count > 1 else {
+        guard let index = peers.firstIndex(of: current.id), peers.count > 1,
+              let next = WindowRules().step(index, by: offset, count: peers.count), peers.indices.contains(next) else {
             throw ActionFailure.noTarget(RefusalStrings.noOtherWorkspaceInGroup)
         }
-        context.services.windows.show(workspaceID: peers[(index + offset + peers.count) % peers.count], in: state)
+        context.services.windows.show(workspaceID: peers[next], in: state)
     }
 }

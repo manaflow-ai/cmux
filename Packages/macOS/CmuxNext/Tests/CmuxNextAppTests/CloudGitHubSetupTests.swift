@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextCloud
 @testable import CmuxNextApp
+import CmuxNextPages
 import Darwin
 import Foundation
 import Testing

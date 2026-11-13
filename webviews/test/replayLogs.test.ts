@@ -18,15 +18,36 @@ describe("replay logs", () => {
     expect(() => checkSeq({ name: "gap", sessionId: "s", events })).toThrow("gap: record 1 has seq 3, expected 2");
   });
 
-  test("the long log's bursts are seq ranges of tokens and tool output, rows growing", () => {
-    const log = longLog({ turns: 300, checkpoints: [2, 150, 299], tokenCount: 10, outputUpdates: 5 });
+  test("the long log's bursts are seq ranges of each kind, rows growing", () => {
+    const log = longLog({
+      turns: 300,
+      checkpoints: [2, 150, 299],
+      tokenCount: 10,
+      outputUpdates: 5,
+      thoughtCount: 6,
+      toolCalls: 3,
+    });
     const tokens = log.bursts.filter((burst) => burst.kind === "token");
     expect(tokens.map((burst) => burst.toSeq - burst.fromSeq + 1)).toEqual([10, 10, 10]);
     expect(tokens[0]!.rows).toBeLessThan(tokens[1]!.rows);
     expect(tokens[2]!.rows).toBeGreaterThan(1000);
-    for (const burst of log.bursts)
-      for (const event of log.events.slice(burst.fromSeq - 1, burst.toSeq))
-        expect(event.kind).toBe(burst.kind === "token" ? "agent_message_chunk" : "tool_call_update");
+    const sized = (kind: string) =>
+      log.bursts.filter((burst) => burst.kind === kind).map((burst) => burst.toSeq - burst.fromSeq + 1);
+    expect(sized("thought")).toEqual([6, 6, 6]);
+    // Each read is a call that starts and one that ends.
+    expect(sized("tool_call")).toEqual([6, 6, 6]);
+    const kinds: Record<string, string[]> = {
+      token: ["agent_message_chunk"],
+      thought: ["agent_thought_chunk"],
+      tool_output: ["tool_call_update"],
+      tool_call: ["tool_call", "tool_call_update"],
+    };
+    for (const burst of log.bursts) {
+      const events = log.events.slice(burst.fromSeq - 1, burst.toSeq);
+      for (const event of events) expect(kinds[burst.kind]).toContain(event.kind);
+      if (burst.kind === "tool_call")
+        expect(events.map((event) => event.kind)).toEqual(events.map((_, at) => kinds.tool_call![at % 2]!));
+    }
   });
 
   test("a recorded daemon log reads as JSON lines or an events page, in seq order", () => {
@@ -87,8 +108,10 @@ describe("judging a replay", () => {
     };
     const { rows, misses } = judge([{ log: "mock:a", cls: 0, moved: 0, movedRow: "none", shiftNotes: [] }], [live]);
     expect(rows.find((row) => row.name === "transcript_replay.long.token_slope_ms_per_krow")?.p95).toBe(1);
-    expect(misses).toHaveLength(1);
+    expect(misses).toHaveLength(2);
     expect(misses[0]).toContain("BUDGET MISS transcript_replay.long.token_slope_ms_per_krow = 1");
     expect(misses[0]).toContain("O(rows) work per update");
+    // 3 ms at 2,000 rows against 1 ms at none: past the growth check's factor.
+    expect(misses[1]).toContain("BUDGET MISS token growth = 3x (budget 1.5x)");
   });
 });

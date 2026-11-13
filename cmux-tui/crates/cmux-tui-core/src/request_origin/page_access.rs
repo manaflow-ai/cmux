@@ -107,12 +107,18 @@ const fn access(operation: Op) -> Access {
         | Op::GitWorktreeCreate
         | Op::GitWorktreeApply
         | Op::GitWorktreeRemove
+        | Op::GitWorktreeSetup
         | Op::GitCheckpointCreate
         | Op::GitCheckpointDiff
         | Op::GitCheckpointGet
         | Op::GitCheckpointList
         | Op::GitCheckpointPin
         | Op::GitCheckpointUnpin
+        // The diff page's review comments: kept for the app, never a page.
+        | Op::DiffCommentsList
+        | Op::DiffCommentsSave
+        | Op::DiffCommentsDelete
+        | Op::DiffCommentsSend
         | Op::SessionJournalHookPut
         // It tells whether a path exists and is a folder (cx-9aps).
         | Op::WorkspaceAgentStartGet
@@ -124,6 +130,9 @@ const fn access(operation: Op) -> Access {
         | Op::ProjectRemove
         | Op::ProjectSync
         | Op::ProjectSourceUpdate
+        // Classic's session files and the migration ledger: the app's classic migration.
+        | Op::ClassicImportPlan
+        | Op::ClassicImportRecord
         // Conductor's database and worktrees, read by the app's Import from Conductor.
         | Op::ConductorImportPlan
         | Op::ConductorImportRecord
@@ -203,6 +212,7 @@ const fn access(operation: Op) -> Access {
         | Op::PaneFocusDirection
         | Op::PaneNeighborGet
         | Op::PaneSwap
+        | Op::PaneMove
         | Op::PaneZoom
         | Op::PaneSplitRatioSet
         | Op::PaneViewportWidthSet
@@ -258,6 +268,7 @@ const fn access(operation: Op) -> Access {
         | Op::SettingsSet
         | Op::SettingsReset
         | Op::SettingsResetAll
+        | Op::SettingsEdit
         | Op::KeybindingsGet
         | Op::KeybindingsSet
         | Op::KeybindingsRemove
@@ -400,12 +411,6 @@ const fn access(operation: Op) -> Access {
         | Op::ConversationDraft
         | Op::ConversationEvents
         // The person's Cloud API calls, with credentials a page never holds (server/cloud_api.rs).
-        | Op::CloudVmResize
-        | Op::CloudVmSnapshot
-        | Op::CloudVmSnapshots
-        | Op::CloudVmDeleteSnapshot
-        | Op::CloudVmRestore
-        | Op::CloudVmFork
         | Op::CloudVmScpEndpoint
         | Op::CloudVmTunnelEnroll
         | Op::CloudVmTunnelRevoke
@@ -436,9 +441,14 @@ const fn access(operation: Op) -> Access {
         | Op::CloudOwnerHandoffBeginTurn
         | Op::CloudOwnerHarnessLoginCopy
         | Op::CloudOwnerGithubApp
+        | Op::CloudOwnerTurnCheckpoint
+        | Op::CloudOwnerTurnRewind
+        | Op::CloudOwnerTurns
         | Op::CloudPreviewsRefresh
         | Op::CloudPreviewsCreateLink
         | Op::CloudPreviewsRevokeLink
+        | Op::CloudMachineChatAccess
+        | Op::CloudMachineShareChat
         => Access::Denied(Denied::NotAllowed),
     }
 }

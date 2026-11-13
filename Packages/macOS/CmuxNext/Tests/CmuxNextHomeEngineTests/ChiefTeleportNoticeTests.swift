@@ -11,8 +11,8 @@ struct ChiefTeleportNoticeTests {
     private static let fork = Data(#"{"api": "https://api.cmux.dev", "chief": "agent_fork", "conversation": "conv_1", "name": "Chief fork", "at": "2026-11-06T15:30:00Z", "memory_messages": 23376, "history_imported": 1000}"#.utf8)
     private static let utc = TimeZone(identifier: "UTC")!
 
-    private func notice(_ marks: ChiefHomeMarks, _ phase: ChiefTeleportPhase = .idle) -> String? {
-        ChiefTeleportNotice(marks: marks, phase: phase, placeName: { ChiefTeleportChip.placeTitle($0, current: nil) }).text(timeZone: Self.utc)
+    private func notice(_ announcement: ChiefTeleportAnnouncement?, _ phase: ChiefTeleportPhase = .idle) -> String? {
+        ChiefTeleportNotice(phase: phase, announcement: announcement, placeName: { ChiefTeleportChip.placeTitle($0, current: nil) }).text(timeZone: Self.utc)
     }
 
     @Test func theMarksReadWhereWhenAndARunningMoveAndTheFork() throws {
@@ -28,26 +28,37 @@ struct ChiefTeleportNoticeTests {
         #expect(ChiefHomeMarks(movedJSON: nil, movingJSON: Data("{}".utf8), forkJSON: Data("no".utf8), isRunning: { _ in true }) == .none)
     }
 
+    @Test func theEventIsTheChangeBetweenTwoReads() throws {
+        let moved = ChiefHomeMarks(movedJSON: Self.moved, movingJSON: nil, forkJSON: nil, isRunning: { _ in false })
+        let forked = ChiefHomeMarks(movedJSON: nil, movingJSON: nil, forkJSON: Self.fork, isRunning: { _ in false })
+        #expect(ChiefTeleportAnnouncement(from: .none, to: moved) == .moved(.cloud, at: moved.movedAt))
+        #expect(ChiefTeleportAnnouncement(from: moved, to: .none) == .movedBack)
+        #expect(ChiefTeleportAnnouncement(from: .none, to: forked) == .forked("Chief fork", at: forked.fork?.at))
+        #expect(ChiefTeleportAnnouncement(from: forked, to: forked) == nil, "the same fork read again is not news")
+        #expect(ChiefTeleportAnnouncement(from: moved, to: moved) == nil)
+    }
+
     @Test func theRowSaysWhereTheChiefWentAndWhen() throws {
-        let marks = ChiefHomeMarks(movedJSON: Self.moved, movingJSON: nil, forkJSON: nil, isRunning: { _ in false })
-        let time = ChiefTeleportNotice.time(try #require(marks.movedAt), Self.utc)
-        #expect(notice(marks) == "Chief moved to cmux Cloud · \(time)")
-        #expect(notice(marks, .done("cmux Cloud")) == "Chief moved to cmux Cloud · \(time)")
-        #expect(notice(.none) == nil, "the Chief runs here with nothing to tell")
+        let at = try #require(Date(chiefRFC3339: "2026-11-06T16:02:11Z"))
+        let time = ChiefTeleportNotice.time(at, Self.utc)
+        #expect(notice(.moved(.cloud, at: at)) == "Chief moved to cmux Cloud · \(time)")
+        #expect(notice(.moved(.cloud, at: at), .done("cmux Cloud")) == "Chief moved to cmux Cloud · \(time)")
+        #expect(notice(nil) == nil, "no event, no row")
     }
 
     @Test func theRowShowsARunningMoveAFailureAndARollback() {
-        #expect(notice(.none, .moving("cmux Cloud")) == "Chief is moving to cmux Cloud…")
-        #expect(notice(.none, .verifying("Mac mini")) == "Chief is moving to Mac mini…")
-        #expect(notice(.none, .failed("cmux Cloud", reason: "the cloud did not answer\nsteps: …")) == "Chief did not move to cmux Cloud: the cloud did not answer")
-        #expect(notice(.none, .rollingBack) == "Chief is moving back to this Mac…")
-        #expect(notice(.none, .rolledBack) == "Chief moved back to this Mac")
+        #expect(notice(nil, .moving("cmux Cloud")) == "Chief is moving to cmux Cloud…")
+        #expect(notice(nil, .verifying("Mac mini")) == "Chief is moving to Mac mini…")
+        #expect(notice(nil, .failed("cmux Cloud", reason: "the cloud did not answer\nsteps: …")) == "Chief did not move to cmux Cloud: the cloud did not answer")
+        #expect(notice(nil, .rollingBack) == "Chief is moving back to this Mac…")
+        #expect(notice(.movedBack, .rolledBack) == "Chief moved back to this Mac")
+        #expect(notice(nil, .rolledBack) == nil, "an old rollback is not news")
     }
 
     @Test func theRowNamesTheForkWhileThisMacAnswers() throws {
-        let marks = ChiefHomeMarks(movedJSON: nil, movingJSON: nil, forkJSON: Self.fork, isRunning: { _ in false })
-        let time = ChiefTeleportNotice.time(try #require(marks.fork?.at), Self.utc)
-        #expect(notice(marks) == "Chief forked to cmux Cloud as “Chief fork” · \(time)")
+        let at = try #require(Date(chiefRFC3339: "2026-11-06T15:30:00Z"))
+        let time = ChiefTeleportNotice.time(at, Self.utc)
+        #expect(notice(.forked("Chief fork", at: at)) == "Chief forked to cmux Cloud as “Chief fork” · \(time)")
     }
 
     @Test func todayReadsAsATimeAndAnotherDayWithItsDate() throws {
@@ -77,11 +88,12 @@ struct ChiefTeleportNoticeTests {
         let menu = ChiefTeleportMenuBuilder(model: model).makeMenu()
         #expect(menu.items.map(\.title).contains("Moving to cmux Cloud…"))
         #expect(menu.items.map(\.title).contains("Fork in cmux Cloud: Chief fork"))
-        // The move ends: the engine removes the hold, the fork stays.
+        // The move ends: the engine removes the hold, the fork stays. The fork was there at the first
+        // read, so it is no event: no row, while the menu still names it.
         try FileManager.default.removeItem(at: home.appendingPathComponent("state/moving.json"))
         await model.refresh().value
         #expect(model.shownPhase == .idle)
-        #expect(model.notice()?.hasPrefix("Chief forked to cmux Cloud as “Chief fork”") == true)
+        #expect(model.notice() == nil)
         #expect(model.menu().rows.map(\.state) == [.current, .available])
     }
 }

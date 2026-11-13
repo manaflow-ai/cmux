@@ -7,7 +7,7 @@
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import type { SendStopMorphArm } from "./sendStopMorph.experiment";
-import type { SlotGlyph } from "./SendSlotGlyph";
+import type { SlotGlyph } from "./sendSlotGlyphModel";
 
 type Props = { arm: SendStopMorphArm };
 

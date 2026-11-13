@@ -1,7 +1,7 @@
 // The new tab screen's actions as host requests (plans/cmux-next/new-tab.md section 5). An agent
 // row starts the chat in this page; everything else asks the host to replace the tab.
-import type { AllChatsPage } from "./AllChatsList";
-import type { NewTabScreenActions } from "./NewTabScreen";
+import type { AllChatsPage } from "./allChatsListModel";
+import type { NewTabOpenHow, NewTabScreenActions } from "./NewTabScreen";
 import { savedEnvironmentHost } from "../environments";
 import { rememberStartedProject } from "./startedProject";
 import { rememberPick } from "../lastPick";
@@ -9,6 +9,9 @@ import { translate } from "../i18n";
 import { isStartCancelled, startCancelled } from "../transportErrors";
 
 type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
+
+/// `tab.open`'s `beside` for a browser pick the person asked to open as a new tab (Option-Return).
+const besideParam = (how?: NewTabOpenHow) => (how?.beside ? { beside: true } : {});
 
 export function newTabScreenActions(deps: {
   callNative: Native;
@@ -33,6 +36,8 @@ export function newTabScreenActions(deps: {
   startsHere?(): boolean;
   /// Captures the page/selection owning this attempt, before any asynchronous work.
   startScope?(allowReconnect: boolean): () => boolean;
+  clearError?(): void;
+  showError?(error: unknown): void;
 }): NewTabScreenActions {
   const { callNative, cwd } = deps;
   const ignore = (result: Promise<unknown>) => void result.catch(() => undefined);
@@ -123,14 +128,39 @@ export function newTabScreenActions(deps: {
         } else start(deps.chatCwd);
       });
     },
+    onFixFromLink: (url, selectedCwd, harness, model) => {
+      const current = deps.startScope?.(false) ?? (() => true);
+      deps.clearError?.();
+      return callNative("chat.fix_from_link", {
+        url,
+        ...(selectedCwd ? { cwd: selectedCwd } : {}),
+        ...(harness ? { harness } : {}),
+        ...(model ? { model } : {}),
+      })
+        .then((result) => {
+          if (!current()) throw startCancelled();
+          const sessionId =
+            result && typeof result === "object" && typeof (result as { sessionId?: unknown }).sessionId === "string"
+              ? (result as { sessionId: string }).sessionId
+              : undefined;
+          // l10n-allow: internal transport shape failure; the user sees the host error surface.
+          if (!sessionId) throw new Error("fix-from-link did not return a session");
+          deps.selectSession(sessionId);
+        })
+        .catch((error) => {
+          if (!isStartCancelled(error)) deps.showError?.(error);
+        });
+    },
     savedEnvironments: savedEnvironmentHost(callNative),
-    onOpen: (url) => {
+    onOpen: (url, how) => {
       if (url.startsWith("file://"))
         return ignore(callNative("file.open", { path: decodeURIComponent(new URL(url).pathname), where: "tab" }));
-      ignore(callNative("tab.open", { kind: "browser", text: url }));
+      // No `beside`: the host navigates this page's tab (NewTabPage.replace); `beside` opens where links go.
+      ignore(callNative("tab.open", { kind: "browser", text: url, ...besideParam(how) }));
     },
     // Open in Profile… and Open in New Profile: the same browser open, in the profile the row names.
-    onOpenInProfile: (url, id) => ignore(callNative("tab.open", { kind: "browser", text: url, profile: id })),
+    onOpenInProfile: (url, id, how) =>
+      ignore(callNative("tab.open", { kind: "browser", text: url, profile: id, ...besideParam(how) })),
     onOpenInNewProfile: (url, name) =>
       ignore(
         callNative("tab.open", {
@@ -140,7 +170,8 @@ export function newTabScreenActions(deps: {
           ...(name ? { profileName: name } : {}),
         }),
       ),
-    onSearch: (text) => ignore(callNative("tab.open", { kind: "browser", text, search: true })),
+    onSearch: (text, how) =>
+      ignore(callNative("tab.open", { kind: "browser", text, search: true, ...besideParam(how) })),
     // `!cmd`: the page becomes a chat in its folder, its first block the command; no terminal tab.
     onShell(command) {
       deps.leave();

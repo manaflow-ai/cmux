@@ -16,7 +16,7 @@ const TABS = [
 function TabsGallery({ variant = "pill", initial = "general" }: Props) {
   const [value, setValue] = useState(initial);
   return (
-    <div className="ui-controls-stage">
+    <div className="ui-controls-stage" data-gallery-capture="">
       <Tabs variant={variant} value={value} onValueChange={(next) => setValue(String(next))}>
         <TabsList aria-label="Settings sections">
           {TABS.map((tab) => (

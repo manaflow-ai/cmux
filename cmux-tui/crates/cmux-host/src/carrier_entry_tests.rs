@@ -6,6 +6,11 @@ use super::*;
 
 const SLOT: &str = "AAAAAAAAAAAAAAAAAAAAAA";
 
+/// The host entry as the units run it: `<current>/bin/cmux host`.
+fn host() -> Vec<String> {
+    vec!["/opt/cmux/current/bin/cmux".to_owned(), "host".to_owned()]
+}
+
 fn section(text: &str) -> Result<CarrierRoute, String> {
     match serde_json::from_str::<Value>(text) {
         Ok(value) => parse_section(&value),
@@ -28,14 +33,14 @@ fn a_carrier_section_names_the_relay_slot_and_its_ticket_command() {
         }
     );
     assert_eq!(
-        route.args(Path::new("/home/cmux/.cmux/bin/cmux-tui"), Path::new(GRANT_CONFIG_FILE)),
+        route.args(&host(), Path::new(GRANT_CONFIG_FILE)),
         [
             "--relay",
             "relay+do://relay.cmux.dev",
             "--relay-slot",
             SLOT,
             "--relay-ticket-command",
-            "/home/cmux/.cmux/bin/cmux-tui",
+            "/opt/cmux/current/bin/cmux",
             "--relay-ticket-command-arg",
             "host",
             "--relay-ticket-command-arg",
@@ -195,7 +200,7 @@ fn a_malformed_carrier_file_is_refused() {
 
 #[test]
 fn the_route_flags_of_a_running_session_host_are_read_back() {
-    let bin = Path::new("/home/cmux/.cmux/bin/cmux-tui");
+    let bin = &host();
     let mut argv: Vec<String> =
         ["cmux-tui", "server", "--remote-ws", "127.0.0.1:1337"].map(String::from).to_vec();
     assert!(args_in(&argv).is_empty());
@@ -225,8 +230,8 @@ fn a_rotated_keyset_rewrites_the_carrier_file() {
     let kept = parse_file(Some(&written)).unwrap().unwrap();
     assert_eq!(kept, CarrierFile { keyset: rotated.clone(), ..file.clone() });
     assert_eq!(
-        file.route.args(Path::new("/b"), Path::new("/g")),
-        kept.route.args(Path::new("/b"), Path::new("/g"))
+        file.route.args(&host(), Path::new("/g")),
+        kept.route.args(&host(), Path::new("/g"))
     );
     assert_eq!(with_keyset(Some(&text), issuer, &keyset()), None);
     assert_eq!(with_keyset(Some(&text), "cmux:cloud:staging", &rotated), None);
@@ -234,4 +239,22 @@ fn a_rotated_keyset_rewrites_the_carrier_file() {
     assert_eq!(with_keyset(Some(&text), issuer, &empty), None);
     assert_eq!(with_keyset(None, issuer, &rotated), None);
     assert_eq!(with_keyset(Some("{}"), issuer, &rotated), None);
+}
+
+/// The standalone `cmux-host` takes its verbs with no `host` noun.
+#[test]
+fn the_standalone_host_entry_runs_cloud_carrier_ticket() {
+    let args = route().args(&["/usr/bin/cmux-host".to_owned()], Path::new(GRANT_CONFIG_FILE));
+    let at = args.iter().position(|arg| arg == "--relay-ticket-command").unwrap();
+    assert_eq!(
+        args[at..at + 6],
+        [
+            "--relay-ticket-command",
+            "/usr/bin/cmux-host",
+            "--relay-ticket-command-arg",
+            "cloud",
+            "--relay-ticket-command-arg",
+            "carrier-ticket",
+        ]
+    );
 }

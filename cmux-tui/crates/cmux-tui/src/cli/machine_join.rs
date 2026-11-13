@@ -43,6 +43,7 @@ use std::io::{BufRead, IsTerminal as _, Write};
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use cmux_cloud_machine::refusals;
 use serde_json::{Map, Value, json};
 
 use super::{GlobalArgs, OutputMode, UsageError};
@@ -58,10 +59,12 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 pub(super) const LIST_TIMEOUT: Duration = Duration::from_secs(3);
 /// How often `machine add --wait` reads the credentials list.
 const WAIT_EVERY: Duration = Duration::from_secs(2);
-/// A joined machine is online when its last heartbeat is younger than this.
-pub(super) const ONLINE_WITHIN_MS: u64 = 120_000;
+/// A joined machine is online when the platform's row says `online` (its last heartbeat within the
+/// mesh row TTL, by the platform's clock). A platform that predates that field gets this window
+/// instead: its 90 s rows and its heartbeat stamp, which moves at most every 30 s.
+pub(super) const LEGACY_ONLINE_WITHIN_MS: u64 = 120_000;
 /// How soon a revoke takes effect: the platform checks revocation on every heartbeat (each
-/// 30 s) and relay request. A revoke answer that carries `accessEndsWithinSeconds` replaces
+/// 10 s, a third of the hub's row TTL) and relay request. A revoke answer that carries `accessEndsWithinSeconds` replaces
 /// this.
 const REVOKE_BOUND: &str = "30 seconds";
 /// The minted line's default life when the answer's `expiresAt` is unreadable.
@@ -86,7 +89,7 @@ const USAGE: &str = "usage: cmux machine add [--name NAME] [--ttl 10m] [--wait|-
 const SIGN_IN: &str = "sign in: pass --cloud-token-file PATH (or set CMUX_CLOUD_ACCESS_TOKEN), or use Add Machine in the app";
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(super) struct Auth {
+pub(crate) struct Auth {
     pub platform: Option<String>,
     pub token_file: Option<PathBuf>,
     pub token_stdin: bool,
@@ -397,7 +400,7 @@ fn parse_ttl(text: &str) -> Result<u64, UsageError> {
 /// The caller's cmux credential: stdin, then the file, then the environment.
 /// `None` when no way names one. Errors name neither the file's path nor its
 /// contents (a pasted secret could be in either).
-pub(super) fn read_credential(
+pub(crate) fn read_credential(
     auth: &Auth,
     env: &dyn Fn(&str) -> Option<String>,
     stdin: &mut dyn BufRead,
@@ -446,10 +449,13 @@ pub(crate) struct Platform {
 }
 
 /// Why a platform call failed. Nothing the server answered is kept but its
-/// status and a code this file knows.
+/// status, a code this file knows and the numbers its body carries (`facts`: a
+/// cap's limit and use, a rate limit's window, whether it may be retried), for
+/// every code: a refusal outside the platform's Cloud table (a workspace's
+/// `machine.placement_unavailable` 503) still says whether it may be retried.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum CallError {
-    Status { status: u16, code: &'static str },
+    Status { status: u16, code: &'static str, facts: Option<refusals::Facts> },
     Unreachable(String),
     Unreadable(u16),
 }
@@ -462,22 +468,23 @@ impl CallError {
                 "machine_join.unavailable",
                 "joining isn't available on this server yet (it answered 404)",
             ),
-            Self::Status { status: 503, code: "machine.join.unavailable" } => Failure::new(
+            Self::Status { status: 503, code: "machine.join.unavailable", .. } => Failure::new(
                 "machine_join.unavailable",
                 "joining isn't available on this server yet (it answered 503)",
             ),
-            Self::Status { status: 401, code } => Failure::new(
+            Self::Status { status: 401, code, .. } => Failure::new(
                 "machine_join.unauthorized",
                 format!(
                     "the cmux platform did not accept your sign-in ({})",
                     format!("401 {code}").trim_end()
                 ),
             ),
-            Self::Status { status, code } => Failure::new(
+            Self::Status { status, code, facts } => Failure::new(
                 "machine_join.refused",
                 format!(
-                    "the cmux platform refused {what}: {}",
-                    format!("{status} {code}").trim_end()
+                    "the cmux platform refused {what}: {}{}",
+                    format!("{status} {code}").trim_end(),
+                    refusal_reason(code, facts.as_ref())
                 ),
             ),
             Self::Unreachable(reason) => Failure::new(
@@ -551,6 +558,11 @@ impl Platform {
             .await
             .map_err(|e| CallError::Unreachable(e.without_url().to_string()))?;
         let status = response.status().as_u16();
+        let retry_after = response
+            .headers()
+            .get(reqwest::header::RETRY_AFTER)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned);
         let bytes = response.bytes().await.map_err(|_| CallError::Unreadable(status))?;
         let parsed: Option<Value> = if bytes.iter().all(u8::is_ascii_whitespace) {
             Some(Value::Null)
@@ -565,7 +577,9 @@ impl Platform {
             .get("code")
             .or_else(|| parsed.get("error").and_then(|e| e.get("code")))
             .and_then(Value::as_str);
-        Err(CallError::Status { status, code: known_code(code) })
+        let code = known_code(code);
+        let facts = Some(refusals::Facts::read(Some(&parsed), retry_after.as_deref()));
+        Err(CallError::Status { status, code, facts })
     }
 
     async fn credentials_async(&self) -> Result<Vec<Value>, CallError> {
@@ -700,8 +714,10 @@ fn entries(body: Value) -> Option<Vec<Value>> {
     }
 }
 
-/// The platform's machine-join refusal codes. Errors print only these, from this table.
-const KNOWN_CODES: [&str; 46] = [
+/// The platform's machine-join refusal codes. Errors print only these and the codes of the
+/// platform's Cloud refusal table ([`cmux_cloud_machine::refusals::PLATFORM`]: a cap, a rate
+/// limit, a machine's state), each from its own table.
+const KNOWN_CODES: [&str; 48] = [
     "lease.not_found",
     "reservation.expired",
     "reservation.terminal",
@@ -733,6 +749,7 @@ const KNOWN_CODES: [&str; 46] = [
     "vault.too_large",
     "vault.no_entry",
     "vault.invalid_hosts",
+    "vault.model_key_proxy_only",
     // A workspace's machine (`POST /v1/workspaces/{w}/machine`, `link start-chat ensure`).
     "cloud_environment.not_found",
     "machine.conflict",
@@ -743,6 +760,9 @@ const KNOWN_CODES: [&str; 46] = [
     "workspace_machine.not_admitted",
     "workspace_machine.machine_taken",
     "workspace_machine.machine_gone",
+    // The acting team has no Cloud plan (reserve, bind, a workspace's machine): the pane says so and
+    // offers the person's own team or the plans (CloudStartView), never a retry or a wait.
+    "cloud.plan.required",
     "bad_request",
     "unauthorized",
     "not_found",
@@ -752,8 +772,20 @@ const KNOWN_CODES: [&str; 46] = [
     "forbidden",
 ];
 
+/// `: <why>` for a refusal of the platform's Cloud table that has a reason of its own (a cap
+/// names its limit and use, a rate limit when to try again), else nothing.
+pub(crate) fn refusal_reason(code: &str, facts: Option<&refusals::Facts>) -> String {
+    facts
+        .and_then(|facts| refusals::reason(code, facts))
+        .map(|reason| format!(": {reason}"))
+        .unwrap_or_default()
+}
+
 fn known_code(code: Option<&str>) -> &'static str {
-    code.and_then(|c| KNOWN_CODES.iter().copied().find(|known| *known == c)).unwrap_or("")
+    code.and_then(|c| {
+        KNOWN_CODES.iter().copied().find(|known| *known == c).or_else(|| refusals::platform_code(c))
+    })
+    .unwrap_or("")
 }
 
 /// How the verbs run: whether a person is at the terminal, and how often `--wait` reads.
@@ -917,7 +949,7 @@ pub(super) fn mint_for(platform: &Platform, add: &Add<'_>) -> Result<Minted, Fai
         body.insert("vault".into(), json!(true));
     }
     let answer = platform.mint(Value::Object(body)).map_err(|e| match e {
-        CallError::Status { status: 403, code: "machine.vault_personal_only" } => Failure::new(
+        CallError::Status { status: 403, code: "machine.vault_personal_only", .. } => Failure::new(
             "machine_join.vault_personal_only",
             "the vault goes only to machines of your personal team: switch to it, or add the machine without --vault",
         ),
@@ -1043,6 +1075,8 @@ pub(super) struct Joined {
     pub created_at: Value,
     pub last_heartbeat: Value,
     pub last_heartbeat_ms: Option<u64>,
+    /// The platform's `online` for the row; `None` from a platform that predates it.
+    pub online: Option<bool>,
     pub revoked: bool,
     pub join_token_id: Option<String>,
     pub mesh_peer_id: Option<String>,
@@ -1070,6 +1104,7 @@ pub(super) fn joined(entry: &Value) -> Option<Joined> {
         created_at: entry.get("createdAt").cloned().unwrap_or(Value::Null),
         last_heartbeat_ms: epoch_ms(&last_heartbeat),
         last_heartbeat,
+        online: entry.get("online").and_then(Value::as_bool),
         revoked,
         join_token_id: text("joinTokenId"),
         // The mesh daemon id: `meshIdentity` in the platform's rows, `meshPeerId` in the contract.
@@ -1085,12 +1120,20 @@ impl Joined {
     pub(super) fn state(&self, now: u64) -> &'static str {
         if self.revoked {
             "revoked"
-        } else if self.last_heartbeat_ms.is_some_and(|at| now.saturating_sub(at) < ONLINE_WITHIN_MS)
-        {
+        } else if self.is_online(now) {
             "online"
         } else {
             "offline"
         }
+    }
+
+    /// The platform's `online` when it sends one (it follows the mesh row TTL, so the platform
+    /// tunes it without a CLI release); else the heartbeat within [`LEGACY_ONLINE_WITHIN_MS`].
+    pub(super) fn is_online(&self, now: u64) -> bool {
+        self.online.unwrap_or_else(|| {
+            self.last_heartbeat_ms
+                .is_some_and(|at| now.saturating_sub(at) < LEGACY_ONLINE_WITHIN_MS)
+        })
     }
 
     /// The machine as a `machine list` row (`kind: "joined"`).
@@ -1349,7 +1392,9 @@ fn rows_signed_in(platform: Option<&str>, credential: String) -> Result<Vec<Valu
     let platform = Platform::new(origin, credential, LIST_TIMEOUT).map_err(|f| f.message)?;
     let entries = platform.credentials().map_err(|e| e.failure("the machine list").message)?;
     let now = now_ms();
-    Ok(entries.iter().filter_map(joined).map(|machine| machine.row(now)).collect())
+    let rows = entries.iter().filter_map(joined).map(|machine| machine.row(now)).collect();
+    // A machine `cmux device remove` removed leaves the list; one only revoked stays, as revoked.
+    Ok(crate::devices::removed::without(rows, &crate::devices::removed::ids()))
 }
 
 /// The cmux credential `cmux device …` signs in with: `--cloud-token-stdin`, else

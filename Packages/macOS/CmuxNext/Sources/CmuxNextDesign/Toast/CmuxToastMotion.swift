@@ -10,11 +10,9 @@ import CmuxNextCompat
 /// Reduce Motion keeps the fades and drops the movement (`Motion.set` snaps
 /// it).
 @MainActor
-enum CmuxToastMotion {
-    /// How far below its slot a new toast starts.
-    static let rise: CGFloat = 8
-
-    static func appear(_ toast: CmuxToastView) {
+struct CmuxToastMotion {
+    /// Fades `toast` in, rising `rise` points to its slot (``CmuxToastTunables/rise``; 0: it only fades).
+    static func appear(_ toast: CmuxToastView, rise: CGFloat) {
         guard let layer = layer(of: toast) else { return }
         Motion.overlays.set(layer, "opacity", to: Float(1), fade: .fadeIn, from: Float(0))
         Motion.overlays.set(layer, "transform.translation.y", to: CGFloat(0), spring: .appear, from: downward(toast) * rise)

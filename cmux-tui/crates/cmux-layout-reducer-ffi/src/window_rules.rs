@@ -9,10 +9,10 @@ use serde_json::json;
 
 use crate::ERR_INVALID;
 
-#[path = "window_rules_workspaces.rs"]
-mod workspaces;
 #[path = "window_rules_misc.rs"]
 mod misc;
+#[path = "window_rules_workspaces.rs"]
+mod workspaces;
 
 /// Whether `operation` is one of this module's.
 pub(crate) fn handles(operation: &[u8]) -> bool {
@@ -156,6 +156,8 @@ fn respond_tabs(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> {
                 "harness": tabs::harness(request.agent.as_deref()),
             })
         }
+        // Toggle Terminal and Chat's route for the focused tab.
+        b"window_tabs_terminal_chat_toggle" => value(&tabs::terminal_chat_toggle(&read(request)?))?,
         // Duplicate Tab per tab; `actions` null: refused (a page tab opens once).
         b"window_tabs_duplicate" => {
             let request: Tabs = read(request)?;

@@ -99,6 +99,16 @@ const pending = new Map<string, Promise<SessionRefTarget | null>>();
 const listeners = new Set<() => void>();
 let resolver: Resolver | undefined;
 
+/// The label acpmux puts after a sender that named itself (`hub/inbox.rs` `display_sender`): who sent
+/// it is unverified, but the chat it names is still the one to look up.
+const SELF_DECLARED = / \(self-declared, unauthenticated\)$/;
+
+/// The reference a sender's displayed name stands for: the name without acpmux's self-declared
+/// label. Looked up with the label, no chat ever matched, and every click said it could not be found.
+export function senderRef(name: string): string {
+  return name.trim().replace(SELF_DECLARED, "").trim();
+}
+
 /// Sets how a reference is resolved (App.tsx: `_acpmux/resolve` through the page's client).
 /// Without one nothing resolves, and links open their web page.
 export function setSessionRefResolver(next: Resolver | undefined): void {

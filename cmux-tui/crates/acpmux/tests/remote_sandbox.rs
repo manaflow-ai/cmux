@@ -353,6 +353,15 @@ async fn only_the_callers_vm_boundary_over_its_peer_link_skips_the_linux_sandbox
             Some(s) => c.call("_acpmux/events", json!({"sessionId": s, "limit": 1000})).await,
             None => json!({}),
         };
+        let scrub_events = match (&session, runs) {
+            (Some(s), true) => {
+                let text = "envs: CLAUDE_CODE_SUBPROCESS_ENV_SCRUB";
+                let p = json!({"sessionId": s, "prompt": [{"type": "text", "text": text}]});
+                let _ = c.call("session/prompt", p).await;
+                c.call("_acpmux/events", json!({"sessionId": s, "limit": 1000})).await
+            }
+            _ => json!({}),
+        };
         // A Web client never controls an agent that runs unsandboxed (`remote_floor.rs`).
         let web_prompt = match (&session, runs) {
             (Some(s), true) => {
@@ -382,12 +391,28 @@ async fn only_the_callers_vm_boundary_over_its_peer_link_skips_the_linux_sandbox
             }
             let refused = web_prompt.to_string();
             assert!(refused.contains("remote.unsandboxed_agent"), "{tag}: {refused}");
+            // No outer sandbox here, so Claude Code's own scrub sandbox can start: it stays on.
+            let env = env_reply(&scrub_events);
+            assert_eq!(env["CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"], "1", "{tag}: {env}");
         } else {
             let e = reply.to_string();
             assert!(e.contains("remote.sandbox_refused"), "{tag}: {e}");
             assert!(e.contains("bwrap unavailable"), "{tag}: {e}");
         }
     }
+}
+
+/// The JSON an `envs:` prompt's fake Claude answered with, in `events`.
+#[cfg(target_os = "linux")]
+fn env_reply(events: &Value) -> Value {
+    events["result"]["events"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.pointer("/msg/params/update/content/text").and_then(Value::as_str))
+        .filter_map(|text| serde_json::from_str::<Value>(text).ok())
+        .find(|v| v.get("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB").is_some())
+        .unwrap_or_default()
 }
 
 /// Only the person's own clients control a session at the VM boundary. A paired machine's

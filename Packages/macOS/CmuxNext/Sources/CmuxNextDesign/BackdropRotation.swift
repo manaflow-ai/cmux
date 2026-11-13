@@ -1,16 +1,14 @@
 public import Foundation
 
 /// How often a shuffled background turns to its next picture (`appearance.backgroundRotation`),
-/// like macOS's rotating wallpaper. Consecutive periods step through the pictures by a stride that
+/// like macOS's rotating wallpaper. Unset is `BackdropSelectionSetting.rotationDefault` (daily,
+/// schemas/settings/source/appearance.json). Consecutive periods step through the pictures by a stride that
 /// shares no factor with their count, so each shows once before any repeats and neighbours land
 /// far apart.
 public nonisolated enum BackdropRotation: String, CaseIterable, Sendable {
     case quarterHour = "15m"
     case hourly
     case daily
-
-    /// Unset: once a day, as Shuffle Daily always turned.
-    public static let defaultRotation = BackdropRotation.daily
 
     /// The length of one period for the clock-aligned intervals.
     private var seconds: Double { self == .hourly ? 3_600 : 900 }

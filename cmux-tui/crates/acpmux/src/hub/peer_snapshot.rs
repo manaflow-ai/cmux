@@ -3,8 +3,9 @@
 //! from the peer with `afterSeq` (cmuxterm-hq#4381; Lawrence: "decouple persistence of acp
 //! trajectories from the VM itself, in case the VM is resuming"). The peer's journal stays the
 //! authority: this is what this daemon saw of it (its clients' pages, the pages it read ahead of
-//! an open, `warm.rs`, the peer's live records), never a write lease, an execution checkpoint or a
-//! backup. The files are `disk.rs`'s.
+//! an open, `warm.rs`, the peer's live records), never a write lease or an execution checkpoint;
+//! but what it holds past a peer back on an older disk goes back to that peer (`restore.rs`).
+//! The files are `disk.rs`'s.
 //!
 //! One thread owns every copy and every file (`Store`); the hub only sends it what it saw, in
 //! the order it saw it, so no capture, listing, purge or write ever runs beside another. Sending
@@ -24,7 +25,10 @@
 //!   names none (`_acpmux/events`) only continues one. A page joins a copy only next to or inside
 //!   what it covers; a newer page that does not replaces it, an older one is left out. A peer whose
 //!   `lastSeq` is behind what the copy saw of it, on a link no page joined the copy on (a VM back
-//!   on an older disk, this daemon restarted), replaces it too. A journal that went back and then
+//!   on an older disk, a session moved to a fresh machine), does not replace a copy that holds
+//!   records past that `lastSeq`: the newer copy stays, and the hub gives the peer those
+//!   records back (`restore.rs`, `hub/journal_restore.rs`), across a gap when the copy starts
+//!   past it (what is between is gone everywhere); a peer that refuses them is replaced. A journal that went back and then
 //!   ran past where the copy was cannot be told by seq; only a new `createdAt` would tell.
 //! - A live record continues only a copy a page joined on the link it came on, and only at most
 //!   one past what it covers; when the link drops notifications (`_acpmux/lagged`) no record is
@@ -47,17 +51,23 @@
 //! tokens, none of which is here.
 
 use super::*;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, mpsc};
 use std::time::{Duration, Instant};
 
 mod disk;
+mod restore;
 /// The test allocator's count for one closure on this thread (`disk_tests.rs`); only the
 /// Linux-only chat activity scale tests read it.
 #[cfg(all(test, target_os = "linux"))]
-pub(crate) use disk::tests::thread_allocations;
+pub(crate) use disk::tests::{thread_allocations, thread_peak_bytes};
 use disk::{Head, Key, Writer, record_bytes, seq_of};
+#[cfg(debug_assertions)]
+pub(crate) use restore::reads_fail;
+/// A listed row as the owner compares its copy with it (`journal_restore_tests.rs`).
+#[cfg(test)]
+pub(crate) use restore::row_of;
 
 /// Records and bytes one peer session keeps; more than an attach page (400).
 pub(crate) const SESSION_EVENTS: usize = if cfg!(test) { 40 } else { 1000 };
@@ -126,6 +136,20 @@ pub(crate) struct Page {
 }
 
 impl Page {
+    /// How far the peer's journal is the history the copy saw: its `lastSeq` with the page (or
+    /// `through`), or where its own startup recovery began when its row says that is lower
+    /// (`recoveredAfter`). A fresh machine's recovery past that point is not the copy's history:
+    /// 8b5f3063 compared `lastSeq` alone, and a page of a recovery that went as far as the copy
+    /// joined it, over the records the restore gives back (review of #37284 at 8b5f3063, F2).
+    fn seen(&self) -> Option<u64> {
+        let seen = self.host_last_seq.or(self.through);
+        let from = self.row.as_ref().and_then(|r| r.get("recoveredAfter")).and_then(Value::as_u64);
+        match from.filter(|_| !crate::hub::journal_restore::rules_of_8b5f()) {
+            Some(from) => seen.map(|s| s.min(from)),
+            None => seen,
+        }
+    }
+
     /// The seqs the page covers (every record of them it was asked for), when any: an events
     /// page after `A` covers `A+1` to its last record (to `through` when it holds all there is);
     /// a page of the newest records covers its first record (the first seq, when it holds all
@@ -176,6 +200,12 @@ enum Op {
         link: Link,
         record: Value,
     },
+    /// A seq of the session its link is not sent live (`take_unsent`).
+    Unsent {
+        key: Key,
+        link: Link,
+        seq: u64,
+    },
     /// An op of the peer did not fit the queue: what it would have changed goes instead.
     LostPeer(String),
     /// `_acpmux/peer_snapshot` (`read.rs`).
@@ -194,7 +224,35 @@ enum Op {
         peer: Option<String>,
         done: Option<mpsc::SyncSender<()>>,
     },
+    /// The records past each row's `lastSeq` its copy holds, and from which seq each copy saw
+    /// every record (`restore.rs`).
+    Ahead {
+        peer: String,
+        rows: Vec<restore::Row>,
+        reply: mpsc::SyncSender<Option<(Vec<restore::Ahead>, crate::hub::open_delivery::Since)>>,
+    },
+    /// The peer's answer to a restore of generation `generation`, on link `link`: taken (its
+    /// journal ends at `last`) or refused (None, and the copy goes), only while `link` is the
+    /// newest the store saw and the copy is still of that generation.
+    Restored {
+        key: Key,
+        link: Link,
+        generation: u64,
+        last: Option<u64>,
+    },
 }
+
+/// Told, after a copy's write, the records of prompts' lives that came since its last write and
+/// the write put on disk (never one a bound cut before it): the copy's key, its generation, the
+/// newest link those records came on (never the link the peer is on when the write runs) and
+/// the records (`open_delivery.rs`: their deliveries keep them as proof), and the seq from which
+/// the copy saw every record (`since`). It answers whether the proofs are on disk: until then
+/// the copy counts them as not told (review of #37284 at a088585e, F3). It is told again, with
+/// no records, each time `since` moves past what it last told, and before the copy goes: the
+/// proofs keep it, so one known to miss a record stays so once the copy is gone (review of
+/// #37284 at 918d2403, F1).
+pub(crate) type Written =
+    Arc<dyn Fn(&(String, String), u64, Link, Vec<Value>, u64) -> bool + Send + Sync>;
 
 /// The peers whose ops did not fit the queue (with whether a removal of the peer was among
 /// them), and the flushes sent: each is sent once until the thread takes it, so they are bounded
@@ -257,6 +315,10 @@ pub struct PeerSnapshots {
     untaken: Untaken,
     /// The reads ahead of an open (`warm.rs`).
     warm: warm::Warm,
+    /// The peers whose journals are being given back their records (`restore.rs`).
+    restoring: restore::Gate,
+    /// Told the prompts each write of a copy put on disk (`Hub::new` sets it).
+    pub(crate) written: Arc<StdMutex<Option<Written>>>,
 }
 
 impl PeerSnapshots {
@@ -271,6 +333,8 @@ impl PeerSnapshots {
             dropped: Arc::default(),
             untaken: Arc::default(),
             warm: warm::Warm::default(),
+            restoring: restore::Gate::default(),
+            written: Arc::default(),
         }
     }
 
@@ -296,7 +360,7 @@ impl PeerSnapshots {
         for _ in 0..2 {
             if thread.is_none() {
                 let (tx, rx) = mpsc::channel();
-                let store = Store::new(root.clone(), self.dropped.clone());
+                let store = Store::new(root.clone(), self.dropped.clone(), self.written.clone());
                 let (ended, untaken) = (self.ended.clone(), self.untaken.clone());
                 let spawned = std::thread::Builder::new()
                     .name("acpmux-peer-snapshots".into())
@@ -416,6 +480,15 @@ impl PeerSnapshots {
         });
     }
 
+    pub(crate) fn unsent(&self, (peer, mux): (&str, &str), link: Link, seq: u64) {
+        let cost = OP_BYTES + mux.len() as u64;
+        self.admit(peer, cost, false, || Op::Unsent {
+            key: (peer.to_owned(), mux.to_owned()),
+            link,
+            seq,
+        });
+    }
+
     /// Writes what is not written yet, of peer `peer` (None: every peer), without waiting.
     pub(crate) fn flush(&self, peer: Option<&str>) {
         if self.dir.is_none() {
@@ -480,6 +553,23 @@ fn created_at(row: &Value) -> Option<u64> {
     row.get("createdAt").and_then(Value::as_u64)
 }
 
+/// Debug builds only: a lower bound of records for every copy (`hub::peer_snapshot_bound`).
+#[cfg(debug_assertions)]
+pub(crate) static BOUND_EVENTS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+/// [`SESSION_EVENTS`], or the lower bound a debug build's test set.
+fn session_events() -> usize {
+    #[cfg(debug_assertions)]
+    {
+        let n = BOUND_EVENTS.load(Ordering::SeqCst);
+        if n > 0 {
+            return n.min(SESSION_EVENTS);
+        }
+    }
+    SESSION_EVENTS
+}
+
 struct Kept {
     head: Head,
     /// Its records once read (`Store::load`); None while they are only on disk.
@@ -502,14 +592,58 @@ struct Kept {
     failures: u64,
     /// When it was last captured or read (ms), for eviction; a restart keeps its `capturedAt`.
     used: u64,
+    /// The seqs of records of prompts' lives that came since its last write: the ones still held
+    /// are told once written ([`Written`]).
+    fresh: BTreeSet<u64>,
+    /// The newest link `fresh`'s records came on.
+    fresh_link: Option<Link>,
+    /// The `since` the hook last took ([`Written`]); this run's only.
+    told_since: u64,
 }
 
 impl Kept {
     fn new(head: Head, disk: u64) -> Self {
         let used = head.captured_at;
         let (memory, epoch, joined, due, retry, failures, own) = (0, None, None, None, None, 0, 0);
-        Self { head, records: None, memory, disk, own, epoch, joined, due, retry, failures, used }
+        let fresh = BTreeSet::new();
+        Self {
+            head,
+            records: None,
+            memory,
+            disk,
+            own,
+            epoch,
+            joined,
+            due,
+            retry,
+            failures,
+            used,
+            fresh,
+            fresh_link: None,
+            told_since: 0,
+        }
     }
+}
+
+/// What `Store::read_in` made of a copy.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Loaded {
+    /// Its records are in.
+    Yes,
+    /// There is none (it was never kept, its file is gone, or what it holds does not read).
+    Gone,
+    /// Its file did not read (an I/O error): it stays, unread, and is read again later.
+    Unread,
+}
+
+/// Whether `e` is the filesystem not reading a file, rather than what the file holds: a copy
+/// cut, past its bound, not of its session or not this user's is never read whole, however
+/// often it is read again.
+fn unread(e: &anyhow::Error) -> bool {
+    e.chain().any(|c| {
+        c.downcast_ref::<std::io::Error>()
+            .is_some_and(|e| e.kind() != std::io::ErrorKind::InvalidData)
+    })
 }
 
 /// What a page does to the copy it is of.
@@ -554,6 +688,8 @@ struct Store {
     wake: Option<Instant>,
     /// Bytes of every loaded copy's records.
     memory: u64,
+    /// Told the prompts a write put on disk ([`Written`]).
+    written: Arc<StdMutex<Option<Written>>>,
     /// What every copy costs itself (`Kept::own`).
     own: u64,
     dropped: Arc<StdMutex<Dropped>>,
@@ -576,7 +712,11 @@ fn backoff(before: Option<Duration>) -> Duration {
 }
 
 impl Store {
-    fn new(root: PathBuf, dropped: Arc<StdMutex<Dropped>>) -> Self {
+    fn new(
+        root: PathBuf,
+        dropped: Arc<StdMutex<Dropped>>,
+        written: Arc<StdMutex<Option<Written>>>,
+    ) -> Self {
         Self {
             root,
             write: crate::config::write_atomic,
@@ -596,6 +736,7 @@ impl Store {
             memory: 0,
             own: 0,
             dropped,
+            written,
         }
     }
 
@@ -692,6 +833,7 @@ impl Store {
             }
             Op::Page { key, page } => self.take_page(&key, page),
             Op::Record { key, link, record } => self.take_record(&key, link, record),
+            Op::Unsent { key, link, seq } => self.take_unsent(&key, link, seq),
             Op::LostPeer(peer) => {
                 let mut dropped = self.dropped.lock().unwrap_or_else(|e| e.into_inner());
                 let forget = dropped.peers.remove(&peer) == Some(true);
@@ -703,6 +845,16 @@ impl Store {
             }
             Op::Covers { peer, reply } => {
                 let _ = reply.send(self.covers(&peer));
+            }
+            Op::Ahead { peer, rows, reply } => {
+                let _ = reply.send(self.ahead(&peer, rows));
+            }
+            Op::Restored { key, link, generation, last } => {
+                let same =
+                    self.copies.get(&key).is_some_and(|c| c.head.generation == Some(generation));
+                if same && self.fresh_link(&key.0, link) {
+                    self.restored(&key, last);
+                }
             }
             Op::Flush { peer, done } => {
                 if done.is_none() {
@@ -730,7 +882,7 @@ impl Store {
             }
             Op::Flush { .. } => return,
             // Its reader is answered at once that there is nothing (its reply went with it).
-            Op::Read { .. } | Op::Covers { .. } => return,
+            Op::Read { .. } | Op::Covers { .. } | Op::Ahead { .. } => return,
             Op::LostPeer(_) => return self.take(op),
             Op::Clear(_) => {
                 self.clear();
@@ -738,7 +890,11 @@ impl Store {
             }
             Op::ForgetPeer(peer) => (peer, true),
             Op::Listed { peer, .. } | Op::Lagged { peer, .. } => (peer, false),
-            Op::Page { key, .. } | Op::Record { key, .. } | Op::Gone { key, .. } => (key.0, false),
+            Op::Page { key, .. }
+            | Op::Record { key, .. }
+            | Op::Unsent { key, .. }
+            | Op::Gone { key, .. }
+            | Op::Restored { key, .. } => (key.0, false),
         };
         self.lose_peer(peer, forget);
     }
@@ -791,7 +947,7 @@ impl Store {
             // Its files went one by one above; the directory goes only once it is empty, so a
             // peer added again under the name never loses a copy to a removal tried later.
             if let Some(dir) = disk::peer_dir(&self.root, peer) {
-                let _ = std::fs::remove_dir(dir);
+                let _ = crate::home_fs::remove_dir(dir);
             }
         } else {
             self.forget_unread(peer.to_owned());
@@ -887,7 +1043,7 @@ impl Store {
     /// the copy on: its journal went back (a VM resumed from an older disk, or this daemon
     /// restarted). On the link that joined it, a lower `lastSeq` is only a reply that came late.
     fn behind(c: &Kept, page: &Page, to: Option<u64>) -> bool {
-        let seen = page.host_last_seq.or(page.through).or(to);
+        let seen = page.seen().or(to);
         c.joined != Some(page.link)
             && seen.is_some_and(|s| s < c.head.host_last_seq.max(c.head.last_seq))
     }
@@ -895,8 +1051,11 @@ impl Store {
     fn fate(&self, key: &Key, page: &Page, (from, to): (u64, u64), generation: u64) -> Fate {
         let Some(c) = self.copies.get(key) else { return Fate::Restart };
         let h = &c.head;
-        if h.generation != Some(generation) || Self::behind(c, page, Some(to)) {
+        if h.generation != Some(generation) {
             Fate::Restart
+        } else if Self::behind(c, page, Some(to)) {
+            // The newer copy stays while the peer can take its records back (`restore.rs`).
+            if Self::keeps_ahead(c, page) { Fate::Ignore } else { Fate::Restart }
         } else if to + 1 < h.first_seq {
             Fate::Ignore
         } else if from > h.last_seq + 1 {
@@ -942,16 +1101,28 @@ impl Store {
         let covered = page.covers().or(empty.then_some((1, 0)));
         let Some((from, to)) = covered else {
             // Nothing to keep, but a peer behind the copy still says it is not this journal.
-            if self.copies.get(key).is_some_and(|c| Self::behind(c, &page, None)) {
+            if self
+                .copies
+                .get(key)
+                .is_some_and(|c| Self::behind(c, &page, None) && !Self::keeps_ahead(c, &page))
+            {
                 self.remove(key);
             }
             return;
         };
-        self.load(key);
+        // A copy whose file did not read stays as it is: whether this page continues it, or is
+        // older history it holds records past, is not known until it reads (review of #37284 at
+        // c4a1c13b, F1). c4a1c13b removed it and started again from this page, and the newer
+        // records it held for the peer's restore were lost.
+        if self.read_in(key, !crate::hub::journal_restore::rules_of_c4a1()) == Loaded::Unread {
+            return;
+        }
         match self.fate(key, &page, (from, to), generation) {
             Fate::Ignore => return,
             Fate::Join => {}
             Fate::Restart => {
+                // What a replaced copy held of a message's life its delivery holds itself
+                // (`open_delivery.rs`): no record is carried over a gap.
                 self.remove(key);
                 // Only a page that names its generation itself starts a copy.
                 if page.generation != Some(generation) {
@@ -963,11 +1134,14 @@ impl Store {
                     generation: Some(generation),
                     first_seq: from,
                     last_seq: to,
+                    since: from,
                     ..Head::default()
                 };
                 let mut copy = Kept::new(head, 0);
                 copy.records = Some(BTreeMap::new());
                 self.insert(key.clone(), copy);
+                // Past a gap: a proof of before it may miss what the gap held.
+                self.tell_since(key);
             }
         }
         let Some(c) = self.copies.get_mut(key) else { return };
@@ -983,6 +1157,7 @@ impl Store {
             h.summary = row;
             self.charge(key);
         }
+        self.came_on(key, page.link);
         self.add(key, page.records);
     }
 
@@ -993,6 +1168,23 @@ impl Store {
         if !self.fresh_link(&key.0, link) || !of_session(&record, key) {
             return;
         }
+        self.join_live(key, link, seq, vec![record]);
+    }
+
+    /// A seq the link is not sent live (an agent request or answer, `server/mod.rs` `deliver`):
+    /// the copy covers it as a page that leaves its kind out would, under the same rule as a
+    /// record (next to what it covers, on the link a page joined), so a record the link lost is
+    /// never passed over.
+    fn take_unsent(&mut self, key: &Key, link: Link, seq: u64) {
+        // As `seq_of`: a seq a client's number holds exactly.
+        if seq >= 1 << 53 || !self.fresh_link(&key.0, link) {
+            return;
+        }
+        self.join_live(key, link, seq, vec![]);
+    }
+
+    /// What came live at `seq` (its record, or none) continues `key`'s copy when it joins.
+    fn join_live(&mut self, key: &Key, link: Link, seq: u64, records: Vec<Value>) {
         let Some(generation) = self.current(key) else { return };
         let joins = |c: &Kept| {
             c.head.generation == Some(generation)
@@ -1003,14 +1195,24 @@ impl Store {
         if !self.copies.get(key).is_some_and(joins) {
             return;
         }
-        if !self.load(key) {
+        // Not read, it stays and takes nothing until a page joins it again.
+        if self.read_in(key, !crate::hub::journal_restore::rules_of_c4a1()) != Loaded::Yes {
             return;
         }
         if let Some(c) = self.copies.get_mut(key) {
             c.head.last_seq = c.head.last_seq.max(seq);
             c.head.host_last_seq = c.head.host_last_seq.max(seq);
         }
-        self.add(key, vec![record]);
+        self.came_on(key, link);
+        self.add(key, records);
+    }
+
+    /// Records that the records `key`'s copy takes next came on `link`: its next write tells
+    /// the newest link its fresh records came on ([`Written`]).
+    fn came_on(&mut self, key: &Key, link: Link) {
+        if let Some(c) = self.copies.get_mut(key) {
+            c.fresh_link = c.fresh_link.max(Some(link));
+        }
     }
 
     /// Adds `records` to `key`'s loaded copy, keeps it within its bounds and the memory bound,
@@ -1021,6 +1223,11 @@ impl Store {
         let Some(held) = c.records.as_mut() else { return };
         for r in records {
             let Some(seq) = seq_of(&r) else { continue };
+            // One the copy holds as it is already came before (a page again): a write told it,
+            // or will.
+            if crate::hub::open_delivery::of_a_prompt(&r) && held.get(&seq) != Some(&r) {
+                c.fresh.insert(seq);
+            }
             let bytes = record_bytes(&r);
             if let Some(old) = held.insert(seq, r) {
                 let old_bytes = record_bytes(&old);
@@ -1049,11 +1256,19 @@ impl Store {
     /// came, so however many one large record pushes out, the work is paid for by their adding:
     /// O(log n) per record, never a walk of the copy per record.
     fn bound(&mut self, key: &Key) -> bool {
+        let cut = self.cut_to_bound(key);
+        // A record a write did not tell went: its proofs keep where the copy sees from now.
+        self.tell_since(key);
+        cut
+    }
+
+    fn cut_to_bound(&mut self, key: &Key) -> bool {
+        let events = session_events();
         let Store { copies, memory, .. } = self;
         let Some(c) = copies.get_mut(key) else { return false };
         let Some(held) = c.records.as_mut() else { return false };
         let mut cut = false;
-        while held.len() > SESSION_EVENTS || c.memory > SESSION_BYTES {
+        while held.len() > events || c.memory > SESSION_BYTES {
             let Some((seq, old)) = held.pop_first() else { break };
             let old_bytes = record_bytes(&old);
             c.memory -= old_bytes;
@@ -1061,6 +1276,12 @@ impl Store {
             c.head.first_seq = c.head.first_seq.max(seq.saturating_add(1));
             c.head.last_seq = c.head.last_seq.max(c.head.first_seq - 1);
             c.head.from_start = false;
+            // A record of a prompt's life no write reported goes with no proof taking it (review
+            // of #37284 at 91b1343d, F1): a proof that needed it is not whole, so the copy saw
+            // every record only from past it (`open_delivery::whole`).
+            if c.fresh.remove(&seq) && !crate::hub::journal_restore::rules_of_91b() {
+                c.head.since = c.head.since.max(seq.saturating_add(1));
+            }
             cut = true;
         }
         cut
@@ -1130,12 +1351,21 @@ impl Store {
         self.trim_kept(key);
     }
 
-    /// Reads `key`'s records in when they are only on disk; a copy that does not read goes.
-    /// Answers whether its records are loaded.
+    /// Reads `key`'s records in when they are only on disk; a copy whose records do not read
+    /// goes, and one whose file the filesystem did not read stays, unread (review of #37284 at
+    /// c4a1c13b, F1: c4a1c13b kept it only for `ahead`, and the next page or live record removed
+    /// it). Answers whether its records are loaded.
     fn load(&mut self, key: &Key) -> bool {
-        let Some(c) = self.copies.get(key) else { return false };
+        self.read_in(key, !crate::hub::journal_restore::rules_of_c4a1()) == Loaded::Yes
+    }
+
+    /// [`Self::load`], and with `keep`, a copy whose file the filesystem did not read (an I/O
+    /// error, not what it holds) stays as it is, unread (review of #37284 at 8b5f3063, F1): its
+    /// records may be past where the peer's journal ends.
+    fn read_in(&mut self, key: &Key, keep: bool) -> Loaded {
+        let Some(c) = self.copies.get(key) else { return Loaded::Gone };
         if c.records.is_some() {
-            return true;
+            return Loaded::Yes;
         }
         let read = match disk::path(&self.root, key) {
             Some(_) if c.disk > FILE_BYTES => Err(anyhow::anyhow!("past its bound")),
@@ -1168,14 +1398,18 @@ impl Store {
                     self.wake_by(due);
                 }
                 self.trim_memory(Some(key));
-                true
+                Loaded::Yes
+            }
+            Err(e) if keep && !crate::hub::journal_restore::rules_of_8b5f() && unread(&e) => {
+                tracing::warn!(peer = %key.0, session = %key.1, "peer snapshot: a copy did not read; it stays: {e:#}");
+                Loaded::Unread
             }
             other => {
                 if let Err(e) = other {
                     tracing::warn!(peer = %key.0, session = %key.1, "peer snapshot: a copy that does not read goes: {e:#}");
                 }
                 self.remove(key);
-                false
+                Loaded::Gone
             }
         }
     }
@@ -1205,7 +1439,20 @@ impl Store {
     /// Every copy on disk, by its head; anything else there goes. Until it reads, nothing is
     /// written or removed (what the disk holds is not known), and it is tried again with backoff.
     fn scan(&mut self) -> bool {
-        let found = match disk::scan(&self.root) {
+        // A head the filesystem did not read (an I/O error, not what the file holds) is a disk
+        // that does not read, as a directory is (review of #37284 at 8b5f3063, F1): 8b5f3063
+        // removed its copy as a stray, and with it records past where the peer's journal ends.
+        let found = disk::scan(&self.root).and_then(|mut found| {
+            let heads = std::mem::take(&mut found.copies).into_iter().map(|(key, path, bytes)| {
+                let head = disk::read_head(&path, &key);
+                match head {
+                    Err(e) if !crate::hub::journal_restore::rules_of_8b5f() && unread(&e) => Err(e),
+                    head => Ok((key, path, bytes, head.ok().flatten())),
+                }
+            });
+            Ok((heads.collect::<anyhow::Result<Vec<_>>>()?, found))
+        });
+        let (heads, found) = match found {
             Ok(found) => found,
             Err(e) => {
                 let wait = backoff(self.scan_retry.map(|(_, d)| d));
@@ -1226,9 +1473,9 @@ impl Store {
             // Only while empty: a copy written in it meanwhile stays (a removed peer added again).
             let _ = std::fs::remove_dir(dir);
         }
-        for (key, path, bytes) in found.copies {
-            match disk::read_head(&path, &key) {
-                Ok(Some(head)) if bytes <= FILE_BYTES && self.admits(&key, head.generation) => {
+        for (key, path, bytes, head) in heads {
+            match head {
+                Some(head) if bytes <= FILE_BYTES && self.admits(&key, head.generation) => {
                     self.insert(key, Kept::new(head, bytes));
                 }
                 _ => self.unlink(path, bytes),
@@ -1256,6 +1503,7 @@ impl Store {
 
     /// Removes `key`'s copy and its file.
     fn discard(&mut self, key: &Key) {
+        self.tell_since(key);
         let Some(c) = self.copies.remove(key) else { return };
         self.memory -= c.memory;
         self.own -= c.own;
@@ -1283,7 +1531,7 @@ impl Store {
     /// empty, and a write makes it again). Never recursive.
     fn emptied(&self, path: &Path) {
         if let Some(dir) = path.parent().filter(|d| *d != self.root) {
-            let _ = std::fs::remove_dir(dir);
+            let _ = crate::home_fs::remove_dir(dir);
         }
     }
 
@@ -1376,6 +1624,17 @@ impl Store {
             self.remove(key);
             return Ok(());
         }
+        if self.copies.get(key).is_none_or(|c| c.records.is_none()) {
+            return Ok(());
+        }
+        // The proofs go first (review of #37284 at a088585e, F3): a copy whose proofs are not
+        // on disk writes that it does not vouch for its records through those (`since`), so a
+        // proof that missed a later record of its prompt is never whole, after a restart too.
+        let unsaved = !crate::hub::journal_restore::rules_of_a088() && !self.tell_written(key);
+        #[cfg(test)]
+        if stops_before_write(key) {
+            anyhow::bail!("tests only: the daemon stopped before the copy's file was written");
+        }
         let Some(c) = self.copies.get(key) else { return Ok(()) };
         let Some(records) = &c.records else { return Ok(()) };
         let bytes = disk::encode(&c.head, records);
@@ -1398,8 +1657,70 @@ impl Store {
             c.disk = written;
             (c.due, c.retry, c.failures) = (None, None, 0);
         }
+        if crate::hub::journal_restore::rules_of_a088() {
+            // a088585e: told after the write, kept as told whatever the outbox's save did.
+            self.tell_written(key);
+        }
+        if unsaved {
+            // Told again until their proofs are on disk.
+            self.failed(key, &anyhow::anyhow!("its records' proofs are not on disk yet"));
+        }
         self.trim_memory(None);
         Ok(())
+    }
+
+    /// Tells the hook ([`Written`]) the records of prompts' lives `key`'s copy took since it last
+    /// told them; they are told only once the hook answers their proofs on disk. When it does
+    /// not, the copy vouches for its records only past them (`since`), as for a record its
+    /// bound cuts before a write tells it, and they are told again at its next write. Answers
+    /// whether none is left untold. Only records the copy holds: one a bound cut is gone.
+    fn tell_written(&mut self, key: &Key) -> bool {
+        let Some(c) = self.copies.get_mut(key) else { return true };
+        let records: Vec<Value> = c
+            .records
+            .as_ref()
+            .map(|held| c.fresh.iter().filter_map(|s| held.get(s)).cloned().collect())
+            .unwrap_or_default();
+        let link = c.fresh_link.unwrap_or_default();
+        let since = c.head.since;
+        let Some(generation) = c.head.generation.filter(|_| !records.is_empty()) else {
+            c.fresh.clear();
+            c.fresh_link = None;
+            self.tell_since(key);
+            return true;
+        };
+        let hook = self.written.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let saved = hook.is_none_or(|hook| hook(key, generation, link, records, since));
+        let Some(c) = self.copies.get_mut(key) else { return saved };
+        if saved {
+            c.told_since = c.told_since.max(since);
+        }
+        if saved || crate::hub::journal_restore::rules_of_a088() {
+            c.fresh.clear();
+            c.fresh_link = None;
+        } else if let Some(last) = c.fresh.last() {
+            c.head.since = c.head.since.max(last.saturating_add(1));
+        }
+        saved
+    }
+
+    /// Tells the hook ([`Written`]), with no records, the seq from which `key`'s copy saw every
+    /// record, when it moved past what the hook last took: the proofs pinned to the copy keep
+    /// it, and one it says missed a record is never whole, once the copy goes too
+    /// (`open_delivery.rs` `cut`; review of #37284 at 918d2403, F1). One not saved is told
+    /// again at the copy's next write, or before it goes.
+    fn tell_since(&mut self, key: &Key) {
+        if crate::hub::journal_restore::rules_of_918d() {
+            return;
+        }
+        let Some(c) = self.copies.get(key) else { return };
+        let (since, link) = (c.head.since, c.fresh_link.unwrap_or_default());
+        let Some(generation) = c.head.generation.filter(|_| since > c.told_since) else { return };
+        let hook = self.written.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let saved = hook.is_none_or(|hook| hook(key, generation, link, Vec::new(), since));
+        if saved && let Some(c) = self.copies.get_mut(key) {
+            c.told_since = since;
+        }
     }
 
     fn failed(&mut self, key: &Key, e: &anyhow::Error) {
@@ -1414,6 +1735,26 @@ impl Store {
         c.due = Some(due);
         self.wake_by(due);
     }
+}
+
+/// Tests only: the chats (peer, session) whose next copy write stops once its records were
+/// told (`Store::tell_written`) and before its file is written: a daemon that stopped there
+/// (review of #37284 at 27f3761b, F1).
+// test-hook-allow: armed per chat id, and only that chat's write takes it
+#[cfg(test)]
+static STOP_BEFORE_WRITE: StdMutex<Vec<(String, String)>> = StdMutex::new(Vec::new());
+
+#[cfg(test)]
+pub(crate) fn stop_before_write_once(key: &Key) {
+    STOP_BEFORE_WRITE.lock().unwrap_or_else(|e| e.into_inner()).push(key.clone());
+}
+
+/// Whether [`stop_before_write_once`] armed `key`'s write; it takes the arming.
+#[cfg(test)]
+fn stops_before_write(key: &Key) -> bool {
+    let mut armed = STOP_BEFORE_WRITE.lock().unwrap_or_else(|e| e.into_inner());
+    let at = armed.iter().position(|k| k == key);
+    at.map(|at| armed.swap_remove(at)).is_some()
 }
 
 impl Hub {
@@ -1436,7 +1777,7 @@ impl Hub {
         let Some(current) = peers.get(peer).filter(|p| p.generation == generation).cloned() else {
             return;
         };
-        let _rows = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+        let _rows = self.remote_sessions.fence();
         if self.peer_snapshots.allows(generation) && current.link_epoch() == link {
             send();
         }
@@ -1467,6 +1808,22 @@ impl Hub {
         });
     }
 
+    /// Peer `peer`'s session `mux` has a record at `seq` its link is not sent live
+    /// (`method::MUX_UNSENT`): the copy continues past it, as a record there would continue it.
+    pub(super) fn capture_peer_unsent(
+        &self,
+        (peer, generation, link): (&str, u64, u64),
+        mux: &str,
+        seq: u64,
+    ) {
+        if seq == 0 {
+            return;
+        }
+        self.capture_on(peer, (generation, link), || {
+            self.peer_snapshots.unsent((peer, mux), (generation, link), seq);
+        });
+    }
+
     /// Keeps a page of peer `peer`'s session `mux` this daemon forwarded (`_acpmux/attach`,
     /// `_acpmux/events`; `server/peer_forward.rs`), asked on link `link` while the row named
     /// generation `asked`; `events`: an `_acpmux/events` page, else an attach. Only a run of the
@@ -1482,13 +1839,14 @@ impl Hub {
         result: &Value,
     ) {
         // `kinds` is a name or a list of names (`EventKinds`): without `transcript`, the page
-        // leaves the chat out.
+        // leaves the chat out. So does a page of one subagent's records (`subagent`).
         let transcript = |k: &Value| k.as_str() == Some("transcript");
-        let leaves_out = match params.get("kinds") {
-            None | Some(Value::Null) => false,
-            Some(Value::Array(kinds)) => !kinds.iter().any(transcript),
-            Some(kind) => !transcript(kind),
-        };
+        let leaves_out = params.get("subagent").is_some_and(|v| !v.is_null())
+            || match params.get("kinds") {
+                None | Some(Value::Null) => false,
+                Some(Value::Array(kinds)) => !kinds.iter().any(transcript),
+                Some(kind) => !transcript(kind),
+            };
         // A page of the newest records (`beforeSeq` past every seq and no `afterSeq`: the pane's
         // read-ahead, a read ahead here, `warm.rs`) is the chat's run as an attach's is. One with
         // an `afterSeq` too is the newest `limit` records after it, which need not start there.
@@ -1532,3 +1890,7 @@ mod warm;
 #[cfg(test)]
 #[path = "peer_snapshot_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "move_sim_tests.rs"]
+mod move_sim_tests;
