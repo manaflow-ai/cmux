@@ -36,6 +36,8 @@ pub(crate) fn fallback_root() -> PathBuf {
     }
 }
 
+/// cmux-unix-socket's `fits`, copied: the SDK is published to crates.io and
+/// cannot depend on that unpublished crate.
 #[cfg(unix)]
 pub(crate) fn unix_socket_path_fits(path: &Path) -> bool {
     const SUN_PATH_CAPACITY: usize =

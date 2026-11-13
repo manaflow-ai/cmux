@@ -22,27 +22,28 @@ await requireBrowserLane("composer-lists-out-of-glass.browser.test.ts", async ()
     describe.skip("composer lists out of glass", () => test("chromium", () => {}));
     return;
   }
-  /** Each list: a gallery state, how it opens (the state's play, or a typed `/`), its box. */
+  /** Each list: a gallery state, how it opens (the state's play, or a typed `/`), its box. The
+   *  list is its glass shell; the listbox inside is the rows' viewport (ui/Listbox.tsx). */
   const LISTS = {
     slash: {
       entry: "agent-pane.composer",
       variant: "slash-menu-fast-off",
       type: undefined,
-      list: "#acpmux-slash-menu",
+      list: ".ui-popup-scroll-shell:has(> #acpmux-slash-menu)",
       box: ".acpmux-composer-box",
     },
     mention: {
       entry: "agent-pane.composer",
       variant: "mention-recent-chats",
       type: undefined,
-      list: "#acpmux-mention-menu",
+      list: ".ui-popup-scroll-shell:has(> #acpmux-mention-menu)",
       box: ".acpmux-composer-box",
     },
     "new-tab": {
       entry: "agent-pane.new-tab",
       variant: "start-refused",
       type: "/",
-      list: "#acpmux-slash-menu",
+      list: ".ui-popup-scroll-shell:has(> #acpmux-slash-menu)",
       box: ".nt-box",
     },
   } as const;
@@ -143,7 +144,7 @@ await requireBrowserLane("composer-lists-out-of-glass.browser.test.ts", async ()
     const page = await opened("new-tab");
     const gap = () =>
       page.evaluate(() => {
-        const menu = document.querySelector("#acpmux-slash-menu")!.getBoundingClientRect();
+        const menu = document.querySelector("#acpmux-slash-menu")!.parentElement!.getBoundingClientRect();
         const box = document.querySelector(".nt-box")!.getBoundingClientRect();
         return { gap: box.top - menu.bottom, boxTop: box.top };
       });
@@ -161,7 +162,7 @@ await requireBrowserLane("composer-lists-out-of-glass.browser.test.ts", async ()
       before.boxTop,
     );
     await page.waitForFunction(() => {
-      const menu = document.querySelector("#acpmux-slash-menu")!.getBoundingClientRect();
+      const menu = document.querySelector("#acpmux-slash-menu")!.parentElement!.getBoundingClientRect();
       const box = document.querySelector(".nt-box")!.getBoundingClientRect();
       return Math.abs(box.top - menu.bottom - 6) <= 1;
     });
@@ -195,7 +196,7 @@ await requireBrowserLane("composer-lists-out-of-glass.browser.test.ts", async ()
     const prompt = page.locator(".acpmux-composer-box [contenteditable='true']").first();
     const place = () =>
       page.evaluate(() => {
-        const m = document.querySelector("#acpmux-mention-menu")!.getBoundingClientRect();
+        const m = document.querySelector("#acpmux-mention-menu")!.parentElement!.getBoundingClientRect();
         const b = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
         return { gap: b.top - m.bottom, left: m.left - b.left, right: m.right - b.right, box: b.height };
       });

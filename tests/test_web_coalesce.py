@@ -22,6 +22,13 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import yaml
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
@@ -528,7 +535,7 @@ class ProbeTests(unittest.TestCase):
             pin.write_text("#!/usr/bin/env bash\necho 'pin-browser-test-font: the UI font stack draws Inter'\n")
             pin.chmod(0o755)
             got = subprocess.run(["bash", "-c", f"runner={tmp}\n{block}\nprintf '%s' \"$CMUX_CHROME_HEADLESS_SHELL\""],
-                                 capture_output=True, text=True, check=True, env={"PATH": os.environ["PATH"]})
+                                 capture_output=True, text=True, check=True, env=git_fixture_env.fixture_env({"PATH": os.environ["PATH"]}))
             self.assertTrue(got.stdout.endswith("/cache/chrome-headless-shell"), got.stdout)
 
 
@@ -677,11 +684,13 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual(output.read_text(), everything.read_text())
 
     def test_the_pull_request_webview_verdict_is_untouched(self):
-        # Condition 3: react-apps-base-check runs on pull requests only, from the head shards' own results.
+        # Condition 3: react-apps-base-check runs on pull requests only, from the head shards' own results (and the
+        # early base replay of the same merge parent, a pull-request-only job too).
         ci_web = yaml.safe_load(CI_WEB.read_text())
         base = ci_web["jobs"]["react-apps-base-check"]
-        self.assertEqual(base["needs"], ["web-subarea-scope", "react-apps-check-shard"])
+        self.assertEqual(base["needs"], ["web-subarea-scope", "react-apps-check-shard", "react-apps-base-early"])
         self.assertTrue(base["if"].startswith("${{ github.event_name == 'pull_request'"))
+        self.assertEqual(ci_web["jobs"]["react-apps-base-early"]["if"], base["if"])
 
 
 if __name__ == "__main__":

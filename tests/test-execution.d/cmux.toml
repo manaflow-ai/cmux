@@ -290,6 +290,10 @@ path = "tests/test_cmux_next_route_replay.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_same_tree_failed.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_shim_cpp_linux.py"
 lane = "linux-guard"
 
@@ -323,6 +327,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_web_bundle_cache.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_now_epoch.py"
 lane = "linux-guard"
 
 [[test]]

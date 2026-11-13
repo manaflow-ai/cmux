@@ -15,7 +15,7 @@
 //! (`registry:<identify.session_id>`), so a tab recorded for another
 //! machine never starts here. The client names only an agent kind
 //! (`harness`, resolved by acpmux from its own config), an optional model (`model`), and a folder (`cwd`,
-//! absolute; acpmux checks it). No command, env, policy, mode, peer, preset,
+//! absolute; acpmux checks it), and on the caller's own Cloud VM a mode (`mode`, below). No command, env, policy, peer, preset,
 //! workspace or MCP server param exists (unknown fields are a bad request).
 //! The daemon itself names the tab's workspace to acpmux on `session/new`
 //! (`_meta.acpmux.workspaceId`, which picks the session's display), from the
@@ -40,6 +40,17 @@
 //! person owns, so any agent starts there, Codex and opencode included, in
 //! its own default mode (still with policy `ask`). A Mac, an SSH host and a
 //! team VM keep the rule above ([`AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY`]).
+//!
+//! There, and only there, the person's own mode pick (`mode`,
+//! [`AGENT_SESSION_START_MODE_CAPABILITY`]) is what the chat starts in (Leo, 2026-11-10: "but
+//! shouldnt the user be allowed to just go through with stuff?"): acpmux gets it as
+//! `_meta.acpmux.mode` and applies it under its own start rules (`hub/start_gate.rs`). A pick
+//! that asks keeps policy `ask`. A pick that does not ask (Claude Code's Bypass permissions, the
+//! Codex bridge's full access) starts with no policy of the start's own: policy `ask` would hold
+//! every tool call whatever the mode (acpmux's policy gate, W5-L) and refuse the move to it
+//! (`refuse_wider_mode`), so the pick could never apply. A start on any other host (a Mac, an SSH
+//! host, a team VM, a teammate's connection) ignores `mode`: policy `ask` and the asking-mode rule
+//! hold there as before.
 //!
 //! acpmux runs on demand: when nothing listens on the socket, the daemon
 //! starts it once through the binary's starter (`cmux acp daemon start`,
@@ -82,6 +93,9 @@ pub const AGENT_SESSION_START_KEYED_REASON_CAPABILITY: &str = "agent-session-sta
 pub const AGENT_SESSION_START_VM_KIND_CAPABILITY: &str = "agent-session-start-vm-kind-v1";
 /// `model` on `agent-session-start` is relayed to acpmux's first `session/new`.
 pub const AGENT_SESSION_START_MODEL_CAPABILITY: &str = "agent-session-start-model-v1";
+/// `mode` on `agent-session-start`: the permission mode the person picked for the chat, applied
+/// only on the caller's own Cloud VM (module docs). Elsewhere the param is ignored.
+pub const AGENT_SESSION_START_MODE_CAPABILITY: &str = "agent-session-start-mode-v1";
 /// On a Cloud VM with the caller's `vm_kind: "owner"`, `agent-session-start`
 /// starts any agent (Codex and opencode too) without the asking-mode rule.
 /// Advertised only where this machine reads as a Cloud VM with no team
@@ -298,6 +312,10 @@ pub(super) struct StartParams {
     harness: Option<String>,
     #[serde(default)]
     model: Option<String>,
+    /// The permission mode the person picked (module docs): applied only on the caller's own
+    /// Cloud VM, ignored on any other host.
+    #[serde(default)]
+    mode: Option<String>,
     /// The selected folder on the machine. A missing folder is allowed only
     /// for the caller's own Cloud VM, where Rust creates `~/chats/<id>`.
     #[serde(default)]
@@ -343,7 +361,11 @@ impl StartParams {
                 && !model.chars().any(|c| c.is_whitespace() || c.is_control())
                 && !model.contains(['{', '}', '$', '"', '\\', '\''])
         });
-        harness_ok && cwd_ok && instance_ok && model_ok
+        let mode_ok = self.mode.as_deref().is_none_or(|mode| {
+            (1..=64).contains(&mode.len())
+                && mode.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
+        });
+        harness_ok && cwd_ok && instance_ok && model_ok && mode_ok
     }
 }
 
@@ -707,7 +729,14 @@ fn start_and_bind(
     if !folder_trusted(&trust, params.harness.as_deref()) {
         return Err(Refusal::UntrustedFolder);
     }
-    let mut meta = json!({"policy": "ask"});
+    // The person's own pick on their own Cloud VM (module docs); never a phone's start, never
+    // another host's.
+    let picked = params.mode.as_deref().filter(|_| owner_cloud && !phone);
+    let mut meta = match picked {
+        Some(mode) if !mode_asks(&table, &family, mode) => json!({"mode": mode}),
+        Some(mode) => json!({"policy": "ask", "mode": mode}),
+        None => json!({"policy": "ask"}),
+    };
     if let Some(harness) = &params.harness {
         meta.insert("harness", json!(harness));
     }
@@ -832,6 +861,18 @@ fn refused_family(table: &Value, family: &str) -> bool {
         .get("refusedFamilies")
         .and_then(Value::as_array)
         .is_some_and(|refused| refused.iter().any(|name| name.as_str() == Some(family)))
+}
+
+/// Whether `mode` asks before it acts for `family`: acpmux's remote table
+/// (`_acpmux/web_modes` `families`) lists it, or it is the Codex bridge's
+/// `ask` or `read-only`, which the table leaves out because it refuses Codex
+/// for the Web (acpmux `start_mode::NARROW_MODES`).
+fn mode_asks(table: &Value, family: &str, mode: &str) -> bool {
+    let listed = table
+        .pointer(&format!("/families/{}", family.replace('~', "~0").replace('/', "~1")))
+        .and_then(Value::as_array)
+        .is_some_and(|modes| modes.iter().any(|listed| listed.as_str() == Some(mode)));
+    listed || (family == "codex" && matches!(mode, "ask" | "read-only"))
 }
 
 /// The family acpmux reports for `session` (`_acpmux/web_modes`), with no
@@ -1018,6 +1059,36 @@ mod tests {
         );
         let gated = StartTimings { keyed_gate: Some(7), total: Some(7), ..Default::default() };
         assert_eq!(gated.wire(), json!({"keyed_gate": 7, "total": 7, "acpmux_started": false}));
+    }
+
+    /// A pick that asks keeps policy `ask` on the owner's VM; Bypass permissions and Codex full
+    /// access do not ask, so the start names no policy for them (module docs).
+    #[test]
+    fn a_pick_asks_only_when_the_table_or_the_bridge_says_so() {
+        let table = json!({"families": {"claude": ["default", "plan"]}});
+        assert!(mode_asks(&table, "claude", "default"));
+        assert!(mode_asks(&table, "claude", "plan"));
+        assert!(!mode_asks(&table, "claude", "bypassPermissions"));
+        assert!(!mode_asks(&table, "claude", "acceptEdits"));
+        assert!(mode_asks(&table, "codex", "ask"));
+        assert!(mode_asks(&table, "codex", "read-only"));
+        assert!(!mode_asks(&table, "codex", "agent-full-access"));
+        assert!(!mode_asks(&table, "codex", "agent"));
+        assert!(!mode_asks(&table, "opencode", "ask"));
+    }
+
+    /// `mode` is a plain mode id: anything else makes the whole start a bad request.
+    #[test]
+    fn a_start_mode_is_a_plain_mode_id() {
+        let params = |mode: &str| -> StartParams {
+            serde_json::from_value(json!({"surface": 1, "cwd": "/home/u/work", "mode": mode}))
+                .expect("params parse")
+        };
+        assert!(params("bypassPermissions").valid());
+        assert!(params("agent-full-access").valid());
+        assert!(!params("").valid());
+        assert!(!params("bypass permissions").valid());
+        assert!(!params(&"x".repeat(65)).valid());
     }
 
     /// Only a Cloud VM with no team evidence, and only on the caller's owner

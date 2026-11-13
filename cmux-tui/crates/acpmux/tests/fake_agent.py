@@ -37,6 +37,9 @@ advertises steering; a prompt while a turn runs is read into that turn and
 answered at once with stopReason "steered"; the turn runs on and its own
 prompt is answered when it ends. With FAKE_STEER_STEP=<fifo> a steer is
 answered only once the test writes to that FIFO (the agent's next tool step).
+With FAKE_STEER_NO_TURN_AT_END=1 a steer is never read: the turn ends first, and the
+steer is answered "steer: no turn is running" after the turn's own answer, as
+Claude Code's translator answers a message it held for a tool step that never came.
 
 FAKE_SESSION_PREFIX=<p>: session ids are <p><n> instead of fake-<n> (an id as
 long as a real agent's, for checks that refuse short ones).
@@ -75,11 +78,16 @@ start takes it: its one mode is "ask" (an acpmux config.json `webAskingModes` en
 call through the ACP permission flow: announced, asked, run only after an allow.
 
 CPU class (macOS, tests/cpu_class.rs; `ps -o pri=` is 4 at background class):
-FAKE_CLASS_LOG=<path>: on session/new, append {"pid", "pri"} (its own, as it starts) to <path>.
+FAKE_CLASS_LOG=<path>: on session/new, append {"pid", "pri", "nice"} (its own, as it starts) to <path>.
 "class-probe: <path>": start `sleep 120` (a tool its turn runs) and write {"sleeper": pid} to <path>.
 FAKE_BG_ONCE=<path>: the first agent to get `initialize` (<path> does not exist yet) creates <path>,
 has another process put it in background class (an outside cause, not its own call), answers that
 `initialize` with an error and stays alive, as a harness that fails its start at background class.
+
+Start under load (tests/start_under_load_bench.rs):
+FAKE_BOOT_CPU_MS=<ms>: before it reads its first line, the agent spends that much CPU time (not
+wall time), as a real harness spends CPU loading its code: on a busy machine a harness that gets
+little of the CPU takes much longer to start.
 """
 import base64
 import hashlib
@@ -115,6 +123,17 @@ RUNNING_MCP = []
 # schema strips the draft `subagents` field, so that one does not count).
 NATIVE_SUBAGENTS = False
 SESSION_PREFIX = os.environ.get("FAKE_SESSION_PREFIX", "fake-")
+
+
+def boot_work():
+    """FAKE_BOOT_CPU_MS: this process's CPU time, spent before it reads anything."""
+    budget = int(os.environ.get("FAKE_BOOT_CPU_MS", "0")) / 1000
+    until = time.process_time() + budget
+    while time.process_time() < until:
+        pass
+
+
+boot_work()
 
 
 def send(obj):
@@ -332,6 +351,8 @@ claude_turns = set()
 # taken back (`_acpmux/steer_withdraw`, as Claude Code's cancel_async_message drops one).
 claude_unread = set()
 claude_withdrawn = set()
+# FAKE_STEER_NO_TURN_AT_END: the steers each session's running turn holds unread, by request id.
+claude_held = {}
 
 
 def claude_prompt(rid, params):
@@ -342,6 +363,10 @@ def claude_prompt(rid, params):
         steer = sid in claude_turns
         if not steer:
             claude_turns.add(sid)
+    if steer and os.environ.get("FAKE_STEER_NO_TURN_AT_END") == "1":
+        with lock:
+            claude_held.setdefault(sid, []).append(rid)
+        return
     if steer:
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "steer: " + text}})
         # FAKE_STEER_STEP=<fifo>: the steer is read at the agent's next tool step, which the
@@ -365,6 +390,9 @@ def claude_prompt(rid, params):
     finally:
         with lock:
             claude_turns.discard(sid)
+            held = claude_held.pop(sid, [])
+        for steer_id in held:
+            send({"jsonrpc": "2.0", "id": steer_id, "error": {"code": -32602, "message": "steer: no turn is running"}})
 
 
 def run_hostname(rid, sid):
@@ -736,6 +764,15 @@ def handle_prompt(rid, params):
             gate.read()
         update("child-1", {"sessionUpdate": "tool_call_update", "toolCallId": "cg-1", "status": "completed"})
         update(sid, {"sessionUpdate": "subagent_state_update", "subagentSessionId": "child-1", "state": "completed"})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "notice-gate: PATH" anywhere in the prompt (an inbox notice carries another agent's message
+    # after its own lines) works as "gate: PATH".
+    if "notice-gate:" in text:
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "before-gate"}})
+        with open(text.split("notice-gate:", 1)[1].split()[0].rstrip("\"'`).,;")) as gate:
+            gate.read()
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "after-gate"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "gate: PATH" streams "before-gate", blocks until the test writes to
@@ -1236,6 +1273,12 @@ def handle_prompt(rid, params):
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": message}})
         return
     # "big-output:N" answers with one message of N MiB: one update too large for a frame.
+    # "chunks: N" streams N one-word reply chunks, then ends the turn (an ack batch test).
+    if text.startswith("chunks:"):
+        for n in range(int(text[7:])):
+            update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"w{n} "}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text.startswith("big-output:"):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "z" * (int(text[11:]) << 20)}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
@@ -1262,6 +1305,85 @@ def handle_prompt(rid, params):
     if text.startswith("meta:"):
         send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text[5:].strip()}}, "_meta": {"fake": {"n": 1}}}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn", "_meta": {"fake": {"done": True}}}})
+        return
+    # "reply-segments" streams one message (m1) across what the pane keeps it whole over: a
+    # background task's note, a subagent's spawn and update, a plumbing call (ToolSearch) and a
+    # usage tick; then a chunk with no messageId, a thought and a tool call the person sees,
+    # and another chunk with none. acpmux stamps one segment per message, ended also where the pane
+    # cuts the row (hub/stream.rs `cuts_reply`).
+    # "reply-checklist" streams one message (m1) across the turn's first TodoWrite call and first
+    # plan, where the pane cuts the row, then across a second TodoWrite and plan update, which the
+    # pane hides behind the checklist; a cleared list and a new plan cut again.
+    if text == "reply-checklist":
+        chunk = lambda t: update(sid, {"sessionUpdate": "agent_message_chunk", "messageId": "m1", "content": {"type": "text", "text": t}})
+        todo = lambda n: update(sid, {"sessionUpdate": "tool_call", "toolCallId": f"todo-{n}", "title": "TodoWrite", "kind": "other", "status": "completed", "_meta": {"claude": {"tool": "TodoWrite"}}})
+        plan = lambda entries: update(sid, {"sessionUpdate": "plan", "entries": entries})
+        step = [{"content": "step", "status": "pending", "priority": "medium"}]
+        chunk("a")
+        todo(1)
+        chunk("b")
+        plan(step)
+        chunk("c")
+        todo(2)
+        chunk("d")
+        plan(step)
+        chunk("e")
+        plan([])
+        chunk("f")
+        plan(step)
+        chunk("g")
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "reply-checklist-ticks" draws the turn's checklist, then streams one message (m1) across a
+    # usage tick, a call's update and the checklist's update: none is a new turn, so the pane keeps
+    # the message one row and acpmux one segment (#41540 review F1).
+    if text == "reply-checklist-ticks":
+        chunk = lambda t: update(sid, {"sessionUpdate": "agent_message_chunk", "messageId": "m1", "content": {"type": "text", "text": t}})
+        step = [{"content": "step", "status": "pending", "priority": "medium"}]
+        update(sid, {"sessionUpdate": "plan", "entries": step})
+        chunk("a")
+        update(sid, {"sessionUpdate": "usage_update", "used": 10, "size": 1000})
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "tick-ts", "status": "completed"})
+        update(sid, {"sessionUpdate": "plan", "entries": [{**step[0], "status": "in_progress"}]})
+        chunk("b")
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "reply-dsh-todo" streams one message (m1) across DeepSeek Harness todo_write calls, which
+    # acpmux hides and turns into the plan (acp_todo_plan.rs): a | call 1 | b | its result, the
+    # turn's first plan | c | call 2 | d | its result, a plan update | e (#41540 review F2).
+    if text == "reply-dsh-todo":
+        chunk = lambda t: update(sid, {"sessionUpdate": "agent_message_chunk", "messageId": "m1", "content": {"type": "text", "text": t}})
+        todos = lambda status: {"todos": [{"content": "step", "status": status}]}
+        call = lambda n, status: update(sid, {"sessionUpdate": "tool_call", "toolCallId": f"dsh-todo-{n}", "title": "todo_write", "kind": "other", "status": "pending", "rawInput": todos(status)})
+        done = lambda n: update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": f"dsh-todo-{n}", "status": "completed"})
+        chunk("a")
+        call(1, "pending")
+        chunk("b")
+        done(1)
+        chunk("c")
+        call(2, "in_progress")
+        chunk("d")
+        done(2)
+        chunk("e")
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    if text == "reply-segments":
+        chunk = lambda t, mid=None: update(sid, {"sessionUpdate": "agent_message_chunk", **({"messageId": mid} if mid else {}), "content": {"type": "text", "text": t}})
+        chunk("a", "m1")
+        update(sid, {"sessionUpdate": "background_task_update", "taskId": "bg-1", "status": "completed"})
+        chunk("b", "m1")
+        update(sid, {"sessionUpdate": "subagent_spawned", "subagentSessionId": "seg-child", "name": "Look", "task": "Look", "capabilities": {}})
+        update(sid, {"sessionUpdate": "subagent_state_update", "subagentSessionId": "seg-child", "state": "completed"})
+        chunk("c", "m1")
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "seg-ts", "title": "ToolSearch", "kind": "other", "status": "completed", "_meta": {"claudeCode": {"toolName": "ToolSearch"}}})
+        chunk("d", "m1")
+        update(sid, {"sessionUpdate": "usage_update", "used": 10, "size": 1000})
+        chunk("e", "m1")
+        chunk("f")
+        update(sid, {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "hm"}})
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "seg-tc", "title": "ls", "kind": "read", "status": "completed"})
+        chunk("g")
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "codex-retry" streams a partial message, reports a Codex stream retry,
     # then redelivers the answer under a new messageId. "codex-retry-after-tool"
@@ -1601,6 +1723,17 @@ CLAUDE_MODELS = [("default", "Default"), ("claude-opus-5-5", "Opus 5.5"), ("clau
                  ("claude-haiku-5-5", "Haiku 5.5"), ("claude-fable-5-1", "Fable 5.1")]
 
 
+HELD = []
+HELD_CANCELS = []
+
+
+def write_atomic(path, text):
+    """`text` to `path`, whole or not at all: a reader never sees half of it."""
+    with open(path + ".tmp", "w") as f:
+        f.write(text)
+    os.replace(path + ".tmp", path)
+
+
 def stdin_lines(early):
     """stdin's lines, starting with the bytes read while waiting at the start gate."""
     if early:
@@ -1658,6 +1791,23 @@ def main():
         m = msg["method"]
         rid = msg.get("id")
         params = msg.get("params") or {}
+        # FAKE_SET_MODE_HOLD=<dir>: hold every session/set_mode unanswered, writing how many wait
+        # to <dir>/held and the ids each `$/cancel_request` names to <dir>/cancels. Once all but one
+        # are cancelled, answer every held one, the cancelled ones too: their answers come late
+        # and the daemon drops them (tests/cancel_request.rs).
+        hold = os.environ.get("FAKE_SET_MODE_HOLD")
+        if hold and m == "$/cancel_request":
+            HELD_CANCELS.append(params.get("requestId"))
+            write_atomic(os.path.join(hold, "cancels"), json.dumps(HELD_CANCELS))
+            if len(HELD) > 1 and len(set(map(str, HELD_CANCELS))) >= len(HELD) - 1:
+                for held in HELD:
+                    send({"jsonrpc": "2.0", "id": held, "result": {}})
+                HELD.clear()
+            continue
+        if hold and m == "session/set_mode":
+            HELD.append(rid)
+            write_atomic(os.path.join(hold, "held"), str(len(HELD)))
+            continue
         # FAKE_SET_MODE_SILENT=1: never answer session/set_mode, while staying alive.
         if m == "session/set_mode" and os.environ.get("FAKE_SET_MODE_SILENT") == "1":
             continue
@@ -1679,7 +1829,8 @@ def main():
             LAST_DIRS = params.get("additionalDirectories")
         if m == "session/new" and os.environ.get("FAKE_CLASS_LOG"):
             with open(os.environ["FAKE_CLASS_LOG"], "a") as log:
-                log.write(json.dumps({"pid": os.getpid(), "pri": own_pri()}) + "\n")
+                nice = os.getpriority(os.PRIO_PROCESS, 0)
+                log.write(json.dumps({"pid": os.getpid(), "pri": own_pri(), "nice": nice}) + "\n")
         # FAKE_PICKER=1: a harness with session/set_model and an "effort" option (no model
         # option), as Claude Code and Codex are; FAKE_CALLS=<path> logs each model and
         # effort set as one JSON line {method, params}; FAKE_REFUSE_ID=<id> refuses that model.

@@ -347,7 +347,8 @@ const ERROR_SENTENCES: Record<string, string> = {
   "cmux.cloud.link_install_refused": L.linkInstallRefused,
 };
 
-/** The text of a failure: the page's localized sentence for a known code, else the error's message. */
+/** The text of a failure: the page's localized sentence for a known code, else the store's plain
+ * sentence (`userMessage`, never the backend text). */
 export function errorText(error: string, code: string | undefined, t: (key: string) => string): string {
   const key = code ? ERROR_SENTENCES[code] : undefined;
   return key ? t(key) : error;

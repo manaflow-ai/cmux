@@ -5,6 +5,7 @@ import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -73,12 +74,8 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 let at = 0;
@@ -131,6 +128,90 @@ test("a streaming reply near the top asks for the older page once, and the next 
     history = [...turn(9), ...history];
     await draw();
     expect(asked).toBe(2);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test.each([
+  [true, false],
+  [false, false],
+  [true, true],
+])("a thumb drag keeps its range through pages, seeded=%s, switching=%s", async (seeded, switching) => {
+  let history = Array.from({ length: 20 }, (_, index) => turn(index + 30)).flat();
+  const originalSession = `thumb-history-${seeded}-${switching}`;
+  let session = originalSession;
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  let asked = 0;
+  const load = () => {
+    asked += 1;
+    return new Promise<void>(() => {});
+  };
+  const draw = () =>
+    act(async () =>
+      root.render(
+        <VirtualTranscript
+          rows={history}
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+          canLoadOlder
+          promptCount={seeded ? 50 : undefined}
+          onLoadOlder={load}
+          sessionId={session}
+        />,
+      ),
+    );
+  try {
+    await draw();
+    const node = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
+    const spacer = () => node.querySelector<HTMLElement>(".acpmux-spacer")!;
+    const total = () => Number.parseFloat(spacer().style.height);
+    Object.defineProperties(node, {
+      offsetWidth: { value: 772, configurable: true },
+      scrollHeight: { get: total, configurable: true },
+    });
+    node.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, width: 772, height: VIEWPORT, right: 772, bottom: VIEWPORT }) as DOMRect;
+    const event = (type: string, y: number, buttons = 1) => {
+      const input = new dom.window.MouseEvent(type, { bubbles: true, clientX: 768, clientY: y, buttons });
+      Object.defineProperty(input, "pointerType", { value: "mouse" });
+      return input;
+    };
+    const height = total();
+    const room = Number(spacer().dataset.olderRoom);
+    if (seeded) expect(room).toBeGreaterThan(0);
+    await act(async () => node.dispatchEvent(event("pointerdown", 400)));
+    const draggedTo = Math.max(0, room - 20);
+    await act(async () => {
+      dom.window.document.dispatchEvent(event("pointermove", 300));
+      node.scrollTop = draggedTo;
+      node.dispatchEvent(new dom.window.Event("scroll", { bubbles: true }));
+    });
+    expect(node.scrollTop).toBe(draggedTo);
+    expect(total()).toBeCloseTo(height, 3);
+    expect(asked).toBeGreaterThan(0);
+
+    history = [...Array.from({ length: 5 }, (_, index) => turn(index + 25)).flat(), ...history];
+    await draw();
+    expect(node.scrollTop).toBe(draggedTo);
+    expect(total()).toBeCloseTo(height, 3);
+    // A much taller earlier turn can exceed the reserved estimate entirely.
+    const tall = turn(24).map((entry) =>
+      entry.kind === "assistant" ? { ...entry, text: "Earlier detail.\n".repeat(1000) } : entry,
+    );
+    for (const entry of tall) drawnHeights.set(entry.id, 12000);
+    history = [...tall, ...history];
+    await draw();
+    expect(total()).toBeCloseTo(height, 3);
+    expect(node.scrollTop).toBe(draggedTo);
+    if (switching) {
+      session = `${originalSession}-other`;
+      await draw();
+    }
+    await act(async () => dom.window.document.dispatchEvent(event("pointerup", 300, 0)));
+    session = originalSession;
+    await draw();
+    expect(total()).toBeGreaterThan(height);
   } finally {
     await act(async () => root.unmount());
   }

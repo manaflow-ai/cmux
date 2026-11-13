@@ -2,6 +2,7 @@
 //! bounded queues, the render hub, and the initial graphics snapshot.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 /// One immutable terminal frame plus retained-history metadata captured with it.
 #[derive(Debug, Clone)]
@@ -164,7 +165,7 @@ impl RenderTap {
     }
 
     pub(super) fn send(&self, event: RenderAttachFrame) -> bool {
-        let mut queue = self.state.queue.lock().unwrap();
+        let mut queue = self.state.queue.lock().recover_poison();
         if !queue.receiver_alive {
             return false;
         }
@@ -177,7 +178,9 @@ impl RenderTap {
 
 impl Drop for RenderTap {
     fn drop(&mut self) {
-        self.state.queue.lock().unwrap().sender_alive = false;
+        // A destructor must not panic: one that runs while a panic unwinds
+        // aborts the daemon. A poisoned queue only loses undrained frames.
+        self.state.queue.lock().recover_poison().sender_alive = false;
         self.state.ready.notify_all();
     }
 }
@@ -271,13 +274,15 @@ impl Drop for RenderAttachFrameReceiver {
     fn drop(&mut self) {
         // Frame fan-out holds the hub before this queue. Release the queue
         // before taking the hub so receiver teardown cannot invert that order.
+        // Neither lock may panic here (see `RenderTap::drop`); the render hub
+        // recovers from a poisoned lock the way frame building does.
         {
-            let mut queue = self.state.queue.lock().unwrap();
+            let mut queue = self.state.queue.lock().recover_poison();
             queue.receiver_alive = false;
             queue.clear();
         }
         if let Some(render) = self.render.upgrade() {
-            let mut render = render.lock().unwrap();
+            let mut render = render.lock().recover_poison();
             render.taps.retain(|tap| !Arc::ptr_eq(&tap.state, &self.state));
             render.release_when_unviewed();
         }

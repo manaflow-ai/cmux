@@ -223,6 +223,7 @@ impl Surface {
                 terminal_public_id: Some(Arc::new(terminal_public_id)),
                 journal_generation,
                 journal_capture_supported: true,
+                output_log: Default::default(),
                 #[cfg(unix)]
                 local_output: None,
                 journal_capture_epoch: AtomicU64::new(0),
@@ -259,7 +260,7 @@ impl Surface {
                 host_identity: Some(identity),
                 pending_host_binding: Mutex::new(None),
                 host_exit_record_path: None,
-                pid: None,
+                pid: Default::default(),
                 command,
                 cwd: opts.cwd,
                 exit: Mutex::new(None),
