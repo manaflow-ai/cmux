@@ -130,6 +130,30 @@ done
 write_app '        struct AcpmuxFeature { static let capability = "planted-kept-v1" }'
 out="$(run)" || fail "an id in CAPABILITIES after a string holding a bracket and a comment marker failed: $out"
 
+# Green: an id given as a constant, in the list's file or in a module's (`crate::hub::row_log::CAPABILITY`).
+# Red: a constant only a comment holds (or one the check cannot find) never counts.
+mkdir -p "$tmp/cmux-tui/crates/acpmux/src/hub/row_log"
+cat > "$tmp/cmux-tui/crates/acpmux/src/hub/row_log/mod.rs" <<'EOF'
+pub const CAPABILITY: &str = "planted-module-v1";
+// pub const RETIRED: &str = "planted-module-retired-v1";
+EOF
+cat > "$tmp/cmux-tui/crates/acpmux/src/capabilities.rs" <<'EOF'
+pub const LOCAL: &str = "planted-local-v1";
+pub const CAPABILITIES: &[Capability] = &[
+    Capability { id: LOCAL, wire: &[] },
+    Capability { id: crate::hub::row_log::CAPABILITY, wire: &[] },
+    Capability { id: crate::hub::row_log::RETIRED, wire: &[] },
+    Capability { id: crate::missing::CAPABILITY, wire: &[] },
+];
+EOF
+for kept in planted-local-v1 planted-module-v1; do
+  write_app "        struct AcpmuxFeature { static let capability = \"$kept\" }"
+  out="$(run)" || fail "a gate on $kept, a constant in acpmux's CAPABILITIES, failed: $out"
+done
+write_app '        struct AcpmuxFeature { static let capability = "planted-module-retired-v1" }'
+if out="$(run)"; then fail "a gate on a constant only a comment holds passed: $out"; fi
+rm -rf "$tmp/cmux-tui/crates/acpmux/src/hub"
+
 # Red: the app gates a feature on a capability no daemon crate defines.
 write_app '        if daemon.supports("planted-unserved-v1") {}'
 if out="$(run)"; then fail "a gate on an unserved capability passed: $out"; fi

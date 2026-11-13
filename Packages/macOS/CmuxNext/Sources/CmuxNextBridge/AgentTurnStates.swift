@@ -399,7 +399,8 @@ public final class AgentTurnStateStore {
     /// notification does: acpmux reads a turn that ends in a shown chat at once (cx-n8ou).
     @ObservationIgnored public var onTurnEnded: ((String) -> Void)?
     /// Also told when a session's running turn ends, with its folder (`cwd`, when known): the diff
-    /// viewer precomputes that repository's diff before anyone clicks (DiffPageRuntime+Warm.swift).
+    /// viewer precomputes that repository's diff once someone can see the chat, before anyone clicks
+    /// (DiffPageRuntime+Warm.swift; a chat nobody sees owes it until it shows, `AgentPaneOwedWork`).
     @ObservationIgnored public var turnEndedObservers: [(_ session: String, _ folder: String?) -> Void] = []
 
     public init() {}

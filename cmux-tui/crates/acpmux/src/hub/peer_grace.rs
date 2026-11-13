@@ -23,7 +23,7 @@ impl Hub {
             return;
         }
         // timeout: shutdown joins the loop's cache flush inside its own grace, never forever.
-        let _ = tokio::time::timeout(Duration::from_secs(2), notified).await;
+        let _ = tokio::time::timeout(super::shutdown::OWNED_TASKS_CLOSE, notified).await;
     }
 
     pub(super) fn note_peer_drop(&self, peer: &str, generation: u64, reason: &str) {
@@ -33,7 +33,7 @@ impl Hub {
             return;
         };
         {
-            let _rows = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+            let _rows = self.remote_sessions.fence();
             let link = current.link();
             if link.attempts <= 1 {
                 tracing::warn!(peer, "peer disconnected: {reason}");
@@ -45,7 +45,7 @@ impl Hub {
         self.peer_snapshots.flush(Some(peer));
     }
 
-    /// The cache write a drop owes, outside the rows lock. An outage's first drop
+    /// The cache write a drop owes, outside the rows writer lock. An outage's first drop
     /// writes now, not at the row deadline: a row change whose save was throttled
     /// reaches disk though the daemon may stop inside the grace window, and the
     /// outage's age is kept for a peer that lists no rows or only closed ones. A drop
@@ -71,8 +71,10 @@ impl Hub {
         // belongs to the main daemon, including before its waiter registers.
         let mut stop = self.peer_notices_stop.subscribe();
         let mut drops = Outages::new();
-        let mut cache_tick =
-            tokio::time::interval(Duration::from_millis(super::peer_cache::SAVE_EVERY_MS));
+        // When the put-off cache saves are due: armed by a save put off (`peer_cache_kick`),
+        // cleared once nothing is dirty. No timer while no cache waits for a save: an idle daemon
+        // used to tick every 30 s with no peer at all.
+        let mut cache_due: Option<tokio::time::Instant> = None;
         loop {
             if *stop.borrow() {
                 break;
@@ -80,6 +82,12 @@ impl Hub {
             let deadline = drops.values().copied().min();
             let wait = async {
                 match deadline {
+                    Some(at) => tokio::time::sleep_until(at).await,
+                    None => std::future::pending().await,
+                }
+            };
+            let cache_wait = async {
+                match cache_due {
                     Some(at) => tokio::time::sleep_until(at).await,
                     None => std::future::pending().await,
                 }
@@ -102,15 +110,28 @@ impl Hub {
                 }
                 // No timer task outlives this loop or daemon shutdown.
                 _ = stop.changed() => break,
-                _ = cache_tick.tick() => {
+                () = self.peer_cache_kick.notified() => {
+                    if cache_due.is_none() {
+                        cache_due = Some(tokio::time::Instant::now() + self.cache_save_every());
+                    }
+                    continue;
+                }
+                () = cache_wait => {
                     let dirty: Vec<_> = self.peers.lock().unwrap_or_else(|e| e.into_inner())
                         .values()
                         .filter(|p| p.cache_is_dirty())
                         .map(|p| (p.name.clone(), p.generation))
                         .collect();
-                    for (peer, generation) in dirty {
-                        self.save_peer_cache(&peer, generation, false);
+                    for (peer, generation) in &dirty {
+                        self.save_peer_cache(peer, *generation, false);
                     }
+                    // A save that runs now, failed, or was put off again leaves its peer dirty:
+                    // one more round then. Nothing dirty: no timer until the next kick.
+                    let still = self.peers.lock().unwrap_or_else(|e| e.into_inner())
+                        .values()
+                        .any(|p| p.cache_is_dirty());
+                    cache_due = still
+                        .then(|| tokio::time::Instant::now() + self.cache_save_every());
                     continue;
                 }
             };
@@ -139,7 +160,9 @@ impl Hub {
                     // Rows came (a list, a changed row) or the link is up: the peer's chats are
                     // read ahead soon (`peer_snapshot/warm.rs`).
                     let warms = match &notice {
-                        PeerNotice::Connected | PeerNotice::Sessions(_) => true,
+                        PeerNotice::Connected
+                        | PeerNotice::Sessions(_)
+                        | PeerNotice::SessionsPatch { .. } => true,
                         PeerNotice::SessionChanged { kind, .. } => kind != "purged",
                         _ => false,
                     };
@@ -149,6 +172,12 @@ impl Hub {
                     if !matches!(notice, PeerNotice::Notification { .. }) {
                         drops.remove(&key);
                         current.outage_ended.store(false, Ordering::SeqCst);
+                    }
+                    // The link takes requests: copies ahead of the peer's journals go back
+                    // first, and prompts to it wait for that (`peer_snapshot/restore.rs`). Before
+                    // the notice, so no message the notice wakes goes ahead of them.
+                    if matches!(notice, PeerNotice::Connected) {
+                        self.restore_peer_journals(&peer, generation);
                     }
                     self.apply_peer_notice(&peer, generation, notice);
                     if warms {

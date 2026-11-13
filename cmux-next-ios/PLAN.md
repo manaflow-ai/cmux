@@ -22,23 +22,13 @@ Independent effort on branch `feat-cnx-ios`. Native, mainstream-AI-app feel
 - `CmuxMobileLive`: live data once signed in: device registration, presence, the Mac link state machine (dial, backoff, transport switch), daemon workspaces, acpmux chats, Feed events and answers, Chief over the link. See `verify/live.md`.
 - Feature modules: `CmuxMobileOnboarding`, `CmuxMobileShell` (TabView + team sidebar), `CmuxMobileHome` (Chief via `CmuxConversation`), `CmuxMobileWorkspaces` (`CmuxTabsKit`), `CmuxMobileFeed` (WKWebView markdown cards, inline answers, quote bubbles), `CmuxMobileTerminal` (Ghostty, composer, key bar, joystick), `CmuxMobileAgentChat`, `CmuxMobileArtifacts`, `CmuxMobileDiff`, `CmuxMobileSettings`.
 
-## Shared packages: byte-identical to upstream
+## Shared packages live in feat-cmux-next
 
-cmux-next-ios never patches the shared iOS packages it builds on. Both must stay
-byte-identical to their upstream branches:
-
-| Package | Upstream branch |
-| --- | --- |
-| `Packages/iOS/CmuxTabsKit` (Safari-style tabs UX) | `origin/feat-cmux-next-tabs-kit` |
-| `Packages/iOS/CmuxConversation` (Chief transcript) | `origin/feat-imsg-parity-gui` |
-
-`scripts/check-tabskit-sync.sh` checks both (exit 1 on drift);
-`scripts/demo-build.sh` runs it before every Demo or Production build, warns
-loudly and records drift in `MANIFEST.md`, and fails with `--strict`. Sync with
-`git checkout origin/<branch> -- Packages/iOS/<Package>`. Anything cmux-next-ios needs
-beyond the package goes in host code (`CmuxMobileWorkspaces`, `CmuxMobileShell`, `CmuxMobileHome`)
-or, as a proposal only, in `verify/tabskit-upstream-requests.md` and
-`verify/imsg-upstream-requests.md`.
+`Packages/iOS/CmuxTabsKit` (Safari-style tabs UX) and `Packages/iOS/CmuxConversation`
+(Chief transcript) live in feat-cmux-next, and this copy is the only one (2026-11-11).
+Change them inline, like any other app code. The old upstream branches
+(`feat-cmux-next-tabs-kit`, `feat-imsg-parity-gui`) are frozen; no build, script or
+check compares with them any more. See `Packages/iOS/AGENTS.md`.
 
 ## Mac side
 

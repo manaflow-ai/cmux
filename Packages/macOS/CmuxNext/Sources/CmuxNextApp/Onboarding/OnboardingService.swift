@@ -6,7 +6,6 @@ import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextCookieImport
 import CmuxNextDesign
-import CmuxNextHome
 import CmuxNextImportCards
 import CmuxNextOnboarding
 import CmuxNextSettings
@@ -14,9 +13,9 @@ import os
 
 /// Owns the tool window (Import from Browser, Computer Use setup), the
 /// browser-data import offer, the default-app registry and the imported
-/// data, and feeds imported history to the omnibar at launch. Fresh installs
-/// also show the history-import page; existing installations go straight to
-/// the main window. The one-time classic migration adds classic's workspaces
+/// data, and feeds imported history to the omnibar at launch. First-run onboarding
+/// (windows, Set Up cmux card, history page) is off unless `--onboarding`
+/// (``AppEnvironment/skipsOnboarding``): launches go straight to the main window. The one-time classic migration adds classic's workspaces
 /// to the restored windows (classic-migration-DESIGN.md).
 @MainActor
 final class OnboardingService {
@@ -204,7 +203,9 @@ final class OnboardingService {
         await presenter.showFirstRunSteps(isFirstRun: isFirstRun, source: signInHarnesses) { self.showHistoryAtFirstRun(isFirstRun: isFirstRun) }
     }
 
-    func historyImportFinished() { UserDefaults.standard.set(true, forKey: HomeMessagesFirstRunProvider.memoryOfferUsedKey) }
+    func historyImportFinished() {
+        UserDefaults.standard.set(true, forKey: HomeHostView.memoryOfferUsedKey)
+    }
 
 }
 
