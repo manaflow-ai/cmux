@@ -26,7 +26,10 @@ use rusqlite::Connection;
 use serde_json::{Map, json};
 
 use cmux_layout_reducer::sidebar_doc::reduce::{self, Applied};
-use cmux_layout_reducer::sidebar_doc::{Doc, Item, Op, PINNED_SECTION_ID, WorkspaceRef};
+use cmux_layout_reducer::sidebar_doc::{
+    Doc, Item, Op, PINNED_SECTION_ID, Target, WorkspaceRef, machine_section_id,
+};
+use cmux_tui_util::user_settings::NewWorkspacePlacement;
 
 use crate::mux::*;
 use crate::state::commit::StateEffects;
@@ -135,6 +138,51 @@ pub(crate) fn drop_closed_adopts(
     Ok(())
 }
 
+/// Put another machine's new workspaces where `workspaces.newPlacement` puts
+/// every new workspace: first in their machine section under `top` (the
+/// default) and `afterCurrent` (the current workspace is this machine's),
+/// last under `bottom`. This daemon writes no personal row for another
+/// machine's create, so the app adopts it once it shows live and unplaced;
+/// an adopt with no target placed it at the end of its section (Lawrence
+/// 2026-11-12: "by default all new workspaces should go to the top"). A
+/// machine's first adopt (no section yet) keeps that machine's order. This
+/// machine's own workspaces are placed from their personal rows.
+pub(crate) fn place_remote_adopts(
+    connection: &Connection,
+    doc: &Doc,
+    ops: &mut [Op],
+    placement: NewWorkspacePlacement,
+) -> anyhow::Result<()> {
+    if placement == NewWorkspacePlacement::Bottom
+        || !ops.iter().any(|op| matches!(op, Op::Adopt { to: None, .. }))
+        || !crate::state::store::state_tables_ready(connection)?
+    {
+        return Ok(());
+    }
+    let local = crate::state::values::local_registry_id(connection)?;
+    for op in ops.iter_mut() {
+        let Op::Adopt { refs, to } = op else { continue };
+        if to.is_some() {
+            continue;
+        }
+        let Some(session) = refs.first().map(|reference| reference.session_id.clone()) else {
+            continue;
+        };
+        let section = machine_section_id(&session);
+        let new = |reference: &WorkspaceRef| doc.workspace_item(reference).is_none();
+        if session == local
+            || doc.section(&section).is_none()
+            || refs.iter().any(|reference| reference.session_id != session || !new(reference))
+        {
+            continue;
+        }
+        // Newest first, as a create lists it: the app adopts in the order the machine made them.
+        refs.reverse();
+        *to = Some(Target { index: Some(0), ..Target::end(&section) });
+    }
+    Ok(())
+}
+
 /// Whether workspace `id` of this machine closed (its row is tombstoned). An
 /// id the registry does not know is not closed: the reducer decides on it.
 fn is_closed(connection: &Connection, id: &str) -> anyhow::Result<bool> {
@@ -211,6 +259,12 @@ impl Mux {
                 store::with_doc_mut(transaction, |doc| {
                     let mut ops = ops_for(transaction, doc)?;
                     drop_closed_adopts(transaction, doc, &mut ops)?;
+                    place_remote_adopts(
+                        transaction,
+                        doc,
+                        &mut ops,
+                        NewWorkspacePlacement::current(),
+                    )?;
                     closes_for_reset(transaction, doc, &mut ops)?;
                     anyhow::ensure!(
                         !reduce::changes_app_kind(doc, &ops),

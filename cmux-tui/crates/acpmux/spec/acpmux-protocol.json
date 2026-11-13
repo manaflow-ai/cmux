@@ -173,6 +173,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/v2",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/tailnet/login",
       "params": true,
       "result": true
@@ -3473,6 +3479,8 @@
         },
         "cancelFork": true,
         "cancelToken": true,
+        "expectRevision": true,
+        "ifIdle": true,
         "purge": true,
         "sessionId": true
       },

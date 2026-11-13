@@ -152,6 +152,24 @@ pub struct LastReturn {
     pub turns: u64,
 }
 
+/// The chat's current away recap (`hub/away_recap.rs`): the record that shows it, the facts it
+/// names, the turn count it covers and whether the person dismissed it.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AwayRecap {
+    /// Seq of its `recap` record.
+    pub seq: u64,
+    /// Hash of `facts`, sent on the record so a client can tell one recap's facts from another's.
+    pub digest: String,
+    /// What it names (`away_recap::facts`): a recap whose facts are all here says nothing new.
+    pub facts: Vec<String>,
+    /// The turn count it covers; the next recap waits `TURNS_BETWEEN` more.
+    pub turns: u64,
+    /// The person pressed its ×: a recap with no new fact stays unwritten.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dismissed: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionMeta {
@@ -367,6 +385,11 @@ pub struct SessionMeta {
     /// its list read race. Cleared when the last client showing it stops.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_return: Option<LastReturn>,
+    /// The chat's one "While you were away" recap (`hub/away_recap.rs`): a newer recap replaces it,
+    /// one that says nothing new is never written, and its dismissal stays across restarts.
+    /// None until the first recap.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub away_recap: Option<AwayRecap>,
     /// Each person's seen cursor (`hub/seen.rs` `read_through`): the newest log seq they had on
     /// screen while they attended the chat, keyed by person id (`_meta.acpmux.author` id,
     /// [`crate::hub::seen::OWNER_READER`] for the owner). Only `_acpmux/seen` moves it forward; a
@@ -515,6 +538,12 @@ pub struct SessionMeta {
     /// field) counts from the session's creation. A fork starts with none.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub pull_request_times: BTreeMap<String, u64>,
+    /// The pull requests this session's `gh pr merge` and `gh pr close` calls merged or closed,
+    /// by URL (`hub/pull_requests.rs`), whoever's session opened them: none
+    /// waits on the person any more (`hub/review_queue.rs`). At most
+    /// `pull_requests::MAX_PULL_REQUESTS`, the oldest dropped first. A fork starts with none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub closed_pull_requests: Vec<String>,
     /// The files this session's tool calls read and edited, by repository and path there
     /// (`touched_files.rs`, `hub/touched.rs`): at most `touched_files::MAX_FILES`, the least
     /// recently touched dropped first. A fork starts with none.

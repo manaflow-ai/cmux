@@ -1,4 +1,6 @@
 // l10n-allow-file: development workbench labels, not shipped UI.
+import type { GalleryBackground } from "../env";
+
 export type Scenario = {
   id: string;
   group: string;
@@ -8,6 +10,7 @@ export type Scenario = {
   variant: string;
   inspect: string;
   script?: "streaming" | "tools" | "error";
+  background?: GalleryBackground;
 };
 
 const conversation = "src/agent-session/acpmux/conversation/";
@@ -390,6 +393,84 @@ export const SCENARIOS: readonly Scenario[] = [
     ),
     script: "error",
   },
+  {
+    id: "away-recap",
+    group: "Permissions and history",
+    title: "While you were away / compact bullets",
+    entry: "agent-pane.parity-away-recap",
+    source: "src/gallery/parity/awayRecap.gallery.ts",
+    variant: "latest",
+    inspect: "Four recap updates collapse into one current summary with three bullet points.",
+  },
+  {
+    id: "context-restored",
+    group: "Permissions and history",
+    title: "Reopened chat / saved context",
+    entry: "agent-pane.parity-context-usage",
+    source: "src/gallery/parity/contextUsage.gallery.ts",
+    variant: "restored",
+    inspect: "A chat with no live usage event reads 160K / 400K from saved harness counts. Hover shows 40%.",
+  },
+  {
+    id: "context-unknown",
+    group: "Permissions and history",
+    title: "Chat context / not reported",
+    entry: "agent-pane.parity-context-usage",
+    source: "src/gallery/parity/contextUsage.gallery.ts",
+    variant: "unknown",
+    inspect: "A chat with history but no reported counts explains the empty ring on hover.",
+  },
+  {
+    id: "subagent-nested",
+    group: "Subagents",
+    title: "Subagent with its own child agents",
+    entry: "agent-pane.subagents",
+    source: `${subagents}subagents.gallery.ts`,
+    variant: "child-group",
+    inspect:
+      "Test coverage spawned Unit tests and Integration tests. Their plain list has no broken card rim or empty row gaps.",
+  },
+  {
+    id: "stack-materials",
+    group: "Composer",
+    title: "Stacked surfaces / screenshot reproduction",
+    entry: "agent-pane.parity-stack-materials",
+    source: "src/gallery/parity/stackMaterials.gallery.ts",
+    variant: "screenshot",
+    background: "busy",
+    inspect:
+      "The screenshot's pinned ask, goal, question hat, expanded two-running/three-done tray, and composer on one backdrop.",
+  },
+  {
+    id: "background-commands",
+    group: "Composer",
+    title: "Background commands / one wait and four done",
+    entry: "agent-pane.parity-background-work",
+    source: "src/gallery/parity/backgroundWork.gallery.ts",
+    variant: "commands",
+    background: "dark",
+    inspect: "Expand five command rows. Their header keeps one terminal icon, including completed commands.",
+  },
+  {
+    id: "background-mixed",
+    group: "Composer",
+    title: "Commands and subagent logos",
+    entry: "agent-pane.parity-background-work",
+    source: "src/gallery/parity/backgroundWork.gallery.ts",
+    variant: "mixed",
+    background: "dark",
+    inspect: "Five commands share one terminal header icon alongside the Claude and Codex subagent logos.",
+  },
+  {
+    id: "loop",
+    group: "Composer",
+    title: "Loop / scheduled check-in",
+    entry: "agent-pane.composer-look",
+    source: "src/agent-session/acpmux/composerLook.gallery.ts",
+    variant: "loop-wakeup",
+    background: "dark",
+    inspect: "A loop waiting for its next check-in. Open the loop control to inspect the wake prompt.",
+  },
 ];
 
 export function selectedScenario(id: string | null): Scenario {
@@ -410,6 +491,7 @@ export function scenarioFrame(scenario: Scenario, appearance: "light" | "dark", 
     colorScheme: appearance,
     theme: appearance === "light" ? "Apple System Colors Light" : "Apple System Colors",
   });
+  if (scenario.background) params.set("background", scenario.background);
   if (scenario.script) {
     params.set("script", scenario.script);
     params.set("loop", "0");
