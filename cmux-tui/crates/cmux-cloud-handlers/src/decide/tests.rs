@@ -284,6 +284,32 @@ fn palette_desktop_paused_machine_resumes_and_sets_up_the_same_target() {
 }
 
 #[test]
+fn palette_desktop_transition_states_do_not_offer_recovery() {
+    for status in ["pausing", " Pausing "] {
+        let machines = vec![PaletteMachine {
+            id: "pausing-machine".into(),
+            title: "Pausing".into(),
+            status: status.into(),
+            desktop: false,
+        }];
+        let row = &palette_targets(true, &machines)[0];
+        assert_eq!(row.id, "pausing-machine");
+        assert_eq!(row.state, PaletteTargetState::Resume);
+        assert_eq!(row.intent, None);
+    }
+    let machines = vec![PaletteMachine {
+        id: "deleting-machine".into(),
+        title: "Deleting".into(),
+        status: "deleting".into(),
+        desktop: false,
+    }];
+    let row = &palette_targets(true, &machines)[0];
+    assert_eq!(row.state, PaletteTargetState::Unavailable);
+    assert_eq!(row.intent, None);
+    assert_eq!(palette_targets(false, &machines)[0].intent, Some(PaletteTargetIntent::Choose));
+}
+
+#[test]
 fn unavailable_desktopless_machine_offers_desktop_recovery() {
     let machines: Vec<PaletteMachine> = serde_json::from_value(json!([
         {"id": "offline", "title": "Offline", "status": "offline", "desktop": false}

@@ -264,6 +264,12 @@ fn palette_status(
 ) -> (PaletteTargetState, Option<PaletteTargetIntent>) {
     let status = status.trim().to_ascii_lowercase();
     match status.as_str() {
+        // These are in-flight transitions. Keep the row visible with its transition state,
+        // but do not offer setup/recovery until the Cloud control plane settles it.
+        "pausing" => (
+            PaletteTargetState::Resume,
+            if wants_desktop { None } else { Some(PaletteTargetIntent::Choose) },
+        ),
         "paused" | "suspended" => {
             if wants_desktop && !desktop {
                 (PaletteTargetState::Resume, Some(PaletteTargetIntent::StartDesktop))
@@ -281,6 +287,10 @@ fn palette_status(
                 (PaletteTargetState::Ready, Some(PaletteTargetIntent::Choose))
             }
         }
+        "deleting" => (
+            PaletteTargetState::Unavailable,
+            if wants_desktop { None } else { Some(PaletteTargetIntent::Choose) },
+        ),
         _ => (
             PaletteTargetState::Unavailable,
             if wants_desktop && !desktop {
