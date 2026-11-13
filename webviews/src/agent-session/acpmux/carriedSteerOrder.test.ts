@@ -5,6 +5,7 @@
 // l10n-allow-file: synthetic prompts and replies used by a behavioral regression.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { teardownDom } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -12,10 +13,8 @@ const saved = (["window", "document"] as const).map((key) => [key, key in scope,
 beforeAll(() => {
   Object.assign(scope, { window: dom.window, document: dom.window.document });
 });
-afterAll(() => {
-  for (const [key, had, value] of saved)
-    if (had) scope[key] = value;
-    else delete scope[key];
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window });
 });
 
 type Daemon = { record: (target: string, step: unknown, at?: number) => unknown };

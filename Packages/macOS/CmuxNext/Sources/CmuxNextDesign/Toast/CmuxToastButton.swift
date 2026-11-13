@@ -39,7 +39,7 @@ public final class CmuxToastButton: ClickableButton {
     static let chevronGap: CGFloat = 4
     /// The fill the button shows now (tests): nil when it shows none.
     var shownFill: NSColor? { ChromeHover.fillColor(hover.state) }
-    private lazy var hover = ChromeHover(self, cornerRadius: Metrics.itemCornerRadius, behindContent: true)
+    private lazy var hover = ChromeHover(self, cornerRadius: Metrics.buttonCornerRadius, behindContent: true)
 
     init(style: Style, title: String, target: AnyObject?, action: Selector?) {
         self.style = style
