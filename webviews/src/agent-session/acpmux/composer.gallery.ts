@@ -986,6 +986,7 @@ export default agentPaneEntry({
       },
     },
     "quiet-chips": {
+      composerLook: "claude",
       note: "Every footer button at rest: +, the one model button (model and effort) and the mode, with Fast mode on and no bolt. None draws a pill until it is hovered, keyboard-focused, pressed or open.",
       snapshot: quietChips(),
     },

@@ -65,7 +65,7 @@ await requireBrowserLane("composer-scrollbar-edge.test.ts", async () => {
         const { setComposerLook } = await import(/* @vite-ignore */ source);
         setComposerLook("claude", { remember: false });
       });
-      await page.locator('.acpmux-composer[data-composer-look="claude"] .acpmux-md-field').waitFor();
+      await page.locator('.acpmux-composer:not([data-composer-look="codex"]) .acpmux-md-field').waitFor();
       const drawn = await page.evaluate(() => {
         const box = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
         const field = document.querySelector<HTMLElement>(".acpmux-composer-box .acpmux-md-field")!;

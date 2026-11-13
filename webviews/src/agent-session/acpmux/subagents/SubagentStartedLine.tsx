@@ -1,4 +1,4 @@
-import { Fragment, useContext } from "react";
+import { Fragment, useContext, type ReactNode } from "react";
 import type { AcpmuxRow } from "../model";
 import { usePaneLanguage, useT } from "../i18n";
 import { AgentTag } from "../conversation/AgentTag";
@@ -32,11 +32,15 @@ export function SubagentStartedLine({ row }: { row: AcpmuxRow }) {
     />
   );
   let agentIndex = 0;
-  const taggedNames = list.formatToParts(names).map((part, index) => {
-    if (part.type !== "element") return <Fragment key={`separator-${index}`}>{part.value}</Fragment>;
+  const taggedNames: ReactNode[] = [];
+  for (const [index, part] of list.formatToParts(names).entries()) {
+    if (part.type !== "element") {
+      taggedNames.push(<Fragment key={`separator-${index}`}>{part.value}</Fragment>);
+      continue;
+    }
     const at = agentIndex++;
     const agent = agents[at]!;
-    return (
+    taggedNames.push(
       <Fragment key={agent.id}>
         {at > 0 && identity(at)}
         <AgentTag
@@ -44,9 +48,9 @@ export function SubagentStartedLine({ row }: { row: AcpmuxRow }) {
           ariaLabel={t("subagents.open", { name: part.value })}
           onClick={open && (() => open(agent.id))}
         />
-      </Fragment>
+      </Fragment>,
     );
-  });
+  }
   return (
     <div className="cv-tools">
       <TranscriptActivityRow

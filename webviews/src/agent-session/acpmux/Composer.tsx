@@ -1516,7 +1516,7 @@ function ComposerFrame({
   /// Sends the draft; false when there was nothing to send or the host refused it.
   const submit = (event: { preventDefault(): void }): boolean => {
     event.preventDefault();
-    if (canResume) return runResume();
+    if (canResume) return runResume(canResume);
     // Send does what Return does: mid-turn it steers an agent that steers, else it queues.
     return send(false, steersAlways || returnSteers || steersUnseen);
   };
@@ -2574,28 +2574,31 @@ function ComposerFrame({
     dictating: dictating || listening,
   });
   const resuming = resumePending !== undefined && resumePending.sessionId === sessionId;
-  const runResume = useCallback((): boolean => {
-    if (!canResume || !onResume || (resumeInFlight.current && resumeInFlight.current.sessionId === sessionId))
-      return false;
-    const attempt = { sessionId };
-    sentAt.current = Date.now();
-    resumeInFlight.current = attempt;
-    setResumePending(attempt);
-    const stillHere = () => resumeInFlight.current === attempt && swapState.current.sessionId === attempt.sessionId;
-    void (async () => {
-      try {
-        if ((await onResume()) === false && stillHere()) setAttachError(t("notice.resumeFailed"));
-      } catch {
-        if (stillHere()) setAttachError(t("notice.resumeFailed"));
-      }
-    })().finally(() => {
-      if (resumeInFlight.current === attempt) {
-        resumeInFlight.current = undefined;
-        setResumePending(undefined);
-      }
-    });
-    return true;
-  }, [canResume, onResume, sessionId, setAttachError, t]);
+  const runResume = useCallback(
+    (eligible: boolean): boolean => {
+      if (!eligible || !onResume || (resumeInFlight.current && resumeInFlight.current.sessionId === sessionId))
+        return false;
+      const attempt = { sessionId };
+      sentAt.current = Date.now();
+      resumeInFlight.current = attempt;
+      setResumePending(attempt);
+      const stillHere = () => resumeInFlight.current === attempt && swapState.current.sessionId === attempt.sessionId;
+      void (async () => {
+        try {
+          if ((await onResume()) === false && stillHere()) setAttachError(t("notice.resumeFailed"));
+        } catch {
+          if (stillHere()) setAttachError(t("notice.resumeFailed"));
+        }
+      })().finally(() => {
+        if (resumeInFlight.current === attempt) {
+          resumeInFlight.current = undefined;
+          setResumePending(undefined);
+        }
+      });
+      return true;
+    },
+    [onResume, sessionId, setAttachError, t],
+  );
   // Send's menu (composer/SendMenu.tsx): the other ways this draft can go, each only where it does
   // something Send does not. Queue for later is ⌘Return's queue while Return steers the turn.
   const sendChoices = shell
@@ -2624,7 +2627,7 @@ function ComposerFrame({
         title={t("composer.queueResume")}
         aria-busy={resuming || undefined}
         disabled={resuming}
-        onClick={runResume}
+        onClick={() => runResume(canResume)}
       >
         <SendSlotGlyph glyph="play" memory={morphMemory} scope={sessionId} />
       </button>
