@@ -1690,6 +1690,19 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertEqual(told["clones"], {done[0].removeprefix("done-"): "gone"})
         self.assert_cleaned_up(report)
 
+    def test_a_failed_first_launch_tells_its_own_clone_cleanup(self):
+        # A launch that failed gets the same end as one that passed: its helper ends by itself, its clone goes,
+        # and the report of the failed launch says so.
+        self.clone_helper = "ends"
+        status, output, report = self.run_smoke("first-report", "--seconds", "0", "--startup-timeout", "10")
+        self.assertEqual(status, smoke.FAIL, output)
+        self.assertEqual(report["verdict"], "fail", output)
+        self.assertEqual(len(list(self.clones.glob("done-*"))), 1, output)
+        self.assertEqual(self.clones_left(), [], output)
+        told = report["clone_cleanup"]
+        self.assertEqual((told["helpers"], told["helper_ended"]), (1, True), told)
+        self.assertEqual(list(told["clones"].values()), ["gone"], told)
+
     def test_each_arms_cleanup_helper_ends_by_itself(self):
         self.clone_helper = "ends"
         status, output, report, _ = self.seeded("healthy")
@@ -2069,11 +2082,14 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertEqual((told["helpers"], told["clones"]), (1, {"Ab12Cd": "removed by this tool"}))
 
     def test_a_fault_in_the_first_stop_still_stops_each_process_of_the_run(self):
-        told, stopped = self.faulty_end({"CMUX_FRESH_SMOKE_CLONE_HELPER_WAIT_SECONDS": "0"},
+        # The helper is known (its read came first), but the run's other processes may still run: the end does
+        # not give the helper its time (the bound here is 5 s) and stops each process at once.
+        told, stopped = self.faulty_end({"CMUX_FRESH_SMOKE_CLONE_HELPER_WAIT_SECONDS": "5"},
                                         own_pids=mock.Mock(side_effect=[RuntimeError("no list"), [11, 12]]))
         self.assertIn("RuntimeError", told["error"])
         self.assertEqual(stopped, [[11, 12]])
-        self.assertEqual((told["helpers"], told["clones"]), (1, {"Ab12Cd": "removed by this tool"}))
+        self.assertEqual((told["helpers"], told["wait"], told["clones"]),
+                         (1, 0.0, {"Ab12Cd": "removed by this tool"}), told)
 
     def test_the_detached_helper_is_stopped_by_the_runs_root(self):
         status, output, report = self.run_smoke("healthy", "--seconds", "0", "--startup-timeout", "10")
