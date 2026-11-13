@@ -11942,7 +11942,7 @@
       },
       "help" : {
         "key" : "settings.computerUse.livePreview.help",
-        "text" : "While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity."
+        "text" : "While an agent uses an app, its terminal or chat shows a small live view of the window it works in. Click the view to enlarge it; hover over it to show the window or hide the view."
       },
       "kept_on_reset_all" : false,
       "key" : "computerUse.livePreview",
@@ -11969,7 +11969,7 @@
       "section" : "general",
       "summary" : {
         "key" : "settings.computerUse.livePreview.summary",
-        "text" : "Shows the app an agent uses in its chat"
+        "text" : "Shows the window an agent uses in its terminal or chat"
       },
       "surfaces" : {
         "cli" : {
@@ -12056,7 +12056,7 @@
       },
       "title" : {
         "key" : "settings.computerUse.livePreview",
-        "text" : "Live Preview in Chat"
+        "text" : "Live Preview"
       },
       "validation" : "portable"
     },

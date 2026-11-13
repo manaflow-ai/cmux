@@ -2325,8 +2325,8 @@
     },
     "computerUse.livePreview" : {
       "default" : true,
-      "description" : "While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity.",
-      "title" : "Live Preview in Chat",
+      "description" : "While an agent uses an app, its terminal or chat shows a small live view of the window it works in. Click the view to enlarge it; hover over it to show the window or hide the view.",
+      "title" : "Live Preview",
       "type" : "boolean"
     },
     "computerUse.menus" : {
