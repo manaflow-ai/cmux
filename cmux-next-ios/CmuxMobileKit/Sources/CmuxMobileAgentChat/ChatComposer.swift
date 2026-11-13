@@ -379,6 +379,9 @@ struct ChatComposer: View {
             .contentShape(.rect)
         }
         .padding(.vertical, -5)
+        // Ahead of the Spacer and the context ring: at large text sizes the button keeps its
+        // width (its name truncates) instead of being squeezed to nothing.
+        .layoutPriority(1)
         // Source order (model, Mode, Effort), not the reversed order of a menu opened near the
         // bottom of the screen.
         .menuOrder(.fixed)
@@ -419,10 +422,10 @@ struct ChatComposer: View {
                     checkButton(model.name, checked: model.id == store.currentModelID) { store.setModel(model.id) }
                 }
             } label: {
-                Label {
-                    Text(harnessName)
-                    if let name = store.currentModelName { Text(name) }
-                } icon: { Image(systemName: "cpu") }
+                // Two texts, no icon: iOS draws the second as the row's subtitle (a Label with
+                // an icon drops it).
+                Text(harnessName)
+                if let name = store.currentModelName { Text(name) }
             }
             .menuOrder(.fixed)
             .accessibilityIdentifier("agentChat.composer.model.harness")
@@ -439,10 +442,8 @@ struct ChatComposer: View {
                 checkButton(mode.name, checked: mode.id == store.currentModeID) { store.setMode(mode.id) }
             }
         } label: {
-            Label {
-                Text("Mode")
-                if let name = currentModeName { Text(name) }
-            } icon: { Image(systemName: "lock.shield") }
+            Text("Mode")
+            if let name = currentModeName { Text(name) }
         }
         // The agent's order.
         .menuOrder(.fixed)
@@ -458,10 +459,8 @@ struct ChatComposer: View {
                 }
             }
         } label: {
-            Label {
-                Text("Effort")
-                if let name = currentEffortName { Text(name) }
-            } icon: { Image(systemName: "gauge.with.dots.needle.50percent") }
+            Text("Effort")
+            if let name = currentEffortName { Text(name) }
         }
         .menuOrder(.fixed)
         .accessibilityIdentifier("agentChat.composer.effort")
