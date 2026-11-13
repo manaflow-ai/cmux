@@ -36,10 +36,6 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
         var total = 0
         /// Token of the pending schedule, if any.
         var pendingToken: UInt64?
-        /// The last turn completed and nothing has run since. An error now
-        /// is a late report for that turn (a dropped connection surfacing on
-        /// a wake), not a failure of work in progress.
-        var turnEnded = false
     }
 
     /// Extra wait, in seconds, added to a failure's `retry after` hint. Every
@@ -77,55 +73,25 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
         return surfaces[surfaceId]?.sessionId
     }
 
-    /// Folds one live journal event for a surface into a decision, the way
-    /// the app observes it.
-    ///
-    /// - Parameter projected: The notification reconciler's lifecycle
-    ///   projection of the same event. A child event declares no phase of its
-    ///   own, so it takes the reconciled session phase from the projection: a
-    ///   child that finishes after the root's final Stop leaves the session
-    ///   idle and must not reopen the finished turn.
-    public mutating func observe(
-        _ draft: AgentJournalEventDraft,
-        surfaceId: String,
-        projected: AgentJournalEventDraft
-    ) -> Action {
-        var declaredPhase = draft.declaredPhase
-        switch draft.kind {
-        case .childSpawned, .childCompleted, .childFailed:
-            declaredPhase = projected.declaredPhase
-        default:
-            break
-        }
-        return observe(
-            kind: draft.kind,
-            surfaceId: surfaceId,
-            isSubagent: draft.isSubagent,
-            detail: draft.detail,
-            sessionId: draft.sessionId,
-            // Pending background work continues the turn, and the pane's own
-            // idle settlement can land before a slow StopFailure.
-            endsTurn: !draft.pendingWork && draft.nativeEvent != "program_status_idle",
-            declaredPhase: declaredPhase
-        )
-    }
-
     /// Folds one journaled event for a surface into a decision.
     ///
-    /// - Parameter endsTurn: For `.turnCompleted`, whether the agent's turn is
-    ///   really over. A completion with background work pending, or one the
-    ///   app infers before the agent's own Stop arrives, may still be followed
-    ///   by that turn's failure.
-    /// - Parameter declaredPhase: For `.stateChanged`, the phase the event
-    ///   asserts, if any. Only a running phase shows a turn running again.
+    /// - Parameter turnOverBefore: The notification reconciler's
+    ///   ``AgentNotificationReconciler/turnIsOver(for:)`` read just before it
+    ///   applied this event. An error that arrives once the agent ended its
+    ///   turn is a late report for that turn (a dropped connection surfacing
+    ///   on a wake), not a failure of work in progress.
+    /// - Parameter turnOverAfter: The same read just after `apply`, or `nil`
+    ///   when the caller has no reconciler and every completion ends the turn.
+    ///   A completion with background work or children still running, or the
+    ///   pane's own idle settlement, leaves it `false`: the turn may still fail.
     public mutating func observe(
         kind: AgentJournalEventKind,
         surfaceId: String,
         isSubagent: Bool,
         detail: String?,
         sessionId: String? = nil,
-        endsTurn: Bool = true,
-        declaredPhase: AgentLifecyclePhase? = nil
+        turnOverBefore: Bool = false,
+        turnOverAfter: Bool? = nil
     ) -> Action {
         // Nested agents report through their parent; resuming the parent
         // pane for a child's failure would inject text into the wrong turn.
@@ -148,10 +114,10 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
             // once through the error notification without one. An event with
             // no detail says nothing new, so it neither schedules nor cancels.
             guard let detail, !detail.isEmpty else { return .none }
-            var state = surfaces[surfaceId] ?? SurfaceState()
-            // The turn this error would resume already finished and is
+            // The turn this error would resume already finished, or is
             // waiting on a human. Its completion cleared any pending resume.
-            guard !state.turnEnded else { return .none }
+            guard !turnOverBefore else { return .none }
+            var state = surfaces[surfaceId] ?? SurfaceState()
             guard classifier.isRetryable(detail: detail), state.streak < delays.count else {
                 let hadPending = state.pendingToken != nil
                 state.pendingToken = nil
@@ -170,31 +136,14 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
             return .schedule(surfaceId: surfaceId, attempt: state.streak + 1, delay: delay, token: nextToken)
         case .turnCompleted:
             guard !isStaleLifecycleEvent(surfaceId: surfaceId, sessionId: sessionId) else { return .none }
-            // Background work or the pane's own settlement: the turn may
-            // still fail, so the streak and marker count carry on. It does
-            // not reopen a finished turn; the settlement can follow a Stop
-            // that was still queued.
-            guard endsTurn else { return cancelPending(surfaceId: surfaceId) }
-            // A turn finished normally: the agent recovered, so the failing
-            // streak and the marker's count are both over.
-            var state = surfaces[surfaceId] ?? SurfaceState()
-            let hadPending = state.pendingToken != nil
-            state.streak = 0
-            state.total = 0
-            state.pendingToken = nil
-            state.turnEnded = true
-            surfaces[surfaceId] = state
-            return hadPending ? .cancel(surfaceId: surfaceId) : .none
-        case .turnStarted, .attentionResolved:
+            // Background work, a running child or the pane's own settlement:
+            // the turn may still fail, so the streak and marker count carry on.
+            guard turnOverAfter ?? true else { return cancelPending(surfaceId: surfaceId) }
+            return endTurn(surfaceId: surfaceId)
+        case .turnStarted, .approvalRequested, .questionRequested, .planReviewRequested, .attentionResolved:
             guard !isStaleLifecycleEvent(surfaceId: surfaceId, sessionId: sessionId) else { return .none }
-            surfaces[surfaceId]?.turnEnded = false
-            // The agent is working again: never type into it on a timer.
-            return cancelPending(surfaceId: surfaceId)
-        case .approvalRequested, .questionRequested, .planReviewRequested:
-            guard !isStaleLifecycleEvent(surfaceId: surfaceId, sessionId: sessionId) else { return .none }
-            // The agent waits on a human: never type into it on a timer. A
-            // wait does not reopen a finished turn; some idle reminders after
-            // a Stop read as a question.
+            // The agent is working again, or waits on a human: never type
+            // into it on a timer.
             return cancelPending(surfaceId: surfaceId)
         case .sessionEnded:
             guard !isStaleLifecycleEvent(surfaceId: surfaceId, sessionId: sessionId) else { return .none }
@@ -211,31 +160,31 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
                 surfaces[surfaceId] = SurfaceState(sessionId: sessionId)
             }
             return hadPending ? .cancel(surfaceId: surfaceId) : .none
-        case .childSpawned, .childCompleted, .childFailed, .stateChanged:
-            guard !isStaleLifecycleEvent(surfaceId: surfaceId, sessionId: sessionId) else { return .none }
-            // A correction that restores a finished turn's phase is no sign
-            // of work.
-            if let declaredPhase, declaredPhase != .running {
-                // Codex's correction for a stale prompt-submit follows the
-                // turn-started that reopened a finished turn; the store says
-                // the turn is idle, so close it again (CLI "stale-turn-corrected").
-                if kind == .stateChanged, declaredPhase == .idle, detail == "stale-turn-corrected",
-                   surfaces[surfaceId] != nil {
-                    surfaces[surfaceId]?.turnEnded = true
-                    return cancelPending(surfaceId: surfaceId)
-                }
-                return .none
+        case .childSpawned, .childCompleted, .childFailed, .stateChanged,
+             .idleObserved, .messagePublished:
+            // The last child finishing after the Stop, or a correction that
+            // restores idle, ends the turn the same way a completion does.
+            if turnOverAfter == true, !turnOverBefore,
+               !isStaleLifecycleEvent(surfaceId: surfaceId, sessionId: sessionId) {
+                return endTurn(surfaceId: surfaceId)
             }
-            // Progress does not change whether an errored turn still needs a
-            // resume, but it shows a turn running again after a completed one:
-            // a continuation can start without a prompt hook.
-            surfaces[surfaceId]?.turnEnded = false
-            return .none
-        case .idleObserved, .messagePublished:
-            // An idle prompt that follows an error is exactly the state a
-            // resume addresses.
+            // Other progress and idle observations do not change whether the
+            // errored turn still needs a resume. An idle prompt that follows
+            // an error is exactly the state a resume addresses.
             return .none
         }
+    }
+
+    /// A turn finished normally: the agent recovered, so the failing streak
+    /// and the marker's count are both over.
+    private mutating func endTurn(surfaceId: String) -> Action {
+        guard var state = surfaces[surfaceId] else { return .none }
+        let hadPending = state.pendingToken != nil
+        state.streak = 0
+        state.total = 0
+        state.pendingToken = nil
+        surfaces[surfaceId] = state
+        return hadPending ? .cancel(surfaceId: surfaceId) : .none
     }
 
     /// Records that the scheduled resume for `token` was sent. Returns the
