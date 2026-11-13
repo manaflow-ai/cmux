@@ -74,6 +74,47 @@ import Testing
         }
     }
 
+    /// What the vault's one surface answers; a test changes it.
+    @MainActor private final class Screen { var shows = false }
+
+    /// Lets the main actor's waiting tasks run until `done`, for at most 2,000 turns.
+    private static func turns(until done: () -> Bool) async {
+        for _ in 0..<2_000 where !done() { await Task.yield() }
+    }
+
+    /// A window that comes out of the Dock, or shows again after Hide, gives the vault's view no sign: the view
+    /// stays in its window and no view is hidden. The sign that the app gets is the window's (its occlusion state
+    /// changed). The reads of a list that is not complete ended when the surface left the screen, so they start
+    /// again at that sign: only while a surface shows the list, and only for a list that is not complete.
+    @Test func aWindowThatComesBackOnScreenStartsTheReadsOfAListThatIsNotCompleteAgain() async throws {
+        let (old, new) = (SessionVaultTests.session("s-old", minutesAgo: 60), SessionVaultTests.session("s-new"))
+        let source = Source([([old], false), ([old], false), ([new, old], true)])
+        let (services, vault) = Self.vault(source, onScreen: nil)
+        let screen = Screen()
+        vault.reads.addSurface { screen.shows }
+        await vault.reload()
+        #expect(source.refreshes == 1, "a vault that is off screen reads one time")
+        let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"vault-back-on-screen","workspace_key":"vb1"}"#.utf8))
+        let controller = WindowController(state: WindowState(record: record), services: services, frame: NSRect(x: 200, y: 200, width: 900, height: 600))
+        let changed = Notification(name: NSWindow.didChangeOcclusionStateNotification, object: controller.window)
+        // The window's state changes and the surface stays off screen (the window goes into the Dock).
+        controller.windowDidChangeOcclusionState(changed)
+        await Self.turns { false }
+        #expect(source.refreshes == 1, "nothing is read while no surface shows the list")
+        // The window is back.
+        screen.shows = true
+        controller.windowDidChangeOcclusionState(changed)
+        await Self.turns { !vault.isPartial }
+        #expect(source.refreshes == 3, "the reads start again and go on until the list is complete")
+        #expect(source.waits == [1], "with the source's wait before each read after the first of that reload")
+        #expect(vault.rows.map(\.session.sessionID) == ["s-new", "s-old"])
+        #expect(!vault.isPartial)
+        // A complete list is not read again at the window's next change.
+        controller.windowDidChangeOcclusionState(changed)
+        await Self.turns { false }
+        #expect(source.refreshes == 3, "a complete list is not read again")
+    }
+
     @Test func afterTheBoundAnIdThatIsNotInTheListIsStillLoadingAndTheNextReloadReadsAgain() async {
         let source = Source([([SessionVaultTests.session("s-old")], false)])
         let (services, vault) = Self.vault(source, onScreen: true)
