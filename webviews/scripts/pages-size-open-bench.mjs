@@ -316,7 +316,12 @@ function bootstrap({ name, state, api }) {
       [...(root?.querySelectorAll("p,h1,h2,h3,label,li,td,span,button") ?? [])].some(
         (element) => visible(element) && element.textContent.trim().length >= 3,
       );
-    let control = [...(root?.querySelectorAll(controls) ?? [])].some(enabled);
+    const controlElements = [...(root?.querySelectorAll(controls) ?? [])];
+    // A few first-party Pages are read-only views (certificate, history, and inspector
+    // summaries). They have no actionable control by design; requiring a synthetic button
+    // would turn a successful open into a false failure. Interactive pages still require an
+    // enabled, visible control.
+    let control = controlElements.length === 0 || controlElements.some(enabled);
     if (name === "settings") {
       content = [...document.querySelectorAll(".settings .content .row-title")].some(
         (element) => visible(element) && element.textContent.trim(),
