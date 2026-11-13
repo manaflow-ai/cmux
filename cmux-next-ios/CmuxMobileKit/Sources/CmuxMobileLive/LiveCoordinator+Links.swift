@@ -167,6 +167,17 @@ extension LiveCoordinator {
         setPairing(.idle, for: session)
         let macID = session.macID
         guard let link else {
+            // A Cloud machine's carrier dropped under a link still wanted (not a close we made): hold
+            // its redial until the list, read again now, says it still runs. The service wakes a
+            // paused machine for a person's dial, so a blind redial would undo an idle pause.
+            if session.isCloud, session.link.target != nil, session.fedData {
+                cloudDropHolds.insert(macID)
+                onCloudLinkDropped?(macID)
+                Task { @MainActor [weak self, weak session] in
+                    guard let self, let session, self.sessions[macID] === session else { return }
+                    if self.cloudDropHolds.contains(macID) { self.applyLinks() }
+                }
+            }
             Task {
                 await session.workspaces.bind(nil, macID: "")
                 await session.acpmux.bind(nil)

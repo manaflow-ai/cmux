@@ -31,15 +31,18 @@ extension LiveCoordinator {
     /// The running Cloud machines this phone may dial now (not refused, Cloud dialer present).
     var dialableCloudMachines: [MacDevice] {
         guard cloudDialer != nil else { return [] }
-        return store.cloudMachines.filter { $0.isOnline && cloudRefusals[$0.id] == nil }
+        return store.cloudMachines.filter { $0.isOnline && cloudRefusals[$0.id] == nil && !cloudDropHolds.contains($0.id) }
     }
 
     /// The account's Cloud machines (`cloud.machine.list`, as `LiveCloudWorkspaces` reads it):
     /// listed beside the Macs, the running ones dialed lazily like Macs. A machine that left
     /// the list (deleted) closes its link and its rows go; one that stopped running closes
     /// its link and keeps its rows as last known.
-    public func applyCloudMachines(_ machines: [MacDevice]) {
+    /// `fromRead`: the machines come from a list read just made (not a republish of the last one):
+    /// a machine whose carrier dropped may be dialed again once such a read still says it runs.
+    public func applyCloudMachines(_ machines: [MacDevice], fromRead: Bool = false) {
         let machines = machines.filter(\.isCloud)
+        if fromRead { cloudDropHolds = [] }
         let before = Set(listedCloudMachines.map(\.id))
         listedCloudMachines = machines
         // A refusal that the list has since changed (paused, gone, started again) no longer holds.

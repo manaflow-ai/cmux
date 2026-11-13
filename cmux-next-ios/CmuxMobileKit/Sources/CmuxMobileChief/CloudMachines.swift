@@ -238,6 +238,9 @@ public final class CloudMachinesModel {
 
     @ObservationIgnored private let account: @MainActor () -> AccountCloud?
     @ObservationIgnored var newKey: () -> String = { UUID().uuidString.lowercased() }
+    /// The machines changed (a read, an action's optimistic change or its rollback): the Workspaces
+    /// list, which shares this model, shows it at once instead of at its next poll.
+    @ObservationIgnored public var onMachinesChanged: (@MainActor () -> Void)?
     /// The DEBUG gallery's fixed page: it never reads the service.
     @ObservationIgnored var skipsLoad = false
 
@@ -274,6 +277,7 @@ public final class CloudMachinesModel {
             async let planned = account.read("cloud.plan.get")
             async let saved = account.read("cloud.snapshot.list")
             machines = try await Self.readMachines(account)
+            onMachinesChanged?()
             // A plan or snapshot read that fails keeps the list (the page hides what it lacks).
             plan = (try? await planned).flatMap(CloudMachinePlan.parse) ?? plan
             if let value = try? await saved { snapshots = CloudMachineSnapshot.list(value) }
@@ -298,6 +302,7 @@ public final class CloudMachinesModel {
         if machines.isEmpty, phase != .loaded { phase = .loading }
         do {
             machines = try await Self.readMachines(account)
+            onMachinesChanged?()
             phase = .loaded
         } catch is CancellationError {
             phase = before
@@ -452,9 +457,13 @@ public final class CloudMachinesModel {
             return .busy
         }
         let old = machines
-        if let optimistic, let index = machines.firstIndex(where: { $0.id == id }) { optimistic(&machines[index]) }
+        if let optimistic, let index = machines.firstIndex(where: { $0.id == id }) {
+            optimistic(&machines[index])
+            onMachinesChanged?()
+        }
         let restore = { [weak self] in
             self?.machines = old
+            self?.onMachinesChanged?()
             rollback?()
         }
         busyID = id

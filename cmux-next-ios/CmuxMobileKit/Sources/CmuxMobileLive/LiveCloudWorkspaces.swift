@@ -54,6 +54,10 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
         self.coordinator = coordinator
         self.clock = clock
         coordinator.onCloudRefusal = { [weak self] _, _ in self?.refreshSoon() }
+        // A carrier dropped: read the list now, so the machine is dialed again only if it still runs.
+        coordinator.onCloudLinkDropped = { [weak self] _ in self?.refreshSoon() }
+        // The Cloud Machines page changed the shared list (a delete, a start): the Workspaces list follows now.
+        model.onMachinesChanged = { [weak self] in self?.publish() }
     }
 
     /// Whether this serves `coordinator` (the shell makes one per signed-in session).
@@ -138,14 +142,14 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
     public func refresh() async {
         // The list only: the plan and snapshots are the Cloud Machines page's, read when it opens.
         await model.loadMachines()
-        publish()
+        publish(fromRead: true)
     }
 
     /// The machines of the last list that read (nil: none read yet).
     @ObservationIgnored private var lastListed: [CloudMachine]?
 
     /// The list as machines on the Workspaces list, with this phone's pending creations.
-    func publish() {
+    func publish(fromRead: Bool = false) {
         guard !stopped, let coordinator else { return }
         var machines: [MacDevice] = []
         if case .failed = model.phase {} else { lastListed = model.machines }
@@ -158,7 +162,12 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
             machines.append(MacDevice(cloudMachine: creation.machineID ?? creation.id, name: creation.name,
                                       state: CloudMachineState(status: .provisioning, pendingWorkspace: true)))
         }
-        coordinator.applyCloudMachines(machines)
+        // A failed read is no fresh word on a machine: holds stay until one succeeds.
+        let read: Bool = {
+            if case .failed = model.phase { return false }
+            return fromRead
+        }()
+        coordinator.applyCloudMachines(machines, fromRead: read)
     }
 
     /// One machine as the list shows it.

@@ -285,6 +285,31 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         #expect(store.cloudMachines.first?.cloud?.status == .paused)
     }
 
+    /// The carrier dropped because the machine idle-paused (its list still said running): the
+    /// phone does not redial it (the service would start a paused machine for a person's dial),
+    /// and once a fresh read says paused it stays down, its terminals offline.
+    @Test(.timeLimit(.minutes(1))) func aDropFromAnIdlePauseNeverWakesTheMachine() async throws {
+        let store = emptyStore()
+        let cloud = RecordingCloudDialer()
+        let live = coordinator(store: store, cloud: cloud)
+        defer { live.stop() }
+        await settle { store.macConnection["m1"] == .connected }
+        live.showing(macIDs: nil)
+        live.applyCloudMachines([machine(.running)])
+        await settle { store.macDataPhase(vm) == .live }
+        cloud.lastCarrier(vm)?.drop()
+        await settle { live.cloudDropHolds.contains(vm) && live.sessions[vm]?.link.target == nil }
+        // A republish of the old list (not a read) never lifts the hold.
+        live.applyCloudMachines([machine(.running)])
+        await drain()
+        #expect(cloud.dials(vm) == 1)
+        // The fresh read says paused: no dial, and its terminals say offline.
+        live.applyCloudMachines([machine(.paused)], fromRead: true)
+        await drain()
+        #expect(cloud.dials(vm) == 1, "a paused machine is never dialed (dialing would start it)")
+        #expect(live.sessions[vm]?.terminalsOffline == true)
+    }
+
     /// A session replaced for the same machine (Retry; a team switch does the same): a terminal
     /// page still cached from the old one opens its channels through the new session, and is
     /// adopted by it, so it reattaches instead of saying "Not connected" for ever.
@@ -325,6 +350,10 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         await settle { store.macDataPhase(vm) == .live }
         let first = try #require(live.sessions[vm]?.servedLink)
         cloud.lastCarrier(vm)?.drop()
+        // Held until a fresh list read says it still runs (it does): then dialed again.
+        await settle { live.cloudDropHolds.contains(vm) }
+        #expect(cloud.dials(vm) == 1, "no blind redial")
+        live.applyCloudMachines([machine(.running)], fromRead: true)
         // A new link served (never the moment between links, when there is none).
         await settle {
             guard let served = live.sessions[vm]?.servedLink else { return false }
@@ -649,6 +678,29 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         await cloud.refresh()
         #expect(store.cloudMachines.isEmpty)
         #expect(!cloud.canCreateMachine)
+    }
+
+    /// A change made on the Cloud Machines page (it shares the model) shows on the Workspaces list
+    /// at once, not at the list's next poll: a machine being deleted leaves the list now.
+    @Test func aDeleteOnTheMachinesPageLeavesTheListAtOnce() async throws {
+        ServiceStub.install(host: host) { request in
+            switch Self.op(request) {
+            case "cloud.machine.list": return .init(body: Self.list([("vm_d", "running")]))
+            case "cloud.machine.delete": return .init(body: #"{"value":{"machine":{"id":"vm_d","status":"deleting","size":{},"idle_policy":{}}}}"#)
+            default: return .init()
+            }
+        }
+        let store = AppStore(teams: [], activeTeamID: "", workspaces: [], feed: [], tabMemory: .inMemory())
+        let (live, cloud) = make(store: store, ops: OpsLog())
+        defer { live.stop() }
+        await cloud.refresh()
+        #expect(store.cloudMachines.first?.cloud?.status == .running)
+        let machine = try #require(cloud.model.machine("vm_d"))
+        // The page's own action: the optimistic change reaches the Workspaces list before any poll.
+        let deleting = Task { await cloud.model.delete(machine) }
+        await settle { store.cloudMachines.first?.cloud?.status == .deleting }
+        #expect(store.cloudMachines.first?.cloud?.status == .deleting)
+        _ = await deleting.value
     }
 
     @Test func startIsTheAccountsOwnOp() async {

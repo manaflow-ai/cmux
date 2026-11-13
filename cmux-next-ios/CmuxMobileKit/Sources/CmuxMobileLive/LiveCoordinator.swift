@@ -87,6 +87,13 @@ public final class LiveCoordinator {
     /// A Cloud machine's carrier refused this phone (machine id, refusal code): the Cloud
     /// list reads again (a paused or deleted machine shows as it is).
     @ObservationIgnored public var onCloudRefusal: ((String, String) -> Void)?
+    /// A Cloud machine's live carrier dropped: the list is read again now (``LiveCloudWorkspaces``),
+    /// and the machine is not dialed until that read says it runs (``cloudDropHolds``).
+    @ObservationIgnored public var onCloudLinkDropped: ((String) -> Void)?
+    /// Cloud machines whose carrier dropped, held out of dialing until a fresh list read: the
+    /// service starts a paused machine when a person dials it, so a redial after an idle pause
+    /// (whose list still said running) would wake the machine the pause just stopped.
+    @ObservationIgnored var cloudDropHolds: Set<String> = []
     /// The Cloud machine the person opened last: linked first within the Cloud cap.
     @ObservationIgnored var touchedCloud: String?
     /// Releases a Cloud session's terminal sizes before its link closes (tests gate it).
