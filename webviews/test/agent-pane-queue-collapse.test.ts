@@ -654,6 +654,7 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
           !f.hit ||
           f.below.some((b, i) => !near(b, before.below[i]!)),
       );
+      console.log("DBG before", JSON.stringify(before), "first", JSON.stringify(opening[0]), "lastclose", JSON.stringify(closing.at(-1)));
       return { moved, whole };
     };
 
@@ -750,6 +751,7 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
                   origin +
                   (parseFloat(getComputedStyle(list).paddingBottom) || 0);
                 w.__blank.push(Math.round(list.getBoundingClientRect().height - Math.min(need, list.scrollHeight)));
+                (w as any).__dbg = ((w as any).__dbg || []).concat([[list.getBoundingClientRect().height, need, list.scrollHeight, list.clientHeight, getComputedStyle(list).paddingBottom, getComputedStyle(list).borderTopWidth, getComputedStyle(list).borderBottomWidth, list.style.maxHeight, list.style.minHeight, list.getAttribute("data-held"), [...list.children].map((c) => c.tagName + "." + c.className + ":" + Math.round(c.getBoundingClientRect().height*2)/2).join("|")]]);
               }
             }
             return w.__blank.length < (count as number);
@@ -762,6 +764,7 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
         (count) => (window as unknown as { __blank: number[] }).__blank.length >= count,
         count,
       );
+      console.log("DBG blank", JSON.stringify(await page.evaluate(() => (window as any).__dbg?.slice(0, 3))));
       return page.evaluate(() => (window as unknown as { __blank: number[] }).__blank);
     };
     /// The list's height against what its rows need (their bottom and its padding), when it shows.
