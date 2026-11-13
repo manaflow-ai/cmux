@@ -285,7 +285,7 @@ fn a_removed_record_and_takeover_never_replace_each_others_queue_slot() {
 fn queued_origin_removal_survives_later_state_replacements() {
     let (hub, mut writer) = Hub::new(SummaryIndex::new());
     writer.origin("peer", OriginState::Connected, 1).unwrap();
-    let mut old = remote("old", 1);
+    let old = remote("old", 1);
     writer.apply(old.clone()).unwrap();
     writer.process_batch();
 
