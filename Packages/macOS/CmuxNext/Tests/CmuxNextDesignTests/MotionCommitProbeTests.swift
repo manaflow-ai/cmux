@@ -60,4 +60,32 @@ import Testing
         #expect(!probe.isRunning)
         #expect(!MotionTrace.isEnabled)
     }
+
+    /// `work`'s `each_ms`: the time of every frame in the order recorded, as many as `frames`. The summary beside it
+    /// (p50, p95, max) cannot leave out a frame that the host disturbed; with the list a reader judges each frame
+    /// against the host's clock. The list ends where the record does (`MotionTrace.record`'s bound for a name).
+    @Test func theWorkReportListsEachFramesTimeInTheOrderRecorded() throws {
+        _ = MotionDebug.handle(["action": "start"], windows: [])
+        defer { _ = MotionDebug.handle(["action": "stop"], windows: []) }
+        for time in [3.456, 0.5, 12.004, 0.5, 1.999] { MotionTrace.record("clock", milliseconds: time) }
+        MotionTrace.record("other", milliseconds: 2)
+        func work(_ name: String) throws -> (each: [Double]?, frames: Int?) {
+            let report = MotionDebug.handle(["action": "read"], windows: [])
+            let work = try #require(report["work"] as? [String: [String: Any]], "the report has no work summaries")
+            let summary = try #require(work[name], "the report has no work summary of \(name): \(work.keys.sorted())")
+            return (summary["each_ms"] as? [Double], summary["frames"] as? Int)
+        }
+        let clock = try work("clock")
+        #expect(clock.each == [3.46, 0.5, 12.0, 0.5, 2.0],
+                "the work summary of `clock` lists \(String(describing: clock.each)) as each frame's time (want the 5 recorded, in order, to 0.01 ms)")
+        #expect(clock.each?.count == clock.frames, "each_ms has \(clock.each?.count ?? -1) times for \(clock.frames ?? -1) frames")
+        #expect(try work("other").each == [2], "a second name's list is its own")
+
+        // The bound: a name records `MotionTrace.capacity * 16` frames and no more, and the list is as long.
+        let bound = MotionTrace.capacity * 16
+        for _ in 0..<(bound + 10) { MotionTrace.record("full", milliseconds: 1) }
+        let full = try work("full")
+        #expect(full.frames == bound, "a name recorded \(full.frames ?? -1) frames (its bound is \(bound))")
+        #expect(full.each?.count == bound, "each_ms has \(full.each?.count ?? -1) times at the bound of \(bound) frames")
+    }
 }

@@ -23,11 +23,16 @@
 //! runner whose FIFO landed in a later folder of the same chat id (a purge moved its folder aside
 //! while it started) ignores that folder's stops, so a chat never stops another chat's task. Before
 //! the task starts, SIGTERM or SIGINT ends the runner; after, it stops the task like a stop line
-//! does: SIGTERM to the task's own group, then SIGKILL to the group after [`GRACE`]. Only the
-//! runner signals that group, and only before it reaps the leader, so the group id is still the
-//! task's. SIGHUP is ignored. The runner learns the leader's exit with `waitid(WNOWAIT)` and reaps
-//! it only once the pipe ends, so output a child it left writes later is kept and a stop still
-//! reaches that child. Once a stop began, the reap also waits for its SIGKILL: a member that
+//! does: SIGTERM to the task's whole tree, then SIGKILL to it after [`GRACE`]. The tree is the
+//! task's own group and every process that left it: what still runs under this runner, and what
+//! carries the task's [`TASK_MARK`] in its environment, so a process whose parent exited is found
+//! too. GNU `timeout` (setpgid) and a shell with job control move their children out of the group,
+//! and a group signal alone left those running (a `glaeda-gh wait; gh ...` loop polled GitHub
+//! after its bg_stop). Each such process is known by pid and start time, so a reused pid is
+//! never signalled. Only the runner signals the group, and only before it reaps the leader, so the
+//! group id is still the task's. SIGHUP is ignored. The runner learns the leader's exit with
+//! `waitid(WNOWAIT)` and reaps it only once the pipe ends, so output a child it left writes later
+//! is kept and a stop still reaches that child. Once a stop began, the reap also waits for its SIGKILL: a member that
 //! ignores SIGTERM and holds no pipe (its output sent elsewhere) is killed too, never left once
 //! the pipe ends. A stop whose SIGKILL leaves the pipe open (a process that left the group holds
 //! it) ends the wait after one more grace. Then the runner writes the exit and exits.
@@ -44,6 +49,9 @@ use std::path::{Path, PathBuf};
 pub const RUN_ARG: &str = "__bg-run";
 /// The default segment: two of them, 8 MiB, are the most a task keeps.
 pub const SEGMENT: u64 = 4 << 20;
+/// The variable each task runs with, valued with its own mark (`<runner pid>-<start ms>`): a stop
+/// finds by it the processes that left the task's group and whose parent exited.
+pub const TASK_MARK: &str = "ACPMUX_BG_TASK";
 /// From SIGTERM to SIGKILL on a stop.
 pub const GRACE: std::time::Duration = std::time::Duration::from_secs(5);
 
@@ -140,8 +148,8 @@ fn segment_path(dir: &Path, id: &str, start: u64) -> PathBuf {
 /// One writer at a time: the runner writes its record from one lock (`main`).
 pub fn write_record(dir: &Path, record: &Record) -> std::io::Result<()> {
     let tmp = file(dir, &record.id, "json.tmp");
-    std::fs::write(&tmp, serde_json::to_vec(record)?)?;
-    std::fs::rename(&tmp, file(dir, &record.id, "json"))
+    crate::home_fs::write(&tmp, serde_json::to_vec(record)?)?;
+    crate::home_fs::rename(&tmp, file(dir, &record.id, "json"))
 }
 
 pub fn read_record(dir: &Path, id: &str) -> Option<Record> {
@@ -190,7 +198,7 @@ impl Spool {
         segment: u64,
         retain_all: bool,
     ) -> std::io::Result<Self> {
-        let file = std::fs::File::create(segment_path(dir, id, 0))?;
+        let file = crate::home_fs::create_file(segment_path(dir, id, 0))?;
         let (dir, id) = (dir.to_owned(), id.to_owned());
         Ok(Self {
             dir,
@@ -214,11 +222,11 @@ impl Spool {
         while !data.is_empty() {
             if self.len >= self.segment {
                 let start = self.start + self.len;
-                self.file = std::fs::File::create(segment_path(&self.dir, &self.id, start))?;
+                self.file = crate::home_fs::create_file(segment_path(&self.dir, &self.id, start))?;
                 // A segment that will not go is an error: the spool stops (`outputError`)
                 // rather than keep more than two.
                 if let Some(old) = self.prev.replace(self.start) {
-                    match std::fs::remove_file(segment_path(&self.dir, &self.id, old)) {
+                    match crate::home_fs::remove_file(segment_path(&self.dir, &self.id, old)) {
                         Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e),
                         _ => {}
                     }
@@ -388,12 +396,12 @@ const STOP_LINE_MAX: usize = 128;
 #[cfg(unix)]
 pub fn request_stop(dir: &Path, id: &str, generation: &str) -> bool {
     use std::io::Write;
-    use std::os::unix::fs::{FileTypeExt, OpenOptionsExt};
+    use std::os::unix::fs::FileTypeExt;
     let path = ctl_path(dir, id);
     if !std::fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_fifo()) {
         return false;
     }
-    let opened = std::fs::OpenOptions::new()
+    let opened = crate::home_fs::OpenOptions::new()
         .write(true)
         .custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW)
         .open(&path);
@@ -437,6 +445,22 @@ pub fn main() -> anyhow::Result<()> {
         libc::signal(libc::SIGCHLD, libc::SIG_DFL);
     }
     let (dir, id) = (spec.dir.clone(), spec.id.clone());
+    let mark = format!("{}-{}", std::process::id(), crate::store::now_ms());
+    // `signal` to every process of the task's tree outside its group: what still runs under this
+    // runner and what carries its mark (a process whose parent exited).
+    let signal_tree = {
+        let mark = mark.clone();
+        move |signal: libc::c_int| {
+            use crate::agent_host::tree;
+            let mut procs = tree::descendants(&[std::process::id()]);
+            for p in tree::marked(TASK_MARK, &mark) {
+                if !procs.contains(&p) {
+                    procs.push(p);
+                }
+            }
+            tree::signal_still_running(&procs, signal);
+        }
+    };
     /// The task's pid once it runs, whether it was reaped (from then on its group id may be
     /// another's), and its record: one lock, so a stop never interleaves with the start, the
     /// reap or a record write.
@@ -462,13 +486,14 @@ pub fn main() -> anyhow::Result<()> {
     let stop = {
         let (task, dir, give_up, killed) =
             (task.clone(), dir.clone(), give_up.clone(), killed.clone());
+        let signal_tree = signal_tree.clone();
         let held_id = id.clone();
         move || {
             let mut held = task.lock().unwrap_or_else(|e| e.into_inner());
             // Not started yet: nothing to stop, and nothing of the start stays.
             let Some(pid) = held.pid else {
-                let _ = std::fs::remove_file(ctl_path(&dir, &held_id));
-                let _ = std::fs::remove_file(segment_path(&dir, &held_id, 0));
+                let _ = crate::home_fs::remove_file(ctl_path(&dir, &held_id));
+                let _ = crate::home_fs::remove_file(segment_path(&dir, &held_id, 0));
                 // crash-allow: the runner is its own process; a stop before the task starts ends it with nothing to keep
                 std::process::exit(1)
             };
@@ -480,6 +505,7 @@ pub fn main() -> anyhow::Result<()> {
             let _ = write_record(&dir, &held.record);
             drop(held);
             let (task, give_up, killed) = (task.clone(), give_up.clone(), killed.clone());
+            let signal_tree = signal_tree.clone();
             std::thread::spawn(move || {
                 let sent = || {
                     *killed.0.lock().unwrap_or_else(|e| e.into_inner()) = true;
@@ -494,6 +520,8 @@ pub fn main() -> anyhow::Result<()> {
                     // for the SIGKILL below), so the group is the task's.
                     unsafe { libc::killpg(pid as i32, signal) };
                     drop(held);
+                    // And what left the group (pid and start time checked, so after the reap too).
+                    signal_tree(signal);
                     if signal == libc::SIGKILL {
                         sent();
                     }
@@ -520,7 +548,7 @@ pub fn main() -> anyhow::Result<()> {
             }
         });
     }
-    let lock = std::fs::File::create(lock_path(&dir, &id))?;
+    let lock = crate::home_fs::create_file(lock_path(&dir, &id))?;
     // SAFETY: flock on a descriptor this process owns (close-on-exec: the task never holds it).
     if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
         anyhow::bail!("task {id} already runs");
@@ -528,24 +556,26 @@ pub fn main() -> anyhow::Result<()> {
     let ctl = ctl_path(&dir, &id);
     // A start that fails leaves nothing behind but the lock it held.
     let undo = || {
-        let _ = std::fs::remove_file(&ctl);
-        let _ = std::fs::remove_file(segment_path(&dir, &id, 0));
+        let _ = crate::home_fs::remove_file(&ctl);
+        let _ = crate::home_fs::remove_file(segment_path(&dir, &id, 0));
     };
     let setup = || -> anyhow::Result<_> {
-        let _ = std::fs::remove_file(&ctl);
+        let _ = crate::home_fs::remove_file(&ctl);
         let c = std::ffi::CString::new(ctl.as_os_str().as_encoded_bytes())?;
         // SAFETY: mkfifo on a path this function owns.
         if unsafe { libc::mkfifo(c.as_ptr(), 0o600) } != 0 {
             return Err(std::io::Error::last_os_error().into());
         }
         // Read and write: the FIFO never reads as closed, and a stop's open finds a reader.
-        let control = std::fs::OpenOptions::new().read(true).write(true).open(&ctl)?;
+        let control = crate::home_fs::OpenOptions::new().read(true).write(true).open(&ctl)?;
         let spool = Spool::create_with_retention(&dir, &id, spec.segment, spec.retain_all)?;
         let (reader, writer) = std::io::pipe()?;
         let shell = ["/bin/bash", "/bin/sh"].into_iter().find(|s| Path::new(s).exists());
         let mut cmd = std::process::Command::new(shell.unwrap_or("/bin/sh"));
-        // Exactly the env the daemon built (the agent's), never this runner's own on top of it.
+        // Exactly the env the daemon built (the agent's), never this runner's own on top of it,
+        // plus the task's mark.
         cmd.arg("-c").arg(&spec.command).current_dir(&spec.cwd).env_clear().envs(&spec.env);
+        cmd.env(TASK_MARK, &mark);
         cmd.stdin(std::process::Stdio::null()).stdout(writer.try_clone()?).stderr(writer);
         // SAFETY: setsid, signal and sigprocmask are async-signal-safe. The task leads its own
         // session and group, with SIGPIPE back to its default and no signal blocked.
@@ -683,7 +713,7 @@ pub fn main() -> anyhow::Result<()> {
         held.record.signal = status.and_then(|s| s.signal());
         let _ = write_record(&dir, &held.record);
     }
-    let _ = std::fs::remove_file(&ctl);
+    let _ = crate::home_fs::remove_file(&ctl);
     drop(lock);
     // crash-allow: the runner process ends with its task; its stop and spool threads may still block in reads
     std::process::exit(0)

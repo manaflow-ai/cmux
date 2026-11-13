@@ -42,8 +42,9 @@ export const STAGE_QUESTIONS: readonly HatQuestion[] = [
     id: "acpmux:perm-child",
     source: "child",
     sessionId: "child",
-    who: "Release notes",
-    prompt: "Should the changelog name the internal tool, or describe it?",
+    who: "From claude-sr2-coord: coord-deputy left real product asks open",
+    prompt:
+      "[irreversible] The build Mac's uplink is still saturated (round trips about 5 s, down from 11.5 s), which keeps GitHub calls from that Mac slow. Move its builds?",
     answers: [],
     typed: false,
   },
@@ -72,6 +73,8 @@ export function HatQuestionsStage({
   child = false,
   replyLook,
   refuse = false,
+  dismissLook,
+  first,
 }: {
   count?: number;
   look?: "band" | "line" | "chip";
@@ -80,8 +83,17 @@ export function HatQuestionsStage({
   replyLook?: HatReplyLook;
   /// The host refuses the answer (the band says so and takes input again).
   refuse?: boolean;
+  dismissLook?: "hover" | "always" | "corner";
+  /// Which question leads: the stills of the started chat's question start on it.
+  first?: "child";
 }) {
-  const start = (): readonly HatQuestion[] => (child ? [CHILD_QUESTION] : STAGE_QUESTIONS.slice(0, count));
+  const start = (): readonly HatQuestion[] => {
+    if (child) return [CHILD_QUESTION];
+    const some = STAGE_QUESTIONS.slice(0, count);
+    return first === "child"
+      ? [...some.filter((q) => q.source === "child"), ...some.filter((q) => q.source !== "child")]
+      : some;
+  };
   const [questions, setQuestions] = useState<readonly HatQuestion[]>(start);
   const [draft, setDraft] = useState("");
   const [log, setLog] = useState<string[]>([]);
@@ -110,6 +122,7 @@ export function HatQuestionsStage({
     type: () => document.querySelector<HTMLInputElement>("[data-stage-composer]")?.focus(),
     showCard: () => undefined,
     open: (question) => setLog((now) => [...now, `opened ${question.who ?? ""}`]),
+    dismiss: (question) => drop(question.id, `dismissed: ${question.prompt.slice(0, 24)}`),
   };
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "var(--agent-page-bg)" }}>
@@ -137,7 +150,13 @@ export function HatQuestionsStage({
         <div style={{ flex: 1 }} />
         <div className="acpmux-dock" style={{ "--cv-inset": "16px" } as CSSProperties}>
           {questions.length > 0 && (
-            <HatQuestions questions={questions} actions={actions} look={look} replyLook={replyLook} />
+            <HatQuestions
+              questions={questions}
+              actions={actions}
+              look={look}
+              replyLook={replyLook}
+              dismissLook={dismissLook}
+            />
           )}
           <div className="acpmux-composer">
             <form

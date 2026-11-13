@@ -1275,6 +1275,22 @@ class WorkflowRoute(unittest.TestCase):
                 read = set(re.findall(r"needs\.path_route\.outputs\.(\w+)", str(jobs[job].get("if", ""))))
                 self.assertLessEqual(read & set(WORKFLOW_TIER_FIELDS), set(job_tiers))
 
+    def test_a_matrix_runs_on_is_linux_only_when_every_cell_is(self):
+        """linux_job reads runs-on per matrix cell (workflow_jobs.runs_on_label_cells). Read as one string,
+        `${{ matrix.os }}` was never Linux, so an all-Linux matrix job counted as a Mac job and an edit to it
+        ran every tier; a matrix with a Mac cell, or one nothing resolves, is still not Linux."""
+        from cmux_next_route import linux_job
+
+        def matrix(*values):
+            return {"runs-on": "${{ matrix.os }}", "strategy": {"matrix": {"os": list(values)}}}
+        self.assertTrue(linux_job(matrix("ubuntu-24.04", "ubuntu-22.04"), ROOT))
+        self.assertFalse(linux_job(matrix("ubuntu-24.04", "macos-15"), ROOT))
+        self.assertFalse(linux_job({"runs-on": "${{ matrix.os }}",
+                                    "strategy": {"matrix": "${{ fromJSON(needs.a.outputs.m) }}"}}, ROOT))
+        self.assertFalse(linux_job({"runs-on": ["self-hosted", "ubuntu-24.04"]}, ROOT))
+        self.assertTrue(linux_job({"runs-on": "ubuntu-24.04"}, ROOT))
+        self.assertFalse(linux_job({"steps": []}, ROOT))
+
     def test_never_on_pull_request(self):
         from cmux_next_route import never_on_pull_request
         jobs = yaml_jobs(self.HEAD)
@@ -1745,6 +1761,7 @@ class FfiRepinRoute(unittest.TestCase):
     "Check the app FFI pin" from 13:36 to 18:25Z)."""
 
     MANIFEST = f"{PACKAGE}/Package.swift"
+    PIN = f"{PACKAGE}/app-ffi-pin.json"  # the pin Package.swift's loader block reads (scripts/ci/app_ffi_pin.py)
     CRATE = "cmux-tui/crates/cmux-app-ffi"
 
     def setUp(self):
@@ -1759,7 +1776,8 @@ class FfiRepinRoute(unittest.TestCase):
                     "-c", "commit.gpgsign=false"]
         subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
         (self.repo / PACKAGE).mkdir(parents=True)
-        (self.repo / self.MANIFEST).write_text((ROOT / self.MANIFEST).read_text(encoding="utf-8"), encoding="utf-8")
+        for path in (self.MANIFEST, self.PIN):
+            (self.repo / path).write_text((ROOT / path).read_text(encoding="utf-8"), encoding="utf-8")
         (self.repo / self.CRATE / "src").mkdir(parents=True)
         (self.repo / self.CRATE / "Cargo.toml").write_text('[package]\nname = "cmux-app-ffi"\n')
         self.old_source = self.commit({f"{self.CRATE}/src/lib.rs": "// v1\n"}, "ffi v1")
@@ -1779,8 +1797,9 @@ class FfiRepinRoute(unittest.TestCase):
     def repin(self, sha: str, extra: dict[str, str] | None = None, edit=lambda text: text) -> list[str]:
         """Commit a head that pins cmux-app-ffi-SHA (plus EXTRA files and EDIT of Package.swift); its changed files."""
         import subprocess
-        text = self.rewrite((self.repo / self.MANIFEST).read_text(encoding="utf-8"), sha, "ab" * 32)
-        self.commit({self.MANIFEST: edit(text), **(extra or {})}, "re-pin")
+        pin, text = self.rewrite((self.repo / self.PIN).read_text(encoding="utf-8"),
+                                 (self.repo / self.MANIFEST).read_text(encoding="utf-8"), sha, "ab" * 32)
+        self.commit({self.PIN: pin, self.MANIFEST: edit(text), **(extra or {})}, "re-pin")
         return subprocess.run([*self.git, "diff", "--no-renames", "--name-only", "HEAD^1", "HEAD"], check=True,
                               capture_output=True, text=True).stdout.split()
 
@@ -1798,6 +1817,8 @@ class FfiRepinRoute(unittest.TestCase):
 
     def test_the_same_files_without_the_repin_reason_run_every_tier(self):
         self.assertEqual(tiers([self.MANIFEST])["full"], "true")
+        self.assertEqual(tiers([self.PIN])["full"], "true")
+        self.assertEqual(tiers([self.MANIFEST, self.PIN])["full"], "true")
 
     def test_a_label_asking_for_more_keeps_every_tier(self):
         changed = self.repin(self.new_source)
@@ -1808,19 +1829,19 @@ class FfiRepinRoute(unittest.TestCase):
 
     def test_a_second_changed_file_is_not_a_repin(self):
         changed = self.repin(self.new_source, extra={"README.md": "changed too\n"})
-        self.assertEqual(sorted(changed), sorted([self.MANIFEST, "README.md"]))
+        self.assertEqual(sorted(changed), sorted([self.MANIFEST, self.PIN, "README.md"]))
         self.assertIsNone(cmux_next_route.pure_ffi_repin(self.repo, changed, "HEAD^1"))
         self.assertEqual(outputs(route(ROOT, "pull_request", changed, set(), repin=None))["full"], "true")
 
     def test_another_package_swift_edit_is_not_a_repin(self):
         changed = self.repin(self.new_source, edit=lambda text: text.replace(
             "let appFFI: Target", "// a new dependency rides along\nlet appFFI: Target", 1))
-        self.assertEqual(changed, [self.MANIFEST])
+        self.assertEqual(sorted(changed), sorted([self.MANIFEST, self.PIN]))
         self.assertIsNone(cmux_next_route.pure_ffi_repin(self.repo, changed, "HEAD^1"))
 
     def test_a_release_whose_sources_are_not_heads_is_not_a_repin(self):
         changed = self.repin(self.old_source)
-        self.assertEqual(changed, [self.MANIFEST])
+        self.assertEqual(sorted(changed), sorted([self.MANIFEST, self.PIN]))
         self.assertIsNone(cmux_next_route.pure_ffi_repin(self.repo, changed, "HEAD^1"))
 
     def test_an_unpublished_or_unreadable_pin_is_not_a_repin(self):
@@ -1833,6 +1854,19 @@ class FfiRepinRoute(unittest.TestCase):
         text = (self.repo / self.MANIFEST).read_text(encoding="utf-8")
         self.commit({self.MANIFEST: text + "// the pin is as it was\n"}, "not a re-pin")
         self.assertIsNone(cmux_next_route.pure_ffi_repin(self.repo, [self.MANIFEST], "HEAD^1"))
+        self.assertIsNone(cmux_next_route.pure_ffi_repin(self.repo, [self.MANIFEST, self.PIN], "HEAD^1"))
+
+    def test_a_pin_file_change_without_its_checksum_line_is_not_a_repin(self):
+        # The loader's checksum line must move with the pin (SwiftPM caches the manifest by its text).
+        import subprocess
+        pin, _ = self.rewrite((self.repo / self.PIN).read_text(encoding="utf-8"),
+                              (self.repo / self.MANIFEST).read_text(encoding="utf-8"), self.new_source, "ab" * 32)
+        text = (self.repo / self.MANIFEST).read_text(encoding="utf-8")
+        self.commit({self.PIN: pin, self.MANIFEST: text + "// another line\n"}, "pin file only")
+        changed = subprocess.run([*self.git, "diff", "--name-only", "HEAD^1", "HEAD"], check=True,
+                                 capture_output=True, text=True).stdout.split()
+        self.assertEqual(sorted(changed), sorted([self.MANIFEST, self.PIN]))
+        self.assertIsNone(cmux_next_route.pure_ffi_repin(self.repo, changed, "HEAD^1"))
 
 
 if __name__ == "__main__":

@@ -27,6 +27,13 @@ _git_fixture_env = importlib.util.spec_from_file_location(
 )
 git_fixture_env = importlib.util.module_from_spec(_git_fixture_env)
 _git_fixture_env.loader.exec_module(git_fixture_env)
+# tests/git_history.py fetches FIX into a shallow clone, or says "needs history" (a failure on CI).
+_git_history = importlib.util.spec_from_file_location(
+    "git_history",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "tests", "git_history.py"),
+)
+git_history = importlib.util.module_from_spec(_git_history)
+_git_history.loader.exec_module(git_history)
 
 SCRIPT = Path(__file__).resolve().parent.parent / "hot-apply.py"
 ROOT = SCRIPT.parents[2]
@@ -42,8 +49,12 @@ def key_of(sha):
                           cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip()
 
 
-@unittest.skipUnless(run_git("cat-file", "-e", f"{FIX}^{{commit}}").returncode == 0, "needs cmux#37155 in history")
 class HotApplyRust(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # FIX and its parent: a shallow CI checkout fetches them; one that cannot fails there, never skips.
+        git_history.require_history(ROOT, [FIX], depth=2)
+
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="hot-apply-test-"))
         self.base = run_git("rev-parse", f"{FIX}^").stdout.strip()
@@ -197,9 +208,13 @@ class HotApplyRust(unittest.TestCase):
         self.assertEqual(code, 0, err)
         code, receipt, err = self.hot("rollback")
         self.assertEqual(code, 0, err)
-        self.assertEqual(receipt["steps"]["rust"]["acpmux"], [{"home": str(self.tmp / "home"), "restarted": True}])
-        # Once for the apply, once for the rollback, each on the home and never on the inherited socket.
-        self.assertEqual(log.read_text().splitlines(), [f"{self.tmp / 'home'}||daemon restart"] * 2)
+        self.assertEqual(receipt["steps"]["rust"]["acpmux"], [{"home": str(self.tmp / "home"), "restarted": True,
+                                                            "own_environment": False}])
+        # Once for the apply, once for the rollback, each on the home and never on the inherited socket: a
+        # status read of the running daemon (whose launch environment the restart reuses), then the restart.
+        home = self.tmp / "home"
+        self.assertEqual(log.read_text().splitlines(),
+                         [f"{home}||--json daemon status", f"{home}||daemon restart"] * 2)
 
     def test_a_binary_that_does_not_hash_to_its_published_sha_changes_nothing(self):
         self.publish(b"#!/bin/sh\necho tampered\n", self.new)

@@ -150,7 +150,7 @@ impl Hub {
         if let (Some(kind), Some(sub)) = (word("type"), word("id")) {
             env.insert(crate::cli::sender::SUBAGENT_ENV.to_owned(), format!("{kind}:{sub}"));
         }
-        std::fs::create_dir_all(&dir).map_err(internal)?;
+        crate::home_fs::create_dirs(&dir).map_err(internal)?;
         let generation = bg_generation(&dir, true).map_err(internal)?;
         let uuid = uuid::Uuid::now_v7().simple().to_string();
         let id = fixed_id
@@ -159,7 +159,7 @@ impl Hub {
         if fixed_id.is_some() {
             use std::io::Write as _;
             let claim = dir.join(format!("{id}.claim"));
-            match std::fs::OpenOptions::new().write(true).create_new(true).open(claim) {
+            match crate::home_fs::OpenOptions::new().write(true).create_new(true).open(claim) {
                 Ok(mut file) => {
                     file.write_all(command.as_bytes()).map_err(internal)?;
                     file.sync_all().map_err(internal)?;
@@ -410,7 +410,7 @@ impl Hub {
         // read still has a runner to stop. A folder that cannot be listed fails the purge.
         let ids = bg_task_ids(&dir).map_err(internal)?;
         if ids.is_empty() {
-            let _ = std::fs::remove_dir_all(&dir);
+            let _ = crate::home_fs::remove_dir_all(&dir);
             return bg_cleared(&dir);
         }
         // The stops carry the folder's generation, so only its own runners act on them: a runner
@@ -428,7 +428,7 @@ impl Hub {
             }
         }
         let to = aside.join(format!("{}-{}", session.id, uuid::Uuid::now_v7().simple()));
-        match std::fs::create_dir_all(&aside).and_then(|()| std::fs::rename(&dir, &to)) {
+        match crate::home_fs::create_dirs(&aside).and_then(|()| crate::home_fs::rename(&dir, &to)) {
             // The runners' locks moved with the folder (same files), so the wait reads them there.
             Ok(()) => {
                 tokio::spawn(async move {
@@ -440,7 +440,7 @@ impl Hub {
             // Where no move works, the folder goes; a runner keeps its open files.
             Err(e) => {
                 tracing::warn!(dir = %dir.display(), "a purged chat's tasks could not be moved aside: {e}");
-                let _ = std::fs::remove_dir_all(&dir);
+                let _ = crate::home_fs::remove_dir_all(&dir);
             }
         }
         bg_cleared(&dir)
@@ -459,13 +459,8 @@ async fn workflow_bg_wait_lock(path: PathBuf) -> Result<(), RpcError> {
             .name("workflow-bg-wait".into())
             .spawn(move || {
                 let wait = || -> Result<(), RpcError> {
-                    use std::os::fd::AsRawFd;
                     let file = std::fs::File::open(path).map_err(internal)?;
-                    // SAFETY: this thread owns the descriptor, which closes on return.
-                    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH) } != 0 {
-                        return Err(internal(std::io::Error::last_os_error()));
-                    }
-                    Ok(())
+                    wait_released(file).map_err(internal)
                 };
                 let _ = finished.send(wait());
             })
@@ -479,6 +474,15 @@ async fn workflow_bg_wait_lock(path: PathBuf) -> Result<(), RpcError> {
     }
 }
 
+/// Blocks until the runner that holds `file`'s lock lets go (a shared flock taken, as the
+/// runner's exclusive one excludes it). The shared lock is unlocked before the file closes:
+/// a child another daemon thread forked meanwhile keeps no lock, so the task's liveness probe
+/// reads the ended runner as gone.
+#[cfg(unix)]
+fn wait_released(file: std::fs::File) -> std::io::Result<()> {
+    cmux_file_lock::FileLock::take(file, cmux_file_lock::Kind::Shared).map(drop)
+}
+
 /// Clears the moved folders of earlier purges whose runners are all gone.
 fn bg_sweep(aside: &std::path::Path) {
     for entry in std::fs::read_dir(aside).into_iter().flatten().flatten() {
@@ -490,7 +494,7 @@ fn bg_sweep(aside: &std::path::Path) {
 /// cannot be listed stays.
 fn bg_sweep_one(dir: &std::path::Path) {
     if bg_task_ids(dir).is_ok_and(|ids| ids.iter().all(|id| bg_gone(dir, id))) {
-        let _ = std::fs::remove_dir_all(dir);
+        let _ = crate::home_fs::remove_dir_all(dir);
     }
 }
 
@@ -526,10 +530,10 @@ pub(super) fn bg_generation(dir: &std::path::Path, make: bool) -> std::io::Resul
         Err(e) if make && e.kind() == std::io::ErrorKind::NotFound => {
             let generation = uuid::Uuid::now_v7().simple().to_string();
             let aside = dir.join(format!(".generation.{generation}"));
-            std::fs::write(&aside, &generation)
-                .and_then(|()| std::fs::rename(&aside, &path))
+            crate::home_fs::write(&aside, &generation)
+                .and_then(|()| crate::home_fs::rename(&aside, &path))
                 .inspect_err(|_| {
-                    let _ = std::fs::remove_file(&aside);
+                    let _ = crate::home_fs::remove_file(&aside);
                 })?;
             Ok(generation)
         }
@@ -795,5 +799,26 @@ mod workflow_output_tests {
         assert_eq!(view["totalBytes"], bytes.len());
         assert_eq!(view["nextByte"], bytes.len());
         assert_eq!(view["skippedBytes"], 0);
+    }
+}
+
+#[cfg(all(test, unix))]
+mod wait_lock_tests {
+    use super::*;
+
+    /// A wait for a runner to end lets go of the lock it took, also while a child the daemon
+    /// forked meanwhile has the descriptor: else the task's liveness probe reads the ended runner
+    /// as running (the cap counts it, its chat's folder is not swept).
+    #[test]
+    fn a_finished_wait_leaves_the_lock_free_while_a_forked_child_keeps_its_descriptor() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("task.lock");
+        std::fs::write(&path, b"").unwrap();
+        let file = std::fs::File::open(&path).unwrap();
+        let keeper = crate::fork_tests::Keeper::fork();
+        wait_released(file).unwrap();
+        let free = crate::fork_tests::free(&path);
+        drop(keeper);
+        assert!(free, "the wait left the runner's lock held");
     }
 }

@@ -216,6 +216,64 @@ async fn a_stop_kills_a_child_that_ignores_sigterm_and_holds_no_pipe() {
     r.until("a child that ignored SIGTERM outlived the stop", || !alive(child)).await;
 }
 
+/// The processes under `root` (pid, process group, command name), from `ps`.
+#[cfg(unix)]
+fn under(root: u32) -> Vec<(u32, u32, String)> {
+    let out = std::process::Command::new("ps").args(["-axo", "pid=,ppid=,pgid=,comm="]).output();
+    let table: Vec<(u32, u32, u32, String)> = String::from_utf8_lossy(&out.unwrap().stdout)
+        .lines()
+        .filter_map(|line| {
+            let mut f = line.split_whitespace();
+            let (pid, ppid, pgid) =
+                (f.next()?.parse().ok()?, f.next()?.parse().ok()?, f.next()?.parse().ok()?);
+            Some((pid, ppid, pgid, f.collect::<Vec<_>>().join(" ")))
+        })
+        .collect();
+    let (mut found, mut frontier) = (Vec::new(), vec![root]);
+    while let Some(parent) = frontier.pop() {
+        for (pid, _, pgid, comm) in table.iter().filter(|p| p.1 == parent) {
+            found.push((*pid, *pgid, comm.clone()));
+            frontier.push(*pid);
+        }
+    }
+    found
+}
+
+/// A stop ends every process the task started, also those that left its process group: GNU
+/// `timeout` puts itself and its child in a group of their own (setpgid), and a shell with job
+/// control (`set -m`, where there is no `timeout`) does the same for each background job. A bg_stop
+/// that signalled only the task's group left such `timeout` children running `glaeda-gh wait`
+/// and `gh` loops, polling GitHub's REST API until someone killed them by hand.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_stop_ends_processes_that_left_the_tasks_process_group() {
+    let mut r = rig(PermissionPolicy::ApproveAll).await;
+    r.hub.set_bg_runner(crate::daemon_env::bg_runner(), acpmux::bg_run::SEGMENT);
+    let id = new_session(&mut r.c, "regroup").await;
+    let command = "if command -v timeout >/dev/null 2>&1; then t='timeout 300'; else set -m; t=; fi; \
+        $t sleep 300 & $t sh -c 'sleep 300; :' & echo started; wait";
+    let task = start(&mut r, &id, command).await;
+    let (task_id, leader) =
+        (task["id"].as_str().unwrap().to_owned(), task["pid"].as_u64().unwrap() as u32);
+    let sleeping = || under(leader).iter().filter(|p| p.2.ends_with("sleep")).count() == 2;
+    r.until("the task never started both of its sleeps", sleeping).await;
+    let started = under(leader);
+    let regrouped: Vec<_> = started.iter().filter(|p| p.1 != leader).collect();
+    assert!(regrouped.len() >= 2, "nothing left the task's group: {started:?}");
+    let stopped = r.c.request(method::MUX_BG_STOP, json!({"sessionId": id, "id": task_id})).await;
+    assert_eq!(stopped.unwrap()["state"], "stopped");
+    // Within a moment of the stop's answer, not 20 s: each one left is still polling.
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    loop {
+        let left: Vec<_> = started.iter().filter(|p| alive(p.0)).collect();
+        if left.is_empty() {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "the stop left {left:?} of {started:?}");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
 /// A task runs in the environment the chat's agent runs with, built by the daemon from the
 /// agent's launch (or, before one, as a launch would build it), not from whatever its MCP server
 /// was passed: here the session's own id, which the start request never carried.

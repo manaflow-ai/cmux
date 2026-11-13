@@ -73,7 +73,6 @@ on:
     types: [labeled]
     paths:
       - 'Packages/macOS/CmuxNext/Sources/**'
-      - 'Packages/macOS/CmuxNext/Resources/**'
       - 'Packages/macOS/CmuxNext/Tests/**'
       - 'webviews/**'
       - 'agent-chat/**'
@@ -379,9 +378,6 @@ jobs:
           set -euo pipefail
           echo "runner user: $(id -un), console user: $(stat -f %Su /dev/console)"
           system_profiler SPDisplaysDataType 2>/dev/null | sed -n '/Displays:/,$p' | head -20 || true
-          if [ -f scripts/ci/preflight-e2e-screen-capture.py ]; then
-            python3 scripts/ci/preflight-e2e-screen-capture.py
-          fi
 
       # The same grant main's E2E recorder makes on these Macs
       # (.github/actions/e2e-run-tests on main): screencapture from a job

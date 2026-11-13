@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 3640c178ce74343f21a8b40eeb3852abc2b3b5c5b123d8099ccec04e8a7d14b5. */
+/* cmux-tui mux protocol 12, IR 59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde. */
 
 
 import type * as T from "./types.js";
@@ -221,6 +221,15 @@ export interface BrowserWheelGuardedRequest extends CmuxRequestBase {
   "y_px": number;
 }
 export type BrowserWheelGuardedResult = T.EmptyResult;
+
+/** Protocol v12; authority: control. */
+export interface CancelCreatingInputRequest extends CmuxRequestBase {
+  cmd: "cancel-creating-input";
+  "terminal_id": string;
+}
+export type CancelCreatingInputResult = {
+  "cancelled": boolean;
+};
 
 /** Protocol v12; authority: local-admin. */
 export interface ChiefInspectRequest extends CmuxRequestBase {
@@ -1076,6 +1085,8 @@ export interface CreateTerminalRequest extends CmuxRequestBase {
   "argv"?: (Array<string>) | null;
   "cols"?: (number) | null;
   "command"?: (string) | null;
+  /** Make the workspace first when no workspace has key: a workspace and its first terminal in one request. Needs key and mutation_id, and takes no workspace. */
+  "create_workspace"?: boolean;
   "cwd"?: (string) | null;
   "detached"?: boolean;
   "env"?: (Record<string, string>) | null;
@@ -1090,6 +1101,8 @@ export interface CreateTerminalRequest extends CmuxRequestBase {
   "shell_args"?: (Array<string>) | null;
   "terminal_id"?: (string) | null;
   "workspace"?: (T.Id) | null;
+  /** The name of the workspace create_workspace makes. */
+  "workspace_name"?: (string) | null;
 }
 export type CreateTerminalResult = T.TerminalPlacement;
 
@@ -1098,6 +1111,8 @@ export interface CreateWorkspaceRequest extends CmuxRequestBase {
   cmd: "create-workspace";
   "expected_generation"?: (string) | null;
   "expected_revision"?: (bigint) | null;
+  /** The workspace's first tab, made in the same request: {kind: "browser"} with the fields of new-frontend-browser-tab except pane, workspace, split and after. A first tab that cannot be made takes the workspace back; a replayed create replays a keyed tab and makes no second unkeyed one. The reply's first_tab is new-frontend-browser-tab's reply. */
+  "first_tab"?: (T.WorkspaceFirstTab) | null;
   "key"?: (string) | null;
   "mutation_id"?: (string) | null;
   "name"?: (string) | null;
@@ -1778,6 +1793,8 @@ export interface NewFrontendBrowserTabRequest extends CmuxRequestBase {
   "split"?: (T.ConversationTabSplit) | null;
   "title"?: (string) | null;
   "url": string;
+  /** Instead of pane: the tab goes in this workspace's active pane, or is the first tab of an empty workspace (no terminal is made for it to replace). Refused with split. */
+  "workspace"?: (T.Id) | null;
 }
 export type NewFrontendBrowserTabResult = T.JsonValue;
 
@@ -3036,6 +3053,7 @@ export type CmuxRequest =
   | BrowserReloadRequest
   | BrowserWheelRequest
   | BrowserWheelGuardedRequest
+  | CancelCreatingInputRequest
   | ChiefInspectRequest
   | ChiefWorkRequest
   | ClearHistoryRequest
@@ -3477,6 +3495,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "frontend";
     since: 10;
     capability: "browser-pointer-frame-guard-v1";
+    stream: null;
+  };
+  "cancel-creating-input": {
+    request: CancelCreatingInputRequest;
+    result: CancelCreatingInputResult;
+    authority: "control";
+    since: 12;
+    capability: "creating-input-cancel-v1";
     stream: null;
   };
   "chief-inspect": {
