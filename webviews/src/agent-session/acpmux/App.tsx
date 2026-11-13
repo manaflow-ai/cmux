@@ -218,12 +218,6 @@ import { type UploadProgressReport, uploadToMachine } from "./cloudUploads";
 import { uploadForSend } from "./sendUploads";
 import { droppedPaths } from "./composer/intakeFiles";
 import { useToolCards } from "./toolCards/toolCardStore";
-import {
-  COMPUTER_USE_PREVIEW_RESERVE,
-  useComputerUsePreview,
-  useComputerUsePreviewRoom,
-} from "./computerUse/computerUsePreview";
-import { ComputerUsePreviewCard } from "./computerUse/ComputerUsePreviewCard";
 import { askOnSingleCard, cardTakesShortcuts, heldOnCard } from "./permissionKeys";
 import { agentName } from "./agents";
 import { translate, usePaneLanguage, useT } from "./i18n";
@@ -10318,22 +10312,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [replaying],
   );
   const toolCards = useToolCards();
-  const computerUsePreview = useComputerUsePreview();
-  // The live preview card shows beside the column, which keeps its room, in a pane wide enough. With
-  // Session Info open it sits under Session Info's card instead (session-info/underSessionInfo.ts). Floating,
-  // the column keeps its room, so opening or closing Session Info never reflows the chat (Leo,
-  // 2026-10-31: "why is the session info thing still pushing my layout when it doesnt need to???");
-  // only Settings Push always, whose column already keeps the chat clear of both, gives it back.
-  const previewRoom = useComputerUsePreviewRoom();
-  const previewShown = computerUsePreview !== null && previewRoom && !quick && !inspectorOpen;
   const sessionInfoPushes = useChatDisplay().sessionInfo === "push";
-  const previewBeside = previewShown && !(sessionInfo.shown && sessionInfoPushes);
-  // The VS Code Minimap's room at the column's right (chatMinimap/paint.ts minimapReserve), on the same
-  // terms as the preview's: Session Info's push pins the column itself. The transcript keeps it only in
-  // a chat wide enough.
+  // The VS Code Minimap's room at the column's right (chatMinimap/paint.ts minimapReserve): Session
+  // Info's push pins the column itself. The transcript keeps it only in a chat wide enough.
   const chatMinimapOn = useChatMinimap();
   const chatMinimapBeside = chatMinimapOn && !quick && !inspectorOpen && !(sessionInfo.shown && sessionInfoPushes);
-  const columnEndReserve = previewBeside ? COMPUTER_USE_PREVIEW_RESERVE : 0;
   // What the chat waits on the person for: the running turn's line says it, never "Thinking".
   const waiting = chatWaitsOn({
     trust: trustAsk.ask,
@@ -10424,7 +10407,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                       : undefined
                                                                   }
                                                                   sourceRows={childRows ? undefined : sourceRows}
-                                                                  endReserve={columnEndReserve}
                                                                   minimapBeside={chatMinimapBeside}
                                                                   working={snapshot.isWorking}
                                                                   // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
@@ -11940,7 +11922,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // stage shows it; a new chat's hero, a handoff review, the diff and the inspector keep it in flow.
           data-dock={!reviewing && !freshView && !inspectorOpen ? "float" : undefined}
           data-summary={summaryCard.column ? "inline" : "popover"}
-          data-cu-preview={previewBeside ? "" : undefined}
           data-vscode-minimap={chatMinimapBeside ? "" : undefined}
           // A question or permission card in the bottom stack (conversation.css). An attribute, not a
           // `:has()` over the pane: that would be checked again for every node a streamed chunk inserts
@@ -12237,7 +12218,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   expanded={folds}
                   showMinimap={minimapVisible}
                   // It draws in the same .acpmux-main, so its column ends where the live one's does.
-                  endReserve={columnEndReserve}
                   minimapBeside={chatMinimapBeside}
                   registry={noDismissRegistry}
                   onToggleActivity={toggleActivity}
@@ -12449,13 +12429,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     noteDelayMs={snapshot.peerKinds?.[snapshot.peerCopy.peer] === "ssh" ? 0 : undefined}
                   />
                 )}
-                {/* Computer use's live preview: the app this chat's agent drives, at the top right. Always
-                    mounted: with no card it draws the last one's exit, then nothing (cardMotion.ts). */}
-                <ComputerUsePreviewCard
-                  preview={previewShown ? computerUsePreview : null}
-                  onOpen={() => ignoreFailure(callNative("chat.computerUsePreview", { action: "open" }))}
-                  onClose={() => ignoreFailure(callNative("chat.computerUsePreview", { action: "close" }))}
-                />
                 {underHeader.watching && snapshot.summary?.watching && !snapshot.liveTakeOver && (
                   <WatchBanner
                     family={snapshot.summary.watching}

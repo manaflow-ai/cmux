@@ -2059,8 +2059,8 @@ pre.cv-math-source {
 .acpmux-thread {
   transition: none;
 }
-/* --cv-inset-end: the column's end, moved in while the computer use live preview shows beside it
-   (computerUse/computerUsePreview.css). */
+/* --cv-inset-end: the column's end, moved in while the VS Code Minimap or a pushing Session Info
+   takes room beside it (chatMinimap/chatMinimap.css, session-info/sessionInfo.css). */
 .acpmux-row {
   left: var(--cv-inset);
   right: var(--cv-inset-end, var(--cv-inset));
@@ -6245,10 +6245,10 @@ a.cv-sha:focus-visible {
    moment the reader scrolled up.
    It stands on the composer's center line, not the stage's middle (Leo, 2026-11-07: "the jump to
    bottom button is still not centered with the composer yet"). The composer card spans the column
-   from --cv-inset to --cv-inset-end (styles.css .acpmux-composer, computerUsePreview.css,
+   from --cv-inset to --cv-inset-end (styles.css .acpmux-composer, chatMinimap.css,
    sessionInfo.css), and the stage and the dock are both .acpmux-main's width, so the same insets
-   give the button the card's center: while Session Info pushes the column left, or the computer use
-   preview takes its end, the button goes with the card, in the same frames of the push's slide
+   give the button the card's center: while Session Info pushes the column left, or the VS Code
+   Minimap takes its end, the button goes with the card, in the same frames of the push's slide
    (--acpmux-session-info-shift). With no column (the gallery's bare stage) it is the middle. */
 .acpmux-jump-latest {
   position: absolute;

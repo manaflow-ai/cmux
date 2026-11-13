@@ -14,8 +14,7 @@ export const FLOAT_MARGIN = 8;
 export const pushes = (placement: SessionInfoPlacement) => placement === "push";
 
 /// The narrowest a pushed panel gets in a tight pane, below the drag's narrowest
-/// (SESSION_INFO_WIDTH.min), and still as wide as the live preview card under it (computerUsePreview.css,
-/// 180px). Pushed at 260px in a 370px agent pane, the chat kept about 100px, with its "Not sent" line,
+/// (SESSION_INFO_WIDTH.min). Pushed at 260px in a 370px agent pane, the chat kept about 100px, with its "Not sent" line,
 /// Retry and composer under the panel (cmuxterm-hq#6137; Leo, 2026-11-02: "THE FUCKING SESSION INFO NOT
 /// FUCKING PUSH THE LAYOUT LEFT").
 export const PUSH_PANEL_MIN = 200;

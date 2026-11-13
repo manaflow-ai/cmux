@@ -1123,7 +1123,6 @@ function TranscriptView({
   sinceKey,
   onJumpToSince,
   showMinimap = true,
-  endReserve: cardReserve = 0,
   minimapBeside = false,
   topInset = 0,
 }: {
@@ -1231,9 +1230,6 @@ function TranscriptView({
   /// Drawn for a reader who may not act (a shared chat's guest, conversation/readOnly.ts): the rows
   /// come from `readOnlyRegistry` unless a registry is given, and no row draws an owner's control.
   readOnly?: boolean;
-  /// Room the column keeps at its right for the computer use live preview (`--cv-inset-end`,
-  /// computerUse/computerUsePreview.ts): rows are laid out that much narrower.
-  endReserve?: number;
   /// The VS Code Minimap is on beside this transcript (App.tsx data-vscode-minimap): the column's end
   /// also keeps its room, in a chat wide enough (chatMinimap/paint.ts minimapReserve).
   minimapBeside?: boolean;
@@ -1821,7 +1817,7 @@ function TranscriptView({
   }
   const drawnRef = useRef(drawn);
   drawnRef.current = drawn;
-  const endReserve = Math.max(cardReserve, minimapBeside ? minimapReserve(width) : 0);
+  const endReserve = minimapBeside ? minimapReserve(width) : 0;
   const scaledRowWidth = transcriptRowWidth(width, chatColumnOf(chatLook, chatScale), endReserve);
   const rowWidthRef = useRef(scaledRowWidth);
   rowWidthRef.current = scaledRowWidth;

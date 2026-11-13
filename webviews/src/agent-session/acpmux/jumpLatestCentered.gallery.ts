@@ -2,8 +2,7 @@
 // Jump to latest on the composer's center line (conversation.css .acpmux-jump-latest). Leo,
 // 2026-11-07: "And also the jump to bottom button is still not centered with the composer yet." The
 // button took the stage's middle while the composer card sits in the column between --cv-inset and
-// --cv-inset-end, so Session Info pushing the column left (a wide pane) or the computer use preview
-// taking its end stood it right of the card. Each variant parks the reader mid-chat so the button
+// --cv-inset-end, so Session Info pushing the column left (a wide pane) stood it right of the card. Each variant parks the reader mid-chat so the button
 // shows; view them at every width (narrow 420, normal 900, wide 1600). The `anchor-*` arms compare
 // where the button could center while Session Info pushes; `anchor-composer` ships.
 // test/agent-pane-jump-latest-centered.test.ts measures |button center - composer center| <= 0.5px.
@@ -35,7 +34,7 @@ const ANCHORS = {
 } as const;
 
 const park =
-  ({ info, computerUse, anchor }: { info: Info; computerUse?: boolean; anchor?: keyof typeof ANCHORS }): Play =>
+  ({ info, anchor }: { info: Info; anchor?: keyof typeof ANCHORS }): Play =>
   async (ctx) => {
     if (info !== "closed") {
       const { setHeaderState } = await import("./header/headerState");
@@ -49,7 +48,6 @@ const park =
       if (ctx.document.querySelector(toggle)) await ctx.click({ selector: toggle });
       await ctx.waitFor(() => ctx.document.querySelector('.acpmux-session-info[data-presence="shown"]'));
     }
-    if (computerUse) ctx.document.querySelector(".acpmux-main")?.setAttribute("data-cu-preview", "");
     await ctx.waitFor(() => (ctx.document.querySelector<HTMLElement>(".acpmux-scroll")?.scrollHeight ?? 0) > 1_000);
     await ctx.scroll({ selector: ".acpmux-scroll" }, 1_200);
     await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest[data-shown]"));
@@ -83,11 +81,6 @@ export default agentPaneEntry({
       note: "Session Info pushes (wide): the column moves left and the button stays on the card's center (ships).",
       snapshot,
       play: park({ info: "push" }),
-    },
-    "computer-use-beside": {
-      note: "The computer use preview takes the column's end: the button follows the card's center.",
-      snapshot,
-      play: park({ info: "closed", computerUse: true }),
     },
     "anchor-stage": {
       note: "Before: the stage's middle; with Session Info pushing at wide the button stands right of the card.",

@@ -53,7 +53,7 @@ type Props = {
   /// The pane's width, for the right gutter.
   width: number;
   /// The room the column keeps at its right (VirtualTranscript's endReserve): the minimap's own while it
-  /// is on (paint.ts MINIMAP_RESERVE), or the computer use preview's.
+  /// is on (paint.ts MINIMAP_RESERVE).
   endReserve?: number;
   scrolls: boolean;
   /// Where these rows first differ from the last render's (App.tsx rowsChange), if the transcript knows.

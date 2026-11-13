@@ -2,11 +2,11 @@
 // Jump to latest stands on the composer's center line (Leo, 2026-11-07: "And also the jump to bottom
 // button is still not centered with the composer yet"). The button took the stage's middle (left:
 // 50%) while the composer sits in the column between --cv-inset and --cv-inset-end: once Session Info
-// pushes the column left (a wide pane), or the computer use preview takes the column's end, the
+// pushes the column left (a wide pane), the
 // button stood up to 164px right of the composer's center. Here, in the real pane, the button's
 // center and the composer card's center are measured at a narrow, a normal and a wide pane, with
-// Session Info closed, floating over the chat and pushing it, with a classic scrollbar, in both
-// composer looks and with the computer use preview beside the column, and must be within 0.5px of
+// Session Info closed, floating over the chat and pushing it, with a classic scrollbar and in both
+// composer looks, and must be within 0.5px of
 // each other. A last case reads every painted frame while Session Info, with Push always, slides in and
 // out at the wide pane: the button moves with the composer in the same frames.
 //
@@ -48,7 +48,7 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
   });
 
   type SessionInfo = "closed" | "open" | "push";
-  type State = { info: SessionInfo; look?: "codex"; scrollbar?: boolean; computerUse?: boolean };
+  type State = { info: SessionInfo; look?: "codex"; scrollbar?: boolean };
 
   /// The button's and the composer card's horizontal centers, as drawn.
   const centers = (page: Page) =>
@@ -108,9 +108,6 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
         content:
           ".acpmux-scroll::-webkit-scrollbar{width:15px!important;display:block!important}.acpmux-scroll{scrollbar-width:auto!important;scrollbar-gutter:stable!important}",
       });
-    if (state.computerUse)
-      // The computer use preview beside the column (App.tsx sets it on .acpmux-main while one runs).
-      await page.evaluate(() => document.querySelector(".acpmux-main")!.setAttribute("data-cu-preview", ""));
     // Scrolled up from the latest message: the button shows.
     await page.evaluate(() => {
       document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop = 0;
@@ -128,7 +125,6 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
     { info: "closed", scrollbar: true },
     { info: "push", scrollbar: true },
     { info: "push", look: "codex" },
-    { info: "closed", computerUse: true },
   ];
 
   for (const name of browsers.keys())

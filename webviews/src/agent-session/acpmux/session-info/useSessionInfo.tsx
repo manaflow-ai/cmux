@@ -45,7 +45,6 @@ import { producedLinks, type ProducedLink } from "./producedLinks";
 import { type ProcessRegistry, type SessionInfoProcess } from "./processes";
 import { currentPlan, type SessionInfoPlan } from "./progressSectionModel";
 import type { WorkflowAgent, WorkflowSummary } from "../summary/workflow";
-import { useUnderSessionInfo } from "./underSessionInfo";
 import { useNativeSessionInfoHost } from "./native/host";
 import { useSameValue } from "./sameValue";
 import { NativeSessionInfo } from "./native/NativeSessionInfo";
@@ -76,7 +75,6 @@ import { subagentsIn } from "../subagents/subagentRows";
 import type { Subagent } from "../subagents/subagentFold";
 import { useCountedRender } from "../perfRender";
 import { useStableProps } from "../stableProps";
-import { COMPUTER_USE_PREVIEW_RESERVE, useComputerUsePreview } from "../computerUse/computerUsePreview";
 import { useChangeCounts, type ReadChanges } from "./changeCounts";
 import { useStepAside } from "./stepAside";
 import { usageEntries } from "./usageEntries";
@@ -335,8 +333,8 @@ export function useSessionInfo({
   onRender?: () => void;
 }): {
   on: boolean;
-  /// The panel shows (on, open, not stepped aside): a card under it keeps no room of its own beside
-  /// the chat (App.tsx, the computer use live preview).
+  /// The panel shows (on, open, not stepped aside): with Settings Push always, the VS Code Minimap
+  /// keeps no room of its own beside the chat (App.tsx chatMinimapBeside).
   shown?: boolean;
   button?: ReactNode;
   panel?: ReactNode;
@@ -936,8 +934,6 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   // It slides in from the pane's right edge and back out (ui/presence.ts), keeping its sections
   // while it leaves.
   const presence = usePresence(shown && !native, "right");
-  // The computer use card beside the chat narrows its column (the placement effect's pin follows it).
-  const preview = useComputerUsePreview() !== null;
   // Leaving: the column slides back while the panel slides out (sessionInfo.css).
   const leaving = !native && !!presence.leaving;
   const drawn = native ? shown : presence.present;
@@ -1023,11 +1019,8 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     shell.dataset.sessionInfoChatPlacement = push ? "push" : "overlay";
     // Pushing, the transcript's column keeps the width it has in the whole pane on every frame of the
     // slide, and only moves left (pushKeepsColumn, sessionInfo.css).
-    // Beside the computer use card (App.tsx data-cu-preview on the chat), the column the chat has
-    // closed keeps the card's reserve at its end: pinned at that width, opening rewraps no line.
-    const reserve = shell.querySelector(":scope > .acpmux-main[data-cu-preview]") ? COMPUTER_USE_PREVIEW_RESERVE : 0;
     if (push && paneWidth > 0)
-      shell.style.setProperty(SESSION_INFO_COLUMN, `${transcriptColumn(paneWidth, column, reserve).width}px`);
+      shell.style.setProperty(SESSION_INFO_COLUMN, `${transcriptColumn(paneWidth, column).width}px`);
     else shell.style.removeProperty(SESSION_INFO_COLUMN);
     // How far the column moves left (sessionInfo.css --acpmux-session-info-shift): the room, back to 0
     // as the panel leaves, so the column slides back with it. The native panel's room is a flex item.
@@ -1044,7 +1037,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     // Push always narrows the transcript, not the header: native tabs reserve the tools at the
     // pane's trailing edge. Reuse the measured room (excluding an artifact beside the chat).
     if (paneWidth > 0) shell.style.setProperty("--acpmux-header-room", `${paneWidth}px`);
-  }, [shell, drawn, push, paneWidth, column, native, leaving, room, preview]);
+  }, [shell, drawn, push, paneWidth, column, native, leaving, room]);
   // Find in Chat's bar keeps left of the panel (sessionInfoClear, conversation.css .acpmux-find__bar). Its
   // own effect, so a width drag only moves the bar and fires no chat layout event per frame.
   useLayoutEffect(() => {
@@ -1095,9 +1088,6 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
       shell.dispatchEvent(new (shell.ownerDocument.defaultView?.Event ?? Event)(CHAT_LAYOUT_EVENT));
     };
   }, [shell]);
-  // A card under the panel (the computer use live preview) reads where it goes from the shell.
-  // The web panel floats at the pane's right, pushing or not; the native one's room is in the chat's row.
-  useUnderSessionInfo(shell, drawn, push && native, FLOAT_MARGIN, sessionInfoTop, push && native ? room : undefined);
   // What the sections list of the rows (useSessionInfoLists, read as the pane renders): a subagent's
   // panel reads its own rows only.
   const {

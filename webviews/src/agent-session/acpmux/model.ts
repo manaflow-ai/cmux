@@ -1853,9 +1853,9 @@ const SCROLLBAR_HEIGHT = 15;
 /// Where text can't be measured (no canvas), a generous character width.
 const FALLBACK_CHAR_WIDTH = 8;
 /// The chat's one column (`--cv-column` and `--cv-inset` in conversation/conversation.css): the pane's
-/// width up to Chat Text Width (chatWidth.ts, 800px by default), at least 720px or that width, centered, at least the page edge from each side. `endReserve` is room a card keeps at the
-/// column's right (the computer use live preview, `--cv-inset-end`): the column's end moves in to
-/// leave it, its start stays.
+/// width up to Chat Text Width (chatWidth.ts, 800px by default), at least 720px or that width, centered, at least the page edge from each side. `endReserve` is room kept at the
+/// column's right (the VS Code Minimap, `--cv-inset-end`): the column's end moves in to leave it,
+/// its start stays.
 const PAGE_EDGE = gridLength("icon-box");
 /// The column's own width (`--cv-column`), before its inset rounds to a whole pixel.
 export const transcriptColumnSpan = (paneWidth: number, { min, max }: ChatColumn = chatColumn()) =>

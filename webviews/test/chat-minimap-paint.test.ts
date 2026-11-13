@@ -23,7 +23,6 @@ import {
   MIN_VIEW,
   type MinimapContext,
 } from "../src/agent-session/acpmux/chatMinimap/paint";
-import { COMPUTER_USE_PREVIEW_RESERVE } from "../src/agent-session/acpmux/computerUse/computerUsePreview";
 
 const row = (index: number, kind: string, text?: string): AcpmuxRow => ({
   id: `r${index}`,
@@ -231,11 +230,8 @@ test("with its room kept at the column's end, the strip is its full width in eve
   expect(css).toContain(
     `--cv-inset-end: max(var(--cv-inset), clamp(0px, (100% - ${MINIMAP_MIN_PANE - 0.5}px) * 1000, ${MINIMAP_RESERVE}px));`,
   );
-  expect(css).toContain(`--cv-inset-end: max(var(--cv-inset), ${COMPUTER_USE_PREVIEW_RESERVE}px);`);
-  // The strip steps aside for the computer use preview card at the same corner.
-  expect(css).toMatch(/\.acpmux-main\[data-cu-preview\] \.acpmux-chat-minimap \{\s*visibility: hidden;/);
-  // Every band in the column ends where the column does (--cv-inset-end), so neither the strip nor the
-  // computer use preview lies over it: a padding or margin whose right side is the start inset alone
+  // Every band in the column ends where the column does (--cv-inset-end), so the strip never lies over
+  // it: a padding or margin whose right side is the start inset alone
   // fails here (Glob over the pane's CSS; galleries are fixtures).
   const values = (value: string) => {
     const parts: string[] = [];

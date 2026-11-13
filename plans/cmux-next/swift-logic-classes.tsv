@@ -655,9 +655,6 @@ CmuxNextAgentPane	extension	AgentPageEvent	0	MIRROR	0	100	Packages/macOS/CmuxNex
 CmuxNextAgentPane	extension	AgentPaneComposerSetting	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneComposerSetting+Page.swift	from extension AgentPageEvent:13: Settings relayed to the page as host events
 CmuxNextAgentPane	extension	AgentPaneComposerSetting	1	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneComposerSetting+Page.swift	from extension AgentPageEvent:13: Settings relayed to the page as host events
 CmuxNextAgentPane	struct	Look	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneComposerSetting+Page.swift	from extension AgentPageEvent:13: Settings relayed to the page as host events
-CmuxNextAgentPane	extension	AgentPageEvent	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneComputerUsePreview.swift	from struct AgentPaneComputerUsePreview:9: Native card/sheet gating
-CmuxNextAgentPane	extension	AgentPaneComputerUsePreview	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneComputerUsePreview.swift	Native card/sheet gating
-CmuxNextAgentPane	struct	AgentPaneComputerUsePreview	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneComputerUsePreview.swift	Native card/sheet gating
 CmuxNextAgentPane	class	AgentPaneConfirmationGate	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneConfirmationGate.swift	Native card/sheet gating
 CmuxNextAgentPane	extension	AgentPaneView	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneContext.swift	from struct AgentPaneContext:7: Rule picking cwd and URLs a chat works on
 CmuxNextAgentPane	struct	AgentPaneContext	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneContext.swift	Rule picking cwd and URLs a chat works on

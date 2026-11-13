@@ -153,7 +153,6 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .remoteControl: "remoteControl"
         case .paneNoticeAction: "paneNoticeAction"
         case .toolCard: "toolCard"
-        case .computerUsePreview: "computerUsePreview"
         case .upload: "upload"
         case .uploadStage: "uploadStage"
         case .uploadStageForSend: "uploadStageForSend"

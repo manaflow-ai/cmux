@@ -37,12 +37,10 @@
    its body scroll (Leo, 2026-10-26: "It's still just this constrained height for, like, no reason at
    all"). It is still a card that floats, never a column: with little to show it ends right after its
    last section, with no fixed or minimum height (Leo, 2026-10-22: "the card should just end when there's
-   no more content to show"; session-info-overlay-toggle.test.ts). A card under it (the computer use
-   live preview, underSessionInfo.ts) keeps its room and the gap at the foot: --acpmux-session-info-under-room,
-   which that card publishes on the shell while it shows. */
+   no more content to show"; session-info-overlay-toggle.test.ts). */
 .acpmux-session-info[data-placement] {
   max-height: calc(
-    100% - var(--acpmux-session-info-top, 0px) - var(--acpmux-session-info-inset) - var(--acpmux-session-info-under-room, 0px)
+    100% - var(--acpmux-session-info-top, 0px) - var(--acpmux-session-info-inset)
   );
   border-radius: var(--acpmux-session-info-panel-radius);
 }
@@ -72,8 +70,7 @@
    (SessionInfo.tsx sessionInfoOverChat, --acpmux-session-info-foot), so it never covers the composer. */
 .acpmux-session-info[data-placement="overlay"][data-over-chat] {
   max-height: calc(
-    100% - var(--acpmux-session-info-top, 0px) - var(--acpmux-session-info-foot, 0px) - var(--acpmux-session-info-inset) -
-      var(--acpmux-session-info-under-room, 0px)
+    100% - var(--acpmux-session-info-top, 0px) - var(--acpmux-session-info-foot, 0px) - var(--acpmux-session-info-inset)
   );
 }
 /* Its foot follows the composer's top on the composer's own motion, never a jump, as a draft grows or

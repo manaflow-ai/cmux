@@ -26,7 +26,6 @@ import { setFloatingState } from "./floatingState";
 import { configureNativeSidebarPreviewVariant } from "./sidebarPreview";
 import { setSessionStatus } from "./sessionStatus";
 import { receivePromptUploadState } from "./promptUploadState";
-import { setComputerUsePreview } from "./computerUse/computerUsePreview";
 import { setMachineLink } from "./machineLink";
 import { setRemoteControl } from "./remoteControl";
 import { setPaneNotices } from "./paneNoticeStore";
@@ -171,9 +170,6 @@ export function applyHostEvent(event: HostEvent): void {
     case "planScopeDrift":
       // Direct, like toolCards: a push before the composer mounts is kept.
       return setPlanScopeDrift(event.value);
-    case "computerUsePreview":
-      // Direct, like toolCards: a push before the chat mounts is kept.
-      return setComputerUsePreview(event.value);
     case "customization":
       return bridge?.applyCustomization(value);
     case "headerState":
