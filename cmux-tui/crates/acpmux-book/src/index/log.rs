@@ -316,7 +316,9 @@ pub fn replay_log_from(
             codec::LogRecord::Row(record)
                 if record.summary.origin != "local" && !record.summary.is_live() =>
             {
-                index = index.advance_seq(seq);
+                index = index
+                    .remove_ephemeral(&RowKey::new(record.origin, record.chat_id))
+                    .advance_seq(seq);
             }
             codec::LogRecord::Row(record) => index = index.apply(seq, record.summary),
         }

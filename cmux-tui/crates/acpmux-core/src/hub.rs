@@ -357,7 +357,9 @@ impl Hub {
     /// A non-blocking enqueue: actor work never waits on list size. The
     /// bounded queue is the writer's backpressure boundary.
     pub fn submit(&self, summary: Summary) -> Result<(), HubError> {
-        self.submit_from("local", summary)
+        let source =
+            if summary.origin == "local" { "local".to_owned() } else { summary.origin.clone() };
+        self.submit_from(&source, summary)
     }
 
     pub fn submit_from(&self, source: &str, summary: Summary) -> Result<(), HubError> {
@@ -580,7 +582,9 @@ fn validate_window(sub: &Sub) -> Result<usize, HubError> {
 impl HubWriter {
     /// Applies one summary and publishes the resulting immutable snapshot.
     pub fn apply(&mut self, summary: Summary) -> Result<SummaryEvent, HubError> {
-        self.apply_from("local", summary)
+        let source =
+            if summary.origin == "local" { "local".to_owned() } else { summary.origin.clone() };
+        self.apply_from(&source, summary)
     }
 
     pub fn apply_from(&mut self, source: &str, summary: Summary) -> Result<SummaryEvent, HubError> {
