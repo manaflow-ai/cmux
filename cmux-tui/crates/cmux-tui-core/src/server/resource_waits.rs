@@ -235,10 +235,13 @@ pub(super) fn start_resource_wait(
     };
     // A detached wait outlives its request (`server/message_writer/long_connection.rs`).
     // A one-shot check (`timeout_ms` 0) ends at once and is no long work, as
-    // the one-shot `wait-for` (`connection_wait`). A bad timeout takes the
-    // gate and gets its validation error from the worker.
-    let one_shot = matches!(resource_wait_timeout(&request), Ok(Some(Duration::ZERO)));
-    if !one_shot && let Err(full) = writer.long.hold() {
+    // the one-shot `wait-for` (`connection_wait`). A bad timeout ends at once
+    // too: its worker answers with the validation error.
+    let ends_at_once = match resource_wait_timeout(&request) {
+        Ok(timeout) => timeout == Some(Duration::ZERO),
+        Err(_) => true,
+    };
+    if !ends_at_once && let Err(full) = writer.long.hold() {
         let error = super::message_writer::long_connection::long_connections_full_error(name, full);
         return send_resource_response(&writer, id, operation, Err(error));
     }

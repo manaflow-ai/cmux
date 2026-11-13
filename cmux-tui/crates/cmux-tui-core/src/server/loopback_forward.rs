@@ -925,11 +925,11 @@ fn connect_and_start(
     };
     let _ = socket.set_nodelay(true);
     let overflow = json!({"event": "loopback-closed", "stream": stream_id, "error": "overflow"});
-    let Ok(outbound) = writer.start_stream(&overflow) else {
+    let started = writer.start_stream(&overflow);
+    let Ok(outbound) = started else {
         forwarder.release(client);
         let _ = socket.shutdown(Shutdown::Both);
-        open_error(&writer, id, OpenError::Limit);
-        return;
+        return writer.refuse_stream(id, started.err());
     };
     let stream = Arc::new(ForwardStream {
         client,

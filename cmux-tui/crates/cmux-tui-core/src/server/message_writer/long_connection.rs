@@ -17,12 +17,19 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 use std::sync::Weak;
 
+use serde_json::Value;
 use serde_json::json;
 
 use crate::diagnostics::ConnectionLease;
 use crate::diagnostics::LongConnectionsFull;
 use crate::resource::ResourceError;
+use crate::server::MessageWriter;
+use crate::server::Response;
 use crate::server::bounded_outbound::ConnectionPermit;
+use crate::server::send_response;
+
+/// The reason code of a request refused at the bound, in each reply form.
+const LONG_CONNECTION_CAPACITY: &str = "long_connection_capacity";
 
 /// The most of the terminals' connections that may hold a stream, a wait or
 /// a follow at one time. They are outside `MAX_SERVER_CONNECTIONS` and
@@ -68,8 +75,13 @@ pub(in crate::server) fn long_connections_full_error(
     ResourceError::operation_failed(
         operation,
         full.to_string(),
-        json!({"reason_code":"long_connection_capacity","scope":"server","limit":full.limit}),
+        json!({"reason_code":LONG_CONNECTION_CAPACITY,"scope":"server","limit":full.limit}),
     )
+}
+
+/// The bound's error inside a `MessageWriter::start_stream` that failed.
+fn long_connections_full(error: &std::io::Error) -> Option<LongConnectionsFull> {
+    error.get_ref().and_then(|inner| inner.downcast_ref::<LongConnectionsFull>()).copied()
 }
 
 /// The resource error of a `MessageWriter::start_stream` that failed: the
@@ -78,8 +90,42 @@ pub(in crate::server) fn stream_start_error(
     operation: &str,
     error: &std::io::Error,
 ) -> ResourceError {
-    match error.get_ref().and_then(|inner| inner.downcast_ref::<LongConnectionsFull>()) {
-        Some(full) => long_connections_full_error(operation, *full),
-        None => ResourceError::transport_closed("could not allocate an outbound stream"),
+    match long_connections_full(error) {
+        Some(full) => long_connections_full_error(operation, full),
+        None => ResourceError::transport_closed(NO_OUTBOUND_STREAM),
+    }
+}
+
+const NO_OUTBOUND_STREAM: &str = "could not allocate an outbound stream";
+
+impl MessageWriter {
+    /// The reply to a legacy command with a limit of its own (`loopback-open`,
+    /// `agent-session-attach`) whose stream did not start (`started` is the
+    /// failed `start_stream`), sent after the caller rolled its state back.
+    ///
+    /// These commands answered with their own limit ("too many forwarded
+    /// connections", "too many attached agent tabs"). At the bound of the
+    /// long connections that sent a person to close the wrong thing: the
+    /// reply now has the bound's text and its reason code. The only other
+    /// cause is an overflow text that did not serialize, which is no limit of
+    /// the command either.
+    pub(in crate::server) fn refuse_stream(
+        &self,
+        id: Option<Value>,
+        started: Option<std::io::Error>,
+    ) {
+        let (error, error_code) = match started.as_ref().and_then(long_connections_full) {
+            Some(full) => (full.to_string(), Some(LONG_CONNECTION_CAPACITY.to_owned())),
+            None => (NO_OUTBOUND_STREAM.to_owned(), None),
+        };
+        let reply = Response {
+            id,
+            ok: false,
+            data: None,
+            error: Some(error),
+            error_code,
+            error_delivery: None,
+        };
+        send_response(self, reply);
     }
 }

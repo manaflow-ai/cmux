@@ -180,11 +180,45 @@ fn an_outside_connection_with_a_stream_keeps_its_slot_and_its_counts() {
     assert_eq!(held(&connections), (0, LONG));
 }
 
+/// A legacy command with a limit of its own answered with that limit when its
+/// stream did not start: at the bound a `loopback-open` said "too many
+/// forwarded connections", which sent a person to close the wrong thing. It
+/// now answers with the bound's text and reason code (`refuse_stream`, also
+/// the answer of `agent-session-attach`), and its own state is rolled back.
+#[test]
+fn at_the_bound_a_loopback_open_names_the_long_limit_and_not_its_own() {
+    let mux = test_mux();
+    let connections = mux.connection_stats().clone();
+    let _long = fill_long_lane(&connections);
+    let permit = claim_terminal_connection_from(&connections, 1).expect("a short slot");
+    let (writer, outbound) = writer_of(&permit);
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let target = loopback_forward::classify_target("127.0.0.1").unwrap();
+    assert!(mux.control_clients.loopback.reserve_for_test(client, 1));
+    loopback_forward::open_for_test(&mux, client, 1, port, target, &writer);
+
+    let refused = pop_json(&outbound);
+    assert_eq!(refused["id"], 1, "{refused}");
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(refused["error_code"], "long_connection_capacity", "{refused}");
+    assert!(
+        refused["error"].as_str().is_some_and(|text| text.contains("limit 256")),
+        "the refusal does not name the limit of the long connections: {refused}"
+    );
+    assert_eq!(mux.control_clients.loopback.open_streams_for_test(), 0);
+    assert!(!permit.lease().is_long());
+    assert_eq!(held(&connections), (1, LONG));
+    assert!(disconnect_client(&mux, client, false));
+}
+
 /// A connection's reader can start a stream at the moment its dispatcher
 /// hands over a wait. The two starts take one long place, and the second one
 /// is not refused for the place that the first one took. The limit of 1 makes
 /// each second place a refusal. Without the lease's lock this fails only when
-/// the two threads meet between the claim and the change of state.
+/// the two threads meet between the claim and the change of state: it is a
+/// test by chance, and a green run without the lock proves nothing.
 #[test]
 fn two_starts_at_one_moment_on_one_connection_take_one_long_place() {
     for round in 0..200 {
@@ -364,6 +398,16 @@ fn at_the_bound_a_wait_and_an_event_stream_get_an_error_and_the_connection_goes_
         None,
     );
     assert_eq!(one_shot["ok"], true, "the bound refused a one-shot check: {one_shot}");
+    let mut one_shot_wait = wait.clone();
+    one_shot_wait["timeout_ms"] = json!("0");
+    let one_shot = send("one-shot-wait-at-the-bound", "terminal.wait", one_shot_wait, None);
+    assert_eq!(one_shot["ok"], true, "the bound refused a one-shot check: {one_shot}");
+    // A bad timeout ends at once too: it gets its own error, not the bound's.
+    let mut bad_wait = wait.clone();
+    bad_wait["timeout_ms"] = json!("soon");
+    let bad = send("bad-timeout-at-the-bound", "terminal.wait", bad_wait, None);
+    assert_eq!(bad["ok"], false, "{bad}");
+    assert_ne!(bad["error"]["code"], "operation.failed", "the bound refused it: {bad}");
     let legacy_check = json!({
         "id":"legacy-check-at-the-bound",
         "cmd":"wait-for",
