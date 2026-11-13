@@ -31,7 +31,6 @@
 // without it.
 //   bun bench/degenerate-chat-frames.bench.ts [--scale god|small] [--log FILE]... [--tps 50,500] [--chats 1]
 //     [--steps 300] [--wheel 120] [--fling 3] [--stream-s 5] [--out FILE] [--trace DIR]
-/// <reference types="bun" />
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
