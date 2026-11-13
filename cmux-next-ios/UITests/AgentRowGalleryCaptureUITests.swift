@@ -41,8 +41,12 @@ final class AgentRowGalleryCaptureUITests: UIStateCaptureCase {
             app.launch()
             _ = app.wait(for: .runningForeground, timeout: 20)
             pickTeamIfAsked(app)
-            // The chat's header (its More menu) says the transcript is up.
-            guard app.navigationBars.buttons["More"].firstMatch.waitForExistence(timeout: 40) else {
+            // In the workspace's tab the chat has no navigation bar: its composer bar ("Reply to …"),
+            // a running turn's Stop, or a gallery prompt ("Row: …") says the transcript is up.
+            let ready = app.descendants(matching: .any).matching(NSPredicate(
+                format: "label BEGINSWITH 'Reply to' OR label BEGINSWITH 'Row:' OR label == 'Stop' OR identifier == 'chat.composer.field'"
+            )).firstMatch
+            guard ready.waitForExistence(timeout: 40) else {
                 attachShot(group: group, id: "\(part)-p01", look: look, miss: "the agent chat did not open")
                 app.terminate()
                 continue
