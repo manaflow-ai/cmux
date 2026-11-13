@@ -240,3 +240,28 @@ test("a press on text while scrolled up is no hand scroll: a row moving the view
     else expect(mark).toBeUndefined();
   }
 });
+
+test('Jump up, then Jump to latest: at the bottom Jump up does not come back pointing down (Leo: "it appears again")', async () => {
+  const { root, scroller, up, latest } = await open({
+    mark: { place: { rowId: "prompt", offset: 0 }, at: 1, why: "idle" },
+  });
+  try {
+    await act(async () => up.click());
+    await frames(scroller);
+    expect(up.hasAttribute("data-back")).toBe(true);
+    expect(latest.hasAttribute("data-shown")).toBe(true);
+    await act(async () => latest.click());
+    for (let i = 0; i < 120 && scroller.scrollTop !== scrollerEnd(scroller); i++)
+      await act(async () => {
+        await nextFrame();
+        scroller.dispatchEvent(new dom.window.Event("scroll"));
+      });
+    await act(async () => nextFrame());
+    expect(scroller.scrollTop).toBe(scrollerEnd(scroller));
+    expect(latest.hasAttribute("data-shown")).toBe(false);
+    expect(up.hasAttribute("data-back")).toBe(false);
+    expect(up.hasAttribute("data-shown")).toBe(false);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

@@ -537,6 +537,9 @@ impl MessageWriter {
         if !text.contains("\"conversation") {
             return Ok(text);
         }
+        if !may_hold_a_conversation_kind(&text) {
+            return Ok(text);
+        }
         let Ok(mut value) = serde_json::from_str::<Value>(&text) else { return Ok(text) };
         if !self.project_tab_kinds(&mut value) {
             return Ok(text);
@@ -564,6 +567,34 @@ impl MessageWriter {
         }
         changed
     }
+}
+
+/// Whether `text`, a JSON message, may hold a value that the outbound projection rewrites. The
+/// projection parses the whole message when this holds, so it must hold for every message that
+/// the projection changes, and should not hold for the others.
+///
+/// The projection rewrites only two string values: `"conversation"` (a tab's `kind` or
+/// `content_kind`, a closed tab's `kind`) and `"conversation_tab"` (a closed history row's
+/// `closed_kind`). Neither needs an escape, so each is written as that exact token. A token that is
+/// an object key is followed by `:` (after optional whitespace); a value never is. The key
+/// `"conversation"` of every raw tab (`null` for a terminal) therefore does not make it hold. A
+/// token that is only the end of a longer string (`"a\"conversation"`) may make it hold: that costs
+/// a parse, never a missed rewrite.
+///
+/// Its caller runs it only after `text.contains("\"conversation")` (the check the projection had
+/// before), so a message with no such text (a `tab.list` reply of terminals) costs that one scan
+/// and nothing more. Here one scan for the prefix that both tokens share reads only the few bytes
+/// after each hit.
+#[inline]
+pub(super) fn may_hold_a_conversation_kind(text: &str) -> bool {
+    const PREFIX: &str = "\"conversation";
+    text.match_indices(PREFIX).any(|(at, _)| {
+        let rest = &text[at + PREFIX.len()..];
+        let Some(after) = rest.strip_prefix('"').or_else(|| rest.strip_prefix("_tab\"")) else {
+            return false;
+        };
+        !after.trim_start_matches([' ', '\t', '\n', '\r']).starts_with(':')
+    })
 }
 
 /// Older native apps already understand live conversation tabs, but closed
@@ -796,3 +827,7 @@ mod conversation_tab_split_tests;
 #[cfg(test)]
 #[path = "closed_conversation_tabs_tests.rs"]
 mod closed_conversation_tabs_tests;
+
+#[cfg(test)]
+#[path = "conversation_kind_precheck_tests.rs"]
+mod conversation_kind_precheck_tests;

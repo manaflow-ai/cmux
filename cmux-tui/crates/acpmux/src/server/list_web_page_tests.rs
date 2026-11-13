@@ -80,7 +80,7 @@ async fn hub_of(chats: usize, title: usize, status: &str) -> Arc<crate::hub::Hub
     hub.peers.lock().unwrap().insert("box".to_owned(), peer.clone());
     let row = json!({"sessionId": MIRRORED, "name": "lane", "status": "idle", "updatedAt": 5});
     let mut settled = peer.settled();
-    for notice in [PeerNotice::Sessions(vec![row]), PeerNotice::Connected] {
+    for notice in [PeerNotice::sessions_from_values(vec![row]), PeerNotice::Connected] {
         hub.peer_notices.send(("box".to_owned(), peer.generation, notice)).await.unwrap();
     }
     tokio::time::timeout(Duration::from_secs(10), settled.wait_for(|n| *n >= 1))
@@ -293,6 +293,8 @@ async fn no_list_reply_passes_a_few_megabytes_on_any_connection_body() {
             "{origin:?} session/list: {builds} builds for {} pages",
             sizes.len()
         );
+        assert!(sizes.len() > 1, "{origin:?} session/list: a list past one page");
+        assert_eq!(sorted(ids.clone()), every_id(), "{origin:?} session/list");
         assert!(sizes.len() > 1, "{origin:?} session/list: a list past one page goes in pages");
         // Every own chat once, and no id this daemon does not list.
         let unique: HashSet<&String> = ids.iter().collect();

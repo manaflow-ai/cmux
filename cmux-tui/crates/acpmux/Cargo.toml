@@ -54,6 +54,8 @@ chrono.workspace = true
 chrono-tz.workspace = true
 cmux-server = { path = "../cmux-server" }
 cmux-json.workspace = true
+# The settings file's path and JSONC reader (src/user_settings.rs), the settings owner's.
+cmux-config.workspace = true
 # NEXT Cloud's generated client: the join's hub calls (redeem, credentials/self).
 cmux-cloud-client.workspace = true
 # The event log's journal (R-DURABILITY S2; always on).
@@ -195,6 +197,8 @@ axum.workspace = true
 blake2 = "0.10"
 # A Codex state database for the Codex desktop bridge's tests (`codex_desktop_tests.rs`).
 rusqlite.workspace = true
+# The test-hooks check over this crate's own sources (`src/test_hooks_tree.rs`, cmux#41350).
+cmux-source-scan = { path = "../cmux-source-scan" }
 # The crate's own sources, read by the detector of writes under the home by path
 # (`src/home_writers_by_path_tests.rs`); span-locations for its rows' line numbers.
 syn = { version = "2", default-features = false, features = ["full", "parsing", "visit", "printing"] }

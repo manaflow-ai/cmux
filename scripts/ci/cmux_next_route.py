@@ -66,6 +66,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from select_package_tests import input_prefixes, package_dirs, under  # noqa: E402
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = "Packages/macOS/CmuxNext/"
@@ -878,7 +879,7 @@ def linux_runs_on(value) -> bool:
     text = value.strip()
     if "${{" not in text:
         return "ubuntu" in text
-    match = re.fullmatch(r"\$\{\{(.*)\}\}", text, re.S)
+    match = gh_expressions.EXPRESSION.fullmatch(text)
     return bool(match) and "${{" not in match.group(1) and linux_values(match.group(1))
 
 
@@ -951,7 +952,7 @@ def never_on_pull_request(name: str, jobs: dict, seen: frozenset[str] = frozense
     if not isinstance(job, dict) or name in seen:
         return False
     text = str(job.get("if") or "").strip()
-    match = re.fullmatch(r"\$\{\{(.*)\}\}", text, re.S)
+    match = gh_expressions.EXPRESSION.fullmatch(text)
     needs = job.get("needs", [])
     needs = {needs} if isinstance(needs, str) else set(needs) if isinstance(needs, list) else set()
 
