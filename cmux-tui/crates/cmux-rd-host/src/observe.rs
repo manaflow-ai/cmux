@@ -47,6 +47,7 @@ impl PresentedSampleQueue {
         self.overflowed
     }
 
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.samples.len()
     }
@@ -57,7 +58,6 @@ impl PresentedSampleQueue {
 /// interval. Repeated and invalid samples remain diagnostics.
 #[derive(Debug, Default)]
 pub struct PresentedSeries {
-    baseline: Option<u16>,
     last: Option<u16>,
     expected_nonce: Option<[u8; 16]>,
     pub presented_frames: u64,
@@ -65,6 +65,7 @@ pub struct PresentedSeries {
     pub repeated: u64,
     pub invalid: u64,
     pub nonce_mismatch: u64,
+    pub reversed: u64,
     pub first_counter: Option<u16>,
     pub last_counter: Option<u16>,
     pub first_display_us: Option<u64>,
@@ -74,24 +75,16 @@ pub struct PresentedSeries {
 }
 
 impl PresentedSeries {
+    #[cfg(test)]
     pub fn with_baseline(baseline: Option<u16>) -> Self {
-        Self { baseline, ..Self::default() }
+        Self { last: baseline, ..Self::default() }
     }
 
     pub fn with_baseline_and_nonce(
         baseline: Option<u16>,
         expected_nonce: Option<[u8; 16]>,
     ) -> Self {
-        Self { baseline, expected_nonce, ..Self::default() }
-    }
-
-    pub fn baseline(&self) -> Option<u16> {
-        self.baseline
-    }
-
-    pub fn seed_baseline(&mut self, baseline: u16) {
-        self.baseline = Some(baseline);
-        self.last = None;
+        Self { last: baseline, expected_nonce, ..Self::default() }
     }
 
     pub fn ingest(&mut self, sample: PresentedMarkerSample) {
@@ -101,18 +94,22 @@ impl PresentedSeries {
                 return;
             }
         }
+        if sample.display_us.is_none() {
+            self.invalid += 1;
+            return;
+        }
         let Some(counter) = sample.counter else {
             self.invalid += 1;
             return;
         };
-        if self.last.is_none() && self.baseline == Some(counter) {
-            self.repeated += 1;
-            return;
-        }
         if let Some(last) = self.last {
             let distance = counter.wrapping_sub(last);
             if distance == 0 {
                 self.repeated += 1;
+                return;
+            }
+            if distance >= 32768 {
+                self.reversed += 1;
                 return;
             }
             self.gaps += u64::from(distance.saturating_sub(1));
@@ -375,6 +372,25 @@ mod tests {
             display_us: Some(12),
             arrived_us: 13,
         });
+        assert_eq!(series.presented_frames, 1);
+    }
+
+    #[test]
+    fn passive_baseline_gap_and_backwards_are_not_frames() {
+        let mut series = PresentedSeries::with_baseline(Some(100));
+        let sample = |counter| PresentedMarkerSample {
+            counter: Some(counter),
+            nonce: None,
+            display_us: Some(1000),
+            arrived_us: 1001,
+        };
+        series.ingest(sample(103));
+        assert_eq!(series.gaps, 2);
+        series.ingest(sample(102));
+        assert_eq!(series.reversed, 1);
+        assert_eq!(series.presented_frames, 1);
+        series.ingest(PresentedMarkerSample { display_us: None, ..sample(104) });
+        assert_eq!(series.invalid, 1);
         assert_eq!(series.presented_frames, 1);
     }
 }

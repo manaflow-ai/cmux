@@ -130,31 +130,14 @@ impl PixelBuffer {
     }
 }
 
+#[derive(Default)]
 struct Shared {
     newest: Option<PixelBuffer>,
     /// The newest frame's display time and its arrival here, on the protocol clock in µs.
     newest_times: Option<(u64, u64)>,
     dirty: Vec<Rect>,
     #[cfg(feature = "bench")]
-    presented: crate::observe::PresentedSampleQueue,
-    #[cfg(feature = "bench")]
-    callback_count: u64,
-}
-
-impl Default for Shared {
-    fn default() -> Self {
-        Self {
-            newest: None,
-            newest_times: None,
-            dirty: Vec::new(),
-            #[cfg(feature = "bench")]
-            presented: crate::observe::PresentedSampleQueue::with_capacity(
-                PRESENTED_QUEUE_CAPACITY,
-            ),
-            #[cfg(feature = "bench")]
-            callback_count: 0,
-        }
-    }
+    presented: Option<crate::observe::PresentedSampleQueue>,
 }
 
 #[cfg(feature = "bench")]
@@ -168,7 +151,6 @@ pub struct MarkerConfig {
 #[cfg(feature = "bench")]
 pub struct PresentedBatch {
     pub samples: Vec<crate::observe::PresentedMarkerSample>,
-    pub callback_count: u64,
     pub queue_overflow: bool,
 }
 
@@ -500,22 +482,23 @@ extern "C" fn did_output(
             .map(|display| arrived.saturating_sub(mach_age_us(display as u64)));
         let frame = (!buffer.is_null()).then(|| PixelBuffer(Retained::retain(buffer.cast_const())));
         #[cfg(feature = "bench")]
-        let counter = sink.marker.and_then(|marker| {
-            frame.as_ref().and_then(|pixels| pixels.marker(marker.origin, marker.cell))
-        });
-        let nonce = sink.marker.and_then(|marker| {
-            frame
-                .as_ref()
-                .and_then(|pixels| pixels.marker_nonce(marker.origin, marker.cell))
-                .map(|(_, nonce)| nonce)
+        let (counter, nonce) = sink.marker.map_or((None, None), |marker| {
+            frame.as_ref().map_or((None, None), |pixels| {
+                if marker.expected_nonce.is_some() {
+                    pixels
+                        .marker_nonce(marker.origin, marker.cell)
+                        .map_or((None, None), |(counter, nonce)| (Some(counter), Some(nonce)))
+                } else {
+                    (pixels.marker(marker.origin, marker.cell), None)
+                }
+            })
         });
         {
             let mut shared = sink.shared.lock().unwrap_or_else(|p| p.into_inner());
             #[cfg(feature = "bench")]
             {
-                shared.callback_count += 1;
-                if sink.marker.is_some() {
-                    shared.presented.push(crate::observe::PresentedMarkerSample {
+                if let Some(presented) = shared.presented.as_mut() {
+                    presented.push(crate::observe::PresentedMarkerSample {
                         counter,
                         nonce,
                         display_us: shown,
@@ -620,6 +603,8 @@ impl Capture {
         #[cfg(feature = "bench")] marker: Option<MarkerConfig>,
         #[cfg(not(feature = "bench"))] marker: Option<()>,
     ) -> Res<Self> {
+        #[cfg(not(feature = "bench"))]
+        let _ = marker;
         let _pool = AutoreleasePool::new();
         // SAFETY: a display id from ScreenCaptureKit.
         let frame = unsafe { cg::CGDisplayBounds(id) };
@@ -698,7 +683,13 @@ impl Capture {
                 sys::system::dispatch_release(queue);
                 return Err("ScreenCaptureKit did not make a stream".into());
             }
-            let shared = Arc::new(Mutex::new(Shared::default()));
+            let shared = Arc::new(Mutex::new(Shared {
+                #[cfg(feature = "bench")]
+                presented: marker.map(|_| {
+                    crate::observe::PresentedSampleQueue::with_capacity(PRESENTED_QUEUE_CAPACITY)
+                }),
+                ..Shared::default()
+            }));
             let sink = Arc::new(Sink {
                 shared: shared.clone(),
                 wake: wake_write,
@@ -796,10 +787,10 @@ impl Capture {
     pub fn take_presented(&self) -> PresentedBatch {
         self.clear_wakes();
         let mut shared = self.shared.lock().unwrap_or_else(|p| p.into_inner());
+        shared.dirty.clear();
         PresentedBatch {
-            samples: shared.presented.take(),
-            callback_count: shared.callback_count,
-            queue_overflow: shared.presented.overflowed(),
+            samples: shared.presented.as_mut().map_or_else(Vec::new, |queue| queue.take()),
+            queue_overflow: shared.presented.as_ref().is_some_and(|queue| queue.overflowed()),
         }
     }
 }

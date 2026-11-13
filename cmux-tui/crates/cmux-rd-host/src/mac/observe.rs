@@ -230,9 +230,27 @@ fn await_presented_marker(
     }
 }
 
-fn wait_start_file(path: &str, timeout_ms: u64) -> Res<u64> {
+fn wait_start_file(
+    path: &str,
+    timeout_ms: u64,
+    capture: &Capture,
+    baseline: &mut u16,
+    expected_nonce: Option<[u8; 16]>,
+) -> Res<u64> {
     let deadline = now_ns() + timeout_ms * 1_000_000;
     loop {
+        let batch = capture.take_presented();
+        if batch.queue_overflow {
+            return Err("marker queue overflow before start".into());
+        }
+        for sample in batch.samples {
+            if expected_nonce.is_some_and(|nonce| sample.nonce != Some(nonce)) {
+                return Err("nonce changed before start".into());
+            }
+            if let Some(counter) = sample.counter {
+                *baseline = counter;
+            }
+        }
         if fs::metadata(path).is_ok() {
             return Ok(now_ns() / 1000);
         }
@@ -256,9 +274,9 @@ fn run_passive(opts: &Opts) -> Res<()> {
     if pid <= 0
         || window == 0
         || !(2..=1024).contains(&cell)
-        || duration_s == 0
+        || !(1..=600).contains(&duration_s)
         || !(10..=60_000).contains(&interval_ms)
-        || start_timeout_ms == 0
+        || !(1..=60_000).contains(&start_timeout_ms)
     {
         return Err("passive mode needs --pid >0, --window >0, --cell-size 2..1024, --duration-s >0, --interval-ms 10..60000".into());
     }
@@ -295,72 +313,87 @@ fn run_passive(opts: &Opts) -> Res<()> {
         .collect();
     let geometry = target_geometry(window, pid, &points)?;
     let baseline_sample = await_presented_marker(&capture, 3000, expected_nonce)?;
-    let baseline = baseline_sample.counter.ok_or("baseline marker is invalid")?;
+    let mut baseline = baseline_sample.counter.ok_or("baseline marker is invalid")?;
     let before_start = capture.take_presented();
     if before_start.queue_overflow {
         return Err("presented-marker callback queue overflowed before start".into());
     }
-    let callback_base = before_start.callback_count;
-    let start_us = wait_start_file(start_file, start_timeout_ms)?;
+    let start_us =
+        wait_start_file(start_file, start_timeout_ms, &capture, &mut baseline, expected_nonce)?;
     let mut series =
         observe::PresentedSeries::with_baseline_and_nonce(Some(baseline), expected_nonce);
-    let mut interval =
-        observe::PresentedSeries::with_baseline_and_nonce(Some(baseline), expected_nonce);
-    let mut intervals = Vec::new();
-    let duration_us = duration_s.saturating_mul(1_000_000);
-    let interval_us = interval_ms.saturating_mul(1000);
-    let mut next_boundary = start_us + interval_us;
+    let duration_us = duration_s * 1_000_000;
+    let interval_us = interval_ms * 1000;
     let end_us = start_us + duration_us;
-    let mut callback_at_boundary = callback_base;
-    while now_ns() / 1000 < end_us {
+    let count = duration_us.div_ceil(interval_us) as usize;
+    let mut buckets: Vec<_> = (0..count)
+        .map(|_| observe::PresentedSeries::with_baseline_and_nonce(None, expected_nonce))
+        .collect();
+    let mut callbacks = vec![0u64; count];
+    let mut current_bucket = None;
+    let mut last_display_us = start_us;
+    loop {
+        // Check geometry/visibility at most 50ms apart, including idle periods.
+        if target_geometry(window, pid, &points)? != geometry {
+            return Err("selected viewer geometry changed".into());
+        }
         let now_us = now_ns() / 1000;
-        let wait_us = next_boundary.saturating_sub(now_us).min(end_us.saturating_sub(now_us));
-        if wait_us > 0 {
-            wait_readable(&[capture.fd()], Some(wait_us * 1000))?;
+        if now_us < end_us {
+            wait_readable(&[capture.fd()], Some((end_us - now_us).min(50_000) * 1000))?;
         }
         let batch = capture.take_presented();
         if batch.queue_overflow {
-            return Err("presented-marker callback queue overflowed; no FPS result is valid".into());
+            return Err("marker queue overflow; FPS unknown".into());
         }
         for sample in batch.samples {
-            if sample.arrived_us >= start_us {
-                series.ingest(sample);
-                interval.ingest(sample);
+            // Arrival is only diagnostic; all FPS buckets use the compositor clock.
+            if sample.arrived_us < start_us {
+                continue;
+            }
+            let shown = sample.display_us.ok_or("missing display timestamp; FPS unknown")?;
+            if shown < start_us || shown >= end_us {
+                continue;
+            }
+            if shown < last_display_us {
+                return Err("display timestamps regressed".into());
+            }
+            last_display_us = shown;
+            let index = ((shown - start_us) / interval_us) as usize;
+            if current_bucket != Some(index) {
+                buckets[index] = observe::PresentedSeries::with_baseline_and_nonce(
+                    series.last_counter.or(Some(baseline)),
+                    expected_nonce,
+                );
+                current_bucket = Some(index);
+            }
+            callbacks[index] += 1;
+            series.ingest(sample);
+            buckets[index].ingest(sample);
+            if series.invalid > 0 || series.nonce_mismatch > 0 || series.reversed > 0 {
+                return Err(
+                    "invalid marker, nonce mismatch or backwards counter; FPS unknown".into()
+                );
             }
         }
-        let now_us = now_ns() / 1000;
-        if now_us >= next_boundary || now_us >= end_us {
-            let boundary = now_us.min(end_us);
-            let interval_start = boundary.saturating_sub(interval_us);
-            let elapsed_s = (boundary.saturating_sub(interval_start)) as f64 / 1_000_000.0;
-            let presented_frames = interval.presented_frames;
-            intervals.push(serde_json::json!({
-                "start_us": interval_start,
-                "end_us": boundary,
-                "presented_frames": presented_frames,
-                "presented_fps": if elapsed_s > 0.0 { presented_frames as f64 / elapsed_s } else { 0.0 },
-                "first_counter": interval.first_counter,
-                "last_counter": interval.last_counter,
-                "first_display_us": interval.first_display_us,
-                "last_display_us": interval.last_display_us,
-                "first_arrived_us": interval.first_arrived_us,
-                "last_arrived_us": interval.last_arrived_us,
-                "gaps": interval.gaps,
-                "repeated": interval.repeated,
-                "invalid_samples": interval.invalid,
-                "callback_count": batch.callback_count.saturating_sub(callback_at_boundary),
-            }));
-            callback_at_boundary = batch.callback_count;
-            interval = observe::PresentedSeries::with_baseline_and_nonce(
-                series.last_counter,
-                expected_nonce,
-            );
-            next_boundary = boundary.saturating_add(interval_us);
-        }
-        if now_us >= end_us {
+        if now_ns() / 1000 >= end_us {
             break;
         }
     }
+    let intervals: Vec<_> = buckets.iter().enumerate().map(|(index, bucket)| {
+        let begin = start_us + index as u64 * interval_us;
+        let end = (begin + interval_us).min(end_us);
+        serde_json::json!({
+            "start_us": begin, "end_us": end,
+            "presented_frames": bucket.presented_frames,
+            "presented_fps": bucket.presented_frames as f64 * 1_000_000.0 / (end - begin) as f64,
+            "first_counter": bucket.first_counter, "last_counter": bucket.last_counter,
+            "first_display_us": bucket.first_display_us, "last_display_us": bucket.last_display_us,
+            "first_arrived_us": bucket.first_arrived_us, "last_arrived_us": bucket.last_arrived_us,
+            "gaps": bucket.gaps, "repeated": bucket.repeated,
+            "invalid_samples": bucket.invalid, "nonce_mismatch": bucket.nonce_mismatch,
+            "callback_count": callbacks[index], "queue_overflow": false,
+        })
+    }).collect();
     let geometry_after = target_geometry(window, pid, &points)?;
     if geometry_after != geometry {
         return Err("selected viewer window geometry changed during passive observation".into());
@@ -371,6 +404,9 @@ fn run_passive(opts: &Opts) -> Res<()> {
         serde_json::json!({
             "schema": "cmux.presented-marker-series/2",
             "complete": true,
+            "geometry_guard_interval_ms": 50,
+            "queue_overflow": false,
+            "callback_count": callbacks.iter().sum::<u64>(),
             "method": "callback-time source marker with ScreenCaptureKit display timestamp; excludes decoder completion, physical scanout, and pixel response",
             "marker_observed": true,
             "expected_nonce": expected_nonce.map(|nonce| nonce.iter().map(|byte| format!("{byte:02x}")).collect::<String>()),
