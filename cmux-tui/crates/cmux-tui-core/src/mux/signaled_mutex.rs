@@ -104,6 +104,8 @@ impl<T> SignaledMutex<T> {
     ) -> SignaledMutexGuard<'a, T> {
         let waited = waited_from.elapsed();
         self.stats.acquired(site, waited, blocker);
+        #[cfg(test)]
+        REGISTRY_LOCKS_TAKEN.with(|taken| taken.set(taken.get() + 1));
         SignaledMutexGuard {
             value: Some(value),
             owner: self,
@@ -291,9 +293,10 @@ thread_local! {
 
 /// How many plain lockers took the registry lock in front of this thread's own takes, summed over its takes (test
 /// hook): for each `lock` call, the plain acquisitions between the call and its return. The holder at the call
-/// is not a turn in front (at most one such hold per take). A test proves with it that a person's request does
-/// not queue behind a crowd of writers by counting turns, with no timing: a wait in wall time grows with the
-/// host's load, a place in the queue does not.
+/// is not a turn in front (at most one such hold per take); a plain locker that has the lock at the call and
+/// has not counted itself yet can add 1 to that take. Only `lock` counts: `try_lock` and `lock_until` do not. A
+/// test proves with it that a person's request does not queue behind a crowd of writers by counting turns, with
+/// no timing: a wait in wall time grows with the host's load, a place in the queue does not.
 #[cfg(test)]
 pub(crate) fn plain_turns_ahead_on_this_thread() -> u64 {
     PLAIN_TURNS_AHEAD.with(Cell::get)
@@ -440,6 +443,18 @@ thread_local! {
     static STATE_LOCKS_TAKEN: Cell<u64> = const { Cell::new(0) };
 }
 
+#[cfg(test)]
+thread_local! {
+    static REGISTRY_LOCKS_TAKEN: Cell<u64> = const { Cell::new(0) };
+}
+
+/// How many times this thread has taken the workspace registry lock (test hook): a test proves a read never takes
+/// the writer's lock by counting, with no timing (REGISTRY WAL, the snapshot read).
+#[cfg(test)]
+pub(crate) fn registry_locks_taken_on_this_thread() -> u64 {
+    REGISTRY_LOCKS_TAKEN.with(Cell::get)
+}
+
 /// How many times this thread has taken the mux state lock (test hook): a test proves a path never takes the session
 /// lock by counting, with no timing (TYPING UNDER LOAD F4).
 #[cfg(test)]
@@ -547,8 +562,9 @@ impl StateMutex {
         }
     }
 
-    /// The state lock if it is free now (the accept loop, which never waits
-    /// for it). A try cannot deadlock, so it skips the rank check `lock` makes.
+    /// The state lock if it is free now (the snapshot reader that builds,
+    /// `resource_api/committed_snapshot.rs`).
+    /// A try cannot deadlock, so it skips the rank check `lock` makes.
     #[track_caller]
     pub(crate) fn try_lock(&self) -> TryLockResult<StateGuard<'_>> {
         let site = std::panic::Location::caller();

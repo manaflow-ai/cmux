@@ -4,7 +4,7 @@ import CmuxNextHomeModel
 import Foundation
 
 /// The colours a chat draws with for a choice (its bubble style, the default for every chat, then
-/// the chat's own colours): the Chat Colors page's preview and the colour panel's starting colour.
+/// the chat's own colours): the Chat Colors panel's preview and a colour well's starting colour.
 struct HomeChatColorsPreview: Hashable, Sendable {
     /// One side's bubble: its fill and its text.
     struct Pair: Hashable, Sendable {

@@ -74,17 +74,10 @@ pub struct DaemonSpec {
     pub groups: Vec<u32>,
 }
 
-/// `$(cat /etc/cmux/ghostty-version 2>/dev/null)`: the file with trailing
-/// newlines removed; empty when absent.
-pub fn ghostty_version(file: Option<&str>) -> String {
-    file.map(|s| s.trim_end_matches('\n').to_owned()).unwrap_or_default()
-}
-
 /// The spec for `layout`. `template_bound_file` is `/run/cmux/bound`
 /// (under the agent's root).
 pub fn daemon_spec(
     layout: &DaemonLayout,
-    ghostty_version: &str,
     remote_entry: &RemoteEntry,
     template_bound_file: &Path,
 ) -> DaemonSpec {
@@ -101,10 +94,10 @@ pub fn daemon_spec(
         set_env.push(("LOGNAME".into(), layout.user.clone()));
         set_env.push(("SHELL".into(), "/bin/bash".into()));
     }
-    // CMUX_TUI_DAEMON_TERMINAL_ENV.
+    // CMUX_TUI_DAEMON_TERMINAL_ENV. No TERM_PROGRAM_VERSION: the daemon sets
+    // cmux's own on every terminal child (`cmux_pty::TERMINAL_IDENTITY`).
     set_env.push(("TERM".into(), "xterm-256color".into()));
-    set_env.push(("TERM_PROGRAM".into(), "ghostty".into()));
-    set_env.push(("TERM_PROGRAM_VERSION".into(), ghostty_version.to_owned()));
+    set_env.push(("TERM_PROGRAM".into(), "cmux".into()));
     let mut args: Vec<String> = IDENTITY_ARGS.iter().map(|s| (*s).to_owned()).collect();
     args.extend(remote_entry.args());
     DaemonSpec {
@@ -266,6 +259,26 @@ mod tests {
         assert_eq!(ssh_carrier_command(&root), None, "ssh logs in as the work user only");
     }
 
+    /// The Cloud session host names its terminal cmux: `TERM_PROGRAM=cmux`
+    /// and no Ghostty `TERM_PROGRAM_VERSION` (the daemon stamps cmux's own
+    /// version on every terminal child, `cmux_pty::TERMINAL_IDENTITY`).
+    #[test]
+    fn the_session_host_names_its_terminal_cmux() {
+        let entry = RemoteEntry::Enrolled { bind: "127.0.0.1:1337".parse::<SocketAddr>().unwrap() };
+        let spec = daemon_spec(&user_layout(), &entry, Path::new("/run/cmux/bound"));
+        assert!(
+            spec.set_env.contains(&("TERM_PROGRAM".into(), "cmux".into())),
+            "{:?}",
+            spec.set_env
+        );
+        assert!(
+            spec.set_env.iter().all(|(k, _)| k != "TERM_PROGRAM_VERSION"),
+            "{:?}",
+            spec.set_env
+        );
+        assert!(spec.set_env.contains(&("TERM".into(), "xterm-256color".into())));
+    }
+
     /// The session host derives [`session_socket`] and the default remote
     /// state (`$HOME/.local/state/cmux/remote`, where its link socket lives)
     /// only while nothing overrides them: no socket or remote state flag, and
@@ -274,7 +287,7 @@ mod tests {
     fn the_session_host_keeps_the_socket_and_link_the_ssh_carrier_names() {
         let layout = user_layout();
         let entry = RemoteEntry::Enrolled { bind: "127.0.0.1:1337".parse::<SocketAddr>().unwrap() };
-        let spec = daemon_spec(&layout, "", &entry, Path::new("/run/cmux/bound"));
+        let spec = daemon_spec(&layout, &entry, Path::new("/run/cmux/bound"));
         assert_eq!(spec.program, layout.bin);
         assert_eq!(spec.args[..4], ["server", "start", "--session", SESSION]);
         for flag in

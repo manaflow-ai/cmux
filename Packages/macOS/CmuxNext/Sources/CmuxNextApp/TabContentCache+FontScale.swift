@@ -1,4 +1,5 @@
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextTerminal
 import Foundation
 

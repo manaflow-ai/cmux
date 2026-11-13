@@ -94,7 +94,7 @@ import Testing
         let sidebar = Self.sidebar(minimal: minimal)
         for id in [Self.busy, Self.plain, Self.reported] {
             let row = try Self.row(sidebar, id)
-            #expect(row.title.frame.minX == SidebarStyle.horizontalInset, "\(id): title at \(row.title.frame.minX) pt")
+            #expect(row.title.frame.minX == SidebarStyle.contentInset, "\(id): title at \(row.title.frame.minX) pt")
         }
         let withIcon = try Self.row(sidebar, Self.favicon)
         #expect(!withIcon.icon.isHidden && withIcon.icon.frame.maxX <= withIcon.title.frame.minX + WorkspaceRowView.labelInset)

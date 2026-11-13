@@ -4,7 +4,7 @@ import WebKit
 
 // The pane's page in whichever engine shows it: on the shared page host (``PageWebView``) the page
 // may show in Chromium, and ``AgentPaneView/webView`` is then a hidden WebKit view. Focus goes
-// through ``AgentPaneView/focusChat()``, scripts through ``AgentPaneView/callPageScript(_:arguments:)``,
+// through ``AgentPaneView/focusChat()``, scripts through ``AgentPaneView/callPageScript(_:arguments:timeout:)``,
 // pictures and the Chromium page's window through these.
 extension AgentPaneView {
     /// The Chromium page that shows the chat now; nil on WebKit.
