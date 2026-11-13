@@ -205,4 +205,22 @@ public enum AgentLaunchCaptureTrust {
             || lowered.contains("/qwen-code/")
             || processBasename(value) == "qwen"
     }
+
+    /// Splits a script-host Qwen argv into a runtime prefix (runtime + any leading
+    /// runtime-only options + the entrypoint) and the remaining agent options, so the
+    /// runtime and entrypoint stay together on replay. The entrypoint may sit after
+    /// leading runtime options (`node --use-system-ca …/cli.js`), mirroring the trust
+    /// check that matches it at any post-executable position. Returns nil when the
+    /// executable is not a script host or no Qwen entrypoint is present.
+    static func qwenScriptHostSplit(executable: String, tail: [String]) -> (prefix: [String], rest: [String])? {
+        let hostBases: Set<String> = ["node", "bun", "deno", "tsx", "ts-node"]
+        let base = URL(fileURLWithPath: executable).lastPathComponent.lowercased()
+        guard hostBases.contains(base),
+              let entryIndex = tail.firstIndex(where: { isQwenScriptEntrypoint($0) }) else {
+            return nil
+        }
+        let prefix = [executable] + Array(tail[0...entryIndex])
+        let rest = Array(tail[(entryIndex + 1)...])
+        return (prefix, rest)
+    }
 }

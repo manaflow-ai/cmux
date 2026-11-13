@@ -44,6 +44,14 @@ struct AgentResumeArgvTests {
                 arguments: ["node", script, "--model", "qwen3-coder-plus"]
             ) == ["node", script, "--resume", "SID", "--model", "qwen3-coder-plus"]
         )
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "qwen",
+                sessionId: "SID",
+                executablePath: "node",
+                arguments: ["node", "--use-system-ca", script, "--yolo"]
+            ) == ["node", "--use-system-ca", script, "--resume", "SID", "--yolo"]
+        )
     }
 
     @Test("Qwen registered built-in kind resumes via --resume")

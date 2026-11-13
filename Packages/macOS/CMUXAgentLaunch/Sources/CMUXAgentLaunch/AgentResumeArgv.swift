@@ -603,18 +603,12 @@ public struct AgentResumeArgv: Sendable, Equatable {
         arguments: [String]
     ) -> [String]? {
         let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "qwen")
-        var prefix = [parts.executable]
-        var tail = parts.tail
-        let hostBases: Set<String> = ["node", "bun", "deno", "tsx", "ts-node"]
-        let executableBase = URL(fileURLWithPath: parts.executable).lastPathComponent.lowercased()
-        if hostBases.contains(executableBase),
-           let script = tail.first,
-           AgentLaunchCaptureTrust.isQwenScriptEntrypoint(script) {
-            prefix = [parts.executable, script]
-            tail = Array(tail.dropFirst())
+        if let split = AgentLaunchCaptureTrust.qwenScriptHostSplit(executable: parts.executable, tail: parts.tail) {
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "qwen", args: split.rest) else { return nil }
+            return split.prefix + ["--resume", sessionId] + preserved
         }
-        guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "qwen", args: tail) else { return nil }
-        return prefix + ["--resume", sessionId] + preserved
+        guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "qwen", args: parts.tail) else { return nil }
+        return [parts.executable, "--resume", sessionId] + preserved
     }
 
     private func withOption(

@@ -135,6 +135,14 @@ struct AgentLaunchSanitizerTests {
                 fallbackKind: "qwen"
             ) == ["node", script, "--model", "qwen3-coder-plus", "--yolo"]
         )
+        // Leading runtime-only options must stay in the prefix, not break entrypoint detection.
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["node", "--use-system-ca", script, "--yolo"],
+                launcher: "qwen",
+                fallbackKind: "qwen"
+            ) == ["node", "--use-system-ca", script, "--yolo"]
+        )
     }
 
     @Test("Qwen resume renders the captured executable with --resume and preserved flags")
