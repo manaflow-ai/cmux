@@ -66,10 +66,9 @@ enum OmnibarStyle {
     /// The trailing buttons' gap to the pane's edge: More's center sits on the pane's trailing control
     /// column, under the tab bar's ⋮ (`Metrics.paneTrailingControlCenter`, Lawrence msg 19627).
     static var toolbarTrailingInset: CGFloat { max(0, Metrics.paneTrailingControlCenter - buttonSize / 2) }
-    /// Toolbar buttons highlight in a rounded square on hover and press, Helium's
-    /// `Emphasis::kHigh` (8; Chrome draws a circle, `kMaximum`).
-    /// A toolbar button's hover corner: a tab's roundness on the button's side (8 on 30), at every density.
-    static var buttonCornerRadius: CGFloat { Metrics.chromeRowCornerRadius(height: buttonSize) }
+    /// Toolbar buttons highlight in a rounded square on hover and press, as round as a tab
+    /// (`Metrics.buttonCornerRadius`; Lawrence 2026-11-12, buttons round as tabs).
+    static var buttonCornerRadius: CGFloat { Metrics.buttonCornerRadius }
     /// Toolbar button icons: `kToolbarButtonIconSize` (20 at Standard), inside Helium's 4 pt
     /// `TOOLBAR_BUTTON` insets.
     static var toolbarIconSize: CGFloat { metrics.toolbarIconSize }
@@ -97,7 +96,7 @@ enum OmnibarStyle {
     static var barCornerRadius: CGFloat { Metrics.cornerRadiusIsSet ? Metrics.cornerRadius : Metrics.tabCornerRadius }
     /// Page-info chip.
     static var chipSize: CGFloat { barHeight - 4 }
-    static var chipCornerRadius: CGFloat { Metrics.cornerRadius(nestedIn: cardCornerRadius, inset: chipLeading) }
+    static var chipButtonCornerRadius: CGFloat { Metrics.buttonCornerRadius(nestedIn: cardCornerRadius, inset: chipLeading) }
     /// Chip distance from the bar's leading edge.
     static let chipLeading: CGFloat = 2
     /// Text distance after the chip.

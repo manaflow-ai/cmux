@@ -524,7 +524,7 @@ public final class PaneToolbarView: NSView {
     /// Unless the person set the outer radius, it rounds as the + and every other top control does, a tab's roundness on
     /// its side (Lucas 2026-11-13: the nested corner came out square; "match the rest like the + for new workspace").
     static func moreCornerRadius(inset: CGFloat) -> CGFloat {
-        guard Metrics.cornerRadiusIsSet else { return Metrics.chromeRowCornerRadius(height: TitlebarBandButton.side) }
+        guard Metrics.cornerRadiusIsSet else { return Metrics.buttonCornerRadius }
         return Metrics.cornerRadius(nestedIn: Metrics.tabStripCardRadius ?? Metrics.corners.outer, inset: inset,
                                     size: CGSize(width: TitlebarBandButton.side, height: TitlebarBandButton.side))
     }

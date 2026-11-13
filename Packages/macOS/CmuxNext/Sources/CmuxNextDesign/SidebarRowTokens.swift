@@ -142,7 +142,7 @@ public nonisolated struct SidebarRowTokens: Equatable, Sendable {
     @MainActor public static var current: SidebarRowTokens {
         let sections = DesignSettings.shared.sidebarSections
         let base = Base(rowHeight: Metrics.sidebarRowHeight, space1: Metrics.space1, space2: Metrics.space2,
-                        space3: Metrics.space3, space4: Metrics.space4, cornerRadius: Metrics.itemCornerRadius,
+                        space3: Metrics.space3, space4: Metrics.space4, cornerRadius: Metrics.buttonCornerRadius,
                         body: Typography.body.pointSize, caption: Typography.caption.pointSize,
                         isCodexDensity: Metrics.tokens.id == DensityPreset.cozy.rawValue)
         return SidebarRowTokens(density: sections.density, textSize: sections.textSize, base: base)

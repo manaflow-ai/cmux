@@ -1789,6 +1789,7 @@ jobs:
             bash scripts/cmux-next/tests/check-motion.test.sh
             bash scripts/cmux-next/tests/fast-tier.test.sh
             bash scripts/cmux-next/tests/check-scrollbars.test.sh
+            bash scripts/cmux-next/tests/check-button-radius.test.sh
             bash scripts/cmux-next/tests/check-overlay-glass.test.sh
             bash scripts/cmux-next/tests/check-no-process-scan.test.sh
             bash scripts/cmux-next/tests/check-single-omnibar.test.sh
@@ -2041,6 +2042,12 @@ jobs:
           set -o pipefail
           mkdir -p "$RUNNER_TEMP/ratchet-debt"
           scripts/cmux-next/check-scrollbars.sh "$GITHUB_WORKSPACE" | tee "$RUNNER_TEMP/ratchet-debt/scrollbars.log"
+
+      # Every button rounds as a tab (Lawrence 2026-11-12): Metrics.buttonCornerRadius, var(--ds-radius-control).
+      - name: Buttons round as tabs
+        id: button-radius
+        continue-on-error: true
+        run: python3 -I scripts/cmux-next/check-button-radius.py "$GITHUB_WORKSPACE"
 
       # Animation timing comes from the Motion tokens (plans/cmux-next/motion.md),
       # Why: docs/ci/cmux-next-workflow-notes.md#note-143
@@ -2436,6 +2443,7 @@ jobs:
             No Swift closed history (the daemon owns it, plans/cmux-next/reopen-closed.md 9)
             No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)
             Scrollbars thin, one style
+            Buttons round as tabs
             Motion tokens
             Overlays are glass, never solid
             Type scale
@@ -2474,6 +2482,7 @@ jobs:
             ${{ steps.l10n.outcome }}|String tables (21 languages)
             ${{ steps.module-resources.outcome }}|Module resource bundles
             ${{ steps.scrollbars.outcome }}|Scrollbars thin, one style
+            ${{ steps.button-radius.outcome }}|Buttons round as tabs
             ${{ steps.motion.outcome }}|Motion tokens
             ${{ steps.overlay-glass.outcome }}|Overlays are glass, never solid
             ${{ steps.type-scale.outcome }}|Type scale

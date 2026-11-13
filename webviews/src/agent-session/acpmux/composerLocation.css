@@ -547,7 +547,7 @@
 :is(.acpmux-composer-bar, .nt-pickers) .acpmux-effort .acpmux-picker-button,
 :is(.acpmux-composer-bar, .nt-pickers) .acpmux-access .acpmux-picker-button {
   height: var(--acpmux-composer-control, 28px);
-  border-radius: 999px;
+  border-radius: var(--ds-radius-control);
   color: var(--agent-muted);
 }
 /* Every chip: its text and icons the row's inset from both edges, an icon or chevron the same
@@ -917,7 +917,7 @@
 .acpmux-permission-card-leading { display: inline-flex; flex: none; align-items: center; justify-content: center; color: var(--agent-muted); }
 .acpmux-permission-card-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 2px; color: var(--agent-muted); font-size: var(--text-detail); letter-spacing: var(--text-detail--letter-spacing); }
 .acpmux-permission-card-meta .acpmux-permission-coverage { margin-left: auto; }
-.acpmux-permission-panel .acpmux-permission-surface .acpmux-permission-buttons button { border-radius: 7px; }
+.acpmux-permission-panel .acpmux-permission-surface .acpmux-permission-buttons button { border-radius: var(--ds-radius-control); }
 .acpmux-permission-panel .acpmux-permission-surface .acpmux-permission-buttons button:not(.acpmux-permission-deny) { background: var(--agent-accent); color: var(--agent-accent-text, #fff); }
 .acpmux-permission-panel .acpmux-permission-surface .acpmux-permission-buttons .acpmux-permission-deny { background: transparent; border: 0; color: var(--agent-muted); }
 
@@ -1709,7 +1709,7 @@
 .acpmux-location-picker[data-face="icon"] .acpmux-location-button > :not(svg) { display: none; }
 .acpmux-location-picker[data-face="chip"] .acpmux-location-button {
   box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--agent-text) 18%, transparent);
-  border-radius: var(--ui-row-radius);
+  border-radius: var(--ds-radius-control);
   padding-inline: 8px;
 }
 /* The machine control's live dot (ComposerContext stripLayout): filled while a chat can start on
@@ -1763,7 +1763,7 @@
 .acpmux-composer-context > .acpmux-location-picker[data-rows="run"] .acpmux-location-button {
   width: var(--ds-control-compact);
   height: var(--ds-control-compact);
-  border-radius: 999px;
+  border-radius: var(--ds-radius-control);
   justify-content: center;
   padding-inline: 0;
   background: color-mix(in srgb, var(--agent-text) 8%, transparent);

@@ -317,7 +317,7 @@
   min-width: 0;
   padding: 0;
   border: 0;
-  border-radius: var(--cv-media-radius);
+  border-radius: var(--ds-radius-control);
   background: none;
   cursor: zoom-in;
 }
@@ -3376,7 +3376,7 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
   /* Inset: the transcript row clips paint (`contain: paint`), so an outset ring would be cut. */
   outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
   outline-offset: -1.5px;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-control);
 }
 /* Pointer activation should not leave a browser outline on transcript controls. Keyboard focus
    still takes the shared ring above, including Worked for, expandable tool rows and icon actions. */
@@ -3722,7 +3722,7 @@ button.cv-video-frames__name:hover .cv-video-frames__label {
 button.cv-video-frames__name:focus-visible {
   outline: 2px solid var(--agent-accent-soft);
   outline-offset: 2px;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-control);
 }
 .cv-video-frames__play {
   flex: none;
@@ -7514,7 +7514,7 @@ button.cv-user__file-open:hover > .acpmux-file-chip {
 button.cv-user__file-open:focus-visible {
   outline: 2px solid var(--agent-accent-soft);
   outline-offset: 2px;
-  border-radius: var(--acpmux-file-chip-radius, 6px);
+  border-radius: var(--ds-radius-control);
 }
 /* Markdown is one block stack. Text metrics stay independent of the spacing grid. */
 .cv-md > :is(.cv-p, .cv-h, .cv-list, .cv-quote, .cv-code, .cv-pre, .cv-table-wrap, .cv-math-display, hr),
