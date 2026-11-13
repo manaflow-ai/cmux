@@ -122,6 +122,45 @@ async fn a_held_v1_load_submits_no_removal() {
 }
 
 #[tokio::test]
+async fn an_unchanged_second_start_appends_no_record_and_sends_no_op() {
+    use std::future::Future as _;
+    let v1 = memory_hub();
+    v1.insert_test_session(meta("unchanged"));
+    let directory = tempfile::tempdir().unwrap();
+    let mut previous_bytes = None;
+    for boot in [1, 2] {
+        let (hub, writer) =
+            acpmux_core::hub::Hub::open(directory.path(), boot, || boot as u32).unwrap();
+        let v2 = Arc::new(V2::new(hub, writer));
+        let subscription = v2.hub.subscribe(&acpmux_core::wire::Sub::new("test", "list")).unwrap();
+        let (_, task) = start_v2_tee(v1.clone(), v2.clone());
+        let mut task = Box::pin(task);
+        // One session fits in the first page/batch; the first suspension is
+        // the worker's yield after submitting the complete startup walk.
+        std::future::poll_fn(|cx| {
+            assert!(task.as_mut().poll(cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        drop(task);
+        v2.hub.close();
+        v2.take_writer().unwrap().run().await.unwrap();
+        let bytes = std::fs::read(directory.path().join("index.log")).unwrap();
+        assert_eq!(v2.hub.snapshot().seq(), 1);
+        if let Some(previous) = previous_bytes {
+            assert_eq!(bytes, previous);
+            assert!(subscription.receiver.try_next().is_none());
+        } else {
+            assert!(matches!(
+                subscription.receiver.try_next(),
+                Some(acpmux_core::hub::ListItem::Summary(_))
+            ));
+        }
+        previous_bytes = Some(bytes);
+    }
+}
+
+#[tokio::test]
 async fn startup_reconciles_local_rows_and_marks_purge_and_recreation() {
     use acpmux_core::hub::ListItem;
     let v1 = memory_hub();
