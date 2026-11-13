@@ -183,6 +183,17 @@ fn is_test_panic_thread(thread: &str) -> bool {
 /// cancellation-ignoring hub tasks are cut at this deadline so the next daemon can bind promptly.
 pub const SHUTDOWN_BUDGET: Duration = Duration::from_secs(1);
 
+/// The shutdown's budget once its plan is fixed: [`SHUTDOWN_BUDGET`] for a restart handoff,
+/// and the agents' ends on top when the shutdown ends them (Quit Everything): a cut there
+/// leaves an agent running with no daemon to end it (Codex review of #42296).
+pub(crate) fn shutdown_budget(ends_agents: bool) -> Duration {
+    if ends_agents {
+        SHUTDOWN_BUDGET.saturating_add(crate::hub::AGENT_END_BUDGET)
+    } else {
+        SHUTDOWN_BUDGET
+    }
+}
+
 /// Includes the CLI's final diagnostic-log flush, which used to add a fresh second after
 /// the daemon had consumed its entire shutdown budget.
 static SHUTDOWN_DEADLINE: std::sync::Mutex<Option<std::time::Instant>> =
@@ -1085,12 +1096,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         _ = shutdown => {}
     }
     tracing::info!("shutting down");
-    let shutdown_deadline = tokio::time::Instant::now() + SHUTDOWN_BUDGET;
-    *SHUTDOWN_DEADLINE.lock().unwrap_or_else(PoisonError::into_inner) =
-        Some(shutdown_deadline.into_std());
-    let shutdown_left = || shutdown_deadline.saturating_duration_since(tokio::time::Instant::now());
-    // Session/transport cleanup cannot consume the writers' entire chance to drain.
-    let cleanup_deadline = shutdown_deadline - Duration::from_millis(250);
+    let shutdown_started = tokio::time::Instant::now();
     // First: the cmux link stops sending peers here before admission closes or the listener is
     // freed, so no process that binds the freed port can be taken for this daemon.
     drop(listener_record);
@@ -1103,6 +1109,13 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     }
     // Fence automatic continuations before any transport or metadata drain can yield to them.
     hub.begin_shutdown();
+    // The plan is fixed now: a shutdown that ends its agents gets the time their ends take.
+    let shutdown_deadline = shutdown_started + shutdown_budget(hub.ends_agents_at_shutdown());
+    *SHUTDOWN_DEADLINE.lock().unwrap_or_else(PoisonError::into_inner) =
+        Some(shutdown_deadline.into_std());
+    let shutdown_left = || shutdown_deadline.saturating_duration_since(tokio::time::Instant::now());
+    // Session/transport cleanup cannot consume the writers' entire chance to drain.
+    let cleanup_deadline = shutdown_deadline - Duration::from_millis(250);
     // Fence tailnet supervision first: its ingress then ends through the
     // WebSocket shutdown below (1012 on restart), never as a listener failure.
     // A supervisor action under way finishes first, within its own bounds.
@@ -1198,7 +1211,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // The hub's own tasks after its agents: cancelled and joined, any left named (`hub/shutdown.rs`).
     hub.close_owned_tasks_until(cleanup_deadline).await;
     let (cleanup_done, cleanup_finished) = tokio::sync::oneshot::channel::<()>();
-    let persistence = {
+    let mut persistence = {
         let hub = hub.clone();
         exit_tasks.spawn_named("shutdown-persistence", async move {
             // Abort is cooperative: a synchronous final session write may still be under way.
@@ -1246,10 +1259,15 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     )
     .await;
     let _ = cleanup_done.send(());
-    if tokio::time::timeout_at(shutdown_deadline, persistence).await.is_err() {
+    // The CLI exits the process once this returns, which would end a writer mid-write and lose
+    // what it had yet to write (recent transcript, metadata, ledger and audit lines). So the
+    // writers finish first, past the deadline too, with the home still locked (Codex review of
+    // #42296). They hold no network or agent: on a healthy disk they end inside the deadline.
+    if tokio::time::timeout_at(shutdown_deadline, &mut persistence).await.is_err() {
         tracing::warn!(
-            "persistence still draining at the shutdown deadline; keeping the home locked until exit"
+            "persistence still draining at the shutdown deadline; waiting for it with the home locked"
         );
+        let _ = persistence.await;
     }
     tracing::info!("stopped");
     Ok(())
@@ -1496,7 +1514,9 @@ pub const HANDOVER_BUDGET: Duration = Duration::from_secs(20);
 
 /// How long a stopping daemon may take to exit: the agents' budget, the router's stop and kill
 /// waits, and a margin.
-pub const EXIT_BUDGET: Duration = SHUTDOWN_BUDGET.saturating_add(Duration::from_secs(8));
+pub const EXIT_BUDGET: Duration = SHUTDOWN_BUDGET
+    .saturating_add(crate::hub::AGENT_END_BUDGET)
+    .saturating_add(Duration::from_secs(8));
 
 /// Wait until no daemon holds this home's lock (the running one exited),
 /// at most [`EXIT_BUDGET`]. True when it was released.
