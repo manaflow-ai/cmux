@@ -6,8 +6,8 @@ use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use std::collections::{HashMap, VecDeque};
 use wire::{
-    Anchor, Cursor, DeltaFrame, DeltaOp, Frame, FrameDecoder, FrameError, FrameKind, Hello, Limits,
-    Page, ReplayMark, Request, Sub, Window,
+    Anchor, Cursor, DeltaFrame, DeltaOp, Frame, FrameError, FrameKind, Hello, Limits, Page,
+    ReplayMark, Request, Sub, Window,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -29,6 +29,7 @@ pub enum Change<T> {
 #[serde(rename_all = "camelCase")]
 pub struct PageChange<T> {
     pub sid: String,
+    #[serde(alias = "data")]
     pub rows: Vec<T>,
     #[serde(default)]
     pub has_before: bool,
@@ -61,7 +62,8 @@ enum Phase {
 pub struct Client<T = acpmux_book::index::Summary> {
     phase: Phase,
     surfaces: Vec<String>,
-    decoder: FrameDecoder,
+    frame_buf: Vec<u8>,
+    frame_total: Option<usize>,
     send: VecDeque<Vec<u8>>,
     changes: VecDeque<QueuedChange<T>>,
     subscriptions: HashMap<String, SubState>,
@@ -86,7 +88,8 @@ where
         Self {
             phase: Phase::Upgrade,
             surfaces: surfaces.into_iter().map(Into::into).collect(),
-            decoder: FrameDecoder::default(),
+            frame_buf: Vec::new(),
+            frame_total: None,
             send: VecDeque::new(),
             changes: VecDeque::new(),
             subscriptions: HashMap::new(),
@@ -157,11 +160,12 @@ where
             return 0;
         }
         if self.phase == Phase::Upgrade {
-            self.line.extend_from_slice(bytes);
-            let Some(end) = self.line.iter().position(|b| *b == b'\n') else {
+            let Some(end) = bytes.iter().position(|b| *b == b'\n') else {
+                self.line.extend_from_slice(bytes);
                 return bytes.len();
             };
-            let reply = self.line.drain(..=end).collect::<Vec<_>>();
+            self.line.extend_from_slice(bytes.get(..=end).unwrap_or(bytes));
+            let reply = std::mem::take(&mut self.line);
             let value: Value = serde_json::from_slice(&reply).unwrap_or(Value::Null);
             if value.pointer("/error/code").and_then(Value::as_i64) == Some(-32601) {
                 self.phase = Phase::Fallback;
@@ -173,21 +177,18 @@ where
             }
             self.phase = Phase::Hello;
             self.queue_hello();
-            if !self.line.is_empty() {
-                let ahead = self.line.split_off(0);
-                return self.received(&ahead).min(bytes.len());
+            let remainder = bytes.get(end.saturating_add(1)..).unwrap_or_default();
+            if !remainder.is_empty() {
+                return end.saturating_add(1).saturating_add(self.received(remainder));
             }
-            return bytes.len();
+            return end.saturating_add(1);
         }
-        match self.decoder.push(bytes) {
-            Ok(frames) => {
-                for frame in frames {
-                    self.accept_frame(frame);
-                    if !self.changes.is_empty() {
-                        break;
-                    }
-                }
+        match self.take_frame(bytes) {
+            Ok((Some(frame), consumed)) => {
+                self.accept_frame(frame);
+                return consumed;
             }
+            Ok((None, consumed)) => return consumed,
             Err(error) => {
                 self.phase = Phase::Closed;
                 self.push_change(
@@ -204,6 +205,43 @@ where
             }
         }
         bytes.len()
+    }
+
+    fn take_frame(&mut self, bytes: &[u8]) -> Result<(Option<Frame>, usize), FrameError> {
+        if self.frame_buf.is_empty() && self.frame_total.is_none() && bytes.len() >= 4 {
+            let header = bytes.get(..4).ok_or(FrameError::Truncated)?;
+            let len = u32::from_be_bytes([header[0], header[1], header[2], header[3]]) as usize;
+            if !(1..=wire::MAX_FRAME_BYTES - 4).contains(&len) {
+                return Err(FrameError::InvalidLength(len));
+            }
+            let total = len.saturating_add(4);
+            if bytes.len() >= total {
+                return Ok((
+                    Some(Frame::from_encoded(bytes.get(..total).ok_or(FrameError::Truncated)?)?),
+                    total,
+                ));
+            }
+        }
+        let need = self.frame_total.map_or(4, |total| total).saturating_sub(self.frame_buf.len());
+        let used = need.min(bytes.len());
+        self.frame_buf.extend_from_slice(bytes.get(..used).unwrap_or_default());
+        if self.frame_total.is_none() && self.frame_buf.len() >= 4 {
+            let header = self.frame_buf.get(..4).ok_or(FrameError::Truncated)?;
+            let len = u32::from_be_bytes([header[0], header[1], header[2], header[3]]) as usize;
+            if !(1..=wire::MAX_FRAME_BYTES - 4).contains(&len) {
+                return Err(FrameError::InvalidLength(len));
+            }
+            self.frame_total = Some(len.saturating_add(4));
+        }
+        let Some(total) = self.frame_total else {
+            return Ok((None, used));
+        };
+        if self.frame_buf.len() < total {
+            return Ok((None, used));
+        }
+        let encoded = std::mem::take(&mut self.frame_buf);
+        self.frame_total = None;
+        Ok((Some(Frame::from_encoded(encoded.get(..total).ok_or(FrameError::Truncated)?)?), used))
     }
 
     pub fn subscribe(&mut self, mut sub: Sub) -> Result<String, FrameError> {
@@ -242,6 +280,9 @@ where
     }
 
     pub fn page(&mut self, page: Page) -> Result<(), FrameError> {
+        if !wire::identifier_fits(&page.sid) {
+            return Err(FrameError::InvalidLength(page.sid.len()));
+        }
         if self.phase == Phase::Ready {
             self.queue_request(Request::Page(page))?;
         }
@@ -308,6 +349,8 @@ where
             FrameKind::Delta => {
                 if let Ok(delta) = frame.decode_json::<DeltaFrame<T>>() {
                     self.accept_delta(delta, frame_bytes);
+                } else if let Ok(value) = frame.decode_json::<Value>() {
+                    self.accept_delta_value(value, frame_bytes);
                 }
             }
             FrameKind::Dropped => {
@@ -408,6 +451,64 @@ where
         }
     }
 
+    fn accept_delta_value(&mut self, value: Value, frame_bytes: u64) {
+        let sid = value.get("sid").and_then(Value::as_str).unwrap_or_default().to_owned();
+        let replay_end = value.get("replay").and_then(Value::as_str) == Some("end");
+        let Some(ops) = value.get("ops").and_then(Value::as_array) else { return };
+        let mut first = true;
+        for raw in ops {
+            let Some(seq) = raw.get("seq").and_then(Value::as_u64) else { continue };
+            let charge = first;
+            first = false;
+            match serde_json::from_value::<DeltaOp<T>>(raw.clone()) {
+                Ok(DeltaOp::Summary { seq, summary }) => {
+                    self.advance(&sid, seq);
+                    self.push_change(
+                        Change::Summary { sid: sid.clone(), seq, summary },
+                        Some(sid.clone()),
+                        frame_bytes,
+                        charge,
+                    );
+                }
+                Ok(DeltaOp::Gone { seq, chat_id }) => {
+                    self.advance(&sid, seq);
+                    self.push_change(
+                        Change::Gone { sid: sid.clone(), seq, chat_id, why: None },
+                        Some(sid.clone()),
+                        frame_bytes,
+                        charge,
+                    );
+                }
+                Ok(DeltaOp::Origin { seq, origin }) => {
+                    self.advance(&sid, seq);
+                    self.push_change(
+                        Change::Origin { sid: sid.clone(), seq, origin },
+                        Some(sid.clone()),
+                        frame_bytes,
+                        charge,
+                    );
+                }
+                Ok(DeltaOp::Queue { seq, bytes }) => {
+                    self.advance(&sid, seq);
+                    self.push_change(
+                        Change::Queue { sid: sid.clone(), seq, bytes },
+                        Some(sid.clone()),
+                        frame_bytes,
+                        charge,
+                    );
+                }
+                Err(_) => self.advance(&sid, seq),
+            }
+        }
+        if replay_end {
+            let cursor = self.subscriptions.get(&sid).map(|sub| sub.cursor).unwrap_or_default();
+            if let Some(sub) = self.subscriptions.get_mut(&sid) {
+                sub.replaying = false;
+            }
+            self.push_change(Change::ResumeEnd { sid, cursor }, None, 0, false);
+        }
+    }
+
     fn advance(&mut self, sid: &str, seq: u64) {
         if let Some(sub) = self.subscriptions.get_mut(sid) {
             if seq > sub.cursor.0 {
@@ -490,5 +591,70 @@ mod tests {
         let mut c = Client::<Value>::new(["list"]);
         c.connected();
         assert!(std::str::from_utf8(&c.take_send().unwrap()).unwrap().contains("_acpmux/v2"));
+    }
+
+    #[test]
+    fn received_stops_at_one_frame_until_change_is_taken() {
+        let mut client = Client::<Value>::connected_v2();
+        let hello = Frame::json(
+            FrameKind::Hello,
+            &wire::HelloReply { daemon_id: "d".into(), limits: Limits::default() },
+        )
+        .unwrap()
+        .encode();
+        assert_eq!(client.received(&hello), hello.len());
+        let _ = client.subscribe(Sub::new("s", "list")).unwrap();
+        let first = Frame::json(
+            FrameKind::Window,
+            &serde_json::json!({
+                "sid":"s","cursor":1,"rows":[],"hasBefore":false,"hasAfter":false,"edition":1
+            }),
+        )
+        .unwrap()
+        .encode();
+        let second = Frame::json(
+            FrameKind::Window,
+            &serde_json::json!({
+                "sid":"s","cursor":2,"rows":[],"hasBefore":false,"hasAfter":false,"edition":1
+            }),
+        )
+        .unwrap()
+        .encode();
+        let mut bytes = first.clone();
+        bytes.extend_from_slice(&second);
+        assert_eq!(client.received(&bytes), first.len());
+        assert!(matches!(client.next_change(), Some(Change::Window(_))));
+        assert_eq!(client.received(&bytes[first.len()..]), second.len());
+        assert!(matches!(client.next_change(), Some(Change::Window(_))));
+    }
+
+    #[test]
+    fn method_not_found_returns_unconsumed_fallback_bytes() {
+        let mut client = Client::<Value>::new(["list"]);
+        client.connected();
+        let reply = b"{\"error\":{\"code\":-32601}}\nrest";
+        let line_len = b"{\"error\":{\"code\":-32601}}\n".len();
+        assert_eq!(client.received(reply), line_len);
+        assert_eq!(client.next_change(), Some(Change::Fallback(b"rest".to_vec())));
+        assert_eq!(client.received(b"later"), 0);
+    }
+
+    #[test]
+    fn unknown_delta_op_advances_cursor_but_keeps_known_ops() {
+        let mut client = Client::<Value>::connected_v2();
+        let hello = Frame::json(
+            FrameKind::Hello,
+            &wire::HelloReply { daemon_id: "d".into(), limits: Limits::default() },
+        )
+        .unwrap()
+        .encode();
+        client.received(&hello);
+        let _ = client.subscribe(Sub::new("s", "list").from_cursor(0)).unwrap();
+        let frame = Frame::json(FrameKind::Delta, &serde_json::json!({
+            "sid":"s","ops":[{"op":"future","seq":1},{"op":"queue","seq":2,"bytes":4}],"replay":"end"
+        })).unwrap().encode();
+        assert_eq!(client.received(&frame), frame.len());
+        assert!(matches!(client.next_change(), Some(Change::Queue { seq: 2, .. })));
+        assert!(matches!(client.next_change(), Some(Change::ResumeEnd { cursor: Cursor(2), .. })));
     }
 }
