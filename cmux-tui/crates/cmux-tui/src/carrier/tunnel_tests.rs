@@ -379,7 +379,10 @@ async fn a_hub_that_ends_by_itself_restarts_after_a_fresh_read() {
         assert!(tokio::time::Instant::now() < deadline, "a second hub in time");
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
-    assert_eq!(rig.vm.requests("/signed/tunnel").len(), 1);
+    // The crash counts as a failure, so the restarted hub may read once more
+    // on the retry backoff (milliseconds here); a read loop would pass 2.
+    let reads = rig.vm.requests("/signed/tunnel").len();
+    assert!((1..=2).contains(&reads), "a fresh read before the restart, no loop: {reads}");
     assert_eq!(rig.platform.requests("/attach").len(), 2, "no re-attach for a crash");
     handle.stop().await;
 }
@@ -691,5 +694,76 @@ async fn a_stop_before_hub_ready_kills_a_hub_that_ignores_sigterm() {
     while unsafe { libc::kill(pid, 0) } == 0 {
         assert!(tokio::time::Instant::now() < deadline, "the abandoned hub was not killed");
         tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+/// A child whose exit-event wait fails: it records what the owner did.
+struct NoEventChild {
+    log: Arc<Mutex<Vec<&'static str>>>,
+    /// The errno of the failed waits.
+    errno: i32,
+    /// Whether `try_wait` fails too (it runs when the owner is asked to stop).
+    try_wait_fails: bool,
+}
+
+impl HubChild for NoEventChild {
+    fn id(&self) -> u32 {
+        0
+    }
+    fn try_wait(&mut self) -> std::io::Result<Option<std::process::ExitStatus>> {
+        if !self.try_wait_fails {
+            return Ok(None);
+        }
+        self.log.lock().unwrap().push("try_wait");
+        Err(std::io::Error::from_raw_os_error(self.errno))
+    }
+    fn wait_timeout(&mut self, _: Duration) -> std::io::Result<Option<std::process::ExitStatus>> {
+        self.log.lock().unwrap().push("wait_timeout");
+        Err(std::io::Error::from_raw_os_error(self.errno))
+    }
+    fn kill(&mut self) -> std::io::Result<()> {
+        self.log.lock().unwrap().push("kill");
+        Ok(())
+    }
+    fn wait(&mut self) -> std::io::Result<std::process::ExitStatus> {
+        self.log.lock().unwrap().push("wait");
+        use std::os::unix::process::ExitStatusExt as _;
+        Ok(std::process::ExitStatus::from_raw(libc::SIGKILL))
+    }
+}
+
+#[test]
+fn a_failed_exit_wait_kills_and_reaps_the_hub_before_it_is_ended() {
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let (requests, asked) = std::sync::mpsc::channel();
+    let (done, mut ended) = watch::channel(None);
+    let child = NoEventChild { log: Arc::clone(&log), errno: libc::EMFILE, try_wait_fails: false };
+    std::thread::spawn(move || own_hub(child, asked, done, Duration::from_secs(5))).join().unwrap();
+    drop(requests);
+    assert_eq!(*log.lock().unwrap(), ["wait_timeout", "kill", "wait"]);
+    let why = ended.borrow_and_update().clone().expect("ended after the reap");
+    assert!(why.contains("after"), "{why}");
+}
+
+/// `ECHILD`: the hub was reaped elsewhere, so its pid may be another
+/// process's by now. The owner reports it ended and never signals it, from
+/// the exit-event wait or from a stop's `try_wait`.
+#[test]
+fn a_hub_reaped_elsewhere_is_ended_without_a_signal() {
+    for try_wait_fails in [false, true] {
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let (requests, asked) = std::sync::mpsc::channel();
+        // A dropped sender is a stop: the owner's `try_wait` runs first.
+        let kept = (!try_wait_fails).then_some(requests);
+        let (done, mut ended) = watch::channel(None);
+        let child = NoEventChild { log: Arc::clone(&log), errno: libc::ECHILD, try_wait_fails };
+        std::thread::spawn(move || own_hub(child, asked, done, Duration::from_secs(5)))
+            .join()
+            .unwrap();
+        drop(kept);
+        let first = if try_wait_fails { "try_wait" } else { "wait_timeout" };
+        assert_eq!(*log.lock().unwrap(), [first], "no kill, no wait");
+        let why = ended.borrow_and_update().clone().expect("ended");
+        assert!(why.contains("reaped elsewhere"), "{why}");
     }
 }

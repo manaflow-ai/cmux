@@ -15,6 +15,9 @@
 //!   A `session/load`, an attach or anything else that replays or subscribes goes only on the
 //!   link's path; when that path dies under it, it is sent again on the next link
 //!   (`Peer::resend_switched`), never raced.
+//! - A client's `$/cancel_request` of a request the shadow carried a copy of goes on every path
+//!   that still carries it, unstamped (`peer_carried.rs`), the shadow too after the link moved
+//!   on: the peer stops whichever copy runs on hearing it on either.
 //! - Each reply is taken once: the first to come settles its caller, the other finds no caller.
 //! - Each chat event is taken once and in order, by one merger (`Peer::merge_event`) that both
 //!   readers go through and that holds its lock from the claim through the hand-off to the hub.
@@ -116,6 +119,15 @@ pub(super) fn copied(line: &str) -> bool {
     let Ok(msg) = serde_json::from_str::<Value>(line) else { return false };
     let Some(m) = msg.get("method").and_then(Value::as_str) else { return false };
     crate::server::dual_requests::dual_safe(m, msg.get("params").unwrap_or(&Value::Null))
+}
+
+/// Whether `line` is a `$/cancel_request` notification.
+fn is_cancel(line: &str) -> bool {
+    // Most frames are not one: read only those that name the method.
+    line.contains(method::CANCEL_REQUEST)
+        && serde_json::from_str::<Value>(line).is_ok_and(|msg| {
+            msg.get("method").and_then(Value::as_str) == Some(method::CANCEL_REQUEST)
+        })
 }
 
 /// A `dualId` only this link writes: one a client put in what is forwarded is dropped.
@@ -293,7 +305,7 @@ impl Peer {
             // A chat a load or an attach replays now stays the link's alone: its replay is
             // below the cursor, and no repeat (`Peer::replay_start`).
             let replaying = self.replaying.lock_or_recover();
-            for (sid, after) in replayable(&cursors) {
+            for (sid, after) in replayable(&cursors, &self.baselined.lock_or_recover()) {
                 if replaying.contains_key(&sid) {
                     continue;
                 }
@@ -324,6 +336,12 @@ impl Peer {
         let Some(shadow) = shadow.as_ref().filter(|shadow| shadow.link == link) else {
             return text;
         };
+        // A client's cancel goes to each path that carries its request from the record
+        // (`PeerCancel::cancel`), the shadow too after the link moved on (review F1 of #41392),
+        // never copied here.
+        if is_cancel(&text) {
+            return text;
+        }
         // One bound to its connection (a load, an attach) goes on the link's path alone.
         if !copied(&text) {
             return text;
@@ -332,11 +350,16 @@ impl Peer {
         let dual_id = format!("{}:{link}:{n}", self.dual_nonce);
         // Without object params a copy could not be told from the first: it goes on the link only.
         let Some(stamped) = stamped(&text, &dual_id) else { return text };
-        if shadow.tx.try_send(stamped.clone()).is_ok() {
-            self.dual_stats.sent(stamped.len());
-            if let Some(key) = key {
-                self.dual_keys.lock_or_recover().insert(key.to_owned());
+        // A request's copy goes only while it is still owed, and makes the shadow one of its
+        // carriers, under the record's lock: a cancel that took it first leaves no copy to run.
+        let sent = match key {
+            Some(key) => {
+                self.carried.lock_or_recover().copy(key, link, &shadow.tx, stamped.clone())
             }
+            None => shadow.tx.try_send(stamped.clone()).is_ok(),
+        };
+        if sent {
+            self.dual_stats.sent(stamped.len());
         }
         stamped
     }
@@ -545,18 +568,23 @@ impl Peer {
 
     /// Whether a pending `key` waits on a shadow's answer: kept when its link ends.
     pub(super) fn dual_carried(&self, key: &str) -> bool {
-        self.dual_keys.lock_or_recover().contains(key)
+        self.carried.lock_or_recover().on_live_shadow(key)
     }
 
     /// Whether the shadow should end now: the doubt cleared, or its link ended and the grace for
     /// answers to what it carried passed. Unregisters it from copies at once when its link ended.
+    /// Never while a cancel to it still waits for room in its queue: its loop writes that
+    /// first (review F2 of #41392).
     pub(super) fn shadow_done(&self, run: &mut ShadowRun) -> bool {
+        if self.carried.lock_or_recover().cancels_due(run.link) {
+            return false;
+        }
         if run.link != self.link_epoch() || self.serving() == Some(run.via) {
             self.unregister_shadow(run);
             let at = *run.orphaned_at.get_or_insert_with(tokio::time::Instant::now);
             return at.elapsed() >= ANSWER_GRACE
                 || self.serving() == Some(run.via)
-                || self.dual_keys.lock_or_recover().is_empty();
+                || !self.carried.lock_or_recover().shadow_carries(run.link);
         }
         !self.dual_wanted(run.via)
     }
@@ -571,7 +599,7 @@ impl Peer {
     /// The shadow ends: no copies from now; a doubt that cleared detaches its chats (the
     /// returned frames, sent on it while it stays a probe); copies it carried whose answer never
     /// came fail as `peer_disconnected` (the peer may have run them), as on a link that drops.
-    pub(super) async fn shadow_end(&self, run: ShadowRun) -> Vec<String> {
+    pub(super) async fn shadow_end(&self, mut run: ShadowRun) -> Vec<String> {
         self.unregister_shadow(&run);
         let mut frames = Vec::new();
         if run.link == self.link_epoch() {
@@ -584,7 +612,15 @@ impl Peer {
                 frames.push(line);
             }
         }
-        let orphans: Vec<String> = self.dual_keys.lock_or_recover().drain().collect();
+        // It carries nothing from now; what it leaves with no live carrier leaves the record.
+        let orphans = self.carried.lock_or_recover().shadow_ended(run.link, self.link_epoch());
+        // A cancel queued to it before that still goes out (`PeerCancel::cancel`): its copy may
+        // run there. The copies queued behind it go with the shadow.
+        while let Ok(line) = run.rx.try_recv() {
+            if is_cancel(&line) {
+                frames.push(line);
+            }
+        }
         if run.link != self.link_epoch() && !orphans.is_empty() {
             let mut pending = self.pending.lock().await;
             for key in orphans {
@@ -645,9 +681,15 @@ impl Peer {
                 }
                 let tx = self.pending.lock().await.remove(&key);
                 self.on_wire.lock_or_recover().remove(&key);
-                self.dual_keys.lock_or_recover().remove(&key);
-                if let Some(tx) = tx {
-                    let _ = tx.send(Ok(result.unwrap_or(Value::Null)));
+                match tx {
+                    Some(tx) => {
+                        let _ = tx.send(Ok(result.unwrap_or(Value::Null)));
+                    }
+                    // Nobody waits: a cancelled request's late answer is dropped and logged, as
+                    // the link's is (review F4 of #41361).
+                    None => {
+                        self.cancelled.lock_or_recover().take_late(&key, "shadow");
+                    }
                 }
                 Vec::new()
             }
@@ -695,6 +737,14 @@ impl Peer {
                 }
             }
             Message::Request { .. } => Vec::new(),
+        }
+    }
+
+    /// A text frame a probe read while it is no shadow: a late answer to a copy it carried as
+    /// one (a cancelled request's, after the shadow ended) is dropped and logged as the link's is.
+    pub(super) fn probe_frame(&self, text: &str) {
+        if let Ok(Message::Response { id, .. }) = Message::parse(text) {
+            self.cancelled.lock_or_recover().take_late(&id.to_string(), "shadow");
         }
     }
 

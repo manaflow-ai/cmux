@@ -22,6 +22,9 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "nightly.yml"
 SCRIPT = ROOT / "scripts" / "ci" / "nightly_published_build.py"
@@ -105,11 +108,17 @@ for name, steps in CROSS_RUN.items():
         failures.append(f"{name} reads another run's artifacts: it needs actions: read")
     by_name = {str(step.get("name", "")): step for step in spec.get("steps", [])}
     for step_name in steps:
-        step = next((s for n, s in by_name.items() if n.startswith(step_name)), None)
-        with_ = (step or {}).get("with") or {}
-        if "published-build.outputs.source_run" not in str(with_.get("run-id", "")) \
-                or "github.token" not in str(with_.get("github-token", "")):
+        # The ranged download (download-run-artifact.py, its run in env) and its download-artifact fallback
+        # (run-id in with) both read the published build's run.
+        found = [s for n, s in by_name.items() if n.startswith(step_name)]
+        if not found:
             failures.append(f"{name}: {step_name!r} must download from the published build's run")
+        for step in found:
+            with_, env = step.get("with") or {}, step.get("env") or {}
+            run_from, token = (str(with_.get("run-id", "")), str(with_.get("github-token", ""))) if "uses" in step \
+                else (str(env.get("SOURCE_RUN", "")), str(env.get("GITHUB_TOKEN", "")))
+            if "published-build.outputs.source_run" not in run_from or "github.token" not in token:
+                failures.append(f"{name}: {step.get('name')!r} must download from the published build's run")
 
 # run_tail: false only in a loop run (a push, or the loop's retry) that published itself.
 run_tail = str(((source or {}).get("outputs") or {}).get("run_tail", ""))
@@ -161,7 +170,7 @@ else:
     for _, run in ask:
         if "nightly.yml" not in run or re.findall(r"-f (\w+)=", run) != ["nightly_next_post_publish"]:
             failures.append("dispatch-published-in must dispatch nightly.yml with only -f nightly_next_post_publish=")
-    runs_on = str(dispatch.get("runs-on", ""))
+    runs_on = workflow_jobs.single_runs_on(dispatch)
     if "blacksmith" in runs_on.lower() or "CI_NIGHTLY_MINI" not in runs_on:
         failures.append("dispatch-published-in runs on the nightly mini, as published-build")
 if TEXT.count("-f nightly_next_post_publish=") > 1:

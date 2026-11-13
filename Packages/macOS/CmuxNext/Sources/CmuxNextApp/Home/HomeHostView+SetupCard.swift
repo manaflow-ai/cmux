@@ -28,8 +28,7 @@ extension HomeHostView {
 
     private func showSetupCard(_ shows: Bool) {
         guard shows else {
-            setupCard?.close()
-            setupCard = nil
+            setupCard?.close(); setupCard = nil
             return transcript.setSetupCard(nil, height: 0)
         }
         let services = control.services, auth = control.services.cloud.auth, registry = control.services.registry

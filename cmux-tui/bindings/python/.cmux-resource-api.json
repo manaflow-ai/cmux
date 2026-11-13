@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "c9c1e4098cce1ceee0e28747dc454aea0bc7d9477563fe0e7388819d09292e54",
+  "catalog_sha256": "410246dc1512a7f8bdc9b80623cdbc7b6e26bdcaaa2478f97cfdba9928760443",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -175,7 +175,13 @@
     "closed.reopen": {
       "class": "mutation"
     },
+    "cloud.machine.chat_access": {
+      "class": "read"
+    },
     "cloud.machine.io": {
+      "class": "mutation"
+    },
+    "cloud.machine.share_chat": {
       "class": "mutation"
     },
     "cloud.owner.acpmux_keyed_start": {
@@ -203,6 +209,15 @@
       "class": "read"
     },
     "cloud.owner.harness_login_copy": {
+      "class": "read"
+    },
+    "cloud.owner.turn_checkpoint": {
+      "class": "mutation"
+    },
+    "cloud.owner.turn_rewind": {
+      "class": "mutation"
+    },
+    "cloud.owner.turns": {
       "class": "read"
     },
     "cloud.previews.create_link": {
@@ -326,6 +341,9 @@
       "class": "read"
     },
     "diff.comments.save": {
+      "class": "mutation"
+    },
+    "diff.comments.send": {
       "class": "mutation"
     },
     "frontend_projection.get": {
@@ -498,6 +516,9 @@
     },
     "pane.list": {
       "class": "read"
+    },
+    "pane.move": {
+      "class": "mutation"
     },
     "pane.neighbor.get": {
       "class": "read"
@@ -707,6 +728,9 @@
       "class": "mutation"
     },
     "session.window.title.set": {
+      "class": "mutation"
+    },
+    "settings.edit": {
       "class": "mutation"
     },
     "settings.get": {

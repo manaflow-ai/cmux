@@ -8,7 +8,8 @@ use crate::store::{EventRecord, LocalStore, SessionMeta, Store};
 const CLAUDE: &str = include_str!("../review_brief_fixtures/claude.ndjson");
 
 fn root(name: &str) -> PathBuf {
-    let root = std::env::temp_dir().join(format!("acpmux-review-brief-{}-{name}", uuid::Uuid::now_v7()));
+    let root =
+        std::env::temp_dir().join(format!("acpmux-review-brief-{}-{name}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(&root).unwrap();
     root
 }

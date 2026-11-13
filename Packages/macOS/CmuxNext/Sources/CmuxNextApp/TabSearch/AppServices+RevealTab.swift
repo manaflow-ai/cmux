@@ -24,7 +24,7 @@ extension AppServices {
         guard let paneModel = located?.1,
               let workspace = daemon(for: paneModel).store.workspace(containing: paneModel.handle),
               let window = windows.reveal(workspaceID: workspace.id) else { return false }
-        window.state.selection.select(tabID, in: paneModel.id)
+        window.state.selection.jump(to: tabID, in: paneModel.id, byPerson: ActionRunScope.isPersonsAction())
         window.focus.send(.selectTab(pane: paneModel.id, tab: tabID, workspace: workspace.id, source: .intent))
         paneController(for: paneModel)?.select(StripTabID(tabID))
         if let nsWindow = window.window { showJumpWindow(nsWindow, intent) }
@@ -41,7 +41,7 @@ extension AppServices {
               machines.workspace(id: workspace.id)?.1 === daemon else { return false }
         let tabID = tab.id
         guard let window = windows.reveal(workspaceID: workspace.id) else { return false }
-        window.state.selection.select(tabID, in: pane.id)
+        window.state.selection.jump(to: tabID, in: pane.id, byPerson: ActionRunScope.isPersonsAction())
         window.focus.send(.selectTab(pane: pane.id, tab: tabID, workspace: workspace.id, source: .intent))
         paneController(for: pane)?.select(StripTabID(tabID))
         if let nsWindow = window.window { showJumpWindow(nsWindow, intent) }

@@ -45,6 +45,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use async_trait::async_trait;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
+use cmux_json::JsonGet as _;
 use cmux_server_core::install_key::{InstallKey, SystemRandom};
 use cmux_server_core::pairing::native::mesh_proof;
 use ring::rand::SecureRandom as _;
@@ -133,10 +134,6 @@ fn wg_key_text(value: &str) -> bool {
         && STANDARD.decode(value).is_ok_and(|bytes| bytes.len() == 32)
 }
 
-fn text<'a>(value: &'a Value, name: &str) -> Option<&'a str> {
-    value.get(name)?.as_str().filter(|s| !s.is_empty())
-}
-
 /// A non-empty route list whose every entry is safe in the config.
 fn routes(value: &Value) -> Option<Vec<String>> {
     let routes: Vec<String> = value
@@ -157,15 +154,20 @@ impl DeviceTunnel {
     pub(crate) fn from_attach(body: &Value) -> Option<Self> {
         let config = body.get("client_config").filter(|c| c.is_object())?;
         let tunnel = Self {
-            tunnel_id: text(body, "tunnel_id")?.to_owned(),
-            device_id: text(body, "device_id").filter(|d| d.starts_with("dev_"))?.to_owned(),
-            mesh_id: text(body, "mesh_id")?.to_owned(),
-            address_v4: text(body, "address_v4").map(str::to_owned),
-            server_public_key: text(body, "server_public_key")
+            tunnel_id: body.get_nonempty_str("tunnel_id")?.to_owned(),
+            device_id: body
+                .get_nonempty_str("device_id")
+                .filter(|d| d.starts_with("dev_"))?
+                .to_owned(),
+            mesh_id: body.get_nonempty_str("mesh_id")?.to_owned(),
+            address_v4: body.get_nonempty_str("address_v4").map(str::to_owned),
+            server_public_key: body
+                .get_nonempty_str("server_public_key")
                 .filter(|k| wg_key_text(k))?
                 .to_owned(),
-            endpoint: text(config, "endpoint").filter(|e| config_safe(e))?.to_owned(),
-            interface_address: text(config, "interface_address")
+            endpoint: config.get_nonempty_str("endpoint").filter(|e| config_safe(e))?.to_owned(),
+            interface_address: config
+                .get_nonempty_str("interface_address")
                 .filter(|a| config_safe(a))?
                 .to_owned(),
             allowed_ips: routes(config.get("allowed_ips")?)?,
@@ -173,7 +175,8 @@ impl DeviceTunnel {
             persistent_keepalive_seconds: small(config, "persistent_keepalive_seconds", 0, 3600)?,
             // An origin that is not a bare https one (or loopback http) is
             // ignored: the derived origin serves instead.
-            vm_api_origin: text(body, "vm_api_origin")
+            vm_api_origin: body
+                .get_nonempty_str("vm_api_origin")
                 .and_then(|origin| crate::cli::secure_cloud_origin(origin).ok()),
         };
         Some(tunnel)
@@ -185,21 +188,25 @@ impl DeviceTunnel {
     /// read has no `allowedIps`. `None` when the read names another device
     /// or a field is not safe.
     pub(crate) fn refreshed(&self, body: &Value) -> Option<Self> {
-        if text(body, "deviceId") != Some(self.device_id.as_str()) {
+        if body.get_nonempty_str("deviceId") != Some(self.device_id.as_str()) {
             return None;
         }
-        let host = text(body, "endpointHost").filter(|h| config_safe(h))?;
+        let host = body.get_nonempty_str("endpointHost").filter(|h| config_safe(h))?;
         let port = small(body, "endpointPort", 1, 65535)?;
         let endpoint =
             if host.contains(':') { format!("[{host}]:{port}") } else { format!("{host}:{port}") };
         Some(Self {
-            tunnel_id: text(body, "id")?.to_owned(),
+            tunnel_id: body.get_nonempty_str("id")?.to_owned(),
             device_id: self.device_id.clone(),
-            mesh_id: text(body, "meshId")?.to_owned(),
-            address_v4: text(body, "meshAddress").map(str::to_owned),
-            server_public_key: text(body, "serverPublicKey").filter(|k| wg_key_text(k))?.to_owned(),
+            mesh_id: body.get_nonempty_str("meshId")?.to_owned(),
+            address_v4: body.get_nonempty_str("meshAddress").map(str::to_owned),
+            server_public_key: body
+                .get_nonempty_str("serverPublicKey")
+                .filter(|k| wg_key_text(k))?
+                .to_owned(),
             endpoint,
-            interface_address: text(body, "interfaceAddress")
+            interface_address: body
+                .get_nonempty_str("interfaceAddress")
                 .filter(|a| config_safe(a))?
                 .to_owned(),
             allowed_ips: match body.get("allowedIps").filter(|ips| !ips.is_null()) {
@@ -558,7 +565,7 @@ async fn attach(plan: &TunnelPlan, identity: &TunnelIdentity) -> Result<DeviceTu
     if status != 200 {
         return Err(attach_miss(status, &body));
     }
-    let Some(mesh) = text(&body, "mesh_id") else {
+    let Some(mesh) = body.get_nonempty_str("mesh_id") else {
         return Err(Miss::NoMesh(NO_MESH.into()));
     };
     let wg = identity.wg_public();
@@ -573,7 +580,7 @@ async fn attach(plan: &TunnelPlan, identity: &TunnelIdentity) -> Result<DeviceTu
     if status != 200 {
         return Err(attach_miss(status, &body));
     }
-    if text(&body, "client_public_key").is_some_and(|key| key != wg) {
+    if body.get_nonempty_str("client_public_key").is_some_and(|key| key != wg) {
         return Err(Miss::Reattach("attach answered another key".into()));
     }
     DeviceTunnel::from_attach(&body).ok_or_else(|| Miss::Fatal("attach answered no tunnel".into()))
@@ -812,8 +819,80 @@ const HUB_KILL_AFTER: Duration = Duration::from_secs(5);
 /// runs and before this same thread reaps it, so its pid cannot have been
 /// reused; nothing else ever signals the hub. A dropped `ProcessHub` (its
 /// sender gone) counts as `Term`.
+/// What the owner thread needs of the hub's child; a seam so a test can
+/// make the exit-event wait fail.
+trait HubChild {
+    fn id(&self) -> u32;
+    fn try_wait(&mut self) -> std::io::Result<Option<std::process::ExitStatus>>;
+    fn wait_timeout(
+        &mut self,
+        limit: Duration,
+    ) -> std::io::Result<Option<std::process::ExitStatus>>;
+    fn kill(&mut self) -> std::io::Result<()>;
+    fn wait(&mut self) -> std::io::Result<std::process::ExitStatus>;
+}
+
+impl HubChild for cmux_process::Child {
+    fn id(&self) -> u32 {
+        cmux_process::Child::id(self)
+    }
+    fn try_wait(&mut self) -> std::io::Result<Option<std::process::ExitStatus>> {
+        cmux_process::Child::try_wait(self)
+    }
+    fn wait_timeout(
+        &mut self,
+        limit: Duration,
+    ) -> std::io::Result<Option<std::process::ExitStatus>> {
+        cmux_process::Child::wait_timeout(self, limit)
+    }
+    fn kill(&mut self) -> std::io::Result<()> {
+        cmux_process::Child::kill(self)
+    }
+    fn wait(&mut self) -> std::io::Result<std::process::ExitStatus> {
+        cmux_process::Child::wait(self)
+    }
+}
+
+/// The child can no longer be watched (its exit event could not be set up,
+/// say with no descriptors left): it is still this thread's, so it is killed
+/// and reaped here, and only then reported ended. Dropping it instead would
+/// leave a live hub no stop could reach, holding its socket's lock.
+///
+/// `ECHILD` is the one exception: the child was already reaped elsewhere (an
+/// inherited `SIGCHLD = SIG_IGN` makes the kernel reap it), so this thread no
+/// longer owns its pid, which may now be another process's. It is never
+/// signaled; the hub is reported ended as it is.
+fn kill_and_reap(child: &mut impl HubChild, why: &std::io::Error) -> String {
+    if why.raw_os_error() == Some(libc::ECHILD) {
+        // `carrier tunnel` resets SIGCHLD at start (`reap_own_children`), so
+        // this should never happen.
+        eprintln!("carrier tunnel: hub reaped elsewhere (unexpected); not signaled");
+        return format!("{:?} (reaped elsewhere)", why.kind());
+    }
+    eprintln!("carrier tunnel: hub wait failed ({:?}); killing and reaping it", why.kind());
+    let _ = child.kill();
+    match child.wait() {
+        Ok(status) => format!("{status} (after {:?})", why.kind()),
+        Err(e) => format!("{:?} (after {:?})", e.kind(), why.kind()),
+    }
+}
+
+/// Takes back the default `SIGCHLD` disposition for this process. A parent
+/// that ran us with `SIGCHLD = SIG_IGN` (inherited across exec) would make the
+/// kernel reap the hub the moment it exits, behind the owner thread's back;
+/// its pid could then be reused, and any pid-based signal (the stop's SIGTERM,
+/// the SIGKILL after a failed wait) could hit an unrelated process. With the
+/// default disposition an exited hub stays a zombie until its owner thread
+/// reaps it, so while that thread holds the `Child` its pid is the hub's and
+/// kill-then-wait is safe on every path. Call it before the first hub spawn.
+pub(crate) fn reap_own_children() -> bool {
+    // SAFETY: `signal` with `SIG_DFL` installs no handler code; it only
+    // changes this process's disposition, before any hub is spawned.
+    unsafe { libc::signal(libc::SIGCHLD, libc::SIG_DFL) != libc::SIG_ERR }
+}
+
 fn own_hub(
-    mut child: cmux_process::Child,
+    mut child: impl HubChild,
     requests: std::sync::mpsc::Receiver<HubSignal>,
     done: watch::Sender<Option<String>>,
     kill_after: Duration,
@@ -843,7 +922,7 @@ fn own_hub(
         if let Some(signal) = request {
             match child.try_wait() {
                 Ok(Some(status)) => break status.to_string(),
-                Err(e) => break format!("{:?}", e.kind()),
+                Err(e) => break kill_and_reap(&mut child, &e),
                 Ok(None) => match signal {
                     HubSignal::Kill => {
                         let _ = child.kill();
@@ -864,7 +943,7 @@ fn own_hub(
         match child.wait_timeout(HUB_OWNER_TICK) {
             Ok(Some(status)) => break status.to_string(),
             Ok(None) => {}
-            Err(e) => break format!("{:?}", e.kind()),
+            Err(e) => break kill_and_reap(&mut child, &e),
         }
     };
     done.send_replace(Some(why));

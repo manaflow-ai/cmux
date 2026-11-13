@@ -11,6 +11,8 @@
 
 import type { AcpmuxUsageLimits } from "../../agent-session/acpmux/model";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
+import type { WorktreeRecipe } from "../../worktreeRecipe";
+import { OWNER_SENTENCE } from "../shared/userMessage";
 
 /** A museum search result (cmux.settings.art.search); its thumbnail is at `museum/<key>`. */
 export type MuseumArtResult = {
@@ -1119,6 +1121,14 @@ export type ChannelSwitch = {
  */
 export type ChannelMachines = { title: string; lines: string[]; updates?: (string | null)[]; updateLabel?: string };
 
+/**
+ * A Switch or Go Back the host is running (`cmux.settings.channels.switch.changed`): `build` is the
+ * build it restarts into (Go Back's: the kept build), `label` the host's text for the stage it is
+ * at ("Downloading… 42%", "Checking the download…", "Restarting…"), `fraction` 0..1 while it
+ * downloads, else null.
+ */
+export type ChannelsProgress = { build: string; label: string; fraction: number | null };
+
 /** Settings > Updates' Channels card (`cmux.settings.channels.state`). */
 export type ChannelsState = {
   title: string;
@@ -1139,6 +1149,8 @@ export type ChannelsState = {
   daemon?: { title: string; value: string } | null;
   /** Other machines the app updates that cannot update in place or whose update failed, one line each. */
   machines?: ChannelMachines | null;
+  /** The switch running when the card reads; null or absent: none (older hosts send none). */
+  progress?: ChannelsProgress | null;
 };
 
 /** Every op the page calls: params and result. */
@@ -1216,6 +1228,12 @@ export type SettingsOps = {
   "cmux.settings.shares.list": [Record<string, never>, SharesState];
   /** Native: the share stops working and its guests leave at once; a daemon refusal rejects. */
   "cmux.settings.shares.revoke": [{ share_id: string }, unknown];
+  /** Native: Settings > Agents > Worktree Setup, the session host's `project.list`,
+   * `git.worktree.setup` and (on your click) `project.update` field `worktree`, on the app's own
+   * connection: a page may not reach them itself. */
+  "cmux.settings.worktree.list": [{ limit?: number }, unknown];
+  "cmux.settings.worktree.read": [{ path: string }, unknown];
+  "cmux.settings.worktree.save": [Mutation<{ path: string; worktree: WorktreeRecipe | null }>, unknown];
   /** Native: Settings > Devices; rejects with `cmux.page.unavailable` when the host has no device hub. */
   "cmux.settings.devices.state": [Record<string, never>, DevicesState];
   /** Native: one Devices gesture; a failure answers its localized text in `error`. */
@@ -1307,6 +1325,8 @@ export type SettingsStreams = {
   "cmux.settings.host.changed": HostLists;
   /** Settings > Updates' row of other machines changed (its new value; null: none to list). */
   "cmux.settings.channels.machines.changed": ChannelsState["machines"];
+  /** A Switch or Go Back moved to its next stage (null: none runs, it ended or was refused). */
+  "cmux.settings.channels.switch.changed": ChannelsProgress | null;
   /** The page bridge's link to the daemon (one stream for every page). */
   "cmux.page.connection": { connected: boolean };
   /** Commands from the app's key dispatcher (the page handles no Cmd or Ctrl chords). */
@@ -1340,7 +1360,15 @@ export type ErrorCode =
 
 const unavailableCodes = new Set(["cmux.protocol.closed", "cmux.page.unavailable", "cmux.protocol.auth_refused"]);
 
-/** The error a call rejected with, as a plain record. */
+/** Refusals the host words for the person: the updater's (Go Back, Switch, Update) and a
+ * person-only action's (RefusalStrings). Any other failure shows the plain sentence. */
+export const SETTINGS_SENTENCES = {
+  "cmux.page.refused": OWNER_SENTENCE,
+  "cmux.app.user_only": OWNER_SENTENCE,
+} as const;
+
+/** The error a call rejected with, as a plain record (its `message` is for logs; the page shows
+ * `userMessage(error)`). */
 export function wireError(error: unknown): WireError {
   if (typeof error === "object" && error !== null && typeof (error as WireError).code === "string") {
     const { code, message, details } = error as WireError;

@@ -256,6 +256,7 @@ struct SubagentTranscriptScreen: View {
                     }
                     ForEach(rows) { row in
                         SubagentRowView(row: row, turn: turn, store: store, diffs: store.diffs, isLast: row.id == rows.last?.id) { nested = $0 }
+                            .environment(\.loadFullToolOutput, LoadFullToolOutputAction { [store] call in await store.loadFullOutput(of: call) })
                     }
                     HStack(spacing: 8) {
                         SubagentStateGlyph(state: agent.state)
@@ -316,6 +317,14 @@ struct SubagentRowView: View {
             PlanCard(entries: entries)
         case .subagents(_, let ids):
             SubagentGroupCard(ids: ids, store: store, open: open)
+        case .steer(let message):
+            if let incoming = message.incoming {
+                AgentIncomingCard(incoming: incoming, attachments: message.attachments, at: message.at)
+            } else {
+                UserBubble(prompt: message.text, attachments: message.attachments, promptAt: message.at, isLast: false,
+                           editAndResend: {})
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
         case .permission, .question:
             EmptyView()
         }

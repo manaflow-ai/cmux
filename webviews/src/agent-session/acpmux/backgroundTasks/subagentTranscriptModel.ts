@@ -22,6 +22,27 @@ export function windowRange(rows: readonly { id: string }[], anchor?: string): R
   return end >= rows.length ? { start } : { start, end };
 }
 
+/// The window over `next` that mounts what `range` mounted over `prev`, when the same rows draw as other
+/// blocks (two work rows folded into one run as a call streams in): each end moves to the block that
+/// now holds its row, so regrouping never moves the window. A start whose row is gone takes the newest
+/// window.
+export function carryRange(prev: readonly TranscriptBlock[], next: readonly TranscriptBlock[], range: Range): Range {
+  const holder = new Map<string, number>();
+  next.forEach((block, index) => {
+    if (block.type === "row") holder.set(block.id, index);
+    else for (const row of block.rows) holder.set(row.id, index);
+  });
+  const at = (index: number) => {
+    const block = prev[index];
+    return block === undefined ? undefined : holder.get(block.id);
+  };
+  const start = at(Math.min(range.start, prev.length - 1));
+  if (start === undefined) return windowRange(next);
+  if (range.end === undefined || range.end >= prev.length) return { start };
+  const end = at(range.end - 1);
+  return end === undefined || end + 1 >= next.length ? { start } : { start, end: end + 1 };
+}
+
 /// What a nested agent's line in a transcript does (BackgroundTasksPanel.tsx provides it): it opens
 /// that agent's own transcript, and while it runs it carries the agent's stop button, so an agent at
 /// any depth opens and stops from the panel.

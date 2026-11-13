@@ -121,9 +121,11 @@ pub struct Gate {
     paths: Paths,
 }
 
-/// The gate's flock, held until dropped.
+/// The gate's flock, held until dropped. The drop unlocks before it closes: a child the
+/// service forked meanwhile (a session host, `wg`, systemctl) keeps no lock through its copy.
+/// `None` when the lock file could not be opened or locked: the caller goes on unlocked.
 struct Locked {
-    _file: Option<fs::File>,
+    _lock: Option<cmux_file_lock::FileLock>,
 }
 
 /// What `act` may do inside [`Gate::run`], under the gate's flock.
@@ -169,17 +171,17 @@ impl Gate {
     }
 
     fn lock(&self) -> Locked {
-        use std::os::unix::io::AsRawFd as _;
+        use cmux_file_lock::{FileLock, Kind};
         let path = self.paths.at(GATE_LOCK);
-        let file = path
+        let lock = path
             .parent()
             .and_then(|dir| fs::create_dir_all(dir).ok())
             .and_then(|()| {
                 fs::OpenOptions::new().create(true).truncate(false).write(true).open(&path).ok()
             })
-            // SAFETY: flock on a descriptor this function owns.
-            .filter(|file| unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0);
-        Locked { _file: file }
+            // The same blocking exclusive flock as before.
+            .and_then(|file| FileLock::take(file, Kind::Exclusive).ok());
+        Locked { _lock: lock }
     }
 
     fn read(&self) -> GateState {
@@ -208,7 +210,8 @@ impl Gate {
     /// Starts or extends the connect hold to at least `now_ms + hold`, as a
     /// hold of `kind`. False when a restart of the service is pending at
     /// `now_ms`: a link made now would be cut, so a bind waits for the
-    /// restarted service.
+    /// restarted service. It takes the flock: never inside [`Gate::run`]
+    /// (see [`hold_connects`]).
     pub fn hold(&self, now_ms: u64, hold: Duration, kind: HoldKind) -> bool {
         let _lock = self.lock();
         let mut state = self.read();
@@ -271,6 +274,11 @@ impl Gate {
 /// The connect hold of `kind` a bind, a new connect or a wake takes at
 /// `now_ms`: false when a restart of the service is pending, so the caller
 /// does not bind now.
+///
+/// It takes the gate's flock itself ([`Gate::hold`]), so it must never be
+/// called inside [`Gate::run`]: the flock is not reentrant (a second open
+/// file waits on the first), and the run would deadlock on itself. Inside,
+/// use [`Inside::hold_connects`] (or [`Inside::hold`]) with the time of the hold.
 pub fn hold_connects(paths: &Paths, now_ms: u64, kind: HoldKind) -> bool {
     Gate::new(paths).hold(now_ms, CONNECT_HOLD, kind)
 }
@@ -280,4 +288,65 @@ fn left(until_ms: Option<u64>, now_ms: u64) -> Option<Duration> {
         .and_then(|until| until.checked_sub(now_ms))
         .filter(|left| *left > 0)
         .map(Duration::from_millis)
+}
+
+#[cfg(test)]
+pub(super) mod tests {
+    use super::*;
+    use std::os::unix::io::AsRawFd as _;
+    use std::path::Path;
+
+    /// Forks a child that keeps a copy of every descriptor of this process until [`end`].
+    pub(in crate::updater) fn forked_keeper() -> libc::pid_t {
+        // SAFETY: the child calls only pause, which is async-signal-safe, until SIGKILL ends it.
+        let child = unsafe { libc::fork() };
+        assert!(child >= 0, "fork failed");
+        if child == 0 {
+            loop {
+                // SAFETY: as above.
+                unsafe { libc::pause() };
+            }
+        }
+        child
+    }
+
+    pub(in crate::updater) fn end(child: libc::pid_t) {
+        let mut status = 0;
+        // SAFETY: `child` is this test's own child and `status` outlives the call.
+        unsafe {
+            libc::kill(child, libc::SIGKILL);
+            libc::waitpid(child, &mut status, 0);
+        }
+    }
+
+    /// Whether an exclusive flock on a description of its own is taken now; one taken is
+    /// unlocked before the close, so a child another test forks meanwhile keeps nothing.
+    fn free(path: &Path) -> bool {
+        let file = fs::OpenOptions::new().write(true).open(path).unwrap();
+        // SAFETY: flock on a descriptor `file` keeps open through both calls.
+        unsafe {
+            let taken = libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) == 0;
+            if taken {
+                libc::flock(file.as_raw_fd(), libc::LOCK_UN);
+            }
+            taken
+        }
+    }
+
+    /// The gate's flock is free once its holder lets go, also while a child the service
+    /// forked meanwhile (a session host, `wg`, systemctl) still has the descriptor: else the
+    /// next bind's hold, flip or `service_started` waits for that child.
+    #[test]
+    fn a_dropped_gate_lock_is_free_while_a_forked_child_keeps_its_descriptor() {
+        let dir = tempfile::tempdir().unwrap();
+        let gate = Gate::new(&Paths::new(dir.path()));
+        let path = gate.paths.at(GATE_LOCK);
+        let locked = gate.lock();
+        assert!(!free(&path), "the gate took its lock");
+        let child = forked_keeper();
+        drop(locked);
+        let freed = free(&path);
+        end(child);
+        assert!(freed, "a dropped gate lock stayed held through a forked child's copy");
+    }
 }

@@ -24,6 +24,15 @@ export const dismissRecap = (rowId: string, key: string) =>
 export const resolveMemory = (offerId: string, accept: string[], dismiss: string[]) =>
   void window.cmuxAcpmuxActions?.["chat.memory.resolve"]?.({ offerId, accept, dismiss });
 
+/// The prompt coach card's ×: the chat never draws a coach card again on this device, and its row
+/// goes (direct.ts dismissPromptCoach).
+export const dismissPromptCoach = (rowId: string, sessionId: string) =>
+  void window.cmuxAcpmuxActions?.["chat.coach.dismiss"]?.({ rowId, sessionId });
+/// Approve or Not now on a no-prompt preset's card: acpmux records the person's answer
+/// (`_acpmux/presets`, direct.ts answerPresetApproval); the row closes from its answer.
+export const answerPresetApproval = (rowId: string, approve: boolean) =>
+  void window.cmuxAcpmuxActions?.["chat.presetApproval.answer"]?.({ rowId, approve });
+
 /// Opens a chat started from an offer (`chat.offer.open`): beside this one, else here.
 export const openOfferChat = (sessionId: string) =>
   void callNative("chat.offer.open", { sessionId }).catch(() => undefined);

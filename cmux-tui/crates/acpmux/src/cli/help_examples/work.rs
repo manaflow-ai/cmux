@@ -266,6 +266,66 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ("inbox read", &[("Read one team message by id", "acpmux inbox read msg-8f2a")]),
     ("inbox ack", &[("Acknowledge a team message you handled", "acpmux inbox ack msg-8f2a")]),
     (
+        "bridge",
+        &[
+            ("Connect Claude Desktop and Codex Desktop to cmux", "acpmux bridge connect"),
+            ("Message Codex Desktop", "acpmux bridge send codex-desktop \"Review PR 812 please\""),
+        ],
+    ),
+    (
+        "bridge connect",
+        &[
+            ("Connect both desktop apps; restart them after", "acpmux bridge connect"),
+            (
+                "See what connecting Codex Desktop would change",
+                "acpmux bridge connect codex --dry-run",
+            ),
+        ],
+    ),
+    (
+        "bridge send",
+        &[(
+            "Answer Claude Desktop from a cmux session",
+            "acpmux bridge send claude-desktop \"Done: the fix is on lane/x\"",
+        )],
+    ),
+    (
+        "bridge inbox",
+        &[("Read what was left for Codex Desktop", "acpmux bridge inbox codex-desktop --peek")],
+    ),
+    (
+        "desktop",
+        &[
+            ("Give every agent app here the cmux tools", "acpmux desktop link"),
+            ("See which apps have the cmux tools", "acpmux desktop status"),
+        ],
+    ),
+    (
+        "desktop link",
+        &[
+            (
+                "Give Claude, Codex, OpenCode, Gemini CLI, Qwen Code and pi the cmux tools",
+                "acpmux desktop link",
+            ),
+            ("See what linking Codex would change", "acpmux desktop link --app codex --dry-run"),
+            ("Give only OpenCode the cmux tools", "acpmux desktop link --app opencode"),
+        ],
+    ),
+    (
+        "desktop unlink",
+        &[
+            ("Take the cmux tools back from every app", "acpmux desktop unlink"),
+            ("Take them back from Claude desktop", "acpmux desktop unlink --app claude-desktop"),
+        ],
+    ),
+    (
+        "desktop status",
+        &[
+            ("See which apps are here and which have the cmux tools", "acpmux desktop status"),
+            ("The same as JSON for a script", "acpmux desktop status --json"),
+        ],
+    ),
+    (
         "forum",
         &[
             ("List the current forum rules", "acpmux forum rules"),

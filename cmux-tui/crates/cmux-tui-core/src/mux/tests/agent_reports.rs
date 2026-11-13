@@ -684,7 +684,7 @@ fn a_checkpoint_keeps_no_last_reply_of_an_agent() {
         "checkpoint-last-reply-hook",
     )
     .unwrap();
-    assert!(mux.note_agent_reply(&terminal_id, "CHECKPOINT_REPLY_SENTINEL"));
+    assert!(mux.note_agent_reply(&terminal_id, "CHECKPOINT_REPLY_SENTINEL").is_some());
     mux.forget_agent_reply(&terminal_id);
 
     let live = crate::resource_api::public_session_snapshot(&mux).unwrap()["agents"].clone();

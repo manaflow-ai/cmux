@@ -37,7 +37,9 @@ impl Hub {
                     true
                 })
             };
-            read.map_err(|e| RpcError::internal(format!("the session's log could not be read: {e}")))?;
+            read.map_err(|e| {
+                RpcError::internal(format!("the session's log could not be read: {e}"))
+            })?;
             // Records of other kinds still move the fold on, so the next open knows it read them.
             fold.seq = fold.seq.max(last);
         }

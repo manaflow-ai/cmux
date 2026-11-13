@@ -211,9 +211,7 @@ extension ConversationViewController {
         let overlay = ReplyThreadOverlay(frame: view.bounds)
         overlay.rootID = rootID
         overlay.onClose = { [weak self] in self?.exitReplyMode() }
-        // The host material also blurs reply copies as they scroll under the
-        // floating header; do not clip the thread at the name capsule.
-        view.insertSubview(overlay, belowSubview: headerMaterial.superview == nil ? composerContainer : headerMaterial)
+        view.insertSubview(overlay, belowSubview: composerContainer)
         // The thread's own interactive dismissal moves the composer too.
         keyboardDock.trackInteractiveDismissal(of: overlay.content)
         populate(overlay, rootID: rootID)
@@ -401,7 +399,8 @@ extension ConversationViewController {
         overlay.dim.frame = overlay.bounds
         let width = view.bounds.width
         let y = overlay.contentHeight
-        let headerBottom = header.frame.maxY
+        // Under the header and a host's pinned row (Chief's question bar).
+        let headerBottom = contentTop
         let available = composerContainer.frame.minY - headerBottom - Self.threadBottomGap
         // Where content-space 0 sits on screen, before and after.
         let before = overlay.content.frame.minY - overlay.content.contentOffset.y

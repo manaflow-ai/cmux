@@ -104,7 +104,7 @@ impl Hub {
         by: &Approver<'_>,
     ) -> Result<(), RpcError> {
         if session.moving().is_some() {
-            return Err(moving_error());
+            return Err(moving_error(session));
         }
         {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -144,7 +144,7 @@ impl Hub {
     /// `remove_queued` does; its `session/prompt` answers `queue.declined`.
     pub fn decline_queued(&self, session: &Arc<Session>, prompt_id: &str) -> Result<(), RpcError> {
         if session.moving().is_some() {
-            return Err(moving_error());
+            return Err(moving_error(session));
         }
         let (removed, mut ledger) = {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
