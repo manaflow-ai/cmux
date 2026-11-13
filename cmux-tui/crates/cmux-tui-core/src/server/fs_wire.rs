@@ -267,12 +267,12 @@ fn serve_stream(
     stream: UnixStream,
 ) {
     let (Ok(control), Ok(closer)) = (stream.try_clone(), stream.try_clone()) else { return };
+    // The sink's descriptor closes when this stream ends, also while a clone
+    // of `writer` lives on elsewhere (bounded_outbound.rs, SinkControl).
+    let control = SinkControl::unix(Box::new(control));
     let outbound = Arc::new(BoundedOutbound::default());
     let writer = MessageWriter::new_with_render_service(
-        QueuedSink {
-            outbound: outbound.clone(),
-            control: Some(SinkControl::Unix(Box::new(control))),
-        },
+        QueuedSink { outbound: outbound.clone(), control: Some(control.clone()) },
         Arc::new(RenderService::new()),
     );
     // Closing the client (a kick, a handoff, the entry's shutdown, or the
@@ -314,6 +314,7 @@ fn serve_stream(
     mux.unbind_conversation_principal(client);
     writer.close();
     let _ = stream.shutdown(std::net::Shutdown::Both);
+    control.close();
 }
 
 /// Closes every remote client (line dials and byte streams): the entry is
@@ -383,6 +384,20 @@ impl transport::Stream for Prefixed {
     fn shutdown(&self, how: std::net::Shutdown) -> std::io::Result<()> {
         self.inner.shutdown(how)
     }
+
+    /// The replayed bytes are readable at once; then the socket's wait.
+    fn wait_readable(&self, waiter: &mut transport::ReadWaiter) -> std::io::Result<()> {
+        if self.at < self.prefix.len() {
+            return Ok(());
+        }
+        transport::Stream::wait_readable(&self.inner, waiter)
+    }
+}
+
+/// Tests: the remote entry's stream, `prefix` replayed before `inner`.
+#[cfg(test)]
+pub(super) fn prefixed_for_test(prefix: Vec<u8>, inner: UnixStream) -> Box<dyn transport::Stream> {
+    Box::new(Prefixed { prefix, at: 0, inner })
 }
 
 #[cfg(test)]

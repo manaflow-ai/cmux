@@ -419,6 +419,9 @@ pub mod method {
 
     // acpmux extension namespace. Everything a plain ACP client does not need.
     pub const MUX_STATUS: &str = "_acpmux/status";
+    /// One-request v2 upgrade. The JSON-RPC reply is the last v1 message; the
+    /// transport hands the same stream to the framed v2 connection afterward.
+    pub const MUX_V2: &str = "_acpmux/v2";
     pub const MUX_SESSIONS: &str = "_acpmux/sessions";
     /// The asking-mode table and the remote guard's lists, for the native
     /// relay; unix socket only.
@@ -441,6 +444,9 @@ pub mod method {
     pub const MUX_ATTACH: &str = "_acpmux/attach";
     pub const MUX_VIEW: &str = "_acpmux/view";
     pub const MUX_MARK_UNREAD: &str = "_acpmux/markUnread";
+    /// The person saw a chat through a log seq (`hub/seen.rs` `read_through`): moves their seen
+    /// cursor forward only.
+    pub const MUX_SEEN: &str = "_acpmux/seen";
     /// A person in an attached chat starts or stops typing (`hub/presence.rs`).
     pub const MUX_TYPING: &str = "_acpmux/typing";
     /// Who has a chat open and who types in it, to its attached connections.
@@ -483,6 +489,11 @@ pub mod method {
     /// `{sessionId, promptId, turnId, text, prompt, fromAgent, fromSessionId, fromHarness}`
     /// (`hub/queue_text.rs`); the queue list carries a 200-character preview only.
     pub const MUX_QUEUE_TEXT: &str = "_acpmux/queue_text";
+    /// One page of a chat's transcript rows, folded in the daemon (`rows/`),
+    /// `{sessionId, afterSeq | beforeSeq, maxBytes, follow}` → `{rows, hasMore, version, count,
+    /// lastSeq, cut}`. `follow` (on an attached chat) sends the rows' later changes as
+    /// `_acpmux/rows_patch`.
+    pub const MUX_ROWS: &str = "_acpmux/rows";
     /// The owner reads a queued prompt whole before answering it, `{sessionId, promptId}`
     /// (`hub/queue_approve.rs`): `{promptId, turnId, revision, text, prompt, inlineParts, author,
     /// provenance, awaitingOwner}`.
@@ -870,6 +881,12 @@ pub mod method {
     pub const MUX_VAULT_STATUS: &str = "_acpmux/vault_status";
     // Notifications from acpmux to attached clients.
     pub const MUX_EVENT: &str = "_acpmux/event";
+    /// A followed chat's row changes since the last, `{sessionId, version, lastSeq, patches}`
+    /// (`rows/`).
+    pub const MUX_ROWS_PATCH: &str = "_acpmux/rows_patch";
+    /// A followed chat's row changes went past what acpmux keeps: read a page again,
+    /// `{sessionId, version, lastSeq}`.
+    pub const MUX_ROWS_LAGGED: &str = "_acpmux/rows_lagged";
     /// A persisted session-to-session message, projected separately so chat clients can render
     /// incoming and outgoing bubbles without decoding the generic event stream.
     pub const MUX_MESSAGE: &str = "_acpmux/message";
@@ -887,6 +904,10 @@ pub mod method {
     /// Sent to the prompting connection as soon as a `session/prompt` is
     /// recorded, before the turn ends: `{sessionId, promptId, turnId, queued}`.
     pub const MUX_PROMPT_ACCEPTED: &str = "_acpmux/prompt_accepted";
+    /// To a peer daemon's link, for a record of an attached session it is not sent live (an
+    /// agent request or answer, `server/mod.rs` `deliver`): `{sessionId, seq}`, so the owner's
+    /// copy (`hub/peer_snapshot.rs`) continues past that seq instead of stopping there.
+    pub const MUX_UNSENT: &str = "_acpmux/unsent";
     /// To the connection whose `session/cancel` notification was refused, which has no answer to
     /// read: `{sessionId, message, reason?, peer?}` (`server/requests/cancel_refused.rs`).
     pub const MUX_CANCEL_REFUSED: &str = "_acpmux/cancel_refused";

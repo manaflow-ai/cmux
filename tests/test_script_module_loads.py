@@ -35,8 +35,9 @@ LOADERS = {"spec_from_file_location", "SourceFileLoader", "load_source", "run_pa
 IDENTIFIER = re.compile(r"[A-Za-z_]\w*")
 
 # Test helpers loaded by path in each test file on purpose and never registered: `python3 -I` puts no folder on
-# sys.path (tests/git_fixture_env.py, tests/process_gone.py, tests/guard_child_env.py).
-PRIVATE_COPIES = {"git_fixture_env", "process_gone", "guard_child_env"}
+# sys.path (tests/git_fixture_env.py, tests/process_gone.py, tests/guard_child_env.py, and tests/git_history.py and
+# tests/known_red.py, whose docstrings say "Load this module by path, never `import ...`").
+PRIVATE_COPIES = {"git_fixture_env", "process_gone", "guard_child_env", "git_history", "known_red"}
 
 # Path loads this check found when it was widened to scripts' imports and to files more than one test loads, left
 # to convert (the nine that made a second object at runtime are converted). Shrink-only: an entry that is no longer
@@ -60,7 +61,6 @@ ALLOWED: dict[tuple[str, str], str] = {
     ("tests/test_ci_package_lane_suite_skips.py", "test_reds"): LEFT,
     ("tests/test_ci_package_result_reuse.py", "select_package_tests"): LEFT,
     ("tests/test_ci_parallel_artifact_transport.py", "parallel_artifact_download"): LEFT,
-    ("tests/test_ci_queue_janitor.py", "queue_janitor"): LEFT,
     ("tests/test_ci_r2_cache_census.py", "r2_cache_census"): LEFT,
     ("tests/test_ci_rescue_actors.py", "classify_failures"): LEFT,
     ("tests/test_ci_rescue_actors.py", "next_macos_cascade"): LEFT,
@@ -111,8 +111,14 @@ def test_files(root: Path = ROOT) -> list[Path]:
     return sorted(found)
 
 
-def scan(path: Path) -> tuple[set[str], list[tuple[int, str, str]]]:
-    """(names the file imports, [(line, loader, stem)] of its path loads of a repository file)."""
+BY_NAME = {"import_module", "__import__"}
+
+
+def scan(path: Path) -> tuple[set[str], list[tuple[int, str, str]], list[tuple[int, str]]]:
+    """(names the file imports, [(line, loader, stem)] of its path loads of a repository file, [(line, call)] of its
+    imports by a name this scan cannot read). An import by name is `import x`, import_module("x") or __import__("x"),
+    or a call of the file's own import helper (`def load(name, ...): ... importlib.import_module(name)`) as
+    load("x"); any other import_module or __import__ call, or a helper call with a computed name, is unread."""
     tree = ast.parse(path.read_text(encoding="utf-8"))
     assigns: dict[str, list[ast.AST]] = collections.defaultdict(list)
     for node in ast.walk(tree):
@@ -160,6 +166,29 @@ def scan(path: Path) -> tuple[set[str], list[tuple[int, str, str]]]:
     helpers = {node.name for node in ast.walk(tree)
                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and loads_its_first_argument(node)}
 
+    def called_name(call: ast.Call) -> str | None:
+        return call.func.attr if isinstance(call.func, ast.Attribute) else getattr(call.func, "id", None)
+
+    # A file's own import helper (`def load(name): ... importlib.import_module(name)`), called as load("stem"): an
+    # import by name, like the import_module call inside it, which reads the helper's first argument.
+    import_helpers: set[str] = set()
+    forwarded: set[int] = set()
+    for function in ast.walk(tree):
+        if isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)) and function.args.args:
+            first = function.args.args[0].arg
+            for n in ast.walk(function):
+                if isinstance(n, ast.Call) and called_name(n) in BY_NAME and n.args \
+                        and isinstance(n.args[0], ast.Name) and n.args[0].id == first:
+                    import_helpers.add(function.name)
+                    forwarded.add(id(n))
+
+    def literal(call: ast.Call) -> str | None:
+        arg = call.args[0] if call.args else None
+        if isinstance(arg, ast.Constant) and isinstance(arg.value, str) and arg.value:
+            return arg.value.split(".")[0]
+        return None
+    unread: list[tuple[int, str]] = []
+
     imported: set[str] = set()
     loads: list[tuple[int, str, str]] = []
     for node in ast.walk(tree):
@@ -170,8 +199,14 @@ def scan(path: Path) -> tuple[set[str], list[tuple[int, str, str]]]:
         elif isinstance(node, ast.Call):
             func = node.func
             called = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
-            if called == "import_module" and node.args and isinstance(node.args[0], ast.Constant):
-                imported.add(str(node.args[0].value).split(".")[0])
+            if called in BY_NAME or called in import_helpers:
+                name = literal(node)
+                if name:
+                    imported.add(name)
+                elif id(node) not in forwarded:
+                    unread.append((node.lineno, f"{called}()"))
+                if called in BY_NAME:
+                    continue
             if called in helpers and node.args and isinstance(node.args[0], ast.Constant) \
                     and isinstance(node.args[0].value, str) and IDENTIFIER.fullmatch(node.args[0].value):
                 loads.append((node.lineno, f"{called}()", node.args[0].value))
@@ -188,7 +223,7 @@ def scan(path: Path) -> tuple[set[str], list[tuple[int, str, str]]]:
             name = file_name(target)
             if name and in_repo(target, frozenset()) and IDENTIFIER.fullmatch(Path(name).stem):
                 loads.append((node.lineno, called, Path(name).stem))
-    return imported, loads
+    return imported, loads, unread
 
 
 def two_object_loads(root: Path = ROOT) -> tuple[list[str], dict[str, set[str]], dict[str, set[str]]]:
@@ -201,10 +236,14 @@ def two_object_loads(root: Path = ROOT) -> tuple[list[str], dict[str, set[str]],
     modules = {stem for stem, count in stems.items() if count == 1}
     importers: dict[str, set[str]] = collections.defaultdict(set)
     loaders: dict[str, list[tuple[str, int, str]]] = collections.defaultdict(list)
+    unread: list[str] = []
     tests = test_files(root)
     for path in tests:
         rel = path.relative_to(root).as_posix()
-        imported, loads = scan(path)
+        imported, loads, unknown = scan(path)
+        unread.extend(f"{rel}:{line}: {called} imports a module by a name this check cannot read, so it cannot tell "
+                      "which files share it. Pass a literal name (to import_module or the file's own load helper)."
+                      for line, called in unknown)
         for name in imported:
             importers[name].add(rel)
         for line, called, stem in loads:
@@ -213,12 +252,12 @@ def two_object_loads(root: Path = ROOT) -> tuple[list[str], dict[str, set[str]],
     script_importers: dict[str, set[str]] = collections.defaultdict(set)
     for path in sorted(set(root.glob("scripts/**/*.py")) - set(tests)):
         try:
-            imported, _ = scan(path)
+            imported, _, _ = scan(path)
         except (SyntaxError, UnicodeDecodeError):
             continue
         for name in imported:
             script_importers[name].add(path.relative_to(root).as_posix())
-    findings = []
+    findings = list(unread)
     for stem, sites in sorted(loaders.items()):
         if stem not in modules or stem in PRIVATE_COPIES:
             continue
@@ -285,6 +324,45 @@ ONE_OBJECT_PER_FILE = textwrap.dedent('''
     print(json.dumps({"two": two, "unimportable": unimportable}))
 ''')
 
+# Run in a fresh interpreter: imports each test module in the given order and reports, per file, every sys.modules
+# entry named after a repository module (a stem from argv[3]) that its import added or replaced with a stub (None, a
+# SimpleNamespace, a bare ModuleType with no spec or file), a None entry too: absent before is not None before. A stub left there is what the next test's `import name`
+# gets instead of the real module.
+STUBS_LEFT = textwrap.dedent('''
+    import importlib, json, os, sys, types
+    root, order, stems = sys.argv[1], json.loads(sys.argv[2]), set(json.loads(sys.argv[3]))
+    def real(module):
+        return isinstance(module, types.ModuleType) and (
+            getattr(module, "__spec__", None) is not None or getattr(module, "__file__", None))
+    left, unimportable = {}, {}
+    MISSING = object()  # a name absent before the import: `.get()`'s None would match a stored None entry
+    for rel in order:
+        folder = os.path.dirname(os.path.join(root, rel))
+        if folder not in sys.path:
+            sys.path.insert(0, folder)
+        before = dict(sys.modules)
+        try:
+            importlib.import_module(os.path.basename(rel)[:-3])
+        except BaseException as error:  # a test that needs a Mac library cannot import here
+            unimportable[rel] = type(error).__name__ + ": " + str(error)[:200]
+        names = sorted(name for name, module in sys.modules.items()
+                       if name in stems and before.get(name, MISSING) is not module and not real(module))
+        if names:
+            left[rel] = names
+    print(json.dumps({"left": left, "unimportable": unimportable}))
+''')
+
+# A test file that stubs a module others import for real must take its stub back out (#41653 review).
+STUB_POLLUTER, STUB_VICTIM = "test_perf_completeness", "test_teardown_clone_cleanup"
+STUB_SUITES = ROOT / "scripts/cmux-next/tests"
+
+
+def stubbing_test_files(root: Path = ROOT) -> list[str]:
+    """Every test file whose source writes to sys.modules: the ones that can leave a stub there."""
+    found = set(test_files(root)) | set(root.glob("scripts/**/test_*.py"))
+    return sorted(p.relative_to(root).as_posix() for p in found if "sys.modules" in p.read_text(encoding="utf-8"))
+
+
 POLLUTER = "tests/test_ci_change_areas.py::test_cmux_next_does_not_run_full_suite_for_unrelated_packages"
 VICTIM = "tests/test_cmux_next_route.py::LinuxLaneTests::test_a_linux_guard_test_a_mac_tier_reads_keeps_its_tier"
 
@@ -292,9 +370,10 @@ VICTIM = "tests/test_cmux_next_route.py::LinuxLaneTests::test_a_linux_guard_test
 class ScriptModuleLoadTests(unittest.TestCase):
     def test_no_test_loads_by_path_a_file_another_test_imports_by_name(self):
         findings, _, _ = two_object_loads()
+        unread = [finding for finding in findings if " loads " not in finding]  # never allowed
         found = {(finding.split(":")[0], finding.split(" loads ", 1)[1].split(".py by path")[0]): finding
-                 for finding in findings}
-        new = sorted(finding for key, finding in found.items() if key not in ALLOWED)
+                 for finding in findings if " loads " in finding}
+        new = sorted([*unread, *(finding for key, finding in found.items() if key not in ALLOWED)])
         self.assertEqual(new, [], "\n" + "\n".join(new))
         converted = sorted(f"{rel} ({stem})" for rel, stem in ALLOWED if (rel, stem) not in found)
         self.assertEqual(converted, [], "no longer path-loaded: remove from ALLOWED (shrink-only)\n" + "\n".join(converted))
@@ -370,6 +449,85 @@ class ScriptModuleLoadTests(unittest.TestCase):
                 for rel in required:
                     self.assertNotIn(rel, result["unimportable"])
                 self.assertLess(len(result["unimportable"]), len(order) // 10, result["unimportable"])
+
+    def test_files_importing_through_a_load_helper_are_in_the_sharing_set(self):
+        """#41653 review: `def load(name): ... return importlib.import_module(name)` called as load("procs") is an
+        import by name, so the files that do it share their modules; an import by a name scan() cannot read fails."""
+        shared = sharing_test_files()
+        for rel in ("tests/test_ci_route_refusal_detail.py", "tests/test_gh_call_log.py",
+                    "scripts/cmux-next/tests/test_teardown_clone_cleanup.py"):
+            self.assertIn(rel, shared)
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "tests").mkdir()
+            (root / "scripts/ci").mkdir(parents=True)
+            (root / "scripts/ci/ring.py").write_text("")
+            (root / "tests/test_a.py").write_text(textwrap.dedent('''
+                import importlib, sys
+                def load(name, path=None):
+                    sys.path.insert(0, "scripts/ci")
+                    return importlib.import_module(name)
+                ring = load("ring")
+            '''))
+            (root / "tests/test_b.py").write_text("import ring\n")
+            (root / "tests/test_c.py").write_text(textwrap.dedent('''
+                import importlib
+                NAME = "ri" + "ng"
+                ring = importlib.import_module(NAME)
+                def go(stem):
+                    return __import__(stem.upper())
+            '''))
+            imported, _, _ = scan(root / "tests/test_a.py")
+            self.assertIn("ring", imported)
+            self.assertIn("tests/test_a.py", sharing_test_files(root))
+            findings, _, _ = two_object_loads(root)
+        unread = sorted(f for f in findings if "cannot read" in f)
+        self.assertEqual([f.split(":")[:2] for f in unread], [["tests/test_c.py", "4"], ["tests/test_c.py", "6"]], findings)
+
+    def test_no_test_file_leaves_a_stub_module_behind(self):
+        """#41653 review: test_perf_completeness.py put an empty `procs` in sys.modules at import and left it, so
+        test_teardown_clone_cleanup.py's `import procs` got the stub when it ran later in one process."""
+        order = stubbing_test_files()
+        for rel in ("scripts/cmux-next/tests/test_perf_completeness.py", "scripts/tests/test_readiness_soak.py",
+                    "scripts/cmux-next/test_split_scale_background.py"):
+            self.assertIn(rel, order)
+        stems = sorted({p.stem for p in [*ROOT.glob("scripts/**/*.py"), *ROOT.glob("tests/*.py")]})
+        done = subprocess.run([sys.executable, "-c", STUBS_LEFT, str(ROOT), json.dumps(order), json.dumps(stems)], cwd=ROOT,
+                              capture_output=True, text=True, timeout=600,
+                              env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
+        self.assertEqual(done.returncode, 0, done.stderr[-4000:])
+        result = json.loads(done.stdout.strip().splitlines()[-1])
+        self.assertEqual(result["left"], {}, json.dumps(result, indent=1))
+        self.assertNotIn("scripts/cmux-next/tests/test_perf_completeness.py", result["unimportable"])
+        self.assertLess(len(result["unimportable"]), len(order) // 4, result["unimportable"])
+
+    def test_a_none_entry_left_in_sys_modules_is_a_stub(self):
+        """#41747 review: `sys.modules["ring"] = None` (which makes `import ring` raise) is a stub left behind too, though
+        `before.get("ring")` is also None for a name that was absent."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "tests").mkdir()
+            (root / "tests/test_blocks.py").write_text("import sys\nsys.modules['ring'] = None\n")
+            (root / "tests/test_stubs.py").write_text("import sys, types\nsys.modules['hub'] = types.SimpleNamespace()\n")
+            (root / "tests/test_clean.py").write_text("import sys\nsys.modules['ring'] = None\ndel sys.modules['ring']\n")
+            order = ["tests/test_clean.py", "tests/test_blocks.py", "tests/test_stubs.py"]
+            done = subprocess.run([sys.executable, "-c", STUBS_LEFT, str(root), json.dumps(order),
+                                   json.dumps(["ring", "hub"])], cwd=root, capture_output=True, text=True, timeout=60)
+        self.assertEqual(done.returncode, 0, done.stderr[-2000:])
+        result = json.loads(done.stdout.strip().splitlines()[-1])
+        self.assertEqual(result["left"], {"tests/test_blocks.py": ["ring"], "tests/test_stubs.py": ["hub"]})
+
+    def test_the_procs_stub_polluter_and_its_victim_pass_in_either_order(self):
+        driver = ("import sys, unittest\nsys.path.insert(0, sys.argv[1])\n"
+                  "suite = unittest.defaultTestLoader.loadTestsFromNames(sys.argv[2:])\n"
+                  "sys.exit(not unittest.TextTestRunner(verbosity=1).run(suite).wasSuccessful())\n")
+        for order in ((STUB_POLLUTER, STUB_VICTIM), (STUB_VICTIM, STUB_POLLUTER)):
+            with self.subTest(first=order[0]):
+                done = subprocess.run([sys.executable, "-c", driver, str(STUB_SUITES), *order], cwd=ROOT,
+                                      capture_output=True, text=True, timeout=600)
+                self.assertEqual(done.returncode, 0, done.stdout[-2000:] + done.stderr[-4000:])
 
     @unittest.skipUnless(importlib.util.find_spec("pytest"), "needs pytest")
     def test_the_route_polluter_and_its_victim_pass_in_either_order(self):

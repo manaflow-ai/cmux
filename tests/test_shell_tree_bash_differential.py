@@ -29,6 +29,7 @@ import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import shell_tree  # noqa: E402
@@ -116,16 +117,137 @@ NESTABLE = (
     "command c1",
     "command -v c1 >/dev/null",
     "nice env sh -c 'c1'",
+    # A follow-up review of cmux#41624: an assignment eval runs (F1, a TypeError before), a $'...' string decoded as
+    # bash decodes it, and a shell's options read whole before its -c text: each o or O in a group takes the next
+    # word, and so do --rcfile and --init-file (F2).
+    "eval x=$'hello'",
+    "eval x=$'a' c1",
+    "eval $'c1; c2'",
+    "eval $'c1\\x20a'",
+    "bash -c $'c1\\nc2'",
+    "bash -co errexit 'c1; c2'",
+    "bash -oc errexit 'c1; c2'",
+    "bash -c -o errexit 'c1'",
+    "bash -cO extglob 'c1'",
+    "bash --rcfile /dev/null -c 'c1; c2'",
+    "bash --init-file /dev/null -c c1",
+    "bash --norc -c c1",
+    # A Codex review of cmux#41745 (F1): bash ends a $'...' string's value at its first NUL, however it is written
+    # (\0, \x00, \u0000, \U00000000, \400, \c@, \c followed by a space), and keeps the word's text after the string;
+    # a \U value past 0x7FFFFFFF adds nothing. An argument, a -c string, a trap's action and a command's name are each
+    # cut there, so the tree reads what bash runs, not the bytes after the NUL.
+    "eval $'\\0; c1'",
+    "eval $'c1\\0c2'",
+    "eval $'c1\\x00; c2'",
+    "eval $'c1\\u0000; c2'",
+    "eval $'c1\\U00000000; c2'",
+    "eval $'c1\\400; c2'",
+    "eval $'c1\\c@; c2'",
+    "eval $'c1\\c ; c2'",
+    "eval $'c\\UFFFFFFFF1'",
+    "eval $'c\\U800000001'",
+    "eval $'c1\\0;' c2",
+    "eval $'\\0' c1",
+    "eval $'c1\\0x'\";c2\"",
+    "bash -c $'c1\\0; c2'",
+    "trap $'c1\\0; c2' EXIT",
+    "$'c1\\0x'",
+    "$'c1'",
+    "env $'c1\\0x' a",
+    # No NUL: each decodes to a command name, which the tree read from the undecoded text before (a name in an eval
+    # string came from parse()'s text, so $'\x63' there stayed x63); then rows that must keep parsing as they did.
+    "eval $'\\x631'",
+    "eval $'c\\061'",
+    "eval $'c\\u0031'",
+    "eval $'c\\U00000031'",
+    "eval $'c1\\x200'",
+    "eval $'c1\\cAx; c2'",
+    "eval $'c\\U7FFFFFFF; c1'",
+    # A Codex review of cmux#41781 (F1): a backslash that ends the text an eval, a -c string or a trap action runs
+    # (nothing after it: the text's end, or a NUL in a $'...' string) has no character to escape, and bash keeps it:
+    # `c1\` is a command named c1\, never c1. Then the rows that must keep running c1: the backslash in an argument,
+    # after the last command, escaped (\\), or before a newline in the text (a line continuation).
+    "eval $'c1\\\\\\0'",
+    "bash -c $'c1\\\\\\0'",
+    "trap $'c1\\\\\\0' EXIT",
+    "eval 'c1\\'",
+    "bash -c 'c1\\'",
+    "trap 'c1\\' EXIT",
+    "eval 'c2; c1\\'",
+    "eval c1\\\\",
+    "eval 'c1 a\\'",
+    "eval 'c1 \\'",
+    "eval c1 '\\'",
+    "eval 'c1; c2\\'",
+    "eval 'c1 a\\\\\\'",
+    "eval $'c1\\\\\\n'",
+    "bash -c 'c1 a\\'",
+    "trap 'c1 \\' EXIT",
+    # A security review of upstream #4620 (F1): after --, the next word is an operand whatever it starts with, so
+    # trap -- '-x; c1' EXIT runs c1; and the same rule for each reader of options then a script: eval, a shell's -c
+    # (where a lone - ends the options as -- does, and a lone + is an empty group), trap, and every wrapper read
+    # through (command, builtin, env, nice, nohup, timeout, stdbuf, time). Then the words bash refuses as options
+    # before any --, which run nothing: eval '-x; c1', trap -x c1 EXIT, trap -p -- c1 EXIT.
+    "trap -- '-x; c1' EXIT",
+    "trap -- '--; c1' EXIT",
+    "trap -x c1 EXIT; c2",
+    "trap -p -- c1 EXIT; c2",
+    "eval -- '-x; c1'",
+    "eval -- '--; c1'",
+    "eval '-x; c1'; c2",
+    "eval - '; c1'",
+    "bash -c -- '-x; c1'",
+    "sh -c -- '-x; c1'",
+    "bash -c - '-x; c1'",
+    "sh -c - 'c1'",
+    "bash -ce - c1",
+    "bash -c + 'c1'",
+    "sh -c + 'c1'",
+    "bash -c '-x; c1'; c2",
+    "command -- eval -- '-x; c1'",
+    "command trap -- '-x; c1' EXIT",
+    "builtin -- trap -- '-x; c1' EXIT",
+    "builtin eval -- '-x; c1'",
+    "env -- bash -c -- '-x; c1'",
+    "nice -- sh -c - 'c1'",
+    "nohup -- c1",
+    "timeout -- 5 c1",
+    "stdbuf -oL -- c1",
+    "time -- c1",
+    "time -p -- c1",
+    # A review of upstream #4620 (F2): a shell named by an env -S string ran its -c script unread, so env -S 'bash' -c
+    # c1 reported no command. Each word of the string maps back to the -S argument it comes from, and the script is
+    # read wherever its word is: after the string, inside it, or split across both. A string env refuses (an open
+    # quote) runs nothing.
+    "env -S 'bash' -c c1",
+    "env -S 'bash -c' 'c1; c2'",
+    "env -S 'bash -c c1'",
+    "env -S'bash -c c1'",
+    "env --split-string='bash -c c1'",
+    "env -S 'sh -c \"c1 && c2\"'",
+    "env -S 'X=1 bash -e' -c c1",
+    "env -S 'bash -c' -- c1",
+    "env -S \"'bash\" -c c1; c2",
 )
 WHOLE = (
     "exec c1",
     "c0; exec c1",
     "setsid -w c1",
+    "setsid -w -- c1",
+    "exec -- bash -c -- '-x; c1'",
     "cat <<EOF\n$(c1)\nEOF",
     "cat <<EOF | c2\n$(c1)\nEOF",
     "c1 <<'EOF'\n$(c2)\nEOF",
     "c1 \\\n  a; c2",
     "c1\nc2",
+    # \c takes both backslashes of a \\ after it, so the 0 that follows is text, never a \0 (cmux#41745 F1).
+    "eval $'c1\\c\\\\0; c2'",
+    "eval $'c1\\c'; c2",
+    # A backtick substitution's body is text bash parses as a script of its own (cmux#41781 F1's sweep): a backslash
+    # that ends it, once \\ is unescaped, has nothing to escape either.
+    "y=`c1\\\\`",
+    "y=`c2; c1\\\\`",
+    "y=`c1 a\\\\`",
 )
 
 
@@ -170,6 +292,24 @@ def corpus() -> list[str]:
 STUB = """#!/bin/sh
 printf '%%s\\n' %s >> %s
 """
+
+
+def oracle_missing() -> str | None:
+    """Why this host cannot run the oracle, or None: a REAL program it lacks (stock macOS has no setsid, timeout or
+    stdbuf). bash_runs() links every REAL program for every line, so a host without one has no oracle at all: each
+    test that runs it skips, never fails and never passes (a review of the upstream copy, F1: the self-test ran
+    bash_runs() with no setsid and failed on its "not on this host" answer)."""
+    for tool in REAL:
+        if not shutil.which(tool):
+            return f"{tool} is not on this host; the oracle needs it"
+    return None
+
+
+def require_oracle() -> None:
+    """Skip the test (unittest.SkipTest) when oracle_missing() says why this host cannot run the oracle."""
+    why = oracle_missing()
+    if why:
+        raise unittest.SkipTest(why)
 
 
 def bash_runs(text: str) -> list[str] | str:
@@ -222,6 +362,8 @@ def tree_runs(text: str) -> list[str] | str:
         tree = shell_tree.parse(text)
     except shell_tree.Unparsed:
         return "shell_tree raised Unparsed"
+    except Exception as error:  # a crash on one line is that line's difference, never one that hides the others
+        return f"shell_tree raised {type(error).__name__}: {error}"
     found = set()
     for cmd in shell_tree.commands(tree):
         words = shell_tree.words_run(text, cmd)
@@ -251,6 +393,7 @@ def differences(texts: list[str]) -> list[tuple[str, object, object]]:
 
 class BashRunsWhatTheTreeReads(unittest.TestCase):
     def test_every_corpus_line(self):
+        require_oracle()
         bad = differences(corpus())
         report = "\n".join(f"{line!r}\n    bash ran: {ran}\n    shell_tree: {tree}" for line, ran, tree in bad)
         self.assertEqual(bad, [], f"{len(bad)} of {len(corpus())} lines differ:\n{report}")
@@ -270,12 +413,36 @@ class BashRunsWhatTheTreeReads(unittest.TestCase):
     def test_the_oracle_logs_what_bash_runs(self):
         """A stub bash runs is logged and one it skips is not, also when only bash knows the command (a variable's
         text run by eval)."""
+        require_oracle()
         self.assertEqual(bash_runs("c1 && c2"), ["c1", "c2"])
         self.assertEqual(bash_runs("false && c1"), [])
         self.assertEqual(bash_runs("command -v c1 >/dev/null"), [])
         self.assertEqual(bash_runs("echo c1"), [])
         self.assertEqual(bash_runs("x='c1'; eval \"$x\""), ["c1"])
         self.assertEqual(bash_runs("("), "bash -n refuses it: a corpus bug")
+
+
+class NoOracleIsNoVerdict(unittest.TestCase):
+    """The detector for the upstream review's F1 class (#4620): an oracle that cannot run is no answer. With a program the
+    oracle needs hidden from it, each test that runs bash skips with why; none fails on the oracle's own "not on this
+    host" and none passes."""
+
+    def test_a_host_without_an_oracle_program_skips(self):
+        which = shutil.which
+        for hidden in REAL:
+            def hide(name, *args, **kwargs):
+                return None if name == hidden else which(name, *args, **kwargs)
+
+            with mock.patch.object(shutil, "which", hide):
+                self.assertIn(hidden, oracle_missing() or "")
+                for test in ("test_the_oracle_logs_what_bash_runs", "test_every_corpus_line"):
+                    result = unittest.TestResult()
+                    BashRunsWhatTheTreeReads(test).run(result)
+                    with self.subTest(hidden=hidden, test=test):
+                        self.assertEqual((result.testsRun, len(result.skipped), result.failures, result.errors),
+                                         (1, 1, [], []))
+                        self.assertIn(hidden, result.skipped[0][1])
+
 
 
 if __name__ == "__main__":

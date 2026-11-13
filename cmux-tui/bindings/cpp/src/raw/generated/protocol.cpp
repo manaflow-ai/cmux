@@ -24037,6 +24037,11 @@ Result<Json> Codec<CreateTerminalRequest>::encode(const CreateTerminalRequest& v
         if (!encoded) return std::move(encoded).error();
         object.emplace("command", std::move(encoded).value());
     }
+    if (value.create_workspace) {
+        auto encoded = encode_value(*value.create_workspace);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("create_workspace", std::move(encoded).value());
+    }
     if (!value.cwd.is_absent()) {
         auto encoded = encode_value(value.cwd);
         if (!encoded) return std::move(encoded).error();
@@ -24107,6 +24112,11 @@ Result<Json> Codec<CreateTerminalRequest>::encode(const CreateTerminalRequest& v
         if (!encoded) return std::move(encoded).error();
         object.emplace("workspace", std::move(encoded).value());
     }
+    if (!value.workspace_name.is_absent()) {
+        auto encoded = encode_value(value.workspace_name);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("workspace_name", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -24143,6 +24153,12 @@ Result<CreateTerminalRequest> Codec<CreateTerminalRequest>::decode(const Json& v
             if (!decoded) return std::move(decoded).error();
             result.command = Field<std::string>(std::move(decoded).value());
         }
+    }
+    const Json* field_create_workspace = value.find("create_workspace");
+    if (field_create_workspace) {
+        auto decoded = decode_value<bool>(*field_create_workspace);
+        if (!decoded) return std::move(decoded).error();
+        result.create_workspace = std::move(decoded).value();
     }
     const Json* field_cwd = value.find("cwd");
     if (field_cwd) {
@@ -24277,6 +24293,16 @@ Result<CreateTerminalRequest> Codec<CreateTerminalRequest>::decode(const Json& v
             auto decoded = decode_value<Id>(*field_workspace);
             if (!decoded) return std::move(decoded).error();
             result.workspace = Field<Id>(std::move(decoded).value());
+        }
+    }
+    const Json* field_workspace_name = value.find("workspace_name");
+    if (field_workspace_name) {
+        if (field_workspace_name->is_null()) {
+            result.workspace_name = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_workspace_name);
+            if (!decoded) return std::move(decoded).error();
+            result.workspace_name = Field<std::string>(std::move(decoded).value());
         }
     }
     return result;
@@ -45887,12 +45913,14 @@ constexpr std::array<CommandFieldRequirement, 1> kCommand83FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 1> kCommand94FieldRequirements{{
     {"idempotency_key", 0U, "creation-attempt-keys-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 5> kCommand96FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 7> kCommand96FieldRequirements{{
+    {"create_workspace", 12U, "create-terminal-workspace-v1"},
     {"detached", 12U, "detached-terminals-v1"},
     {"env", 12U, "terminal-env-v1"},
     {"keep", 12U, "terminal-reap-v1"},
     {"shell_args", 12U, "terminal-shell-args-v1"},
     {"terminal_id", 9U, ""},
+    {"workspace_name", 12U, "create-terminal-workspace-v1"},
 }};
 constexpr std::array<CommandFieldRequirement, 1> kCommand97FieldRequirements{{
     {"first_tab", 0U, "workspace-first-tab-v1"},

@@ -80,6 +80,17 @@ pub(super) fn send_response_with_details(
     writer.send_control(&value).is_ok()
 }
 
+/// [`send_response_with_details`] of a successful `list-workspaces` reply whose tree is its
+/// build's shared text: the same bytes (tree_reply_text.rs).
+pub(super) fn send_tree_reply(
+    writer: &MessageWriter,
+    response: Response,
+    tree: &super::tree_reply_text::TreeReply,
+) -> bool {
+    crate::diagnostics::request_log::reply_follows(response.ok, response.error_code.as_deref());
+    writer.send_tree_reply(tree, response.id.as_ref()).is_ok()
+}
+
 /// The stable `error_code` of a rejected command, when its error has one.
 pub(super) fn response_error_code(error: &anyhow::Error) -> Option<String> {
     error

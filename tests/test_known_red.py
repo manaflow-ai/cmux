@@ -60,6 +60,37 @@ class KnownRed(unittest.TestCase):
                             '    def test_b(self):\n        pass\n')
             self.assertEqual(known_red.audit([path]), [f"{path}:4"])
 
+    def test_audit_reads_a_skip_reason_however_it_is_written(self) -> None:
+        # cmux#41434 review: only literal positional reasons were read, so these skips slipped past.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "test_x.py"
+            path.write_text('import unittest\nfrom unittest import skip\n\nISSUE = 5\nSEE = "see #5"\n\n'
+                            'class T(unittest.TestCase):\n'
+                            '    @unittest.skip(reason="red, see #5")\n'                 # 8
+                            '    def test_a(self):\n        pass\n\n'
+                            '    @unittest.skip("red, " + "see #5")\n'                   # 12
+                            '    def test_b(self):\n        pass\n\n'
+                            '    @unittest.skip(f"red, see #{ISSUE}")\n'                  # 16
+                            '    def test_c(self):\n        pass\n\n'
+                            '    @unittest.skip(SEE)\n'                                   # 20
+                            '    def test_d(self):\n        pass\n\n'
+                            '    @skip("red, see #5")\n'                                  # 24
+                            '    def test_e(self):\n        pass\n\n'
+                            '    @unittest.skip(f"macOS only ({ISSUE} cores)")\n'         # 28
+                            '    def test_f(self):\n        pass\n')
+            self.assertEqual(known_red.audit([path]), [f"{path}:{n}" for n in (8, 12, 16, 20, 24)])
+
+    def test_audit_fails_closed_on_a_skip_reason_it_cannot_read(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "test_x.py"
+            path.write_text('import unittest\nfrom elsewhere import WHY\n\nclass T(unittest.TestCase):\n'
+                            '    @unittest.skip(WHY)\n'
+                            '    def test_a(self):\n        pass\n\n'
+                            '    @unittest.skip(reason=" ".join(["red", "#5"]))\n'
+                            '    def test_b(self):\n        pass\n')
+            found = known_red.audit([path])
+            self.assertEqual(found, [f"{path}:5: skip reason not readable", f"{path}:9: skip reason not readable"])
+
     def test_no_tracked_test_skips_against_an_issue_without_an_expiry(self) -> None:
         listed = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z", ":(glob)**/test_*.py"],
                                 capture_output=True, text=True, check=True).stdout.split("\0")

@@ -101,8 +101,9 @@ struct CmuxToastOverlayHostTests {
         #expect(abs(frame.minY - (CmuxToastOverlayHost.overlayLift)) < 0.5)
         let surface = try #require(view.surface)
         #expect(surface.material == OverlayMaterial.select(liquidGlassAvailable: Glass.isLiquidGlassAvailable, reduceTransparency: false))
-        #expect(!surface.prefersBlurToLiquidGlass, "the toast gives up Liquid Glass for the blur")
+        #expect(surface.glassVariant == CmuxToastTuning().glass.variant, "the toasts' own glass (Debug Settings > Toasts)")
         #expect(surface.tone == SurfaceRole.toast.tone)
+        // The veil-tinted Liquid Glass (gallery 3) keeps the neutral rim, as the blur does.
         #expect(surface.rimView != nil)
         #expect(surface.cornerRadius == SurfaceRole.toast.cornerRadius)
         handle.dismiss()
@@ -260,7 +261,7 @@ struct CmuxToastOverlayHostTests {
         let center = CmuxToastCenter(clock: clock, host: host)
         let window = Self.window()
         defer { Self.close(window) }
-        let handle = center.show(CmuxToast(id: "saved", message: "Saved", duration: .seconds(6)), in: window)
+        let handle = center.show(CmuxToast(id: "saved", message: "Saved", duration: .seconds(6), keepsDuration: true), in: window)
         let dismissed = AsyncStream.makeStream(of: CmuxToastDismissReason.self)
         handle.onDismiss = { dismissed.continuation.yield($0) }
         #expect(host.toastFrames(in: window).count == 1)
