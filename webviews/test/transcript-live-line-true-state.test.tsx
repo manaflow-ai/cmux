@@ -15,6 +15,7 @@ import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
 import { SILENT_MS } from "../src/agent-session/acpmux/conversation/thinkingModel";
 import { continuationStart, liveClock, THINKING, turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { StatusVerbContext } from "../src/agent-session/acpmux/statusVerbs";
+import { teardownDom } from "./support/domTeardown";
 
 // The line's two times (liveLineTimes.experiment.ts `labelled`) on the line itself
 // (liveTurnClock.experiment.ts `line`): this file reads the thinking time and the turn's clock.
@@ -93,6 +94,34 @@ test("the stretch of thinking starts where the last step ended, and the turn las
   expect(liveClock([prompt, ran, late], T0)).toEqual({ phaseAt: T0 + 52_000, heardAt: T0 + 53_000 });
   // Moved onto this computer's clock.
   expect(liveClock([prompt, ran, thinking], T0, 500)).toEqual({ phaseAt: T0 + 30_500, heardAt: T0 + 33_500 });
+});
+
+// Review of cmux#41871 (P1-F1): a thought keeps only its first and latest chunk's times, so a gap
+// between those two is no silence; only a gap between thoughts is.
+test("thinking that streams on past SILENT_MS keeps its stretch: the time never drops back to 0s", () => {
+  const long = activity("think", T0 + 31_000, [thought(T0 + 31_000, T0 + 31_000 + SILENT_MS + 5_000)]);
+  const heardAt = T0 + 31_000 + SILENT_MS + 5_000;
+  expect(liveClock([prompt, ran, long], T0)).toEqual({ phaseAt: T0 + 30_000, heardAt });
+  // Back-to-back thoughts, each a second after the last, are one stretch too.
+  const chunks = Array.from({ length: 15 }, (_, i) => thought(T0 + 31_000 + i * 1_000, T0 + 31_500 + i * 1_000));
+  expect(liveClock([prompt, ran, activity("think", T0 + 31_000, chunks)], T0).phaseAt).toBe(T0 + 30_000);
+  expect(drawn(liveLine([prompt, ran, long]), heardAt + 1_000)).toStartWith(
+    `Thinking ${(heardAt + 1_000 - (T0 + 30_000)) / 1_000}s`,
+  );
+  // A real silence between two thoughts still starts a new stretch at the later one.
+  const after = activity("again", T0 + 33_000 + SILENT_MS, [thought(T0 + 33_000 + SILENT_MS, T0 + 34_000 + SILENT_MS)]);
+  expect(liveClock([prompt, ran, thinking, after], T0).phaseAt).toBe(T0 + 33_000 + SILENT_MS);
+});
+
+// Review of cmux#41871 (P1-F2): a reply that paused reads Thinking past WRITING_MS, then Waiting
+// past SILENT_MS, never a Thinking that stays for good.
+test("a reply that paused turns to Waiting once nothing more arrives for SILENT_MS", () => {
+  const reply: AcpmuxRow = { id: "a", kind: "assistant", version: 1, at: T0 + 31_000, text: "Reading the logs" };
+  const line = liveLine([prompt, ran, reply]);
+  expect(line.liveState).toBe("writing");
+  expect(line.heardAt).toBe(reply.at);
+  expect(drawn(line, reply.at + 1_000)).toStartWith("Writing");
+  expect(drawn(line, reply.at + SILENT_MS + 2_000)).toBe(`Waiting ${(SILENT_MS + 2_000) / 1_000}s`);
 });
 
 test("the thinking time advances with the clock alone, no new event", () => {
@@ -197,13 +226,7 @@ beforeAll(() => {
     if (key !== "IS_REACT_ACT_ENVIRONMENT") scope[key] = (dom.window as unknown as Record<string, unknown>)[key];
   scope.IS_REACT_ACT_ENVIRONMENT = true;
 });
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
-  dom.window.close();
-});
+afterAll(() => teardownDom(saved, { window: dom.window }));
 
 const seconds = (host: HTMLElement) => host.querySelector(".cv-worked__own")?.textContent ?? "";
 

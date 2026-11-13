@@ -192,7 +192,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: 113fd6211b7d7534520b41c8563853788e32912fbe52fa3470023da0f9c7c8fa
+// app-ffi-pin-checksum: 363356b91ddeb8db6dc567262cb23d677e1f16bb035a5fb28709e2f25bdb328b
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -298,7 +298,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextAgentLanes",
                 "CmuxNextAgentPane",
                 "CmuxNextAgentPermissions",
-                "CmuxNextAgentQuestion",
                 "CmuxNextAgentUpdates",
                 "CmuxNextAppCore",
                 "CmuxNextAppHealth",
@@ -424,7 +423,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextNotifications",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextActions",
                 "CmuxNextAgentPane",
+                "CmuxNextCompat",
                 "CmuxNextControl",
                 "CmuxNextDaemon",
                 "CmuxNextDaemonService",
@@ -831,18 +832,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextAgentPermissions",
                 "CmuxNextWakeupsTestSupport",
-            ],
-            swiftSettings: uiSwiftSettings
-        ),
-        .target(
-            name: "CmuxNextAgentQuestion",
-            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
-                "CmuxNextDesign",
-                "CmuxNextIcons",
-                .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
-            ],
-            resources: [
-                .process("Resources"),
             ],
             swiftSettings: uiSwiftSettings
         ),
@@ -1891,6 +1880,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextPages",
+                "CmuxNextPalette",
                 "CmuxNextSettings",
             ],
             resources: [.process("Resources")],
@@ -2150,6 +2140,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextDaemon",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                // CCmuxAppFFI: the connection heartbeat's counting (cmux-daemon-conn-core)
+                // and the launch rules (cmux-daemon-launch-core).
+                "CCmuxAppFFI",
                 "CmuxNextCompat",
                 "CmuxNextWakeups",
             ],
@@ -2248,10 +2241,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextSidebar",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CCmuxAppFFI",
+                "CmuxNextActions",
                 "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextIcons",
                 "CmuxNextPages",
+                "CmuxNextPalette",
                 "CmuxNextResources",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",

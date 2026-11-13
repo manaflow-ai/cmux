@@ -48,6 +48,12 @@ How it is enforced:
   `await` of an `@MainActor` function. Escape: `// main-hop-allow: <why no scheduler path fits and what bounds
   the work>`. Old hops are not refused; the count only goes down. `guardrails.py --main-thread-counts [REV]`
   prints the hop, scheduler-entry, raw-blocking and checked-seam counts.
+  `main-actor-url-append` also refuses new URL joins without explicit directory hints in main-actor
+  scopes, including a hint removed from a wrapped call. Foundation can call `lstat` to infer the type:
+  supply `.isDirectory`/`.notDirectory` (or `.inferFromPath` when unknown), never `.checkFileSystem` on
+  main. Lexical isolation cannot follow synchronous `nonisolated` helpers back to their main-actor
+  callers: move actual path searches and signature checks onto `BackgroundWork`'s `.files` lane,
+  as `HarnessIconBook` does. An `@concurrent` task alone still blocks the cooperative pool.
 
 ## Threads and queues
 
@@ -196,7 +202,10 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   serial: its file reads and writes block this queue, never main; saves of one chat coalesce to the newest, at most
   20 files of 1 MiB, and a read waits only behind the saves queued before it; the quit awaits its saves with the
   state files', holding no thread, under the quit deadline),
-  `com.cmuxterm.app.next.agent-pane.prompt-journal`, `com.cmuxterm.app.next.agent-pane.inbound`,
+  `com.cmuxterm.app.next.agent-pane.prompt-journal`, `com.cmuxterm.app.next.agent-pane.unsent-prompts` (each
+  chat's prompts no agent took yet, AgentPaneUnsentPrompts, utility, serial: its small per-chat file reads and atomic
+  writes block this queue, never main; one write per sent, refused or taken prompt, so no back-pressure),
+  `com.cmuxterm.app.next.agent-pane.inbound`,
   `cmux.next.agent-pane.acpmux-exit.<pid>`, `cmux.next.agent-pane.acpmux-log-progress`,
   `cmux.next.agent-pane.acpmux-launch-reap.<pid>`, `cmux.next.agent-pane.acpmux-status`, `cmux.acpmux.checked-line`,
   `cmux.next.agent-pane.acpmux-socket-wait` (one person-socket exchange's readiness wait, userInitiated, serial, one

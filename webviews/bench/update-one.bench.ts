@@ -28,7 +28,8 @@
 //   bun bench/update-one.bench.ts [--sizes 100,1000,3000] [--changes 40] [--turns 4000] [--surfaces home,chat]
 /// <reference types="bun" />
 import path from "node:path";
-import { chromium, type CDPSession, type Page } from "playwright";
+import { chromium } from "./browsers";
+import type { CDPSession, Page } from "playwright";
 import { SourceMapConsumer, type RawSourceMap } from "source-map-js";
 import { warmViteServer } from "../test/support/warmDevServer";
 import { perfRow, TARGET_MS } from "./perfRow";
@@ -258,9 +259,6 @@ const vite = await createServer({
   logLevel: "error",
 });
 const browser = await chromium.launch({
-  ...(process.env.CMUX_CHROME_HEADLESS_SHELL
-    ? { executablePath: process.env.CMUX_CHROME_HEADLESS_SHELL }
-    : { channel: "chrome" }),
   headless: true,
 });
 type Result = { surface: Surface; kind: Kind; size: number; p50: number; p95: number; renders: number; longMs: number };
