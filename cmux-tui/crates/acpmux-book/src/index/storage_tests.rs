@@ -304,3 +304,26 @@ fn empty_hot_boundary_pages_keep_the_opposite_direction_flag() {
     assert!(after.has_before);
     assert!(!after.has_after);
 }
+
+#[test]
+fn backward_page_can_read_a_large_row_before_a_small_anchor() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut previous = Summary::new("previous");
+    previous.last_activity = 2;
+    previous.extra = serde_json::value::RawValue::from_string(format!(
+        "{{\"preview\":\"{}\"}}",
+        "x".repeat(1600)
+    ))
+    .unwrap();
+    let mut anchor = Summary::new("anchor");
+    anchor.last_activity = 1;
+    let key = SortKey::of(&anchor);
+    let index = SummaryIndex::new().apply(1, previous).apply(2, anchor);
+    let path = dir.path().join("index.snap");
+    SortedSnapshot::write(&path, &index).unwrap();
+    let disk = SummaryIndex::from_disk(DiskSnapshot::open(path).unwrap(), 1);
+    let page = disk.read_page(Some(&key), ReadSide::Before, false, 1, 8192, None).unwrap();
+    assert_eq!(page.rows.len(), 1);
+    assert_eq!(page.rows.first().unwrap().chat_id, "previous");
+    assert!(!page.has_before);
+}
