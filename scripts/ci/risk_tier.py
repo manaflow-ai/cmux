@@ -69,6 +69,12 @@ RECEIPT = re.compile(r"^\W*(?:independent\s+)?review\s*\(([^)\n]*)\)\s*:\W*(ship
 STARTED_BY = re.compile(r"^(?P<reviewer>.*\S)\s*,\s*started\s+by\s+(?P<starter>\S.*?)\s*$", re.I)
 # "Author-agent: <agent id>" on a line of its own, optionally as a list item, quote or bold label.
 AUTHOR_AGENT = re.compile(r"^[\s>*_`-]*author-agent[*_`]*\s*:[\s*_`]*(?P<id>[^\s*`]+)", re.I | re.M)
+# The aid in the `Agent session:` footer `agent-identity footer` writes at the end of every lane PR body
+# (`[...](https://cmux.com/deeplink/agent?id=aid-<20 hex>)`) names the author agent too. leo-workspace
+# tools/review_model.py reads both forms; reading only Author-agent here refused #42066's review-service SHIP
+# (the body carried the footer alone) after merge_hold and router-review had both read it as independent.
+FOOTER_AGENT = re.compile(r"^[\s>*_`-]*agent session[*_`]*\s*:[^\n]*?[?&]id=(?P<id>aid-[0-9a-f]{20})(?![0-9a-f])",
+                          re.I | re.M)
 HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
 
 
@@ -101,8 +107,12 @@ def norm(agent: str | None) -> str:
 
 
 def author_agents(body: str | None) -> set[str]:
-    """Every `Author-agent: <id>` the description names outside <!-- comments -->, normalized."""
-    return {norm(m.group("id")) for m in AUTHOR_AGENT.finditer(HTML_COMMENT.sub("", body or ""))} - {""}
+    """Every agent the description names as its author outside <!-- comments -->, normalized: each
+    `Author-agent: <id>` and each `Agent session:` footer's aid."""
+    body = HTML_COMMENT.sub("", body or "")
+    named = {norm(m.group("id")) for m in AUTHOR_AGENT.finditer(body)}
+    named |= {m.group("id").lower() for m in FOOTER_AGENT.finditer(body)}
+    return named - {""}
 
 
 def same_account(login: str | None, author: str | None) -> bool:
@@ -116,7 +126,8 @@ def refusal(receipt: Receipt, same: bool, agents: set[str]) -> str | None:
     if receipt.verdict != "ship" or not same:
         return None
     if not agents:
-        return "a SHIP from the author's account, and the description has no `Author-agent: <agent id>` line"
+        return ("a SHIP from the author's account, and the description names no author agent (an "
+                "`Author-agent: <agent id>` line or an `Agent session:` footer with `?id=aid-...`)")
     if not receipt.reviewer or not receipt.starter:
         return "a SHIP from the author's account must say `Review (<reviewer agent id>, started by <agent id>)`"
     if norm(receipt.reviewer) in agents:
@@ -669,7 +680,7 @@ def classify(files: list[str], patches: dict[str, str] | None = None, sources: d
 
 SIGN_OFF_HOW = (f"a line `Review (<reviewer>): SHIP at <full head sha>` from an independent review, in the "
                 f"description or leading a comment (from the author's own account it must be `Review (<reviewer "
-                f"agent id>, started by <agent id>)`, neither of them the description's `Author-agent: <agent id>`; "
+                f"agent id>, started by <agent id>)`, neither of them the author agent the description names in `Author-agent: <agent id>` or its `Agent session:` footer; "
                 f"an author lane gets one with `router-review OWNER/REPO N --request`, which cmux-bot posts), "
                 f"an approving review from someone other than the author, or "
                 f"`{HUMAN_OK_LABEL}` added by a maintainer (agents never add it)")

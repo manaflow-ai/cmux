@@ -15,7 +15,8 @@ name: cmux NEXT Stable
 #   crash-class   the cmux-next-crash-class.yml rules on the whole tree (Linux)
 #   perf-budgets  scripts/cmux-next/perf-budgets.py --gate (split-spring.sh --suite=budgets) on an
 #                 exclusive macOS 27 M4 Pro measure worker, against apple-m4-pro-macos27's baseline.
-#                 A measured regression blocks; no verdict (no idle worker in 3 h, a host fault) warns.
+#                 A measured regression blocks, and so does no verdict (no idle worker in 3 h, three
+#                 host faults): stable ships only a measured build. The next run re-attaches to the step.
 # Not a gate: CmuxNext's unit suites. Stable gates on the behavior people use (the UI journey on the
 # signed app, crash classes, perf, soak), not on every unit test of the commit (Aziz 2026-11-03).
 #   smoke-27      UI tests of the signed stable app on an owned M4 Pro mini, macOS 27: fresh-home
@@ -332,6 +333,9 @@ jobs:
           echo "stable serves $served ($base); candidate $COMMIT"
           python3 -I .stable-tooling/scripts/ci/stable_next.py crash-delta --base-tree "$RUNNER_TEMP/base-tree" --head-tree "$RUNNER_TEMP/head-tree"
 
+  # --profile, as the baseline was recorded (apple-m4-pro-macos27.json "source": perf-budgets.py --profile):
+  # the gated row sidebar.400.ticking.main_ms_per_s comes only from its Time Profiler trace, so without it
+  # that row is always missing, and since #24877 a missing row fails the gate whatever was measured.
   # scripts/cmux-next/perf-budgets.py --gate through split-spring.sh, as a build-fleet measurement: an
   # exclusive step on an idle macOS 27 M4 Pro measure worker (measure + macos-27 + ram48 + cmux: ram48 rules
   # out every M6, and cmux the two 16 GB M4 lent minis, which have no perf baseline for their chip),
@@ -379,13 +383,16 @@ jobs:
             "$client" run --class exclusive --measurement --script scripts/measure/split-spring.sh --ref "$COMMIT" \
               --label measure --label macos-27 --label ram48 --label cmux --key "$KEY-$n" \
               --artifact artifacts/split-spring/report.json \
-              --arg=--suite=budgets --arg=--gate --arg=--vdisplay=120 \
+              --arg=--suite=budgets --arg=--gate --arg=--profile --arg=--vdisplay=120 \
               --timeout 7200 --queue-timeout "$queue" 2>&1 | tee "$log" || status=${PIPESTATUS[0]}
             case "$status" in
               0) exit 0 ;;
-              # Still queued: no idle M4 Pro measured this build. No verdict is not a regression: warn and
-              # let the behavior gates decide; the step keeps its place and is never resubmitted.
-              75) echo "::warning title=stable perf::step $KEY-$n still queued after $((queue / 3600)) h (kept); no perf verdict for this build"; exit 0 ;;
+              # Still queued: no idle M4 Pro measured this build yet. Stable ships only measured builds
+              # (Aziz 2026-11-11: perf keeps blocking stable), so no verdict blocks this run. The step keeps
+              # its place and is never resubmitted: the next hourly tick's run walks the same key, re-attaches
+              # and reads its verdict. Build 4295007228301 shipped on this branch's old warning, and its step,
+              # measured 3 h later, had regressed (c5b6e981dc1c).
+              75) echo "::error title=cmux NEXT Stable: no perf verdict yet::step $KEY-$n still queued after $((queue / 3600)) h (kept; the next run re-attaches to it). Stable ships only a measured build."; exit 1 ;;
               124) echo "::warning title=stable perf::step $KEY-$n ran past its time limit; measuring again" ;;
               *)
                 # The verdict is the step's report: rows over the baseline are a regression and final. A
@@ -424,8 +431,8 @@ jobs:
                 echo "::warning title=stable perf::step $KEY-$n (${id:-no step}) ended without a perf verdict; measuring again" ;;
             esac
           done
-          echo "::warning title=stable perf::three perf steps for this build ended without a verdict; no perf verdict"
-          exit 0
+          echo "::error title=cmux NEXT Stable: no perf verdict::three perf steps for this build ended without measuring; stable ships only a measured build"
+          exit 1
 
   sign:
     needs: plan
@@ -858,7 +865,9 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          sparse-checkout: scripts/ci/stable_next_slack.py
+          sparse-checkout: |
+            scripts/ci/stable_next_slack.py
+            scripts/ci/deadline_http.py
           sparse-checkout-cone-mode: false
       - name: Post the run's Slack message
         id: post
@@ -889,7 +898,9 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          sparse-checkout: scripts/ci/stable_next_slack.py
+          sparse-checkout: |
+            scripts/ci/stable_next_slack.py
+            scripts/ci/deadline_http.py
           sparse-checkout-cone-mode: false
       - name: Answer in the run's Slack thread
         env:
@@ -989,7 +1000,9 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          sparse-checkout: scripts/ci/stable_next_slack.py
+          sparse-checkout: |
+            scripts/ci/stable_next_slack.py
+            scripts/ci/deadline_http.py
           sparse-checkout-cone-mode: false
       # Shipped or blocked, in the run's Slack message (a new one when plan failed before it was
       # posted). No GitHub issue: the team follows stable in Slack.

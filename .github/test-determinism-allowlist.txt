@@ -377,3 +377,26 @@ Packages/macOS/CmuxNext/Tests/CmuxNextCloudTests/CloudCarrierDialTests.swift	sle
 tests/test_ci_noclobber_sweep.py	assert-on-duration	the bash timeout is the behavior under test: an endless loop with timeout=1 must come back as an unavailable answer, and 8 s is the slack above that timeout
 tests/test_lint_process_gone_checks.py	sleep-then-assert	both hits are source text of fixture tests that the linter under test reads; this test does not sleep
 tests/test_lint_process_gone_checks.py	assert-on-duration	died(within=5) must find an unreaped child and not run to its timeout; the 4 s bound tells found from timed out, which is the behavior under test
+tests/git_history.py	git-write-without-fixture	fetches missing commits into the real checkout from origin, not a fixture; needs the user's git config for auth
+scripts/cmux-next/tests/pages-size-open-bench.sh	git-write-without-fixture	a Linux bench, not a test: fetches a missing baseline/candidate pin into the real checkout from origin, not a fixture; needs the user's git config for auth; maintenance.auto is off on that fetch
+# Absence checks: each waits a fixed time for something that must NOT happen (a page made by a pointer that only
+# crossed a tab; a second thread started for a wedged probe). No event marks "nothing happened", so the wait stays
+# until the tab dwell and the gate's thread start take an injected clock or a start hook. Found when the full scan
+# ran on base (cmux-next CI guard group, 07:36Z 2026-11-12, after #41805).
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/HoverLoadsTabTests.swift	sleep-then-assert	absence check: a pointer that only crosses a tab makes no page; needs an injected dwell clock
+Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests/WebKitSetupGateRecheckTests.swift	sleep-then-assert	absence check: a wedged probe starts no second thread; needs a thread-start hook
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/StartingPaneInputCancelTests.swift	sleep-then-assert	each pause follows an awaited cancel or close; the assert is that no second or stray cancel arrives, an absence that has no signal to wait on
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/StartingPaneOtherClosesTests.swift	assert-on-duration	a validity guard, not a latency claim: held keys leave by themselves after 3 s, so a run slower than 2.8 s proves nothing and must say so
+cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileAgentChatTests/ChatKeepsRowsWhileAwayTests.swift	sleep-then-assert	the blip length and the wait past the 150 ms threshold are the behavior under test; the assert is that no line ever showed, an absence with no signal to wait on
+cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/ChatPromptBlipTests.swift	sleep-then-assert	the 150 ms pause outlasts the shortened 50 ms held-prompt window under test; the assert after it waits on settle {}
+cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileScreenSharingTests/ScreenSharingViewerTests.swift	assert-on-duration	a lower bound, the behavior under test: a dropped viewer waits at least its 1 s backoff before it reattaches; a slow run cannot fail it
+cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileTerminalTests/TerminalColdFrameHandoffTests.swift	sleep-then-assert	the assert is that a failed attach keeps the cold frame, an absence of a clear that has no signal to wait on
+tests/test_ci_step_table.py	assert-on-duration	the bound is the behavior under test: four 1 s steps must run at once (about 1 s), and serial would take 4 s; 3.5 s leaves 2.5 s of slack
+tests/test_generated_files_guard.py	assert-on-duration	the bound is the behavior under test: two checks with their own 1 s try and 2 s retry must share one budget, 6 s serial against a 4.5 s bound
+tests/test_guard_logs_survive_closed_pipe.py	sleep-then-assert	debt: the 300 ms pause lets bash install its traps before the probe; the probe's own self-check asserts the process reads as alive
+webviews/test/history-page-pending.test.tsx	sleep-then-assert	setTimeout(0) inside act() is one macrotask turn that lets the pushed history reply render, not a wait for time to pass
+scripts/cmux-next/tests/lib/git-fixture.sh	exit-trap-reraise-order	debt: the fixture composes its own EXIT trap with the caller's saved one; check the re-raise order against the rule
+scripts/cmux-next/tests/test_bundle_size_pr.py	git-temp-repo-maintenance	debt: a throwaway temp repo of a few commits; move it onto tests/git_fixture_env
+scripts/cmux-next/tests/test_ffi_caller_ratchet.py	git-write-without-fixture	debt: a throwaway temp repo that sets maintenance.auto and gc.auto off itself; move it onto tests/git_fixture_env
+scripts/cmux-next/tests/test_ffi_caller_ratchet.py	git-fixture-env-dropped	debt: it drops GIT_* so a hook's GIT_DIR cannot point git at the outer repo; move it onto tests/git_fixture_env
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/UpdateReadyCardLayoutTests.swift	assert-on-duration	a constant check, not a timing: the card's notesOpenDelay must stay at least 400 ms so a pass over the card opens no popup

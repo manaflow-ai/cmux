@@ -34,6 +34,7 @@ use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
 use cmux::{CallKind, ChatTarget, ChatTargetRefusal};
+use cmux_json::JsonGet as _;
 use serde_json::{Value, json};
 
 use super::agents::turn::{self, Begin};
@@ -536,8 +537,9 @@ where
     }
     let catalog = (reads.catalog)()?;
     let id = device_id(on, &catalog)?;
-    let record = machines(&catalog).iter().find(|machine| text(machine, "id") == Some(id.as_str()));
-    let origin = record.and_then(|machine| text(machine, "origin")).unwrap_or("local");
+    let record =
+        machines(&catalog).iter().find(|machine| machine.get_str("id") == Some(id.as_str()));
+    let origin = record.and_then(|machine| machine.get_str("origin")).unwrap_or("local");
     let signed_in = origin == "cloud" && (reads.signed_in)();
     match cmux::resolve_chat_target(&id, &catalog, signed_in) {
         Err(refusal) => Err(refused(&refusal)),
@@ -550,7 +552,7 @@ where
                 if let Some(error) = not_loaded(&listed) {
                     return Err(error);
                 }
-                existing_vm(&id, text(machine, "name"), &listed).map(Route::Cloud).map_err(
+                existing_vm(&id, machine.get_str("name"), &listed).map(Route::Cloud).map_err(
                     |found| {
                         refusal(
                             "chat_target.unavailable",
@@ -610,15 +612,15 @@ fn my_vm(listed: &Value) -> Result<Machine, Value> {
     let rows = listed.get("machines").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
     let usable: Vec<&Value> = rows
         .iter()
-        .filter(|row| !text(row, "status").is_some_and(|status| NOT_REUSED.contains(&status)))
+        .filter(|row| !row.get_str("status").is_some_and(|status| NOT_REUSED.contains(&status)))
         .collect();
     let running: Vec<&Value> =
-        usable.iter().copied().filter(|row| text(row, "status") == Some("running")).collect();
+        usable.iter().copied().filter(|row| row.get_str("status") == Some("running")).collect();
     // A VM the app is still making (`creating`, not failed) is mine too: never start a second.
     let making = listed
         .get("creating")
         .and_then(Value::as_array)
-        .is_some_and(|rows| rows.iter().any(|row| text(row, "status") != Some("failed")));
+        .is_some_and(|rows| rows.iter().any(|row| row.get_str("status") != Some("failed")));
     let id = match (usable.as_slice(), running.as_slice()) {
         ([], _) if making => {
             return Err(retryable(refusal(
@@ -629,7 +631,7 @@ fn my_vm(listed: &Value) -> Result<Machine, Value> {
             )));
         }
         ([], _) => return Ok(Machine::New),
-        ([only], _) | (_, [only]) => text(only, "machine_id"),
+        ([only], _) | (_, [only]) => only.get_str("machine_id"),
         _ => None,
     };
     if let Some(id) = id {
@@ -637,7 +639,7 @@ fn my_vm(listed: &Value) -> Result<Machine, Value> {
     }
     let names: Vec<&str> = usable
         .iter()
-        .map(|row| text(row, "title").or(text(row, "machine_id")).unwrap_or(""))
+        .map(|row| row.get_str("title").or(row.get_str("machine_id")).unwrap_or(""))
         .collect();
     Err(refusal(
         "chat_target.which_vm",
@@ -655,13 +657,13 @@ pub(super) fn existing_vm(
     listed: &Value,
 ) -> Result<Machine, Vec<String>> {
     let rows = listed.get("machines").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
-    if rows.iter().any(|row| text(row, "machine_id") == Some(id)) {
+    if rows.iter().any(|row| row.get_str("machine_id") == Some(id)) {
         return Ok(Machine::Target(id.to_owned()));
     }
     let titled: Vec<String> = rows
         .iter()
-        .filter(|row| name.is_some() && text(row, "title") == name)
-        .filter_map(|row| text(row, "machine_id").map(str::to_owned))
+        .filter(|row| name.is_some() && row.get_str("title") == name)
+        .filter_map(|row| row.get_str("machine_id").map(str::to_owned))
         .collect();
     match titled.as_slice() {
         [machine] => Ok(Machine::Target(machine.clone())),
@@ -672,13 +674,13 @@ pub(super) fn existing_vm(
 /// The id `selector` names: a catalog machine with that id, else the one machine with that name.
 fn device_id(selector: &str, catalog: &Value) -> Result<String, Value> {
     let machines = machines(catalog);
-    if machines.iter().any(|machine| text(machine, "id") == Some(selector)) {
+    if machines.iter().any(|machine| machine.get_str("id") == Some(selector)) {
         return Ok(selector.to_owned());
     }
     let named: Vec<&str> = machines
         .iter()
-        .filter(|machine| text(machine, "name") == Some(selector))
-        .filter_map(|machine| text(machine, "id"))
+        .filter(|machine| machine.get_str("name") == Some(selector))
+        .filter_map(|machine| machine.get_str("id"))
         .collect();
     match named.as_slice() {
         [id] => Ok((*id).to_owned()),
@@ -712,10 +714,6 @@ fn refusal(code: &str, message: String, next: &str, mut details: Value) -> Value
 
 fn machines(catalog: &Value) -> &[Value] {
     cmux::catalog_machines(catalog)
-}
-
-fn text<'a>(machine: &'a Value, key: &str) -> Option<&'a str> {
-    machine.get(key).and_then(Value::as_str)
 }
 
 fn run(global: &GlobalArgs, start: Start) -> i32 {
