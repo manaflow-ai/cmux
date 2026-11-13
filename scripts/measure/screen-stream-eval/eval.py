@@ -149,10 +149,27 @@ def target(name: str, folder: Path, out: Path) -> None:
             errors.append(f"latency {kind}: no samples")
     # Repeats (window-N.json, phases-N.jsonl, ocr-N.json): every number is the median of the repeats
     # that measured it, and extra.repeats keeps each repeat's own numbers.
-    reps = sorted(int(f.stem.split("-")[1]) for f in folder.glob("window-*.json") if f.stem.split("-")[1].isdigit())
-    reps = sorted(set(reps) | {int(f.stem.split("-")[1]) for f in folder.glob("ocr-*.json") if f.stem.split("-")[1].isdigit()})
+    requested_path = folder / "repeats-requested.json"
+    requested = load(requested_path)
+    count = requested.get("count") if isinstance(requested, dict) else None
+    count = count if type(count) is int and count >= 1 else None
+    if requested_path.exists() and count is None:
+        errors.append("invalid repeats-requested.json (expected positive integer count)")
+    discovered = set()
+    for pattern in ("window-*.json", "ocr-*.json", "phases-*.jsonl", "video-media-*.json"):
+        for path in folder.glob(pattern):
+            suffix = path.stem.rsplit("-", 1)[-1]
+            if suffix.isdigit():
+                discovered.add(int(suffix))
+    intended = set(range(1, count + 1)) if count is not None else set()
+    repeat_contract_ready = count is not None and discovered <= intended
+    if count is not None and not discovered <= intended:
+        errors.append("repeat artifacts outside requested count")
+    reps = sorted(discovered | intended)
     per_rep, ocrs, extras = [], [], []
     video_requested = (folder / "video-requested.json").exists()
+    if video_requested and not repeat_contract_ready:
+        errors.append("video: complete requested-repeat receipt is unavailable")
     video_request = load(folder / "video-requested.json") if video_requested else None
     for rep in reps:
         window = load(folder / f"window-{rep}.json") or {}
@@ -214,7 +231,7 @@ def target(name: str, folder: Path, out: Path) -> None:
     else:
         errors.append("ocr: no result")
     # Missing calibration metadata is unknown, never a successful common-content comparison.
-    result["ocr"]["comparison_ready"] = bool(per_rep) and all(
+    result["ocr"]["comparison_ready"] = repeat_contract_ready and bool(per_rep) and all(
         r["ocr"].get("comparison_ready") is True
         and isinstance(r["ocr"].get("crops"), dict)
         and type(r["ocr"].get("cer")) in (int, float)
@@ -226,7 +243,8 @@ def target(name: str, folder: Path, out: Path) -> None:
                   for e in extras)
     result["extra"] = {**metadata,
                         "video_requested": video_requested,
-                        "video_complete": bool(per_rep) and all(r["video_valid"] for r in per_rep),
+                        "video_complete": repeat_contract_ready and bool(per_rep) and all(r["video_valid"] for r in per_rep),
+                        "requested_repeats": count,
                         "first_frame_ms": median_of(e.get("first_frame_ms") for e in extras),
                         "cpu_pct": median_of(cpu_values),
                         "process_cpu_pct": median_of(e.get("process_cpu_pct") for e in extras),
