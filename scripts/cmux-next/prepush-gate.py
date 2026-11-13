@@ -1651,6 +1651,7 @@ def unread_findings(code: int, lines: list[str], finding: re.Pattern[str]) -> st
 # its findings. Only these are dropped before the findings are read; any other `ui font:` line is output the gate did
 # not parse (#41945 review, F2: `ui font: could not read ...` with exit 0 was dropped and read as a clean run).
 UI_FONT_SUMMARY = re.compile(r"ui font: (?:ok|\d+ finding\(s\)\.(?: .*)?)")
+UI_FONT_COUNT = re.compile(r"ui font: (?:(?:ok)|(?P<count>\d+) finding\(s\)\.(?: .*)?)")
 
 
 # One line of a checker's `--inputs` answer: a repository path, a file (`a/b.json`) or a folder (`a/b/`), in plain
@@ -1716,8 +1717,16 @@ def ui_font(repo: Path, base: str, head: str, trusted_scripts: Path | None = Non
 
         def findings(*args: str) -> tuple[list[str], str | None]:
             code, out = run(["python3", "-I", str(check), "--repo", str(repo), *args], absolute(Path(tmp)), timeout=600)
+            summaries = [line.strip() for line in out.splitlines() if UI_FONT_SUMMARY.fullmatch(line.strip())]
             lines = [line for line in out.splitlines()
                      if line.strip() and not UI_FONT_SUMMARY.fullmatch(line.strip())]
+            count = UI_FONT_COUNT.fullmatch(summaries[-1]).group("count") if summaries else None
+            count = 0 if summaries and count is None and summaries[-1] == "ui font: ok" else (
+                int(count) if count is not None else None)
+            if code in (0, 1) and (len(summaries) != 1 or count is None or (code == 0 and count != 0)
+                                   or (code == 1 and count == 0)):
+                reason = f"summary disagrees with exit {code}: {summaries[-1] if summaries else 'missing'}"
+                return lines, reason
             # Its verdicts exit 0 or 1; anything else, a traceback or a timeout is no verdict, and so is an exit 1 that
             # prints no finding (only its `ui font:` summary), and output that is not its findings (#41888 review).
             # Its INPUTS guard stop is not a finding either; it refuses on its own below.

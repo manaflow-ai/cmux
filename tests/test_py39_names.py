@@ -414,15 +414,30 @@ print(json.dumps(missing))
 """
 
 
-def _here_has(module, name):
-    """True when this Python has MODULE (and NAME in it): a name a newer stdlib added, not one no stdlib has here."""
+def _found(fullname):
+    """True when this Python can find the module FULLNAME. find_spec imports the parent of a dotted name and never
+    the module itself."""
+    if fullname in sys.modules:
+        return True
     try:
-        __import__(module)
-        if name is not None and not hasattr(sys.modules[module], name):
-            __import__(module + "." + name)
+        return importlib.util.find_spec(fullname) is not None
+    except ModuleNotFoundError:
+        return False  # its parent is not here, or is no package
+
+
+def _here_has(module, name):
+    """True when this Python has MODULE (and NAME in it): a name a newer stdlib added, not one no stdlib has here.
+    It asks find_spec and imports no module by a computed name (tests/test_script_module_loads.py cannot read
+    one); a submodule that is found counts as there, whether or not its import would pass."""
+    try:
+        if not _found(module):
+            return False
+        if name is None:
+            return True
+        # _found(MODULE.NAME) imported MODULE as the parent, so sys.modules has it for the attribute read.
+        return _found(module + "." + name) or hasattr(sys.modules[module], name)
     except Exception:
         return False
-    return True
 
 
 def _version(python):
@@ -745,6 +760,41 @@ class UnderPython39(unittest.TestCase):
         for site, source in rows.items():
             with self.subTest(site=site):
                 self.scan("import ast\n" + source)
+
+    def test_import_as_shadowing_is_lexical(self):
+        self.scan("import ast as parser\n"
+                  "def shadow(parser):\n    return parser.match_case\n"
+                  "value = parser.match_case  # bare: ast.match_case\n")
+
+    def test_from_import_shadowing_is_lexical(self):
+        self.scan("import ast\n"
+                  "def shadow():\n"
+                  "    from sys import version_info as ast\n"
+                  "    return ast.match_case\n"
+                  "value = ast.match_case  # bare: ast.match_case\n")
+
+    def test_except_as_shadowing_is_lexical(self):
+        self.scan("import ast\n"
+                  "def shadow():\n"
+                  "    try:\n        pass\n"
+                  "    except Exception as ast:\n"
+                  "        return ast.match_case\n"
+                  "value = ast.match_case  # bare: ast.match_case\n")
+
+    def test_match_binding_shadowing_is_lexical(self):
+        self.scan("import ast\n"
+                  "def shadow(value):\n"
+                  "    match value:\n"
+                  "        case ast:\n"
+                  "            return ast.match_case\n"
+                  "value = ast.match_case  # bare: ast.match_case\n")
+
+    def test_del_binding_shadowing_is_lexical(self):
+        self.scan("import ast\n"
+                  "def shadow():\n"
+                  "    del ast\n"
+                  "    return ast.match_case\n"
+                  "value = ast.match_case  # bare: ast.match_case\n")
 
     def test_an_exit_gate_protects_what_follows_it(self):
         """devbuild's `if sys.version_info < (3, 11): ... raise SystemExit(...)`, codex-review-box's sys.exit, a return."""

@@ -499,9 +499,10 @@ public final class UpdaterService {
                 self?.log.append("probe \(result.outcome.kind) feed=\(result.feedURL) items=\(result.itemCount)")
                 failure = nil
             } catch {
-                let reason = String(describing: error)
+                // The sheet and the indicator show plain words; the log keeps the error.
+                let reason = UpdateFailureText.plain(error)
                 self?.lastProbeError = reason
-                self?.log.append("probe failed: \(reason)")
+                self?.log.append("probe failed: \(String(describing: error))")
                 failure = reason
             }
             self?.isProbing = false
@@ -589,9 +590,9 @@ public final class UpdaterService {
                 let outcome = try await switcher.switchTo(target) { phase in sink.yield(phase) }
                 self?.log.append("channel switch to \(target.rawValue): \(outcome)")
             } catch {
-                failure = String(describing: error)
+                failure = UpdateFailureText.plain(error)
                 self?.channelSwitchError = failure
-                self?.log.append("channel switch to \(target.rawValue) failed: \(failure ?? "")")
+                self?.log.append("channel switch to \(target.rawValue) failed: \(String(describing: error))")
             }
             sink.finish()
             await applier.value
