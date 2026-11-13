@@ -1,26 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { holdEntranceForFirstFrame } from "./entranceClock";
-
-type Fake = {
-  animationName?: string;
-  playState: AnimationPlayState;
-  currentTime: number | null;
-  effect: { getComputedTiming: () => { endTime: number } };
-  pause: () => void;
-  play: () => void;
-};
-
-function fake(name: string | undefined, endTime = 80, currentTime = 40): Fake {
-  const animation: Fake = {
-    playState: "running",
-    currentTime,
-    effect: { getComputedTiming: () => ({ endTime }) },
-    pause: () => void (animation.playState = "paused"),
-    play: () => void (animation.playState = "running"),
-  };
-  if (name) animation.animationName = name;
-  return animation;
-}
+import { ENTRANCE_HELD_ATTR, holdEntranceForFirstFrame } from "./entranceClock";
 
 function frames() {
   const queued = new Map<number, () => void>();
@@ -40,35 +19,32 @@ function frames() {
   };
 }
 
-const row = (animations: Fake[]) => ({ getAnimations: () => animations }) as unknown as Element;
+function row() {
+  const attrs = new Set<string>();
+  return {
+    hasAttribute: (name: string) => attrs.has(name),
+    setAttribute: (name: string) => void attrs.add(name),
+    removeAttribute: (name: string) => void attrs.delete(name),
+    held: () => attrs.has(ENTRANCE_HELD_ATTR),
+  } as unknown as Element & { held: () => boolean };
+}
 
 describe("holdEntranceForFirstFrame", () => {
-  test("holds the entrance at its start until the next frame, then plays it", () => {
-    const fade = fake("cv-enter-fade");
+  test("keeps the row held until the next frame, then releases it", () => {
+    const node = row();
     const clock = frames();
-    holdEntranceForFirstFrame(row([fade]), clock);
-    expect(fade.playState).toBe("paused");
-    expect(fade.currentTime).toBe(0);
+    holdEntranceForFirstFrame(node, clock);
+    expect(node.held()).toBe(true);
     clock.flush();
-    expect(fade.playState).toBe("running");
-    expect(fade.currentTime).toBe(0);
+    expect(node.held()).toBe(false);
   });
 
-  test("leaves other animations alone: infinite ones, unnamed ones, other keyframes", () => {
-    const shimmer = fake("cv-enter", Infinity);
-    const waapi = fake(undefined);
-    const other = fake("cv-fold");
+  test("cancelling an unmount removes the hold and queued frame", () => {
+    const node = row();
     const clock = frames();
-    holdEntranceForFirstFrame(row([shimmer, waapi, other]), clock);
-    expect([shimmer, waapi, other].map((animation) => animation.playState)).toEqual(["running", "running", "running"]);
-    expect(clock.queued.size).toBe(0);
-  });
-
-  test("an unmount before the frame cancels the request", () => {
-    const fade = fake("cv-enter");
-    const clock = frames();
-    const cancel = holdEntranceForFirstFrame(row([fade]), clock);
+    const cancel = holdEntranceForFirstFrame(node, clock);
     cancel();
+    expect(node.held()).toBe(false);
     expect(clock.queued.size).toBe(0);
   });
 });
