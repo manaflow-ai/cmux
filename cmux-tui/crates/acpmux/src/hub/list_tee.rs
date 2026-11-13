@@ -510,6 +510,8 @@ impl acpmux_core::hub::PageProvider for V1PageProvider {
 #[cfg(all(test, target_os = "linux"))]
 mod gates;
 #[cfg(test)]
+mod roundtrip_tests;
+#[cfg(test)]
 mod snapshot_tests;
 #[cfg(test)]
 mod tests;
