@@ -325,6 +325,8 @@ $BH selftest               # the safety rules with 4 to 6 threads for at most 10
 - `baseline/<chip>-macos<major>.json`: the gate's reference (results.json of a run at a known sha).
 - `chrome_parity.py`, `framewatch.swift`: the Chrome parity bench (`suite=parity`).
 - `parity_appclock.py`, `parity_chrome_cdp.py`: the same rows by the app-clock method (no privacy right).
+- `made_workspace.py`: the workspace that `workspace.newAtBottom` made, from the answer's `created` or from one
+  `snapshot.get` read; `chrome_parity.py`, `parity_appclock.py` and `session_real.py map` need it beside them.
 - `busy_holder.py`: the load arm `oversub` (shape `spin`: N busy threads that start at the default priority; shape
   `agents`: N processes at utility and background QoS that burst, do I/O and sleep; hard self-limits).
 - `../measure/perf-bench.sh`: the fleet entry.

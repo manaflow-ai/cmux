@@ -205,7 +205,7 @@ fn timed_appends(log: &mut Log, from: u64, to: u64, end: u64, into: &mut Appends
             let state = actor_state(id);
             let before = log.stats().bytes_written;
             let start = Instant::now();
-            log.write_checkpoint(state.as_bytes()).unwrap();
+            log.write_checkpoint(state.as_bytes(), &[]).unwrap();
             into.checkpoints.push(nanos(start));
             into.checkpoint_bytes += log.stats().bytes_written - before;
         }
@@ -325,7 +325,7 @@ fn god_vs_small() {
     for id in 1..=untimed {
         log.append_settled(id, 1, RawRange { file: raw_file, off: id, len: 1 }, &text(id)).unwrap();
         if id.is_multiple_of(CHECKPOINT_EVERY) {
-            log.write_checkpoint(actor_state(id).as_bytes()).unwrap();
+            log.write_checkpoint(actor_state(id).as_bytes(), &[]).unwrap();
         }
     }
     let mut god = Appends::default();
