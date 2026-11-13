@@ -1287,36 +1287,104 @@ check_no_github_hosted_runners() {
   # This is the whole allowlist: every other Linux job takes a Blacksmith label
   # sized to the job (Leo, 2026-10-27: "just put it on blacksmith / 16vcpu
   # blacksmiths do exist"), with LINUX_RUNNER or the overflow switch behind it.
-  # Leo's 2026-11-01 exception permits hosted Ubuntu for declared light jobs.
-  # Main carries only this bootstrap; keep its declaration and job scope exact,
-  # so copying the same line onto a build or release job cannot exempt it.
-  python3 - "$ROOT_DIR" <<'PY_LIGHT'
-import json, pathlib, sys, yaml
+  # Leo's 2026-11-01 exception permits hosted Ubuntu for declared light jobs: each
+  # `workflow.yml:job` in .github/runners.json `hosted_light_jobs` may name its
+  # declared hosted Ubuntu label on its own runs-on line, and nothing else may.
+  # A declaration never admits hosted macOS or Windows, a job holding an
+  # environment or a write permission, or a job that builds, signs, notarizes,
+  # publishes or releases, so declaring a build or release job cannot exempt it.
+  # Each declared job's runs-on line must appear once in its file, so copying it
+  # onto another job is still a hosted label. The validator prints the exact
+  # exception lines the scan below admits.
+  local light_out
+  if ! light_out="$(python3 - "$ROOT_DIR" <<'PY_LIGHT'
+import json, pathlib, re, sys, yaml
 root = pathlib.Path(sys.argv[1])
 declared = json.loads((root / ".github/runners.json").read_text()).get("hosted_light_jobs", {})
-source = (root / ".github/workflows/fast-checks.yml").read_text()
-workflow = yaml.safe_load(source)
-jobs = workflow.get("jobs", {})
-admit = jobs.get("admit", {})
-selector = '${{ contains(fromJSON(\'["blacksmith-8vcpu-ubuntu-2404"]\'), inputs.runner) && inputs.runner || \'ubuntu-24.04\' }}'
-line = f"    runs-on: {selector} # github-hosted-required: light read-only runner admission"
-valid = (
-    set(declared) == {"fast-checks.yml:admit"}
-    and declared["fast-checks.yml:admit"].get("runner") == "ubuntu-24.04"
-    and bool(declared["fast-checks.yml:admit"].get("why"))
-    and admit.get("runs-on") == selector
-    and admit.get("environment") is None
-    and admit.get("permissions") == {"contents": "read"}
-    and workflow.get("permissions") == {"contents": "read"}
-    and [name for name, job in jobs.items() if job.get("runs-on") == selector] == ["admit"]
-    and source.splitlines().count(line) == 1
-)
-if not valid:
-    print("FAIL: hosted light fast-check admission must be the declared read-only admit job without a release environment")
+UBUNTU = re.compile(r"^ubuntu-(latest|[0-9]{2}[.][0-9]{2})$")
+ANY_HOSTED = re.compile(r"(^|[^A-Za-z0-9_-])(ubuntu-(latest|slim|[0-9]{2}[.][0-9]{2}(-arm)?)|macos-[A-Za-z0-9.-]+|windows-[A-Za-z0-9.-]+)([^A-Za-z0-9_.-]|$)")
+NAME = re.compile(r"build|release|sign|notar|publish|deploy|upload|staple", re.IGNORECASE)
+WORK = re.compile(
+    r"\bxcodebuild\b|\bswift\s+(build|test)\b|\bcargo\s+(build|publish)\b|\bcodesign\b|\bnotarytool\b|\bstapler\b"
+    r"|\bnpm\s+publish\b|\bgh\s+release\b|\btwine\b|\bdocker\s+push\b|scripts/\S*(release|sign|notar|publish)\S*",
+    re.IGNORECASE)
+# Actions whose job is to build, sign, push, publish or release (owner/name, before the @ref).
+ACTION = re.compile(
+    r"(^|/)[^/]*(build|push|publish|release|sign|notar|deploy|upload-release|attest)[^/]*$"
+    r"|^docker/|^softprops/action-gh-release$|^ncipollo/release-action$|^pypa/gh-action-pypi-publish$",
+    re.IGNORECASE)
+def fail(message):
+    print(f"FAIL: hosted light job {message}")
     raise SystemExit(1)
+def read_only(permissions):
+    """An explicit block that grants nothing above read: {} or every scope `read`/`none`. A missing block
+    inherits the repository's default token, which may write, so it never counts."""
+    if permissions == "read-all":
+        return True
+    return isinstance(permissions, dict) and all(str(v) in ("read", "none") for v in permissions.values())
+for key, entry in declared.items():
+    if key.startswith("$"):
+        continue
+    workflow_name, _, job_name = key.partition(":")
+    if not job_name or not isinstance(entry, dict):
+        fail(f"{key}: declare it as \"workflow.yml:job\" with runner and why")
+    runner, why = entry.get("runner"), entry.get("why")
+    if not isinstance(runner, str) or not UBUNTU.match(runner):
+        fail(f"{key}: only a hosted Ubuntu label may be declared, not {runner!r}")
+    if not isinstance(why, str) or not why.strip():
+        fail(f"{key}: say why it is light (a nonempty string)")
+    if NAME.search(job_name):
+        fail(f"{key}: a build, signing or release job never runs on a hosted runner")
+    path = root / ".github/workflows" / workflow_name
+    if not path.is_file():
+        fail(f"{key}: no such workflow")
+    source = path.read_text()
+    workflow = yaml.safe_load(source) or {}
+    job = (workflow.get("jobs") or {}).get(job_name)
+    if not isinstance(job, dict):
+        fail(f"{key}: no such job")
+    runs_on = job.get("runs-on")
+    if not isinstance(runs_on, str):
+        fail(f"{key}: its runs-on must be one line")
+    labels = {m.group(2) for m in ANY_HOSTED.finditer(runs_on)}
+    if labels != {runner}:
+        fail(f"{key}: runs-on may name only its declared {runner}, found {sorted(labels)}")
+    # Every value runs-on can take must be known now: the declared label itself, or the one reviewed
+    # selector that picks an allowlisted Blacksmith label or falls back to it. An input or variable
+    # anywhere else could name hosted macOS at run time.
+    blacksmith = r"blacksmith-[0-9]+vcpu-ubuntu-[0-9]{4}"
+    selector = (r"^\$\{\{ contains\(fromJSON\('\[\"" + blacksmith + r"\"(,\"" + blacksmith + r"\")*\]'\), inputs\.([A-Za-z0-9_]+)\) "
+                r"&& inputs\.\2 \|\| '" + re.escape(runner) + r"' \}\}$")
+    if runs_on.strip() != runner and not re.match(selector, runs_on.strip()):
+        fail(f"{key}: runs-on must be {runner} itself or pick only allowlisted Blacksmith labels, never an open input or variable")
+    if job.get("environment") is not None:
+        fail(f"{key}: a job with an environment never runs on a hosted runner")
+    if not read_only(job["permissions"] if "permissions" in job else workflow.get("permissions")):
+        fail(f"{key}: a hosted light job declares read-only permissions (job or workflow level)")
+    if job.get("uses"):
+        fail(f"{key}: a reusable-workflow call picks its own runners; declare the called job instead")
+    for step in job.get("steps") or []:
+        if not isinstance(step, dict):
+            fail(f"{key}: a step must be a mapping")
+        # An action works through its inputs too (docker/build-push-action's push: true), so its with and env
+        # count, and an action whose own name says it builds, signs or publishes never runs here.
+        uses = str(step.get("uses", ""))
+        if ACTION.search(uses.split("@", 1)[0]):
+            fail(f"{key}: the action {uses.split('@', 1)[0]} builds, signs, publishes or releases")
+        text = " ".join([str(step.get(field, "")) for field in ("name", "run", "uses")]
+                        + [f"{k} {v}" for field in ("with", "env") for k, v in (step.get(field) or {}).items()])
+        if WORK.search(text):
+            fail(f"{key}: it builds, signs, notarizes, publishes or releases ({WORK.search(text).group(0)})")
+    exact = [line for line in source.splitlines() if line.strip().startswith("runs-on:") and runs_on in line]
+    if len(exact) != 1:
+        fail(f"{key}: its runs-on line must appear once in {workflow_name}, found {len(exact)}")
+    print(f"{workflow_name}:{exact[0]}")
 PY_LIGHT
+)"; then
+    printf '%s\n' "$light_out" | grep '^FAIL:' | cut -c1-260
+    exit 1
+  fi
   local -a exceptions=(
-    'fast-checks.yml:    runs-on: ${{ contains(fromJSON('"'"'["blacksmith-8vcpu-ubuntu-2404"]'"'"'), inputs.runner) && inputs.runner || '"'"'ubuntu-24.04'"'"' }} # github-hosted-required: light read-only runner admission'
     # npm trusted publishing and --provenance accept only GitHub-hosted runners.
     "sdk-bootstrap-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance publishing"
     "sdk-release-cut.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner"
@@ -1330,6 +1398,11 @@ PY_LIGHT
     # so they must be signed on a GitHub-hosted runner.
     "cmux-tui-build-package.yml:    runs-on: ubuntu-latest # github-hosted-required: artifact attestations need GitHub OIDC"
   )
+  # The declared hosted light jobs' exact runs-on lines (validated above).
+  local light_line
+  while IFS= read -r light_line; do
+    [[ -n "$light_line" ]] && exceptions+=("$light_line")
+  done <<< "$light_out"
   # An exception that names no workflow line is stale: it would quietly allow
   # the line if it came back. Each one must match a line exactly.
   local stale_exception
@@ -1625,6 +1698,11 @@ check_no_self_hosted_fleet_runners() {
   # Capability is accepted only as the complete NEXT trusted selector.
   local next_trusted_selector="fromJSON(format('[\"{0}\", \"{1}\", \"glaeda-trusted-next-nightly\"]', vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER))"
   local next_repository_guard="github.repository == 'manaflow-ai/cmux' && "
+  # The scheduled nightly-next canary and launch smoke (main's copies, which glaeda's hook admits on the
+  # nightly slot only from their schedule) may name the slot through this exact bounded read, in those two
+  # files alone. runner_label_policy.nightly_slot_reason holds the variable to glaeda-nightly-<class> labels,
+  # and test_ci_fork_runner_routing keeps secrets off any job a variable can move.
+  local nightly_slot_selector="github.event_name == 'schedule' && startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER"
   # The main metadata bootstrap has no preceding picker. Accept its complete
   # main-only selector in this job alone, without exempting other fleet labels
   # or allowing secrets onto the shared nightly pool. RC and forks keep their
@@ -1700,6 +1778,10 @@ PYTHON
     content="${line#*:*:}"
     if [[ "$(basename "${line%%:*}")" == *nightly*.yml || "$(basename "${line%%:*}")" == *notarization*.yml ]]; then
       content="$(printf '%s\n' "$content" | sed -E "s/$nightly_hosted//g")"
+    fi
+    if [[ "${line%%:*}" == "$ROOT_DIR/.github/workflows/nightly-next-canary.yml" ||
+          "${line%%:*}" == "$ROOT_DIR/.github/workflows/nightly-next-launch-smoke.yml" ]]; then
+      content="${content/"$nightly_slot_selector"/}"
     fi
     if [[ "${line%%:*}" == "$ROOT_DIR/.github/workflows/nightly.yml" ]]; then
       content="${content/"$next_trusted_selector"/}"

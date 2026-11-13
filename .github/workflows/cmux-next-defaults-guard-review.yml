@@ -64,13 +64,17 @@ jobs:
           head_sha="$(jq -r '.head.sha' <<<"$pr_json")"
           comment_json="$(gh api "repos/$REPO/issues/comments/$COMMENT_ID")"
           association="$(jq -r '.author_association // empty' <<<"$comment_json")"
+          # The review service's receipt (next-review, which an author lane asks for with `router-review
+          # manaflow-ai/cmux N --request`) is posted by the cmux-bot App, whose association reads NONE. Only that App,
+          # by its immutable node id, wakes the guard this way; the guard still judges the receipt.
+          service="$(jq -r 'if .user.type == "Bot" and .user.login == "cmux-bot[bot]" and .user.node_id == "BOT_kgDOFMYsLQ" then "yes" else "" end' <<<"$comment_json")"
           first_line="$(jq -r '.body // "" | split("\n")[0]' <<<"$comment_json")"
           receipt_re='^Review \([^)]*\): SHIP at ([0-9a-f]{40})$'
           if [[ "$base_ref" != feat-cmux-next || "$head_repo" != "$REPO" ]]; then
             echo "This is not a same-repository feat-cmux-next pull request."
             exit 0
           fi
-          if [[ ! "$association" =~ ^(OWNER|MEMBER|COLLABORATOR)$ ]]; then
+          if [[ ! "$association" =~ ^(OWNER|MEMBER|COLLABORATOR)$ && "$service" != yes ]]; then
             echo "The comment author is not a trusted repository member."
             exit 0
           fi
@@ -98,11 +102,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           HEAD_SHA: ${{ steps.receipt.outputs.head_sha || steps.review.outputs.head_sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action }}
+          REVIEW_STATE: ${{ github.event.review.state }}
+          PR_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
         run: |
           error_file="$(mktemp)"
           trap 'rm -f "$error_file"' EXIT
           if ! run_info="$(gh api "repos/$REPO/actions/workflows/cmux-next-defaults-guard.yml/runs?event=pull_request_target&head_sha=$HEAD_SHA&per_page=20" \
-            --jq '.workflow_runs[0] | if . then [(.id|tostring), .status] | @tsv else empty end' 2>"$error_file")"; then
+            --jq '.workflow_runs[0] | if . then [(.id|tostring), .status, (.conclusion // "")] | @tsv else empty end' 2>"$error_file")"; then
             if grep -Eq 'HTTP 404|404 Not Found' "$error_file"; then
               echo "No defaults guard run on $HEAD_SHA yet; the runs endpoint returned 404."
               exit 0
@@ -114,10 +122,27 @@ jobs:
             echo "No defaults guard run on $HEAD_SHA yet; it reads the reviews when it runs."
             exit 0
           fi
-          IFS=$'\t' read -r run_id run_status <<< "$run_info"
+          IFS=$'\t' read -r run_id run_status run_conclusion <<< "$run_info"
           if [[ "$run_status" != completed ]]; then
             echo "Defaults guard run $run_id is still $run_status; a later receipt or push can retry it."
             exit 0
+          fi
+          # A green guard stays green on a SHIP receipt or an approving review: approvals only add up
+          # (defaults_guard.py approval()). Only a review that requests changes or is dismissed can take
+          # one back, and a feat-cmux-next head has no review workflow of its own to re-run the guard when
+          # that happens, so the next receipt must. A green guard is kept only while the pull request has
+          # no such review at all. A re-run of a green guard otherwise decides nothing and moves the head's
+          # last check suite later (pr-verdict-fast: the guard ended 132 heads' verdicts a day, a median
+          # 16 min after cmux-next).
+          if [[ "$run_conclusion" == success && ! ( "$EVENT_NAME" == pull_request_review \
+            && ( "$EVENT_ACTION" == dismissed || "$REVIEW_STATE" == changes_requested ) ) ]]; then
+            if withdrawn="$(gh api "repos/$REPO/pulls/$PR_NUMBER/reviews?per_page=100" \
+              --jq '[.[] | select(.state == "CHANGES_REQUESTED" or .state == "DISMISSED")] | length' 2>"$error_file")" \
+              && [[ "$withdrawn" == 0 ]]; then
+              echo "Defaults guard run $run_id already passed on $HEAD_SHA and no review took an approval back; a $EVENT_NAME cannot turn it red."
+              exit 0
+            fi
+            echo "A review may have taken an approval back (or the reviews could not be read); re-running the guard."
           fi
           gh api -X POST "repos/$REPO/actions/runs/$run_id/rerun" >/dev/null
           echo "Re-ran defaults guard run $run_id for $HEAD_SHA."

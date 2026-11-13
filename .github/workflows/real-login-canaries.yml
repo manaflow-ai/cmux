@@ -1,0 +1,58 @@
+name: Real-login canaries
+
+# Agent and Cloud tests run on the shared model stub (tests/fixtures/model-stub on feat-cmux-next) and
+# throwaway test accounts, so none of them needs a real model login. A real login runs only here: one
+# canary per harness, once a week, so a change on the model side (a login format, a streaming change)
+# still shows up without every test holding a long-lived login.
+#
+# This workflow holds no secret. It dispatches each harness's own workflow on its branch with its real-login
+# input; that workflow's environment and branch policy decide which secret the run gets. GITHUB_TOKEN
+# budget: one workflow-dispatch call per harness per week.
+#
+# A harness adds one line to the matrix below: its workflow, its ref and the inputs of its real-login mode.
+on:
+  schedule:
+    # Mondays 15:17 UTC (off the hour, outside the nightly cut).
+    - cron: "17 15 * * 1"
+  workflow_dispatch:
+    inputs:
+      only:
+        description: Dispatch only this harness's workflow file (empty for every one)
+        required: false
+        default: ""
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: real-login-canaries
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    # main only: a dispatch from any other branch would run that branch's copy with actions: write.
+    if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/main'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - workflow: machine-vault-e2e.yml
+            ref: refs/heads/feat-cmux-next
+            inputs: '{"model":"real"}'
+    steps:
+      - name: Dispatch ${{ matrix.workflow }} with its real login
+        if: inputs.only == '' || inputs.only == matrix.workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORKFLOW: ${{ matrix.workflow }}
+          REF: ${{ matrix.ref }}
+          INPUTS: ${{ matrix.inputs }}
+        run: |
+          set -euo pipefail
+          jq -n --arg ref "$REF" --argjson inputs "$INPUTS" '{ref: $ref, inputs: $inputs}' |
+            gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/$WORKFLOW/dispatches" --input -
+          echo "dispatched $WORKFLOW on $REF with $INPUTS" | tee -a "$GITHUB_STEP_SUMMARY"

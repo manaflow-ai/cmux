@@ -150,6 +150,27 @@ class ClassicNightlyOneMini(unittest.TestCase):
                         break
         self.assertEqual(sorted(failures), [], "\n".join(f"{k}: {v}" for k, v in sorted(failures.items())))
 
+    def test_a_mini_job_has_room_for_the_capacity_wait(self) -> None:
+        # glaeda's job-started hook on cmux15 waits for capacity inside "Set up runner" with no limit, and the wait
+        # counts toward timeout-minutes: run 41967078498's pick-classic-sign-runner (6 min) was cancelled there
+        # before its first step. With the mode on, a mini job's fixed limit gets GATE_MINUTES more; off, it is unchanged.
+        gate = 120
+        rng = random.Random(41967078498)
+        short = {}
+        for name, job in JOBS.items():
+            route = " ".join(sources(job)) if "runs-on" in job or "strategy" in job else ""
+            if "CI_CLASSIC_NIGHTLY_MINI" not in route or "timeout-minutes" not in job:
+                continue
+            raw = job["timeout-minutes"]
+            expression = str(raw).removeprefix("${{").removesuffix("}}")
+            limits = []
+            for value in ("", MINI):
+                result = evaluate(parse_expression(expression), {"vars.CI_CLASSIC_NIGHTLY_MINI": value})
+                limits.append(int(result))
+            if limits[0] < 6 * 60 and limits[1] != limits[0] + gate:
+                short[name] = tuple(limits)
+        self.assertEqual(short, {}, "mini jobs whose timeout has no room for glaeda's capacity wait")
+
     def test_the_mode_is_off_without_the_variable(self) -> None:
         rng = random.Random(7)
         off = {**MODE, "vars.CI_CLASSIC_NIGHTLY_MINI": ""}

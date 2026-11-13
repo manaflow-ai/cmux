@@ -185,6 +185,29 @@ def trusted_pool_reason(label: str) -> str | None:
             f"({TRUSTED_POOL_PREFIX}<class>-xcode-<version>)")
 
 
+NIGHTLY_SLOT_VARIABLE = "CI_NIGHTLY_NEXT_BUILD_RUNNER"
+NIGHTLY_SLOT_PREFIX = "glaeda-nightly-"
+
+
+def nightly_slot_reason(label: str) -> str | None:
+    """Why CI_NIGHTLY_NEXT_BUILD_RUNNER is not allowed, or None when it is fine.
+
+    The nightly slot: glaeda's one runner per mini whose hook admits only nightly jobs, labelled
+    glaeda-nightly-<class>-xcode-<version>. nightly.yml's decide and the scheduled nightly-next canary and
+    launch smoke take it whole as runs-on behind a startsWith('glaeda-nightly-') bound, and their failure jobs
+    hold Actions and issues write tokens, so any other owned or self-hosted label is refused here. Empty is
+    fine (those jobs take Blacksmith).
+    """
+    if not label:
+        return None
+    if label.startswith(NIGHTLY_SLOT_PREFIX) and _owned_pattern().fullmatch(
+        "glaeda-" + label[len(NIGHTLY_SLOT_PREFIX):]
+    ):
+        return None
+    return (f"`{label}` is not a nightly slot label "
+            f"({NIGHTLY_SLOT_PREFIX}<class>-xcode-<version>)")
+
+
 NIGHTLY_RUNNER_VARIABLE = "CI_NIGHTLY_TRUSTED_RUNNER"
 # glaeda-cmux-runner's runner_label(): the static label only the runner
 # registered under that name carries (lowercase, [a-z0-9._-]).
@@ -274,6 +297,8 @@ def drifted_runner_variables(
             reason = side_lane_reason(value.strip())
         elif name in (TRUSTED_POOL_VARIABLE, "CI_NIGHTLY_NEXT_TRUSTED_POOL"):
             reason = trusted_pool_reason(value.strip())
+        elif name == NIGHTLY_SLOT_VARIABLE:
+            reason = nightly_slot_reason(value.strip())
         elif name in (NIGHTLY_RUNNER_VARIABLE, "CI_NIGHTLY_NEXT_TRUSTED_RUNNER"):
             reason = nightly_runner_reason(value.strip())
         elif "RUNNER" not in name:
