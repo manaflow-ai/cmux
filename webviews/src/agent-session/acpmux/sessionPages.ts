@@ -201,8 +201,12 @@ export class SessionPager<S extends Summary> {
         .map((row: any) => goneKey(row.sessionId, row.peer)),
     );
     if (rows.length === 0 && gone.size === 0) return list;
-    const changed = new Set(rows.map((row) => row.sessionId));
-    const kept = list.filter((row) => !changed.has(row.sessionId) && !gone.has(goneKey(row.sessionId, row.peer)));
+    // A row is its id and its peer's: this daemon's chat and a peer's of the same id are two rows.
+    const changed = new Set(rows.map((row) => goneKey(row.sessionId, row.peer)));
+    const kept = list.filter((row) => {
+      const key = goneKey(row.sessionId, row.peer);
+      return !changed.has(key) && !gone.has(key);
+    });
     return [...kept, ...rows].sort(newestFirst);
   }
 
