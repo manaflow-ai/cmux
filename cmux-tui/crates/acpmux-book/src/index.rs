@@ -24,6 +24,8 @@ mod codec;
 mod compaction;
 mod edition;
 mod kin;
+#[cfg(test)]
+mod kin_contract_tests;
 mod log;
 mod pages;
 pub use pages::{IndexPage, ListFilter, ReadSide};
