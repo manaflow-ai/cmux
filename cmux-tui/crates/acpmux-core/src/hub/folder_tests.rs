@@ -125,6 +125,14 @@ fn folder_windows_pages_and_keyed_reads_keep_long_keys_and_bounds() {
     let reply: FolderPageResult = hub.page(&keyed).unwrap().decode_json().unwrap();
     assert_eq!(reply.rows.len(), 1);
     assert_eq!(reply.missing, vec![missing]);
+    // Like summary keys, explicit identities are looked up independently of
+    // the cursor walk's origin filter. No requested identity disappears.
+    keyed.filter = Some(crate::wire::ListFilter {
+        origin: Some("another-origin".into()),
+        ..Default::default()
+    });
+    let filtered: FolderPageResult = hub.page(&keyed).unwrap().decode_json().unwrap();
+    assert_eq!(filtered, reply);
     keyed.max_bytes = 8192;
     assert!(hub.page(&keyed).is_err());
     request.window = Some(401);

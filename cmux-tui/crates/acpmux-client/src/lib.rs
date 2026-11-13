@@ -1371,6 +1371,15 @@ tail"#;
         client.received(&stale_page);
         assert!(client.next_change().is_none());
         assert_eq!(client.skip_counters().unheld_sid, before.unheld_sid + 1);
+        let stale_error = Frame::json(
+            FrameKind::Error,
+            &serde_json::json!({"method":"page","sid":"folders","code":"invalid_page"}),
+        )
+        .unwrap()
+        .encode();
+        client.received(&stale_error);
+        assert!(client.next_change().is_none(), "a retired page error is stale too");
+        assert_eq!(client.skip_counters().unheld_sid, before.unheld_sid + 2);
     }
 
     #[test]

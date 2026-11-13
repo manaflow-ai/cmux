@@ -1015,5 +1015,12 @@ mod other_delta_tests {
         });
         let decoded: Page = serde_json::from_value(page).unwrap();
         assert!(matches!(decoded.keys.as_deref(), Some([PageKey::Summary(_)])));
+        let legacy =
+            vec![ListKey { last_activity: 4, chat_id: "c".into(), origin: "local".into() }];
+        assert_eq!(
+            serde_json::to_vec(decoded.keys.as_ref().unwrap()).unwrap(),
+            serde_json::to_vec(&legacy).unwrap(),
+            "summary keys retain their pre-folders wire bytes"
+        );
     }
 }
