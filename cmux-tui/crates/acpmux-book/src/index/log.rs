@@ -228,17 +228,16 @@ impl IndexLog {
             .ok_or_else(|| codec::invalid("log generation exhausted"))?;
         let active = parent.join(format!("index.log.{next_generation}"));
         let file = OpenOptions::new().create_new(true).read(true).write(true).open(&active)?;
-        if let Err(error) = file.sync_all().and_then(|()| File::open(&parent)?.sync_all()) {
-            // No append has used this file. Remove only the generation just
-            // created here; the prior generation remains the active owner.
-            let _ = fs::remove_file(&active);
-            return Err(error);
-        }
+        // Once created, own the new generation even if its sync fails. A
+        // retry can sync it and rotate again; it must never be wedged behind
+        // create_new on an orphan left by a failed cleanup.
         self.closed_bytes = self.closed_bytes.saturating_add(self.offset);
         self.file = file;
         self.path = active;
         self.generation = next_generation;
         self.offset = 0;
+        self.file.sync_all()?;
+        File::open(&parent)?.sync_all()?;
         // The active generation is empty; retain the old oldest cursor until
         // the snapshot worker commits its covered generation.
         Ok(Compaction::new(parent, closed_generation, snapshot_seq))

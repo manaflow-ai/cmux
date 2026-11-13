@@ -83,7 +83,7 @@ impl HubWriter {
             if Instant::now() < retry {
                 return;
             }
-        } else if log.offset() < trigger {
+        } else if log.retained_bytes() < trigger {
             return;
         }
         // A directly driven writer is useful to deterministic tests; asynchronous
@@ -135,8 +135,15 @@ impl HubWriter {
                 self.compaction_counters.completed.fetch_add(1, Ordering::Relaxed);
                 self.compaction_counters.failed.fetch_add(result.cleanup_errors, Ordering::Relaxed);
                 if let Some(log) = self.log.as_mut() {
-                    log.compacted(result.covered_generation, result.seq);
+                    if result.cleanup_errors == 0 {
+                        log.compacted(result.covered_generation, result.seq);
+                    }
                     self.compaction_counters.oldest_seq.store(log.oldest_seq(), Ordering::Release);
+                }
+                if result.cleanup_errors != 0 {
+                    // Keep conservative retained-byte accounting until a
+                    // durable install has cleaned the covered generations.
+                    self.next_compaction = Some(Instant::now() + Duration::from_secs(1));
                 }
                 let current = self.published.load_full();
                 let next = current

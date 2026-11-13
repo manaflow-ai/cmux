@@ -349,7 +349,12 @@ impl Hub {
         };
         let writer = HubWriter {
             compaction: None,
-            next_compaction: None,
+            // A rotated generation without its installed snapshot is work
+            // recovered at open. Resume it even if no new summary arrives.
+            next_compaction: log
+                .as_ref()
+                .filter(|log| log.retained_bytes() > log.offset())
+                .map(|_| std::time::Instant::now()),
             storage_retry: None,
             compaction_counters,
             published,

@@ -51,7 +51,7 @@ async fn pr05b_compaction_keeps_writing_through_one_million_changes() {
             writer.maybe_compact();
             if writer.compaction.is_none() {
                 let trigger = writer.published.load().disk().unwrap().bytes().max(1024 * 1024);
-                assert!(writer.log.as_ref().unwrap().offset() < trigger);
+                assert!(writer.log.as_ref().unwrap().retained_bytes() < trigger);
             }
             (writer, measured)
         })
@@ -70,6 +70,7 @@ async fn pr05b_compaction_keeps_writing_through_one_million_changes() {
             completions = hub.compaction_stats().completed;
             // Installation never copies, rewrites, or loses the post-capture tail.
             assert_eq!(writer.log.as_ref().unwrap().offset(), before_bytes);
+            assert_eq!(writer.log.as_ref().unwrap().retained_bytes(), before_bytes);
         }
     }
     writer.finish_compaction(true).await;

@@ -42,6 +42,36 @@ fn fixture(count: usize, filter_fixture: bool, with_tail: bool) -> (TempDir, Sum
     (dir, index)
 }
 
+fn full_tail_fixture(count: usize, generations: usize) -> (TempDir, u64) {
+    let (dir, _) = fixture(count, false, false);
+    let trigger = std::fs::metadata(dir.path().join("index.snap"))
+        .expect("snapshot size")
+        .len()
+        .max(1024 * 1024);
+    let mut log = IndexLog::open(dir.path().join("index.log")).expect("open full tail");
+    for generation in 0..generations {
+        let mut n = 0;
+        while log.offset() < trigger {
+            log.append(summary(format!("row-{:05}", n % count), 0, "closed"))
+                .expect("append full tail");
+            n += 1;
+        }
+        log.sync().expect("sync full tail");
+        if generation + 1 < generations {
+            // Leave the captured generation uninstalled, as after a kill.
+            let _interrupted = log.rotate(log.next_seq()).expect("rotate full generation");
+        }
+    }
+    let bytes = log.retained_bytes();
+    (dir, bytes)
+}
+
+fn report_tail(label: &str, duration_ns: u128, bytes: u64) {
+    // Diagnostic evidence goes to the job log, not the registry's measure file:
+    // this observation has no small/god ratio or gate verdict.
+    eprintln!("PR5b {label}: duration_ns={duration_ns} tail_bytes={bytes}");
+}
+
 fn p95(values: &mut [u128]) -> u128 {
     values.sort_unstable();
     values[((values.len() * 95).saturating_add(99) / 100).saturating_sub(1)]
@@ -313,9 +343,9 @@ fn pr05b_startup_pages_and_hot_index_gate() {
     let mut clean_god_rss = Vec::with_capacity(ROUNDS);
     for round in 0..ROUNDS {
         let (_, small_kb, small_hot) =
-            exec_child(&clean_small_dir.path(), &child_name, 30_000 + round as u64, true);
+            exec_child(clean_small_dir.path(), &child_name, 30_000 + round as u64, true);
         let (_, god_kb, god_hot) =
-            exec_child(&clean_god_dir.path(), &child_name, 40_000 + round as u64, true);
+            exec_child(clean_god_dir.path(), &child_name, 40_000 + round as u64, true);
         clean_small_rss.push(small_kb as u128);
         clean_god_rss.push(god_kb as u128);
         if small_hot != 0 {
@@ -331,5 +361,15 @@ fn pr05b_startup_pages_and_hot_index_gate() {
     if god_hot_rss > small_hot_rss.saturating_mul(12) / 10 {
         failures.push(format!("cold hydration RSS ratio: small={small_hot_rss} god={god_hot_rss}"));
     }
+
+    // Decision 97: report startup cost with a tail equal to one and two complete
+    // snapshot generations. These are observations, not ratio-gated rows.
+    let (one_generation, one_bytes) = full_tail_fixture(11_000, 1);
+    let (two_generations, two_bytes) = full_tail_fixture(11_000, 2);
+    let (one_ns, _, _) = exec_child(one_generation.path(), &child_name, 60_001, false);
+    let (two_ns, _, _) = exec_child(two_generations.path(), &child_name, 60_002, false);
+    report_tail("full_tail", one_ns, one_bytes);
+    report_tail("two_full_tails", two_ns, two_bytes);
+
     assert!(failures.is_empty(), "PR5b gate failures (all rows were emitted): {failures:?}");
 }

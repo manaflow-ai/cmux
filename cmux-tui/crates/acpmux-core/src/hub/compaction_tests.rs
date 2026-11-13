@@ -3,6 +3,36 @@ use acpmux_book::index::{IndexRecord, SortedSnapshot};
 use std::time::Instant;
 
 #[tokio::test(flavor = "current_thread")]
+async fn interrupted_rotation_restarts_compaction_without_new_submissions() {
+    let dir = tempfile::tempdir().unwrap();
+    let (hub, mut writer) = Hub::open(dir.path(), 101, || 7).unwrap();
+    writer.apply(Summary::new("before-crash")).unwrap();
+    let _interrupted = writer.log.as_mut().unwrap().rotate(1).unwrap();
+    drop((hub, writer));
+
+    let (hub, mut writer) = Hub::open(dir.path(), 101, || 7).unwrap();
+    let deadline = writer.next_compaction.unwrap();
+    assert!(deadline <= Instant::now());
+    assert_eq!(writer.log.as_ref().unwrap().offset(), 0);
+    assert!(writer.log.as_ref().unwrap().retained_bytes() > 0);
+    writer = tokio::task::spawn_blocking(move || {
+        writer.process_batch();
+        writer
+    })
+    .await
+    .unwrap();
+    assert!(writer.compaction.is_some());
+    writer.finish_compaction(true).await;
+    assert_eq!(hub.compaction_stats().completed, 1);
+    assert_eq!(writer.log.as_ref().unwrap().retained_bytes(), 0);
+    drop((hub, writer));
+    let (restored, _) = Hub::open(dir.path(), 101, || 7).unwrap();
+    let rows: Vec<_> = restored.snapshot().merged_rows().map(Result::unwrap).collect();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows.first().unwrap().chat_id, "before-crash");
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn changes_during_rotation_survive_install_and_restart_without_duplicate_rows() {
     let dir = tempfile::tempdir().unwrap();
     let mut initial = SummaryIndex::new();
