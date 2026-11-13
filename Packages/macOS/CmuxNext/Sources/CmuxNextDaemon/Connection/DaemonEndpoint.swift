@@ -571,6 +571,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// reports already-gone ids as `gone_ids` and skips a tab that left before the commit
     /// (`WorkspaceClose.close` sends every workspace of a daemon in one request then).
     case layoutBulkBare = "layout-bulk-bare-v1"
+    /// `browser_import.read`: the daemon reads another browser's bookmarks, history, tabs, search
+    /// engine and extensions for the browser import (`BrowserImportClient`, the cmux-browser-import crate).
+    case browserImport = "browser-import-v1"
 
     /// Which list a capability is in.
     public enum Tier: Sendable {
@@ -620,7 +623,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .terminalColorOverrides, .terminalSnapshotHistory, .terminalSnapshotLocalHistory,
              .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
              .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation, .appProviderChanged,
-             .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .layoutBulkBare:
+             .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .layoutBulkBare, .browserImport:
             return .optional
         }
     }

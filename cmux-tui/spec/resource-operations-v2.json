@@ -14723,6 +14723,87 @@
       },
       "extra": false
     },
+    "BrowserImportReadResult": {
+      "kind": "object",
+      "fields": {
+        "ok": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "JsonValue"
+            }
+          },
+          "description": "The reader's result: bookmarks, history entries, tabs, extensions, a search engine, a path, a bool or a setting, in the app's Codable shapes (dates as seconds since 2001); null when there is none."
+        },
+        "error": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "BrowserImportReadError"
+          },
+          "description": "Why the source did not read."
+        }
+      },
+      "extra": false
+    },
+    "BrowserImportSearchEngine": {
+      "kind": "object",
+      "fields": {
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "keyword": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "search": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The search address; {searchTerms} marks the typed text."
+        },
+        "suggest": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      },
+      "extra": false
+    },
+    "BrowserImportReadError": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "read, notBookmarks, open, query, copy, syntax or shape."
+        },
+        "message": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      },
+      "extra": false
+    },
     "ConductorImportFound": {
       "kind": "object",
       "fields": {
@@ -17944,6 +18025,164 @@
         "selector.not_found",
         "selector.wrong_parent",
         "transport.closed",
+        "validation.invalid"
+      ]
+    },
+    "browser_import.read": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "reader": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "chromium.bookmarks",
+                "chromium.history",
+                "chromium.session_file",
+                "chromium.latest_session_file",
+                "chromium.session",
+                "chromium.search_engine",
+                "chromium.extensions",
+                "arc.bookmarks",
+                "firefox.bookmarks",
+                "firefox.history",
+                "firefox.session_file",
+                "firefox.session",
+                "firefox.search_engine",
+                "safari.bookmarks",
+                "safari.history",
+                "safari.search_engine",
+                "exported_history.looks_like",
+                "exported_history.parse",
+                "search_engine.setting"
+              ]
+            },
+            "description": "The reader to run (the cmux-browser-import crate's ops::OPS)."
+          },
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            },
+            "description": "The absolute path of the file the reader reads (bookmarks, history database, session file, exported history)."
+          },
+          "base64": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "base64"
+            },
+            "description": "The file's bytes instead of path, for the readers of a file's bytes."
+          },
+          "profile": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            },
+            "description": "The absolute path of the profile folder (session_file, search_engine, extensions)."
+          },
+          "sessions": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            },
+            "description": "The absolute path of a Chromium profile's Sessions folder (latest_session_file)."
+          },
+          "profileDirectory": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "Arc's profile folder name, whose spaces arc.bookmarks reads."
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32"
+            },
+            "description": "Most history entries, newest first (default 5000)."
+          },
+          "head": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 0,
+              "max_length": 65536
+            },
+            "description": "The first bytes of a file, as text (exported_history.looks_like)."
+          },
+          "services": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "ref",
+                "name": "JsonValue"
+              }
+            },
+            "description": "The Mac's NSPreferredWebServices (safari.search_engine)."
+          },
+          "engine": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "BrowserImportSearchEngine"
+            },
+            "description": "An imported search engine (search_engine.setting)."
+          },
+          "builtIn": {
+            "required": false,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "The built-in engines, id to search template (search_engine.setting)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Only origin user (the verified cmux app connection, gate A2) may send it: it makes the daemon read another browser's files by path. Any other origin is refused with origin.forbidden.",
+          "A path that is not absolute, has a .. component, or lies under the daemon's home's Library/Safari, Library/SafariTechnologyPreview, Library/Containers or Library/Group Containers (as written or with links resolved) is refused with validation.invalid: the app stages a private copy of what it reads there.",
+          "Every database is read from a private copy; no source file is written."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "BrowserImportReadResult"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
         "validation.invalid"
       ]
     },

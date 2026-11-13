@@ -351,6 +351,9 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         // plan and records what it made.
                         | "conductor_import.plan"
                         | "conductor_import.record"
+                        // The browser import is the app's: it reads
+                        // another browser's files, by path.
+                        | "browser_import.read"
                         // Cloud API calls carry the caller's access token;
                         // `cmux cloud` reaches them through its own stdin
                         // request, not a CLI verb per op.

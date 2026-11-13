@@ -67,7 +67,7 @@ final class OnboardingService {
     var classicMigrationRun: Task<ClassicMigrationOutcome, any Error>?
 
     /// Keep in Sync's watches (imported cookies' too); `start` also seeds each profile's omnibar with its imported pages.
-    private(set) lazy var historySync = BrowserFolderAccess().historySync(store: importStore, cookies: ChromiumCookieDestination { [cef = services.cache.cef] in try await cef.importCookies($0, into: $1) },
+    private(set) lazy var historySync = BrowserFolderAccess().historySync(store: importStore, reader: services.browserDataReader, cookies: ChromiumCookieDestination { [cef = services.cache.cef] in try await cef.importCookies($0, into: $1) },
         stopped: { [weak services] name in if let services { BrowserFileImport.toast(services, id: "cookie-sync-stopped", BrowserImportOfferStrings.syncStopped(name)) } },
         deliver: SavingImportDestination.omnibar(services.cache))
 

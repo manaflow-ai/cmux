@@ -1,0 +1,41 @@
+//! Reads another browser's data for cmux NEXT's browser import. The daemon serves it as
+//! `browser_import.read` (`browser-import-v1`, cmux-tui-core's `resource_router/browser_import.rs`),
+//! which only the verified app connection may send.
+//!
+//! It replaces the Swift readers that were in
+//! `Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Parsers/`, rule for rule
+//! (`PORT.md` maps each Swift file to its function here):
+//!
+//! - [`chromium`]: `Bookmarks`, `History`, the open tabs of a session file (an SNSS command log
+//!   of [`pickle`] payloads), the default search engine and the Web Store extensions;
+//! - [`arc`]: Arc's `StorableSidebar.json` (Favorites and each space's pinned tabs);
+//! - [`firefox`]: `places.sqlite` bookmarks and history, the mozLz4 ([`lz4`]) session store and
+//!   `search.json.mozlz4`;
+//! - [`safari`]: `Bookmarks.plist`, `History.db` and the Search setting;
+//! - [`exported`]: history a browser exports as JSON (Safari, Google Takeout);
+//! - [`search`]: a search engine's template cleanup, host and built-in mapping;
+//! - [`sqlite`]: the private, read-only copy every database is read from;
+//! - [`ops`]: the readers `browser_import.read` names, and the folders it refuses ([`ops::protected`]).
+//!
+//! The app keeps what must stay native: the folder grants, every Keychain read and the private
+//! copy it stages of a folder macOS protects (Safari's, an app container's).
+//! Nothing here fetches a Keychain item or writes a source file. Results carry dates as seconds
+//! since 2001-01-01 (Foundation's `Date` encoding) and URLs as the source's text, so the app
+//! decodes them with its own `Codable` types and `URL(string:)`.
+
+pub mod arc;
+pub mod chromium;
+pub mod exported;
+pub mod firefox;
+mod json;
+pub mod lz4;
+pub mod model;
+pub mod ops;
+pub mod pickle;
+pub mod safari;
+pub mod search;
+pub mod sqlite;
+pub mod time;
+pub mod url;
+
+pub use model::{Bookmark, Extension, HistoryEntry, ReadError, SearchEngine, Tab};

@@ -2027,6 +2027,7 @@
     "browser.close",
     "browser.viewer.release",
     "browser.viewer.resize",
+    "browser_import.read",
     "chief.archive",
     "chief.delete",
     "classic_import.plan",
