@@ -17,7 +17,7 @@ use super::*;
 use acpmux_book::index::{ForkOf, RowKey, Summary};
 use acpmux_core::life::V2;
 use cmux_json::JsonSet as _;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use tokio::sync::Notify;
 
@@ -101,26 +101,30 @@ pub(crate) fn start_v2_tee(
             tokio::task::yield_now().await;
         }
 
+        let mut expiries = HashMap::new();
         loop {
-            let ids = state.take(256);
-            if ids.is_empty() {
-                state.notify.notified().await;
-                continue;
+            let mut wake = std::pin::pin!(tokio::time::sleep(std::time::Duration::from_secs(1)));
+            tokio::select! {
+                _ = state.notify.notified() => {},
+                _ = &mut wake => mark_expired(&v1, &state, &mut expiries),
             }
-            let sessions: std::collections::HashMap<_, _> = v1
-                .session_handles()
-                .into_iter()
-                .map(|session| (session.id.clone(), session))
-                .collect();
-            for id in ids {
-                match sessions.get(&id) {
-                    Some(session) => {
-                        if let Some(summary) = summary_from_session(&v1, session) {
-                            let _ = v2.hub.submit(summary);
+            let ids = state.take(256);
+            if !ids.is_empty() {
+                let sessions: HashMap<_, _> = v1
+                    .session_handles()
+                    .into_iter()
+                    .map(|session| (session.id.clone(), session))
+                    .collect();
+                for id in ids {
+                    match sessions.get(&id) {
+                        Some(session) => {
+                            if let Some(summary) = summary_from_session(&v1, session) {
+                                let _ = v2.hub.submit(summary);
+                            }
                         }
-                    }
-                    None => {
-                        let _ = v2.hub.remove("local", &id);
+                        None => {
+                            let _ = v2.hub.remove("local", &id);
+                        }
                     }
                 }
             }
@@ -128,6 +132,18 @@ pub(crate) fn start_v2_tee(
         }
     };
     (handle, task)
+}
+
+fn mark_expired(v1: &Hub, state: &TeeState, expiries: &mut HashMap<String, Option<u64>>) {
+    let now = crate::store::now_ms();
+    for session in v1.session_handles() {
+        let next = session.read_meta(|meta| crate::hub::views::next_tag_expiry(meta, now));
+        let previous = expiries.insert(session.id.clone(), next);
+        if previous.flatten().is_some_and(|at| at <= now) || next.is_some_and(|at| at <= now) {
+            state.pending.lock().unwrap_or_else(|e| e.into_inner()).insert(session.id.clone());
+            state.notify.notify_one();
+        }
+    }
 }
 
 /// The bounded keyed-page provider used until chat actors own their checkpoints.
