@@ -44,7 +44,7 @@ export const followMotion = defineExperiment({
     },
     instant: { label: "At once", description: "Every move lands in the frame it happens, as with motion off." },
   },
-  defaultArm: "send",
+  defaultArm: "blocks",
 });
 
 export type FollowMotionArm = keyof typeof followMotion.arms;
