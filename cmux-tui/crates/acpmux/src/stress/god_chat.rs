@@ -296,6 +296,7 @@ fn costs(bytes: u64) -> Costs {
                 let (mut seen, mut lagged) = (std::collections::HashSet::new(), false);
                 while (seen.len() as u64) < DELTAS {
                     let Ok(Some(line)) =
+                        // timeout: a reader idle 5 s stops; the count it saw is the result.
                         tokio::time::timeout(Duration::from_secs(5), rx.recv()).await
                     else {
                         break;
