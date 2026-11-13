@@ -16,6 +16,7 @@ import { Icon } from "../icons/Icon";
 
 import type { StartedSession } from "../started/startedSessions";
 import { AgentLine } from "../subagents/AgentLine";
+import { ResumeControl, type ResumeActions } from "../subagents/ResumeControl";
 import { useSenderIconLook } from "../subagents/senderIconLook";
 import { useAgentProgress } from "../subagents/agentProgressStore";
 import { foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subagents/agentIdentityModel";
@@ -25,6 +26,7 @@ import { nestAgents } from "../subagents/agentsPillModel";
 import { elapsed, running, useNow } from "../subagents/subagentGroupModel";
 import { agentTone } from "../subagents/agentTones";
 import type { Subagent } from "../subagents/subagentFold";
+import { subsessionResumeRow } from "../subagents/resumeState";
 import { retrying } from "../subagents/retryState";
 import { subagentStateText, subagentStatus, type SubagentStatus } from "../summary/subagentStatusListModel";
 import { orderedSessions, sessionStatus, sessionStateText } from "./childSessionRowsModel";
@@ -69,6 +71,8 @@ type Line = {
   key: string;
   identity: string;
   agent?: Subagent;
+  /// A stopped sub-session's row, for its Resume (resumeState.ts ``subsessionResumeRow``).
+  resumeRow?: Subagent;
   name: string;
   detail?: string;
   /// The kind of agent it is, for the hover card.
@@ -103,8 +107,11 @@ export function SubagentsSection({
   sessions = NO_SESSIONS,
   onOpenSession,
   harness,
+  resume,
 }: {
   agents: readonly Subagent[];
+  /// Resume on a stopped subagent's line (subagents/ResumeControl.tsx), as its end line offers it.
+  resume?: ResumeActions;
   waiting: ReadonlySet<string>;
   /// Shows a subagent (App.tsx `showSubagent`); without it a subagent's line opens nothing.
   onOpen?: (id: string) => void;
@@ -164,6 +171,7 @@ export function SubagentsSection({
     depth: 0,
     at: child.createdAt ?? 0,
     open: onOpenSession && (() => onOpenSession(child.sessionId)),
+    resumeRow: subsessionResumeRow(child),
   });
   // The chats waiting on the person lead, then the running subagents in the tray's order (oldest
   // first, a nested one under its parent; among siblings a waiting one first, so it never leaves its
@@ -185,7 +193,9 @@ export function SubagentsSection({
     ...children.filter((child) => !live(sessionStatus(child))).map(sessionLine),
   ].sort((a, b) => ENDED_RANK[a.status] - ENDED_RANK[b.status] || b.at - a.at);
   const shown = moreFold.drawn ? runningLines : runningLines.slice(0, SUBAGENTS_SHOWN);
-  const line = (item: Line) => (
+  const line = (item: Line) => lineOf(item, item.agent ?? item.resumeRow);
+  // `resumable`: the row a stopped one's Resume reads, a subagent's or a sub-session's.
+  const lineOf = (item: Line, resumable: Subagent | undefined) => (
     <li key={item.key}>
       <AgentLine
         lean
@@ -199,6 +209,7 @@ export function SubagentsSection({
         depth={item.depth}
         onOpen={item.open}
         card={<AgentCard item={item} />}
+        after={resume && resumable && <ResumeControl agent={resumable} actions={resume} />}
       />
     </li>
   );

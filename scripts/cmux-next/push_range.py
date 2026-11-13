@@ -81,10 +81,14 @@ from __future__ import annotations
 
 import collections
 import dataclasses
+import fcntl
 import hashlib
+import io
 import os
 import re
+import shlex
 import subprocess
+import sys
 from pathlib import Path
 
 UPSTREAM = "origin/feat-cmux-next"
@@ -431,7 +435,10 @@ UPSTREAM_REFRESH_FILE = "upstream-refresh"
 # SSH_ASKPASS (git takes the first one set, and runs none when it is empty), an empty SSH_ASKPASS with
 # SSH_ASKPASS_REQUIRE=never stops ssh's own, BatchMode=yes makes ssh fail instead of asking, GCM_INTERACTIVE=never
 # stops Git Credential Manager's window, and credential.interactive=false any other helper's. A stored credential
-# still answers; a fetch that would ask fails, and the note says so.
+# still answers; a fetch that would ask fails, and the note says so. The fetch also runs in a session of its own with
+# stdin from /dev/null (cmux#41715 review), so no program it starts (a GIT_SSH wrapper, plink, a credential helper)
+# has a terminal to open and ask on, whatever options it takes; a keeper there ends it with its caller
+# (_FETCH_WATCHDOG).
 _NO_PROMPT_CONFIG = ("-c", "credential.interactive=false")
 _NO_PROMPT_ENV = {"GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "", "SSH_ASKPASS": "", "SSH_ASKPASS_REQUIRE": "never",
                   "GCM_INTERACTIVE": "never"}
@@ -439,8 +446,12 @@ _NO_PROMPT_ENV = {"GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "", "SSH_ASKPASS": 
 
 def _no_prompt_env(repo: Path) -> dict[str, str]:
     """os.environ for a fetch that never prompts (_NO_PROMPT_ENV) and never takes a hook's index; ssh runs as the user
-    set it up (GIT_SSH_COMMAND, else core.sshCommand, else ssh) with BatchMode=yes. A GIT_SSH program (no command line
-    to add an option to) is left as it is; the askpass settings above still hold for it."""
+    set it up (GIT_SSH_COMMAND, else core.sshCommand, else GIT_SSH, else ssh: git's order) with BatchMode=yes, put
+    first for OpenSSH (matched by file name), which keeps an option's first value (cmux#41750 review). A GIT_SSH that
+    is OpenSSH itself (`ssh`, `/usr/bin/ssh`) becomes the same command line with BatchMode=yes: GIT_SSH takes no
+    options, so it could still ask on the terminal (cmux#41715 review). Any other GIT_SSH program (a wrapper, plink)
+    is left as it is; the askpass settings above and the fetch's own session with no terminal (_fetch_upstream) hold
+    for it."""
     env = {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
     env.update(_NO_PROMPT_ENV)
     ssh = env.get("GIT_SSH_COMMAND", "")
@@ -448,11 +459,42 @@ def _no_prompt_env(repo: Path) -> dict[str, str]:
         code, configured = _git(repo, "config", "--get", "core.sshCommand")
         ssh = configured.strip() if code == 0 else ""
     if not ssh and env.get("GIT_SSH"):
+        program = env["GIT_SSH"]
+        if _is_openssh(program):
+            env["GIT_SSH_COMMAND"] = f"{shlex.quote(program)} {_BATCH}"
         return env
     ssh = ssh or "ssh"
-    if "plink" not in os.path.basename(ssh.split()[0]).lower():
-        env["GIT_SSH_COMMAND"] = f"{ssh} -o BatchMode=yes"
+    program, rest = _first_word(ssh)
+    if _is_openssh(program):
+        # OpenSSH keeps the FIRST value of an option, so BatchMode=yes goes straight after the program: appended, it
+        # lost to a `-o BatchMode=no` the user's command already had (cmux#41750 review).
+        env["GIT_SSH_COMMAND"] = f"{shlex.quote(program)} {_BATCH}{rest}"
+    elif "plink" not in os.path.basename(program).lower():
+        env["GIT_SSH_COMMAND"] = f"{ssh} {_BATCH}"
     return env
+
+
+_BATCH = "-o BatchMode=yes"
+
+
+def _is_openssh(program: str) -> bool:
+    """OpenSSH's client, by its file name, so `/usr/bin/ssh` counts as much as `ssh`."""
+    return os.path.basename(program).lower() in ("ssh", "ssh.exe")
+
+
+def _first_word(command: str) -> tuple[str, str]:
+    """A shell command's program word (unquoted) and the text after it, untouched; ("", command) when the first word
+    does not parse."""
+    lexer = shlex.shlex(io.StringIO(command), posix=True)
+    lexer.whitespace_split = True
+    try:
+        word = lexer.get_token() or ""
+    except ValueError:
+        return "", command
+    if not word:
+        return "", command
+    rest = command[lexer.instream.tell():]
+    return word, f" {rest}" if rest.strip() else ""
 
 
 def refresh_upstream(repo: Path, remote: str | None, upstream_ref: str = UPSTREAM, key: str = "",
@@ -461,9 +503,13 @@ def refresh_upstream(repo: Path, remote: str | None, upstream_ref: str = UPSTREA
     and hook run (CMUX_PREPUSH_RUN, which the pre-push hook sets once per run: every check of one push calls this, and
     only the first fetches). The stamp holds for that run alone: a stamp keyed only by the rows outlived its run, so
     the same push tried again after the base moved skipped the fetch (cmux#41310 review); with no run named (a hook
-    installed before the run id) every call fetches. Returns "" when it is fresh, or was left alone (a push to a URL,
-    a remote whose refspecs do not map the branch there, a clone without the ref: the fallbacks), else the report's
-    note on why the stale copy bounds the walk (see the module docstring)."""
+    installed before the run id) every call fetches. A failed fetch is stamped too, with why it failed: each checker
+    of the run is its own process, and before that every one of them tried the same fetch again, up to 30 s each
+    (cmux#41715 review); the later ones give the first one's note. One checker fetches at a time (a lock beside the
+    stamp), so checkers that start together wait for the first one's stamp instead of fetching beside it. Returns ""
+    when it is fresh, or was left alone (a push to a URL, a remote whose refspecs do not map the branch there, a clone
+    without the ref: the fallbacks), else the report's note on why the stale copy bounds the walk (see the module
+    docstring)."""
     name = remote_name(repo, remote)
     if not name or not upstream_ref.startswith(f"{name}/"):
         return ""
@@ -479,34 +525,136 @@ def refresh_upstream(repo: Path, remote: str | None, upstream_ref: str = UPSTREA
     if not (key and run):
         stamp = None
     token = hashlib.sha256(f"{name}\n{upstream_ref}\n{run}\n{key}".encode()).hexdigest()
+
+    def stale(why: str) -> str:
+        return (f"; {upstream_ref} could not be fetched ({why[:200]}), so what a base merge brought in past this "
+                f"clone's copy counts as {whose}: run `git fetch {name} {branch}` and {then}")
+
+    def stamped() -> str | None:
+        """The run's stamped result (why the fetch failed, "" for a fetch that worked), or None for none yet."""
+        try:
+            first, _, why = stamp.read_text().partition("\n")
+        except OSError:
+            return None
+        return why.strip() if first.strip() == token else None
+
+    def write_stamp(why: str) -> None:
+        try:
+            tmp = stamp.with_name(f"{stamp.name}.{os.getpid()}.tmp")
+            tmp.write_text(f"{token}\n{why}\n")
+            os.replace(tmp, stamp)
+        except OSError:
+            pass
+
+    if stamp is None:
+        return stale(why) if (why := _fetch_upstream(repo, name, branch, tracked)) else ""
     try:
-        if stamp is not None and stamp.read_text().strip() == token:
-            return ""
+        stamp.parent.mkdir(parents=True, exist_ok=True)
+        lock = os.open(stamp.with_name(f"{stamp.name}.lock"), os.O_RDWR | os.O_CREAT, 0o600)
     except OSError:
-        pass
+        lock = None
+    try:
+        if lock is not None:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        if (why := stamped()) is None:
+            # Stamped before it starts too (cmux#41750 review): a checker killed mid-fetch (the fast tier's 4 s
+            # SIGKILL) runs no code after, and its run's next checker would fetch again.
+            write_stamp("an earlier check of this push was stopped mid-fetch")
+            why = _fetch_upstream(repo, name, branch, tracked)
+            write_stamp(why)
+    finally:
+        if lock is not None:
+            os.close(lock)  # drops the flock
+    return stale(why) if why else ""
+
+
+def _fetch_upstream(repo: Path, name: str, branch: str, tracked: str) -> str:
+    """Fetch BRANCH of remote NAME into TRACKED without ever asking for a credential: "" when it worked, else why it
+    did not (one line). The fetch runs in a new session with stdin from /dev/null, so nothing it starts has a terminal
+    to prompt on (see _NO_PROMPT_ENV), under _FETCH_WATCHDOG, so it ends with this process however this process ends
+    (see there)."""
     args = ["git", "-C", str(repo), *_NO_PROMPT_CONFIG, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head",
             name, f"+refs/heads/{branch}:{tracked}"]
-    env = _no_prompt_env(repo)
+    alive_read, alive_write = os.pipe()  # this process holds the write end until the fetch is over
+    fired_read, fired_write = os.pipe()  # the guard writes one byte here before it ends the fetch at the limit
+    os.set_blocking(fired_read, False)
     try:
-        result = subprocess.run(args, capture_output=True, text=True, env=env, timeout=UPSTREAM_FETCH_SECONDS,
-                                stdin=subprocess.DEVNULL)
-        why = "" if result.returncode == 0 else (result.stderr.strip().splitlines() or [f"exit {result.returncode}"])[-1]
+        result = subprocess.run([sys.executable, "-I", "-c", _FETCH_WATCHDOG, str(UPSTREAM_FETCH_SECONDS),
+                                 str(fired_write), *args],
+                                capture_output=True, text=True, env=_no_prompt_env(repo), pass_fds=(fired_write,),
+                                timeout=UPSTREAM_FETCH_SECONDS + 10, stdin=alive_read, start_new_session=True)
+        if _guard_fired(fired_read):
+            why = f"no answer in {UPSTREAM_FETCH_SECONDS}s"
+        else:
+            why = "" if result.returncode == 0 else (result.stderr.strip().splitlines()
+                                                     or [f"exit {result.returncode}"])[-1]
     except subprocess.TimeoutExpired:
         why = f"no answer in {UPSTREAM_FETCH_SECONDS}s"
     except OSError as error:
         why = str(error)
-    if why:
-        return (f"; {upstream_ref} could not be fetched ({why[:200]}), so what a base merge brought in past this "
-                f"clone's copy counts as {whose}: run `git fetch {name} {branch}` and {then}")
-    if stamp is not None:
+    finally:
+        for fd in (alive_read, alive_write, fired_read, fired_write):
+            os.close(fd)
+    return " ".join(why.split())
+
+
+def _guard_fired(fired_read: int) -> bool:
+    """Whether the fetch's guard ended it at the time limit: its byte is in the pipe before it kills the fetch, so
+    it is there by the time the keeper has seen the fetch end. Only that is a timeout; an exit code is never read as
+    one (cmux#41765 review: a git that exited 124 at once was reported as "no answer in 30s")."""
+    try:
+        return bool(os.read(fired_read, 1))
+    except BlockingIOError:
+        return False
+
+
+# The fetch's keeper, the first process of the fetch's own session (cmux#41750 review). The session keeps the fetch
+# off the caller's terminal, but it also took it out of the caller's process group: prepush_fast_tier.py SIGKILLs its
+# worker's group after 4 s, and the fetch ran on (ssh with no limit, no stamp) while the next checker started another;
+# a Ctrl-C reaches only the terminal's foreground group, and subprocess.run answers it by killing its own child alone.
+# The guard says it ended the fetch at the limit by writing a byte to the fd named in argv[2] first (_guard_fired);
+# the keeper's exit is the fetch's own code, or 128 + the signal that ended it. Nothing the guard does before its kill
+# may skip it (cmux#41803 review: a caller that cancelled as the deadline hit had closed that pipe, the write raised
+# BrokenPipeError and the guard died with git and ssh still running), so the kill sits in a finally.
+# A SIGKILL runs no handler, so the keeper's guard watches a pipe instead, whose write end only the caller holds:
+# when the caller is gone or done (it closes the pipe on every way out of _fetch_upstream, an interrupt included),
+# the pipe reads EOF and the guard kills the fetch's process group (git and the ssh or helper it started). The guard
+# is a fork of its own, out of that group and with no hold on the caller's output pipes, so it outlives a keeper the
+# caller killed. It enforces the fetch's time limit the same way.
+_FETCH_WATCHDOG = r"""
+import os, select, signal, subprocess, sys, time
+deadline = time.monotonic() + float(sys.argv[1])
+fired = int(sys.argv[2])
+fetch = subprocess.Popen(sys.argv[3:], stdin=subprocess.DEVNULL, preexec_fn=os.setpgrp)
+if os.fork() == 0:
+    try:
+        null = os.open(os.devnull, os.O_RDWR)
+        os.dup2(null, 1)
+        os.dup2(null, 2)
+        while time.monotonic() < deadline:
+            if select.select([0], [], [], min(deadline - time.monotonic(), 0.2))[0] and not os.read(0, 1):
+                break
+            try:
+                os.killpg(fetch.pid, 0)
+            except ProcessLookupError:
+                os._exit(0)
+            except PermissionError:
+                pass
+        else:
+            try:
+                os.write(fired, b"T")
+            except OSError:
+                pass
+    finally:
         try:
-            stamp.parent.mkdir(parents=True, exist_ok=True)
-            tmp = stamp.with_name(f"{stamp.name}.{os.getpid()}.tmp")
-            tmp.write_text(token + "\n")
-            os.replace(tmp, stamp)
+            os.killpg(fetch.pid, signal.SIGKILL)
         except OSError:
             pass
-    return ""
+        os._exit(0)
+os.close(fired)
+code = fetch.wait()
+sys.exit(code if code >= 0 else 128 - code)
+"""
 
 
 def refresh_base(repo: Path | str, ref: str, remote: str | None = DEFAULT_REMOTE) -> str:

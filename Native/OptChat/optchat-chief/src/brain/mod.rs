@@ -199,8 +199,8 @@ pub enum Input {
         /// Its public id (`ws_…`), when the place can name it.
         ws: Option<String>,
     },
-    /// Where a subagent's workspace opens (`control show`), sent at its
-    /// start whether or not it opens then (sidebar_choice.rs).
+    /// Where a subagent's workspace opens, sent at its start before it opens (a later
+    /// `control show|hide` reopens one the user closed there).
     SubagentWorkspaceSlot {
         id: String,
         name: String,
@@ -214,8 +214,13 @@ pub enum Input {
         /// Its public id (`ws_…`), when the place can name it.
         ws: Option<String>,
     },
-    /// Workspace `key` is gone (it could not open, or a short task's idle
-    /// close closed it): the subagent stays hidden until `control show`.
+    /// `control show|hide` moved its workspace out of or into the "Chief's workspaces" group.
+    SubagentWorkspaceMoved {
+        id: String,
+        into_chief_group: bool,
+    },
+    /// Workspace `key` is gone (it could not open, or the user closed it): the
+    /// next `control show|hide` opens a new one.
     SubagentWorkspaceFailed {
         id: String,
         key: String,
@@ -1645,6 +1650,19 @@ impl Brain {
                 self.sub_workspace_slot(&id, name, slot)
             }
             Input::SubagentWorkspaceFailed { id, key } => self.sub_workspace_failed(&id, &key),
+            Input::SubagentWorkspaceMoved {
+                id,
+                into_chief_group,
+            } => {
+                if let Some(made) = self.state.sub_mut(&id).and_then(|s| s.made.as_mut()) {
+                    made.visibility = Some(if into_chief_group {
+                        crate::action_lifetime::Visibility::Chief
+                    } else {
+                        crate::action_lifetime::Visibility::User
+                    });
+                    self.save();
+                }
+            }
             Input::SubagentWorkspaceShown { id, key, name, ws } => {
                 self.sub_workspace_opened(&id, key, name, ws, false)
             }
