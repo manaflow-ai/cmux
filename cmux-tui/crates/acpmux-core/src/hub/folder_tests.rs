@@ -53,38 +53,48 @@ fn folders_publish_in_one_snapshot_and_only_to_their_view() {
     let mut changed = row("two", "/b", 3);
     changed.state = "waiting".into();
     writer.apply(changed).unwrap();
-    assert!(take(&folder_sub.receiver).is_empty());
+    assert!(folder_sub.receiver.try_next().is_none());
     writer.apply(row("two", "/b", 4)).unwrap();
     assert_eq!(take(&folder_sub.receiver).len(), 1);
 }
 
 #[test]
-fn folder_replay_keeps_both_ops_of_a_move_and_empty_sequences() {
+fn folder_move_is_one_counter_step_and_reconnect_is_always_a_window() {
     let (hub, mut writer) = Hub::new(SummaryIndex::new());
     writer.apply(row("one", "/a", 1)).unwrap();
-    let receiver = hub.subscribe_replay(&sub(), 1).unwrap();
+    let subscription = hub.subscribe(&sub()).unwrap();
     writer.apply(row("one", "/b", 2)).unwrap();
     let mut title = row("one", "/b", 2);
     title.title = "changed".into();
     writer.apply(title).unwrap();
-    let RawRead::Span(span) = receiver.try_next_raw(Some(3), 256 * 1024).unwrap() else {
+    let RawRead::Span(span) = subscription.receiver.try_next_raw(None, 256 * 1024).unwrap() else {
         panic!("span")
     };
-    assert_eq!(span.last_seq, 3);
+    assert_eq!(span.last_seq, subscription.cursor + 1);
     let decoded: Vec<serde_json::Value> =
         serde_json::from_slice(format!("[{}]", String::from_utf8(span.bytes).unwrap()).as_bytes())
             .unwrap();
     assert_eq!(decoded.len(), 2);
-    assert!(decoded.iter().all(|op| matches!(
-        op.get("op").and_then(|value| value.as_str()),
-        Some("folder" | "folderGone")
-    )));
-    let receiver = hub.subscribe_replay(&sub(), 2).unwrap();
-    let RawRead::Span(span) = receiver.try_next_raw(Some(3), 256 * 1024).unwrap() else {
-        panic!("empty span")
-    };
-    assert!(span.bytes.is_empty());
-    assert_eq!(span.last_seq, 3);
+    assert!(
+        decoded
+            .iter()
+            .all(|op| op.get("seq").and_then(serde_json::Value::as_u64) == Some(span.last_seq))
+    );
+    assert!(subscription.receiver.try_next().is_none());
+    let mut reconnect = sub();
+    reconnect.cursor = Some(crate::wire::Cursor(u64::MAX));
+    reconnect.edition = Some(u32::MAX);
+    let fresh = hub.subscribe(&reconnect).unwrap();
+    let window: FolderWindow = fresh.window.decode_json().unwrap();
+    assert_eq!(window.cursor, span.last_seq);
+    assert_eq!(
+        window.rows,
+        hub.snapshot().folders().iter().map(|row| row.as_ref().clone()).collect::<Vec<_>>()
+    );
+    assert!(hub.subscribe_replay(&reconnect, 1).is_err());
+    writer.apply(row("one", "/b", 4)).unwrap();
+    writer.apply(row("one", "/b", 5)).unwrap();
+    assert!(matches!(fresh.receiver.try_next(), Some(ListItem::Lagged { .. })));
 }
 
 #[test]
@@ -201,4 +211,125 @@ fn folder_pages_refuse_cross_view_and_mixed_keys() {
     s.anchor = None;
     s.filter = Some(crate::wire::ListFilter::default());
     assert!(hub.subscribe(&s).is_err());
+}
+
+#[tokio::test]
+async fn folders_wait_for_the_complete_startup_head_and_propagate_failure() {
+    use crate::conn::Source as _;
+    use acpmux_book::index::SortedSnapshot;
+    let dir = tempfile::tempdir().unwrap();
+    let mut initial = SummaryIndex::new();
+    for n in 0..300 {
+        initial = initial.apply(n + 1, row(&format!("chat-{n}"), &format!("/folder-{n}"), n));
+    }
+    SortedSnapshot::write(dir.path().join("index.snap"), &initial).unwrap();
+    let (hub, mut writer) = Hub::open(dir.path(), 1, || 7).unwrap();
+    let hub = Arc::new(hub);
+    let source = crate::conn::HubSource::new(hub.clone());
+    let mut request = sub();
+    request.window = Some(400);
+    let request = crate::wire::Request::Sub(request);
+    let mut ready = source.ready(&request);
+    std::future::poll_fn(|cx| {
+        assert!(ready.as_mut().poll(cx).is_pending());
+        std::task::Poll::Ready(())
+    })
+    .await;
+    assert!(hub.list_window(&sub()).is_err());
+    while writer.hydration.is_some() {
+        writer.process_batch();
+    }
+    ready.await.unwrap();
+    let crate::wire::Request::Sub(request) = request else { panic!("sub") };
+    let window: FolderWindow = hub.subscribe(&request).unwrap().window.decode_json().unwrap();
+    assert_eq!(window.rows.len(), 300);
+    assert_eq!(window.cursor, 1, "startup sends no folder ops");
+    let page_request = crate::wire::Request::Page(page(window.after_key.unwrap()));
+    writer.hydrated.send_replace(disk::HydrationState::Failed);
+    assert!(source.ready(&page_request).await.is_err());
+}
+
+#[test]
+fn folder_origin_events_use_the_folder_counter_and_cleanup_keeps_the_list_seq() {
+    let (hub, mut writer) = Hub::new(SummaryIndex::new());
+    let mut remote = row("one", "/a", 1);
+    remote.origin = "peer".into();
+    writer.apply(remote).unwrap();
+    let subscription = hub.subscribe(&sub()).unwrap();
+    writer.origin("peer", OriginState::Removed, 2).unwrap();
+    assert!(matches!(subscription.receiver.try_next(), Some(ListItem::Origin { seq, origin })
+        if seq == subscription.cursor + 1 && origin.state == OriginState::Removed));
+    let seq = hub.snapshot().seq();
+    writer.advance_origins(256);
+    assert_eq!(hub.snapshot().seq(), seq);
+    assert!(subscription.receiver.try_next().is_none());
+    let window: FolderWindow = hub.list_window(&sub()).unwrap().decode_json().unwrap();
+    assert!(window.rows.is_empty());
+}
+
+#[test]
+fn folder_subscriber_copy_matches_hot_rows_after_10k_changes_and_eviction_batches() {
+    use std::collections::BTreeMap;
+    let (hub, mut writer) = Hub::new(SummaryIndex::new());
+    let subscription = hub.subscribe(&sub()).unwrap();
+    let mut held = BTreeMap::new();
+    let mut random = 0x5f158_u64;
+    for step in 0..10_000_u64 {
+        random = random.wrapping_mul(6364136223846793005).wrapping_add(1);
+        let id = format!("chat-{}", (random >> 32) % 40);
+        match random % 5 {
+            0 => {
+                writer.remove("local", &id).unwrap();
+            }
+            1 => {
+                // A compaction's covered rows can leave without a log record.
+                let current = hub.snapshot();
+                let mut next = current.as_ref().clone();
+                let mut touched = std::collections::BTreeSet::new();
+                for row in current.iter().take(3) {
+                    touched.insert(acpmux_book::index::FolderKey::of(row).unwrap());
+                    next.evict_compacted(&row.key());
+                }
+                let ops = folders::changed_folders(&current, &next, touched);
+                writer.publish_folder_index(next, &ops);
+            }
+            _ => {
+                writer.apply(row(&id, &format!("/f-{}", random % 7), step)).unwrap();
+            }
+        }
+        if let Some(item) = subscription.receiver.try_next() {
+            let ListItem::Folders { ops, .. } = item else { panic!("one bounded change per step") };
+            for op in ops {
+                match op {
+                    FolderOp::Folder(row) => {
+                        held.insert(row.key(), row.as_ref().clone());
+                    }
+                    FolderOp::Gone(key) => {
+                        held.remove(&key);
+                    }
+                }
+            }
+        }
+        let index = hub.snapshot();
+        let mut model = BTreeMap::<FolderKey, (acpmux_book::index::SortKey, RowKey, u32)>::new();
+        for row in index.iter() {
+            let key = FolderKey::new(row.origin.as_str(), row.folder.as_ref().unwrap().as_str());
+            let sort = acpmux_book::index::SortKey::of(row);
+            let entry = model.entry(key).or_insert((sort.clone(), row.key(), 0));
+            if sort < entry.0 {
+                entry.0 = sort;
+                entry.1 = row.key();
+            }
+            entry.2 += 1;
+        }
+        assert_eq!(held.len(), model.len(), "step {step}");
+        for (key, (sort, newest, count)) in model {
+            let actual = held.get(&key).unwrap();
+            assert_eq!(
+                (&actual.newest, actual.at, actual.count),
+                (&newest, sort.last_activity, count),
+                "step {step}"
+            );
+        }
+    }
 }

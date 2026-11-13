@@ -2,7 +2,6 @@
 //! or search by sequence; the entry slot is the offset from the first seq.
 use super::{ListItem, SummaryEvent};
 use acpmux_book::index::Summary;
-use acpmux_book::index::folders::{FolderOp, FolderRow};
 use serde::{Deserialize, Serialize};
 use std::hash::{DefaultHasher, Hasher};
 use std::io::{self, Write};
@@ -43,6 +42,10 @@ pub(crate) struct RawSpan {
 }
 
 impl RawSpan {
+    pub(super) fn folder(bytes: Vec<u8>, last_seq: u64) -> Self {
+        Self { bytes, last_seq, entries: Vec::new() }
+    }
+
     /// Check the copied bytes after releasing the ring lock. Entry offsets
     /// address this span, so later ring writes cannot affect validation.
     pub(super) fn is_valid(&self) -> bool {
@@ -59,7 +62,7 @@ impl RawSpan {
 
 #[derive(Serialize)]
 #[serde(tag = "op", rename_all = "camelCase", rename_all_fields = "camelCase")]
-enum Op<'a, T, S> {
+enum Op<T, S> {
     Summary {
         seq: u64,
         summary: T,
@@ -68,15 +71,6 @@ enum Op<'a, T, S> {
         seq: u64,
         origin: S,
         chat_id: S,
-    },
-    Folder {
-        seq: u64,
-        row: &'a FolderRow,
-    },
-    FolderGone {
-        seq: u64,
-        origin: S,
-        folder: S,
     },
     Origin {
         seq: u64,
@@ -169,43 +163,11 @@ impl History {
                 since: origin.since,
                 extra: origin.extra.clone(),
             },
-            ListItem::Folders { seq, ops } => return self.append_folders(*seq, ops),
-            ListItem::Lagged { .. } => return Ok(()),
+            ListItem::Folders { .. } | ListItem::Lagged { .. } => return Ok(()),
         };
         let seq = match &op {
-            Op::Summary { seq, .. }
-            | Op::Gone { seq, .. }
-            | Op::Origin { seq, .. }
-            | Op::Folder { seq, .. }
-            | Op::FolderGone { seq, .. } => *seq,
+            Op::Summary { seq, .. } | Op::Gone { seq, .. } | Op::Origin { seq, .. } => *seq,
         };
-        self.append_encoded(seq, |writer| serde_json::to_writer(writer, &op))
-    }
-
-    /// One entry per list sequence; an unchanged projection costs no op bytes.
-    pub(super) fn append_folders(&mut self, seq: u64, ops: &[FolderOp]) -> serde_json::Result<()> {
-        self.append_encoded(seq, |writer| {
-            for (index, op) in ops.iter().enumerate() {
-                if index != 0 {
-                    writer.write_all(b",").map_err(serde_json::Error::io)?;
-                }
-                let op: Op<'_, &Summary, &str> = match op {
-                    FolderOp::Folder(row) => Op::Folder { seq, row },
-                    FolderOp::Gone(key) => {
-                        Op::FolderGone { seq, origin: &key.origin, folder: &key.folder }
-                    }
-                };
-                serde_json::to_writer(&mut *writer, &op)?;
-            }
-            Ok(())
-        })
-    }
-
-    fn append_encoded(
-        &mut self,
-        seq: u64,
-        encode: impl FnOnce(&mut Append<'_>) -> serde_json::Result<()>,
-    ) -> serde_json::Result<()> {
         if self.len != 0 && self.first.checked_add(self.len as u64) != Some(seq) {
             self.clear();
         }
@@ -216,7 +178,7 @@ impl History {
         #[cfg(test)]
         self.encoded_ops.fetch_add(1, Ordering::Relaxed);
         let mut writer = Append { history: self, written: 0, checksum: DefaultHasher::new() };
-        if let Err(error) = encode(&mut writer) {
+        if let Err(error) = serde_json::to_writer(&mut writer, &op) {
             writer.history.clear();
             return Err(error);
         }
@@ -247,13 +209,15 @@ impl History {
         if offset.checked_add(count)? > self.len {
             return None;
         }
-        let mut out = Vec::new();
-        for index in 0..count {
-            let entry = *self.entries.get((self.head + offset + index) % self.entries.len())?;
-            if !self.copy_entry_into(entry, &mut out) {
-                return None;
-            }
-        }
+        let begin = self.entries.get((self.head + offset) % self.entries.len())?;
+        let end = self.entries.get((self.head + offset + count - 1) % self.entries.len())?;
+        let capacity = self.bytes.len();
+        let length = (end.start + end.len + capacity - begin.start) % capacity;
+        let length = if length == 0 { capacity } else { length };
+        let mut out = Vec::with_capacity(length);
+        let first_len = length.min(capacity - begin.start);
+        out.extend_from_slice(self.bytes.get(begin.start..begin.start + first_len)?);
+        out.extend_from_slice(self.bytes.get(..length - first_len)?);
         Some(out)
     }
 
@@ -285,7 +249,7 @@ impl History {
         let mut last_seq = cursor;
         for index in 0..count {
             let entry = *self.entries.get((self.head + offset + index) % self.entries.len())?;
-            let separator = usize::from(!out.is_empty() && entry.len != 0);
+            let separator = usize::from(!out.is_empty());
             if out.len().saturating_add(separator).saturating_add(entry.len) > max_bytes {
                 break;
             }
@@ -298,7 +262,7 @@ impl History {
             }
             last_seq = first.saturating_add(index as u64);
         }
-        (last_seq > cursor).then_some(RawSpan { bytes: out, last_seq, entries })
+        (!out.is_empty()).then_some(RawSpan { bytes: out, last_seq, entries })
     }
 
     fn copy_entry_into(&self, entry: Entry, out: &mut Vec<u8>) -> bool {

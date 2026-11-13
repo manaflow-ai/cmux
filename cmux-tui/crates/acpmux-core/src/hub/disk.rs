@@ -63,17 +63,11 @@ impl HubWriter {
             .duration_since(UNIX_EPOCH)
             .map_or(0, |time| u64::try_from(time.as_millis()).unwrap_or(u64::MAX));
         let mut next = current.as_ref().clone();
-        let mut folder_events = Vec::new();
         let mut finished = false;
         let mut failed = false;
         for _ in 0..256 {
             match load.rows.next() {
-                Some(Ok(row)) => {
-                    let key = row.key();
-                    let before = next.clone();
-                    next = next.hydrate(row, now);
-                    folders::projection_change(&before, &mut next, &key, &mut folder_events);
-                }
+                Some(Ok(row)) => next = next.hydrate(row, now),
                 Some(Err(_)) => {
                     self.log_errors.fetch_add(1, Ordering::Relaxed);
                     failed = true;
@@ -87,7 +81,6 @@ impl HubWriter {
             }
         }
         self.published.store(Arc::new(next));
-        self.publish_folder_events(folder_events);
         if finished {
             self.hydration = None;
             self.hydrated.send_replace(if failed {

@@ -66,6 +66,22 @@ impl HubSource {
 }
 
 impl Source for HubSource {
+    fn ready<'a>(&'a self, request: &'a crate::wire::Request) -> super::ReadyFuture<'a> {
+        Box::pin(async move {
+            let folders = match request {
+                crate::wire::Request::Sub(sub) => sub.view == Some(crate::wire::ListView::Folders),
+                crate::wire::Request::Page(page) => {
+                    page.view == Some(crate::wire::ListView::Folders)
+                }
+                _ => false,
+            };
+            if folders {
+                self.hub.wait_hydrated().await?;
+            }
+            Ok(())
+        })
+    }
+
     fn subscribe(
         &self,
         sub: &Sub,
@@ -150,9 +166,10 @@ struct Delivery {
 }
 
 fn open(hub: &Hub, sub: &Sub) -> Result<Delivery, ConnError> {
-    if sub.edition.is_none_or(|edition| edition == 0 || edition == hub.snapshot().edition())
+    if sub.view != Some(crate::wire::ListView::Folders)
+        && sub.edition.is_none_or(|edition| edition == 0 || edition == hub.snapshot().edition())
         && let Some(cursor) = sub.cursor
-        && let Some(target) = hub.resume_view_target(cursor.0, sub.view)?
+        && let Some(target) = hub.resume_target(cursor.0)?
     {
         let receiver = hub.subscribe_replay(sub, cursor.0)?;
         if target == cursor.0 {

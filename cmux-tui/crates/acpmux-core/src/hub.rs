@@ -193,6 +193,7 @@ pub struct ListReceiver {
     subscribers: Arc<Mutex<Vec<Arc<Subscriber>>>>,
     history: Arc<Mutex<History>>,
     folders: bool,
+    folder_state: Arc<Mutex<folders::FolderState>>,
     published: Arc<ArcSwap<SummaryIndex>>,
 }
 
@@ -224,6 +225,14 @@ impl ListReceiver {
     }
 
     pub fn try_next(&self) -> Option<ListItem> {
+        if self.folders {
+            return match self.try_next_raw(None, crate::wire::MAX_PAGE_BYTES)? {
+                RawRead::Span(span) => folders::decode_item(span.bytes, span.last_seq),
+                RawRead::Lagged => {
+                    Some(ListItem::Lagged { cursor: self.subscriber.state.lock().ok()?.cursor })
+                }
+            };
+        }
         let cursor = {
             let state = self.subscriber.state.lock().ok()?;
             if state.ended {
@@ -254,11 +263,7 @@ impl ListReceiver {
                 }
             }
         };
-        let decoded = if self.folders || bytes.is_empty() {
-            folders::decode_item(bytes, cursor.saturating_add(1))
-        } else {
-            history::decode(bytes).ok().and_then(|items| items.into_iter().next())
-        };
+        let decoded = history::decode(bytes).ok().and_then(|items| items.into_iter().next());
         let item = match decoded {
             Some(item) => item,
             None => {
@@ -285,6 +290,9 @@ impl ListReceiver {
     /// follows the live tail. A malformed or expired span is reported as a
     /// lag so the connection can open one fresh window.
     pub(crate) fn try_next_raw(&self, through: Option<u64>, max_bytes: usize) -> Option<RawRead> {
+        if self.folders {
+            return self.next_folders(max_bytes);
+        }
         let cursor = {
             let state = self.subscriber.state.lock().ok()?;
             if state.ended {
@@ -360,7 +368,7 @@ pub struct Hub {
     updates: Arc<UpdateQueue>,
     subscribers: Arc<Mutex<Vec<Arc<Subscriber>>>>,
     history: Arc<Mutex<History>>,
-    folder_history: Arc<Mutex<History>>,
+    folder_state: Arc<Mutex<folders::FolderState>>,
     page_provider: Arc<Mutex<Option<Arc<dyn PageProvider>>>>,
     sources: Arc<ArcSwap<HashMap<String, Source>>>,
 }
@@ -391,7 +399,7 @@ pub struct HubWriter {
     updates: Arc<UpdateQueue>,
     subscribers: Arc<Mutex<Vec<Arc<Subscriber>>>>,
     history: Arc<Mutex<History>>,
-    folder_history: Arc<Mutex<History>>,
+    folder_state: Arc<Mutex<folders::FolderState>>,
     log: Option<IndexLog>,
     log_dirty: bool,
     log_errors: Arc<AtomicU64>,
@@ -495,7 +503,7 @@ impl Hub {
         let updates = Arc::new(UpdateQueue::new());
         let subscribers = Arc::new(Mutex::new(Vec::with_capacity(EVENT_CAPACITY)));
         let history = Arc::new(Mutex::new(History::new()));
-        let folder_history = Arc::new(Mutex::new(History::new()));
+        let folder_state = Arc::new(Mutex::new(folders::FolderState::default()));
         let log_errors = Arc::new(AtomicU64::new(0));
         let compaction_counters = Arc::new(compaction::Counters::default());
         compaction_counters
@@ -508,7 +516,7 @@ impl Hub {
             updates: updates.clone(),
             subscribers: subscribers.clone(),
             history: history.clone(),
-            folder_history: folder_history.clone(),
+            folder_state: folder_state.clone(),
             page_provider: Arc::new(Mutex::new(None)),
             sources: sources.clone(),
         };
@@ -532,7 +540,7 @@ impl Hub {
             updates,
             subscribers,
             history,
-            folder_history,
+            folder_state,
             log,
             log_dirty: false,
             log_errors,
@@ -633,15 +641,7 @@ impl Hub {
     }
 
     pub fn resume_target(&self, cursor: u64) -> Result<Option<u64>, HubError> {
-        self.resume_view_target(cursor, None)
-    }
-
-    pub fn resume_view_target(
-        &self,
-        cursor: u64,
-        view: Option<crate::wire::ListView>,
-    ) -> Result<Option<u64>, HubError> {
-        let history = self.view_history(view).lock().map_err(|_| HubError::WriterGone)?;
+        let history = self.history.lock().map_err(|_| HubError::WriterGone)?;
         let target = history.last_seq().unwrap_or_else(|| self.published.load().seq());
         if cursor > target
             || history.first_seq().is_some_and(|first| cursor.saturating_add(1) < first)
@@ -670,24 +670,31 @@ impl Hub {
         let index = self.snapshot();
         let edition_matches =
             sub.edition.is_none_or(|edition| edition == 0 || edition == index.edition());
-        let resume_cursor = if edition_matches
+        let resume_cursor = if !folders::is_folders(sub.view)
+            && edition_matches
             && sub.cursor.is_some()
-            && self.resume_view_target(cursor, sub.view)?.is_some()
+            && self.resume_target(cursor)?.is_some()
         {
             cursor
         } else {
             index.seq()
         };
         let frame = self.window_frame_at_cursor(sub, &index, resume_cursor)?;
+        let resume_cursor = if folders::is_folders(sub.view) {
+            frame.decode_json::<crate::wire::FolderWindow>()?.cursor
+        } else {
+            resume_cursor
+        };
         let subscriber = Arc::new(Subscriber::new(resume_cursor));
         self.subscribers.lock().map_err(|_| HubError::WriterGone)?.push(subscriber.clone());
         Ok(ListSubscription {
             window: frame,
-            cursor: index.seq(),
+            cursor: if folders::is_folders(sub.view) { resume_cursor } else { index.seq() },
             receiver: ListReceiver {
                 subscriber,
                 subscribers: self.subscribers.clone(),
-                history: self.view_history(sub.view).clone(),
+                history: self.history.clone(),
+                folder_state: self.folder_state.clone(),
                 folders: folders::is_folders(sub.view),
                 published: self.published.clone(),
             },
@@ -702,12 +709,16 @@ impl Hub {
             return Err(HubError::WrongStream(sub.stream.as_str().to_owned()));
         }
         validate_window(sub)?;
+        if folders::is_folders(sub.view) {
+            return Err(HubError::InvalidParams("folders always starts with a window".into()));
+        }
         let subscriber = Arc::new(Subscriber::new(cursor));
         self.subscribers.lock().map_err(|_| HubError::WriterGone)?.push(subscriber.clone());
         Ok(ListReceiver {
             subscriber,
             subscribers: self.subscribers.clone(),
-            history: self.view_history(sub.view).clone(),
+            history: self.history.clone(),
+            folder_state: self.folder_state.clone(),
             folders: folders::is_folders(sub.view),
             published: self.published.clone(),
         })
@@ -732,7 +743,7 @@ impl Hub {
     ) -> Result<Frame, HubError> {
         let requested = validate_window(sub)?;
         if folders::is_folders(sub.view) {
-            return self.folder_window(sub, index, cursor);
+            return self.folder_window(sub);
         }
         let (key, side) = match sub.anchor.as_ref() {
             Some(crate::wire::Anchor::List { key, side }) => (
@@ -1068,8 +1079,8 @@ impl HubWriter {
         );
         let summary = Arc::new(record.summary.clone());
         let event = SummaryEvent { seq: record.seq, summary };
-        self.published.store(Arc::new(next));
-        self.record_history_with_folders(ListItem::Summary(event.clone()), &folder_ops);
+        self.publish_folder_index(next, &folder_ops);
+        self.record_history(ListItem::Summary(event.clone()));
         self.publish(event.clone());
         Ok(event)
     }
@@ -1131,15 +1142,12 @@ impl HubWriter {
             return Ok(false);
         };
         let folder_ops = next.folder_changes(&current, current.get_row(key).as_deref(), None);
-        self.published.store(Arc::new(next));
-        self.record_history_with_folders(
-            ListItem::Gone {
-                seq,
-                chat_id: key.chat_id.to_string(),
-                origin: key.origin.to_string(),
-            },
-            &folder_ops,
-        );
+        self.publish_folder_index(next, &folder_ops);
+        self.record_history(ListItem::Gone {
+            seq,
+            chat_id: key.chat_id.to_string(),
+            origin: key.origin.to_string(),
+        });
         self.publish_gone(seq, key);
         Ok(true)
     }
@@ -1165,42 +1173,9 @@ impl HubWriter {
     }
 
     fn record_history(&self, item: ListItem) {
-        self.record_history_with_folders(item, &[]);
-    }
-
-    fn record_history_with_folders(
-        &self,
-        item: ListItem,
-        ops: &[acpmux_book::index::folders::FolderOp],
-    ) {
-        let seq = match &item {
-            ListItem::Summary(event) => event.seq,
-            ListItem::Gone { seq, .. }
-            | ListItem::Origin { seq, .. }
-            | ListItem::Folders { seq, .. } => *seq,
-            ListItem::Lagged { .. } => return,
-        };
-        if let Ok(mut history) = self.folder_history.lock() {
-            let result = if matches!(item, ListItem::Origin { .. }) {
-                history.append(&item)
-            } else {
-                history.append_folders(seq, ops)
-            };
-            if result.is_err() {
-                self.log_errors.fetch_add(1, Ordering::Relaxed);
-            }
-        }
-
         if let Ok(mut history) = self.history.lock()
-            && (if matches!(item, ListItem::Folders { .. }) {
-                history.append_folders(seq, &[])
-            } else {
-                history.append(&item)
-            })
-            .is_err()
+            && history.append(&item).is_err()
         {
-            // The durable index is still valid; no cursor may cross a gap
-            // in the optional resume cache.
             self.log_errors.fetch_add(1, Ordering::Relaxed);
         }
     }

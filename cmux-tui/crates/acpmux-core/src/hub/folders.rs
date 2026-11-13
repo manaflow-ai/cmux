@@ -42,21 +42,16 @@ fn visible(index: &SummaryIndex, row: &FolderRow) -> bool {
 }
 
 impl Hub {
-    pub(super) fn view_history(&self, view: Option<ListView>) -> &Arc<Mutex<History>> {
-        if is_folders(view) { &self.folder_history } else { &self.history }
-    }
-
-    pub(super) fn folder_window(
-        &self,
-        sub: &Sub,
-        index: &SummaryIndex,
-        seq: u64,
-    ) -> Result<Frame, HubError> {
+    pub(super) fn folder_window(&self, sub: &Sub) -> Result<Frame, HubError> {
         if sub.filter.is_some() || !matches!(sub.anchor, None | Some(Anchor::End)) {
             return Err(HubError::InvalidParams(
                 "folders subscriptions read an unfiltered head".into(),
             ));
         }
+        self.require_folders_ready()?;
+        let state = self.folder_state.lock().map_err(|_| HubError::WriterGone)?;
+        let seq = state.seq;
+        let index = self.snapshot();
         let anchor = None;
         let side = FolderReadSide::After;
         let page = index
@@ -68,7 +63,7 @@ impl Hub {
                 validate_window(sub)?,
                 crate::wire::MAX_PAGE_BYTES.saturating_sub(8192 + sub.sid.len()),
                 sub.filter.as_ref(),
-                |row| visible(index, row),
+                |row| visible(&index, row),
             )
             .map_err(HubError::page_error)?;
         let window = FolderWindow {
@@ -101,6 +96,7 @@ impl Hub {
     }
 
     pub(super) fn folder_page(&self, request: &crate::wire::Page) -> Result<Frame, HubError> {
+        self.require_folders_ready()?;
         validate_filter(request.filter.as_ref())?;
         let index = self.snapshot();
         let max = request.max_bytes as usize;
@@ -233,29 +229,133 @@ pub(super) fn decode_item(bytes: Vec<u8>, seq: u64) -> Option<ListItem> {
     Some(ListItem::Folders { seq, ops: changes })
 }
 
-/// Hydration and cold eviction change the hot projection without a log write.
-/// Give those changes ordinary stream positions, so an already open window or
-/// a disconnected reader observes them through the same bounded replay ring.
-pub(super) fn projection_change(
-    before: &SummaryIndex,
-    next: &mut SummaryIndex,
-    key: &RowKey,
-    events: &mut Vec<(u64, Vec<FolderOp>)>,
-) {
-    let ops =
-        next.folder_changes(before, before.get_row(key).as_deref(), next.get_row(key).as_deref());
-    if !ops.is_empty() {
-        let seq = next.seq().saturating_add(1);
-        *next = next.advance_seq(seq);
-        events.push((seq, ops));
+/// Only the latest bounded delivery is retained, never a replay history.
+/// A reader that misses it receives a fresh window from the published view.
+pub(super) struct FolderState {
+    pub(super) seq: u64,
+    latest: Option<Arc<Vec<u8>>>,
+}
+impl Default for FolderState {
+    fn default() -> Self {
+        Self { seq: 1, latest: None }
     }
 }
 
+impl Hub {
+    fn require_folders_ready(&self) -> Result<(), HubError> {
+        if *self.hydrated.borrow() == disk::HydrationState::Ready {
+            Ok(())
+        } else {
+            Err(HubError::HydrationFailed)
+        }
+    }
+}
+
+impl ListReceiver {
+    pub(super) fn next_folders(&self, max_bytes: usize) -> Option<RawRead> {
+        let mut subscriber = self.subscriber.state.lock().ok()?;
+        if subscriber.ended {
+            return None;
+        }
+        let latest = self.folder_state.lock().ok()?;
+        if subscriber.cursor == latest.seq {
+            return None;
+        }
+        if subscriber.cursor.saturating_add(1) != latest.seq {
+            subscriber.ended = true;
+            return Some(RawRead::Lagged);
+        }
+        let Some(bytes) = latest.latest.as_ref().filter(|bytes| bytes.len() <= max_bytes) else {
+            subscriber.ended = true;
+            return Some(RawRead::Lagged);
+        };
+        subscriber.cursor = latest.seq;
+        Some(RawRead::Span(history::RawSpan::folder(bytes.as_ref().clone(), latest.seq)))
+    }
+}
+
+pub(super) fn changed_folders(
+    before: &SummaryIndex,
+    next: &SummaryIndex,
+    touched: impl IntoIterator<Item = acpmux_book::index::FolderKey>,
+) -> Vec<FolderOp> {
+    touched
+        .into_iter()
+        .filter_map(|folder| {
+            let key = FolderKey::new(folder.origin, folder.folder);
+            let old = before.folders().get(&key).filter(|row| visible(before, row));
+            let new = next.folders().get(&key).filter(|row| visible(next, row));
+            if old == new {
+                return None;
+            }
+            new.map(FolderOp::Folder).or_else(|| old.map(|_| FolderOp::Gone(key)))
+        })
+        .collect()
+}
+
 impl HubWriter {
-    pub(super) fn publish_folder_events(&self, events: Vec<(u64, Vec<FolderOp>)>) {
-        for (seq, ops) in events {
-            self.record_history_with_folders(ListItem::Folders { seq, ops: Vec::new() }, &ops);
-            self.publish_gone(seq, &RowKey::new("", ""));
+    pub(super) fn publish_folder_index(&self, next: SummaryIndex, ops: &[FolderOp]) {
+        self.publish_folder_update(next, ops, None);
+    }
+
+    pub(super) fn publish_folder_origin(&self, next: SummaryIndex, origin: Origin) {
+        self.publish_folder_update(next, &[], Some(origin));
+    }
+
+    fn publish_folder_update(&self, next: SummaryIndex, ops: &[FolderOp], origin: Option<Origin>) {
+        let mut state = match self.folder_state.lock() {
+            Ok(state) => state,
+            Err(_) => {
+                self.published.store(Arc::new(next));
+                return;
+            }
+        };
+        let changed = (!ops.is_empty() || origin.is_some())
+            && *self.hydrated.borrow() == disk::HydrationState::Ready;
+        if changed {
+            state.seq = state.seq.saturating_add(1);
+            let mut bytes = Vec::new();
+            let mut valid = true;
+            for (n, op) in ops.iter().enumerate() {
+                if n != 0 {
+                    bytes.push(b',');
+                }
+                let op: crate::wire::DeltaOp<Summary> = match op {
+                    FolderOp::Folder(row) => {
+                        crate::wire::DeltaOp::Folder { seq: state.seq, row: row.as_ref().clone() }
+                    }
+                    FolderOp::Gone(key) => crate::wire::DeltaOp::FolderGone {
+                        seq: state.seq,
+                        origin: key.origin.to_string(),
+                        folder: key.folder.to_string(),
+                    },
+                };
+                if serde_json::to_writer(&mut bytes, &op).is_err()
+                    || bytes.len() > crate::wire::MAX_PAGE_BYTES.saturating_sub(8192)
+                {
+                    valid = false;
+                    break;
+                }
+            }
+            if let Some(origin) = origin {
+                if !bytes.is_empty() {
+                    bytes.push(b',');
+                }
+                let op: crate::wire::DeltaOp<Summary> =
+                    crate::wire::DeltaOp::Origin { seq: state.seq, origin };
+                valid &= serde_json::to_writer(&mut bytes, &op).is_ok();
+            }
+            state.latest = valid.then(|| Arc::new(bytes));
+        }
+        self.published.store(Arc::new(next));
+        drop(state);
+        if changed {
+            // This notification is independent of the durable summary cursor.
+            if let Ok(subscribers) = self.subscribers.lock() {
+                for subscriber in subscribers.iter() {
+                    subscriber.notify.notify_one();
+                }
+            }
         }
     }
 }

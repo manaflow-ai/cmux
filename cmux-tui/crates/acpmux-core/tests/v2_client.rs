@@ -386,7 +386,7 @@ async fn client_and_daemon_credit_a_slow_taker_past_one_window() {
 }
 
 #[tokio::test]
-async fn folder_move_replays_both_rows_after_disconnect() {
+async fn folder_move_is_one_live_delta_and_reconnect_starts_with_a_fresh_window() {
     let (hub, mut writer) = Hub::new(SummaryIndex::new());
     let mut row = Summary::new("chat");
     row.folder = Some("/old".into());
@@ -401,23 +401,21 @@ async fn folder_move_replays_both_rows_after_disconnect() {
     send_bytes(&mut stream, client.take_send().unwrap()).await;
     client.received(&read_frame(&mut stream).await.encode());
     let Some(Change::FolderWindow(window)) = client.next_change() else { panic!("folder window") };
+    let move_seq = window.cursor.saturating_add(1);
     let mut held: std::collections::BTreeMap<_, _> =
         window.rows.into_iter().map(|row| (row.key(), row)).collect();
-    drop(stream);
-    task.await.unwrap().unwrap();
-    // The client has not taken either half of this move.
+
+    // A live move emits both projections in one frame and shares the writer's
+    // sequence number. It is not a replay history for a later reconnect.
     row.folder = Some("/new".into());
     row.last_activity = 2;
-    writer.apply(row).unwrap();
-    client.disconnected();
-    let (mut stream, task) = pair(hub.clone());
-    hello(&mut client, &mut stream).await;
-    send_bytes(&mut stream, client.take_send().unwrap()).await;
+    writer.apply(row.clone()).unwrap();
     let frame = read_frame(&mut stream).await;
+    assert_eq!(frame.kind, FrameKind::Delta);
     let value: Value = frame.decode_json().unwrap();
     let ops = value.get("ops").and_then(Value::as_array).unwrap();
     assert_eq!(ops.len(), 2);
-    assert!(ops.iter().all(|op| op.get("seq").and_then(Value::as_u64) == Some(2)));
+    assert!(ops.iter().all(|op| op.get("seq").and_then(Value::as_u64) == Some(move_seq)));
     client.received(&frame.encode());
     while let Some(change) = client.next_change() {
         match change {
@@ -427,13 +425,37 @@ async fn folder_move_replays_both_rows_after_disconnect() {
             Change::FolderGone { origin, folder, .. } => {
                 held.remove(&acpmux_book::index::folders::FolderKey::new(origin, folder));
             }
-            Change::ResumeEnd { cursor, .. } => assert_eq!(cursor.0, 2),
-            other => panic!("unexpected change {other:?}"),
+            other => panic!("unexpected live folder change: {other:?}"),
         }
     }
-    let rebuilt: std::collections::BTreeMap<_, _> =
+    assert_eq!(client.skip_counters().unknown_op, 0);
+    let live_projection: std::collections::BTreeMap<_, _> =
         hub.snapshot().folders().iter().map(|row| (row.key(), row.as_ref().clone())).collect();
-    assert_eq!(held, rebuilt);
+    assert_eq!(held, live_projection);
+
+    drop(stream);
+    task.await.unwrap().unwrap();
+
+    // Reconnect requests a replacement head with no resume cursor or edition.
+    client.disconnected();
+    let (mut stream, task) = pair(hub.clone());
+    hello(&mut client, &mut stream).await;
+    let request = client.take_send().unwrap();
+    let request_value: Value = Frame::from_encoded(&request).unwrap().decode_json().unwrap();
+    assert!(request_value.pointer("/params/cursor").is_none());
+    assert!(request_value.pointer("/params/edition").is_none());
+    send_bytes(&mut stream, request).await;
+    let frame = read_frame(&mut stream).await;
+    assert_eq!(frame.kind, FrameKind::Window);
+    client.received(&frame.encode());
+    let Some(Change::FolderWindow(window)) = client.next_change() else {
+        panic!("fresh folder window")
+    };
+    let rebuilt: std::collections::BTreeMap<_, _> =
+        window.rows.into_iter().map(|row| (row.key(), row)).collect();
+    let expected: std::collections::BTreeMap<_, _> =
+        hub.snapshot().folders().iter().map(|row| (row.key(), row.as_ref().clone())).collect();
+    assert_eq!(rebuilt, expected);
     assert_eq!(client.skip_counters().unknown_op, 0);
     drop(stream);
     task.await.unwrap().unwrap();

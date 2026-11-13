@@ -274,8 +274,8 @@ impl HubWriter {
         }
         self.admit_origin(id)?;
         self.persist_origin(&record)?;
-        self.published.store(Arc::new(current.apply_origin(record.seq, record.clone())));
         let wire = Origin { id: id.into(), state, since, extra: None };
+        self.publish_folder_origin(current.apply_origin(record.seq, record.clone()), wire.clone());
         self.record_history(ListItem::Origin { seq: record.seq, origin: wire.clone() });
         self.publish_origin(record.seq, wire);
         if state == OriginState::Removed {

@@ -193,8 +193,25 @@ where
         self.frame_buf.clear();
         self.frame_total = None;
         self.line.clear();
+        self.pages.retain(|sid, _| {
+            !self
+                .subscriptions
+                .get(sid)
+                .is_some_and(|sub| sub.request.view == Some(ListView::Folders))
+        });
         for sub in self.subscriptions.values_mut() {
-            if sub.window_taken {
+            if sub.request.view == Some(ListView::Folders) {
+                // Folder subscriptions are always reopened at a fresh head;
+                // their view sequence is not a resumable history.
+                sub.request = sub.initial.clone();
+                sub.request.cursor = None;
+                sub.request.edition = None;
+                sub.request.anchor = Some(Anchor::End);
+                sub.cursor = Cursor::default();
+                sub.edition = 0;
+                sub.replaying = false;
+                sub.window_taken = false;
+            } else if sub.window_taken {
                 sub.request.cursor = Some(sub.cursor);
                 sub.request.edition = Some(sub.edition);
                 sub.request.anchor = None;
@@ -357,7 +374,13 @@ where
         if !wire::identifier_fits(&sub.sid) {
             return Err(FrameError::InvalidLength(sub.sid.len()));
         }
-        if sub.cursor.is_none() {
+        if sub.view == Some(ListView::Folders) {
+            // A folders window is a replacement head snapshot. Cursors and
+            // editions belong to resumable summary streams only.
+            sub.cursor = None;
+            sub.edition = None;
+            sub.anchor = Some(Anchor::End);
+        } else if sub.cursor.is_none() {
             sub.anchor.get_or_insert(Anchor::End);
         }
         let sid = sub.sid.clone();
@@ -468,6 +491,10 @@ where
                         self.charge_frame_now(None, frame_bytes);
                         return;
                     }
+                    // A new head invalidates every folder page requested from
+                    // the previous head. Responses that arrive after this
+                    // point are ignored until a new request is registered.
+                    self.pages.remove(&sid);
                     let replaying =
                         self.subscriptions.get(&sid).map(|sub| sub.replaying).unwrap_or(false);
                     if let Some(sub) = self.subscriptions.get_mut(&sid) {
@@ -516,10 +543,9 @@ where
                     .ok()
                     .and_then(|value| value.get("sid").and_then(Value::as_str).map(str::to_owned));
                 let is_folders = sid_hint.as_deref().is_some_and(|sid| {
-                    self.pages
+                    self.subscriptions
                         .get(sid)
-                        .and_then(|page| page.request.as_ref())
-                        .is_some_and(|page| page.view == Some(ListView::Folders))
+                        .is_some_and(|sub| sub.request.view == Some(ListView::Folders))
                 });
                 if is_folders {
                     let Ok(mut page) = frame.decode_json::<FolderPageResult>() else {
@@ -532,7 +558,12 @@ where
                         self.charge_frame_now(None, frame_bytes);
                         return;
                     }
-                    let state = self.pages.remove(&sid).unwrap_or_default();
+                    let Some(state) = self.pages.remove(&sid) else {
+                        // This is a response to a page invalidated by a
+                        // reconnect or a replacement folder window.
+                        self.charge_frame_now(Some(&sid), frame_bytes);
+                        return;
+                    };
                     page.rows.retain(|row| {
                         !state
                             .changed_folders
@@ -848,20 +879,36 @@ where
             }
         };
         self.retired_sids.insert(drop.sid.clone());
-        let cursor = drop.cursor;
+        let folders = sub.request.view == Some(ListView::Folders);
+        if folders {
+            self.pages.remove(&drop.sid);
+        }
+        let cursor = (!folders).then_some(drop.cursor).flatten();
         sub.request.sid = new_sid.clone();
-        sub.request.cursor = cursor;
-        sub.request.edition = cursor.map(|_| sub.edition);
-        if cursor.is_some() {
-            sub.request.anchor = None;
+        if folders {
+            sub.request.cursor = None;
+            sub.request.edition = None;
+            sub.request.anchor = Some(Anchor::End);
+        } else {
+            sub.request.cursor = cursor;
+            sub.request.edition = cursor.map(|_| sub.edition);
+            if cursor.is_some() {
+                sub.request.anchor = None;
+            }
         }
         sub.cursor = cursor.unwrap_or_default();
-        sub.replaying = cursor.is_some();
+        sub.replaying = !folders && cursor.is_some();
         sub.initial.sid = new_sid.clone();
-        sub.initial.cursor = cursor;
-        sub.initial.edition = cursor.map(|_| sub.edition);
-        if cursor.is_some() {
-            sub.initial.anchor = None;
+        if folders {
+            sub.initial.cursor = None;
+            sub.initial.edition = None;
+            sub.initial.anchor = Some(Anchor::End);
+        } else {
+            sub.initial.cursor = cursor;
+            sub.initial.edition = cursor.map(|_| sub.edition);
+            if cursor.is_some() {
+                sub.initial.anchor = None;
+            }
         }
         sub.window_taken = false;
         sub.consumed = 0;
@@ -1114,6 +1161,123 @@ tail"#;
         let request = String::from_utf8(client.take_send().unwrap()).unwrap();
         assert!(request.contains("\"anchor\":\"end\""));
         assert!(!request.contains("\"cursor\""));
+    }
+
+    #[test]
+    fn folder_subscription_strips_resume_fields_and_uses_head_anchor() {
+        let mut client = Client::<Value>::connected_v2();
+        let hello = Frame::json(
+            FrameKind::Hello,
+            &wire::HelloReply { daemon_id: "d".into(), limits: Limits::default() },
+        )
+        .unwrap()
+        .encode();
+        client.received(&hello);
+        let mut sub = Sub::new("folders", "list");
+        sub.view = Some(ListView::Folders);
+        sub.cursor = Some(Cursor(7));
+        sub.edition = Some(3);
+        client.subscribe(sub).unwrap();
+        let request = Frame::from_encoded(&client.take_send().unwrap()).unwrap();
+        let value: Value = request.decode_json().unwrap();
+        assert_eq!(value.pointer("/params/anchor"), Some(&Value::String("end".into())));
+        assert!(value.pointer("/params/cursor").is_none());
+        assert!(value.pointer("/params/edition").is_none());
+    }
+
+    #[test]
+    fn folders_reconnect_and_drop_start_fresh_and_discard_old_pages() {
+        let mut client = Client::<Value>::connected_v2();
+        let hello = Frame::json(
+            FrameKind::Hello,
+            &wire::HelloReply { daemon_id: "d".into(), limits: Limits::default() },
+        )
+        .unwrap()
+        .encode();
+        client.received(&hello);
+        let mut sub = Sub::new("folders", "list");
+        sub.view = Some(ListView::Folders);
+        client.subscribe(sub).unwrap();
+        let _ = client.take_send();
+
+        let window = Frame::json(
+            FrameKind::Window,
+            &serde_json::json!({
+                "sid":"folders","cursor":11,"rows":[],"hasBefore":false,
+                "hasAfter":false,"edition":4
+            }),
+        )
+        .unwrap()
+        .encode();
+        client.received(&window);
+        assert!(matches!(client.next_change(), Some(Change::FolderWindow(_))));
+
+        let mut page = Page::new("folders", "list", wire::PageSide::After, 1);
+        page.view = Some(ListView::Folders);
+        client.page(page).unwrap();
+
+        // A replacement head also invalidates a page that was requested from
+        // the previous head, even before a transport reconnect.
+        let replacement = Frame::json(
+            FrameKind::Window,
+            &serde_json::json!({
+                "sid":"folders","cursor":12,"rows":[],"hasBefore":false,
+                "hasAfter":false,"edition":5
+            }),
+        )
+        .unwrap()
+        .encode();
+        client.received(&replacement);
+        assert!(matches!(client.next_change(), Some(Change::FolderWindow(_))));
+        let stale_page = Frame::json(
+            FrameKind::Page,
+            &serde_json::json!({"sid":"folders","rows":[],"hasBefore":false,"hasAfter":false}),
+        )
+        .unwrap()
+        .encode();
+        client.received(&stale_page);
+        assert!(client.next_change().is_none());
+
+        let mut page = Page::new("folders", "list", wire::PageSide::After, 1);
+        page.view = Some(ListView::Folders);
+        client.page(page).unwrap();
+        client.disconnected();
+        let _hello_request = client.take_send().unwrap();
+        client.received(&hello);
+        let request = Frame::from_encoded(&client.take_send().unwrap()).unwrap();
+        let value: Value = request.decode_json().unwrap();
+        assert_eq!(value.pointer("/params/anchor"), Some(&Value::String("end".into())));
+        assert!(value.pointer("/params/cursor").is_none());
+        assert!(value.pointer("/params/edition").is_none());
+
+        // The page was outstanding on the old head and must not reappear.
+        let stale_page = Frame::json(
+            FrameKind::Page,
+            &serde_json::json!({"sid":"folders","rows":[],"hasBefore":false,"hasAfter":false}),
+        )
+        .unwrap()
+        .encode();
+        client.received(&stale_page);
+        assert!(client.next_change().is_none());
+
+        let dropped =
+            Frame::json(FrameKind::Dropped, &serde_json::json!({"sid":"folders","cursor":12}))
+                .unwrap()
+                .encode();
+        client.received(&dropped);
+        let new_sid = match client.next_change() {
+            Some(Change::Dropped { new_sid: Some(sid), cursor, .. }) => {
+                assert!(cursor.is_none());
+                sid
+            }
+            other => panic!("unexpected change: {other:?}"),
+        };
+        let request = Frame::from_encoded(&client.take_send().unwrap()).unwrap();
+        let value: Value = request.decode_json().unwrap();
+        assert_eq!(value.pointer("/params/sid"), Some(&Value::String(new_sid)));
+        assert_eq!(value.pointer("/params/anchor"), Some(&Value::String("end".into())));
+        assert!(value.pointer("/params/cursor").is_none());
+        assert!(value.pointer("/params/edition").is_none());
     }
 
     #[test]
