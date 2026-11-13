@@ -954,6 +954,47 @@ pub fn foreground_process_name(pid: u32) -> Option<String> {
     process_name(foreground_process_group(pid)?)
 }
 
+/// Name (basename only) of the program a terminal's foreground job runs:
+/// the process-group leader's executable, or, when the leader is a shell
+/// running a script file, that script. On macOS `man` is a shell script, so
+/// its job leader is `/bin/sh /usr/bin/man ls` and this names `man` where
+/// [`foreground_process_name`] names `sh`. A shell with no script (`sh`,
+/// `sh -c ...`, a login shell) stays the shell's name. Two reads of one known
+/// process (the leader's path and argv), never a process scan. `None` when
+/// the lookup fails.
+pub fn foreground_program(pid: u32) -> Option<String> {
+    let leader = foreground_process_group(pid)?;
+    let executable = process_name(leader)?;
+    // Linux reads argv[0], which a program that sets its title can fill
+    // with arguments: keep only its first word.
+    #[cfg(target_os = "linux")]
+    let executable = executable.split_whitespace().next()?.to_string();
+    let argv = process_launch(leader, &[]).map(|launch| launch.argv).unwrap_or_default();
+    job_program(&executable, &argv)
+}
+
+/// Shells that run a script file named as their first argument.
+const SCRIPT_SHELLS: &[&str] = &["sh", "bash", "dash", "zsh", "ksh"];
+
+/// The program a job runs, from its leader's `executable` and `argv` (see
+/// [`foreground_program`]).
+pub(crate) fn job_program(executable: &str, argv: &[String]) -> Option<String> {
+    let name = program_basename(executable)?;
+    if SCRIPT_SHELLS.contains(&name.as_str())
+        && let Some(script) = argv.get(1).filter(|arg| !arg.starts_with('-'))
+    {
+        return program_basename(script).or(Some(name));
+    }
+    Some(name)
+}
+
+fn program_basename(path: &str) -> Option<String> {
+    let base = Path::new(path.trim()).file_name()?.to_string_lossy().into_owned();
+    // Login shells: `-zsh`.
+    let base = base.trim_start_matches('-');
+    (!base.is_empty()).then(|| base.to_string())
+}
+
 /// PID of a terminal's live foreground process-group leader (see
 /// [`foreground_cwd`] for the leader resolution contract): the program that
 /// holds the terminal now. `None` when the lookup fails.
