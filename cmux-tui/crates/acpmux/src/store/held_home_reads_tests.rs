@@ -1012,11 +1012,24 @@ impl<'ast> Visit<'ast> for Scan<'_> {
         self.visit_expr(&l.expr);
         self.visit_pat(&l.pat);
     }
+    // Each pattern's binding is visible only where Rust makes it so (#42366 review F1): an `if
+    // let` or let chain in `then`, never `else`; `while let` in its body; a let-else in the rest
+    // of the block, not its `else` (`visit_local`); a match arm in its guard and body; a
+    // closure's parameters in its body; `for` in its body.
     fn visit_expr_if(&mut self, i: &'ast syn::ExprIf) {
-        self.scoped(|scan| syn::visit::visit_expr_if(scan, i));
+        self.scoped(|scan| {
+            scan.visit_expr(&i.cond);
+            scan.visit_block(&i.then_branch);
+        });
+        if let Some((_, otherwise)) = &i.else_branch {
+            self.visit_expr(otherwise);
+        }
     }
     fn visit_expr_while(&mut self, w: &'ast syn::ExprWhile) {
-        self.scoped(|scan| syn::visit::visit_expr_while(scan, w));
+        self.scoped(|scan| {
+            scan.visit_expr(&w.cond);
+            scan.visit_block(&w.body);
+        });
     }
     fn visit_expr_for_loop(&mut self, f: &'ast syn::ExprForLoop) {
         self.visit_expr(&f.expr);
