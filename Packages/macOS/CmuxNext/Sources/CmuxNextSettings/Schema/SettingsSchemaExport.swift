@@ -75,7 +75,8 @@ public struct SettingsSchemaExport {
                 "lead": spec.lead.map(\.rawValue),
                 "trail": spec.trail.map(\.rawValue),
                 "actions": spec.actions.map(\.rawValue),
-                "aliases": spec.aliases.map(\.rawValue),
+                // Section ids, then old category ids (`theme`, `server`), that open this category.
+                "aliases": spec.aliases.map(\.rawValue) + spec.legacyIDs,
             ]
             // Only DEV builds show it (the page asks the host); absent everywhere else.
             if spec.devOnly { entry["dev_only"] = true }

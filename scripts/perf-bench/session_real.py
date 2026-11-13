@@ -90,6 +90,16 @@ import subprocess
 import sys
 import time
 import uuid
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'cmux-next'))
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))  # made_workspace.py, also when this file is loaded by its path
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script outside scripts/: the same helper (scripts/cmux-next/safe_log.py)
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 AGENT_PROGRAM = os.path.join(HERE, "session_real_agent.zsh")
@@ -1398,7 +1408,8 @@ class AppDriver:
         before = self.last_sequence()
         self.soft("debug.hangs", {"clear": True})
         if timer:
-            self.soft(timer, {"action": "start"})
+            # Each row of the timer then has the key window changes of its switch (`timer_key_changes`).
+            self.soft(timer, {"action": "start", "key_changes": True})
         self.soft("debug.frames", {"action": "start"})
         time.sleep(0.1)  # a few frames at rest before the action
         started = time.monotonic()
@@ -1417,6 +1428,8 @@ class AppDriver:
             "commit_ms": own.get("commit_ms"), "budget_id": own.get("id"), "outcome": own.get("outcome"),
             "timer_commit_ms": samples[0].get("commit_ms") if samples else None,
             "timer_late_vsyncs": samples[0].get("late_vsyncs") if samples else None,
+            # No count from a recording whose span ring filled (the row says it): later marks are missing.
+            "timer_key_changes": samples[0].get("key_changes") if samples and not samples[0].get("key_marks_full") else None,
             "frames": len(intervals), "refresh_ms": frames.get("refresh_ms"),
             "max_frame_ms": max(intervals) if intervals else None, "max_main_ms": max(busy) if busy else None,
             "late_frames": sum(1 for i in intervals if frames.get("refresh_ms") and i > frames["refresh_ms"] * 1.5),
@@ -1440,7 +1453,7 @@ class AppDriver:
 def summarize(name, rows, note=""):
     out = {"row": name, "runs": len(rows), "errors": sum(1 for r in rows if r.get("error")), "note": note}
     measured = [r for r in rows if not r.get("error")]  # a failed run is counted in `errors`, not in the times
-    for key in ("commit_ms", "timer_commit_ms", "reply_ms", "max_frame_ms", "max_main_ms", "main_max_gap_ms"):
+    for key in ("commit_ms", "timer_commit_ms", "reply_ms", "max_frame_ms", "max_main_ms", "main_max_gap_ms", "timer_key_changes"):
         out[key] = spread([r.get(key) for r in measured])
     out["late_frames_total"] = sum(r.get("late_frames") or 0 for r in rows)
     out["refresh_ms"] = next((r.get("refresh_ms") for r in rows if r.get("refresh_ms")), None)
@@ -1493,6 +1506,19 @@ def map_faults(asked, rows, runs, failed, skipped, untimed_errors):
     return faults
 
 
+def bench_workspace(app):
+    """The id of a new workspace for map's rows: `workspace.newAtBottom` made it (made_workspace.py reads the answer)."""
+    try:
+        from made_workspace import made_workspace  # noqa: PLC0415  (only map needs it)
+    except ImportError:  # a copy of this script with no made_workspace.py beside it
+        raise SystemExit("session_real: map needs made_workspace.py (scripts/perf-bench) beside this file") from None
+    made = app.act("workspace.newAtBottom")
+    bench = made_workspace(made, app.topology)
+    if not bench:
+        raise SystemExit(f"session_real: workspace.newAtBottom made no workspace: {str(made)[:300]}")
+    return bench
+
+
 def map_rows(args):
     """The first map of the app at this session: 20 runs per action, the app's own clocks."""
     wanted = set(args.rows.split(",")) if args.rows else None
@@ -1516,7 +1542,7 @@ def map_rows(args):
         if wanted and name not in wanted:
             return
         if time.time() > deadline:
-            print(f"SESSION-REAL-ROW-SKIPPED {name}: the time budget of this run ended", flush=True)
+            safe_print(f"SESSION-REAL-ROW-SKIPPED {name}: the time budget of this run ended", flush=True)
             skipped.append(name)
             return
         sampler = None
@@ -1530,7 +1556,7 @@ def map_rows(args):
         try:
             raw[name] = make()
         except (RuntimeError, OSError, ValueError, KeyError) as error:
-            print(f"SESSION-REAL-ROW-FAILED {name}: {type(error).__name__}: {error}", flush=True)
+            safe_print(f"SESSION-REAL-ROW-FAILED {name}: {type(error).__name__}: {error}", flush=True)
             app.unusable.append({"action": name, "error": str(error)})
             failed.append((name, f"{type(error).__name__}: {error}"))
             return
@@ -1546,10 +1572,7 @@ def map_rows(args):
     real = sorted(name for name in ids if name and NAME.match(name))
     if len(real) < 44:
         raise SystemExit(f"session_real: the app shows {len(real)} workspaces of a `make` session; map needs it")
-    made = app.act("workspace.newAtBottom")
-    bench = next((i for i in made.get("created", []) if str(i).startswith("ws_")), None)
-    if not bench:
-        raise SystemExit(f"session_real: workspace.newAtBottom made no workspace: {str(made)[:300]}")
+    bench = bench_workspace(app)
     app.step("goToWorkspace", workspace=bench)
     time.sleep(1.5)
 

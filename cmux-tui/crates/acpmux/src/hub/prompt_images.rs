@@ -101,6 +101,26 @@ fn valid_id(id: &str) -> bool {
     id.len() == 64 && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
+/// The bytes of each image block among `blocks`, by the id a record names it by (`decode`).
+pub(crate) fn image_bytes(blocks: &[Value]) -> Vec<(String, Vec<u8>)> {
+    blocks
+        .iter()
+        .filter_map(decode)
+        .filter_map(|(bytes, named)| Some((named.get("id")?.as_str()?.to_owned(), bytes)))
+        .collect()
+}
+
+/// Where image `id`'s bytes are kept on this machine; None for an id `decode` never makes.
+pub(crate) fn image_path(id: &str) -> Option<PathBuf> {
+    valid_id(id).then(|| dir().join(id))
+}
+
+/// The ids of the images a record's `msg` names (`images: [{id, ..}]`).
+pub(crate) fn named_ids(msg: &Value) -> impl Iterator<Item = &str> {
+    let images = msg.get("images").and_then(Value::as_array).into_iter().flatten();
+    images.filter_map(|named| named.get("id").and_then(Value::as_str))
+}
+
 /// An `image` block's bytes, and what a record names it by (`{id, mimeType, name?}`, the id
 /// the SHA-256 of the bytes). `None` for any other block, or image data that is not base64.
 fn decode(block: &Value) -> Option<(Vec<u8>, Value)> {
@@ -219,6 +239,28 @@ fn keep_indexed(blocks: &[Value]) -> Vec<(usize, Value)> {
             Some((index, named))
         })
         .collect()
+}
+
+/// Sets a prompt record's `inlineParts` to `parts`, unless they say nothing its `text` does not:
+/// none, or one plain text part (no paste, file or display fields) whose text is the record's
+/// `text`. Every reader falls back to `text` without them, as for a record from before
+/// `inlineParts` (`retry_turn.rs` `prompt_blocks`, `fork_before.rs`, the web and iOS
+/// transcripts), and that one part was the prompt's whole text a second time in the record, in
+/// the journal and in the log's kind index (cmuxterm-hq#9263).
+pub(super) fn set_inline_parts(msg: &mut Value, parts: Vec<Value>) {
+    let only_text = match parts.as_slice() {
+        [] => true,
+        [part] => {
+            part.as_object().is_some_and(|fields| {
+                fields.len() == 2 && fields.get("kind").and_then(Value::as_str) == Some("text")
+            }) && part.get("text").and_then(Value::as_str).is_some()
+                && part.get("text") == msg.get("text")
+        }
+        _ => false,
+    };
+    if !only_text {
+        msg.set("inlineParts", Value::Array(parts));
+    }
 }
 
 /// Writes a new file only its owner reads (0600 on Unix).
@@ -527,9 +569,7 @@ impl Hub {
             msg.get("images").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default(),
             display_parts,
         );
-        if !ordered.is_empty() {
-            msg.set("inlineParts", Value::Array(ordered));
-        }
+        set_inline_parts(&mut msg, ordered);
         super::session::mark_pasted(&mut msg, blocks);
         // The immutable cmux snapshot is saved in metadata and can be appended again
         // by turns.rs. Only unrecorded client context prevents Retry/restart replay.
@@ -543,6 +583,10 @@ impl Hub {
             .any(|block| crate::prompt_context::is_context(block) && !saved_context.contains(block))
         {
             msg.set("hiddenContext", Value::Bool(true));
+        }
+        // Purged once its creator is done: the log keeps no long body (`ephemeral.rs`).
+        if session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner).throwaway {
+            super::ephemeral::leave_out_body(&mut msg);
         }
         // A turn Claude Code started on its own and still runs: the rest is this prompt's turn.
         self.end_background_turn(session, "prompt");

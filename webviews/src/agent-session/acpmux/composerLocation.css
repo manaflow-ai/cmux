@@ -547,7 +547,7 @@
 :is(.acpmux-composer-bar, .nt-pickers) .acpmux-effort .acpmux-picker-button,
 :is(.acpmux-composer-bar, .nt-pickers) .acpmux-access .acpmux-picker-button {
   height: var(--acpmux-composer-control, 28px);
-  border-radius: 999px;
+  border-radius: var(--ds-radius-control);
   color: var(--agent-muted);
 }
 /* Every chip: its text and icons the row's inset from both edges, an icon or chevron the same
@@ -917,7 +917,7 @@
 .acpmux-permission-card-leading { display: inline-flex; flex: none; align-items: center; justify-content: center; color: var(--agent-muted); }
 .acpmux-permission-card-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 2px; color: var(--agent-muted); font-size: var(--text-detail); letter-spacing: var(--text-detail--letter-spacing); }
 .acpmux-permission-card-meta .acpmux-permission-coverage { margin-left: auto; }
-.acpmux-permission-panel .acpmux-permission-surface .acpmux-permission-buttons button { border-radius: 7px; }
+.acpmux-permission-panel .acpmux-permission-surface .acpmux-permission-buttons button { border-radius: var(--ds-radius-control); }
 .acpmux-permission-panel .acpmux-permission-surface .acpmux-permission-buttons button:not(.acpmux-permission-deny) { background: var(--agent-accent); color: var(--agent-accent-text, #fff); }
 .acpmux-permission-panel .acpmux-permission-surface .acpmux-permission-buttons .acpmux-permission-deny { background: transparent; border: 0; color: var(--agent-muted); }
 
@@ -1480,6 +1480,11 @@
   --acpmux-permission-pill-height: var(--acpmux-composer-control);
   --acpmux-permission-pill-inset: calc(8px * var(--acpmux-density));
   --acpmux-composer-inset: var(--grid-composer-inset);
+  /* The chips' names for the composer's one glyph and chevron (Lawrence 2026-11-09: "all font sizes and
+     icons sizes here need to be more consistent"): every chip around the box draws its leading glyph and
+     chevron at these. test/newtab-chip-scale.test.ts measures it. */
+  --acpmux-chip-glyph: var(--acpmux-composer-glyph);
+  --acpmux-chip-chevron: var(--acpmux-composer-chevron);
   /* The room over and under a one-line prompt's controls: more than the side inset, so the text
      never sits on the box's bottom edge (Leo 2026-11-01: "this is all still not aligned there's not
      enough of a space at the bottom"). The top and the bottom are always equal. */
@@ -1696,7 +1701,7 @@
 .acpmux-location-picker[data-face="icon"] .acpmux-location-button > :not(svg) { display: none; }
 .acpmux-location-picker[data-face="chip"] .acpmux-location-button {
   box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--agent-text) 18%, transparent);
-  border-radius: var(--ui-row-radius);
+  border-radius: var(--ds-radius-control);
   padding-inline: 8px;
 }
 /* The machine control's live dot (ComposerContext stripLayout): filled while a chat can start on
@@ -1750,7 +1755,7 @@
 .acpmux-composer-context > .acpmux-location-picker[data-rows="run"] .acpmux-location-button {
   width: var(--ds-control-compact);
   height: var(--ds-control-compact);
-  border-radius: 999px;
+  border-radius: var(--ds-radius-control);
   justify-content: center;
   padding-inline: 0;
   background: color-mix(in srgb, var(--agent-text) 8%, transparent);
@@ -1898,3 +1903,9 @@
 .acpmux-location-button:has(> .acpmux-team-tag) > .acpmux-location-label { flex: none; overflow: visible; }
 .acpmux-location-row .acpmux-team-tag { margin-left: auto; padding-left: 8px; }
 .acpmux-location-row .acpmux-team-tag + .acpmux-location-check { margin-left: 4px; }
+
+/* Composer chips keep the MacBook's wide aspect; menus keep their shared icon column. */
+:is(.acpmux-location-button, .acpmux-location-readonly) > .acpmux-icon.acpmux-macbook-icon {
+  width: calc(var(--ui-ghost-icon-size) * 1.25);
+  height: var(--ui-ghost-icon-size);
+}

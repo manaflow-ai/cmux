@@ -63,6 +63,56 @@ CONFIG_FILE_OPT_OUT = "[maintenance]\n\tauto = false\n[gc]\n\tauto = 0\n[receive
 _FALSE = {"false", "no", "off", "0"}
 
 
+# Variables that point git at another repository, index, object store or config file. A test run from inside a
+# git hook (pre-commit, pre-push) inherits GIT_DIR, GIT_INDEX_FILE and friends, and a fixture's `git -C TMP commit`
+# then writes the hook's repository instead of TMP; an inherited GIT_CONFIG takes `git config` writes. The list is
+# git's own (`git rev-parse --local-env-vars`: what git clears when it enters another repository), asked at load,
+# without the -c pairs (GIT_CONFIG_PARAMETERS, GIT_CONFIG_COUNT: settings, not a location; the opt-out rides on
+# them). The fallback is that list as git 2.55 prints it.
+_REDIRECT_FALLBACK = (
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CONFIG", "GIT_OBJECT_DIRECTORY", "GIT_DIR", "GIT_WORK_TREE",
+    "GIT_IMPLICIT_WORK_TREE", "GIT_GRAFT_FILE", "GIT_INDEX_FILE", "GIT_NO_REPLACE_OBJECTS", "GIT_REPLACE_REF_BASE",
+    "GIT_PREFIX", "GIT_SHALLOW_FILE", "GIT_COMMON_DIR",
+)
+_SETTINGS = ("GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT")
+
+
+def _local_env_vars() -> tuple[str, ...]:
+    git = shutil.which("git")
+    if git is None:
+        return _REDIRECT_FALLBACK
+    probe = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    try:
+        result = subprocess.run((git, "rev-parse", "--local-env-vars"), env=probe, cwd=os.sep, capture_output=True,
+                                text=True, stdin=subprocess.DEVNULL, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return _REDIRECT_FALLBACK
+    names = tuple(name for name in result.stdout.split() if name not in _SETTINGS)
+    return names if result.returncode == 0 and names else _REDIRECT_FALLBACK
+
+
+REPO_REDIRECTS = _local_env_vars()
+
+
+def without_redirects(env: MutableMapping[str, str]) -> MutableMapping[str, str]:
+    """Drop REPO_REDIRECTS from env, in place: git then finds the repository from -C or the cwd, as a fixture means."""
+    for name in REPO_REDIRECTS:
+        env.pop(name, None)
+    return env
+
+
+def write_env(env: Mapping[str, str] | None = None) -> dict[str, str]:
+    """The env for `git config --local` writes into a fixture repository: no redirect, no inherited -c pair
+    (GIT_CONFIG_COUNT/KEY_*/VALUE_*, GIT_CONFIG_PARAMETERS), no global or system config."""
+    result = {key: value for key, value in (os.environ if env is None else env).items()
+              if not key.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"))}
+    without_redirects(result)
+    for name in (*_SETTINGS, "GIT_CONFIG_SYSTEM"):
+        result.pop(name, None)
+    result.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+    return result
+
+
 def without_auto_maintenance(env: MutableMapping[str, str]) -> MutableMapping[str, str]:
     """Append OPT_OUT to env's GIT_CONFIG_* pairs (each key once), in place."""
     count = int(env.get("GIT_CONFIG_COUNT") or 0)
@@ -199,8 +249,10 @@ GLOBAL_CONFIG = global_config_for(os.environ) if __name__ != "__main__" else ""
 
 
 def fixture_env(env: Mapping[str, str] | None = None) -> dict[str, str]:
-    """A copy of env (default os.environ) with OPT_OUT pairs and, if it names none, a GIT_CONFIG_GLOBAL with OPT_OUT."""
+    """A copy of env (default os.environ) without REPO_REDIRECTS, with OPT_OUT pairs and, if it names none, a
+    GIT_CONFIG_GLOBAL with OPT_OUT."""
     result = dict(os.environ if env is None else env)
+    without_redirects(result)
     without_auto_maintenance(result)
     if "GIT_CONFIG_GLOBAL" not in result:
         # This env's own global files (its HOME and XDG_CONFIG_HOME), as git reads them; the one made at load
@@ -211,8 +263,9 @@ def fixture_env(env: Mapping[str, str] | None = None) -> dict[str, str]:
 
 
 def _git(args: list[str], cwd: str | os.PathLike[str] | None, env: Mapping[str, str] | None,
-         timeout: float | None = None) -> None:
-    result = subprocess.run(["git", *args], cwd=cwd, env=fixture_env(env), capture_output=True, text=True,
+         timeout: float | None = None, *, write: bool = False) -> None:
+    run_env = write_env(env) if write else fixture_env(env)
+    result = subprocess.run(["git", *args], cwd=cwd, env=run_env, capture_output=True, text=True,
                             timeout=timeout, stdin=subprocess.DEVNULL)
     if result.returncode != 0:
         # CalledProcessError, as subprocess.run(check=True) raised before the fixtures moved here.
@@ -221,9 +274,10 @@ def _git(args: list[str], cwd: str | os.PathLike[str] | None, env: Mapping[str, 
 
 def opt_out_repo(path: str | os.PathLike[str], *, cwd: str | os.PathLike[str] | None = None,
                  env: Mapping[str, str] | None = None) -> None:
-    """Write OPT_OUT into an existing repository's own config (work tree or bare)."""
+    """Write OPT_OUT into an existing repository's own config (work tree or bare), with write_env: an inherited
+    GIT_DIR or GIT_CONFIG never takes the write."""
     for key, value in OPT_OUT:
-        _git(["-C", os.fspath(path), "config", key, value], cwd, env)
+        _git(["-C", os.fspath(path), "config", "--local", key, value], cwd, env, write=True)
 
 
 def init_repo(path: str | os.PathLike[str], *args: str, cwd: str | os.PathLike[str] | None = None,
@@ -251,5 +305,6 @@ if __name__ == "__main__":
         sys.exit("usage: python3 -I tests/git_fixture_env.py --global-config-text")
     sys.stdout.write(global_config_text(os.environ))
 else:
+    without_redirects(os.environ)
     without_auto_maintenance(os.environ)
     os.environ.setdefault("GIT_CONFIG_GLOBAL", GLOBAL_CONFIG)

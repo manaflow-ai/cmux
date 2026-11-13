@@ -86,7 +86,7 @@ final class ListStressRig: NSObject {
             ws.tabs = Self.tabs(count: settings.count)
             ws.activeTabID = "t-g0"
             store.workspaces = store.workspaces.map { $0.id == ws.id ? ws : $0 }
-            store.noteOpened(tabID: "t-g0", in: ws.id)
+            store.requestOpen(tabID: "t-g0", in: ws.id)
             shell.tab = .workspaces
             try? await Task.sleep(for: .seconds(1))
             // Opening the workspace from the list (the push and its first page).
@@ -108,7 +108,7 @@ final class ListStressRig: NSObject {
             FrameIntervalLog.shared.end()
         case "chat", "diff", "artifacts":
             guard let ws = store.workspace(id: "ws-cmux") else { return }
-            store.noteOpened(tabID: "t-codex-stress", in: ws.id)
+            store.requestOpen(tabID: "t-codex-stress", in: ws.id)
             var opened = ws
             // Codex: no waiting question on open, so the transcript is the replayed history.
             opened.tabs.insert(WorkspaceTab(id: "t-codex-stress", kind: .agent, title: "Codex", subtitle: "Stress transcript",

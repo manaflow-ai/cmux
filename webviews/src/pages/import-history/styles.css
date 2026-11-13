@@ -299,7 +299,7 @@
 .history-button {
   min-height: var(--ds-control-row);
   border: 1px solid var(--page-separator);
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   background: var(--page-hover);
   padding: var(--ds-space-1) var(--ds-space-3);
   color: inherit;
