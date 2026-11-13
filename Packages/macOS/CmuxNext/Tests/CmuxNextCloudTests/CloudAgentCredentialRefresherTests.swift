@@ -178,4 +178,18 @@ struct CloudAgentCredentialRefresherTests {
             try await credentials.launchCredential(chat: "tab", machine: "m")
         }
     }
+
+    /// The Cloud start hands its choice to the launch: a `.connection` names its id, every other choice
+    /// none, and a tab that got another key than the start planned keeps the choice.
+    @Test func theStartsChoiceReachesTheLaunchUnderTheTabsKey() {
+        #expect(CloudSetup.Choice.connection(id: "route-claude", family: "claude").connectionID == "route-claude")
+        #expect(CloudSetup.Choice.organization(family: "claude").connectionID == nil && CloudSetup.Choice.fallback.connectionID == nil)
+        let credentials = CloudAgentCredentials()
+        credentials.use(connection: "route-claude", chat: "planned", machine: "m1")
+        credentials.move(chat: "planned", to: "tab-9", machine: "m1")
+        #expect(credentials.connection(chat: "tab-9", machine: "m1") == "route-claude" && credentials.connection(chat: "planned", machine: "m1") == nil)
+        credentials.move(chat: "none", to: "tab-9", machine: "m1")
+        #expect(credentials.connection(chat: "tab-9", machine: "m1") == "route-claude", "no choice to move leaves the tab's own")
+        #expect(CloudSetup.Action.setUpClaude.settingsRow == "claude" && CloudSetup.Action.addKey.settingsRow == "apiKey" && CloudSetup.Action.openSettings.settingsRow == nil)
+    }
 }

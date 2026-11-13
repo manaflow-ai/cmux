@@ -87,6 +87,12 @@ public final class CloudSetup {
         /// Nothing to choose (an agent Cloud does not serve, or connections that could not be read):
         /// the chat starts as before, on the machine's own path.
         case fallback
+
+        /// This Mac's connection whose credential the chat's agent launch carries; nil for every other choice.
+        public var connectionID: String? {
+            if case .connection(let id, _) = self { return id }
+            return nil
+        }
     }
 
     /// The families a Cloud chat runs (the picker's agent, as the gateway names them).
@@ -110,6 +116,16 @@ public final class CloudSetup {
     /// The card's ways in (`cloud.setUp {action}`), the Settings > Models ops they run.
     public enum Action: String, Sendable, CaseIterable {
         case connectChatGPT, setUpClaude, addKey, openSettings
+
+        /// The Settings > Cloud row this action opens on (Models for Cloud); nil opens the page.
+        public var settingsRow: String? {
+            switch self {
+            case .setUpClaude: "claude"
+            case .connectChatGPT: "chatgpt"
+            case .addKey: "apiKey"
+            case .openSettings: nil
+            }
+        }
     }
 
     /// Whether `value` can name a connection (an `_acpmux/connections` id, the picker's account).

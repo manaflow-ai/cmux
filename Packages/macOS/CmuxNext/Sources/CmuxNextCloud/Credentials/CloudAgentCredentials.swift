@@ -86,6 +86,12 @@ public final class CloudAgentCredentials {
         chosen[ChatKey(machine: machine, chat: chat)] = id
     }
 
+    /// The chat's tab got the key `key` on `machine` (not the one its start planned): its choice follows.
+    public func move(chat: String, to key: String, machine: String) {
+        guard let id = chosen.removeValue(forKey: ChatKey(machine: machine, chat: chat)) else { return }
+        chosen[ChatKey(machine: machine, chat: key)] = id
+    }
+
     /// The connection chosen for `chat` on `machine`, if any.
     public func connection(chat: String, machine: String) -> String? {
         chosen[ChatKey(machine: machine, chat: chat)]

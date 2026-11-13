@@ -51,6 +51,9 @@ public final class SettingsModels {
     @ObservationIgnored private let spreadSetting: (@MainActor () -> Bool)?
     @ObservationIgnored private let writeSpreadSetting: (@MainActor (Bool) async throws -> Void)?
     @ObservationIgnored private var generation = 0
+    /// Called each time this Mac's connections are read or change (a run's answer, a watched change): a
+    /// Cloud chat waiting on Set up Cloud checks again (``CloudSetup/connectionsChanged()``, set by the app).
+    @ObservationIgnored public var onConnections: (@MainActor () -> Void)?
     @ObservationIgnored private(set) var chatgptTask: Task<Void, Never>?
     @ObservationIgnored private var watch: Task<Void, Never>?
     @ObservationIgnored private var watchers = 0
@@ -153,6 +156,7 @@ public final class SettingsModels {
         connections = (reply["connections"]?.arrayValue ?? []).compactMap(Self.connection)
         if let on = reply["spread"]?.boolValue { daemonSpread = on }
         available = true
+        onConnections?()
     }
 
     /// One acpmux `Connection` as the page's `ModelConnection` (camelCase). `servesCloud`: whether it can

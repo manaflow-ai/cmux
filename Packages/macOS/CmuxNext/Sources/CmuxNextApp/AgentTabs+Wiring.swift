@@ -382,10 +382,8 @@ extension AgentTabStore {
         tabs.shareOp = { [weak services] key, op, session in guard let services else { return nil }; return await AgentShareActions.pane(op, session: session, tab: key, host: services) }
         // A Cloud chat's model credential, read as the person from this Mac's acpmux (model-connections.md Revision 2).
         services.cloud.agentCredentials.read = { [weak services] id in
-            guard let services, let environment = QuitAgents.environment(services), let line = await AcpmuxPersonLine.open(environment) else { throw CloudAgentCredentials.Failure.unavailable(connection: id) }
-            defer { line.close() }
-            guard line.isPerson, let reply = await line.call("_acpmux/connections/credential", ["id": id]) else { throw CloudAgentCredentials.Failure.unavailable(connection: id) }
-            return try JSONSerialization.data(withJSONObject: reply)
+            guard let services, let reply = await QuitAgents.environment(services)?.connectionCredential(id: id) else { throw CloudAgentCredentials.Failure.unavailable(connection: id) }
+            return reply
         }
         tabs.cloudCredentials = services.cloud.agentCredentials
         tabs.remoteHostScoped = { [weak services, weak tabs] key in
