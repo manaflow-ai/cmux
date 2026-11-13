@@ -348,6 +348,33 @@ class PythonAndShellSiteTests(Scratch):
                     self.assertNotIn("stale Cargo.lock", result.stderr)
 
 
+class Pr42257MatcherTests(Scratch):
+    """cmux#42257's own matchers (the clippy wrapper and the panic ratchet) take a lock path with a space too
+    (its review's F1): `\\S+` stopped at the space and named a path that does not exist."""
+
+    def stale_lock(self, directory: str, module: str, line: str, root: Path) -> str:
+        # Imported by name in a child process: this test file loads no script module itself.
+        code = ("import importlib, pathlib, sys\nsys.path.insert(0, sys.argv[1])\n"
+                "found = importlib.import_module(sys.argv[2]).stale_lock\n"
+                "log = pathlib.Path(sys.argv[4]) / 'cargo.log'\nlog.write_text(sys.argv[3] + '\\n')\n"
+                "print(found(sys.argv[3], pathlib.Path(sys.argv[4])) if sys.argv[2].startswith('cmux-tui') "
+                "else found(str(log), sys.argv[4]))\n")
+        result = subprocess.run([sys.executable, "-I", "-c", code, str(ROOT / directory), module, line, str(root)],
+                                capture_output=True, text=True, env=clean_env(), timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout.strip()
+
+    def test_a_lock_path_with_a_space(self) -> None:
+        root = self.tmp / "my repo"
+        root.mkdir()
+        for spelling, line in SPELLINGS.items():
+            text = line.format(lock=root / "cmux-tui/Cargo.lock")
+            for directory, module in ((".github/scripts", "cmux-tui-clippy-changed"),
+                                      ("scripts/cmux-next", "rust_panic_ratchet")):
+                with self.subTest(spelling=spelling, module=module):
+                    self.assertEqual(self.stale_lock(directory, module, text, root), "cmux-tui/Cargo.lock")
+
+
 # Sites 6 to 9: (workflow, a text of the step's own failure line).
 WORKFLOW_SITES = {
     ".github/workflows/cmux-next-base-autofix.yml": "fails cmux-config's tests (the daemon would not start)",
