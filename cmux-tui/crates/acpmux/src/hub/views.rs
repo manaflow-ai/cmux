@@ -1165,12 +1165,20 @@ async fn within_status_budget<T>(reading: impl std::future::Future<Output = T>) 
     tokio::time::timeout(STATUS_READING_BUDGET, reading).await.ok()
 }
 
-/// The chats whose agent runs, and those of them on a host of another build. A chat's slot is
-/// held while its agent starts or ends, so this waits on it; `status` bounds the wait.
+/// The chats whose agent runs, and those of them on a host of another build. Never waits on a
+/// chat's child lock: a start or a detach holds it while its agent starts or ends (`detach_child`
+/// through the agent's kill), and every pane's handshake asks status (`AgentPaneHost` lookup), so
+/// one chat ending slowly drew "Waiting for the agent service" in every pane (cmuxterm-hq#8489).
+/// A held lock is an agent starting or ending: live, as the idle reaper counts it (`idle.rs`), its
+/// build read on the next status.
 async fn live_agents(sessions: &[Arc<Session>]) -> (usize, usize) {
     let (mut live, mut other_build) = (0, 0);
     for s in sessions {
-        if let Some(child) = s.child.lock().await.as_ref() {
+        let Ok(slot) = s.child.try_lock() else {
+            live += 1;
+            continue;
+        };
+        if let Some(child) = slot.as_ref() {
             live += 1;
             if host_build_differs(child.host_build().as_deref(), build()) {
                 other_build += 1;
@@ -1194,6 +1202,10 @@ pub(crate) fn runs_as_cmux_tui_acp<A: AsRef<std::ffi::OsStr>>(
 #[cfg(test)]
 #[path = "views_lane_tests.rs"]
 mod lane_tests;
+
+#[cfg(test)]
+#[path = "views_status_tests.rs"]
+mod status_tests;
 
 /// `true` when this daemon runs in the user's login session (its agents read the
 /// login keychain), `false` when it does not, `"unknown"` when its security session
