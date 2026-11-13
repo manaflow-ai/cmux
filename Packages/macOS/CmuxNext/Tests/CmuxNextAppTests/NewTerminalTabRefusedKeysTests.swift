@@ -30,8 +30,9 @@ import Testing
 ///   terminal's.
 ///
 /// And on the current form, for each ``Late``: the person types the start of a line for the new terminal, moves to
-/// another pane, the daemon makes the tab, and the person types the rest in the made terminal. The hold then sends the
-/// held keys into the stand-in's view at the reply, and the stand-in goes away when the daemon's tab comes. The made
+/// another pane, the daemon makes the tab, and the person types the rest in the made terminal. The hold keeps the held
+/// keys until the store lists the made terminal's tab (the store's change wakes it) and gives them to that terminal;
+/// the stand-in goes away when the daemon's tab comes, or at the reply when the reply settles the create. The made
 /// terminal must get each key, in the typed order, the held ones before the later ones.
 ///
 /// The keys go through the app's key path (the key router, then the window's first responder). A test window is never
@@ -218,14 +219,20 @@ struct NewTerminalTabRefusedKeysTests {
         /// From 10 to 30 ms after the reply (the proxy looks each 20 ms): the stand-in goes away while its view may
         /// still send the held keys.
         case soonAfterTheReply
-        /// After the hold ended with no made tab in the store: the held keys had only the stand-in to go to.
-        case afterTheHoldsEnd
-        /// As ``afterTheHoldsEnd``, and the create's reply reaches the app only after the store applied each line that
-        /// the daemon sent before it (the proxy holds the stream lines and the reply too). The reply then settles the
-        /// create in its own turn (`DaemonStore.noteSettled`): the stand-in leaves the pane before the hold gives its
-        /// keys out, with no made tab in the store. The two cases before this one do not force that order: a stream
-        /// line that passes the proxy, or a line not applied yet, keeps the create pending at the reply.
+        /// After the app handled the reply, while the hold waits for the made terminal's tab: the test lets the events
+        /// go only when it saw the hold still holding with no made tab in the store. The hold then ends by the tab's
+        /// listing. (Before the hold waited for the tab this case was `afterTheHoldsEnd`: the hold ended at the reply
+        /// and the held keys had only the stand-in to go to.)
+        case whileTheHoldWaitsForTheTab
+        /// As ``whileTheHoldWaitsForTheTab``, and the create's reply reaches the app only after the store applied each
+        /// line that the daemon sent before it (the proxy holds the stream lines and the reply too). The reply then
+        /// settles the create in its own turn (`DaemonStore.noteSettled`): the stand-in leaves the pane before the hold
+        /// gives its keys out, with no made tab in the store. The cases before this one do not force that order: a
+        /// stream line that passes the proxy, or a line not applied yet, keeps the create pending at the reply.
         case afterTheStoreAppliedEachLine
+
+        /// The test lets the daemon's events go only after it saw the hold wait for the made terminal's tab.
+        var holdWaitsForTheTab: Bool { self == .whileTheHoldWaitsForTheTab || self == .afterTheStoreAppliedEachLine }
         var testDescription: String { rawValue }
     }
 
@@ -247,10 +254,11 @@ struct NewTerminalTabRefusedKeysTests {
         try await Self.run(daemon, .movedThenRefused)
     }
 
-    /// The stand-in goes away at the daemon's `tab-added`, and since the fix the hold sends a made terminal's held keys
-    /// into the stand-in's view at the reply (before, only at the hold's limit). A key still in that view's writer when
-    /// the stand-in goes, or a key that comes after one typed later, is a typing fault: the made terminal's shell must
-    /// get the whole line in the typed order.
+    /// The hold keeps a made terminal's held keys until the store lists its tab, and gives them to that terminal then.
+    /// A key sent into a stand-in that is gone (the reply settled the create), or a key that comes after one typed later,
+    /// is a typing fault: the made terminal's shell must get the whole line in the typed order. In the two cases where
+    /// the test holds the events back, the hold must still hold after the reply (it waits for the tab) and must end by
+    /// the tab's listing, not by its limit: the test reads the end's reason, never a time.
     @Test(arguments: Late.allCases)
     func theKeysHeldForAMadeTerminalReachItInOrderBeforeALaterKeyAfterThePersonMovedAway(_ events: Late) async throws {
         try await Self.run(.current, .madeAfterAMove, events: events)
@@ -304,6 +312,10 @@ struct NewTerminalTabRefusedKeysTests {
             try await focus(pressed)
             let terminalTabs = pressed.pane.pane.tabs.filter { $0.kind == .pty }.count
             let before = Set(pressed.pane.pane.tabs.map(\.surface))
+            // The cases that hold the events back until the hold waits for the tab: a long limit of the hold (the test's
+            // value, through the coordinator's own `holdLimit`), so the hold can end only by the tab's listing.
+            let waitsForTheTab = ending == .madeAfterAMove && events.holdWaitsForTheTab
+            if waitsForTheTab { coordinator.holdLimit = .seconds(120) }
 
             // Ctrl-`, as the person presses it; the proxy holds its create.
             try #require(FileManager.default.createFile(atPath: files.hold.path, contents: nil))
@@ -402,30 +414,46 @@ struct NewTerminalTabRefusedKeysTests {
                 atTheReply = "applied \(store.appliedSequence) of the routed \(reached)"
                 try FileManager.default.removeItem(at: files.quiet)
             }
+            @MainActor func madeTerminal() -> SurfaceID? {
+                pressed.pane.pane.tabs.first { $0.kind == .pty && !ProvisionalTab.isProvisional(surface: $0.surface) && !before.contains($0.surface) }?.surface
+            }
+            var heldForTheTab = "not asked"
+            if waitsForTheTab {
+                // The app handled the reply: no creation of the hold waits any more. The flush that the reply asked for
+                // runs in a main-actor turn of its own, queued before this task's next turns.
+                try await PinnedPageTests.until({ !files.answered.isEmpty && files.logged.contains("replied") && !coordinator.hasPendingCreation(in: window) }, within: .seconds(15), report: {
+                    "waiting for the app to handle the create's reply: answered \(files.answered), proxy log \(files.logged), \(panes())"
+                })
+                for _ in 0..<8 { await Task.yield() }
+                try #require(madeTerminal() == nil && !files.logged.contains("events released"),
+                             "the daemon's events came before the test let them go: this run proves nothing (proxy log \(files.logged), \(panes()))")
+                // The gate under test: the store lists no made tab, so the hold keeps the keys. The reply can settle the
+                // create before `tab-added` comes, and the stand-in then leaves the pane at the reply: where the stand-in
+                // was then is printed, and required only in the case that forces that order.
+                let held = coordinator.isHolding(in: window)
+                let listed = standIn.map { tab in pressed.pane.pane.tabs.contains { $0.id == tab } } ?? false
+                let viewKept = standIn.map { services.cache.existingTerminal($0) != nil } ?? false
+                let routed = await link.eventSequence().map { "\($0)" } ?? "none"
+                heldForTheTab = "the reply was handled \(ContinuousClock.now - answeredAt) after the answer; the hold held then \(held) with no made tab in the store, "
+                    + "\(replays.keys.count) keys ran again by then, the stand-in listed then \(listed), its view kept then \(viewKept), "
+                    + "the store applied \(store.appliedSequence) of the routed \(routed) then, before the reply: \(atTheReply)"
+                #expect(held, "the hold gave its keys out at the reply, with no made tab in the store: it did not wait for the tab (\(heldForTheTab); proxy log \(files.logged))")
+                if events == .afterTheStoreAppliedEachLine {
+                    try #require(!listed, "the stand-in was in the pane after the reply: the reply did not settle the create, and this run proves nothing (\(heldForTheTab); proxy log \(files.logged))")
+                }
+                try FileManager.default.removeItem(at: files.late)
+            }
             try await PinnedPageTests.until({ !files.answered.isEmpty && !coordinator.isHolding(in: window) }, within: .seconds(15), report: {
                 "waiting for the answer and the hold's end: answered \(files.answered), holding \(coordinator.isHolding(in: window)), \(panes())"
             })
             try #require(files.answered.allSatisfy { $0.hasPrefix(makes ? "passed " : "refused ") }, "the proxy answered \(files.answered): this run proves nothing")
-            @MainActor func madeTerminal() -> SurfaceID? {
-                pressed.pane.pane.tabs.first { $0.kind == .pty && !ProvisionalTab.isProvisional(surface: $0.surface) && !before.contains($0.surface) }?.surface
-            }
-            var holdEndedBeforeTheEvents = "not asked"
-            if ending == .madeAfterAMove, events == .afterTheHoldsEnd || events == .afterTheStoreAppliedEachLine {
-                // The hold ended on the reply alone: the store lists no made tab. The reply can settle the create before
-                // `tab-added` comes, and the stand-in then leaves the pane at the reply: what the pane and the view cache
-                // held at the hold's end is printed, not required.
-                try #require(madeTerminal() == nil && files.logged.contains("replied") && !files.logged.contains("events released"),
-                             "the hold did not end before the daemon's events: this run proves nothing (proxy log \(files.logged), \(panes()))")
-                let listed = standIn.map { tab in pressed.pane.pane.tabs.contains { $0.id == tab } } ?? false
-                let viewKept = standIn.map { services.cache.existingTerminal($0) != nil } ?? false
-                let routed = await link.eventSequence().map { "\($0)" } ?? "none"
-                holdEndedBeforeTheEvents = "\(ContinuousClock.now - answeredAt) after the answer, the stand-in listed then \(listed), its view kept then \(viewKept), "
-                    + "the store applied \(store.appliedSequence) of the routed \(routed) then, before the reply: \(atTheReply)"
-                // The order under test: the reply settled the create, so the stand-in left the pane with no made tab there.
-                if events == .afterTheStoreAppliedEachLine {
-                    try #require(!listed, "the stand-in was in the pane at the hold's end: the reply did not settle the create, and this run proves nothing (\(holdEndedBeforeTheEvents); proxy log \(files.logged))")
-                }
-                try FileManager.default.removeItem(at: files.late)
+            if waitsForTheTab {
+                // The hold ended by the store's listing of the made tab (the limit of this run's hold is 120 s; the 15 s
+                // above only stop a run whose hold never ends). The end's reason is read, not a time.
+                let reason = coordinator.lastHoldEnd(in: window).map { "\($0)" } ?? "none"
+                heldForTheTab += "; the hold ended \(reason) with the made tab listed \(madeTerminal() != nil)"
+                #expect(reason == "focusLanded" && madeTerminal() != nil,
+                        "the hold did not end by the listing of the made terminal's tab (\(heldForTheTab); proxy log \(files.logged))")
             }
             if ending == .madeAfterAMove, events == .soonAfterTheReply {
                 try await PinnedPageTests.until({ files.logged.contains("events released") }, within: .seconds(10), report: { "waiting for the proxy to release the events: \(files.logged)" })
@@ -471,7 +499,7 @@ struct NewTerminalTabRefusedKeysTests {
                 try await focus((pressed.pane, madeTab, made))
                 let laterKeyAfter = ContinuousClock.now - listedAt
                 try typeLine(laterPart, held: false)
-                let timing = "events \(events.rawValue); the hold ended before the events: \(holdEndedBeforeTheEvents); the first later key \(laterKeyAfter) after the made tab was listed; proxy log \(files.logged)"
+                let timing = "events \(events.rawValue); the hold waited for the tab: \(heldForTheTab); the first later key \(laterKeyAfter) after the made tab was listed; proxy log \(files.logged)"
                 print("NewTerminalTabRefusedKeysTests madeAfterAMove \(events.rawValue): \(timing)")
                 // The shell printed the sum only if it got each key of both parts, the held ones first and in the typed order.
                 let result = await ran(in: made, within: 15_000)

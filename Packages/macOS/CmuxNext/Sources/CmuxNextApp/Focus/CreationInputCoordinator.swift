@@ -389,7 +389,7 @@ final class CreationInputCoordinator {
             if let expectation = focus.expectation, buffer.awaits(expectation.generation) { return }
             let terminal = Self.keyboardTerminal(controller, window) // a new workspace's keys wait for it to show with its terminal (a left one's: its own)
             if let workspace = buffer.shownWorkspaceToWaitFor, workspace != shown || terminal == nil { return }
-            guard Self.responderTakesKeys(controller, window: window), !buffer.awaitsMadeTerminal else { return }
+            guard Self.responderTakesKeys(controller, window: window), !buffer.holdsForMadeTab(wake: { [weak self, weak window] in if let window { self?.flush(in: window) } }) else { return } // the store's change that lists the made tab runs this flush again
             if let awaited = buffer.awaitedTab, Self.awaitedContent(controller)?.tab == awaited { return } // its surface comes on a later frame
             if let kept = buffer.keysKeptForLeftWorkspace(shown: shown, terminalReady: terminal != nil) { return _ = runAgain(buffer.take(focused: terminal, keeping: kept) { self.shortcut($0, tab: $1, in: window) != nil }, from: buffer, in: window) }
         }

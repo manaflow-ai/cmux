@@ -307,8 +307,8 @@ public final class CreationInputBuffer {
     }
 
     private func isStranded(_ id: Int?) -> Bool { id.map { strandedWorkspaces.contains($0) || newTerminals.waitsForTab($0, standIn: laneTabs[$0] != nil) } ?? false } // or a made terminal with no tab and no stand-in that sends
-    /// The hold has a key of a made New Terminal Tab with no tab in the store yet (the reply came before `tab-added`) and no stand-in that sends it: flushed now the key is lost, so the hold waits for the tab, at most its limit. No other key makes it wait.
-    public var awaitsMadeTerminal: Bool { events.contains { key in key.creation.map { newTerminals.waitsForTab($0, standIn: laneTabs[$0] != nil) } ?? false } }
+    /// The hold has a key of a made New Terminal Tab with no tab in the store yet (the reply came before `tab-added`): flushed now the key has a stand-in's view to go to, or nothing, and the stand-in can be gone (the reply settled its create): the key is lost. So the hold waits for the tab, with or without a stand-in, at most its limit (``holdsForMadeTab(wake:)``). No other key makes it wait.
+    public var awaitsMadeTerminal: Bool { events.contains { key in key.creation.map { newTerminals.lost($0) } ?? false } }
 
     public func awaits(_ generation: UInt64) -> Bool { awaited.contains(generation) }
 
@@ -414,7 +414,7 @@ public final class CreationInputBuffer {
     private func heldLane(_ id: Int?) -> HeldLane? { id.flatMap { id in (newTerminals.tab(id) ?? laneTabs[id]).map { HeldLane(tab: $0, machine: laneMachines[id]) } } }
 
     public func take() -> [NSEvent] { // stranded keys go only into a terminal (``take(focused:keeping:isShortcut:)``)
-        defer { events.removeAll() }
+        defer { events.removeAll(); endMadeTabWatch() }
         return events.filter { !isStranded($0.creation) }.map(\.event)
     }
 
@@ -444,7 +444,7 @@ public final class CreationInputBuffer {
                 keys.append(.type([event], lane: lane))
             }
         }
-        events.removeAll { kept == nil || $0.creation != kept }
+        events.removeAll { kept == nil || $0.creation != kept }; endMadeTabWatch() // no key of a made terminal waits for its tab any more
         return keys
     }
 }
