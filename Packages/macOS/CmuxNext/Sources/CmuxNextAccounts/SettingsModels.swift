@@ -115,7 +115,7 @@ public final class SettingsModels {
 
     /// The state after the first read (the page's first `state` call reads it).
     public func loadedState() async -> JSONValue {
-        if !read { await refresh() }
+        if !read || !available { await refresh() } // not listed yet (acpmux still coming up): the page's next read asks again
         return state
     }
 
