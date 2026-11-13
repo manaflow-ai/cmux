@@ -383,6 +383,9 @@ public final class TerminalHostView: NSView {
         scroller.update(bar)
     }
 
+    /// The pointer moved over the terminal to `point` (this view's coordinates), or left it (nil).
+    func pointerMoved(to point: CGPoint?) {}
+
     /// Whether the scroller is built (tests).
     var hasScroller: Bool { scroller != nil }
 
