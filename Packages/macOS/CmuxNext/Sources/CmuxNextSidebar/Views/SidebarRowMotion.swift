@@ -277,6 +277,9 @@ struct RowMotion {
     /// window no opaque color matches what is behind the rows, so there each crossed row still hides at once and
     /// fades back in once the move has nearly settled.
     private func passOver(in list: SidebarListView, from old: SidebarLayout, to layout: SidebarLayout) {
+        // A cover belongs to one move: a later update (the row moved again, stayed put or lost the selection) takes
+        // it off every row first, and only a row that passes over others in this move gets one again.
+        for view in list.rowViews.values { view.layer?.removeAnimation(forKey: Self.coverKey) }
         // A dragged row is hidden under its lifted card, which already draws
         // above the list: no row passes under it, so none hides (cx-ikxz).
         // A row still opening (listed, then placed: New Workspace in New Group) draws nothing yet
@@ -300,7 +303,7 @@ struct RowMotion {
             let fill = layer.backgroundColor
             let cover = fill.flatMap(Self.rgb).map { $0.composited(over: ground) } ?? ground
             if let hold = Motion.sidebar.passOverCover(.move, cover: cover.cgColor, fill: fill, in: list.window) {
-                layer.add(hold, forKey: "cmux.passOverCover")
+                layer.add(hold, forKey: Self.coverKey)
             }
             return
         }
@@ -310,6 +313,8 @@ struct RowMotion {
         }
     }
 
+    private static let coverKey = "cmux.passOverCover"
+
     private static func rgb(_ color: CGColor) -> ThemeRGB? {
         guard let rgb = NSColor(cgColor: color)?.usingColorSpace(.sRGB) else { return nil }
         return ThemeRGB(red: rgb.redComponent, green: rgb.greenComponent, blue: rgb.blueComponent, alpha: rgb.alphaComponent)
@@ -318,7 +323,7 @@ struct RowMotion {
     /// The opaque color the sidebar shows behind its rows: the theme's sidebar background under what the sidebar's
     /// own views paint over it (`appearance.surfaces.sidebar`, the rail's overlay). Nil in a see-through window
     /// (translucent, frosted, glass, a picture), where the desktop or the picture shows through and no opaque color
-    /// matches it.
+    /// matches it, and in a floating sidebar, whose card is overlay glass.
     private static func rowGround(of list: SidebarListView) -> ThemeRGB? {
         list.performWithTheme {
             let scope = list.themeScope, tokens = scope.tokens
@@ -329,7 +334,13 @@ struct RowMotion {
             var ancestor = list.superview
             while let view = ancestor {
                 if let fill = view.layer?.backgroundColor, fill.alpha > 0 { fills.append(fill) }
-                if view is SidebarContainerView || view === list.window?.contentView { break }
+                // A floating card sits on overlay glass (`floatGlass`, a sibling, not an ancestor): its color is not
+                // one this walk reads, so the crossed rows hide instead, as in a see-through window.
+                if let container = view as? SidebarContainerView {
+                    if !container.floatGlass.isHidden { return nil }
+                    break
+                }
+                if view === list.window?.contentView { break }
                 ancestor = view.superview
             }
             return fills.reversed().reduce(tokens.sidebarBackground.withAlpha(1)) { ground, fill in
