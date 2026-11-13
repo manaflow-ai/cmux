@@ -421,10 +421,10 @@
      (Lucas 2026-11-13). */
   /* The composer's size scale: the density's, at least 0.8 of Default's (composerLocation.css --acpmux-density). */
   --nt-density: max(0.8, var(--cmux-density-scale, var(--cmux-interface-scale, 1)));
-  /* New Tab's box corner: a third of its one-line box, 16 px on 48 at Default and at every density's scale, in
-     every look and template, rounder than the chat composer's 12 but never near a pill (Lucas 2026-11-14: "a bit
-     more rounded. not fully rounded"). */
-  --nt-box-radius: calc(16px * var(--nt-density));
+  /* New Tab's box corner: 20 px on its 48 px one-line box at Default (about 42%) and at every density's scale, in
+     every look and template, rounder than the chat composer's 12 but never a pill (Lucas 2026-11-14: "a bit more
+     rounded. not fully rounded", then "make it a bit more rounded"). */
+  --nt-box-radius: calc(20px * var(--nt-density));
   /* The text's size times the density's room for it: the text size at Default (a 48 px box around Codex's 20 px
      line), and at 14 px text exactly what the chat composer's 48 px box leaves at each density, 24 x density less
      10 x the density's text scale, over 14 (M). It follows the person's own text size, as the base did, so a
