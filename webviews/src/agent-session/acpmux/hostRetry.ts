@@ -76,7 +76,7 @@ export const RETRY_FIRST_MS = 250;
 /// How long a connection stays up before its loss starts the backoff over. One that dropped
 /// sooner (a daemon that crashes after attach, a socket the bridge replaces, a liveness check that
 /// gives up) was not a recovery: the pane reconnected every 250 ms and drew the chat anew each
-/// time (Leo's NIGHTLY, 2026-11-12: "this loop is just so fundamentally fucking stupid").
+/// time (Leo's NIGHTLY, 2026-11-12: "this loop is just so fundamentally f***ing stupid").
 export const CONNECTION_STABLE_MS = 30_000;
 /// The longest wait between reconnects to a daemon that keeps dropping the pane soon after it
 /// connects (direct.ts `RECONNECT_MAX_MS` is the same).

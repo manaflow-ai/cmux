@@ -1,6 +1,6 @@
 // A connection that drops right after it connects is not a recovery (Leo, 2026-11-12, of the agent
-// chat in his NIGHTLY: "this loop is just so fundamentally fucking stupid like it's just so asinine
-// that anything this fucking broken could ever fucking ship"). The pane reloaded and reconnected
+// chat in his NIGHTLY: "this loop is just so fundamentally f***ing stupid like it's just so asinine
+// that anything this f***ing broken could ever f***ing ship"). The pane reloaded and reconnected
 // over and over, and drew the chat anew on every connect.
 //
 // Both reconnect paths started their backoff over the moment a connection succeeded: the client's
