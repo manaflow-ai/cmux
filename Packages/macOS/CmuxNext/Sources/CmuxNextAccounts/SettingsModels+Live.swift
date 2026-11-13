@@ -19,7 +19,7 @@ public protocol ModelKeyStoring: Sendable {
 /// standard input (`security -i`), never its arguments, and its output (which can echo the line) is
 /// dropped.
 public struct KeychainModelKeyStore: ModelKeyStoring {
-    public static let service = "cmux-model-key"
+    public nonisolated static let service = "cmux-model-key"
 
     public init() {}
 
