@@ -44,7 +44,7 @@ final class ScreenContentView: NSView {
     /// scroll takes the camera back to the scroll spring.
     var scrollRidesFrames = false
     /// A keyboard resize press moves this screen (`LayoutRootView.keyboardResizeWillChange`): until its spring lands,
-    /// every pane is on the key hold (``PaneHostView``): content with a hold area follows its pane in every frame, and ``paneFrameNotices`` holds the pane views.
+    /// every pane is on the key hold (``PaneHostView``): content with a hold area follows its pane in every frame.
     var holdsContentForKeyResize = false { didSet { if oldValue, !holdsContentForKeyResize { releasePaneFrameNoticesIfSettled() } } }
     /// A close waits for `syncScroll` to place its camera, then takes its first frame (`leadIfPending`).
     var leadsFrame = false
@@ -196,7 +196,7 @@ final class ScreenContentView: NSView {
     /// the spring had left still springs), and the scroll keeps the focused column in place on screen, then fits it (L7).
     fileprivate func reconcileAndScroll(keepsMotion: Bool = false) {
         reconcile(animated: keepsMotion, rebasing: keepsMotion, presents: false)
-        if !(syncScroll(focused: lastFocused, source: .programmatic, mode: context.model.centerFocusedColumn, animated: keepsMotion) && hasMotion) { holdsContentForKeyResize = false } // a snap: no landing comes
+        if !(syncScroll(focused: lastFocused, source: .programmatic, mode: context.model.centerFocusedColumn, animated: keepsMotion) && hasMotion) { holdsContentForKeyResize = false } // a snap
     }
 
     // MARK: Model updates
@@ -254,7 +254,7 @@ final class ScreenContentView: NSView {
         #endif
         // The key-resize hold is the press's own: a structural change (a split, a close, a zoom) takes the screen over,
         // and a press that did not spring (Reduce Motion, pane animations off, a snap) ends it now.
-        if structural || !moving { holdsContentForKeyResize = false } else if holdsContentForKeyResize, !paneFrameNotices.isHolding, window != nil, !isHiddenOrHasHiddenAncestor, !isParkedOrHasParkedAncestor { paneFrameNotices.hold(displayedHosts) }
+        if structural || !moving { holdsContentForKeyResize = false } else if holdsContentForKeyResize, !paneFrameNotices.isHolding { paneFrameNotices.hold(displayedHosts) }
         return moving || canvasState.camera.isMoving
     }
 

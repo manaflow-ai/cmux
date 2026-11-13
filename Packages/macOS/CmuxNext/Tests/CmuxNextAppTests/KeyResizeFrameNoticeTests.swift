@@ -373,6 +373,19 @@ struct KeyResizeFrameNoticeTests {
         #expect(muted().isEmpty, "a live window resize in the key spring left \(muted().count) pane views without frame notices")
     }
 
+    /// A press on a hidden root starts no spring (`LayoutRootView.syncBatched` animates only a screen that stays shown),
+    /// so it starts no hold: no landing frame would come to end one. A guard of that rule, not a red test: the
+    /// hold's start has no hidden or parked condition of its own.
+    @Test func aPressOnAHiddenRootHoldsNoFrameNotice() {
+        let rig = Rig()
+        defer { rig.window.closeAfterTest() }
+        rig.root.isHidden = true
+        _ = PaneResize.press("p2", .left, model: rig.model, view: rig.root)
+        _ = rig.frame()
+        let muted = rig.root.context.hosts.values.flatMap(ResizeDragFrameNoticeTests.subtree).filter { !$0.postsFrameChangedNotifications }
+        #expect(muted.isEmpty, "a key resize press on a hidden root holds \(muted.count) pane views' frame notices")
+    }
+
     /// The same live window resize while the strip's camera is still on its way (the focus went to another column just
     /// before the press): the resize snaps the panes, and the camera's frames go on, so a landing frame still comes.
     /// The hold stays to that landing, as it does while a pane moves: the resize's turn and the camera's frames post

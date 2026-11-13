@@ -71,7 +71,7 @@ extension NSView {
 /// reader alone (a Chromium page's host view), so the fork's page tracker runs its update once in a frame, not once more
 /// for each of the page's ancestors. A press on a spring that already holds (a key repeat, a drag or a zoom in motion)
 /// keeps that hold: a release between two presses would post each moved view's notice once per press. A hidden or
-/// parked screen steps no frames, so it holds nothing.
+/// parked screen's layout is never animated (`LayoutRootView.syncBatched`), so it starts no hold.
 ///
 /// Never held: scroll views and everything in them (clip and document notices drive their layout), the
 /// ``FrameNoticeReaders`` and everything in them, and views that already posted nothing.
