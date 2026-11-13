@@ -217,20 +217,6 @@ fn local_session_info(info: &Value, session: &str) -> bool {
         && info.get("peer").is_none_or(Value::is_null)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::local_session_info;
-    use serde_json::json;
-
-    #[test]
-    fn peer_session_info_is_not_local() {
-        assert!(local_session_info(&json!({"sessionId": "chat"}), "chat"));
-        assert!(local_session_info(&json!({"sessionId": "chat", "peer": null}), "chat"));
-        assert!(!local_session_info(&json!({"sessionId": "chat", "peer": "other"}), "chat"));
-        assert!(!local_session_info(&json!({"sessionId": "other"}), "chat"));
-    }
-}
-
 /// acpmux's error answer to `_acpmux/prompt_withdraw`: its message and its
 /// `data`.
 fn withdraw_refusal(message: &str, data: &Value) -> Result<Withdrawn, WithdrawError> {
@@ -253,5 +239,19 @@ fn withdraw_refusal(message: &str, data: &Value) -> Result<Withdrawn, WithdrawEr
     } else {
         // The spec's limit on `error.acpmux_reason`.
         Err(WithdrawError::Refused(clip(&reason, ACPMUX_REASON_MAX)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::local_session_info;
+    use serde_json::json;
+
+    #[test]
+    fn peer_session_info_is_not_local() {
+        assert!(local_session_info(&json!({"sessionId": "chat"}), "chat"));
+        assert!(local_session_info(&json!({"sessionId": "chat", "peer": null}), "chat"));
+        assert!(!local_session_info(&json!({"sessionId": "chat", "peer": "other"}), "chat"));
+        assert!(!local_session_info(&json!({"sessionId": "other"}), "chat"));
     }
 }
