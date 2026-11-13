@@ -60,6 +60,15 @@ fn memory_kib(field: &str) -> usize {
         .unwrap()
         * 1024
 }
+
+#[cfg(target_os = "linux")]
+fn trim_allocator() {
+    // The RSS gate must measure pages retained by this connection, not free
+    // allocator arenas left by fixture construction.
+    unsafe {
+        libc::malloc_trim(0);
+    }
+}
 fn summary(id: usize, version: u64) -> Summary {
     let mut row = Summary::new(format!("chat-{id:05}"));
     row.title = "bounded summary ".repeat(15);
@@ -206,7 +215,9 @@ async fn stopped(shape: acpmux::god_fixture::Shape, dishonest_credit: bool) -> S
         }
     });
     let metrics = source.connection_metrics().unwrap();
-    // Reset only this worker's kernel RSS high-water mark after fixture setup.
+    // Return free arenas before measuring, then reset only this worker's kernel
+    // RSS high-water mark after fixture setup.
+    trim_allocator();
     // Subtracting a setup HWM instead of current RSS could hide a later rise.
     std::fs::write("/proc/self/clear_refs", b"5\n").unwrap();
     let baseline = memory_kib("VmRSS:");
