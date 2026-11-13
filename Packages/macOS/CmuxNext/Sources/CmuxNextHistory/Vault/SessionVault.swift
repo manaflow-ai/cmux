@@ -22,6 +22,9 @@ package final class SessionVault {
     package var isLoading: Bool { reads.isLoading }
     /// The list is not complete yet: the rows are the sessions read so far.
     package var isPartial: Bool { reads.isPartial }
+    /// The list says in words that it is not complete: not while its source starts quietly
+    /// (``VaultSessionSource/startsQuietly``), when the list shows no words and no "no sessions" text.
+    package var showsNotCompleteMark: Bool { reads.isPartial && !source.startsQuietly }
     /// The source's list is the whole list: a session that the source does not have does not exist. False while
     /// the source says that its list is not complete (``VaultSessionSource/isComplete``): a session that it does
     /// not have can then still exist. It is the state of the source's last read; nothing is read here.
