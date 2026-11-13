@@ -231,14 +231,21 @@ fn a_terminal_with_no_place_and_no_column_makes_one_beside_the_chat() {
     assert_ne!(result["isError"], true, "{result}");
     let sent = sent_resources(&server);
     let ops = sent.iter().map(|s| s["request"]["operation"].clone()).collect::<Vec<_>>();
-    assert_eq!(ops, vec![json!("pane.split"), json!("tab.rename")]);
-    let split = &sent[0]["request"];
+    // A keyed call first asks what an earlier try of it made (a retry must
+    // not open a second terminal), and the split is that key's one creation.
+    assert_eq!(
+        ops,
+        vec![json!("session.creation.resolve"), json!("pane.split"), json!("tab.rename")]
+    );
+    assert_eq!(sent[0]["request"]["params"]["correlation_key"], "k1");
+    let split = &sent[1]["request"];
     assert_eq!(split["params"]["workspace"], OWN_WS);
     assert_eq!(split["params"]["pane"], OWN_PANE);
     assert_eq!(split["params"]["direction"], "right");
     assert_eq!(split["params"]["shell"], "cmux chief");
+    assert_eq!(split["params"]["correlation_key"], "k1");
     assert_eq!(split["idempotency_key"], "k1-beside");
-    let rename = &sent[1]["request"];
+    let rename = &sent[2]["request"];
     assert_eq!(rename["params"]["tab"], "tab_new");
     assert_eq!(rename["params"]["name"], "Chief TUI");
     assert_eq!(rename["idempotency_key"], "k1-name");

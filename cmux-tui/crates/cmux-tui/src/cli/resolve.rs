@@ -22,8 +22,10 @@ mod caller;
 
 #[cfg(unix)]
 use caller::caller_identity;
+pub(super) use caller::place_creation;
+#[cfg(unix)]
+pub(super) use caller::workspace_key_path;
 use caller::{caller_path, registered_caller_workspace};
-pub(super) use caller::{place_creation, workspace_key_path};
 
 type Reader = BufReader<Box<dyn transport::Stream>>;
 
@@ -156,6 +158,26 @@ impl<'a> SocketRoute<'a> {
             AppAnswer::Identity(identity) => Some(identity),
             AppAnswer::Unreachable(_) | AppAnswer::Refused(_) => None,
         }
+    }
+
+    /// Whether an app owns this daemon (it may still not answer).
+    #[cfg(unix)]
+    pub(super) fn has_owner(&self) -> bool {
+        self.app_answer().is_some()
+    }
+
+    /// [`Self::identity`] for a caller that reports why there is none (the
+    /// MCP server): `None` when no app owns this daemon, else the app's
+    /// answer or its error (`{code, message}`).
+    #[cfg(unix)]
+    pub(super) fn owner_identity(&self) -> Option<Result<Value, Value>> {
+        Some(match self.app_answer()? {
+            AppAnswer::Identity(identity) => Ok(identity.clone()),
+            AppAnswer::Refused(error) => Err(error.clone()),
+            AppAnswer::Unreachable(message) => {
+                Err(json!({"code": "app.unreachable", "message": message}))
+            }
+        })
     }
 }
 

@@ -13,31 +13,40 @@ use super::{
 };
 use cmux_json::JsonSet as _;
 
-/// The app's `system.identify` answer, whose `caller` names the chat's
-/// workspace, screen, pane and tab and whose `beside` names the column
-/// right of it; `None` when the environment names no caller (a client
-/// outside a cmux chat or terminal).
+/// The `system.identify` answer of the app that owns this server's daemon,
+/// whose `caller` names the chat's workspace, screen, pane and tab and whose
+/// `beside` names the column right of it. `None` when the environment names
+/// no caller (a client outside a cmux chat or terminal).
+///
+/// Only the owning app places a caller, for every caller kind, by the rule
+/// the CLI uses (resolve.rs `SocketRoute`): an app that does not own the
+/// daemon (the person's Mac app, reached from a Cloud machine over a relay)
+/// would answer with ids of its own daemon, which name nothing here
+/// (https://github.com/manaflow-ai/cmux/issues/25590). With no owning app an
+/// agent chat and a terminal are placed from the daemon, as with no app at
+/// all (the `Err`); a Chief turn alone has no place and keeps the daemon's
+/// `current`, as in the CLI.
 pub(super) fn app_identity(global: &crate::cli::GlobalArgs) -> Result<Option<Value>, CallFailure> {
+    use crate::cli::mcp::FailureKind::NotRun;
     let caller = crate::cli::beside::Caller::of_process();
     if !caller.is_known() {
         return Ok(None);
     }
-    // A Chief turn's place is the Home chat of the app that owns this
-    // server's daemon. A Cloud Chief turn reaches the person's Mac app over a
-    // relay while its daemon is the VM's, where the Mac's Home ids name
-    // nothing: there it has no place, and its calls keep the daemon's own
-    // `current` (https://github.com/manaflow-ai/cmux/issues/25590).
-    if caller.home_chat {
-        let owned =
-            crate::cli::wire::resolve_socket_with_origin(global).ok().is_some_and(|(socket, _)| {
-                crate::cli::frontend_browser::owning_app_socket(global, &socket).is_some()
-            });
-        if !owned {
-            return Ok(None);
+    let (socket, derived) =
+        crate::cli::wire::resolve_socket_with_origin(global).map_err(|error| CallFailure {
+            kind: NotRun,
+            error: crate::cli::wire::resolve_failure(&error),
+            idempotency_key: None,
+        })?;
+    let route = crate::cli::resolve::SocketRoute::new(&socket, derived, global);
+    match route.owner_identity() {
+        Some(Ok(identity)) => Ok(Some(identity)),
+        Some(Err(error)) => Err(CallFailure { kind: NotRun, error, idempotency_key: None }),
+        None if caller.agent_session || caller.terminal.is_some() => {
+            Err(CallFailure::local(NotRun, "app.not_found", "no cmux app owns this session"))
         }
+        None => Ok(None),
     }
-    let timeout = crate::cli::app::READ_TIMEOUT;
-    transport::app_method(global, "system.identify", json!({}), timeout, None, false).map(Some)
 }
 
 /// What the person looks at: the app's focus from `snapshot.get` (its
@@ -96,6 +105,19 @@ impl<B: Backend> Server<B> {
         if arguments.contains_key("session") || !beside::names_no_place(&unplaced) {
             return Ok(Cow::Borrowed(arguments));
         }
+        // An earlier try of this call may have opened the tab already, in a
+        // place this try would no longer choose: answer with that tab.
+        let correlation = beside::correlation_key(
+            &unplaced,
+            unplaced.get("idempotency_key").and_then(Value::as_str),
+        )
+        .map(str::to_owned);
+        if (terminal || profile)
+            && let Some(key) = correlation.as_deref()
+            && let Some(earlier) = self.earlier_creation(key)
+        {
+            return Err(self.replay_beside(tool, &unplaced, earlier));
+        }
         if terminal || open_url || profile {
             let answer = match self.backend.identity() {
                 Ok(identity) => identity,
@@ -118,10 +140,12 @@ impl<B: Backend> Server<B> {
                 }
                 Some(Placement::NewColumn { workspace, chat_pane }) => {
                     let split = beside::split_params(&unplaced, &workspace, &chat_pane);
+                    let split = beside::correlated(split, correlation.as_deref());
                     return Err(self.split_for(tool, &unplaced, &workspace, split));
                 }
                 Some(Placement::SplitBelow { workspace, pane }) => {
                     let split = beside::split_below_params(&unplaced, &workspace, &pane);
+                    let split = beside::correlated(split, correlation.as_deref());
                     return Err(self.split_for(tool, &unplaced, &workspace, split));
                 }
                 None => {}
@@ -183,11 +207,60 @@ impl<B: Backend> Server<B> {
         }
     }
 
+    /// What an earlier try of the call that `key` names created in this
+    /// server's session (beside.rs `earlier_creation`); `None` for a first
+    /// try, and for a daemon that does not answer.
+    fn earlier_creation(&self, key: &str) -> Option<crate::cli::beside::Earlier> {
+        use crate::cli::command::{RequestPlan, ResponseView, WireOperation};
+        use cmux_tui_core::resource::ResourceOperation;
+
+        let route = Map::from_iter([
+            ("machine".to_owned(), json!("current")),
+            ("session".to_owned(), json!("current")),
+        ]);
+        let plan = RequestPlan {
+            operation: WireOperation::Typed(ResourceOperation::SessionCreationResolve),
+            params: Value::Object(crate::cli::beside::creation_lookup_params(&route, key)),
+            idempotency_key: None,
+            stream: false,
+            resolve: Vec::new(),
+            view: ResponseView::Full,
+            filter: Default::default(),
+        };
+        let resolution = self.backend.resource(None, plan, &[]).ok()?;
+        crate::cli::beside::earlier_creation(&resolution)
+    }
+
+    /// Answers with the tab an earlier try of the same call opened, and ends
+    /// what that try may have left undone. A creation of another kind under
+    /// the same key is refused, as the daemon refuses it.
+    fn replay_beside(
+        &self,
+        tool: &v2_tools::V2Tool,
+        arguments: &Map<String, Value>,
+        earlier: crate::cli::beside::Earlier,
+    ) -> Value {
+        use cmux_tui_core::resource::ResourceOperation;
+
+        let terminal = tool.operation == ResourceOperation::TabCreateTerminal;
+        match earlier.operation.as_str() {
+            // The pane was made: name the terminal, or open the browser tab in it.
+            "pane.split" => {
+                let workspace = earlier.path["workspace_id"].as_str().unwrap_or_default();
+                let split = success(earlier.result.clone(), true);
+                self.in_new_pane(tool, arguments, workspace, &earlier.path, split)
+            }
+            // The terminal tab itself.
+            "tab.create_terminal" if terminal => success(earlier.result, true),
+            other => {
+                tool_error(envelope(crate::cli::beside::creation_conflict(other), "not_run", None))
+            }
+        }
+    }
+
     /// The tab a creation asked for, in the new pane `split` makes (a new
     /// column right of the chat, or a pane below the column's lone pane of
-    /// another kind). A terminal is the split's own tab, then given its
-    /// name. A profile browser tab opens in the new pane, whose shell tab
-    /// then ends, which leaves the pane to the browser.
+    /// another kind).
     fn split_for(
         &self,
         tool: &v2_tools::V2Tool,
@@ -195,8 +268,7 @@ impl<B: Backend> Server<B> {
         workspace: &str,
         mut split: Map<String, Value>,
     ) -> Value {
-        let key = arguments.get("idempotency_key").and_then(Value::as_str);
-        if let Some(key) = key {
+        if let Some(key) = arguments.get("idempotency_key").and_then(Value::as_str) {
             split.insert("idempotency_key".into(), json!(format!("{key}-beside")));
         }
         let Some(pane_split) = v2_tools::find("pane_split") else {
@@ -212,9 +284,49 @@ impl<B: Backend> Server<B> {
         }
         // A change answers `{revision, value}`; `value` is the created path.
         let answer = &result["structuredContent"];
-        let created = if answer["value"].is_object() { &answer["value"] } else { answer };
+        let created =
+            if answer["value"].is_object() { answer["value"].clone() } else { answer.clone() };
+        self.in_new_pane(tool, arguments, workspace, &created, result)
+    }
+
+    /// The tab of `tool` in the pane a split made (`created`: the split's
+    /// created path, `split`: its answer). A terminal is the split's own
+    /// tab, named as the creation asked. A profile browser tab opens in the
+    /// new pane, whose shell then ends, which leaves the pane to the
+    /// browser; a failed open ends the shell too, and with it the new pane.
+    /// Every step is keyed, so a retry repeats none of them.
+    fn in_new_pane(
+        &self,
+        tool: &v2_tools::V2Tool,
+        arguments: &Map<String, Value>,
+        workspace: &str,
+        created: &Value,
+        split: Value,
+    ) -> Value {
+        let key = arguments.get("idempotency_key").and_then(Value::as_str);
         if tool.operation == cmux_tui_core::resource::ResourceOperation::BrowserProfileOpen {
-            return self.open_in_new_pane(tool, arguments, workspace, created);
+            let text = |field: &str| created.get(field).and_then(Value::as_str);
+            let (Some(pane), Some(shell)) = (text("pane_id"), text("terminal_id")) else {
+                return tool_error(envelope(
+                    v2_tools::invalid("the split made no pane for the browser tab"),
+                    "in_progress",
+                    None,
+                ));
+            };
+            let mut open = arguments.clone();
+            open.insert("workspace".into(), json!(workspace));
+            open.insert("pane".into(), json!(pane));
+            let opened = self.call_v2(tool, &open);
+            if let Some(close) = v2_tools::find("terminal_close") {
+                let mut end = Map::new();
+                end.insert("terminal".into(), json!(shell));
+                if let Some(key) = key {
+                    end.insert("idempotency_key".into(), json!(format!("{key}-shell")));
+                }
+                // The browser tab is open either way; a shell that stays is closed by hand.
+                let _ = self.call_v2(close, &end);
+            }
+            return opened;
         }
         if let Some(mut rename) = crate::cli::beside::rename_params(arguments, workspace, created) {
             rename.remove("machine");
@@ -229,41 +341,7 @@ impl<B: Backend> Server<B> {
                 }
             }
         }
-        result
-    }
-
-    /// Opens `tool`'s browser tab in the pane a split `created`, then ends
-    /// that pane's shell. A failed open ends the shell too, and with it the
-    /// new pane.
-    fn open_in_new_pane(
-        &self,
-        tool: &v2_tools::V2Tool,
-        arguments: &Map<String, Value>,
-        workspace: &str,
-        created: &Value,
-    ) -> Value {
-        let text = |field: &str| created.get(field).and_then(Value::as_str);
-        let (Some(pane), Some(shell)) = (text("pane_id"), text("terminal_id")) else {
-            return tool_error(envelope(
-                v2_tools::invalid("the split made no pane for the browser tab"),
-                "in_progress",
-                None,
-            ));
-        };
-        let mut open = arguments.clone();
-        open.insert("workspace".into(), json!(workspace));
-        open.insert("pane".into(), json!(pane));
-        let opened = self.call_v2(tool, &open);
-        if let Some(close) = v2_tools::find("terminal_close") {
-            let mut end = Map::new();
-            end.insert("terminal".into(), json!(shell));
-            if let Some(key) = arguments.get("idempotency_key").and_then(Value::as_str) {
-                end.insert("idempotency_key".into(), json!(format!("{key}-shell")));
-            }
-            // The browser tab is open either way; a shell that stays is closed by hand.
-            let _ = self.call_v2(close, &end);
-        }
-        opened
+        split
     }
 
     /// Puts the caller's own ids in place of `current` selectors and the

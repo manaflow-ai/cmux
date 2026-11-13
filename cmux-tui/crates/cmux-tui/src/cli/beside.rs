@@ -24,6 +24,14 @@
 //! - No caller, a caller that cannot be found, or a request to another
 //!   session or machine: the daemon's default.
 //!
+//! A retry never makes a second surface. The placement is decided again on
+//! every try, and the layout the first try changed can give another answer
+//! (a new column the first time, a tab in that column the second). So the
+//! one creation of a request is named by its key in the daemon (the
+//! creation's `correlation_key`: [`correlation_key`]), each transport looks
+//! that creation up before it decides again ([`earlier_creation`]), and the
+//! daemon refuses a second creation of another shape under the same key.
+//!
 //! This module only decides; each transport sends the requests
 //! ([`cli`] for the CLI, mcp/placement.rs for the MCP server).
 
@@ -240,6 +248,26 @@ pub(super) struct Scopes {
     pub whole: bool,
 }
 
+impl Caller {
+    /// [`creation_scopes`] for this caller. A Chief turn's own place is the
+    /// Home workspace, which the app draws as a page: a pane, a screen or a
+    /// link made there may never be seen. Only its tabs go beside the Home
+    /// chat (the app's `beside` answer is a column the window shows); its
+    /// pane, screen and link keep the daemon's default.
+    pub(super) fn creation_scopes(&self, operation: ResourceOperation) -> Option<Scopes> {
+        let tab = matches!(
+            operation,
+            ResourceOperation::TabCreateTerminal
+                | ResourceOperation::TabCreateBrowser
+                | ResourceOperation::BrowserProfileOpen
+        );
+        if self.home_chat && !tab {
+            return None;
+        }
+        creation_scopes(operation)
+    }
+}
+
 /// The typed creations that may name no place, which then act in the
 /// caller's own: a tab in its pane, a pane on its screen, a screen or a web
 /// link in its workspace. `None` for every other operation.
@@ -338,6 +366,82 @@ pub(super) fn split_below_params(
     split.insert("pane".into(), json!(pane));
     split.insert("direction".into(), json!("down"));
     split
+}
+
+/// The key that names one creation across its tries: the `correlation_key`
+/// the request carries, else its idempotency key (the daemon's own default).
+/// `None`: the request has no identity a retry could repeat.
+pub(super) fn correlation_key<'a>(
+    create: &'a Map<String, Value>,
+    idempotency_key: Option<&'a str>,
+) -> Option<&'a str> {
+    create.get("correlation_key").and_then(Value::as_str).or(idempotency_key)
+}
+
+/// `split` named as the one creation of the request `key` names, so the
+/// daemon refuses any other creation under that key.
+pub(super) fn correlated(mut split: Map<String, Value>, key: Option<&str>) -> Map<String, Value> {
+    if let Some(key) = key {
+        split.entry("correlation_key").or_insert_with(|| json!(key));
+    }
+    split
+}
+
+/// The `session.creation.resolve` params that ask the session of `create`
+/// what the creation `key` names made.
+pub(super) fn creation_lookup_params(create: &Map<String, Value>, key: &str) -> Map<String, Value> {
+    let mut lookup = Map::new();
+    for route in ["machine", "session"] {
+        if let Some(value) = create.get(route) {
+            lookup.insert(route.into(), value.clone());
+        }
+    }
+    lookup.insert("correlation_key".into(), json!(key));
+    lookup
+}
+
+/// What an earlier try of the same request created.
+#[derive(Debug, PartialEq)]
+pub(super) struct Earlier {
+    /// The daemon operation that made it (`pane.split`, `tab.create_terminal`).
+    pub operation: String,
+    /// The created path (`workspace_id`, `pane_id`, `tab_id`, `terminal_id`).
+    pub path: Value,
+    /// The answer of that creation, as a replay of it.
+    pub result: Value,
+}
+
+/// The creation an earlier try made, from the daemon's
+/// `session.creation.resolve` answer; `None` when the key made nothing yet.
+pub(super) fn earlier_creation(resolution: &Value) -> Option<Earlier> {
+    if resolution.get("state").and_then(Value::as_str) != Some("created") {
+        return None;
+    }
+    let path = resolution.get("created_path").filter(|path| path.is_object())?.clone();
+    let operation = resolution.get("operation").and_then(Value::as_str)?.to_owned();
+    let mut result = Map::new();
+    result.insert("value".into(), path.clone());
+    for field in ["generation", "revision"] {
+        if let Some(value) = resolution.get(field) {
+            result.insert(field.into(), value.clone());
+        }
+    }
+    result.insert("replayed".into(), json!(true));
+    Some(Earlier { operation, path, result: Value::Object(result) })
+}
+
+/// The error for a request whose key an earlier request of another kind
+/// used for its creation (`existing`: that creation's operation), in the
+/// shape of the daemon's own refusal.
+pub(super) fn creation_conflict(existing: &str) -> Value {
+    json!({
+        "code": "creation.conflict",
+        "message": format!(
+            "this key already names another creation ({existing}); use a new idempotency key"
+        ),
+        "details": {"existing_operation": existing},
+        "retryable": false,
+    })
 }
 
 /// The `tab.rename` params that give the split's new tab the name its

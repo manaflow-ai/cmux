@@ -122,7 +122,9 @@ pub(in crate::cli) fn workspace_key_path(
 /// one, which follows the person's focus. A caller that cannot be found, no
 /// caller, and a request to another session or machine keep the daemon's
 /// default (which can create a workspace in an empty session, so the request
-/// then still names no place). Returns whether `plan` changed.
+/// then still names no place). A Chief turn's pane, screen and link keep
+/// the daemon's default too (beside.rs `Caller::creation_scopes`). Returns
+/// whether `plan` changed.
 pub(in crate::cli) fn place_creation(
     reader: &mut Reader,
     plan: &mut RequestPlan,
@@ -132,7 +134,8 @@ pub(in crate::cli) fn place_creation(
     let crate::cli::command::WireOperation::Typed(operation) = &plan.operation else {
         return false;
     };
-    let Some(scopes) = crate::cli::beside::creation_scopes(*operation) else { return false };
+    let caller = crate::cli::beside::Caller::of_process();
+    let Some(scopes) = caller.creation_scopes(*operation) else { return false };
     let Some(params) = plan.params.as_object_mut() else { return false };
     if !caller_route || !this_machine(params) || !crate::cli::beside::names_no_place(params) {
         return false;
