@@ -1,14 +1,13 @@
-import CmuxNextDesign
-import CmuxNextPages
-import CmuxNextSettings
-import CmuxNextUpdater
+public import CmuxNextSettings
 import Foundation
 
 /// The wire form of a ``ServerSettingsReport`` for the Settings page: `server` in the host lists.
-struct ServerSettingsPageJSON {
-    let report: ServerSettingsReport
+public struct ServerSettingsPageJSON {
+    public let report: ServerSettingsReport
 
-    var json: JSONValue {
+    public init(report: ServerSettingsReport) { self.report = report }
+
+    public var json: JSONValue {
         [
             "title": .string(report.labels.title), "empty": .string(report.labels.empty),
             "socket_title": .string(report.labels.socket), "tailnet_title": .string(report.labels.tailnet),
