@@ -74,9 +74,6 @@ extension RemoteTmuxControlConnection {
                 } catch {
                     break
                 }
-                // A main actor that was busy can wake this ahead of stdout that already arrived and
-                // is queued behind it. Yielding first lets that ingest run before anything is decided.
-                await Task.yield()
                 guard let self else { break }
                 self.checkTransportLiveness(now: self.transportLiveness.now())
             }
@@ -109,6 +106,13 @@ extension RemoteTmuxControlConnection {
             cmuxDebugLog("remote.stall.probe host=\(host.destination) pending=\(pendingCommands.count)")
             _ = sendTracked(RemoteTmuxTransportLiveness.probeCommand) { _ in }
         case .stall(let silentFor):
+            // The reply can be in the pipe or the reader's stream, waiting for the main actor
+            // this check is running on. Output that has arrived answers the probe.
+            if stdoutPipeReader?.hasUndeliveredOutput == true {
+                transportLiveness.noteStdout(at: now)
+                record("liveness-reply-queued")
+                return transportLiveness.decide(now: now)
+            }
             let seconds = Int(silentFor.components.seconds)
             record("transport-stall silent=\(seconds)s")
             cmuxDebugLog(

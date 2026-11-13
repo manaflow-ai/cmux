@@ -59,6 +59,18 @@ final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
         release(byteCount: data.count)
     }
 
+    /// Whether output has reached this reader that its consumer has not released yet: bytes, or
+    /// the end of the stream, still in the pipe; bytes read but not taken from ``stream``; or
+    /// bytes taken but not yet released.
+    var hasUndeliveredOutput: Bool {
+        queue.sync {
+            if pendingBytes > 0 { return true }
+            guard !closed, let handle else { return false }
+            var readable = pollfd(fd: handle.fileDescriptor, events: Int16(POLLIN), revents: 0)
+            return poll(&readable, 1, 0) > 0 && readable.revents & Int16(POLLIN) != 0
+        }
+    }
+
     /// Drains bytes already committed to the pipe, then finishes the stream.
     func processDidExit() {
         queue.async { [weak self] in

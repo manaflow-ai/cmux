@@ -206,7 +206,7 @@ final class RemoteTmuxControlConnection {
     private var processTerminationTasks: [UUID: Task<Void, Never>] = [:]
     var stdinWriter: RemoteTmuxControlPipeWriter?
     private var stdoutReader: FileHandle?
-    private var stdoutPipeReader: RemoteTmuxProcessOutputReader?
+    var stdoutPipeReader: RemoteTmuxProcessOutputReader?
     private var stderrPipeReader: RemoteTmuxProcessOutputReader?
     /// Consumes the current spawn's stderr into `stderrBuffer`. Awaited before a
     /// failed reconnect attempt is classified, so the decision sees the complete
