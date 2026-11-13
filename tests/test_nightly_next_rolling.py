@@ -151,6 +151,52 @@ class RollingRuleTests(unittest.TestCase):
                                             starts=[holder])
                 self.assertEqual(go, not holds, reason)
 
+    def test_a_retry_of_nightly_next_s_head_does_not_hold_a_newer_landing(self):
+        """Tick 43440928169 (2026-11-13 14:15:01Z) waited on retry 43440656795 ('Retry nightly-next (2 of 2)',
+        created 14:13:19Z) of 6ed5ffc2e386, nightly-next's head, a build that had already failed: "the newest
+        build started 3 of 5 min ago; the next start ... waits for it to finish". The retry leaves the build
+        slot only when a newer nightly-next push arrives (resolve-leave-build-slot.sh on feat-cmux-next),
+        and no tick promoted one while it ran, so each such retry cost 19-41 min (43395284047, 43440656795).
+        A retry of the head with a newer commit waiting is neither a holder nor a start: promote."""
+        head = "6ed5ffc2e386abe13409809e500022e1a73586ef"
+        retry = run(43440656795, 1.7, event="workflow_dispatch", display_title="Retry nightly-next (2 of 2)",
+                    head_sha=head)
+        go, reason = rolling.decide(NOW, head=head, head_runs=[retry], jobs_of=lambda r: BUILDING, promotions=[],
+                                    oldest_waiting=(WAITING, NOW - dt.timedelta(minutes=24)), starts=[retry],
+                                    window_minutes=5)
+        self.assertTrue(go, reason)
+        self.assertIn("nothing is building", reason)
+        with self.subTest("nothing waits after the head: the retry is the newest build, so it holds"):
+            go, reason = rolling.decide(NOW, head=head, head_runs=[retry], jobs_of=lambda r: BUILDING,
+                                        promotions=[], oldest_waiting=None, starts=[retry], window_minutes=5)
+            self.assertFalse(go, reason)
+        with self.subTest("a retry of an older commit (nightly-next moved past it) still holds"):
+            older = {**retry, "head_sha": "e" * 40}
+            go, reason = rolling.decide(NOW, head=head, head_runs=[], jobs_of=lambda r: BUILDING, promotions=[],
+                                        oldest_waiting=(WAITING, NOW - dt.timedelta(minutes=24)), starts=[older],
+                                        window_minutes=5)
+            self.assertFalse(go, reason)
+        with self.subTest("an ordinary push build of the head still holds"):
+            push = run(43440000000, 1.7, head_sha=head)
+            go, reason = rolling.decide(NOW, head=head, head_runs=[push], jobs_of=lambda r: BUILDING, promotions=[],
+                                        oldest_waiting=(WAITING, NOW - dt.timedelta(minutes=24)), starts=[push],
+                                        window_minutes=5)
+            self.assertFalse(go, reason)
+        with self.subTest("a promotion seconds old still counts as a start"):
+            promo = run(43440000002, 0.07, status="completed", display_title="Promote nightly-next to tick:" + WAITING)
+            go, reason = rolling.decide(NOW, head=head, head_runs=[retry], jobs_of=lambda r: BUILDING,
+                                        promotions=[promo], oldest_waiting=(WAITING, NOW - dt.timedelta(minutes=24)),
+                                        starts=[retry], window_minutes=5)
+            self.assertFalse(go, reason)
+
+    def test_evaluate_promotes_past_a_retry_of_the_head(self):
+        """The same tick through evaluate's one listing (retries are dispatches in it)."""
+        retry = run(43440656795, 1.7, event="workflow_dispatch", display_title="Retry nightly-next (2 of 2)",
+                    head_sha=HEAD)
+        api = api_for(compare("ahead", [(WAITING, 30)]), runs=[retry])
+        go, reason = rolling.evaluate(NOW, "o/r", TIP, api=api, window_minutes=5)
+        self.assertTrue(go, reason)
+
     def test_a_fresh_promotion_counts_as_building(self):
         promo = run(9, 3, status="in_progress", display_title="Promote nightly-next to " + WAITING)
         go, reason = decide(promotions=[promo], waited_minutes=5)
