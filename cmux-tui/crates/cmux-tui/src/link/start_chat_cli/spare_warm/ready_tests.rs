@@ -265,6 +265,8 @@ fn sweep_case(seed: u64) -> Result<Counts, String> {
             if held.iter().any(|(_, m, _)| *m == target) {
                 return Err(format!("step {step}: a second copy onto {target} while one is held"));
             }
+            // A new attempt invalidates older proof even if the attempt later fails.
+            installed_at[usize::from(target == OTHER)] = None;
             held.push((client, target, now));
             counts.copies += 1;
         }

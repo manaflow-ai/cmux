@@ -270,6 +270,9 @@ extension AgentPaneModel {
         case .sessionInfoOverlays(let rects):
             sessionInfo.updateOverlays(rects)
             return AgentPaneReply.success()
+        case .sessionInfoPinch(let pinch):
+            sessionInfo.updatePinch(pinch)
+            return AgentPaneReply.success()
         case .toastAvoidance(let rect):
             setToastAvoidance(rect)
             return AgentPaneReply.success()

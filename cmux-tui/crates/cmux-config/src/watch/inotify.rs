@@ -15,8 +15,11 @@
 //! log beside a watched file (Codex appends to ~/.codex several times a
 //! second) does not wake the daemon. IN_MODIFY is left out: a writer that
 //! keeps the file open is seen when it closes it. A watched name that is not
-//! a regular file (a folder, a socket) has no watch of its own: its entry
-//! being made, removed or renamed hints, a metadata change of it does not.
+//! a regular file (a folder, a socket, a FIFO, a device) has no watch of its
+//! own: its entry being made, removed or renamed hints; a metadata change of
+//! it does not, and neither does a write through a FIFO or a device, nor the
+//! close after it, unless its directory has those events for a file that
+//! got no watch (the next paragraph).
 //!
 //! A file that may exist and got no watch of its own (inotify refuses a file
 //! the process may not read, a folder that may not be searched hides its

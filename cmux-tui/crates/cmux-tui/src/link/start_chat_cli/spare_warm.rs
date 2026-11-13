@@ -50,7 +50,7 @@ pub(super) struct Request {
     #[serde(default)]
     pub(super) finished: Option<String>,
     /// The machine of a copy that ended installed: finished as above, and its receipt kept
-    /// ([`receipt`]) so a start onto it skips its own login check.
+    /// ([`receipt_scoped`]) so a start onto it skips its own login check.
     #[serde(default)]
     pub(super) installed: Option<String>,
     /// An existing owner login verified by harness_login, without copying credentials.
@@ -66,7 +66,7 @@ pub(super) struct Request {
     #[serde(default)]
     pub(super) wait_copy: Option<WaitCopy>,
     /// A start's question instead of a warm: whether a warm installed this account's login on this
-    /// machine within [`RECEIPT_MS`] ([`receipt`]). Same shape as `waitCopy`.
+    /// machine within [`RECEIPT_MS`] ([`receipt_scoped`]). Same shape as `waitCopy`.
     #[serde(default)]
     pub(super) login_receipt: Option<WaitCopy>,
     /// The machine a reserve's or a claim's answer named for this account and team, instead of a
@@ -345,29 +345,20 @@ pub(super) fn run_reporting(
         value
     };
     if let Some(machine) = request.claimed.as_deref() {
-        let answer = claim(
-            &mut file,
-            &request.account,
-            &team,
-            machine,
-            now_ms,
-            copy(machine),
-            generation.clone(),
-            scope.clone(),
-        );
+        let answer =
+            claim(&mut file, &request, &team, machine, now_ms, copy(machine), generation.clone());
         write(&path, &file);
         return Some(answer);
     }
     if let Some(machine) = request.ready.as_deref() {
         let answer = ready::ready(
             &mut file,
-            &request.account,
+            &request,
             &team,
             machine,
             now_ms,
             copy(machine),
             generation.clone(),
-            scope.clone(),
         );
         write(&path, &file);
         return Some(answer);
@@ -480,7 +471,7 @@ pub(super) fn run_reporting(
         answer.set("copy", copy(&machine));
         let machine = Some(machine.clone());
         file.copies.push(Copying {
-            generation: generation.clone(),
+            generation,
             scope: scope.clone(),
             account: request.account.clone(),
             team: team.clone(),
@@ -495,7 +486,7 @@ pub(super) fn run_reporting(
     });
     file.attempts.retain(|other| !pair(&other.account, Some(other.team.as_str())));
     file.warms.push(Record {
-        scope: scope.clone(),
+        scope,
         account: request.account,
         team: Some(team),
         machine,
@@ -517,14 +508,15 @@ pub(super) fn run_reporting(
 /// is marked claimed, so a warm in the gap no longer answers it.
 fn claim(
     file: &mut State,
-    account: &str,
+    request: &Request,
     team: &str,
     machine: &str,
     now_ms: u64,
     copy: Value,
     generation: Option<String>,
-    scope: Option<ReceiptScope>,
 ) -> Value {
+    let account = request.account.as_str();
+    let scope = request.scope.clone();
     let ours = |other_account: &str, other_team: Option<&str>, other: &str| {
         other_account == account && other_team == Some(team) && other == machine
     };
@@ -576,8 +568,8 @@ fn claim(
     file.installed.retain(|receipt| receipt.machine != machine);
     file.copies.retain(|copy| copy.machine.as_deref() != Some(machine));
     file.copies.push(Copying {
-        generation: generation.clone(),
-        scope: scope.clone(),
+        generation,
+        scope,
         account: account.to_string(),
         team: team.to_string(),
         machine: Some(machine.to_string()),
