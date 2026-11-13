@@ -500,15 +500,22 @@ fn randomized_mirror_runs_against_hub_with_cut_frames() {
             .encode();
             feed_cut_bytes(&mut client, &delta, &mut rows, &mut random);
             while client.take_send().is_some() {}
+            let actual: HashMap<_, _> = rows
+                .iter()
+                .map(|(key, summary)| (key.clone(), serde_json::to_value(summary).unwrap()))
+                .collect();
             let expected: HashMap<_, _> = hub
                 .snapshot()
                 .iter()
                 .filter(|summary| summary.is_live())
                 .map(|summary| {
-                    ((summary.origin.clone(), summary.chat_id.clone()), summary.as_ref().clone())
+                    (
+                        (summary.origin.clone(), summary.chat_id.clone()),
+                        serde_json::to_value(summary.as_ref()).unwrap(),
+                    )
                 })
                 .collect();
-            assert_eq!(rows, expected, "seed {seed} step {step}");
+            assert_eq!(actual, expected, "seed {seed} step {step}");
         }
         hub.close();
     }
