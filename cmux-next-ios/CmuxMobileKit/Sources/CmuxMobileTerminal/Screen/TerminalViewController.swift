@@ -1811,7 +1811,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // The Mac's screen is the bottom `remoteRows` rows of the mirror.
         let screenTop = max(0, scrollbar.total - (feedHostRows ?? surface.grid.rows))
         let next = endHold.hold(measured, totalRows: scrollbar.total, cursorRow: cursor, screenTopRow: screenTop)
-        guard next != document else { return }
+        guard next != document else {
+            positionHostGridNote()
+            return
+        }
         let shift = CGFloat(next.originRow - originRow) * cell.height
         let hadDocument = document != nil
         document = next
@@ -3304,9 +3307,10 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
             let gridBottom: CGFloat?
             if model.isTUI {
                 gridBottom = surface.superview === tuiHost ? tuiHost.convert(CGPoint(x: 0, y: gridHeight), to: view).y : nil
-            } else if let document, cell.height > 0 {
-                // The document ends at the grid's last row (`updateDocument`).
-                gridBottom = scrollView.frame.minY + document.contentY(ofRow: document.endRow, cellHeight: cell.height) - scrollView.contentOffset.y
+            } else if let document, cell.height > 0, scrollbar.total > 0 {
+                // The Mac's screen is the mirror's last rows: its bottom is
+                // the scrollback's end, wherever the document was last measured.
+                gridBottom = scrollView.frame.minY + document.contentY(ofRow: scrollbar.total, cellHeight: cell.height) - scrollView.contentOffset.y
             } else {
                 gridBottom = nil
             }

@@ -92,7 +92,7 @@ import Testing
     @Test func aShorterGridPinsToTheTopOfThePage() throws {
         let short = layout(host: (30, 12), rows: 40)
         let inset = try #require(short.pinnedBottomInset(pageHeight: 844, top: 59))
-        #expect(844 - inset - 59 == 12 * 16)
+        #expect(abs((844 - inset - 59) - 12 * 16) < 0.001)
         #expect(layout(host: (50, 40), rows: 40).pinnedBottomInset(pageHeight: 844, top: 59) == nil)
         #expect(layout(host: (50, 60), rows: 40).pinnedBottomInset(pageHeight: 844, top: 59) == nil)
         #expect(layout(host: nil).pinnedBottomInset(pageHeight: 844, top: 59) == nil)
