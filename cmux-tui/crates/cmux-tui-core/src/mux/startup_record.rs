@@ -6,11 +6,20 @@ use crate::startup_timings::{
     StartupTimings, add_after_ready, append_startup_timings, unix_now_ms,
 };
 
+/// The owner's laps for `startup-timings.jsonl`. Two leaf locks.
+#[derive(Default)]
+pub(super) struct StartupLaps {
+    /// The laps of the open (registry, restore, adoption), until the owner's start takes them.
+    pub(super) open: Mutex<Option<StartupTimings>>,
+    /// Held over the write of the file.
+    after_ready: Mutex<AfterReady>,
+}
+
 /// The start line of this owner in `startup-timings.jsonl`, and the laps of the work that ends
 /// after ready (the restatement in parts). Either can come first: the one that comes second
 /// writes the laps into the line.
 #[derive(Debug, Default)]
-pub(super) struct AfterReady {
+struct AfterReady {
     /// The session directory and the `pid` and `at_ms` of the line, once it is in the file.
     line: Option<(std::path::PathBuf, u32, u64)>,
     laps: Option<Value>,
@@ -20,7 +29,7 @@ impl Mux {
     /// The laps of this owner's open (registry, restore, terminal adoption),
     /// once; nil for a mux that was not opened from a registry or was taken.
     pub fn take_startup_timings(&self) -> Option<StartupTimings> {
-        self.startup_timings.lock().unwrap_or_else(PoisonError::into_inner).take()
+        self.startup_timings.open.lock().unwrap_or_else(PoisonError::into_inner).take()
     }
 
     /// Appends `timings` to the session's `startup-timings.jsonl` (a
@@ -37,7 +46,7 @@ impl Mux {
         let (pid, at_ms) = (std::process::id(), unix_now_ms());
         let mut line = timings.to_line(pid, at_ms);
         let mut after_ready =
-            self.startup_after_ready.lock().unwrap_or_else(PoisonError::into_inner);
+            self.startup_timings.after_ready.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(laps) = after_ready.laps.clone() {
             line["after_ready"] = laps;
         }
@@ -57,7 +66,7 @@ impl Mux {
         tally: &startup_restore::restate_parts::RestateTally,
     ) {
         let mut after_ready =
-            self.startup_after_ready.lock().unwrap_or_else(PoisonError::into_inner);
+            self.startup_timings.after_ready.lock().unwrap_or_else(PoisonError::into_inner);
         let laps = tally.laps();
         if let Some((session_dir, pid, at_ms)) = after_ready.line.as_ref()
             && let Err(error) = add_after_ready(session_dir, *pid, *at_ms, &laps)
@@ -70,7 +79,7 @@ impl Mux {
     /// The laps that [`Self::record_session_restate`] took, for tests.
     #[cfg(test)]
     pub(crate) fn session_restate_laps_for_test(&self) -> Option<Value> {
-        self.startup_after_ready.lock().unwrap_or_else(PoisonError::into_inner).laps.clone()
+        self.startup_timings.after_ready.lock().unwrap_or_else(PoisonError::into_inner).laps.clone()
     }
 
     /// Opens the session's slow request log (`diagnostics/request_log.rs`) in `session_dir`,

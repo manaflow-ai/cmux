@@ -612,14 +612,7 @@ impl Mux {
                     retarget_terminal_workspace(&mut projection.patch, terminal, &target_key);
                 }
                 committed = Some((outcome, target_key));
-                let plan = ResourceMutationPlan::replacing(
-                    projection.patch,
-                    projection.result,
-                    projection.changes,
-                    projected,
-                )
-                .projected(projection.restates_all)
-                .restating(projection.restated);
+                let plan = resource_effects::replacing_projection_plan(projection, projected);
                 // The reducer models no pins, so it has no op for a pane's only tab
                 // becoming a lone pinned column (`pinned-dock-alone-v1`); the I1-I3
                 // checks of the live result still run.

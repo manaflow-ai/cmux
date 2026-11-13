@@ -481,23 +481,7 @@ impl Mux {
             !self.consume_template_completion_failure(),
             "injected template completion failure"
         );
-        // Its placement is in one workspace: only that one is projected.
-        self.commit_ordinary_surface_projection(
-            &Actor::Daemon,
-            "terminal.adopt-template",
-            |state| {
-                state
-                    .surfaces
-                    .values()
-                    .find(|surface| {
-                        surface
-                            .terminal_host_identity()
-                            .is_some_and(|identity| identity.terminal_id == terminal_id)
-                    })
-                    .map(|surface| surface.id)
-            },
-            serde_json::json!({}),
-        )?;
+        self.commit_placed_terminal_projection("terminal.adopt-template", terminal_id)?;
         // The host's own record (its recovery mirror, which a rehost copies) names this machine's
         // workspace now, not the key every clone of the snapshot shares.
         let surface = {

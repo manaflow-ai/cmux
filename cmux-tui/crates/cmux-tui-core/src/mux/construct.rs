@@ -427,8 +427,7 @@ impl Mux {
             terminal_adoptions_now: Mutex::new(HashSet::new()),
             restored_tab_names: Mutex::new(HashMap::new()),
             startup_adoptions_released: AtomicBool::new(false),
-            startup_timings: Mutex::new(None),
-            startup_after_ready: Default::default(),
+            startup_timings: Default::default(),
             pending_terminals: Mutex::new(HashMap::new()),
             terminal_ends: Mutex::new(HashMap::new()),
             terminal_loss_causes: Mutex::new(loss_causes::LossCauses::default()),
@@ -585,7 +584,7 @@ impl Mux {
         }
         crate::state::project_watch::start(&mux);
         timings.lap("journal.maintenance_start");
-        *mux.startup_timings.lock().unwrap_or_else(PoisonError::into_inner) = Some(timings);
+        *mux.startup_timings.open.lock().unwrap_or_else(PoisonError::into_inner) = Some(timings);
         Ok(mux)
     }
 

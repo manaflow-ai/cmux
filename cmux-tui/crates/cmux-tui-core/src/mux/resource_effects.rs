@@ -317,6 +317,28 @@ impl Mux {
         )
     }
 
+    /// [`Self::commit_ordinary_surface_projection`] for the view of the terminal `terminal_id`
+    /// of a host, which an adoption placed: its placement is in one workspace.
+    #[track_caller]
+    pub(super) fn commit_placed_terminal_projection(
+        &self,
+        operation: &'static str,
+        terminal_id: &str,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        self.commit_ordinary_surface_projection(
+            &Actor::Daemon,
+            operation,
+            |state| {
+                let shown = state.surfaces.values().find(|surface| {
+                    let host = surface.terminal_host_identity();
+                    host.is_some_and(|identity| identity.terminal_id == terminal_id)
+                });
+                shown.map(|surface| surface.id)
+            },
+            serde_json::json!({}),
+        )
+    }
+
     #[track_caller]
     pub(crate) fn commit_full_resource_projection_with_mutation(
         &self,
@@ -509,4 +531,20 @@ pub(super) fn projection_plan(projection: ResourceEffectProjection) -> ResourceM
     ResourceMutationPlan::new(projection.patch, projection.result, projection.changes, |_| {})
         .projected(projection.restates_all)
         .restating(projection.restated)
+}
+
+/// [`projection_plan`] for the projection of a copy of the state (`projected`): the commit puts
+/// the copy in the place of the live state.
+pub(super) fn replacing_projection_plan(
+    projection: ResourceEffectProjection,
+    projected: State,
+) -> ResourceMutationPlan {
+    ResourceMutationPlan::replacing(
+        projection.patch,
+        projection.result,
+        projection.changes,
+        projected,
+    )
+    .projected(projection.restates_all)
+    .restating(projection.restated)
 }
