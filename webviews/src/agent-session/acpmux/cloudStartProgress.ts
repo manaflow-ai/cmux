@@ -1,3 +1,4 @@
+import { CLOUD_SETUP_REQUIRED, readCloudSetupNeed, type CloudSetupNeed } from "./cloudSetup";
 import type { CloudStartAnswer } from "./cloudRun";
 import { cloudPlanTeamRefusal, type CloudPlanTeamRefusal } from "./cloudPlanTeams";
 import { translate } from "./i18n";
@@ -46,6 +47,9 @@ export type CloudStartProgress = {
   planTeam?: CloudPlanTeamRefusal;
   /// The start waits on the person's browser sign-in (`cloud.signIn`): the card says so, not "starting".
   signingIn?: true;
+  /// No connection serves the picker's model (`cloud_setup_required`): the chat shows Set up Cloud
+  /// (cloudSetup.ts), naming it; with `signingIn`, it waits for the connection a button began.
+  cloudSetup?: CloudSetupNeed;
   /// The agent the chat starts, by name ("Claude Code"), for the opening step.
   agent?: string;
   /// No project: nothing is copied, so the card shows no copy step.
@@ -174,6 +178,7 @@ export function cloudStartBegun(
   agent?: string,
   home?: boolean,
   signingIn?: boolean,
+  cloudSetup?: CloudSetupNeed,
 ): CloudStartProgress {
   const folder = cwd?.replace(/\/+$/, "").split("/").pop();
   return {
@@ -184,6 +189,7 @@ export function cloudStartBegun(
     ...(agent ? { agent } : {}),
     ...(home ? { home: true } : {}),
     ...(signingIn ? { signingIn: true } : {}),
+    ...(cloudSetup ? { cloudSetup } : {}),
   };
 }
 
@@ -194,7 +200,7 @@ export function cloudStartSignedIn(
   key: string,
 ): CloudStartProgress | undefined {
   if (current?.key !== key || !current.signingIn) return current;
-  const { signingIn: _signedIn, ...started } = current;
+  const { signingIn: _signedIn, cloudSetup: _cloudSetup, ...started } = current;
   return started;
 }
 
@@ -469,8 +475,16 @@ export function cloudStartEnded(
   }
   const message = refusedHere ? cloudRefusalText(answer.code, answer.message) : line(answer.message, 240);
   // A failed start waits on no sign-in (its card offers the sign in again instead) and asks nothing more.
-  const { signingIn: _signingIn, ask: _ask, planTeam: _planTeam, stalled: _stalled, ...ended } = current;
+  const {
+    signingIn: _signingIn,
+    ask: _ask,
+    planTeam: _planTeam,
+    stalled: _stalled,
+    cloudSetup: _cloudSetup,
+    ...ended
+  } = current;
   const planTeam = answer.code === "cloud_plan_required" ? cloudPlanTeamRefusal(answer.details) : undefined;
+  const cloudSetup = answer.code === CLOUD_SETUP_REQUIRED ? readCloudSetupNeed(answer.details) : undefined;
   return {
     ...ended,
     state: "failed",
@@ -479,6 +493,7 @@ export function cloudStartEnded(
     ...(refusedHere ? { refusedHere } : {}),
     ...(answer.retryable ? { retryable: true } : {}),
     ...(planTeam ? { planTeam } : {}),
+    ...(cloudSetup ? { cloudSetup } : {}),
   };
 }
 

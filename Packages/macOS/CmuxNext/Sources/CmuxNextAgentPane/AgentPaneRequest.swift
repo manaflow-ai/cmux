@@ -184,6 +184,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `cloud.signIn {key}`: signs in, keeping the click for the Cloud start `key`; the page sends
     /// that start again as `cloud.startChat {..., signedIn: true}` while it still waits for it.
     case cloudSignIn(key: String)
+    /// `cloud.setUp {key, action, family}`: the Set up Cloud card's button (Continue with ChatGPT, Set
+    /// up Claude, Add an API key, Open Settings), on its click. Runs that way in, waits for a
+    /// connection serving `family`, and keeps the click for the start `key` like `cloud.signIn`.
+    case cloudSetUp(key: String, action: String, family: String)
     /// `cloud.signInCancel {expired?}`: the page stopped waiting on a `cloud.signIn` (it left Cloud,
     /// or its deadline passed); that sign-in keeps no click. `expired` also ends the browser sign-in.
     case cloudSignInCancel(expired: Bool)

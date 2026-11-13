@@ -29,6 +29,8 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
     public var harness: String?
     /// The model a new chat starts on; nil keeps the harness or app default.
     public var model: String?
+    /// The effort a new chat starts on with ``model`` (a Cloud start's picker); nil keeps the default.
+    public var effort: String?
     /// The requested destination for a new chat. The native handler consumes this before the
     /// page opens; retaining it in the seed keeps a destination-bearing seed from being treated
     /// as a folder-only New Tab replacement.
@@ -153,7 +155,7 @@ public final class AgentPaneSeedSource {
         guard let value else { return true }
         return value.draft == nil && value.prompt == nil && (value.promptAttachments?.isEmpty ?? true)
             && value.adopt == nil && value.surface == nil
-            && value.harness == nil && value.model == nil && value.host == nil && value.folderNeeded == nil && value.pastChat == nil && !value.showsHarnesses
+            && value.harness == nil && value.model == nil && value.effort == nil && value.host == nil && value.folderNeeded == nil && value.pastChat == nil && !value.showsHarnesses
             && !value.picksCloud && value.cloudStartHandoff == nil
     }
 
