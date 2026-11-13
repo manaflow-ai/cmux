@@ -25,6 +25,13 @@ Both signals date the test's start, so a deadline is met to within one poll
 (POLL_SECONDS). Workflows call it through scripts/ci/cargo-test-deadline.sh,
 the one place a later move to cargo-nextest replaces.
 Test: tests/test_ci_test_deadline.py.
+
+Known limits (deadline-rev on #40523):
+- The strip handles escapes only. Plain text that a test writes to fd 1 with
+  no newline still hides the next libtest line.
+- A signal that arrives between Popen and _forward_cancel still orphans the
+  group. The window is very small, but the handlers can be installed before
+  Popen (keep a process holder).
 """
 
 from __future__ import annotations
@@ -50,6 +57,18 @@ _NOTICE = re.compile(r"^test (?P<name>\S.*?) has been running for over 60 second
 _RESULT = re.compile(r"^test (?P<name>\S.*?) \.\.\. (?P<result>\S.*)$")
 _STARTED = re.compile(r"^test (?P<name>\S.*?) \.\.\. $")
 _SUMMARY = re.compile(r"^test result: ")
+# cargo starts the next test binary, or the doctests after the last one, only after the last binary exited, so a
+# test that binary left open (it crashed mid-test, no result line; cargo goes on under --no-fail-fast) is over. Only
+# cargo's own right-aligned lines count (`     Running unittests src/lib.rs (target/debug/deps/a-0123abcd)`,
+# `   Doc-tests a`): a test that prints `Running ...` itself must not clear the tests still open.
+_NEXT_BINARY = re.compile(r"^ +(?:Running \S.* \([^()]+\)|Doc-tests \S+)$")
+# Tests that drive a terminal write escapes to the shared stdout (on macOS `ESC]12;#ffffff BEL ESC[1 q` before
+# libtest's own `test NAME ... ok`, proof run 42808325625), so they are stripped before a line is read.
+_ESCAPES = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[[0-?]*[ -/]*[@-~]|\x1b[@-_]|[\x00-\x08\x0b-\x1f\x7f]")
+
+
+def _plain(text: str) -> str:
+    return _ESCAPES.sub("", text)
 
 
 class Tracker:
@@ -71,14 +90,14 @@ class Tracker:
         self.partial += text
         *lines, self.partial = self.partial.split("\n")
         for line in lines:
-            self._line(line.rstrip("\r"), now)
-        started = _STARTED.match(self.partial)
+            self._line(_plain(line.rstrip("\r")), now)
+        started = _STARTED.match(_plain(self.partial))
         if started:
             # libtest wrote `test NAME ... ` and waits for the test (one at a time).
             self.running.setdefault(started.group("name"), now)
 
     def _line(self, line: str, now: float) -> None:
-        if _SUMMARY.match(line):
+        if _SUMMARY.match(line) or _NEXT_BINARY.match(line):
             self.running.clear()
             return
         notice = _NOTICE.match(line)
@@ -141,13 +160,33 @@ def _end(process: subprocess.Popen[bytes]) -> None:
     for sig in (signal.SIGTERM, signal.SIGKILL):
         try:
             os.killpg(process.pid, sig)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):
+            # macOS answers EPERM for a group whose members are all zombies.
             return
         try:
             process.wait(timeout=KILL_GRACE_SECONDS)
             return
         except subprocess.TimeoutExpired:
             continue
+
+
+def _forward_cancel(process: subprocess.Popen[bytes]) -> list[int]:
+    """Pass a job cancel (SIGTERM, SIGINT, SIGHUP) on to the test process group, which runs in its own session
+    and so would not get it; returns the signals received, for the exit status."""
+    received: list[int] = []
+    if os.name == "nt":
+        return received
+
+    def forward(signum, _frame) -> None:
+        received.append(signum)
+        try:
+            os.killpg(process.pid, signum)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(sig, forward)
+    return received
 
 
 def run(command: list[str], tracker: Tracker, *, clock=time.monotonic) -> int:
@@ -162,6 +201,7 @@ def run(command: list[str], tracker: Tracker, *, clock=time.monotonic) -> int:
     chunks: "queue.Queue[bytes]" = queue.Queue()
     threading.Thread(target=_reader, args=(process.stdout.fileno(), chunks), daemon=True).start()
     out = sys.stdout.buffer
+    cancelled = _forward_cancel(process)
     while True:
         try:
             data = chunks.get(timeout=POLL_SECONDS)
@@ -172,7 +212,8 @@ def run(command: list[str], tracker: Tracker, *, clock=time.monotonic) -> int:
             out.flush()
             tracker.feed(data.decode("utf-8", errors="replace"), now=clock())
         elif data == b"":
-            return process.wait()
+            status = process.wait()
+            return 128 + cancelled[0] if cancelled else status
         late = tracker.overdue(now=clock())
         if late:
             name, limit = late
