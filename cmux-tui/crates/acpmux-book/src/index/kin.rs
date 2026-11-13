@@ -9,6 +9,7 @@ use super::{RowKey, SortKey, Summary};
 use imbl::{OrdMap, OrdSet};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 
 /// A folder is scoped by origin.  Two machines may use the same folder name
 /// without sharing a view.
@@ -27,14 +28,6 @@ impl FolderKey {
     pub fn of(summary: &Summary) -> Option<Self> {
         summary.folder.as_ref().map(|folder| Self::new(summary.origin.as_str(), folder.as_str()))
     }
-}
-
-/// One item in a family walk.  The row itself carries `fork_of.seq`; depth is
-/// response metadata and is never persisted in either table.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct FamilyItem {
-    pub key: RowKey,
-    pub depth: u16,
 }
 
 /// The two edges a summary contributes to the kin view.
@@ -69,79 +62,164 @@ impl KinTables {
         self.folders.len()
     }
 
-    /// Replace one hot row.  The old row is removed from all three views first
-    /// and the new row is then inserted, so a move touches only its old/new
-    /// paths and never scans sibling sets.
+    /// Replace one hot row, mutating only the tables whose indexed relation
+    /// changed. A title or other non-indexed field update writes no table path.
     pub fn replace(&self, old: Option<&Summary>, new: Option<&Summary>) -> Self {
         let mut next = self.clone();
-        if let Some(old) = old {
-            next.remove_row(old);
-        }
-        if let Some(new) = new {
-            next.insert_row(new);
-        }
+        next.mutate(old, new, None);
+        next
+    }
+
+    /// Replace one row while counting changed table roots.
+    pub fn replace_counted(
+        &self,
+        old: Option<&Summary>,
+        new: Option<&Summary>,
+        writes: &AtomicUsize,
+    ) -> Self {
+        let mut next = self.clone();
+        next.mutate(old, new, Some(writes));
         next
     }
 
     pub fn insert(&mut self, summary: &Summary) {
-        self.insert_row(summary);
+        self.mutate(None, Some(summary), None);
     }
 
     pub fn remove(&mut self, summary: &Summary) {
-        self.remove_row(summary);
+        self.mutate(Some(summary), None, None);
     }
 
-    fn insert_row(&mut self, summary: &Summary) {
-        let key = summary.key();
-        if let Some(parent) = summary.parent.as_ref() {
-            let mut children = self.children.get(parent).cloned().unwrap_or_default();
-            children.insert(key.clone());
+    fn mutate(
+        &mut self,
+        old: Option<&Summary>,
+        new: Option<&Summary>,
+        writes: Option<&AtomicUsize>,
+    ) {
+        let old_parent = old.map(|row| (row.parent.clone(), row.key()));
+        let new_parent = new.map(|row| (row.parent.clone(), row.key()));
+        if old_parent != new_parent {
+            if let Some((Some(parent), key)) = old_parent.as_ref() {
+                self.remove_child(parent, key, writes);
+            }
+            if let Some((Some(parent), key)) = new_parent.as_ref() {
+                self.insert_child(parent, key, writes);
+            }
+        }
+
+        let old_fork =
+            old.map(|row| row.fork_of.as_ref().map(|fork| (fork.key.clone(), fork.seq, row.key())));
+        let new_fork =
+            new.map(|row| row.fork_of.as_ref().map(|fork| (fork.key.clone(), fork.seq, row.key())));
+        if old_fork != new_fork {
+            if let Some(Some((parent, _seq, key))) = old_fork.as_ref() {
+                self.remove_fork(parent, key, writes);
+            }
+            if let Some(Some((parent, seq, key))) = new_fork.as_ref() {
+                self.insert_fork(parent, key, *seq, writes);
+            }
+        }
+
+        let old_folder =
+            old.map(|row| FolderKey::of(row).map(|folder| (folder, SortKey::of(row), row.key())));
+        let new_folder =
+            new.map(|row| FolderKey::of(row).map(|folder| (folder, SortKey::of(row), row.key())));
+        if old_folder != new_folder {
+            if let Some(Some((folder, sort, key))) = old_folder.as_ref() {
+                self.remove_folder(folder, sort, key, writes);
+            }
+            if let Some(Some((folder, sort, key))) = new_folder.as_ref() {
+                self.insert_folder(folder, sort, key, writes);
+            }
+        }
+    }
+
+    fn count(writes: Option<&AtomicUsize>) {
+        if let Some(writes) = writes {
+            writes.fetch_add(1, AtomicOrdering::Relaxed);
+        }
+    }
+
+    fn insert_child(&mut self, parent: &RowKey, key: &RowKey, writes: Option<&AtomicUsize>) {
+        let mut children = self.children.get(parent).cloned().unwrap_or_default();
+        if children.insert(key.clone()).is_none() {
             self.children.insert(parent.clone(), children);
-        }
-        if let Some(fork) = summary.fork_of.as_ref() {
-            let mut forks = self.forks.get(&fork.key).cloned().unwrap_or_default();
-            forks.insert(key.clone(), fork.seq);
-            self.forks.insert(fork.key.clone(), forks);
-        }
-        if let Some(folder) = FolderKey::of(summary) {
-            let mut rows = self.folders.get(&folder).cloned().unwrap_or_default();
-            rows.insert(SortKey::of(summary), key);
-            self.folders.insert(folder, rows);
+            Self::count(writes);
         }
     }
 
-    fn remove_row(&mut self, summary: &Summary) {
-        let key = summary.key();
-        if let Some(parent) = summary.parent.as_ref()
-            && let Some(mut children) = self.children.get(parent).cloned()
-        {
-            children.remove(&key);
+    fn remove_child(&mut self, parent: &RowKey, key: &RowKey, writes: Option<&AtomicUsize>) {
+        let Some(mut children) = self.children.get(parent).cloned() else { return };
+        if children.remove(key).is_some() {
             if children.is_empty() {
                 self.children.remove(parent);
             } else {
                 self.children.insert(parent.clone(), children);
             }
+            Self::count(writes);
         }
-        if let Some(fork) = summary.fork_of.as_ref()
-            && let Some(mut forks) = self.forks.get(&fork.key).cloned()
-        {
-            forks.remove(&key);
+    }
+
+    fn insert_fork(
+        &mut self,
+        parent: &RowKey,
+        key: &RowKey,
+        seq: u64,
+        writes: Option<&AtomicUsize>,
+    ) {
+        let mut forks = self.forks.get(parent).cloned().unwrap_or_default();
+        if forks.get(key).copied() != Some(seq) {
+            forks.insert(key.clone(), seq);
+            self.forks.insert(parent.clone(), forks);
+            Self::count(writes);
+        }
+    }
+
+    fn remove_fork(&mut self, parent: &RowKey, key: &RowKey, writes: Option<&AtomicUsize>) {
+        let Some(mut forks) = self.forks.get(parent).cloned() else { return };
+        if forks.remove(key).is_some() {
             if forks.is_empty() {
-                self.forks.remove(&fork.key);
+                self.forks.remove(parent);
             } else {
-                self.forks.insert(fork.key.clone(), forks);
+                self.forks.insert(parent.clone(), forks);
             }
+            Self::count(writes);
         }
-        if let Some(folder) = FolderKey::of(summary)
-            && let Some(mut rows) = self.folders.get(&folder).cloned()
-        {
-            rows.remove(&SortKey::of(summary));
-            if rows.is_empty() {
-                self.folders.remove(&folder);
-            } else {
-                self.folders.insert(folder, rows);
-            }
+    }
+
+    fn insert_folder(
+        &mut self,
+        folder: &FolderKey,
+        sort: &SortKey,
+        key: &RowKey,
+        writes: Option<&AtomicUsize>,
+    ) {
+        let mut rows = self.folders.get(folder).cloned().unwrap_or_default();
+        if rows.get(sort) != Some(key) {
+            rows.insert(sort.clone(), key.clone());
+            self.folders.insert(folder.clone(), rows);
+            Self::count(writes);
         }
+    }
+
+    fn remove_folder(
+        &mut self,
+        folder: &FolderKey,
+        sort: &SortKey,
+        key: &RowKey,
+        writes: Option<&AtomicUsize>,
+    ) {
+        let Some(mut rows) = self.folders.get(folder).cloned() else { return };
+        if rows.get(sort) != Some(key) {
+            return;
+        }
+        rows.remove(sort);
+        if rows.is_empty() {
+            self.folders.remove(folder);
+        } else {
+            self.folders.insert(folder.clone(), rows);
+        }
+        Self::count(writes);
     }
 
     pub fn children(&self, parent: &RowKey) -> Option<&OrdSet<RowKey>> {
@@ -154,37 +232,6 @@ impl KinTables {
 
     pub fn folder_rows(&self, folder: &FolderKey) -> Option<&OrdMap<SortKey, RowKey>> {
         self.folders.get(folder)
-    }
-
-    /// Breadth-first descendants followed by direct forks.  A visited set is
-    /// mandatory: malformed parent data must terminate rather than loop.
-    pub fn family(&self, root: &RowKey) -> Vec<FamilyItem> {
-        let mut result = Vec::new();
-        let mut seen = OrdSet::new();
-        seen.insert(root.clone());
-        let mut frontier = vec![(root.clone(), 0u16)];
-        while !frontier.is_empty() {
-            let mut next = Vec::new();
-            for (parent, depth) in frontier.drain(..) {
-                let Some(children) = self.children.get(&parent) else { continue };
-                for child in children {
-                    if seen.insert(child.clone()).is_none() {
-                        let child_depth = depth.saturating_add(1);
-                        result.push(FamilyItem { key: child.clone(), depth: child_depth });
-                        next.push((child.clone(), child_depth));
-                    }
-                }
-            }
-            frontier = next;
-        }
-        if let Some(forks) = self.forks.get(root) {
-            for key in forks.keys() {
-                if seen.insert(key.clone()).is_none() {
-                    result.push(FamilyItem { key: key.clone(), depth: 1 });
-                }
-            }
-        }
-        result
     }
 }
 
@@ -199,35 +246,7 @@ mod tests {
     }
 
     #[test]
-    fn family_is_breadth_first_then_forks_and_stops_on_cycles() {
-        let root = row("root", 5);
-        let mut child = row("child", 4);
-        child.parent = Some(root.key());
-        let mut sibling = row("sibling", 3);
-        sibling.parent = Some(root.key());
-        let mut grandchild = row("grandchild", 2);
-        grandchild.parent = Some(child.key());
-        let mut fork = row("fork", 1);
-        fork.fork_of = Some(super::super::ForkOf { key: root.key(), seq: 8 });
-        let mut cycle = row("cycle", 0);
-        cycle.parent = Some(grandchild.key());
-        let mut root = root;
-        root.parent = Some(cycle.key());
-        let mut tables = KinTables::new();
-        for row in [&root, &child, &sibling, &grandchild, &fork, &cycle] {
-            tables.insert(row);
-        }
-        let got = tables.family(&root.key());
-        assert_eq!(
-            got.iter().map(|item| item.key.chat_id.as_ref()).collect::<Vec<_>>(),
-            ["child", "sibling", "grandchild", "cycle", "fork"]
-        );
-        assert_eq!(got[0].depth, 1);
-        assert_eq!(got[2].depth, 2);
-    }
-
-    #[test]
-    fn replacing_a_row_moves_only_its_old_and_new_paths() {
+    fn replacement_only_writes_changed_paths() {
         let mut first = row("chat", 1);
         first.origin = "machine".to_owned();
         first.folder = Some("one".to_owned());
@@ -236,8 +255,57 @@ mod tests {
         second.folder = Some("two".to_owned());
         let mut tables = KinTables::new();
         tables.insert(&first);
-        let moved = tables.replace(Some(&first), Some(&second));
+        let writes = AtomicUsize::new(0);
+        let moved = tables.replace_counted(Some(&first), Some(&second), &writes);
+        assert_eq!(writes.load(AtomicOrdering::Relaxed), 2);
         assert!(moved.folder_rows(&FolderKey::new("machine", "one")).is_none());
         assert_eq!(moved.folder_rows(&FolderKey::new("machine", "two")).unwrap().len(), 1);
+
+        let mut title = second.clone();
+        title.title.push('!');
+        let writes = AtomicUsize::new(0);
+        let unchanged = moved.replace_counted(Some(&second), Some(&title), &writes);
+        assert_eq!(writes.load(AtomicOrdering::Relaxed), 0);
+        assert_eq!(unchanged, moved);
+    }
+
+    #[test]
+    fn randomized_lifecycle_rebuild_has_no_empty_sets() {
+        let mut seed = 0x5e_u64;
+        let mut rows = std::collections::BTreeMap::new();
+        let mut tables = KinTables::new();
+        for step in 0..10_000 {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let id = format!("chat-{}", (seed >> 32) as usize % 64);
+            let old = rows.get(&id).cloned();
+            let writes = AtomicUsize::new(0);
+            if seed & 7 == 0 {
+                if let Some(old) = old.as_ref() {
+                    tables = tables.replace_counted(Some(old), None, &writes);
+                    rows.remove(&id);
+                }
+            } else {
+                let mut next = old.clone().unwrap_or_else(|| row(&id, step));
+                next.title = format!("title-{step}");
+                next.last_activity = seed;
+                next.parent =
+                    (seed & 3 != 0).then(|| RowKey::new("local", format!("parent-{}", seed % 8)));
+                next.fork_of = (seed & 7 == 1).then(|| super::super::ForkOf {
+                    key: RowKey::new("local", format!("fork-{}", seed % 8)),
+                    seq: seed,
+                });
+                next.folder = (seed & 3 == 1).then(|| format!("folder-{}", seed % 4));
+                tables = tables.replace_counted(old.as_ref(), Some(&next), &writes);
+                rows.insert(id, next);
+            }
+            let mut rebuilt = KinTables::new();
+            for row in rows.values() {
+                rebuilt.insert(row);
+            }
+            assert_eq!(tables, rebuilt, "step {step}");
+            assert!(tables.children.values().all(|set| !set.is_empty()));
+            assert!(tables.forks.values().all(|map| !map.is_empty()));
+            assert!(tables.folders.values().all(|map| !map.is_empty()));
+        }
     }
 }

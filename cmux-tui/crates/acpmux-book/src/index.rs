@@ -23,11 +23,18 @@ use std::ops::Bound::{Excluded, Unbounded};
 mod codec;
 mod compaction;
 mod edition;
+mod family_pages;
 mod kin;
+pub use family_pages::CursorGone;
 #[cfg(test)]
 mod kin_contract_tests;
+#[cfg(test)]
+mod kin_gates;
+#[cfg(test)]
+mod kin_lifecycle_tests;
 mod log;
 mod pages;
+mod table_pages;
 pub use pages::{IndexPage, ListFilter, ReadSide};
 #[cfg(test)]
 mod compaction_tests;
@@ -36,7 +43,7 @@ mod snapshot;
 mod storage_tests;
 pub use compaction::{Compaction, CompactionResult};
 pub use edition::IndexEdition;
-pub use kin::{FamilyItem, FolderKey, KinTables};
+pub use kin::{FolderKey, KinTables};
 pub use log::{IndexLog, replay_generation_logs, replay_log, replay_log_from};
 pub use snapshot::{DiskSnapshot, SnapshotRows, SortedSnapshot};
 
@@ -93,10 +100,6 @@ pub struct Summary {
     pub fork_of: Option<ForkOf>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub folder: Option<String>,
-    /// Present only on a `family` response. It is never persisted in the
-    /// index record and is ignored when comparing summaries.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub depth: Option<u16>,
     #[serde(default = "empty_object")]
     pub extra: Box<RawValue>,
 }
@@ -148,7 +151,6 @@ impl Clone for Summary {
             parent: self.parent.clone(),
             fork_of: self.fork_of.clone(),
             folder: self.folder.clone(),
-            depth: self.depth,
             extra: self.extra.to_owned(),
         }
     }
@@ -170,7 +172,6 @@ impl Summary {
             parent: None,
             fork_of: None,
             folder: None,
-            depth: None,
             extra: empty_object(),
         }
     }
@@ -230,7 +231,6 @@ impl Summary {
             parent,
             fork_of,
             folder,
-            depth: _,
             extra,
         } = self;
         chat_id == &other.chat_id
@@ -256,9 +256,6 @@ impl Summary {
     /// an extension that cannot fit is represented by the empty object rather
     /// than parsed or allowed to expand the list frame.
     pub fn bounded(mut self) -> Self {
-        // `depth` is response-only metadata and must never enter a durable
-        // summary when a caller feeds a page row back through the index.
-        self.depth = None;
         self.title = truncate_utf8(&self.title, MAX_TITLE_BYTES);
         self.harness = truncate_utf8(&self.harness, MAX_FIELD_BYTES);
         self.state = truncate_utf8(&self.state, MAX_FIELD_BYTES);
