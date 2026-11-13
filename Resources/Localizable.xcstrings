@@ -675141,55 +675141,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ paused (status=%2$@); cmux vm resume %1$@ wakes it"
+            "value": "%1$@ paused (status=%2$@); cmux vm resume %3$@ wakes it"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ pausiert (Status=%2$@); cmux vm resume %1$@ weckt die Maschine auf"
+            "value": "%1$@ pausiert (Status=%2$@); cmux vm resume %3$@ weckt die Maschine auf"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ mis en pause (état=%2$@) ; cmux vm resume %1$@ le réveille"
+            "value": "%1$@ mis en pause (état=%2$@) ; cmux vm resume %3$@ le réveille"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تم إيقاف %1$@ مؤقتًا (الحالة=%2$@)؛ يشغّل cmux vm resume %1$@ الآلة مجددًا"
+            "value": "تم إيقاف %1$@ مؤقتًا (الحالة=%2$@)؛ يشغّل cmux vm resume %3$@ الآلة مجددًا"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ pausado (estado=%2$@); cmux vm resume %1$@ lo reactiva"
+            "value": "%1$@ pausado (estado=%2$@); cmux vm resume %3$@ lo reactiva"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ 已暫停（狀態=%2$@）；cmux vm resume %1$@ 會喚醒它"
+            "value": "%1$@ 已暫停（狀態=%2$@）；cmux vm resume %3$@ 會喚醒它"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ 已暂停（状态=%2$@）；cmux vm resume %1$@ 会唤醒它"
+            "value": "%1$@ 已暂停（状态=%2$@）；cmux vm resume %3$@ 会唤醒它"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ 일시 중지됨(상태=%2$@); cmux vm resume %1$@ 명령으로 깨울 수 있습니다"
+            "value": "%1$@ 일시 중지됨(상태=%2$@); cmux vm resume %3$@ 명령으로 깨울 수 있습니다"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ を一時停止しました（状態=%2$@）。cmux vm resume %1$@ で起動します"
+            "value": "%1$@ を一時停止しました（状態=%2$@）。cmux vm resume %3$@ で起動します"
           }
         }
       }

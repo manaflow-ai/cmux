@@ -14,12 +14,8 @@ extension CMUXCLI {
         let machines = (listResponse["vms"] as? [[String: Any]])
             ?? (listResponse["machines"] as? [[String: Any]])
             ?? []
-        let exactIDs = machines.compactMap { machine -> String? in
-            guard let id = machine["id"] as? String, id == selector else { return nil }
-            return id
-        }
-        if let exactID = exactIDs.first {
-            return exactID
+        if machines.contains(where: { $0["id"] as? String == selector }) {
+            return selector
         }
 
         var labelMatches = Set<String>()
@@ -44,7 +40,6 @@ extension CMUXCLI {
 
     static func isVMMachineNotFound(_ error: CLIError) -> Bool {
         error.vmBackendCode == "vm_not_found"
-            || error.vmBackendHTTPStatus == 404
             || error.v2Code == "vm_not_found"
     }
 }
