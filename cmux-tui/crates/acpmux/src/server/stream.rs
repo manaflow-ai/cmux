@@ -51,46 +51,37 @@ pub(super) async fn serve_stream(
     let (out_tx, out_rx) = mpsc::channel::<String>(4096);
     let (last_tx, last_rx) = oneshot::channel();
     let limits = Limits { line: MAX_LINE_BYTES, small: SMALL_LINE_BYTES };
-    if let Some(v2) = v2 {
-        let reader = read_lines(rd, in_tx, last_tx, limits, Some(&v2));
-        let writer = write_lines(wr, out_rx, last_rx);
-        let serving = serve_connection_from(
-            hub,
-            in_rx,
-            out_tx,
-            Origin::Local,
-            ConnAuth::LocalSocket,
-            peer,
-            provisioner,
-            socket_peer,
-            None,
-            None,
-            None,
-            None,
+    let reader_v2 = v2.clone();
+    let reader =
+        tokio::spawn(
+            async move { read_lines(rd, in_tx, last_tx, limits, reader_v2.as_deref()).await },
         );
-        let (upgrade, wr, serving_result) = tokio::join!(reader, writer, serving);
-        if let (Some(upgrade), wr, Ok(())) = (upgrade, wr, serving_result) {
-            let _ = upgrade.serve(wr, &v2, daemon_id).await;
-        }
-    } else {
-        // Preserve v1's independent reader/writer tasks exactly when v2 is off.
-        tokio::spawn(read_lines(rd, in_tx, last_tx, limits, None::<&acpmux_core::life::V2>));
-        tokio::spawn(write_lines(wr, out_rx, last_rx));
-        serve_connection_from(
-            hub,
-            in_rx,
-            out_tx,
-            Origin::Local,
-            ConnAuth::LocalSocket,
-            peer,
-            provisioner,
-            socket_peer,
-            None,
-            None,
-            None,
-            None,
-        )
-        .await;
+    let may_upgrade = v2.is_some();
+    let writer = tokio::spawn(async move {
+        let wr = write_lines(wr, out_rx, last_rx).await;
+        // With v2 disabled, the task drops its write half just as v1 always did.
+        may_upgrade.then_some(wr)
+    });
+    serve_connection_from(
+        hub,
+        in_rx,
+        out_tx,
+        Origin::Local,
+        ConnAuth::LocalSocket,
+        peer,
+        provisioner,
+        socket_peer,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await;
+    if let Some(v2) = v2
+        && let Ok(Some(upgrade)) = reader.await
+        && let Ok(Some(wr)) = writer.await
+    {
+        let _ = upgrade.serve(wr, &v2, daemon_id).await;
     }
 }
 

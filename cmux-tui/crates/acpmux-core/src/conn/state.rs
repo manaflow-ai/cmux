@@ -65,9 +65,14 @@ pub(super) struct SubscriptionState {
     pub control: Arc<SubscriptionControl>,
 }
 #[derive(Debug)]
+enum NoticeKind {
+    Dropped,
+    SourceFailed,
+}
+#[derive(Debug)]
 enum Queued {
     Data(FrameLease),
-    Notice { sid: String, control: Arc<SubscriptionControl>, held: usize },
+    Notice { sid: String, control: Arc<SubscriptionControl>, held: usize, kind: NoticeKind },
 }
 #[derive(Debug)]
 pub struct FrameLease {
@@ -306,15 +311,14 @@ impl ConnectionState {
     pub fn take(&mut self) -> Option<FrameLease> {
         match self.queue.pop_front()? {
             Queued::Data(lease) => Some(lease),
-            Queued::Notice { sid, control, held } => {
+            Queued::Notice { sid, control, held, kind } => {
                 // The previous in-flight frame has finished by now, including
                 // a frame that was partly written when this subscription ended.
                 let cursor = control
                     .known
                     .load(Ordering::Acquire)
                     .then(|| Cursor(control.written.load(Ordering::Acquire)));
-                let frame =
-                    Frame::json(FrameKind::Dropped, &Dropped { sid: sid.clone(), cursor }).ok()?;
+                let frame = notice_frame(&sid, cursor, &kind).ok()?;
                 Some(FrameLease {
                     sid: Some(sid),
                     control: Some(control),
@@ -354,20 +358,31 @@ impl ConnectionState {
         self.publish_metrics();
     }
 
+    pub(super) fn fail_from(&mut self, sid: &str, control: &Arc<SubscriptionControl>) {
+        if self.subscriptions.get(sid).is_some_and(|sub| Arc::ptr_eq(&sub.control, control)) {
+            self.end_with_notice(sid, NoticeKind::SourceFailed);
+            self.wake.notify_one();
+        }
+    }
     fn drop_subscription(&mut self, sid: &str) -> Cursor {
+        self.end_with_notice(sid, NoticeKind::Dropped)
+    }
+    fn end_with_notice(&mut self, sid: &str, kind: NoticeKind) -> Cursor {
         let Some(sub) = self.subscriptions.remove(sid) else { return Cursor(0) };
         sub.control.end();
         self.remove_queued_for(&sub.control);
         let cursor = Cursor(sub.control.written.load(Ordering::Acquire));
         self.notices += 1;
         self.ended.push(sid.to_owned());
-        let held = Frame::json(
-            FrameKind::Dropped,
-            &Dropped { sid: sid.to_owned(), cursor: Some(Cursor(u64::MAX)) },
-        )
-        .map_or(0, |frame| frame.encoded_len());
+        let held =
+            notice_frame(sid, Some(Cursor(u64::MAX)), &kind).map_or(0, |frame| frame.encoded_len());
         self.outside = self.outside.saturating_add(held);
-        self.queue.push_back(Queued::Notice { sid: sid.to_owned(), control: sub.control, held });
+        self.queue.push_back(Queued::Notice {
+            sid: sid.to_owned(),
+            control: sub.control,
+            held,
+            kind,
+        });
         self.publish_metrics();
         cursor
     }
@@ -390,5 +405,23 @@ impl Drop for ConnectionState {
         self.metrics.queued.store(0, Ordering::Relaxed);
         self.metrics.outside.store(0, Ordering::Relaxed);
         self.metrics.notices.store(0, Ordering::Relaxed);
+    }
+}
+
+fn notice_frame(
+    sid: &str,
+    cursor: Option<Cursor>,
+    kind: &NoticeKind,
+) -> Result<Frame, crate::wire::FrameError> {
+    match kind {
+        NoticeKind::Dropped => {
+            Frame::json(FrameKind::Dropped, &Dropped { sid: sid.to_owned(), cursor })
+        }
+        NoticeKind::SourceFailed => Frame::json(
+            FrameKind::Error,
+            &serde_json::json!({
+                "method": "sub", "sid": sid, "code": "source_failed",
+            }),
+        ),
     }
 }

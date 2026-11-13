@@ -338,7 +338,6 @@ async fn upgrade_read_ahead_reaches_hello_then_list_window() {
         }
         let reply: serde_json::Value = serde_json::from_slice(&reply).unwrap();
         assert_eq!(reply.pointer("/result/upgrade"), Some(&json!(true)));
-        client.write_all(&hello.encode()).await.unwrap();
         assert_eq!(v2_frame(&mut client).await.kind, FrameKind::Hello);
         let sub = Frame::json(
             FrameKind::Request,
@@ -384,4 +383,84 @@ fn upgrade_canonicalizes_repeated_surfaces() {
     let (_, surfaces) =
         v2_upgrade(&upgrade_line(json!(["chat", "list", "chat", "list"])), &v2).unwrap();
     assert_eq!(surfaces, ["list", "chat"]);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn hello_run_id_matches_status_on_a_second_connection() {
+    use acpmux_core::wire::{Frame, FrameKind, HelloReply};
+    use std::sync::Arc;
+    use tokio::io::AsyncBufReadExt;
+    tokio::time::timeout(WAIT, async {
+        let mut config = crate::config::Config::default();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let store =
+            crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = crate::hub::Hub::new(config, store);
+        let (list, writer) = acpmux_core::hub::Hub::new(SummaryIndex::new());
+        let v2 = Arc::new(V2::new(list, writer));
+        let (mut client, server) = tokio::net::UnixStream::pair().unwrap();
+        let upgraded = tokio::spawn(super::serve_stream(
+            hub.clone(),
+            server,
+            None,
+            false,
+            crate::sender_harness::SocketPeer::Unknown,
+            Some(v2),
+        ));
+        let hello = Frame::json(
+            FrameKind::Request,
+            &json!({
+                "method":"hello", "params":{"clientKind":"test", "protocol":2}
+            }),
+        )
+        .unwrap();
+        let mut combined = upgrade_line(json!(["list"])).into_bytes();
+        combined.extend(hello.encode());
+        client.write_all(&combined).await.unwrap();
+        // Keep any read-ahead in this reader: it includes hello's framed reply.
+        let mut client = tokio::io::BufReader::new(client);
+        let mut line = String::new();
+        client.read_line(&mut line).await.unwrap();
+        let reply: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(reply.pointer("/result/upgrade"), Some(&json!(true)));
+        let frame = v2_frame(&mut client).await;
+        assert_eq!(frame.kind, FrameKind::Hello);
+        let hello: HelloReply = frame.decode_json().unwrap();
+
+        let (mut status_client, server) = tokio::net::UnixStream::pair().unwrap();
+        let status_task = tokio::spawn(super::serve_stream(
+            hub.clone(),
+            server,
+            None,
+            false,
+            crate::sender_harness::SocketPeer::Unknown,
+            None,
+        ));
+        status_client
+            .write_all(
+                crate::rpc::Message::request(1, crate::rpc::method::MUX_STATUS, json!({}))
+                    .to_line()
+                    .as_bytes(),
+            )
+            .await
+            .unwrap();
+        let mut status_client = tokio::io::BufReader::new(status_client);
+        let status = loop {
+            line.clear();
+            assert_ne!(status_client.read_line(&mut line).await.unwrap(), 0);
+            let reply: serde_json::Value = serde_json::from_str(&line).unwrap();
+            if reply.get("id") == Some(&json!(1)) {
+                break reply;
+            }
+        };
+        assert_eq!(status.pointer("/result/personInstance"), Some(&json!(hello.daemon_id)));
+        assert_eq!(hello.daemon_id, hub.run_id());
+        drop(client);
+        drop(status_client);
+        upgraded.await.unwrap();
+        status_task.await.unwrap();
+    })
+    .await
+    .unwrap();
 }

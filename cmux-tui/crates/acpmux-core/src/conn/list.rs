@@ -217,7 +217,10 @@ async fn pump(
             sub.cursor = Some(*resume.borrow_and_update());
             sub.anchor = None;
             sub.edition = Some(0);
-            let Ok(delivery) = open(&hub, &sub) else { return };
+            let Ok(delivery) = open(&hub, &sub) else {
+                sink.fail(&sub.sid);
+                return;
+            };
             // The frame is moved into offer and released on NotFed BEFORE any await.
             let outcome = held.offer(sink.as_ref(), &sub.sid, delivery.first, delivery.cursor);
             match outcome {
@@ -240,7 +243,10 @@ async fn pump(
             sub.cursor = Some(*resume.borrow());
             sub.anchor = None;
             sub.edition = Some(0);
-            let Ok(delivery) = open(&hub, &sub) else { return };
+            let Ok(delivery) = open(&hub, &sub) else {
+                sink.fail(&sub.sid);
+                return;
+            };
             let outcome = held.offer(sink.as_ref(), &sub.sid, delivery.first, delivery.cursor);
             match outcome {
                 Offer::Taken => {
@@ -261,7 +267,10 @@ async fn pump(
                 resume.mark_changed();
                 continue;
             }
-            item = receiver.recv() => match item { Some(item) => item, None => return },
+            item = receiver.recv() => match item {
+                Some(item) => item,
+                None => { sink.fail(&sub.sid); return; }
+            },
         };
         let result = if matches!(item, ListItem::Lagged { .. }) {
             sub.cursor = None;
@@ -276,7 +285,10 @@ async fn pump(
         } else {
             event_frame(&sub.sid, item, mode)
         };
-        let Ok((frame, cursor, next)) = result else { return };
+        let Ok((frame, cursor, next)) = result else {
+            sink.fail(&sub.sid);
+            return;
+        };
         match held.offer(sink.as_ref(), &sub.sid, frame, cursor) {
             Offer::Taken => {
                 receiver.reposition(cursor.0);

@@ -573,7 +573,7 @@ impl AsyncWrite for WriteThenFail {
 #[tokio::test]
 async fn read_and_write_errors_release_every_source_subscriber() {
     let input: Vec<_> = [
-        json!({"method":"hello","params":{"protocol":2}}),
+        json!({"method":"hello","params":{"clientKind":"test","protocol":2}}),
         json!({"method":"sub","params":{"sid":"s","stream":"list"}}),
     ]
     .into_iter()
@@ -776,50 +776,131 @@ async fn not_ready_then_window_uses_the_same_subscription_until_unsub() {
     task.await.unwrap().unwrap();
 }
 
+fn fill_to_request_boundary(state: &mut ConnectionState) {
+    for i in 0..3 {
+        let sid = format!("prefill-{i}");
+        state.subscribe(&sid, Cursor(0)).unwrap();
+        assert_eq!(state.offer(&sid, frame(MAX_FRAME_BYTES - 5), Cursor(1)), Offer::Taken);
+    }
+    assert_eq!(state.queued_bytes(), crate::wire::CONNECTION_BUDGET_BYTES - MAX_FRAME_BYTES);
+}
+
 #[test]
 fn subscription_first_frame_consumes_its_request_reserve() {
-    let mut state = ConnectionState::new(crate::wire::MAX_FRAME_BYTES * 2);
-    state.subscribe("s", Cursor(0)).unwrap();
-    let control = state.control("s").unwrap();
-    assert!(state.reserve_reply());
-    state.begin_subscription_reply(control);
-    let frame = frame(crate::wire::MAX_FRAME_BYTES - 8);
-    assert_eq!(state.offer("s", frame, Cursor(1)), Offer::Taken);
-    assert!(state.queued_bytes() <= crate::wire::CONNECTION_BUDGET_BYTES);
-    state.release_reply();
+    let mut state = ConnectionState::default();
+    fill_to_request_boundary(&mut state);
+    for i in 0..20 {
+        // A reconnect burst waits for one frame's room, then transfers that
+        // request's reserve to its own full-sized window without an early drop.
+        assert!(state.reserve_reply());
+        let sid = format!("reconnect-{i}");
+        state.subscribe(&sid, Cursor(0)).unwrap();
+        state.begin_subscription_reply(state.control(&sid).unwrap());
+        let window = Frame::new(FrameKind::Window, vec![0; MAX_FRAME_BYTES - 5]).unwrap();
+        assert_eq!(state.offer(&sid, window, Cursor(1)), Offer::Taken);
+        assert_eq!(state.queued_bytes(), crate::wire::CONNECTION_BUDGET_BYTES);
+        state.release_reply();
+        assert!(!state.reserve_reply());
+        let written = state.take().unwrap();
+        state.written(&written);
+    }
+    assert_eq!(state.metrics.notices(), 0);
+    assert_eq!(state.subscription_count(), 23);
+    while let Some(written) = state.take() {
+        state.written(&written);
+    }
+    assert_eq!(state.queued_bytes(), 0);
 }
 
 #[test]
 fn other_subscription_still_sees_the_request_reserve() {
-    let mut state = ConnectionState::new(crate::wire::MAX_FRAME_BYTES * 2);
+    let mut state = ConnectionState::default();
+    fill_to_request_boundary(&mut state);
     state.subscribe("s", Cursor(0)).unwrap();
     state.subscribe("other", Cursor(0)).unwrap();
-    let control = state.control("s").unwrap();
     assert!(state.reserve_reply());
-    state.begin_subscription_reply(control);
-    assert_eq!(
-        state.offer("other", frame(crate::wire::MAX_FRAME_BYTES - 8), Cursor(1)),
-        Offer::Taken
-    );
-    assert!(matches!(
-        state.offer("other", frame(16), Cursor(2)),
-        Offer::NotFed | Offer::Dropped { .. }
-    ));
+    state.begin_subscription_reply(state.control("s").unwrap());
+    assert_eq!(state.offer("s", frame(32), Cursor(1)), Offer::Taken);
+    // The own offer consumed 37 reserve bytes. Every other offer must still
+    // count the remaining reserve, regardless of its own available credit.
+    assert!(matches!(state.offer("other", frame(16), Cursor(2)), Offer::Dropped { .. }));
     state.release_reply();
+    state.subscribe("other", Cursor(0)).unwrap();
+    assert_eq!(state.offer("other", frame(16), Cursor(2)), Offer::Taken);
 }
 
 #[test]
 fn subscription_first_frame_past_remaining_budget_drops_with_named_cursor() {
-    let mut state = ConnectionState::new(crate::wire::MAX_FRAME_BYTES + 100);
+    let mut state = ConnectionState::new(MAX_FRAME_BYTES + 100);
     state.subscribe("s", Cursor(7)).unwrap();
     let control = state.control("s").unwrap();
     assert!(state.reserve_reply());
     state.begin_subscription_reply(control);
-    assert!(matches!(
-        state.offer("s", frame(crate::wire::MAX_FRAME_BYTES - 8), Cursor(8)),
-        Offer::Taken
-    ));
+    assert_eq!(state.offer("s", frame(MAX_FRAME_BYTES - 8), Cursor(8)), Offer::Taken);
     assert!(matches!(state.offer("s", frame(100), Cursor(9)), Offer::Dropped { .. }));
     assert_eq!(state.subscription_count(), 0);
+    assert_eq!(state.queued_bytes(), 0);
     state.release_reply();
+    let notice = state.take().unwrap();
+    let dropped: crate::wire::Dropped =
+        Frame::from_encoded(&notice.bytes).unwrap().decode_json().unwrap();
+    assert_eq!(dropped.cursor, Some(Cursor(7)));
+    state.written(&notice);
+    assert_eq!(state.metrics.notices(), 0);
+    state.subscribe("s", Cursor(7)).unwrap();
+    assert_eq!(state.offer("s", frame(16), Cursor(8)), Offer::Taken);
+}
+
+#[tokio::test]
+async fn source_failure_after_first_frame_ends_only_its_generation() {
+    let source = Arc::new(DeferredSource::default());
+    let driver = source.clone();
+    let (mut client, server) = tokio::io::duplex(4096);
+    let (rd, wr) = tokio::io::split(server);
+    let task = tokio::spawn(async move { run(rd, wr, driver, "test", &["chat".into()]).await });
+    hello(&mut client).await;
+    let request = json!({"method":"sub","params":{"sid":"s","stream":"chat:x"}});
+    send(&mut client, request.clone()).await;
+    assert_eq!(receive(&mut client).await.kind, FrameKind::Error); // first: not_ready
+    let old_sink = source.0.lock().unwrap().clone().unwrap();
+    old_sink.fail("s"); // the source cannot construct its second frame
+    let error = receive(&mut client).await;
+    assert_eq!(error.kind, FrameKind::Error);
+    assert_eq!(
+        error.decode_json::<serde_json::Value>().unwrap(),
+        json!({
+            "method":"sub", "sid":"s", "code":"source_failed"
+        })
+    );
+    assert!(source.0.lock().unwrap().is_none());
+    assert_eq!(old_sink.metrics().notices(), 0);
+    send(&mut client, request).await;
+    assert_eq!(receive(&mut client).await.kind, FrameKind::Error); // new generation
+    let new_sink = source.0.lock().unwrap().clone().unwrap();
+    old_sink.fail("s"); // stale failure may not end its replacement
+    let (window, cursor) = EditionSource::default().window("s");
+    assert_eq!(new_sink.offer("s", window, cursor), Offer::Taken);
+    assert_eq!(receive(&mut client).await.kind, FrameKind::Window);
+    drop(client);
+    task.await.unwrap().unwrap();
+    assert!(source.0.lock().unwrap().is_none());
+}
+
+#[test]
+fn source_failure_frees_queued_frames_and_uses_a_bounded_notice_slot() {
+    let mut state = ConnectionState::new(128);
+    state.subscribe("s", Cursor(7)).unwrap();
+    let control = state.control("s").unwrap();
+    assert_eq!(state.offer("s", frame(100), Cursor(8)), Offer::Taken);
+    state.fail_from("s", &control);
+    state.fail_from("s", &control);
+    assert_eq!(state.subscription_count(), 0);
+    assert_eq!(state.queued_bytes(), 0);
+    assert_eq!(state.metrics.notices(), 1);
+    assert!(state.metrics.outside_budget_bytes() > 0);
+    let notice = state.take().unwrap();
+    assert_eq!(Frame::from_encoded(&notice.bytes).unwrap().kind, FrameKind::Error);
+    state.written(&notice);
+    assert_eq!(state.metrics.notices(), 0);
+    assert_eq!(state.metrics.outside_budget_bytes(), 0);
 }

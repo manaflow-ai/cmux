@@ -51,6 +51,8 @@ pub enum ConnError {
 /// credit. No source task is allowed to await this method.
 pub trait OfferSink: Send + Sync {
     fn offer(&self, sid: &str, frame: Frame, cursor: Cursor) -> Offer;
+    /// End this generation with a bounded, correlated source_failed notice.
+    fn fail(&self, sid: &str);
     fn control(&self, sid: &str) -> Option<Arc<SubscriptionControl>>;
     fn metrics(&self) -> Arc<ConnectionMetrics>;
 }
@@ -112,6 +114,11 @@ impl OfferSink for ConnectionSink {
         self.state.lock().map_or(Offer::UnknownSubscription, |mut state| {
             state.offer_from(sid, &self.control, frame, cursor)
         })
+    }
+    fn fail(&self, sid: &str) {
+        if let Ok(mut state) = self.state.lock() {
+            state.fail_from(sid, &self.control);
+        }
     }
     fn control(&self, sid: &str) -> Option<Arc<SubscriptionControl>> {
         self.state.lock().ok()?.control(sid).filter(|c| Arc::ptr_eq(c, &self.control))
@@ -230,7 +237,7 @@ async fn run_connection<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
                     }
                     continue;
                 }
-                let result = process_frame(&state, source.clone(), &frame, &mut hello_seen, surfaces);
+                let result = process_frame(&state, source.clone(), &frame, &mut hello_seen, surfaces, &daemon_id);
                 if let Err(error) = result {
                     let reply = error_frame(&frame, &error)?;
                     state.lock().map_err(|_| poisoned())?.offer_reply(reply)?;
@@ -277,6 +284,7 @@ fn process_frame(
     frame: &Frame,
     hello_seen: &mut bool,
     surfaces: &[String],
+    daemon_id: &str,
 ) -> Result<(), ConnError> {
     if frame.kind != FrameKind::Request {
         return Err(ConnError::InvalidRequest("unknown request kind".into()));
@@ -297,7 +305,7 @@ fn process_frame(
             state.set_identity(hello.identity.as_deref())?;
             let reply = Frame::json(
                 FrameKind::Hello,
-                &HelloReply { daemon_id: daemon_id.clone(), limits: Limits::default() },
+                &HelloReply { daemon_id: daemon_id.to_owned(), limits: Limits::default() },
             )?;
             state.offer_reply(reply)?;
             *hello_seen = true;

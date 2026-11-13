@@ -39,7 +39,7 @@ async fn receive(r: &mut (impl AsyncRead + Unpin)) -> Frame {
     .unwrap()
 }
 async fn hello(client: &mut UnixStream) {
-    request(client, json!({"method":"hello","params":{"protocol":2}})).await;
+    request(client, json!({"method":"hello","params":{"clientKind":"test","protocol":2}})).await;
     assert_eq!(receive(client).await.kind, FrameKind::Hello);
 }
 async fn sub(client: &mut UnixStream, sid: &str, cursor: Option<u64>) {
@@ -390,7 +390,8 @@ async fn resume_marks(shape: acpmux::god_fixture::Shape) -> usize {
     let cursor = hub.snapshot().seq();
     let (mut client, source, task) = pair(hub.clone());
     hello(&mut client).await;
-    let frame = sub(&mut client, "caught-up", Some(cursor)).await;
+    sub(&mut client, "caught-up", Some(cursor)).await;
+    let frame = receive(&mut client).await;
     let delta: DeltaFrame<Summary> = frame.decode_json().unwrap();
     assert_eq!(frame.kind, FrameKind::Delta);
     assert_eq!(delta.replay, Some(ReplayMark::End));
