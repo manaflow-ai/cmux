@@ -5,16 +5,21 @@ test account, each started from its Mac's own cmux (run.sh), so the host inherit
 Screen Recording and Accessibility grants.
 
   live.py --tag TAG --host SSH --viewer SSH --out DIR [--relay-only] [--input] [--seconds 20]
-          [--motion MARKER_BIN]
+          [--motion MARKER_BIN] --source-readiness SOURCE_READINESS.json
 
 Steps: launch both apps (unless their sockets answer), wait for both to be signed in, share
 the host, connect the viewer (full control), approve on the host (always), wait for a picture,
-then sample the viewer's stats once a second (path, round trip, fps, throughput, drops). With
+then sample the viewer's stats once a second (path, explicit transport marker, round trip, fps, throughput, drops). With
 --input it clicks through the session (debug.mac_screen input) while InputProbe on the host
 logs what arrives, and records window snapshots of the viewer for a video. --relay-only runs
-the session with the viewer's Relay Only on. Writes DIR/result.json and the pulled files.
+the session with the viewer's Relay Only on. The source readiness JSON must be fresh for this run;
+the adapter takes the common viewer snapshot only after it matches the selected pane's window,
+approved hub session/scope, and an explicit transport marker (`rd_wg/1`, `rd_link/1`, or `webrtc`).
+A generic `path` never proves transport. Missing proof leaves `comparison_ready=false` and skips
+the comparison snapshot. Writes DIR/result.json and the pulled files.
 """
-import argparse, json, os, shlex, subprocess, sys, time
+import argparse, hashlib, json, os, shlex, subprocess, sys, time
+from pathlib import Path
 
 p = argparse.ArgumentParser()
 p.add_argument("--tag", required=True)
@@ -27,9 +32,12 @@ p.add_argument("--seconds", type=int, default=20)
 p.add_argument("--motion", help="the marker app on the host, run with --motion during the stats")
 p.add_argument("--host-frame", default="1300,80,600,500")
 p.add_argument("--viewer-frame", default="0,0,1500,950")
+p.add_argument("--source-readiness", help="fresh JSON {nonce, ready, issued_unix_ms} from the scene observer")
 o = p.parse_args()
 os.makedirs(o.out, exist_ok=True)
-result = {"tag": o.tag, "host": o.host, "viewer": o.viewer, "relay_only": o.relay_only, "steps": []}
+run_started_ms = time.time_ns() // 1_000_000
+result = {"tag": o.tag, "host": o.host, "viewer": o.viewer, "relay_only": o.relay_only,
+          "comparison_ready": False, "steps": []}
 
 
 def log(step, ok, **detail):
@@ -124,6 +132,72 @@ def tab():
     return rows[0] if rows else {}
 
 
+def source_readiness():
+    """Load the scene's fresh nonce; an absent/stale proof must fail closed."""
+    if not o.source_readiness:
+        return {"ok": False, "error": "source readiness proof was not supplied"}
+    try:
+        proof = json.loads(Path(o.source_readiness).read_text())
+    except (OSError, ValueError) as error:
+        return {"ok": False, "error": f"source readiness proof unreadable: {error}"}
+    nonce = proof.get("nonce")
+    issued = proof.get("issued_unix_ms")
+    if proof.get("ready") is not True or not isinstance(nonce, str) or not nonce or not isinstance(issued, (int, float)):
+        return {"ok": False, "error": "source readiness needs ready=true, nonce, and issued_unix_ms"}
+    if issued < run_started_ms:
+        return {"ok": False, "error": "source readiness nonce is stale", "issued_unix_ms": issued}
+    return {"ok": True, "nonce_sha256": hashlib.sha256(nonce.encode()).hexdigest(),
+            "issued_unix_ms": issued}
+
+
+def pane_attestation(row, host_id):
+    """Bind the observer to the approved production pane and an explicit transport marker.
+
+    `path` is a diagnostic label only. The transport marker is emitted by the session's
+    DEBUG getter, so this adapter never turns a generic path into an rd/1 claim.
+    """
+    errors = []
+    if row.get("window_attestation") is not True or not row.get("window_pid") or not row.get("window_id"):
+        errors.append("selected pane has no valid window attestation")
+    if not isinstance(row.get("content_rect_points"), dict) or row.get("geometry_origin") != "bottom-left":
+        errors.append("selected pane has no AppKit bottom-left content geometry")
+    if row.get("host_device") != host_id:
+        errors.append("selected pane is bound to a different host device")
+    if not row.get("hub_session"):
+        errors.append("selected pane has no approved hub session")
+    if row.get("session_scope") != "full":
+        errors.append("selected pane is not the approved full-control scope")
+    if row.get("phase") != "connected" or row.get("has_frame") is not True:
+        errors.append("selected pane is not connected with a frame")
+    if row.get("transport") not in {"rd_wg/1", "rd_link/1", "webrtc"}:
+        errors.append("selected transport attestation is missing or invalid")
+    return {"ok": not errors, "errors": errors,
+            "window_pid": row.get("window_pid"), "window_id": row.get("window_id"),
+            "content_rect_points": row.get("content_rect_points"),
+            "geometry_coordinate_space": row.get("geometry_coordinate_space"),
+            "geometry_origin": row.get("geometry_origin"),
+            "host_device": row.get("host_device"), "hub_session": row.get("hub_session"),
+            "session_scope": row.get("session_scope"), "transport": row.get("transport"),
+            "path_diagnostic": row.get("path")}
+
+
+def observe_pane(row, host_id):
+    """Run the common viewer snapshot only after source and pane evidence agree."""
+    source = source_readiness()
+    pane = pane_attestation(row, host_id)
+    ready = source["ok"] and pane["ok"]
+    evidence = {"comparison_ready": False, "source": source, "pane": pane}
+    if ready:
+        viewer_home = ssh(o.viewer, 'printf %s "$HOME"')
+        path = f"{viewer_home}/rd-hub-rig/viewer-{o.tag}.png"
+        evidence["observer"] = rpc(o.viewer, "debug.window_snapshot", {"path": path})
+        evidence["observer_path"] = path
+        evidence["comparison_ready"] = "error" not in evidence["observer"]
+    else:
+        evidence["observer"] = {"skipped": "source or pane readiness was incomplete"}
+    return evidence
+
+
 def approved_and_streaming():
     for request in rpc(o.host, "debug.device_hub", {"action": "state"}).get("pending_requests") or []:
         rpc(o.host, "debug.device_hub", {"action": "decide", "session": request["id"], "choice": "always_full"})
@@ -136,6 +210,12 @@ row = until(90, approved_and_streaming, 1)
 log("viewer shows the host's screen", bool(row), seconds=round(time.time() - started, 1), tab=row)
 if not row:
     sys.exit(1)
+
+readiness = observe_pane(row, host_id)
+result["comparison_ready"] = bool(readiness.get("comparison_ready"))
+log("pane/source observer is bound", result["comparison_ready"], **readiness)
+if not result["comparison_ready"]:
+    log("comparison measurement blocked", False, reason="missing same-session pane, transport, or fresh source nonce")
 
 motion = None
 if o.motion:
@@ -195,11 +275,14 @@ if o.input:
         subprocess.run(["rsync", "-a", f"{o.viewer}:rd-hub-rig/frames-{o.tag}/", os.path.join(o.out, "frames")], check=False)
     subprocess.run(["scp", "-q", f"{o.host}:rd-hub-rig/probe-{o.tag}.jsonl", o.out], check=False)
 
-# The snapshot goes in the viewer's own ~/rd-hub-rig, never a guessable /tmp name another account there could plant.
-viewer_home = ssh(o.viewer, 'printf %s "$HOME"')
-snap = rpc(o.viewer, "debug.window_snapshot", {"path": f"{viewer_home}/rd-hub-rig/viewer-{o.tag}.png"})
-subprocess.run(["scp", "-q", f"{o.viewer}:rd-hub-rig/viewer-{o.tag}.png", os.path.join(o.out, "viewer.png")], check=False)
-log("viewer snapshot", "error" not in snap, reply=snap)
+# The snapshot was taken by observe_pane only after source and pane readiness. Keep the
+# path in the viewer's own home, never a guessable /tmp name another account could plant.
+if result["comparison_ready"]:
+    snap = readiness.get("observer") or {}
+    subprocess.run(["scp", "-q", f"{o.viewer}:rd-hub-rig/viewer-{o.tag}.png", os.path.join(o.out, "viewer.png")], check=False)
+    log("viewer snapshot", "error" not in snap, reply=snap)
+else:
+    log("viewer snapshot", False, skipped="comparison readiness was incomplete")
 if "--quit" in sys.argv[1:] or os.environ.get("RD_RIG_QUIT") == "1":
     for host in (o.viewer, o.host):
         rpc(host, "action.run", {"id": "quitEndEverything"})
