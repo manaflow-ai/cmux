@@ -281,21 +281,21 @@ impl KinTables {
     }
 
     /// Returns the folder table's current head and count without walking any
-    /// other folder. The caller supplies the hot row map so the table remains
-    /// a compact relation of keys while the published projection carries the
-    /// row payload.
+    /// other folder. The caller supplies the hot row map to confirm that the
+    /// table's head belongs to the same published hot index.
     pub fn folder_entry(
         &self,
         folder: &FolderKey,
         rows: &OrdMap<RowKey, Arc<Summary>>,
     ) -> Option<super::folders::FolderEntry> {
         let table = self.folders.get(folder)?;
-        let (sort, key) = table.iter().next()?;
-        let _row = rows.get(key)?;
+        let (sort, row) = table.iter().next()?;
+        let key = row.key();
+        let _row = rows.get(&key)?;
         Some(super::folders::FolderEntry::new(
             folder.origin.clone(),
             folder.folder.clone(),
-            Some(key.clone()),
+            Some(key),
             sort.last_activity,
             table.len() as u32,
         ))
