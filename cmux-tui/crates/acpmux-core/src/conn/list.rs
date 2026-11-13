@@ -189,7 +189,6 @@ fn raw_parts(sid: &str, replay: Option<ReplayMark>) -> Result<(Vec<u8>, Vec<u8>)
 }
 
 fn raw_budget(sid: &str, replay: Option<ReplayMark>) -> Result<usize, ConnError> {
-    let replay_present = replay.is_some();
     let (prefix, suffix) = raw_parts(sid, replay)?;
     Ok(crate::wire::MAX_REPLAY_FRAME_BYTES
         .saturating_sub(5)
@@ -202,6 +201,7 @@ fn raw_frame(
     replay: Option<ReplayMark>,
     ops: &[u8],
 ) -> Result<Result<Frame, String>, ConnError> {
+    let replay_present = replay.is_some();
     let (prefix, suffix) = raw_parts(sid, replay)?;
     let mut payload = Vec::with_capacity(prefix.len() + ops.len() + suffix.len());
     payload.extend_from_slice(&prefix);
