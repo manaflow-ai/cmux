@@ -554,7 +554,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// ``followsChatZoom``); the chrome multiplier remains
     /// a separate `--cmux-interface-scale` token.
     func applyUIScale() {
-        evaluateInPage(DesignSettings.shared.interfaceScaleScript(pageZoom: pageZoom))
+        let rendererScale = chromiumSession == nil ? "" : chromiumZoomScript
+        evaluateInPage(rendererScale + DesignSettings.shared.interfaceScaleScript(pageZoom: pageZoom))
         webView.pageZoom = pageZoom
         chromiumSession?.page.setZoom(pageZoom)
         if loaded { glassFeed.refresh() } // the zoom moves the art's rect in CSS px
@@ -705,6 +706,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if chromiumSession != nil { evaluateInPage(chromiumZoomScript) }
         // Its tab or window closed: the page's popup ends with it.
         if window == nil { popupHost?.dismiss() }
         setChromiumVisibility(true)
@@ -718,6 +720,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
             shouldFocusOnAttach = false
             focusPage()
         }
+    }
+
+    public override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        if chromiumSession != nil { evaluateInPage(chromiumZoomScript) }
     }
 
     /// Another tab took the pane: the page's popup ends.
