@@ -6,13 +6,14 @@
 use std::os::unix::net::UnixStream;
 
 use super::*;
-use crate::diagnostics::{ClientKind, ConnectionStats};
+use crate::diagnostics::{ClientKind, ConnectionStats, LongConnectionsFull};
 use crate::platform::transport::Stream;
 use crate::server::listen::ServedSession;
 use crate::server::terminal_admission::{admit, admit_session, peer_session};
 
 const LIMIT: u64 = MAX_SERVER_CONNECTIONS as u64;
 const LANE: u64 = MAX_TERMINAL_CONNECTIONS as u64;
+const LONG: u64 = message_writer::long_connection::MAX_LONG_TERMINAL_CONNECTIONS;
 
 /// A process session that no process of the test holds.
 const SESSION: u32 = 4_000_001;
@@ -229,6 +230,72 @@ fn streams_that_came_before_their_terminals_give_the_slots_back() {
     let snapshot = connections.snapshot(LIMIT);
     assert_eq!(snapshot.refused, LIMIT - 1 - LANE, "only the lane's own limit refuses");
     drop((short, holders, seats));
+    assert_eq!(held(&connections), (0, 0, 0));
+}
+
+/// The long lane's limit is not a hard one for a connection that came before
+/// its terminal's seat: it is open already, so it enters above the limit
+/// (`TerminalLane::enter`). Each later claim counts such connections: above
+/// the limit and at the limit a stream does not start and the error names
+/// the limit; one place under the limit, the stream starts. Each step is a
+/// count of the lane, with no clock.
+#[test]
+fn a_long_lane_above_its_limit_refuses_each_claim_until_it_is_under_it() {
+    const EARLY: u64 = 3;
+    let connections = Arc::new(ConnectionStats::default());
+    let mut long: Vec<ConnectionPermit> = (1000u32..)
+        .zip(0..LONG)
+        .map(|(terminal, _)| {
+            let permit = claim_terminal_connection_from(&connections, terminal)
+                .expect("a short slot, free again after each stream");
+            start_stream(&permit).expect("a long place below the bound");
+            permit
+        })
+        .collect();
+    assert_eq!(held(&connections), (0, 0, LONG), "the lane is at its limit");
+
+    let mut early: Vec<_> = (0..EARLY)
+        .map(|index| {
+            let session = SESSION + u32::try_from(index).unwrap();
+            let (permit, client) = connect(&connections, session);
+            start_stream(&permit).expect("an outside connection starts a stream with no gate");
+            (permit, client, session)
+        })
+        .collect();
+    assert_eq!(held(&connections), (EARLY, 0, LONG));
+    let seats: Vec<_> =
+        early.iter().map(|(_, _, session)| connections.seat_terminal(Some(*session))).collect();
+    assert_eq!(held(&connections), (0, 0, LONG + EARLY), "the lane is above its limit");
+    assert!(early.iter().all(|(permit, _, _)| permit.lease().is_long()));
+
+    let next_seat = connections.seat_terminal(Some(SESSION + 500));
+    let (next, _next_client) = connect(&connections, SESSION + 500);
+    let refused_with_the_bound = |lane: u64| {
+        assert_eq!(held(&connections), (1, 1, lane));
+        let Err(error) = start_stream(&next) else {
+            panic!("a stream started with {lane} long connections")
+        };
+        let full = error
+            .get_ref()
+            .and_then(|inner| inner.downcast_ref::<LongConnectionsFull>())
+            .expect("the error of the bound");
+        assert_eq!(full.limit, LONG);
+        assert!(error.to_string().contains("limit 256"), "{error}");
+        assert!(!next.lease().is_long());
+        assert_eq!(held(&connections), (1, 1, lane), "a refused claim changes no count");
+    };
+    refused_with_the_bound(LONG + EARLY);
+    early.pop();
+    refused_with_the_bound(LONG + EARLY - 1);
+    early.clear();
+    refused_with_the_bound(LONG);
+
+    long.pop();
+    assert_eq!(held(&connections), (1, 1, LONG - 1), "one place under the limit");
+    start_stream(&next).expect("the lane is under its limit: the claim is taken");
+    assert!(next.lease().is_long());
+    assert_eq!(held(&connections), (0, 0, LONG));
+    drop((long, next, seats, next_seat));
     assert_eq!(held(&connections), (0, 0, 0));
 }
 
