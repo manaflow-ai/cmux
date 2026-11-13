@@ -193,6 +193,7 @@ for (const loading of [true, false]) {
       expect(drawn!.classList.contains("acpmux-row--enter")).toBe(false);
 
       // Once the gesture is quiet, a new live reply uses its normal entrance again.
+      await view.render([...existing, arriving], false);
       clockSkew += 2_000;
       const later = row("after-wheel", "assistant", "The next reply after the gesture");
       await view.render([...existing, arriving, later], false);
