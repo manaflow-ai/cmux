@@ -106,9 +106,9 @@ mod apps {
         let _ = std::fs::remove_dir_all(dir.parent().unwrap());
     }
 
-    /// Every folder in skills/cmux-customization/templates is a customize app as written: a
-    /// valid package, each implementation's export defined and in the one `__cmuxAppExports`,
-    /// a classic script, and only tone names for color.
+    /// Shared customize templates retain their identity; showcase templates are independent
+    /// apps that `cmux ext dev` installs beside them. Every folder is a valid classic-script
+    /// package with defined exports, and each showcase asks only for its documented scopes.
     #[test]
     fn every_template_folder_is_a_valid_customize_app() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -120,27 +120,53 @@ mod apps {
             .map(|e| e.file_name().to_string_lossy().into_owned())
             .collect();
         names.sort();
-        assert_eq!(
-            names,
-            [
-                "clock-weather",
-                "command-button",
-                "design-links",
-                "my-prs",
-                "pane",
-                "sidebar-section",
-                "starter",
-                "threads"
-            ]
-        );
+        let legacy = [
+            "clock-weather",
+            "command-button",
+            "design-links",
+            "my-prs",
+            "pane",
+            "sidebar-section",
+            "starter",
+            "threads",
+        ];
+        let showcase: &[(&str, &[&str])] = &[
+            ("branch-status", &["git:read"]),
+            ("needs-you", &["actions:run", "agent_chat:read"]),
+            ("pull-watch", &["actions:run", "integration:github:read"]),
+            ("saved-links", &["actions:run", "storage:local"]),
+            ("workspace-tabs", &["workspace:read", "workspace:write"]),
+        ];
+        let mut expected: Vec<&str> =
+            legacy.iter().copied().chain(showcase.iter().map(|(name, _)| *name)).collect();
+        expected.sort();
+        assert_eq!(names, expected);
         for name in names {
             let dir = root.join(&name);
             let report = validate_package(&dir);
             assert!(report.is_valid(), "{name}: {:?}", report.issues);
             let manifest = report.manifest.expect("manifest");
             assert_eq!(manifest["manifestVersion"], 2, "{name}");
-            assert_eq!(manifest["id"], "local/customize", "{name}");
             let script = std::fs::read_to_string(dir.join("main.js")).expect("main.js");
+            if let Some((_, required_scopes)) =
+                showcase.iter().find(|(template, _)| *template == name)
+            {
+                assert_eq!(manifest["id"], format!("local/showcase-{name}"), "{name}");
+                let scopes = manifest["scopes"].as_object().expect("showcase scopes");
+                let mut actual: Vec<&str> = scopes.keys().map(String::as_str).collect();
+                actual.sort();
+                assert_eq!(actual, *required_scopes, "{name}: documented scopes only");
+                for (scope, reason) in scopes {
+                    assert!(
+                        reason.as_str().is_some_and(|text| !text.trim().is_empty()),
+                        "{name}: {scope} explains its purpose"
+                    );
+                }
+                assert!(script.lines().count() <= 50, "{name}: at most 50 readable lines");
+            } else {
+                assert!(legacy.contains(&name.as_str()), "{name}: unknown template");
+                assert_eq!(manifest["id"], "local/customize", "{name}");
+            }
             assert_eq!(
                 script.matches("__cmuxAppExports =").count(),
                 1,

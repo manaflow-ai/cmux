@@ -85809,391 +85809,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copy a template into your customize folder, or install a sample app. Save the file to hot-reload it without restarting cmux."
+            "value": "Copy the example files into a new folder, then run cmux ext dev there. Save a file to see it reload."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "انسخ قالبًا إلى مجلد التخصيص أو ثبّت تطبيقًا تجريبيًا. احفظ الملف لإعادة تحميله دون إعادة تشغيل cmux."
+            "value": "انسخ ملفات المثال إلى مجلد جديد، ثم شغّل cmux ext dev فيه. احفظ ملفًا لترى إعادة تحميله."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kopirajte predložak u fasciklu za prilagođavanje ili instalirajte oglednu aplikaciju. Sačuvajte datoteku za ponovno učitavanje bez ponovnog pokretanja cmux-a."
+            "value": "Kopirajte datoteke primjera u novu fasciklu, zatim u njoj pokrenite cmux ext dev. Sačuvajte datoteku da vidite ponovno učitavanje."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kopiér en skabelon til din tilpasningsmappe, eller installér en eksempelapp. Gem filen for at genindlæse den uden at genstarte cmux."
+            "value": "Kopiér eksempelfilerne til en ny mappe, og kør derefter cmux ext dev dér. Gem en fil for at se den genindlæse."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kopiere eine Vorlage in deinen Anpassungsordner oder installiere eine Beispiel-App. Speichere die Datei für das Neuladen ohne Neustart von cmux."
+            "value": "Kopiere die Beispieldateien in einen neuen Ordner und führe dort cmux ext dev aus. Speichere eine Datei, um das Neuladen zu sehen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copia una plantilla en tu carpeta de personalización o instala una aplicación de ejemplo. Guarda el archivo para recargarlo sin reiniciar cmux."
+            "value": "Copia los archivos de ejemplo en una carpeta nueva y ejecuta cmux ext dev allí. Guarda un archivo para ver cómo se recarga."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copiez un modèle dans votre dossier de personnalisation ou installez une application exemple. Enregistrez le fichier pour le recharger sans redémarrer cmux."
+            "value": "Copiez les fichiers d’exemple dans un nouveau dossier, puis exécutez cmux ext dev dans ce dossier. Enregistrez un fichier pour voir son rechargement."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copia un modello nella cartella di personalizzazione o installa un’app di esempio. Salva il file per ricaricarlo senza riavviare cmux."
+            "value": "Copia i file di esempio in una nuova cartella, poi esegui cmux ext dev lì. Salva un file per vedere il ricaricamento."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "テンプレートをカスタマイズフォルダにコピーするか、サンプルアプリをインストールします。ファイルを保存すると cmux を再起動せずに再読み込みされます。"
+            "value": "サンプルファイルを新しいフォルダにコピーし、そこで cmux ext dev を実行します。ファイルを保存すると再読み込みを確認できます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ចម្លងគំរូទៅថតប្ដូរតាមបំណង ឬដំឡើងកម្មវិធីគំរូ។ រក្សាទុកឯកសារ ដើម្បីផ្ទុកឡើងវិញដោយមិនចាប់ផ្ដើម cmux ឡើងវិញ។"
+            "value": "ចម្លងឯកសារគំរូទៅថតថ្មី បន្ទាប់មកដំណើរការ cmux ext dev នៅក្នុងថតនោះ។ រក្សាទុកឯកសារ ដើម្បីឃើញវាផ្ទុកឡើងវិញ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "템플릿을 사용자화 폴더에 복사하거나 샘플 앱을 설치하세요. 파일을 저장하면 cmux를 다시 시작하지 않고 다시 로드합니다."
+            "value": "예제 파일을 새 폴더에 복사한 다음 그곳에서 cmux ext dev를 실행하세요. 파일을 저장하면 다시 로드되는 모습을 볼 수 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kopier en mal til tilpasningsmappen, eller installer en eksempelapp. Lagre filen for å laste den på nytt uten å starte cmux på nytt."
+            "value": "Kopier eksempelfilene til en ny mappe, og kjør deretter cmux ext dev der. Lagre en fil for å se at den lastes inn på nytt."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skopiuj szablon do folderu dostosowywania lub zainstaluj aplikację przykładową. Zapisz plik, aby przeładować go bez ponownego uruchamiania cmux."
+            "value": "Skopiuj pliki przykładowe do nowego folderu, a następnie uruchom w nim cmux ext dev. Zapisz plik, aby zobaczyć jego ponowne wczytanie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copie um modelo para a pasta de personalização ou instale um app de exemplo. Salve o arquivo para recarregá-lo sem reiniciar o cmux."
+            "value": "Copie os arquivos de exemplo para uma nova pasta e execute cmux ext dev nela. Salve um arquivo para ver o recarregamento."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Скопируйте шаблон в папку настройки или установите пример приложения. Сохраните файл, чтобы перезагрузить его без перезапуска cmux."
+            "value": "Скопируйте файлы примера в новую папку, затем запустите в ней cmux ext dev. Сохраните файл, чтобы увидеть его перезагрузку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "คัดลอกเทมเพลตไปยังโฟลเดอร์ปรับแต่ง หรือติดตั้งแอปตัวอย่าง บันทึกไฟล์เพื่อโหลดใหม่โดยไม่ต้องเริ่ม cmux ใหม่"
+            "value": "คัดลอกไฟล์ตัวอย่างไปยังโฟลเดอร์ใหม่ จากนั้นเรียกใช้ cmux ext dev ในโฟลเดอร์นั้น บันทึกไฟล์เพื่อดูการโหลดใหม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bir şablonu özelleştirme klasörüne kopyalayın veya örnek bir uygulama yükleyin. cmux’u yeniden başlatmadan yeniden yüklemek için dosyayı kaydedin."
+            "value": "Örnek dosyaları yeni bir klasöre kopyalayın, ardından cmux ext dev komutunu bu klasörde çalıştırın. Yeniden yüklendiğini görmek için bir dosyayı kaydedin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Скопіюйте шаблон до теки налаштування або встановіть приклад програми. Збережіть файл, щоб перезавантажити його без перезапуску cmux."
+            "value": "Скопіюйте файли прикладу до нової теки, а потім запустіть у ній cmux ext dev. Збережіть файл, щоб побачити його перезавантаження."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sao chép mẫu vào thư mục tùy chỉnh hoặc cài ứng dụng mẫu. Lưu tệp để tải lại mà không cần khởi động lại cmux."
+            "value": "Sao chép các tệp mẫu vào một thư mục mới, rồi chạy cmux ext dev trong đó. Lưu một tệp để thấy tệp được tải lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "将模板复制到自定义文件夹，或安装示例应用。保存文件即可重新加载，无需重启 cmux。"
+            "value": "将示例文件复制到新文件夹，然后在其中运行 cmux ext dev。保存文件即可看到它重新加载。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "將範本複製到自訂資料夾，或安裝範例應用程式。儲存檔案即可重新載入，不必重新啟動 cmux。"
-          }
-        }
-      }
-    },
-    "settingsPage.customization.install": {
-      "comment": "Settings customization showcase.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Install"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تثبيت"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Instaliraj"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Installer"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Installieren"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Instalar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Installer"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Installa"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "インストール"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ដំឡើង"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "설치"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Installer"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zainstaluj"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Instalar"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Установить"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ติดตั้ง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Yükle"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Встановити"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cài đặt"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "安装"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "安裝"
-          }
-        }
-      }
-    },
-    "settingsPage.customization.openSource": {
-      "comment": "Settings customization showcase.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open source"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "فتح المصدر"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Otvori izvor"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Åbn kilde"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quelle öffnen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Abrir fuente"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ouvrir la source"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Apri sorgente"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ソースを開く"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បើកប្រភព"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "소스 열기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Åpne kilde"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Otwórz źródło"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Abrir fonte"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Открыть исходник"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เปิดแหล่งที่มา"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kaynağı aç"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Відкрити джерело"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mở mã nguồn"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "打开源代码"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "開啟原始碼"
+            "value": "將範例檔案複製到新資料夾，然後在其中執行 cmux ext dev。儲存檔案即可看到它重新載入。"
           }
         }
       }
@@ -86211,121 +85947,3025 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copy install command"
+            "value": "نسخ أمر التثبيت"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copy install command"
+            "value": "Kopiraj naredbu za instalaciju"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copy install command"
+            "value": "Kopiér installationskommando"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copy install command"
+            "value": "Installationsbefehl kopieren"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copy install command"
+            "value": "Copiar comando de instalación"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copy install command"
+            "value": "Copier la commande d’installation"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copy install command"
+            "value": "Copia comando di installazione"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copy install command"
+            "value": "インストールコマンドをコピー"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copy install command"
+            "value": "ចម្លងពាក្យបញ្ជាដំឡើង"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copy install command"
+            "value": "설치 명령 복사"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copy install command"
+            "value": "Kopier installasjonskommando"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copy install command"
+            "value": "Kopiuj polecenie instalacji"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copy install command"
+            "value": "Copiar comando de instalação"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copy install command"
+            "value": "Копировать команду установки"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copy install command"
+            "value": "คัดลอกคำสั่งติดตั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copy install command"
+            "value": "Yükleme komutunu kopyala"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copy install command"
+            "value": "Копіювати команду встановлення"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copy install command"
+            "value": "Sao chép lệnh cài đặt"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copy install command"
+            "value": "复制安装命令"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copy install command"
+            "value": "複製安裝指令"
+          }
+        }
+      }
+    },
+    "settingsPage.customization.source": {
+      "comment": "Settings customization showcase.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المصدر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Izvor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kilde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quelle"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fuente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fichier source"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sorgente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソース"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រភព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "소스"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kilde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Źródło"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fonte"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Источник"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แหล่งที่มา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kaynak"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Джерело"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nguồn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "源代码"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "原始碼"
+          }
+        }
+      }
+    },
+    "settingsPage.customization.sample.pull-watch.title": {
+      "comment": "Settings customization showcase sample.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "My PRs"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طلبات السحب الخاصة بي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moji zahtjevi za povlačenje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mine pull requests"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meine Pull Requests"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mis pull requests"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mes pull requests"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le mie pull request"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自分のプルリクエスト"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សំណើទាញរបស់ខ្ញុំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 풀 리퀘스트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mine pull requests"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moje pull requesty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meus pull requests"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мои пул-реквесты"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พูลรีเควสต์ของฉัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pull isteklerim"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мої запити на злиття"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pull request của tôi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我的拉取请求"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我的提取要求"
+          }
+        }
+      }
+    },
+    "settingsPage.customization.sample.pull-watch.description": {
+      "comment": "Settings customization showcase sample.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اربط هذا المثال بسير عملك في cmux.\nانقر لتجربة الإجراء الحقيقي وإعادة التحميل السريع."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povežite ovaj primjer sa svojim cmux tokom rada.\nKliknite da isprobate stvarnu radnju i brzo ponovno učitavanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbind dette eksempel med din cmux-arbejdsgang.\nKlik for at prøve den rigtige handling og hurtig genindlæsning."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinde dieses Beispiel mit deinem cmux-Arbeitsablauf.\nKlicke, um die echte Aktion und das schnelle Neuladen auszuprobieren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conecta este ejemplo con tu flujo de trabajo de cmux.\nHaz clic para probar la acción real y la recarga rápida."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reliez cet exemple à votre flux de travail cmux.\nCliquez pour tester la vraie action et le rechargement rapide."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collega questo esempio al tuo flusso di lavoro cmux.\nFai clic per provare l’azione reale e il ricaricamento rapido."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この例を cmux のワークフローにつなぎます。\nクリックして実際の操作と高速な再読み込みを試します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្ជាប់ឧទាហរណ៍នេះទៅលំហូរការងារ cmux របស់អ្នក។\nចុចដើម្បីសាកល្បងសកម្មភាពពិត និងការផ្ទុកឡើងវិញលឿន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 예제를 cmux 작업 흐름에 연결합니다.\n클릭해 실제 작업과 빠른 다시 로드를 사용해 보세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koble dette eksempelet til cmux-arbeidsflyten din.\nKlikk for å prøve den virkelige handlingen og rask innlasting."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Połącz ten przykład ze swoim przepływem pracy cmux.\nKliknij, aby wypróbować prawdziwe działanie i szybkie przeładowanie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conecte este exemplo ao seu fluxo de trabalho do cmux.\nClique para testar a ação real e o recarregamento rápido."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключите этот пример к рабочему процессу cmux.\nНажмите, чтобы опробовать настоящее действие и быструю перезагрузку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เชื่อมต่อตัวอย่างนี้กับเวิร์กโฟลว์ cmux ของคุณ\nคลิกเพื่อทดลองการทำงานจริงและการโหลดใหม่อย่างรวดเร็ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu örneği cmux iş akışınıza bağlayın.\nGerçek işlemi ve hızlı yeniden yüklemeyi denemek için tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підключіть цей приклад до робочого процесу cmux.\nНатисніть, щоб випробувати справжню дію та швидке перезавантаження."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kết nối ví dụ này với quy trình cmux của bạn.\nNhấp để thử hành động thật và tải lại nhanh."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将此示例连接到你的 cmux 工作流。\n点击即可试用真实操作和快速重新加载。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將此範例連接到你的 cmux 工作流程。\n點擊即可試用真實動作和快速重新載入。"
+          }
+        }
+      }
+    },
+    "settingsPage.customization.sample.needs-you.title": {
+      "comment": "Settings customization showcase sample.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs you"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحتاجك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trebate vi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du skal svare"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du bist gefragt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Te necesita"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre réponse est attendue"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ti stanno aspettando"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたの対応が必要です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ត្រូវការអ្នក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "응답이 필요합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du må svare"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Potrzebna jest Twoja odpowiedź"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Você precisa responder"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нужен ваш ответ"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ต้องการคำตอบจากคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yanıtınız gerekiyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Потрібна ваша відповідь"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bạn cần phản hồi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要你处理"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要你處理"
+          }
+        }
+      }
+    },
+    "settingsPage.customization.sample.needs-you.description": {
+      "comment": "Settings customization showcase sample.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اربط هذا المثال بسير عملك في cmux.\nانقر لتجربة الإجراء الحقيقي وإعادة التحميل السريع."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povežite ovaj primjer sa svojim cmux tokom rada.\nKliknite da isprobate stvarnu radnju i brzo ponovno učitavanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbind dette eksempel med din cmux-arbejdsgang.\nKlik for at prøve den rigtige handling og hurtig genindlæsning."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinde dieses Beispiel mit deinem cmux-Arbeitsablauf.\nKlicke, um die echte Aktion und das schnelle Neuladen auszuprobieren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conecta este ejemplo con tu flujo de trabajo de cmux.\nHaz clic para probar la acción real y la recarga rápida."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reliez cet exemple à votre flux de travail cmux.\nCliquez pour tester la vraie action et le rechargement rapide."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collega questo esempio al tuo flusso di lavoro cmux.\nFai clic per provare l’azione reale e il ricaricamento rapido."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この例を cmux のワークフローにつなぎます。\nクリックして実際の操作と高速な再読み込みを試します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្ជាប់ឧទាហរណ៍នេះទៅលំហូរការងារ cmux របស់អ្នក។\nចុចដើម្បីសាកល្បងសកម្មភាពពិត និងការផ្ទុកឡើងវិញលឿន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 예제를 cmux 작업 흐름에 연결합니다.\n클릭해 실제 작업과 빠른 다시 로드를 사용해 보세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koble dette eksempelet til cmux-arbeidsflyten din.\nKlikk for å prøve den virkelige handlingen og rask innlasting."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Połącz ten przykład ze swoim przepływem pracy cmux.\nKliknij, aby wypróbować prawdziwe działanie i szybkie przeładowanie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conecte este exemplo ao seu fluxo de trabalho do cmux.\nClique para testar a ação real e o recarregamento rápido."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключите этот пример к рабочему процессу cmux.\nНажмите, чтобы опробовать настоящее действие и быструю перезагрузку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เชื่อมต่อตัวอย่างนี้กับเวิร์กโฟลว์ cmux ของคุณ\nคลิกเพื่อทดลองการทำงานจริงและการโหลดใหม่อย่างรวดเร็ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu örneği cmux iş akışınıza bağlayın.\nGerçek işlemi ve hızlı yeniden yüklemeyi denemek için tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підключіть цей приклад до робочого процесу cmux.\nНатисніть, щоб випробувати справжню дію та швидке перезавантаження."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kết nối ví dụ này với quy trình cmux của bạn.\nNhấp để thử hành động thật và tải lại nhanh."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将此示例连接到你的 cmux 工作流。\n点击即可试用真实操作和快速重新加载。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將此範例連接到你的 cmux 工作流程。\n點擊即可試用真實動作和快速重新載入。"
+          }
+        }
+      }
+    },
+    "settingsPage.customization.sample.workspace-tabs.title": {
+      "comment": "Settings customization showcase sample.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This workspace"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مساحة العمل هذه"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj radni prostor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dette arbejdsområde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Arbeitsbereich"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este espacio de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet espace de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo spazio di lavoro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペース"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងធ្វើការនេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 작업 공간"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dette arbeidsområdet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten obszar roboczy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este espaço de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Это рабочее пространство"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นที่ทำงานนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu çalışma alanı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей робочий простір"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không gian làm việc này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此工作區"
+          }
+        }
+      }
+    },
+    "settingsPage.customization.sample.workspace-tabs.description": {
+      "comment": "Settings customization showcase sample.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اربط هذا المثال بسير عملك في cmux.\nانقر لتجربة الإجراء الحقيقي وإعادة التحميل السريع."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povežite ovaj primjer sa svojim cmux tokom rada.\nKliknite da isprobate stvarnu radnju i brzo ponovno učitavanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbind dette eksempel med din cmux-arbejdsgang.\nKlik for at prøve den rigtige handling og hurtig genindlæsning."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinde dieses Beispiel mit deinem cmux-Arbeitsablauf.\nKlicke, um die echte Aktion und das schnelle Neuladen auszuprobieren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conecta este ejemplo con tu flujo de trabajo de cmux.\nHaz clic para probar la acción real y la recarga rápida."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reliez cet exemple à votre flux de travail cmux.\nCliquez pour tester la vraie action et le rechargement rapide."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collega questo esempio al tuo flusso di lavoro cmux.\nFai clic per provare l’azione reale e il ricaricamento rapido."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この例を cmux のワークフローにつなぎます。\nクリックして実際の操作と高速な再読み込みを試します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្ជាប់ឧទាហរណ៍នេះទៅលំហូរការងារ cmux របស់អ្នក។\nចុចដើម្បីសាកល្បងសកម្មភាពពិត និងការផ្ទុកឡើងវិញលឿន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 예제를 cmux 작업 흐름에 연결합니다.\n클릭해 실제 작업과 빠른 다시 로드를 사용해 보세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koble dette eksempelet til cmux-arbeidsflyten din.\nKlikk for å prøve den virkelige handlingen og rask innlasting."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Połącz ten przykład ze swoim przepływem pracy cmux.\nKliknij, aby wypróbować prawdziwe działanie i szybkie przeładowanie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conecte este exemplo ao seu fluxo de trabalho do cmux.\nClique para testar a ação real e o recarregamento rápido."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключите этот пример к рабочему процессу cmux.\nНажмите, чтобы опробовать настоящее действие и быструю перезагрузку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เชื่อมต่อตัวอย่างนี้กับเวิร์กโฟลว์ cmux ของคุณ\nคลิกเพื่อทดลองการทำงานจริงและการโหลดใหม่อย่างรวดเร็ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu örneği cmux iş akışınıza bağlayın.\nGerçek işlemi ve hızlı yeniden yüklemeyi denemek için tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підключіть цей приклад до робочого процесу cmux.\nНатисніть, щоб випробувати справжню дію та швидке перезавантаження."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kết nối ví dụ này với quy trình cmux của bạn.\nNhấp để thử hành động thật và tải lại nhanh."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将此示例连接到你的 cmux 工作流。\n点击即可试用真实操作和快速重新加载。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將此範例連接到你的 cmux 工作流程。\n點擊即可試用真實動作和快速重新載入。"
+          }
+        }
+      }
+    },
+    "settingsPage.customization.sample.saved-links.title": {
+      "comment": "Settings customization showcase sample.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dashboard links"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "روابط لوحة المعلومات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veze nadzorne ploče"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Links til dashboard"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dashboard-Links"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enlaces del panel"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liens du tableau de bord"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link al pannello"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダッシュボードのリンク"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "តំណផ្ទាំងគ្រប់គ្រង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대시보드 링크"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dashbordlenker"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linki do pulpitu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Links do painel"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ссылки на панель"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลิงก์แดชบอร์ด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pano bağlantıları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Посилання на панель"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liên kết bảng điều khiển"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仪表板链接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "儀表板連結"
+          }
+        }
+      }
+    },
+    "settingsPage.customization.sample.saved-links.description": {
+      "comment": "Settings customization showcase sample.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اربط هذا المثال بسير عملك في cmux.\nانقر لتجربة الإجراء الحقيقي وإعادة التحميل السريع."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povežite ovaj primjer sa svojim cmux tokom rada.\nKliknite da isprobate stvarnu radnju i brzo ponovno učitavanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbind dette eksempel med din cmux-arbejdsgang.\nKlik for at prøve den rigtige handling og hurtig genindlæsning."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinde dieses Beispiel mit deinem cmux-Arbeitsablauf.\nKlicke, um die echte Aktion und das schnelle Neuladen auszuprobieren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conecta este ejemplo con tu flujo de trabajo de cmux.\nHaz clic para probar la acción real y la recarga rápida."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reliez cet exemple à votre flux de travail cmux.\nCliquez pour tester la vraie action et le rechargement rapide."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collega questo esempio al tuo flusso di lavoro cmux.\nFai clic per provare l’azione reale e il ricaricamento rapido."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この例を cmux のワークフローにつなぎます。\nクリックして実際の操作と高速な再読み込みを試します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្ជាប់ឧទាហរណ៍នេះទៅលំហូរការងារ cmux របស់អ្នក។\nចុចដើម្បីសាកល្បងសកម្មភាពពិត និងការផ្ទុកឡើងវិញលឿន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 예제를 cmux 작업 흐름에 연결합니다.\n클릭해 실제 작업과 빠른 다시 로드를 사용해 보세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koble dette eksempelet til cmux-arbeidsflyten din.\nKlikk for å prøve den virkelige handlingen og rask innlasting."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Połącz ten przykład ze swoim przepływem pracy cmux.\nKliknij, aby wypróbować prawdziwe działanie i szybkie przeładowanie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conecte este exemplo ao seu fluxo de trabalho do cmux.\nClique para testar a ação real e o recarregamento rápido."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключите этот пример к рабочему процессу cmux.\nНажмите, чтобы опробовать настоящее действие и быструю перезагрузку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เชื่อมต่อตัวอย่างนี้กับเวิร์กโฟลว์ cmux ของคุณ\nคลิกเพื่อทดลองการทำงานจริงและการโหลดใหม่อย่างรวดเร็ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu örneği cmux iş akışınıza bağlayın.\nGerçek işlemi ve hızlı yeniden yüklemeyi denemek için tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підключіть цей приклад до робочого процесу cmux.\nНатисніть, щоб випробувати справжню дію та швидке перезавантаження."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kết nối ví dụ này với quy trình cmux của bạn.\nNhấp để thử hành động thật và tải lại nhanh."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将此示例连接到你的 cmux 工作流。\n点击即可试用真实操作和快速重新加载。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將此範例連接到你的 cmux 工作流程。\n點擊即可試用真實動作和快速重新載入。"
+          }
+        }
+      }
+    },
+    "settingsPage.customization.sample.branch-status.title": {
+      "comment": "Settings customization showcase sample.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Branch status"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حالة الفرع"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status grane"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Branchstatus"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Branch-Status"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estado de la rama"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "État de la branche"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stato del branch"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブランチの状態"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្ថានភាពសាខា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브랜치 상태"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grenstatus"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stan gałęzi"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status do branch"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Состояние ветки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สถานะสาขา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dal durumu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стан гілки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trạng thái nhánh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分支状态"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分支狀態"
+          }
+        }
+      }
+    },
+    "settingsPage.customization.sample.branch-status.description": {
+      "comment": "Settings customization showcase sample.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "See the branch and ahead/behind counts for your current folder.\nIn Session Info, the same view follows that chat’s repository."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اربط هذا المثال بسير عملك في cmux.\nانقر لتجربة الإجراء الحقيقي وإعادة التحميل السريع."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povežite ovaj primjer sa svojim cmux tokom rada.\nKliknite da isprobate stvarnu radnju i brzo ponovno učitavanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbind dette eksempel med din cmux-arbejdsgang.\nKlik for at prøve den rigtige handling og hurtig genindlæsning."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinde dieses Beispiel mit deinem cmux-Arbeitsablauf.\nKlicke, um die echte Aktion und das schnelle Neuladen auszuprobieren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conecta este ejemplo con tu flujo de trabajo de cmux.\nHaz clic para probar la acción real y la recarga rápida."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reliez cet exemple à votre flux de travail cmux.\nCliquez pour tester la vraie action et le rechargement rapide."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collega questo esempio al tuo flusso di lavoro cmux.\nFai clic per provare l’azione reale e il ricaricamento rapido."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この例を cmux のワークフローにつなぎます。\nクリックして実際の操作と高速な再読み込みを試します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្ជាប់ឧទាហរណ៍នេះទៅលំហូរការងារ cmux របស់អ្នក។\nចុចដើម្បីសាកល្បងសកម្មភាពពិត និងការផ្ទុកឡើងវិញលឿន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 예제를 cmux 작업 흐름에 연결합니다.\n클릭해 실제 작업과 빠른 다시 로드를 사용해 보세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koble dette eksempelet til cmux-arbeidsflyten din.\nKlikk for å prøve den virkelige handlingen og rask innlasting."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Połącz ten przykład ze swoim przepływem pracy cmux.\nKliknij, aby wypróbować prawdziwe działanie i szybkie przeładowanie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conecte este exemplo ao seu fluxo de trabalho do cmux.\nClique para testar a ação real e o recarregamento rápido."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключите этот пример к рабочему процессу cmux.\nНажмите, чтобы опробовать настоящее действие и быструю перезагрузку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เชื่อมต่อตัวอย่างนี้กับเวิร์กโฟลว์ cmux ของคุณ\nคลิกเพื่อทดลองการทำงานจริงและการโหลดใหม่อย่างรวดเร็ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu örneği cmux iş akışınıza bağlayın.\nGerçek işlemi ve hızlı yeniden yüklemeyi denemek için tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підключіть цей приклад до робочого процесу cmux.\nНатисніть, щоб випробувати справжню дію та швидке перезавантаження."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kết nối ví dụ này với quy trình cmux của bạn.\nNhấp để thử hành động thật và tải lại nhanh."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将此示例连接到你的 cmux 工作流。\n点击即可试用真实操作和快速重新加载。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將此範例連接到你的 cmux 工作流程。\n點擊即可試用真實動作和快速重新載入。"
+          }
+        }
+      }
+    },
+    "settingsPage.customization.sample.showcase-pr-review.title": {
+      "comment": "Settings customization showcase sample.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review requests"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طلبات المراجعة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zahtjevi za pregled"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anmodninger om gennemgang"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review-Anfragen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solicitudes de revisión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demandes de revue"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Richieste di revisione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レビュー依頼"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សំណើពិនិត្យ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "리뷰 요청"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forespørsler om gjennomgang"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prośby o sprawdzenie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solicitações de revisão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запросы на проверку"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำขอตรวจสอบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İnceleme istekleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запити на перевірку"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yêu cầu xem xét"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "审查请求"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "審查要求"
+          }
+        }
+      }
+    },
+    "settingsPage.customization.sample.showcase-pr-review.description": {
+      "comment": "Settings customization showcase sample.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اربط هذا المثال بسير عملك في cmux.\nانقر لتجربة الإجراء الحقيقي وإعادة التحميل السريع."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povežite ovaj primjer sa svojim cmux tokom rada.\nKliknite da isprobate stvarnu radnju i brzo ponovno učitavanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbind dette eksempel med din cmux-arbejdsgang.\nKlik for at prøve den rigtige handling og hurtig genindlæsning."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinde dieses Beispiel mit deinem cmux-Arbeitsablauf.\nKlicke, um die echte Aktion und das schnelle Neuladen auszuprobieren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conecta este ejemplo con tu flujo de trabajo de cmux.\nHaz clic para probar la acción real y la recarga rápida."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reliez cet exemple à votre flux de travail cmux.\nCliquez pour tester la vraie action et le rechargement rapide."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collega questo esempio al tuo flusso di lavoro cmux.\nFai clic per provare l’azione reale e il ricaricamento rapido."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この例を cmux のワークフローにつなぎます。\nクリックして実際の操作と高速な再読み込みを試します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្ជាប់ឧទាហរណ៍នេះទៅលំហូរការងារ cmux របស់អ្នក។\nចុចដើម្បីសាកល្បងសកម្មភាពពិត និងការផ្ទុកឡើងវិញលឿន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 예제를 cmux 작업 흐름에 연결합니다.\n클릭해 실제 작업과 빠른 다시 로드를 사용해 보세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koble dette eksempelet til cmux-arbeidsflyten din.\nKlikk for å prøve den virkelige handlingen og rask innlasting."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Połącz ten przykład ze swoim przepływem pracy cmux.\nKliknij, aby wypróbować prawdziwe działanie i szybkie przeładowanie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conecte este exemplo ao seu fluxo de trabalho do cmux.\nClique para testar a ação real e o recarregamento rápido."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключите этот пример к рабочему процессу cmux.\nНажмите, чтобы опробовать настоящее действие и быструю перезагрузку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เชื่อมต่อตัวอย่างนี้กับเวิร์กโฟลว์ cmux ของคุณ\nคลิกเพื่อทดลองการทำงานจริงและการโหลดใหม่อย่างรวดเร็ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu örneği cmux iş akışınıza bağlayın.\nGerçek işlemi ve hızlı yeniden yüklemeyi denemek için tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підключіть цей приклад до робочого процесу cmux.\nНатисніть, щоб випробувати справжню дію та швидке перезавантаження."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kết nối ví dụ này với quy trình cmux của bạn.\nNhấp để thử hành động thật và tải lại nhanh."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将此示例连接到你的 cmux 工作流。\n点击即可试用真实操作和快速重新加载。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將此範例連接到你的 cmux 工作流程。\n點擊即可試用真實動作和快速重新載入。"
+          }
+        }
+      }
+    },
+    "settingsPage.customization.sample.showcase-agent-status.title": {
+      "comment": "Settings customization showcase sample.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Working agents"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الوكلاء العاملون"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktivni agenti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktive agenter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktive Agenten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentes activos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents actifs"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenti attivi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "稼働中のエージェント"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងារកំពុងធ្វើការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 중인 에이전트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeidende agenter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktywni agenci"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentes em atividade"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Работающие агенты"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์ที่กำลังทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışan aracılar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Активні агенти"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác nhân đang hoạt động"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在工作的代理"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在工作的代理"
+          }
+        }
+      }
+    },
+    "settingsPage.customization.sample.showcase-agent-status.description": {
+      "comment": "Settings customization showcase sample.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اربط هذا المثال بسير عملك في cmux.\nانقر لتجربة الإجراء الحقيقي وإعادة التحميل السريع."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povežite ovaj primjer sa svojim cmux tokom rada.\nKliknite da isprobate stvarnu radnju i brzo ponovno učitavanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbind dette eksempel med din cmux-arbejdsgang.\nKlik for at prøve den rigtige handling og hurtig genindlæsning."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinde dieses Beispiel mit deinem cmux-Arbeitsablauf.\nKlicke, um die echte Aktion und das schnelle Neuladen auszuprobieren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conecta este ejemplo con tu flujo de trabajo de cmux.\nHaz clic para probar la acción real y la recarga rápida."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reliez cet exemple à votre flux de travail cmux.\nCliquez pour tester la vraie action et le rechargement rapide."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collega questo esempio al tuo flusso di lavoro cmux.\nFai clic per provare l’azione reale e il ricaricamento rapido."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この例を cmux のワークフローにつなぎます。\nクリックして実際の操作と高速な再読み込みを試します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្ជាប់ឧទាហរណ៍នេះទៅលំហូរការងារ cmux របស់អ្នក។\nចុចដើម្បីសាកល្បងសកម្មភាពពិត និងការផ្ទុកឡើងវិញលឿន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 예제를 cmux 작업 흐름에 연결합니다.\n클릭해 실제 작업과 빠른 다시 로드를 사용해 보세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koble dette eksempelet til cmux-arbeidsflyten din.\nKlikk for å prøve den virkelige handlingen og rask innlasting."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Połącz ten przykład ze swoim przepływem pracy cmux.\nKliknij, aby wypróbować prawdziwe działanie i szybkie przeładowanie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conecte este exemplo ao seu fluxo de trabalho do cmux.\nClique para testar a ação real e o recarregamento rápido."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключите этот пример к рабочему процессу cmux.\nНажмите, чтобы опробовать настоящее действие и быструю перезагрузку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เชื่อมต่อตัวอย่างนี้กับเวิร์กโฟลว์ cmux ของคุณ\nคลิกเพื่อทดลองการทำงานจริงและการโหลดใหม่อย่างรวดเร็ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu örneği cmux iş akışınıza bağlayın.\nGerçek işlemi ve hızlı yeniden yüklemeyi denemek için tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підключіть цей приклад до робочого процесу cmux.\nНатисніть, щоб випробувати справжню дію та швидке перезавантаження."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kết nối ví dụ này với quy trình cmux của bạn.\nNhấp để thử hành động thật và tải lại nhanh."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将此示例连接到你的 cmux 工作流。\n点击即可试用真实操作和快速重新加载。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將此範例連接到你的 cmux 工作流程。\n點擊即可試用真實動作和快速重新載入。"
+          }
+        }
+      }
+    },
+    "settingsPage.customization.sample.showcase-command-buttons.title": {
+      "comment": "Settings customization showcase sample.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quick actions"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إجراءات سريعة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brze radnje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hurtige handlinger"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schnellaktionen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acciones rápidas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actions rapides"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Azioni rapide"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クイックアクション"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សកម្មភាពរហ័ស"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "빠른 작업"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hurtighandlinger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Szybkie działania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ações rápidas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Быстрые действия"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การดำเนินการด่วน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hızlı işlemler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Швидкі дії"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác vụ nhanh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快捷操作"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快速動作"
+          }
+        }
+      }
+    },
+    "settingsPage.customization.sample.showcase-command-buttons.description": {
+      "comment": "Settings customization showcase sample.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اربط هذا المثال بسير عملك في cmux.\nانقر لتجربة الإجراء الحقيقي وإعادة التحميل السريع."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povežite ovaj primjer sa svojim cmux tokom rada.\nKliknite da isprobate stvarnu radnju i brzo ponovno učitavanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbind dette eksempel med din cmux-arbejdsgang.\nKlik for at prøve den rigtige handling og hurtig genindlæsning."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinde dieses Beispiel mit deinem cmux-Arbeitsablauf.\nKlicke, um die echte Aktion und das schnelle Neuladen auszuprobieren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conecta este ejemplo con tu flujo de trabajo de cmux.\nHaz clic para probar la acción real y la recarga rápida."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reliez cet exemple à votre flux de travail cmux.\nCliquez pour tester la vraie action et le rechargement rapide."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collega questo esempio al tuo flusso di lavoro cmux.\nFai clic per provare l’azione reale e il ricaricamento rapido."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この例を cmux のワークフローにつなぎます。\nクリックして実際の操作と高速な再読み込みを試します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្ជាប់ឧទាហរណ៍នេះទៅលំហូរការងារ cmux របស់អ្នក។\nចុចដើម្បីសាកល្បងសកម្មភាពពិត និងការផ្ទុកឡើងវិញលឿន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 예제를 cmux 작업 흐름에 연결합니다.\n클릭해 실제 작업과 빠른 다시 로드를 사용해 보세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koble dette eksempelet til cmux-arbeidsflyten din.\nKlikk for å prøve den virkelige handlingen og rask innlasting."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Połącz ten przykład ze swoim przepływem pracy cmux.\nKliknij, aby wypróbować prawdziwe działanie i szybkie przeładowanie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conecte este exemplo ao seu fluxo de trabalho do cmux.\nClique para testar a ação real e o recarregamento rápido."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключите этот пример к рабочему процессу cmux.\nНажмите, чтобы опробовать настоящее действие и быструю перезагрузку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เชื่อมต่อตัวอย่างนี้กับเวิร์กโฟลว์ cmux ของคุณ\nคลิกเพื่อทดลองการทำงานจริงและการโหลดใหม่อย่างรวดเร็ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu örneği cmux iş akışınıza bağlayın.\nGerçek işlemi ve hızlı yeniden yüklemeyi denemek için tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підключіть цей приклад до робочого процесу cmux.\nНатисніть, щоб випробувати справжню дію та швидке перезавантаження."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kết nối ví dụ này với quy trình cmux của bạn.\nNhấp để thử hành động thật và tải lại nhanh."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将此示例连接到你的 cmux 工作流。\n点击即可试用真实操作和快速重新加载。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將此範例連接到你的 cmux 工作流程。\n點擊即可試用真實動作和快速重新載入。"
+          }
+        }
+      }
+    },
+    "settingsPage.customization.sample.showcase-focus-timer.title": {
+      "comment": "Settings customization showcase sample.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus timer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مؤقت التركيز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tajmer fokusa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fokustimer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fokus-Timer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temporizador de concentración"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minuteur de concentration"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timer di concentrazione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "集中タイマー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្មវិធីកំណត់ពេលផ្តោត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "집중 타이머"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fokustidtaker"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minutnik skupienia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timer de foco"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Таймер фокусировки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตัวจับเวลาโฟกัส"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odak sayacı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Таймер фокусування"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hẹn giờ tập trung"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "专注计时器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "專注計時器"
+          }
+        }
+      }
+    },
+    "settingsPage.customization.sample.showcase-focus-timer.description": {
+      "comment": "Settings customization showcase sample.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اربط هذا المثال بسير عملك في cmux.\nانقر لتجربة الإجراء الحقيقي وإعادة التحميل السريع."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povežite ovaj primjer sa svojim cmux tokom rada.\nKliknite da isprobate stvarnu radnju i brzo ponovno učitavanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbind dette eksempel med din cmux-arbejdsgang.\nKlik for at prøve den rigtige handling og hurtig genindlæsning."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinde dieses Beispiel mit deinem cmux-Arbeitsablauf.\nKlicke, um die echte Aktion und das schnelle Neuladen auszuprobieren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conecta este ejemplo con tu flujo de trabajo de cmux.\nHaz clic para probar la acción real y la recarga rápida."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reliez cet exemple à votre flux de travail cmux.\nCliquez pour tester la vraie action et le rechargement rapide."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collega questo esempio al tuo flusso di lavoro cmux.\nFai clic per provare l’azione reale e il ricaricamento rapido."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この例を cmux のワークフローにつなぎます。\nクリックして実際の操作と高速な再読み込みを試します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្ជាប់ឧទាហរណ៍នេះទៅលំហូរការងារ cmux របស់អ្នក។\nចុចដើម្បីសាកល្បងសកម្មភាពពិត និងការផ្ទុកឡើងវិញលឿន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 예제를 cmux 작업 흐름에 연결합니다.\n클릭해 실제 작업과 빠른 다시 로드를 사용해 보세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koble dette eksempelet til cmux-arbeidsflyten din.\nKlikk for å prøve den virkelige handlingen og rask innlasting."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Połącz ten przykład ze swoim przepływem pracy cmux.\nKliknij, aby wypróbować prawdziwe działanie i szybkie przeładowanie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conecte este exemplo ao seu fluxo de trabalho do cmux.\nClique para testar a ação real e o recarregamento rápido."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключите этот пример к рабочему процессу cmux.\nНажмите, чтобы опробовать настоящее действие и быструю перезагрузку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เชื่อมต่อตัวอย่างนี้กับเวิร์กโฟลว์ cmux ของคุณ\nคลิกเพื่อทดลองการทำงานจริงและการโหลดใหม่อย่างรวดเร็ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu örneği cmux iş akışınıza bağlayın.\nGerçek işlemi ve hızlı yeniden yüklemeyi denemek için tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підключіть цей приклад до робочого процесу cmux.\nНатисніть, щоб випробувати справжню дію та швидке перезавантаження."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kết nối ví dụ này với quy trình cmux của bạn.\nNhấp để thử hành động thật và tải lại nhanh."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将此示例连接到你的 cmux 工作流。\n点击即可试用真实操作和快速重新加载。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將此範例連接到你的 cmux 工作流程。\n點擊即可試用真實動作和快速重新載入。"
+          }
+        }
+      }
+    },
+    "settingsPage.customization.sample.showcase-standup.title": {
+      "comment": "Settings customization showcase sample.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Today"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اليوم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Danas"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I dag"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Heute"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hoy"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aujourd’hui"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oggi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今日"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថ្ងៃនេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오늘"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I dag"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dzisiaj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hoje"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сегодня"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วันนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bugün"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сьогодні"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hôm nay"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天"
+          }
+        }
+      }
+    },
+    "settingsPage.customization.sample.showcase-standup.description": {
+      "comment": "Settings customization showcase sample.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اربط هذا المثال بسير عملك في cmux.\nانقر لتجربة الإجراء الحقيقي وإعادة التحميل السريع."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povežite ovaj primjer sa svojim cmux tokom rada.\nKliknite da isprobate stvarnu radnju i brzo ponovno učitavanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbind dette eksempel med din cmux-arbejdsgang.\nKlik for at prøve den rigtige handling og hurtig genindlæsning."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinde dieses Beispiel mit deinem cmux-Arbeitsablauf.\nKlicke, um die echte Aktion und das schnelle Neuladen auszuprobieren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conecta este ejemplo con tu flujo de trabajo de cmux.\nHaz clic para probar la acción real y la recarga rápida."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reliez cet exemple à votre flux de travail cmux.\nCliquez pour tester la vraie action et le rechargement rapide."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collega questo esempio al tuo flusso di lavoro cmux.\nFai clic per provare l’azione reale e il ricaricamento rapido."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この例を cmux のワークフローにつなぎます。\nクリックして実際の操作と高速な再読み込みを試します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្ជាប់ឧទាហរណ៍នេះទៅលំហូរការងារ cmux របស់អ្នក។\nចុចដើម្បីសាកល្បងសកម្មភាពពិត និងការផ្ទុកឡើងវិញលឿន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 예제를 cmux 작업 흐름에 연결합니다.\n클릭해 실제 작업과 빠른 다시 로드를 사용해 보세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koble dette eksempelet til cmux-arbeidsflyten din.\nKlikk for å prøve den virkelige handlingen og rask innlasting."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Połącz ten przykład ze swoim przepływem pracy cmux.\nKliknij, aby wypróbować prawdziwe działanie i szybkie przeładowanie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conecte este exemplo ao seu fluxo de trabalho do cmux.\nClique para testar a ação real e o recarregamento rápido."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключите этот пример к рабочему процессу cmux.\nНажмите, чтобы опробовать настоящее действие и быструю перезагрузку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เชื่อมต่อตัวอย่างนี้กับเวิร์กโฟลว์ cmux ของคุณ\nคลิกเพื่อทดลองการทำงานจริงและการโหลดใหม่อย่างรวดเร็ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu örneği cmux iş akışınıza bağlayın.\nGerçek işlemi ve hızlı yeniden yüklemeyi denemek için tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підключіть цей приклад до робочого процесу cmux.\nНатисніть, щоб випробувати справжню дію та швидке перезавантаження."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kết nối ví dụ này với quy trình cmux của bạn.\nNhấp để thử hành động thật và tải lại nhanh."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将此示例连接到你的 cmux 工作流。\n点击即可试用真实操作和快速重新加载。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將此範例連接到你的 cmux 工作流程。\n點擊即可試用真實動作和快速重新載入。"
+          }
+        }
+      }
+    },
+    "settingsPage.customization.gallery": {
+      "comment": "Settings customization showcase.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gallery"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "معرض"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Galerija"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Galleri"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Galerie"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Galería"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Galerie"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Galleria"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ギャラリー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "វិចិត្រសាល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "갤러리"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Galleri"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Galeria"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Galeria"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Галерея"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แกลเลอรี"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Galeri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Галерея"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thư viện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "图库"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "圖庫"
           }
         }
       }

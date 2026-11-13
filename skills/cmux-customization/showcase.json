@@ -3,110 +3,185 @@
   "version": 1,
   "title": "cmux NEXT customization samples",
   "description": "Small, live examples that connect cmux to the work already in your sessions.",
-  "install": "Copy a template into ~/.config/cmux/customize, or install a sample app from the App Store.",
-  "reload": "Save the file; cmux reloads the local view without a restart. Use cmux apps reload for a manual refresh.",
+  "install": "Copy an example into its own folder, then run cmux ext dev. Accept its install card once.",
+  "reload": "Keep cmux ext dev running; each save reloads that example. Your existing customize app stays intact.",
   "samples": [
     {
-      "id": "my-prs",
+      "id": "pull-watch",
       "title": "My PRs",
-      "description": "Keep your pull requests and review requests in the sidebar.\nOpen a PR in a cmux browser tab with one click.",
-      "file": "skills/cmux-customization/templates/my-prs/main.js",
-      "manifest": "skills/cmux-customization/templates/my-prs/cmux-app.json",
-      "install": "template",
-      "gallery": ["fresh list", "review requests", "GitHub unavailable"]
+      "description": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab.",
+      "file": "skills/cmux-customization/templates/pull-watch/main.js",
+      "manifest": "skills/cmux-customization/templates/pull-watch/cmux-app.json",
+      "install": "extension",
+      "gallery": [
+        "open PRs",
+        "no PRs",
+        "GitHub unavailable"
+      ],
+      "galleryAnchor": "my-prs"
     },
     {
-      "id": "threads",
-      "title": "Agent threads",
-      "description": "Turn live agent state into a needs-you-first sidebar.\nJump straight to the terminal behind a chat.",
-      "file": "skills/cmux-customization/templates/threads/main.js",
-      "manifest": "skills/cmux-customization/templates/threads/cmux-app.json",
-      "install": "template",
-      "gallery": ["working agents", "needs you", "empty"]
+      "id": "needs-you",
+      "title": "Needs you",
+      "description": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar.",
+      "file": "skills/cmux-customization/templates/needs-you/main.js",
+      "manifest": "skills/cmux-customization/templates/needs-you/cmux-app.json",
+      "install": "extension",
+      "gallery": [
+        "questions waiting",
+        "no questions",
+        "read refused"
+      ],
+      "galleryAnchor": "needs-you"
     },
     {
-      "id": "quick-links",
-      "title": "Quick links",
-      "description": "Keep Figma, Linear, docs, and dashboards beside your code.\nThe same tiny view works as a sidebar section and a pane.",
-      "file": "samples/apps/quick-links/src/main.ts",
-      "manifest": "samples/apps/quick-links/cmux-app.v2.json",
-      "app": "manaflow-ai/quick-links",
-      "install": "app-store",
-      "gallery": ["links", "empty", "settings edit"]
+      "id": "workspace-tabs",
+      "title": "This workspace",
+      "description": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click.",
+      "file": "skills/cmux-customization/templates/workspace-tabs/main.js",
+      "manifest": "skills/cmux-customization/templates/workspace-tabs/cmux-app.json",
+      "install": "extension",
+      "gallery": [
+        "mixed tabs",
+        "empty workspace",
+        "focus changed"
+      ],
+      "galleryAnchor": "this-workspace"
     },
     {
-      "id": "github-prs",
-      "title": "GitHub PRs",
-      "description": "Read real pull requests through cmux.watch and keep the list live.\nClick a row to open the matching browser tab.",
-      "file": "samples/apps/github-prs/src/main.ts",
-      "manifest": "samples/apps/github-prs/cmux-app.v2.json",
-      "app": "cmux/github-prs",
-      "install": "app-store",
-      "gallery": ["open PRs", "drafts and reviews", "stale/error"]
+      "id": "saved-links",
+      "title": "Dashboard links",
+      "description": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab.",
+      "file": "skills/cmux-customization/templates/saved-links/main.js",
+      "manifest": "skills/cmux-customization/templates/saved-links/cmux-app.json",
+      "install": "extension",
+      "gallery": [
+        "saved links",
+        "first run",
+        "invalid link"
+      ],
+      "galleryAnchor": "dashboard-links"
     },
     {
-      "id": "session-prs",
-      "title": "Session branch PRs",
-      "description": "Show the pull requests for the branch behind the current chat.\nThe Session Info section receives the real session context.",
-      "file": "samples/apps/session-prs/src/main.ts",
-      "manifest": "samples/apps/session-prs/cmux-app.v2.json",
-      "app": "cmux/session-prs",
-      "install": "app-store",
-      "gallery": ["branch with PRs", "no branch", "no matching PRs"]
+      "id": "branch-status",
+      "title": "Branch status",
+      "description": "See the branch and ahead/behind counts for your current folder.\nIn Session Info, the same view follows that chat’s repository.",
+      "file": "skills/cmux-customization/templates/branch-status/main.js",
+      "manifest": "skills/cmux-customization/templates/branch-status/cmux-app.json",
+      "install": "extension",
+      "gallery": [
+        "branch ahead",
+        "detached HEAD",
+        "not a repository"
+      ],
+      "galleryAnchor": "branch-status"
     },
     {
-      "id": "running-agents",
-      "title": "Running agents",
-      "description": "Group agents by working, waiting, idle, and done.\nA click focuses the terminal that owns the agent.",
-      "file": "samples/apps/running-agents/src/main.ts",
-      "manifest": "samples/apps/running-agents/cmux-app.v2.json",
-      "app": "cmux/running-agents",
-      "install": "app-store",
-      "gallery": ["mixed states", "needs you", "no agents"]
+      "id": "showcase-pr-review",
+      "title": "Review requests",
+      "description": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab.",
+      "file": "samples/apps/showcase-pr-review/main.js",
+      "manifest": "samples/apps/showcase-pr-review/cmux-app.v2.json",
+      "install": "extension",
+      "gallery": [
+        "review requests",
+        "no reviews",
+        "GitHub unavailable"
+      ],
+      "galleryAnchor": "review-requests"
     },
     {
-      "id": "command-buttons",
-      "title": "Command buttons",
-      "description": "Put the commands you run all day in one sidebar section.\nEach button uses the same cmux-next.json action as Cmd+K and shortcuts.",
-      "file": "skills/cmux-customization/templates/command-button/main.js",
-      "manifest": "skills/cmux-customization/templates/command-button/cmux-app.json",
-      "install": "template",
-      "gallery": ["ready", "last command", "permission prompt"]
+      "id": "showcase-agent-status",
+      "title": "Working agents",
+      "description": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal.",
+      "file": "samples/apps/showcase-agent-status/main.js",
+      "manifest": "samples/apps/showcase-agent-status/cmux-app.v2.json",
+      "install": "extension",
+      "gallery": [
+        "working agents",
+        "blocked agents",
+        "no active agents"
+      ],
+      "galleryAnchor": "working-agents"
     },
     {
-      "id": "design-links",
-      "title": "Design links",
-      "description": "Paste a Figma, FigJam, Linear, Notion, or Docs URL.\nThe link is saved locally and opens in a cmux browser tab.",
-      "file": "skills/cmux-customization/templates/design-links/main.js",
-      "manifest": "skills/cmux-customization/templates/design-links/cmux-app.json",
-      "install": "template",
-      "gallery": ["saved links", "paste field", "open permission"]
+      "id": "showcase-command-buttons",
+      "title": "Quick actions",
+      "description": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click.",
+      "file": "samples/apps/showcase-command-buttons/main.js",
+      "manifest": "samples/apps/showcase-command-buttons/cmux-app.v2.json",
+      "install": "extension",
+      "gallery": [
+        "default",
+        "light appearance",
+        "dark appearance"
+      ],
+      "galleryAnchor": "quick-actions"
     },
     {
-      "id": "clock-weather",
-      "title": "Clock and weather",
-      "description": "A real clock plus a city weather lookup, stored on this Mac.\nIt demonstrates timers, network scopes, storage, and a live reloadable view.",
-      "file": "skills/cmux-customization/templates/clock-weather/main.js",
-      "manifest": "skills/cmux-customization/templates/clock-weather/cmux-app.json",
-      "install": "template",
-      "gallery": ["city set", "first run", "network error"]
+      "id": "showcase-focus-timer",
+      "title": "Focus timer",
+      "description": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up.",
+      "file": "samples/apps/showcase-focus-timer/main.js",
+      "manifest": "samples/apps/showcase-focus-timer/cmux-app.v2.json",
+      "install": "extension",
+      "gallery": [
+        "ready",
+        "running",
+        "paused"
+      ],
+      "galleryAnchor": "focus-timer"
     },
     {
-      "id": "standup",
-      "title": "Standup notes",
-      "description": "Add, list, and clear a tiny standup log from the palette or CLI.\nIt is a real storage-backed app with no UI to maintain.",
-      "file": "samples/apps/standup/src/main.ts",
-      "manifest": "samples/apps/standup/cmux-app.v2.json",
-      "app": "manaflow-ai/standup",
-      "install": "app-store",
-      "gallery": ["empty log", "notes", "cleared"]
+      "id": "showcase-standup",
+      "title": "Today",
+      "description": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage.",
+      "file": "samples/apps/showcase-standup/main.js",
+      "manifest": "samples/apps/showcase-standup/cmux-app.v2.json",
+      "install": "extension",
+      "gallery": [
+        "notes",
+        "empty list",
+        "storage unavailable"
+      ],
+      "galleryAnchor": "today"
     }
   ],
   "apiGaps": [
-    { "id": "ci-status", "status": "gap", "note": "github.pulls has no CI/check-run fields yet; add a signal before advertising CI badges." },
-    { "id": "review-diff", "status": "gap", "note": "New-agent actions do not accept a prompt or diff attachment yet." },
-    { "id": "toolbar-button", "status": "gap", "note": "cmux.status/1 validates, but NEXT does not render titlebar or chat-toolbar contributions." },
-    { "id": "morning-layout", "status": "gap", "note": "workspaceCommand/workspace layout actions remain classic-only on NEXT." },
-    { "id": "chat-usage", "status": "gap", "note": "Session Info has no per-chat token or cost signal." }
+    {
+      "id": "ci-status",
+      "status": "gap",
+      "note": "github.pulls has no CI/check-run fields yet; add a signal before advertising CI badges."
+    },
+    {
+      "id": "review-diff",
+      "status": "gap",
+      "note": "New-agent actions do not accept a prompt or diff attachment yet."
+    },
+    {
+      "id": "toolbar-button",
+      "status": "gap",
+      "note": "cmux.status/1 validates, but NEXT does not render titlebar or chat-toolbar contributions."
+    },
+    {
+      "id": "morning-layout",
+      "status": "gap",
+      "note": "workspaceCommand/workspace layout actions remain classic-only on NEXT."
+    },
+    {
+      "id": "chat-usage",
+      "status": "gap",
+      "note": "Session Info has no per-chat token or cost signal."
+    },
+    {
+      "id": "reactive-read-params",
+      "status": "gap",
+      "note": "cmux.live has no reactive parameters. Recreating readers inside dynamic scene children leaks subscriptions; use one render-scoped, event-driven loader until the SDK owns reader replacement."
+    },
+    {
+      "id": "custom-action-scope",
+      "status": "gap",
+      "note": "cmuxConfig.* actions are restricted to local/customize; independently installed examples can invoke built-in actions only."
+    }
   ]
 }

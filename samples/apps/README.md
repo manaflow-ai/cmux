@@ -1,15 +1,16 @@
 # Sample cmux apps
 
-The **Customization showcase** is the user-facing catalog for these packages and the
-copy-paste templates in `skills/cmux-customization/templates`. Open Settings → Customize →
-Examples to browse it; samples with a `STORE` marker are one-click installs in the App Store and
-remain off until the person installs them and grants their scopes.
+The [Customization showcase](../../docs/cmux-next/customization-showcase.md) provides ten short,
+editable examples in **Settings → Customize → Examples**. Each uses `cmux ext dev` in its own
+folder, preserves existing customization, and reloads on save. The `showcase-*` folders use
+plain `main.js`; rename their `cmux-app.v2.json` to `cmux-app.json` when copying. They are
+examples to make your own, not bundled widgets.
 
 | App | Contribution | Shows |
 | --- | --- | --- |
-| `github-prs` | two sidebar sections + command | your open pull requests, and "PRs · last 24h" (`recent`, `defaultRegion: bottom`): PRs you authored, were asked to review or are assigned, created or updated in the last 24 hours, open and merged, newest first. Both sections read the `github.pulls` signal with `cmux.watch` (integration gateway, else `net:api.github.com`; one read per section's params, polled behind the signal, no app timers; see `examples/extensions/pr-list` for the recipe). Manifest v2 has one `cmux.section/1`, so its v2 file keeps only `prs`; `STORE` makes it a one-click showcase install |
-| `session-prs` | Session Info section (`cmux.session.info.section/1`) | the pull requests whose head is the chat's branch (`head:<branch>`), read from the mount context the render export gets (`{session_id, cwd, branch?, harness?}`); an empty state when the chat has no branch. Manifest v2 only (`cmux-app.v2.json`); `STORE` makes it a one-click showcase install |
-| `running-agents` | sidebar section | agents grouped by state; click shows the agent's tab; `STORE` makes it a one-click showcase install |
+| `github-prs` | two sidebar sections + command | your open pull requests, and "PRs · last 24h" (`recent`, `defaultRegion: bottom`): PRs you authored, were asked to review or are assigned, created or updated in the last 24 hours, open and merged, newest first. Both sections read the `github.pulls` signal with `cmux.watch` (integration gateway, else `net:api.github.com`; one read per section's params, polled behind the signal, no app timers; see `examples/extensions/pr-list` for the recipe). Manifest v2 has one `cmux.section/1`, so its v2 file keeps only `prs` |
+| `session-prs` | Session Info section (`cmux.session.info.section/1`) | the pull requests whose head is the chat's branch (`head:<branch>`), read from the mount context the render export gets (`{session_id, cwd, branch?, harness?}`); an empty state when the chat has no branch. Manifest v2 only (`cmux-app.v2.json`) |
+| `running-agents` | sidebar section | agents grouped by state; click shows the agent's tab |
 | `agent-status` | status item | "2 working · 1 waiting" with a menu |
 | `palette-notes` | palette scopes + commands | `notes` (snapshot over app storage, detail, ActionRefs) and `search` (streamed query) scopes, a `mode: form` command; tested with `@cmux/app-test` (`bun test`). Not bundled into CmuxNextApps yet (`NOT_BUNDLED`) |
 | `priority-view` | sidebar section | agents ranked by what needs you (needs you, finished, working; idle hidden); the prototype for `plans/cmux-next/extensibility-DESIGN.md`. Not bundled (`NOT_BUNDLED`) |

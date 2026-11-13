@@ -1,91 +1,25 @@
+import showcase from "../../../../../skills/cmux-customization/showcase.json";
 import { useStore } from "../context";
 import { ActionRow } from "./ActionRow";
 import { Button } from "../../../ui/Button";
 import { t } from "../strings";
 
-type Example = {
-  id: string;
-  title: string;
-  description: string;
-  file: string;
-  app?: string;
-};
-
+type Example = { id: string; file: string; manifest: string };
 const RAW_BASE = "https://raw.githubusercontent.com/manaflow-ai/cmux/feat-cmux-next/";
+const SOURCE_BASE = "https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/";
+const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 
 export function templateInstallCommand(example: Example): string {
-  const dir = "~/.config/cmux/customize";
-  const source = example.file.replace(/\/main\.js$|\/main\.ts$/, "");
-  return `mkdir -p ${dir} && curl -fsSL ${RAW_BASE}${source}/main.js -o ${dir}/main.js && curl -fsSL ${RAW_BASE}${source}/cmux-app.json -o ${dir}/cmux-app.json`;
+  return [
+    "(",
+    `  example_dir=$(mktemp -d ${shellQuote(`./cmux-example-${example.id}.XXXXXX`)}) &&`,
+    `  curl -fsSL --connect-timeout 10 --max-time 60 ${shellQuote(RAW_BASE + example.file)} -o "$example_dir/main.js" &&`,
+    `  curl -fsSL --connect-timeout 10 --max-time 60 ${shellQuote(RAW_BASE + example.manifest)} -o "$example_dir/cmux-app.json" &&`,
+    '  cd "$example_dir" &&',
+    "  cmux ext dev",
+    ")",
+  ].join("\n");
 }
-
-const EXAMPLES: Example[] = [
-  {
-    id: "my-prs",
-    title: "My PRs",
-    description: "Pull requests and review requests in the sidebar.",
-    file: "skills/cmux-customization/templates/my-prs",
-  },
-  {
-    id: "threads",
-    title: "Agent threads",
-    description: "Live agent state, grouped with needs-you first.",
-    file: "skills/cmux-customization/templates/threads",
-  },
-  {
-    id: "quick-links",
-    title: "Quick links",
-    description: "Saved links as a sidebar section and a pane.",
-    file: "samples/apps/quick-links",
-    app: "manaflow-ai/quick-links",
-  },
-  {
-    id: "github-prs",
-    title: "GitHub PRs",
-    description: "A live pull-request list with browser actions.",
-    file: "samples/apps/github-prs",
-    app: "cmux/github-prs",
-  },
-  {
-    id: "session-prs",
-    title: "Session branch PRs",
-    description: "Pull requests for the current chat's branch.",
-    file: "samples/apps/session-prs",
-    app: "cmux/session-prs",
-  },
-  {
-    id: "running-agents",
-    title: "Running agents",
-    description: "Agent state with a click to focus its terminal.",
-    file: "samples/apps/running-agents",
-    app: "cmux/running-agents",
-  },
-  {
-    id: "command-buttons",
-    title: "Command buttons",
-    description: "Your cmux-next.json actions in a sidebar section.",
-    file: "skills/cmux-customization/templates/command-button",
-  },
-  {
-    id: "design-links",
-    title: "Design links",
-    description: "Figma, Linear, Notion, and Docs links saved locally.",
-    file: "skills/cmux-customization/templates/design-links",
-  },
-  {
-    id: "clock-weather",
-    title: "Clock and weather",
-    description: "Timers, storage, and a scoped weather request.",
-    file: "skills/cmux-customization/templates/clock-weather",
-  },
-  {
-    id: "standup",
-    title: "Standup notes",
-    description: "Storage-backed add, list, and clear commands.",
-    file: "samples/apps/standup",
-    app: "manaflow-ai/standup",
-  },
-];
 
 export function CustomizeExamplesCard() {
   const store = useStore();
@@ -94,21 +28,26 @@ export function CustomizeExamplesCard() {
       <h3 className="group-title">{t("settingsPage.customization.examples")}</h3>
       <p className="row-help">{t("settingsPage.customization.help")}</p>
       <div className="rows">
-        {EXAMPLES.map((example) => (
+        {showcase.samples.map((example) => (
           <ActionRow
             key={example.id}
-            title={example.title}
-            help={`${example.description} · github.com/manaflow-ai/cmux/tree/feat-cmux-next/${example.file}`}
+            title={t(`settingsPage.customization.sample.${example.id}.title`)}
+            help={t(`settingsPage.customization.sample.${example.id}.description`)}
           >
-            {example.app ? (
-              <Button type="button" className="button" onClick={() => store.installApp(example.app!)}>
-                {t("settingsPage.customization.install")}
-              </Button>
-            ) : (
-              <Button type="button" className="button" onClick={() => void store.copy(templateInstallCommand(example))}>
-                {t("settingsPage.customization.copyInstall")}
-              </Button>
-            )}
+            <a className="button" href={SOURCE_BASE + example.file} target="_blank" rel="noreferrer">
+              {t("settingsPage.customization.source")}
+            </a>
+            <a
+              className="button"
+              href={`${SOURCE_BASE}docs/cmux-next/customization-showcase.gallery.md#${example.galleryAnchor}`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {t("settingsPage.customization.gallery")}
+            </a>
+            <Button type="button" className="button" onClick={() => void store.copy(templateInstallCommand(example))}>
+              {t("settingsPage.customization.copyInstall")}
+            </Button>
           </ActionRow>
         ))}
       </div>

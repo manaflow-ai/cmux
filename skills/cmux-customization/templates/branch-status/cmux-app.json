@@ -1,0 +1,33 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/showcase-branch-status",
+  "name": "Branch status",
+  "version": "1.0.0",
+  "description": "See the real Git branch and its ahead/behind counts.",
+  "engines": {
+    "cmux": "^2.0"
+  },
+  "runtime": {
+    "main": "main.js"
+  },
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderBranch",
+      "title": "Branch status",
+      "symbol": "arrow.triangle.branch",
+      "options": {
+        "defaultRegion": "bottom",
+        "maxRows": 12
+      }
+    },
+    "cmux.session.info.section/1": {
+      "export": "renderBranch",
+      "title": "Branch status",
+      "symbol": "arrow.triangle.branch"
+    }
+  },
+  "scopes": {
+    "git:read": "Read the Git branch for the current tab or chat folder."
+  }
+}

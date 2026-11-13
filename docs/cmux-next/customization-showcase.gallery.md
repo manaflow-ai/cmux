@@ -1,22 +1,61 @@
 # Customization showcase gallery
 
-![Checked-in 10×3 showcase capture](../assets/customization-showcase-gallery.svg)
+Runtime captures and NIGHTLY readback are pending. This table is the capture checklist, not verification evidence.
 
-These are the capture states for the ten samples in the showcase catalog. They are intentionally
-short: each sample is checked in its useful state, its empty/first-run state, and its failure or
-permission state. Use `cmux ext shot --json` for the PNG and scene outline when dogfooding.
-
-| Sample | Default | Empty / first run | Error / permission |
+| Example | Variant 1 | Variant 2 | Variant 3 |
 | --- | --- | --- | --- |
-| My PRs | Open PRs, review badge, ordered rows | No PRs | GitHub unavailable or login field |
-| Agent threads | Working and needs-you groups | No active chats | Agent read scope prompt |
-| Quick links | Three saved links | “No links yet” | Settings edit prompt |
-| GitHub PRs | Open and draft PR rows | Nothing open | Stale list with retry row |
-| Session branch PRs | PRs for the current branch | Chat has no branch | No matching PRs |
-| Running agents | Mixed working, waiting, and done | No agents running | Terminal focus refusal |
-| Command buttons | Three action buttons | No command has run | Run-actions scope toast |
-| Design links | Saved Figma and Linear rows | Paste-link field | Open-actions scope toast |
-| Clock and weather | Clock, date, city, temperature | City field | Network error text |
-| Standup notes | A short note list | Empty log | Cleared confirmation |
+| My PRs | open PRs | no PRs | GitHub unavailable |
+| Needs you | questions waiting | no questions | read refused |
+| This workspace | mixed tabs | empty workspace | focus changed |
+| Dashboard links | saved links | first run | invalid link |
+| Branch status | branch ahead | detached HEAD | not a repository |
+| Review requests | review requests | no reviews | GitHub unavailable |
+| Working agents | working agents | blocked agents | no active agents |
+| Quick actions | default | light appearance | dark appearance |
+| Focus timer | ready | running | paused |
+| Today | notes | empty list | storage unavailable |
 
-The gallery is evidence for the runtime states; the source files remain the copy-paste artifacts.
+Use `cmux-ci capture` with explicit `debug.window_snapshot` collection for native screenshots.
+Record source SHA, build job, sample source hash, and capture result beside the images.
+Fixture data must be labelled; real-data NIGHTLY readback must separately verify installation,
+actions, simultaneous examples, preserved existing customization, and saving `main.js` without a restart.
+
+## My PRs
+
+Native captures pending: open PRs, no PRs, GitHub unavailable.
+
+## Needs you
+
+Native captures pending: questions waiting, no questions, read refused.
+
+## This workspace
+
+Native captures pending: mixed tabs, empty workspace, focus changed.
+
+## Dashboard links
+
+Native captures pending: saved links, first run, invalid link.
+
+## Branch status
+
+Native captures pending: branch ahead, detached HEAD, not a repository.
+
+## Review requests
+
+Native captures pending: review requests, no reviews, GitHub unavailable.
+
+## Working agents
+
+Native captures pending: working agents, blocked agents, no active agents.
+
+## Quick actions
+
+Native captures pending: default, light appearance, dark appearance.
+
+## Focus timer
+
+Native captures pending: ready, running, paused.
+
+## Today
+
+Native captures pending: notes, empty list, storage unavailable.

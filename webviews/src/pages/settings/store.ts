@@ -1040,11 +1040,6 @@ export class SettingsStore {
     void this.request("cmux.app.action.run", { action: "palette.openCmuxSettingsFile" });
   }
 
-  /** Installs one showcase sample through the native consent card (available in NIGHTLY). */
-  installApp(app: string): void {
-    void this.request("cmux.app.action.run", { action: "app.install", args: { app } });
-  }
-
   playSound(name: string): void {
     void this.request("cmux.settings.sound.play", { name });
   }

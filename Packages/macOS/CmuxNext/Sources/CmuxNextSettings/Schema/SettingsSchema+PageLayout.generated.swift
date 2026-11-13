@@ -58,7 +58,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case sharedLinks
         /// Settings > Agents > Worktree Setup: a project's worktree recipe (setup, run and teardown scripts, files to copy) over the repository's .worktreeinclude and .cmux/worktree.toml (design/worktree-setup.md); `cmux.project.list`, `cmux.project.update` and `cmux.git.worktree.setup` through the page relay.
         case worktreeSetup
-        /// Settings > Customize > Examples: the live cmux NEXT showcase, with copy-paste templates and App Store sample apps.
+        /// Settings > Customize > Examples: small editable cmux NEXT examples, installed into independent folders with live reload.
         case customizationExamples
     }
 

@@ -3,7 +3,7 @@
 The cmux NEXT showcase is the short, live catalog for people deciding what to make:
 [`showcase.json`](../showcase.json) and the matching [gallery capture states](../../../docs/cmux-next/customization-showcase.gallery.md).
 It points at the templates and sample apps below, so there is one source of truth for copy-paste
-files, App Store installs, hot reload, and the API gaps that still need an SDK change.
+files, isolated extension installs, hot reload, and the API gaps that still need an SDK change.
 
 This file is the catalog of workflow recipes. (`cmux docs workflows` was removed with the Swift CLI.)
 

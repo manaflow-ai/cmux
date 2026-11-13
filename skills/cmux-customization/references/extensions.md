@@ -9,8 +9,8 @@ still missing, and the copy-paste folders that work as written.
 What people build, from a first widget to a pane of their own, and the gaps between
 what they asked for and these primitives: [ideas.md](ideas.md).
 
-An extension of its own (an id `local/NAME` beside the customize app, built from
-TypeScript) starts with `cmux ext new NAME` and loads with `cmux ext dev`; an
+An extension of its own (an id `local/NAME` beside the customize app, written in
+JavaScript or TypeScript) starts with `cmux ext new NAME` and loads with `cmux ext dev`; an
 agent runs `cmux ext dev --once --json` after each edit and reads its exit code,
 errors and `scene` (an outline of what rendered). Before saying it is done, it runs
 `cmux ext shot --json` and looks at `shot.path`, a picture of the cmux window that
@@ -18,16 +18,14 @@ shows the extension ([docs/cmux-next/extensions/dev-loop.md](../../../docs/cmux-
 
 ## Start from a template
 
-Each folder in [`../templates/`](../templates/) is a complete customize app
-(`cmux-app.json` and `main.js`). There is one customize app, so a template
-replaces the folder; to keep an existing view, merge the new one into it
-([adding a view](local-app-views.md#adding-a-view-to-an-existing-customize-app)).
+Each folder in [`../templates/`](../templates/) contains `cmux-app.json` and
+`main.js`. Check the manifest's `id` before installing: the shared templates use
+`local/customize`; the independent showcase examples use `local/showcase-<name>`.
 
-```sh
-test -d ~/.config/cmux/customize && cp -Rp ~/.config/cmux/customize ~/.config/cmux/customize.$(date +%Y%m%d-%H%M%S).bak
-mkdir -p ~/.config/cmux/customize
-cp templates/<name>/cmux-app.json templates/<name>/main.js ~/.config/cmux/customize/
-```
+The eight shared templates below belong in `~/.config/cmux/customize`, which
+reloads on save automatically. There is one customize app. If it already has
+content, keep it and [merge the new view into it](local-app-views.md#adding-a-view-to-an-existing-customize-app).
+Copy the two files directly only when starting a new customize folder.
 
 | Template | What it shows | Scopes the person turns on |
 |---|---|---|
@@ -40,17 +38,42 @@ cp templates/<name>/cmux-app.json templates/<name>/main.js ~/.config/cmux/custom
 | `design-links` | Figma, FigJam, Linear, Notion and Docs links: paste one, its file name becomes the row, a click opens it in a cmux browser tab beside the code. | `storage:local` (keep the links), `actions:run` (open) |
 | `threads` | Your agent chats as a thread list (`agent_chat.list`): cards with the folder, a status (Input, Failed, Done, Working with its duration) or the age, the title and what the chat does now; chats that need you first, running chats in a Working shelf and day-old chats in Earlier, both closed; a search field. Read again on `agent_chat.changed` (the app tells the daemon when a chat changes), not on a timer. | `workspace:write` (a click shows the chat's workspace), `actions:run` (a chat with no workspace opens in a tab) |
 
+The five independent showcase examples below each have their own
+`local/showcase-<name>` id. Copy their two files into a new folder and run
+`cmux ext dev` there. Accept the install card once; saves then reload that
+example while the command runs. They coexist with each other and the customize
+app. To make a second copy of the same example, give its manifest a new
+`local/NAME` id first.
+
+```sh
+# Keep the example's own manifest id and folder.
+mkdir ./my-needs-you
+cp templates/needs-you/cmux-app.json templates/needs-you/main.js ./my-needs-you/
+cd ./my-needs-you
+cmux ext dev
+```
+
+| Independent example | What it shows | Scopes the person turns on |
+|---|---|---|
+| `workspace-tabs` | The current workspace's real tabs; click one to focus it. | `workspace:write` |
+| `needs-you` | Agent chats waiting for an answer, refreshed on `agent_chat.changed`; click to open the chat. | `actions:run` |
+| `pull-watch` | Your open PRs from connected GitHub, with browser-pane links and shared signal refresh. CI status is not included. | `actions:run` |
+| `saved-links` | Your saved HTTPS dashboard links; click to open a browser tab beside the workspace. | `storage:local`, `actions:run` |
+| `branch-status` | Git branch and ahead/behind counts in the sidebar and Session Info; the latter reads that chat's folder. Use Refresh after external Git changes if the build does not send a Git event. | none |
+
 Read scopes (`workspace:read`, `integration:github:read`, ...) are granted at
 install. Every other scope stays off until the person turns it on in
-Settings > Apps > My views; an agent cannot. Each template still renders with
+Settings > Apps > the example's name (My views for the shared customize app);
+an agent cannot. Each template still renders with
 them off; `command-button` toasts which scope a click needs, `sidebar-section`
 toasts that it cannot focus the tab, and the pane keeps its list only until the
 app reloads or its last view closes when `storage:local` is off.
 
 `skills/cmux-customization/templates` is validated as written:
 `cmux-tui/crates/cmux-app-manifest/tests/customize_example.rs` checks each
-folder is a valid package, and `cmux-tui/crates/cmux-app-host/js/test/kit.test.ts`
-runs each `main.js` in the app runtime and clicks its buttons.
+folder is a valid package. `cmux-tui/crates/cmux-app-host/js/test/kit.test.ts`
+exercises the shared templates, and `../templates/showcase.test.ts` exercises
+the independent examples' reads, events, errors and click gestures in the app runtime.
 
 ### The actions `command-button` runs
 
