@@ -11,10 +11,12 @@
 //! (or a missing directory on the way to one appearing or vanishing). A
 //! watched name that is not a regular file (a folder, a socket, a FIFO, a
 //! device) has no watch of its own: it hints when it is made, removed or
-//! renamed, and for nothing else. So a metadata change of it gives no hint
-//! on Linux (on macOS it hints with the next change of an entry of its
-//! directory), and a write through a watched FIFO or device, and the close
-//! after it, give no hint on either system.
+//! renamed. On Linux a metadata change of it, and a write through a watched
+//! FIFO or device with the close after it, give no hint, unless its
+//! directory has the close and metadata events for a file that got no
+//! watch (see `inotify.rs`). On macOS they give no event: a metadata change
+//! hints with the next change of an entry of its directory, and a write
+//! through a FIFO or device hints at most then.
 //! Opens, reads and read-only closes never count: the reload a hint
 //! triggers reads the watched file, and a watched ancestor such as /etc
 //! sees an open on every process start. Events that arrive within
