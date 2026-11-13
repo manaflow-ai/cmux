@@ -264,13 +264,14 @@ def load_static_bundle(name: str, static_dir: Path, excluded_dirs: list[Path] | 
     excluded = [path.resolve() for path in (excluded_dirs or [])]
     assets = []
     excluded_files = []
-    if static_dir.is_dir():
-        root = static_dir.resolve()
-        for path in sorted(path for path in root.rglob("*") if path.is_file()):
-            if any(path.is_relative_to(directory) for directory in excluded):
-                excluded_files.append(path.relative_to(root).as_posix())
-                continue
-            assets.append({"path": path.relative_to(root).as_posix(), "bytes": path.stat().st_size})
+    if not static_dir.is_dir():
+        raise FileNotFoundError(f"static directory does not exist: {static_dir}")
+    root = static_dir.resolve()
+    for path in sorted(path for path in root.rglob("*") if path.is_file()):
+        if any(path.is_relative_to(directory) for directory in excluded):
+            excluded_files.append(path.relative_to(root).as_posix())
+            continue
+        assets.append({"path": path.relative_to(root).as_posix(), "bytes": path.stat().st_size})
     shipped = sum(asset["bytes"] for asset in assets)
     return {
         "kind": "static",
@@ -311,18 +312,6 @@ def render_markdown(report: dict[str, Any]) -> str:
         "", "## Top modules", "", "| Bundle | Module | source bytes | attribution | metric | ratio | flags |",
         "| --- | --- | ---: | ---: | --- | ---: | --- |",
     ]
-    static_bundles = [bundle for bundle in report["bundles"] if bundle.get("kind") == "static"]
-    if static_bundles:
-        lines += [
-            "", "## Static shipped assets", "",
-            "These files are shipped outside a bundler graph. Their bytes are measured, but no module reachability or tree-shaking claim is made.",
-            "", "| Bundle | file | bytes |", "| --- | --- | ---: |",
-        ]
-        for bundle in static_bundles:
-            for asset in bundle["staticAssets"]:
-                lines.append(f"| {bundle['name']} | `{asset['path']}` | {asset['bytes']:,} |")
-            if bundle["excludedFiles"]:
-                lines.append(f"| {bundle['name']} | *(excluded bundle output: {len(bundle['excludedFiles'])} files)* | — |")
     for bundle in report["bundles"]:
         if bundle.get("kind") == "static":
             continue
@@ -339,6 +328,18 @@ def render_markdown(report: dict[str, Any]) -> str:
             ratio = f"{row['ratio']:.2f}" if row["attributionMetric"] == "emitted" else "unknown"
             source = f"{row['sourceBytes']:,}" if row["sourceBytesKind"] != "unknown" else "unknown"
             lines.append(f"| {bundle['name']} | `{row['path']}` | {source} | {value} | {row['attributionMetric']} | {ratio} | {', '.join(flags)} |")
+    static_bundles = [bundle for bundle in report["bundles"] if bundle.get("kind") == "static"]
+    if static_bundles:
+        lines += [
+            "", "## Static shipped assets", "",
+            "These files are shipped outside a bundler graph. Their bytes are measured, but no module reachability or tree-shaking claim is made.",
+            "", "| Bundle | file | bytes |", "| --- | --- | ---: |",
+        ]
+        for bundle in static_bundles:
+            for asset in bundle["staticAssets"]:
+                lines.append(f"| {bundle['name']} | `{asset['path']}` | {asset['bytes']:,} |")
+            if bundle["excludedFiles"]:
+                lines.append(f"| {bundle['name']} | *(excluded bundle output: {len(bundle['excludedFiles'])} files)* | — |")
     lines += [
         "", "## Resolved inputs omitted from outputs", "",
         "These resolved source modules contribute no output. This demonstrates elimination in this graph;",
@@ -397,10 +398,21 @@ def main() -> int:
     for item in args.static_dir:
         name, path = item.split("=", 1)
         static_dirs.append((name, Path(path)))
+    static_paths = [(name, path.resolve()) for name, path in static_dirs]
+    for index, (name, path) in enumerate(static_paths):
+        for other_name, other_path in static_paths[index + 1:]:
+            if path.is_relative_to(other_path) or other_path.is_relative_to(path):
+                parser.error(f"--static-dir roots overlap: {name}={path} and {other_name}={other_path}")
     source_roots = {}
     for item in args.source_root:
         name, path = item.split("=", 1)
         source_roots[name] = Path(path)
+    for static_name, static_path in static_dirs:
+        for bundle_name, bundle_path in dirs.items():
+            static_root = static_path.resolve()
+            bundle_root = bundle_path.resolve()
+            if static_root.is_relative_to(bundle_root):
+                parser.error(f"--static-dir {static_name} is inside --bundle-dir {bundle_name}; roots overlap")
     bundles = []
     for item in args.metafile:
         name, path = item.split("=", 1)

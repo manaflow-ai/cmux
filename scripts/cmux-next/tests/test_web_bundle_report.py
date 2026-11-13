@@ -438,6 +438,58 @@ class WebBundleReportTests(unittest.TestCase):
             report = json.loads(report_path.read_text())
             self.assertEqual(len(report["bundles"]), 1)
 
+    def test_static_inventory_requires_an_existing_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = Path(tmp) / "does-not-exist"
+            with self.assertRaises(FileNotFoundError):
+                MODULE.load_static_bundle("missing", missing)
+
+    def test_static_inventory_rejects_overlapping_roots(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            parent = root / "assets"
+            child = parent / "nested"
+            child.mkdir(parents=True)
+            report_path = root / "report.json"
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--static-dir", f"parent={parent}",
+                 "--static-dir", f"child={child}", "--json", str(report_path)],
+                check=False, capture_output=True, text=True,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("roots overlap", result.stderr)
+
+    def test_static_inventory_rejects_roots_inside_bundle_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            bundle = root / "bundle"
+            static = bundle / "static"
+            static.mkdir(parents=True)
+            report_path = root / "report.json"
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--bundle-dir", f"graph={bundle}",
+                 "--static-dir", f"assets={static}", "--json", str(report_path)],
+                check=False, capture_output=True, text=True,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("inside --bundle-dir graph", result.stderr)
+
+    def test_static_section_follows_top_modules(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            static = root / "assets"
+            static.mkdir()
+            (static / "vendor.js").write_bytes(b"vendor")
+            metafile = self.write_bundle(root, "graph", [("src/main.ts", 10, 4)])
+            report = {
+                "bundles": [MODULE.load_bundle("graph", metafile, root),
+                            MODULE.load_static_bundle("assets", static)],
+                "duplicates": {},
+                "findings": [],
+            }
+            markdown = MODULE.render_markdown(report)
+            self.assertLess(markdown.index("## Top modules"), markdown.index("## Static shipped assets"))
+
     def test_embedded_metafile_reports_modules_without_shipped_bytes(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
