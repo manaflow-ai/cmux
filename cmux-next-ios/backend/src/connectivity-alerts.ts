@@ -302,8 +302,9 @@ export const startVerdict = (report: IncidentReport, check: MacCheck, now: numbe
   // phone's clock: that difference is free of the phone's clock offset; the moment itself is the server's.
   const stoppedFor = Math.max(0, Date.parse(report.observedAt) - Date.parse(report.startedAt))
   if (report.kind === "link_unstable") {
-    const restartedAt = live?.connectedAt
-    return restartedAt != null && restartedAt >= at - stoppedFor ? "mac_restarted" : undefined
+    // A connect inside the window (its start to the moment the phone saw it): the host restarted.
+    const connects = [...(live?.connects ?? []), ...(live?.connectedAt != null ? [live.connectedAt] : [])]
+    return connects.some((t) => t >= at - stoppedFor && t <= at) ? "mac_restarted" : undefined
   }
   const since = Math.max(at - stoppedFor, at - ALIVE_WITHIN_MS)
   if (live && live.lastPingAt !== null && live.lastPingAt >= since) return undefined
@@ -649,6 +650,16 @@ export class ConnectivityAlertDesk extends DurableObject<Env> {
   /** Test only: replaces the Slack call (ENVIRONMENT=test). */
   static testSlack: SlackCall | undefined
 
+  /** Durable Object storage takes at most 128 keys per put or delete: larger sets go in chunks. */
+  private async putAll(writes: Record<string, unknown>): Promise<void> {
+    const entries = Object.entries(writes)
+    for (let i = 0; i < entries.length; i += 128) await this.ctx.storage.put(Object.fromEntries(entries.slice(i, i + 128)))
+  }
+
+  private async deleteAll(keys: ReadonlyArray<string>): Promise<void> {
+    for (let i = 0; i < keys.length; i += 128) await this.ctx.storage.delete(keys.slice(i, i + 128))
+  }
+
   private async loadDesk(): Promise<DeskState> {
     const meta = normalizeMeta(await this.ctx.storage.get<Partial<DeskMeta>>("meta"))
     const incidents: Record<string, Incident> = {}
@@ -668,8 +679,8 @@ export class ConnectivityAlertDesk extends DurableObject<Env> {
     for (const action of outcome.actions) outbox.push({ action, tries: 0, at: Date.now() })
     const writes: Record<string, unknown> = { meta: desk.meta, outbox }
     for (const id of outcome.changed) if (desk.incidents[id]) writes[`inc:${id}`] = desk.incidents[id]
-    await this.ctx.storage.put(writes)
-    if (outcome.removed.length) await this.ctx.storage.delete(outcome.removed.map((id) => `inc:${id}`))
+    await this.putAll(writes)
+    if (outcome.removed.length) await this.deleteAll(outcome.removed.map((id) => `inc:${id}`))
     console.log(JSON.stringify({ msg: "connectivity report", kind: report.kind, state: report.state, route: audience.route, note: outcome.note ?? "posted", queued: outcome.actions.length }))
     // After the answer: a slow Slack must not make the phone's request time out and resend.
     const retryAt = (await this.ctx.storage.get<number>("retryAt")) ?? 0
@@ -702,7 +713,7 @@ export class ConnectivityAlertDesk extends DurableObject<Env> {
       for (const action of expired.actions) outbox.push({ action, tries: 0, at: now })
       const writes: Record<string, unknown> = { outbox, meta: desk.meta }
       for (const id of expired.changed) writes[`inc:${id}`] = desk.incidents[id]
-      await this.ctx.storage.put(writes)
+      await this.putAll(writes)
       console.log(JSON.stringify({ msg: "connectivity incidents expired", count: expired.changed.length }))
     }
     if (retryAt <= now) await this.drain()
@@ -710,13 +721,14 @@ export class ConnectivityAlertDesk extends DurableObject<Env> {
   }
 
   /** One alarm for whichever comes first: the outbox's retry or the next open incident's expiry. */
-  private async scheduleAlarm(desk: DeskState): Promise<void> {
+  /** `replace`: set the alarm to the soonest due time even if one is set later (or earlier: a stale retry). */
+  private async scheduleAlarm(desk: DeskState, replace = false): Promise<void> {
     const retryAt = await this.ctx.storage.get<number>("retryAt")
     const candidates = [retryAt, nextExpiry(desk)].filter((t): t is number => typeof t === "number")
     if (!candidates.length) return
     const at = Math.min(...candidates)
     const current = await this.ctx.storage.getAlarm()
-    if (current === null || current > at || current < Date.now()) await this.ctx.storage.setAlarm(at)
+    if (replace || current === null || current > at || current < Date.now()) await this.ctx.storage.setAlarm(at)
   }
 
   /** Test only: closes stale incidents as if `now` were the time (the alarm uses the clock). */
@@ -727,7 +739,7 @@ export class ConnectivityAlertDesk extends DurableObject<Env> {
     for (const action of expired.actions) outbox.push({ action, tries: 0, at: now })
     const writes: Record<string, unknown> = { outbox }
     for (const id of expired.changed) writes[`inc:${id}`] = desk.incidents[id]
-    await this.ctx.storage.put(writes)
+    await this.putAll(writes)
     await this.drain()
     return expired.changed.length
   }
@@ -776,8 +788,8 @@ export class ConnectivityAlertDesk extends DurableObject<Env> {
       const tries = outbox[0]!.tries
       const wait = RETRY_S[Math.min(tries - 1, RETRY_S.length - 1)]!
       await this.ctx.storage.put({ outbox, retryAt: Date.now() + wait * 1000 })
+      await this.scheduleAlarm(await this.loadDesk(), true)
       console.log(JSON.stringify({ msg: "connectivity alert retry", kind: head.action.kind, error: result.error, tries, waitS: wait }))
-      await this.ctx.storage.setAlarm(Date.now() + wait * 1000)
       return
     }
   }

@@ -113,8 +113,12 @@ public struct LiveAPI: Sendable {
 
     /// `POST /v1/diagnostics/connectivity-incidents` (PROTOCOL.md "Connectivity incidents"): one state
     /// of a major connectivity incident, for the cmux team's Slack. The service checks the account.
-    public func reportConnectivityIncident(_ incident: ConnectivityIncidentDetector.Incident, simulations: [String], app: ConnectivityIncidentApp) async throws {
-        _ = try await call("POST", "v1/diagnostics/connectivity-incidents", body: Self.incidentBody(incident, simulations: simulations, app: app))
+    /// Returns the service's `note` (why it was not posted: `mac_restarted`, `mac_asleep`, …), nil when posted.
+    @discardableResult
+    public func reportConnectivityIncident(_ incident: ConnectivityIncidentDetector.Incident, simulations: [String], app: ConnectivityIncidentApp) async throws -> String? {
+        struct Reply: Decodable { var note: String? }
+        let data = try await call("POST", "v1/diagnostics/connectivity-incidents", body: Self.incidentBody(incident, simulations: simulations, app: app))
+        return (try? JSONDecoder().decode(Reply.self, from: data))?.note
     }
 
     /// The JSON body of a connectivity incident report.

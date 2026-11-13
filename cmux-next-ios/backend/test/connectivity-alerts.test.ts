@@ -130,6 +130,10 @@ describe("whether the Mac was awake", () => {
     const unstable = report({ kind: "link_unstable", drops: 3, startedAt: new Date(T0 - 81_000).toISOString(), durationMs: 81_000 }, T0)
     expect(startVerdict(unstable, { liveness: { connected: true, lastPingAt: T0 - 1000, pings: true, connectedAt: T0 - 20_000 } }, T0)).toBe("mac_restarted")
     expect(startVerdict(unstable, { liveness: { connected: true, lastPingAt: T0 - 1000, pings: true, connectedAt: T0 - 600_000 } }, T0)).toBeUndefined()
+    // Judged late: a restart inside the window counts even if the Mac reconnected again since; a reconnect
+    // only after the phone saw it does not.
+    expect(startVerdict(unstable, { liveness: { connected: true, lastPingAt: T0 + 290_000, pings: true, connectedAt: T0 + 200_000, connects: [T0 - 30_000, T0 + 200_000] } }, T0 + 300_000)).toBe("mac_restarted")
+    expect(startVerdict(unstable, { liveness: { connected: true, lastPingAt: T0 + 290_000, pings: true, connectedAt: T0 + 200_000, connects: [T0 - 600_000, T0 + 200_000] } }, T0 + 300_000)).toBeUndefined()
     // A connect alone proves nothing (a dark wake connects and sleeps again).
     expect(startVerdict(open, { liveness: { connected: true, lastPingAt: null, pings: false } }, T0)).toBe("mac_liveness_unknown")
     expect(startVerdict(open, { liveness: { connected: false, lastPingAt: null, pings: false } }, T0)).toBe("mac_offline")
@@ -563,6 +567,24 @@ describe("POST /v1/diagnostics/connectivity-incidents", () => {
     // The reply itself (ts 1004.0001: the fake answers every call with the next ts) is edited to its end.
     expect(calls[4]!.body).toMatchObject({ channel: "CTEAM", ts: "1004.0001", text: expect.stringContaining("Resolved: reconnected after 50s.") })
     mac.sock.ws.close()
+  })
+
+  it("forgets more incidents at once than storage takes in one call (128 keys)", async () => {
+    // 150 old incidents, a week past: the next report removes them in chunks and still answers.
+    await runInDurableObject(desk(), async (_d: ConnectivityAlertDesk, state: DurableObjectState) => {
+      const old = Date.now() - 8 * 86_400_000
+      const writes: Record<string, unknown> = {}
+      for (let i = 0; i < 150; i++) {
+        const id = `old-incident-${String(i).padStart(4, "0")}`
+        writes[`inc:${id}`] = { id, route: "team", reporter: { key: `r${i}`, email: "x@cmux.com" }, report: report({ id }), states: ["open"], receivedAt: old, updatedAt: old }
+      }
+      const entries = Object.entries(writes)
+      for (let i = 0; i < entries.length; i += 100) await state.storage.put(Object.fromEntries(entries.slice(i, i + 100)))
+    })
+    const tok = await token("ted")
+    expect((await call("POST", PATH, tok, body({ mac: { id: crypto.randomUUID(), name: "Gone" } }))).status).toBe(202)
+    const left = await runInDurableObject(desk(), (d: ConnectivityAlertDesk) => d.snapshot())
+    expect(Object.keys(left.desk.incidents).filter((id) => id.startsWith("old-incident-"))).toEqual([])
   })
 
   it("drops a call Slack can never accept instead of holding up the alerts behind it", async () => {

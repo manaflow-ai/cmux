@@ -189,6 +189,17 @@ public struct ConnectivityIncidentDetector: Sendable {
         return []
     }
 
+    /// The service held this unstable link as the Mac's host restarting: forget it, its drops and its
+    /// cooldown, so the next real run of drops is reported (no end is sent for it).
+    public mutating func forgetUnstable(incidentID: String) {
+        for id in macs.keys where macs[id]?.unstable?.id == incidentID {
+            macs[id]?.unstable = nil
+            macs[id]?.lastUnstable = nil
+            macs[id]?.drops = []
+            macs[id]?.lastDrop = nil
+        }
+    }
+
     /// A dial to the Mac failed: its reason is the incident's last error.
     public mutating func dialFailed(macID: String, reason: String) {
         macs[macID]?.lastError = reason

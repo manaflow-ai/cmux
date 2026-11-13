@@ -379,6 +379,26 @@ import Testing
         #expect(opened.map(\.kind) == [.linkUnstable])
     }
 
+    @Test func anUnstableLinkTheServiceHeldAsARestartIsForgottenWithItsCooldown() throws {
+        var d = detector()
+        _ = connected(&d, at: 20)
+        _ = drop(&d, at: 60)
+        _ = drop(&d, at: 100)
+        let thirdDrop = drop(&d, at: 140)
+        let first = try #require(checkID(thirdDrop))
+        let opened = reports(d.reachability(macID: "m1", checkID: first, internet: true, service: true, at: at(142)))
+        let held = try #require(opened.first)
+        d.forgetUnstable(incidentID: held.id)
+        #expect(d.openIncidents.isEmpty)
+        // A real run of drops right after is reported (no 30-minute cooldown from the held one).
+        _ = drop(&d, at: 200)
+        _ = drop(&d, at: 240)
+        let sixthDrop = drop(&d, at: 280)
+        let second = try #require(checkID(sixthDrop))
+        let again = reports(d.reachability(macID: "m1", checkID: second, internet: true, service: true, at: at(282)))
+        #expect(again.map(\.kind) == [.linkUnstable])
+    }
+
     @Test func dropsSpreadOverMoreThanFiveMinutesAreNot() {
         var d = detector()
         _ = connected(&d, at: 20)
@@ -483,10 +503,13 @@ import Testing
         private let lock = NSLock()
         private var items: [(ConnectivityIncidentDetector.Incident, [String])] = []
         var failures: [any Error] = []
-        func add(_ incident: ConnectivityIncidentDetector.Incident, _ simulations: [String]) throws {
+        /// Notes the service answers, in order (nil: posted).
+        var notes: [String?] = []
+        func add(_ incident: ConnectivityIncidentDetector.Incident, _ simulations: [String]) throws -> String? {
             try lock.withLock {
                 if !failures.isEmpty { throw failures.removeFirst() }
                 items.append((incident, simulations))
+                return notes.isEmpty ? nil : notes.removeFirst()
             }
         }
         var all: [(ConnectivityIncidentDetector.Incident, [String])] { lock.withLock { items } }

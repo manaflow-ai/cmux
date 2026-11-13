@@ -113,6 +113,12 @@ public struct ConnectivityIncidentOutbox: Sendable, Equatable, Codable {
     /// When the head may be tried again, if it waits.
     public var retryAt: Date? { entries.first?.notBefore }
 
+    /// Forgets an open incident the service held for good (no end will be sent for it).
+    public mutating func forget(_ id: String) {
+        open[id] = nil
+        entries.removeAll { $0.incident.id == id && $0.incident.state != .open }
+    }
+
     /// Records the head's send.
     public mutating func finish(_ result: Result, at date: Date) {
         guard !entries.isEmpty else { return }
@@ -149,7 +155,8 @@ public struct ConnectivityIncidentOutbox: Sendable, Equatable, Codable {
 @MainActor
 public final class ConnectivityIncidentReporter {
     /// Sends one report; throws ``LiveAPI/Failure`` or a transport error.
-    public typealias Send = @Sendable (ConnectivityIncidentDetector.Incident, [String], ConnectivityIncidentApp) async throws -> Void
+    /// Sends one report and returns the service's note (why it was held), nil when posted.
+    public typealias Send = @Sendable (ConnectivityIncidentDetector.Incident, [String], ConnectivityIncidentApp) async throws -> String?
     /// Whether the phone reaches the internet at large and the cmux service.
     public typealias Check = @Sendable () async -> (internet: Bool, service: Bool)
 
@@ -381,8 +388,14 @@ public final class ConnectivityIncidentReporter {
         while let entry = outbox.next(at: now()) {
             let result: ConnectivityIncidentOutbox.Result
             do {
-                try await send(entry.incident, entry.simulations, app)
+                let note = try await send(entry.incident, entry.simulations, app)
                 result = .sent
+                // The service held an unstable link because the Mac's host restarted: it was no failing
+                // link, so the phone forgets it (and its cooldown) rather than keep it open and miss a real one.
+                if note == "mac_restarted", entry.incident.kind == .linkUnstable, entry.incident.state == .open {
+                    detector.forgetUnstable(incidentID: entry.incident.id)
+                    outbox.forget(entry.incident.id)
+                }
             } catch let failure as LiveAPI.Failure where [400, 403, 409, 413].contains(failure.status) {
                 // A 404 is not here: a service that predates the route (a rollout) takes it later.
                 log.error("incident report refused: \(failure.code, privacy: .public)")

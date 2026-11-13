@@ -36,6 +36,10 @@
         // (cmux INTERNAL) and the App Store app (com.cmux.app). Notification extensions never register:
         // APNs topics are the app's own bundle id.
         "APNS_TOPICS": "dev.cmux.mobile,dev.cmux.mobile.demo,dev.cmux.mobile.prod,dev.cmux.app.internal,com.cmux.app",
+        // Connectivity alerts (PROTOCOL.md "Connectivity incidents"): every post, test route too, goes to
+        // #cmux-ios-connectivity. Channel ids are not secret; the bot token (SLACK_BOT_TOKEN) is.
+        "CONNECTIVITY_ALERT_CHANNEL": "C0CHDSZJYU9",
+        "CONNECTIVITY_ALERT_TEST_CHANNEL": "C0CHDSZJYU9",
         // Dev (primary) and production Stack users: production mobile builds use this dev Worker too.
         "STACK_PROJECTS": "[{\"id\":\"454ecd03-1db2-4050-845e-4ce5b0cd9895\",\"label\":\"dev\",\"publishableClientKey\":\"pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g\",\"inviteCallbackUrl\":\"http://localhost:8102/handler/team-invitation\"},{\"id\":\"9790718f-14cd-4f7e-824d-eaf527a82b82\",\"label\":\"prod\",\"publishableClientKey\":\"\",\"inviteCallbackUrl\":\"https://cmux.com/handler/team-invitation\"}]"
       },
@@ -73,6 +77,9 @@
         "API_VERSION": "0.15.0",
         // The TestFlight app (cmux INTERNAL) and the App Store app (com.cmux.app), both on this Worker.
         "APNS_TOPICS": "dev.cmux.mobile.prod,dev.cmux.app.internal,com.cmux.app",
+        // Connectivity alerts: every post goes to #cmux-ios-connectivity (channel ids are not secret).
+        "CONNECTIVITY_ALERT_CHANNEL": "C0CHDSZJYU9",
+        "CONNECTIVITY_ALERT_TEST_CHANNEL": "C0CHDSZJYU9",
         "STACK_PROJECTS": "[{\"id\":\"9790718f-14cd-4f7e-824d-eaf527a82b82\",\"label\":\"prod\",\"publishableClientKey\":\"\",\"inviteCallbackUrl\":\"https://cmux.com/handler/team-invitation\"}]"
       },
       "durable_objects": { "bindings": [{ "name": "TEAM_HUB", "class_name": "TeamHub" }, { "name": "CONNECTIVITY_ALERT_DESK", "class_name": "ConnectivityAlertDesk" }] },

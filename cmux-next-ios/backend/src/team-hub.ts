@@ -45,6 +45,8 @@ export interface MacLiveness {
   readonly pings: boolean
   /** When the Mac's current signaling socket connected (ms), if connected: a host that restarted reconnects. */
   readonly connectedAt?: number | null
+  /** The Mac's last signaling connects (ms, oldest first, at most 8): restarts inside a window, judged late. */
+  readonly connects?: ReadonlyArray<number>
 }
 
 /** A sealed reply for a Mac (PROTOCOL.md "Reply mailbox"): the hub never holds a key that opens it. */
@@ -183,6 +185,8 @@ export class TeamHub extends DurableObject<Env> {
     addColumn("macs", "machine_id")
     // The last application ping of a Mac's closed or replaced socket (connectivity alerts, `macLiveness`).
     addColumn("macs", "last_ping_at")
+    // The Mac's last signaling connects, JSON ms (connectivity alerts: a host that restarted).
+    addColumn("macs", "connects")
     // Devices deleted here, so a database read that raced the deletion cannot seed them back.
     this.sql.exec(`CREATE TABLE IF NOT EXISTS forgotten (device_id TEXT PRIMARY KEY)`)
     // The last turn-ending push per Mac and session (`turnPushAllowed`); rows older than the window go.
@@ -411,13 +415,25 @@ export class TeamHub extends DurableObject<Env> {
   async macLiveness(ownerKey: string, deviceId: string, at: number = Date.now()): Promise<MacLiveness> {
     this.bind(ownerKey)
     const recorded = this.recordedPing(deviceId)
+    const connects = this.connectsOf(deviceId)
     const ws = this.open(deviceId)
-    if (!ws || this.attach(ws).kind !== "mac") return { connected: false, lastPingAt: recorded, pings: recorded !== null, connectedAt: null }
+    if (!ws || this.attach(ws).kind !== "mac") return { connected: false, lastPingAt: recorded, pings: recorded !== null, connectedAt: null, connects }
     const pinged = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? null
     const connectedAt = this.attach(ws).connectedAt ?? 0
     // A socket opened after the moment cannot speak for it: the last socket before it does.
     const lastPingAt = connectedAt > at ? recorded : pinged
-    return { connected: true, lastPingAt, pings: pinged !== null || recorded !== null, connectedAt: connectedAt || null }
+    return { connected: true, lastPingAt, pings: pinged !== null || recorded !== null, connectedAt: connectedAt || null, connects }
+  }
+
+  /** A Mac's last signaling connects (ms, oldest first). */
+  private connectsOf(deviceId: string): Array<number> {
+    const row = this.sql.exec<{ connects: string | null }>(`SELECT connects FROM macs WHERE device_id = ?`, deviceId).toArray()[0]
+    try {
+      const list = JSON.parse(row?.connects ?? "[]") as unknown
+      return Array.isArray(list) ? list.filter((n): n is number => typeof n === "number") : []
+    } catch {
+      return []
+    }
   }
 
   /** The last application ping recorded for a Mac when one of its sockets closed or was replaced. */
@@ -599,7 +615,10 @@ export class TeamHub extends DurableObject<Env> {
         att.teamId,
         Date.now()
       )
+      const connects = [...this.connectsOf(att.deviceId), Date.now()].slice(-8)
+      this.sql.exec(`UPDATE macs SET connects = ? WHERE device_id = ?`, JSON.stringify(connects), att.deviceId)
     }
+
     server.send(
       JSON.stringify({
         type: "hello",
