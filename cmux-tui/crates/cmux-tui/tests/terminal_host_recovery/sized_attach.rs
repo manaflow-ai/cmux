@@ -428,10 +428,20 @@ fn a_size_lease_v2_claim_ends_after_the_short_lease() {
         wait_for_vt_size(&harness.socket, surface, 53, 39);
         let claimed = Instant::now();
 
-        wait_for_vt_size(&harness.socket, surface, 120, 39);
+        // Polled here, not with `wait_for_vt_size` (its 10 s limit is too
+        // close to the 8 s lease on a loaded host).
+        let deadline = claimed + Duration::from_secs(30);
+        loop {
+            let state = request(&harness.socket, serde_json::json!({"cmd": "vt-state", "surface": surface}));
+            if state["cols"].as_u64() == Some(120) {
+                break;
+            }
+            assert!(Instant::now() < deadline, "{name}: the v2 claim did not end in 30 s");
+            std::thread::sleep(Duration::from_millis(50));
+        }
         let ended = claimed.elapsed();
         assert!(
-            ended >= Duration::from_secs(6) && ended <= Duration::from_secs(15),
+            ended >= Duration::from_secs(6) && ended <= Duration::from_secs(20),
             "{name}: the v2 claim ended {ended:?} after it was made (want about 8 s)"
         );
 

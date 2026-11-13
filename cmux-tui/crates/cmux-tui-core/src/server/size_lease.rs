@@ -84,6 +84,8 @@ fn size_lease(lease: Duration) -> Duration {
 #[derive(Clone, Copy)]
 struct Lease {
     until: Instant,
+    /// The lease's length (for the expiry log).
+    length: Duration,
     /// When its connection left without releasing (the departed-view hold
     /// that departure set ends with the lease).
     left_at: Option<Instant>,
@@ -105,7 +107,7 @@ pub(crate) struct SizeLeases {
 /// What an expired lease does.
 enum Expired {
     /// The connection is still here: release its size.
-    Release(u64, SurfaceId),
+    Release(u64, SurfaceId, Duration),
     /// It left at this instant: end the hold its departure set.
     EndHold(SurfaceId, Instant),
 }
@@ -116,9 +118,9 @@ impl SizeLeases {
     }
 
     /// Renews the lease; true when the worker must be started.
-    fn renew(&self, client: u64, surface: SurfaceId, until: Instant) -> bool {
+    fn renew(&self, client: u64, surface: SurfaceId, until: Instant, length: Duration) -> bool {
         let mut state = self.lock();
-        state.leases.insert((client, surface), Lease { until, left_at: None });
+        state.leases.insert((client, surface), Lease { until, length, left_at: None });
         self.changed.notify_all();
         !std::mem::replace(&mut state.worker, true)
     }
@@ -154,7 +156,7 @@ impl SizeLeases {
                 state.leases.remove(&(client, surface));
                 match lease.left_at {
                     Some(left_at) => Expired::EndHold(surface, left_at),
-                    None => Expired::Release(client, surface),
+                    None => Expired::Release(client, surface, lease.length),
                 }
             })
             .collect()
@@ -194,7 +196,7 @@ impl SizeLeases {
 pub(super) fn renew_size_lease(mux: &Arc<Mux>, client: u64, surface: SurfaceId) {
     let Some(lease) = lease_of(mux, client) else { return };
     let until = Instant::now() + lease;
-    if !mux.control_clients.size_leases.renew(client, surface, until) {
+    if !mux.control_clients.size_leases.renew(client, surface, until, lease) {
         return; // The worker is running and reads the new deadline.
     }
     // The worker holds the leases, never the Mux, while it waits: a daemon
@@ -234,13 +236,12 @@ fn expire(mux: &Arc<Mux>) {
         let _lifecycle = mux.lock_client_sizing_lifecycle();
         for expired in mux.control_clients.size_leases.take_expired(Instant::now()) {
             match expired {
-                Expired::Release(client, surface) => {
+                Expired::Release(client, surface, length) => {
                     if !mux.control_clients.contains(client) {
                         continue;
                     }
                     eprintln!(
-                        "cmux-tui: client {client}'s size of surface {surface:?} was not refreshed for {:?}: released",
-                        lease_of(mux, client).unwrap_or_default()
+                        "cmux-tui: client {client}'s size of surface {surface:?} was not refreshed for {length:?}: released"
                     );
                     if let Err(error) =
                         cmd_sizing::release_surface_size_locked(mux, client, surface)

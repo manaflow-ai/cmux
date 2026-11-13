@@ -224,6 +224,9 @@ public final class DaemonTerminalSession: TerminalSession {
     /// changes are shown as they come, not held, until the phone's grid is
     /// back or the page claims again.
     private var macKeepsGrid = false
+    /// Releases sent at once (``releaseNow()``) and not answered yet: a stop
+    /// still sends its own, answered release before it closes the channel.
+    private var releasesInFlight = 0
     private var leaseTask: Task<Void, Never>?
     private var draining = false
     private var pendingSize: (columns: Int, rows: Int)?
@@ -444,7 +447,8 @@ public final class DaemonTerminalSession: TerminalSession {
         // reads the close as a dropped link (which holds its grid for 30 s).
         if let client {
             // A claimed size, or a release still waiting behind another request.
-            let release = attached && (sizeClaimed || outbox.contains { if case .release = $0 { true } else { false } })
+            let release = attached && (sizeClaimed || releasesInFlight > 0
+                || outbox.contains { if case .release = $0 { true } else { false } })
             let surface = surface
             Task {
                 if release {
@@ -1030,7 +1034,9 @@ public final class DaemonTerminalSession: TerminalSession {
             return
         }
         let surface = surface
-        Task {
+        releasesInFlight += 1
+        Task { [weak self] in
+            defer { self?.releasesInFlight -= 1 }
             do {
                 let reply = try await client.request("release-surface-size", params: ["surface": surface])
                 if let error = Self.error(in: reply) {
@@ -1116,6 +1122,14 @@ public final class DaemonTerminalSession: TerminalSession {
                 let reply: Data
                 switch next {
                 case .size(let columns, let rows):
+                    // Hidden since it was queued (shown and hidden again in
+                    // one turn): never sent, or it would claim a size no
+                    // release follows.
+                    guard claimsSize else {
+                        draining = false
+                        drain()
+                        return
+                    }
                     cmd = "resize-surface"
                     log.notice("surface \(surface, privacy: .public): resize-surface sent \(columns, privacy: .public)x\(rows, privacy: .public) cause=\(self.everAttached && self.attachRetries == 0 ? "requested" : "attach", privacy: .public)")
                     sizeClaimed = true
