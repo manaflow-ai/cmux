@@ -2,10 +2,12 @@ name: risk tier
 
 # Labels each feat-cmux-next pull request risk:low, risk:normal or risk:high from what it changes
 # (docs/ci/risk-tiers.md on feat-cmux-next). Low and normal never wait for a person: the check passes
-# as soon as it has graded them. High stays red until a person has looked: an approving review on the
-# head commit, or risk:human-ok from a maintainer. Any tier is held while it takes back another pull
-# request's change from the last week, until a `Takes back #N: <why>` line owns it. gh-merge-green
-# and next-autoland refuse a red `risk evidence` check.
+# as soon as it has graded them. High is held until its head has a verdict: an independent review
+# receipt (`Review (<reviewer>): SHIP at <full head sha>`), an approving review on the head commit, or
+# risk:human-ok from a maintainer. No person is needed (Leo, 2026-11-06: "this does not need a human.");
+# the step below keeps its older name. Any tier is held while it takes back another pull request's
+# change from the last week, until a `Takes back #N: <why>` line owns it. gh-merge-green and
+# next-autoland refuse a red `risk evidence` check.
 #
 # This copy is the one that runs. GitHub runs pull_request_target workflows from the default branch
 # (main) whatever the pull request's base, so the copy on feat-cmux-next never ran: no feat pull
@@ -66,7 +68,12 @@ jobs:
       # The pull request's head goes in the same repository, as data that is never checked out, so
       # the classifier takes the merge base from git instead of a `compare` call on every run. When it
       # can't (a slow fetch, or a merge base past the window), the classifier calls `compare` as before.
+      # An explicit zero deletions skips the fetch: there is no deleted line to blame, and with no
+      # removed line the classifier needs no merge base (it grades against the base sha, no `compare`).
+      # Missing metadata still fetches, so event drift cannot waive the takeback check. The condition goes
+      # through toJSON: an expression compares null as 0, so `deletions == null` is true for zero too.
       - name: Fetch the base's recent history
+        if: ${{ toJSON(github.event.pull_request.deletions) != '0' }}
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           REPO: ${{ github.repository }}
