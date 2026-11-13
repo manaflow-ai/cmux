@@ -424,11 +424,18 @@ install_binary "$CLIENT"
 manifest_has() {
   python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))["binaries"].get(sys.argv[2]) else 1)' "$MANIFEST" "$1"
 }
-# install_companion <artifact prefix> <installed name>: both darwin slices, lipo'd
-# like the client, sha256-verified by fetch_slice.
+# install_companion <artifact prefix> <installed name>: the slices --arch needs
+# (both for universal, lipo'd like the client), sha256-verified by fetch_slice.
+# An arm64 install needs no x86_64 slice: off main, cmux-tui-artifacts.yml
+# publishes aarch64-apple-darwin only.
 install_companion() {
-  local prefix="$1" name="$2" dest="$DEST_DIR/$2" binary arm x64 arch
-  if ! { manifest_has "$prefix-aarch64-apple-darwin" && manifest_has "$prefix-x86_64-apple-darwin"; }; then
+  local prefix="$1" name="$2" dest="$DEST_DIR/$2" binary arm x64 arch has
+  case "$ARCH" in
+    arm64) manifest_has "$prefix-aarch64-apple-darwin" && has=1 || has=0 ;;
+    x86_64) manifest_has "$prefix-x86_64-apple-darwin" && has=1 || has=0 ;;
+    universal) { manifest_has "$prefix-aarch64-apple-darwin" && manifest_has "$prefix-x86_64-apple-darwin"; } && has=1 || has=0 ;;
+  esac
+  if [[ "$has" != 1 ]]; then
     rm -f "$dest"
     echo "note: cmux-tui ${COMMIT:0:10} publishes no $name"
     return 0
@@ -499,7 +506,9 @@ client_reports() {
 }
 SSH_TARGETS=()
 if ! client_reports ssh-payload-macos-from-client; then
-  SSH_TARGETS=(aarch64-apple-darwin x86_64-apple-darwin)
+  SSH_TARGETS=(aarch64-apple-darwin)
+  # Off main the build publishes no Intel Mac slice (cmux-tui-artifacts.yml).
+  if manifest_has cmux-tui-x86_64-apple-darwin; then SSH_TARGETS+=(x86_64-apple-darwin); fi
 fi
 if ! client_reports ssh-payload-download; then
   SSH_TARGETS=(aarch64-unknown-linux-musl x86_64-unknown-linux-musl ${SSH_TARGETS[@]+"${SSH_TARGETS[@]}"})

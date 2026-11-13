@@ -43,6 +43,8 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_GOD_SCALE",
     "ACPMUX_GOD_DHAT",
     "ACPMUX_GOD_DHAT_TOP",
+    // A control artifact for differential runs; the child still uses the hermetic environment.
+    "ACPMUX_GOD_DAEMON_BIN",
 ]);
 
 use acpmux::config::{Config, StoreMode};
@@ -77,7 +79,7 @@ const ALL_LOGS: Duration = Duration::from_secs(120);
 const ALL_LOGS_POLL: Duration = Duration::from_millis(50);
 
 /// The startup points kept as marks, not phases (`gauges.rs`).
-const MARKS: [&str; 3] = ["socket ready", "first list reply", "agents may spawn"];
+const MARKS: [&str; 4] = ["socket ready", "requests ready", "first list reply", "agents may spawn"];
 
 fn ms(since: Instant) -> u64 {
     since.elapsed().as_millis() as u64
@@ -320,12 +322,17 @@ struct Daemon {
     child: Child,
     socket: PathBuf,
     spawned: Instant,
+    socket_connect_us: u64,
 }
 
 impl Daemon {
     fn start(scratch: &Path, home: &Path, dhat: Option<&Path>) -> Self {
         let socket = scratch.join("s.sock");
-        let mut command = daemon_env::command(scratch, daemon_env::Agents::StandIn, &[]);
+        let binary = std::env::var_os("ACPMUX_GOD_DAEMON_BIN")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| daemon_env::bin().to_path_buf());
+        let mut command =
+            daemon_env::command_at(&binary, scratch, daemon_env::Agents::StandIn, &[]);
         command
             .args(["daemon", "run", "--ready-fd", "1", "--log", "warn"])
             .env("ACPMUX_HOME", home)
@@ -338,12 +345,26 @@ impl Daemon {
         }
         let spawned = Instant::now();
         let mut child = command.spawn().unwrap();
+        // Observe bind from a client too: moving an internal gauge alone cannot improve this
+        // measurement. This probe is identical for a control binary and the changed daemon.
+        loop {
+            if UnixStream::connect(&socket).is_ok() {
+                break;
+            }
+            if spawned.elapsed() >= STEP || child.try_wait().unwrap().is_some() {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("the daemon did not bind its socket");
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        let socket_connect_us = micros(spawned);
         let stdout = child.stdout.take().unwrap();
         for line in BufReader::new(stdout).lines() {
             if let Ok(v) = serde_json::from_str::<Value>(&line.unwrap())
                 && v["ready"] == true
             {
-                return Self { child, socket, spawned };
+                return Self { child, socket, spawned, socket_connect_us };
             }
         }
         let _ = child.kill();
@@ -430,6 +451,7 @@ async fn run(shape: Shape, dhat: bool) -> Value {
     let result = tokio::task::spawn_blocking(move || {
         let daemon = Daemon::start(&scratch, &home, profile.as_deref());
         let ready_ms = ms(daemon.spawned);
+        let socket_connect_us = daemon.socket_connect_us;
         let mut rpc = Rpc::connect(&daemon.socket);
         rpc.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "god-bench"}}))
             .unwrap();
@@ -608,6 +630,7 @@ async fn run(shape: Shape, dhat: bool) -> Value {
             "godLogBytes": made.god_log_bytes, "godJsonlBytes": made.god_jsonl_bytes,
             "peers": shape.peers, "peerRows": shape.peer_rows, "listed": listed,
             "writeMs": write_ms, "readyMs": ready_ms, "firstListMs": first_list_ms,
+            "socketConnectUs": socket_connect_us,
             "peersMs": peers_ms, "attachUs": spread(&attaches), "attachOk": attach.is_ok(),
             "scrollPageUs": spread(&scrolls), "scrollWraps": scroll_wraps,
             "scrollError": scroll_error,
@@ -779,6 +802,8 @@ async fn god_and_small_homes_in_one_harness() {
         // A JSON pointer escapes '~' as ~0 and '/' as ~1; a space stays as it is.
         let keys = [
             "/readyMs",
+            "/socketConnectUs",
+            "/marksMs/socket ready",
             "/firstListMs",
             "/peersMs",
             "/attachUs/p50",

@@ -167,7 +167,6 @@ PICKS: dict[str, int] = {
     "stable-next-rollback.yml": 1,
     "stable-next.yml": 6,
     "swift-linux-packages.yml": 1,
-    "swift-packages-linux.yml": 1,
     "test-ios.yml": 3,
     "tui-publish-npm.yml": 1,
     "tui-publish-pypi.yml": 2,
