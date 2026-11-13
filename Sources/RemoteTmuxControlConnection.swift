@@ -344,7 +344,7 @@ final class RemoteTmuxControlConnection {
     private var preControlOutputBuffer = ""
     /// When the current spawn last produced output or was started. Read by ``attachProgress(now:)``.
     var lastTransportOutputAt: ContinuousClock.Instant?
-    var transportLiveness = RemoteTmuxTransportLiveness()
+    var transportLiveness = RemoteTmuxTransportLivenessState()
     /// Set the first time the pre-control region looks like an unanswered prompt, and never unset for
     /// this process.
     ///
