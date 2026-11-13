@@ -299,7 +299,7 @@ final class CreationInputCoordinator {
         guard let services = router?.services else { return }
         if let view = services.cache.existingTerminal(lane.tab)?.session.surfaceView { return events.forEach(view.typeHeldKey) }
         guard let machine = lane.machine, let (tab, pane) = services.locateTab(lane.tab, onMachine: machine), tab.kind == .pty else {
-            return Self.logger.notice("\(events.count, privacy: .public) held key(s) went with their closed terminal")
+            return holdEnds.wentWithTerminal(events.count) // lost: no terminal gets them, and the hold's end counts them
         }
         let (inputs, skipped) = HeldKeyInput.inputs(for: events, optionAsAlt: GhosttyRuntime.shared.optionAsAltValue), surface = tab.surface
         if skipped > 0 { Self.logger.error("\(skipped, privacy: .public) held key(s) have no daemon key name") }
@@ -400,8 +400,8 @@ final class CreationInputCoordinator {
         if buffer.awaitedWorkspace == shown, let daemon { buffer.bindNewWorkspaceKeys(to: shown.flatMap(daemon.store.firstTerminalTab(ofWorkspace:))?.id, machine: daemon.machineID) }
         let end = holdEnds.end(in: window.windowNumber, forced: force ? forcedEnd : nil, pageTab: buffer.awaitsPage ? buffer.awaitedTab : nil)
         let pending = buffer.take(focused: Self.keyboardTerminal(controller, window)) { self.shortcut($0, tab: $1, in: window) != nil }
-        CreationHoldLog.noteEnded(end, window: window.windowNumber, keys: pending.count, lastAction: router.lastInterception?.action.rawValue, untyped: buffer.untypedTerminalKeys)
         _ = runAgain(pending, from: buffer, in: window)
+        holdEnds.noteEnded(end, window: window.windowNumber, keys: pending.count, lastAction: router.lastInterception?.action.rawValue, untyped: buffer.untypedTerminalKeys) // after the keys ran: it counts those a gone terminal took
     }
 }
 

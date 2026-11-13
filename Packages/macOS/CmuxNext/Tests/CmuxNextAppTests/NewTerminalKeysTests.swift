@@ -229,6 +229,24 @@ import Testing
         #expect(wakes.count == 0, "closes \(closes): the ended hold woke \(wakes.count) time(s)")
     }
 
+    /// The hold's count of lost keys (`CreationHoldLog.lostKeys`, the number in the log line of the hold's end): the keys
+    /// that no terminal could take (the hold's own count) and the keys that the hold's end gave to a terminal that was
+    /// gone (a New Terminal Tab's whose stand-in left the pane and whose tab the store did not list by the limit). Before
+    /// this, the second kind was in no count. Keys that a gone terminal took before this end began are not this hold's,
+    /// and the next hold starts at 0.
+    @Test func theHoldsEndCountsTheKeysThatAGoneTerminalTook() {
+        var log = CreationHoldLog()
+        log.wentWithTerminal(5)
+        let end = log.end(in: 7, forced: .limitReached)
+        log.wentWithTerminal(33)
+        log.noteEnded(end, window: 7, keys: 1, lastAction: nil, untyped: 2)
+        #expect(end == .limitReached && log.lostKeys[7] == 35, "the hold ended \(end) with \(String(describing: log.lostKeys[7])) keys in its count")
+        #expect(log.lostKeys[8] == nil, "a window with no hold has a count")
+        let next = log.end(in: 7, forced: nil)
+        log.noteEnded(next, window: 7, keys: 4, lastAction: nil)
+        #expect(next == .focusLanded && log.lostKeys[7] == 0, "the next hold ended \(next) with \(String(describing: log.lostKeys[7])) keys in its count")
+    }
+
     /// Past the reply bound the create is off the list: its keys run as typed, as every creation's do (cmux-ad m12).
     @Test func pastTheReplyBoundTheKeysRunAsTyped() throws {
         let buffer = CreationInputBuffer(began: .now)

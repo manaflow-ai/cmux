@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+import CmuxNextFocusUI
 import CmuxNextTabs
 import Foundation
 import Testing
@@ -210,6 +211,10 @@ struct NewTerminalTabRefusedKeysTests {
         /// The person types the start of a line, moves to the other pane, the daemon makes the tab, and the person
         /// types the rest of the line in the made terminal.
         case madeAfterAMove
+        /// As ``madeAfterAMove`` to the daemon's answer, in the order that settles the create at the reply
+        /// (``Late/afterTheStoreAppliedEachLine``), and the proxy keeps the daemon's events past the hold's limit: the
+        /// stand-in left the pane at the reply, and the made terminal's tab does not come while the hold waits.
+        case madeAndTheTabDoesNotCome
     }
 
     /// When the daemon's events (`tab-added` with them) reach the app, against the reply of the create.
@@ -262,6 +267,16 @@ struct NewTerminalTabRefusedKeysTests {
     @Test(arguments: Late.allCases)
     func theKeysHeldForAMadeTerminalReachItInOrderBeforeALaterKeyAfterThePersonMovedAway(_ events: Late) async throws {
         try await Self.run(.current, .madeAfterAMove, events: events)
+    }
+
+    /// What the person sees when the daemon made the terminal and its tab does not come by the hold's limit (2 s after
+    /// the reply), in the order that settles the create at the reply. The stand-in tab left the pane at the reply and no
+    /// new tab is there. At the limit the keys typed before the move (the 33 keys of the line's start) show in no
+    /// terminal: not in the terminal of the press and not in the terminal the person moved to. They are lost. The person
+    /// gets no sign of it in the app; the one sign is the log line of the hold's end, which counts each of them
+    /// (`CreationHoldLog.lostKeys`). The hold ends by its limit: the test reads the end's reason and the count, not a time.
+    @Test func whenTheMadeTabDoesNotComeByTheHoldsLimitTheKeysTypedBeforeTheMoveShowInNoTerminalAndOnlyTheLogCountsThem() async throws {
+        try await Self.run(.current, .madeAndTheTabDoesNotCome, events: .afterTheStoreAppliedEachLine)
     }
 
     private static func run(_ daemon: Daemon, _ ending: Ending, events: Late = .asSent) async throws {
@@ -347,10 +362,12 @@ struct NewTerminalTabRefusedKeysTests {
             // The line, typed while the create waits. Its output shows only where a shell ran it, and only when each
             // key came in the typed order.
             let nonce = String(UInt32.random(in: 100_000...999_999))
+            // The person types the start of the line, then moves to the other pane (two endings).
+            let movesAway = ending == .madeAfterAMove || ending == .madeAndTheTabDoesNotCome
             // The moved-away case, typed in two parts (held, then later): a lost key changes the sum or breaks the line,
             // and the line that the terminal shows gives the order of the keys.
             let heldPart = "echo nt\(nonce)x$((12345*6789+1011-", laterPart = "1213-1415))\r"
-            let answer = ending == .madeAfterAMove ? "\(12_345 * 6_789 + 1_011 - 1_213 - 1_415)" : "42"
+            let answer = movesAway ? "\(12_345 * 6_789 + 1_011 - 1_213 - 1_415)" : "42"
             @MainActor func ran(in surface: SurfaceID, within wait: Int) async -> (ran: Bool, screen: String) {
                 let reply = try? await connection.request(WaitForTextRequest(surface: surface, pattern: "nt\(nonce)x\(answer)", timeoutMs: wait),
                                                           timeout: .milliseconds(wait + 5_000))
@@ -374,30 +391,30 @@ struct NewTerminalTabRefusedKeysTests {
                     }
                 }
             }
-            try typeLine(ending == .madeAfterAMove ? heldPart : "echo nt\(nonce)x$((6*7))\r", held: true)
+            try typeLine(movesAway ? heldPart : "echo nt\(nonce)x$((6*7))\r", held: true)
             try #require(replays.keys.isEmpty, "a held key ran again before the daemon's answer: \(replays.keys)")
             // The person moves to the other pane with the start of the line held for the new terminal.
-            if ending == .madeAfterAMove {
+            if movesAway {
                 try await focus(other)
                 try #require(coordinator.isHolding(in: window) && files.answered.isEmpty && replays.keys.isEmpty,
                              "the hold ended at the person's move: \(replays.keys.count) keys ran again, \(panes())")
             }
 
             // The daemon's answer: it refuses the tab, or (the proxy sends the create on) makes it.
-            let makes = ending == .made || ending == .madeAfterAMove
+            let makes = ending == .made || movesAway
             if makes { try #require(FileManager.default.createFile(atPath: files.pass.path, contents: nil)) }
-            if ending == .madeAfterAMove, events != .asSent {
+            if movesAway, events != .asSent {
                 try #require(FileManager.default.createFile(atPath: files.late.path, contents: events == .soonAfterTheReply ? Data("10".utf8) : nil))
             }
             let store = services.daemon.store
             let link = try #require(services.daemon.connection, "the app has no connection to the daemon")
-            if ending == .madeAfterAMove, events == .afterTheStoreAppliedEachLine {
+            if movesAway, events == .afterTheStoreAppliedEachLine {
                 try #require(FileManager.default.createFile(atPath: files.quiet.path, contents: nil))
             }
             let answeredAt = ContinuousClock.now
             try FileManager.default.removeItem(at: files.hold)
             var atTheReply = "not asked"
-            if ending == .madeAfterAMove, events == .afterTheStoreAppliedEachLine {
+            if movesAway, events == .afterTheStoreAppliedEachLine {
                 // The proxy keeps the reply and each event and stream line after the create. The store applies what the
                 // daemon sent before: then the reply's event sequence is one that the store reached, and the reply
                 // settles the create at once.
@@ -511,6 +528,31 @@ struct NewTerminalTabRefusedKeysTests {
                 for (name, terminal) in [(pressTerminal, pressed), ("the other terminal", other)] {
                     let screen = (try? await connection.request(ReadScreenRequest(surface: terminal.surface), timeout: .seconds(5)))?.text ?? "unreadable"
                     #expect(!screen.contains("nt\(nonce)"), "a key typed for the new terminal reached \(name) (\(timing); \(how)); its screen: \(screen.debugDescription)")
+                }
+            case .madeAndTheTabDoesNotCome:
+                // The hold ended with the daemon's events still kept: the store listed no made tab while the hold waited.
+                try #require(madeTerminal() == nil && !files.logged.contains("events released"),
+                             "the made tab came before the hold's end: this run proves nothing (proxy log \(files.logged), \(panes()))")
+                let lost = coordinator.holdEnds.lostKeys[window.windowNumber]
+                let counted = lost.map { "\($0)" } ?? "no"
+                let sees = "the hold ended \(end) \(ContinuousClock.now - answeredAt) after the answer; \(counted) keys in the hold's count of lost keys, "
+                    + "\(heldPart.count) typed before the move; \(replays.keys.count) keys ran again; the pane of the press shows "
+                    + "\(pressed.pane.pane.tabs.filter { $0.kind == .pty }.count) terminal tab(s), \(terminalTabs) before the press; before the reply: \(atTheReply); proxy log \(files.logged)"
+                print("NewTerminalTabRefusedKeysTests madeAndTheTabDoesNotCome: \(sees)")
+                #expect(end == "limitReached", "the hold did not end by its limit (\(sees))")
+                #expect(lost == heldPart.count, "the hold's count of lost keys is not the \(heldPart.count) keys typed before the move (\(sees))")
+                #expect(replays.keys.isEmpty, "a held key ran again as typed in what had the keyboard (\(sees))")
+                for (name, terminal) in [(pressTerminal, pressed), ("the terminal the person moved to", other)] {
+                    let screen = (try? await connection.request(ReadScreenRequest(surface: terminal.surface), timeout: .seconds(5)))?.text ?? "unreadable"
+                    #expect(!screen.contains("nt\(nonce)"), "a key typed for the new terminal reached \(name) (\(sees)); its screen: \(screen.debugDescription)")
+                }
+                // The daemon's events go now, and the made terminal's tab comes. What its screen shows then is printed, not
+                // required: the lost keys were sent to no terminal.
+                try FileManager.default.removeItem(at: files.late)
+                try await PinnedPageTests.until({ madeTerminal() != nil }, within: .seconds(15), report: { "waiting for the made terminal's tab in the pane: \(panes()), proxy log \(files.logged)" })
+                if let made = madeTerminal() {
+                    let screen = (try? await connection.request(ReadScreenRequest(surface: made), timeout: .seconds(5)))?.text ?? "unreadable"
+                    print("NewTerminalTabRefusedKeysTests madeAndTheTabDoesNotCome: the made terminal's screen after its tab came: \(screen.debugDescription)")
                 }
             case .movedThenRefused:
                 // The line is the terminal's that the person moved to: it ran there, and not in the terminal of the press.
