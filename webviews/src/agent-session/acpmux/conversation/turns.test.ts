@@ -357,3 +357,28 @@ test("a turn with its prompt held keeps its Worked for time", () => {
   );
   expect(shown.find((row) => row.kind === WORKED)?.durationMs).toBe(95_000);
 });
+
+// A run that asks for an edit's permission is still the running turn's: its thought and the change
+// it asks about stay in sight, unfolded, while the turn waits. (A running turn's thought draws as the
+// one line it folds to since #39781, so no run needs the old live shape, `liveRun`, any more.)
+test("a running turn's run waiting on an edit's permission keeps its thought and change in sight", () => {
+  const thought = {
+    kind: "thought",
+    text: "The retry loop lives in the fetch client; changing its backoff",
+    startedAt: 2_000,
+    endedAt: 2_400,
+  };
+  const edit = {
+    kind: "tool",
+    text: "",
+    tool: { id: "e1", title: "Edit fetch.ts", kind: "edit", status: "pending", locations: [{ path: "fetch.ts" }] },
+  };
+  const shown = turnView(
+    [user(1_000), { id: "act", version: 1, at: 2_000, kind: "activity", items: [thought, edit] }],
+    new Set(),
+    { now: 3_000, working: true },
+  );
+  const run = shown.find((row) => row.id === "act");
+  expect(run?.items?.map((item) => item.kind)).toEqual(["thought", "tool"]);
+  expect(run?.foldRun).toBe(false);
+});
