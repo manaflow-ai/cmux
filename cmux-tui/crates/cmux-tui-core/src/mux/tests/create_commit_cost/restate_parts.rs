@@ -299,10 +299,11 @@ fn waiters_counts_a_locker_that_waits_and_no_locker_that_holds() {
 }
 
 /// The worker on its own thread, as a daemon runs it: it waits for ready, states the session in
-/// parts and records its laps. BAR (a3): the pause lap is the sum of the holds by the worker's
-/// own arithmetic (it sleeps for the hold that each step returned), so a compare of the two laps
-/// proves nothing. What a clock proves: the thread ran at least as long as its parts held the
-/// locks plus that pause, so it did stay away from the locks for it.
+/// parts and records its laps. BAR (a3) needs two asserts together. The pause lap is what the
+/// worker chose to sleep: it is at least the sum of the holds only while the worker sleeps for
+/// the hold that each committed part returned, so that compare guards the choice. The clock
+/// guards the sleep: the thread ran at least as long as its parts held the locks plus that
+/// pause, so it did stay away from the locks for it.
 #[test]
 fn the_worker_thread_states_the_session_and_records_its_laps() {
     let mux = without_crosscheck(|| session_in(test_mux(), 10));
@@ -341,6 +342,10 @@ fn the_worker_thread_states_the_session_and_records_its_laps() {
         sum["values"].as_u64().unwrap(),
         laps[1]["values"].as_u64().unwrap() + laps[2]["values"].as_u64().unwrap(),
         "{laps:?}"
+    );
+    assert!(
+        pause["ms"].as_f64().unwrap() >= sum["ms"].as_f64().unwrap(),
+        "the worker paused less than its parts held the locks: {laps:?}"
     );
     // Each lap is rounded to 0.1 ms: 0.2 ms covers the rounding of the two.
     assert!(
