@@ -56,7 +56,7 @@ export const PRESETS: ReadonlyArray<Density & { nameKey: string }> = [
     name: "Compact",
     nameKey: "settings.choice.compact",
     level: 0,
-    tokens: { sidebarRowHeight: 20, tabHeight: 20, tabStripHeight: 26 },
+    tokens: { sidebarRowHeight: 20, tabStripHeight: 26 },
   },
   {
     id: "cozy",
@@ -64,7 +64,7 @@ export const PRESETS: ReadonlyArray<Density & { nameKey: string }> = [
     nameKey: "settings.choice.default",
     level: 0.5,
     fontSize: DEFAULT_BODY_POINTS,
-    tokens: { sidebarRowHeight: 30, tabHeight: 30, tabStripHeight: 36 },
+    tokens: { sidebarRowHeight: 30, tabStripHeight: 36 },
   },
   {
     id: "comfortable",
@@ -73,6 +73,7 @@ export const PRESETS: ReadonlyArray<Density & { nameKey: string }> = [
     level: 1.25,
     spacing: 1.1,
     fontSize: COMFORTABLE_BODY_POINTS,
+    tokens: { iconSize: 20, smallIconSize: 16 },
   },
   {
     id: "spacious",
@@ -81,6 +82,7 @@ export const PRESETS: ReadonlyArray<Density & { nameKey: string }> = [
     level: 2.25,
     spacing: 1.35,
     fontSize: SPACIOUS_BODY_POINTS,
+    tokens: { iconSize: 24, smallIconSize: 20 },
   },
 ];
 /** The density when appearance.density is unset (Swift `DensitySetting.fallback`). */
@@ -133,10 +135,14 @@ export function resolve(density: Density): Resolved {
     return density.fontSize === undefined ? size : half((size * density.fontSize) / levelBody);
   };
   const spacing = density.spacing ?? 1;
+  // A tab is the density's row unless the density sets its own (Swift `Metrics.tabHeight`, tabs follow rows); a strip
+  // without its own height grows by as much as the tab outgrows the level's tab (Swift `Metrics.tabStripHeight`).
+  const tabHeight = density.tokens?.tabHeight ?? metric("sidebarRowHeight");
+  const levelStrip = at(PAIRS.tabStripHeight, level, Math.round) + Math.max(0, tabHeight - at(PAIRS.tabHeight, level, Math.round));
   return {
     sidebarRowHeight: metric("sidebarRowHeight"),
-    tabHeight: metric("tabHeight"),
-    tabStripHeight: metric("tabStripHeight"),
+    tabHeight,
+    tabStripHeight: density.tokens?.tabStripHeight ?? levelStrip,
     // A row's corner is Chrome's tab corner on its height, 8 on 30 (Swift `chromeRowCornerRadius`), so every
     // density rounds alike.
     itemCornerRadius: density.tokens?.itemCornerRadius ?? Math.round((metric("sidebarRowHeight") * 8) / 30),

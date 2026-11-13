@@ -418,9 +418,9 @@ public struct Typography {
 
     /// Tab titles, sidebar rows, palette results.
     public static var body: NSFont { system(.default, size: size(12, 13), weight: .regular) }
-    /// Tab titles: Chrome's 12 pt at Default and the compact densities (Lawrence 2026-11-07, #39418), the density's
-    /// body size less one point above Default, times the user's text scale. Never under 12: Compact's 12 pt body
-    /// would make 11 pt titles (Lawrence 2026-11-13: "pls change compact density back to how it was originally").
+    /// Tab titles: the density's body size less one point (13 pt at Default's 14 pt body), times the user's text
+    /// scale. Never under Chrome's 12 pt (Lawrence 2026-11-07, #39418), so the compact densities keep 12 pt titles
+    /// (Lawrence 2026-11-13: "pls change compact density back to how it was originally").
     /// `appearance.metrics.tabFontSize` overrides that size, times the interface scale when enabled.
     public static var tabTitle: NSFont {
         guard let points = DesignSettings.shared.overrides[.tabFontSize] else {

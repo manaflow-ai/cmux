@@ -122,7 +122,8 @@ const CONTROL_ROW = 28;
 const PLAN_BUILD_CHEVRON = 26;
 
 function estimatePermission(permission: AcpmuxPermission, width: number, scale: number): number {
-  if (permission.question) return questionHeight(permission.question, width / scale) * scale;
+  // The prompt bubble's padding in the card's unscaled units: drawn at the density text scale (conversation.css).
+  if (permission.question) return questionHeight(permission.question, width / scale, chatDensityTextScale() / scale) * scale;
   const room = Math.max(1, width / scale - 2 * EDGE);
   const external = permission.externalAccess;
   const plan = permission.plan;
@@ -178,7 +179,7 @@ function estimatePermission(permission: AcpmuxPermission, width: number, scale: 
   return height * scale;
 }
 
-function questionHeight(question: AgentQuestion, width: number): number {
+function questionHeight(question: AgentQuestion, width: number, bubbleScale = 1): number {
   const room = Math.max(1, width - 2 * padding - 1);
   const text = (value: string, available = room, line = body.lineHeight, size = body.size, weight = 400) =>
     textHeight(plainText(value), available, size, line, false, weight);
@@ -193,8 +194,7 @@ function questionHeight(question: AgentQuestion, width: number): number {
     const tracking = chatUiFontVariables(display.uiFont)["--cv-tracking"];
     let letterSpacing = tracking ? Number.parseFloat(tracking) : 0;
     if (tracking?.endsWith("em")) letterSpacing *= drawnFontSize(display);
-    // The bubble's 16 px sides and 10 px block padding at the density text scale (conversation.css .cv-user__bubble).
-    const bubbleScale = chatDensityTextScale();
+    // The bubble's 16 px sides and 10 px block padding (conversation.css .cv-user__bubble).
     const bubbleRoom = Math.max(1, width * 0.7 - 32 * bubbleScale);
     const bubbleText = (value: string) =>
       textHeight(plainText(value), bubbleRoom, drawnFontSize(display), metrics.lineHeight, false, 400, {

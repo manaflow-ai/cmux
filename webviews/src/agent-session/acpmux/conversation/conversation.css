@@ -231,7 +231,9 @@
   /* Codex's 10 px block padding, 16 at the sides and the 12 corner, at the chat's density text scale, so the
      bubble keeps its proportions to its text at every density (Lucas 2026-11-13); model.ts userBubblePadding
      mirrors it. */
-  --cv-bubble-scale: var(--cmux-density-text-scale, 1);
+  /* The grid base already grows by the Interface Size scale (max(body, 14) / 14), so the bubble adds only what
+     the text scale has beyond it: below Default it shrinks with the text, above it the grid has already grown. */
+  --cv-bubble-scale: calc(var(--cmux-density-text-scale, 1) / var(--cmux-interface-scale, 1));
   --cv-bubble-pad-block: calc(2.5 * var(--grid-base) * var(--cv-bubble-scale));
   --cv-bubble-pad-inline: calc(4 * var(--grid-base) * var(--cv-bubble-scale));
   box-sizing: border-box;

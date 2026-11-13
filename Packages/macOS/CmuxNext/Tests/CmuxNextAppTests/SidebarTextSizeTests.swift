@@ -77,7 +77,7 @@ import Testing
         }
     }
 
-    @Test func defaultKeepsTheOriginalSize() throws {
+    @Test func standardTextOnCompactRows() throws {
         try DensityTokens.$scoped.withValue(DensityPreset.compact.tokens) {
             let m = try Self.measure(.standard)
             // Compact's rows are 20 pt (Lawrence 2026-11-13), 2 pt apart.
@@ -87,7 +87,7 @@ import Testing
         }
     }
 
-    @Test func largerMatchesChatGPT() throws {
+    @Test func largerTextStepsUpOnCompactRows() throws {
         try DensityTokens.$scoped.withValue(DensityPreset.compact.tokens) {
             let m = try Self.measure(.larger)
             // The text size's step on Compact's 20 pt row (Default draws ChatGPT's 14 pt titles on its own).
