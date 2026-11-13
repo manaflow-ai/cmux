@@ -19,10 +19,14 @@
 // The first frames of a drag are not judged: one or two width changes close together can be a
 // scrollbar or a column settling, and the transcript reads a drag from its third step.
 //
-// Every assert is a count or a length in px read in a frame. No assert is on a time, and no time of
-// the runner decides a verdict: the drag's clock is the test's (support/dragClock.ts), so the
-// transcript reads the width steps as one live resize on any runner, and ends it when the test's
-// clock says so. The steps' longest gap on the runner's own clock is printed, never checked.
+// Every assert is a count or a length in px read in a frame. No assert is on a time. The drag's
+// clock is the test's (support/dragClock.ts), so the transcript reads the width steps as one live
+// resize on any runner, and ends it when the test's clock says so. The steps' longest gap on the
+// runner's own clock is printed, never checked.
+//
+// Two limits of that clock. The reads at rest are not on it: they wait for real frames, so a runner
+// too slow for them still makes the file red at its time limit. And each step is 16 ms on it, so a
+// transcript that ended a live resize after more than 16 ms but less than a real frame would pass.
 //
 // The drag asks for its next width only after the frame before it was read, so each frame's rows
 // are read at that frame's own width on any runner.
