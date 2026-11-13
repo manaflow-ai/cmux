@@ -255415,7 +255415,270 @@
             "state": "translated",
             "value": "Bạn có thể bị kẹt: {diagnosis}. Hãy thử cách khác."
           }
-        },"zh-Hans":{"stringUnit":{"state":"translated","value":"你可能遇到阻碍：{diagnosis}。请尝试其他方法。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"你可能遇到阻礙：{diagnosis}。請嘗試其他方法。"}}}}
+        },"zh-Hans":{"stringUnit":{"state":"translated","value":"你可能遇到阻碍：{diagnosis}。请尝试其他方法。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"你可能遇到阻礙：{diagnosis}。請嘗試其他方法。"}}}},
+    "subagents.finishedLine": {
+      "comment": "Agent pane: compact completion line naming the finished subagent; the name remains a link to its transcript.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} finished"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتهى {name}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} je završio"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} er færdig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} ist fertig"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} terminó"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} a terminé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} ha terminato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} が完了しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} បានបញ្ចប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} 완료"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} er ferdig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} zakończył pracę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} terminou"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} завершил работу"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} เสร็จแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} tamamlandı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} завершив роботу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} đã hoàn tất"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} 已完成"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} 已完成"
+          }
+        }
+      }
+    },
+    "subagents.startedLine": {
+      "comment": "Agent pane: inline lifecycle sentence for recorded subagents; name may be a localized list of clickable agent names.",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} started working"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بدأ {name} العمل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} je počeo raditi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} begyndte at arbejde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} hat mit der Arbeit begonnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} empezó a trabajar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} a commencé à travailler"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} ha iniziato a lavorare"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} が作業を開始しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} បានចាប់ផ្តើមធ្វើការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} 작업 시작"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} begynte å jobbe"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} rozpoczął pracę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} começou a trabalhar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} начал работу"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} เริ่มทำงานแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} çalışmaya başladı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} почав роботу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} đã bắt đầu làm việc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} 已开始工作"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} 已開始工作"
+          }
+        }
+      }
+    }
   },
   "version": "1.0"
 }
