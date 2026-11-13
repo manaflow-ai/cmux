@@ -338,6 +338,7 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
   /// page has landed) and the view is at the rows' top.
   const atFirstPrompt = () => {
     const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+    if (!scroller) return false;
     return !document.querySelector("[data-older-room]") && scroller.scrollTop <= 1;
   };
 
@@ -393,10 +394,12 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
       const traces: Awaited<ReturnType<typeof traceUpwardAnchors>>[] = [];
       const driftLog: string[] = [];
       const roundLog: string[] = [];
+      const waitForTranscript = () => page.locator(".acpmux-scroll").waitFor({ state: "attached", timeout: 10_000 });
       try {
         // On up to the chat's first prompt: every older page lands under the wheel, the last one
         // included, which gives back whatever room the estimate left over.
         for (let round = 0; round < 40; round++) {
+          await waitForTranscript();
           traces.push(
             await page.evaluate(traceUpwardAnchors, {
               steps: Array.from({ length: 90 }, (_, frame) => -[18.25, 42.5, 27.75, 56.125][frame % 4]!),
@@ -410,10 +413,9 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
                 `round ${round} frame ${sample.frame}: ${sample.anchorId} moved ${sample.drift.toFixed(2)} px (wheel ${sample.wheelPixels.toFixed(1)}, top ${Math.round(sample.scrollTop)})`,
               );
           roundLog.push(
-            await page.evaluate(() => {
-              const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+            await page.locator(".acpmux-scroll").evaluate((scroller) => {
               const room = document.querySelector("[data-older-room]")?.getAttribute("data-older-room") ?? "0";
-              return `room ${room} top ${Math.round(scroller.scrollTop)} height ${scroller.scrollHeight}`;
+              return `room ${room} top ${Math.round((scroller as HTMLElement).scrollTop)} height ${(scroller as HTMLElement).scrollHeight}`;
             }),
           );
           if (await page.evaluate(atFirstPrompt)) break;
