@@ -444,6 +444,9 @@ pub mod method {
     pub const MUX_ATTACH: &str = "_acpmux/attach";
     pub const MUX_VIEW: &str = "_acpmux/view";
     pub const MUX_MARK_UNREAD: &str = "_acpmux/markUnread";
+    /// The person saw a chat through a log seq (`hub/seen.rs` `read_through`): moves their seen
+    /// cursor forward only.
+    pub const MUX_SEEN: &str = "_acpmux/seen";
     /// A person in an attached chat starts or stops typing (`hub/presence.rs`).
     pub const MUX_TYPING: &str = "_acpmux/typing";
     /// Who has a chat open and who types in it, to its attached connections.
