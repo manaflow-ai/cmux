@@ -192,7 +192,9 @@ impl Filter {
     }
 
     /// The folder `event` made in a root, or moved into one: notify names a folder made, and a
-    /// path moved in with no kind, so that one is looked at.
+    /// path moved in with no kind, so that one is looked at. In a root whose adapter names its
+    /// session folders (Codex), only a folder that is or is under one of them: the root's other
+    /// folders (its logs, a checkout) hold nothing the index reads and end here.
     #[cfg(not(target_os = "macos"))]
     fn folder_came(&self, event: &notify::Event) -> Option<PathBuf> {
         use notify::event::{CreateKind, ModifyKind, RenameMode};
@@ -202,8 +204,13 @@ impl Filter {
             notify::EventKind::Modify(ModifyKind::Name(RenameMode::To)) => path.is_dir(),
             _ => false,
         };
-        let inside =
-            self.roots.iter().any(|root| path.starts_with(&root.path) && path != &root.path);
+        let inside = self.roots.iter().any(|root| {
+            path.starts_with(&root.path)
+                && path != &root.path
+                && cmux_chat_index::session_folders(root.kind).is_none_or(|folders| {
+                    folders.iter().any(|folder| path.starts_with(root.path.join(folder)))
+                })
+        });
         (made && inside).then(|| path.clone())
     }
 
@@ -512,9 +519,11 @@ fn coalesce(source: &mut impl Source, mut on_burst: impl FnMut(Burst) -> bool) {
                 }
                 #[cfg(target_os = "macos")]
                 Some(Message::RootEntries(_)) => {}
+                // Each folder once, and none below another: its listing lists them too.
                 #[cfg(not(target_os = "macos"))]
                 Some(Message::Folder(folder)) => {
-                    if !burst.folders.contains(&folder) {
+                    if !burst.folders.iter().any(|seen| folder.starts_with(seen)) {
+                        burst.folders.retain(|seen| !seen.starts_with(&folder));
                         burst.folders.push(folder);
                     }
                 }
@@ -568,6 +577,10 @@ fn run(
             for folder in std::mem::take(&mut burst.folders) {
                 trees.files_in(&folder, &mut burst.paths);
             }
+        }
+        // Folders that held nothing the index reads: no pass.
+        if burst.paths.is_empty() && !burst.rescan {
+            return true;
         }
         let Some(service) = service.upgrade() else { return false };
         service.paths_changed(&burst.paths, burst.rescan);

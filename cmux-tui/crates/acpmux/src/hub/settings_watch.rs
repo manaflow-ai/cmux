@@ -171,6 +171,7 @@ impl SettingsWatcher {
         // The kqueue watch arms itself again when a folder or file comes or goes.
     }
 
+    /// Watches each settings file's folder, as for macOS above, on notify's watcher.
     ///
     /// A folder made between the look and its ancestor's watch has no event (the watch came
     /// after it), so after each new watch the folders are looked at again, until a look adds
@@ -290,7 +291,8 @@ mod tests {
 
     thread_local! {
         /// Run once, right after `refresh` first looks at which folders exist.
-        pub(super) static AFTER_LOOK: RefCell<Option<Box<dyn FnMut()>>> = RefCell::new(None);
+        pub(super) static AFTER_LOOK: RefCell<Option<Box<dyn FnMut()>>> =
+            const { RefCell::new(None) };
     }
 
     /// `~/.config/cmux` made between `refresh`'s look (which found only the home) and the
@@ -304,7 +306,7 @@ mod tests {
         let file = folder.join("cmux-next.json");
         let made = folder.clone();
         AFTER_LOOK.with(|hook| {
-            *hook.borrow_mut() = Some(Box::new(move || std::fs::create_dir_all(&made).unwrap()))
+            *hook.borrow_mut() = Some(Box::new(move || std::fs::create_dir_all(&made).unwrap()));
         });
         let watch = SettingsWatcher {
             watcher: StdMutex::new(notify::recommended_watcher(|_| {}).unwrap()),
