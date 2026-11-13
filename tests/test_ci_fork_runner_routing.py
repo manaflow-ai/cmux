@@ -71,6 +71,17 @@ OWNER_ONLY_JOB_IF = "if: github.repository_owner == 'manaflow-ai'"
 # The repository check is stricter than the owner check (manaflow-ai/cmux implies owner manaflow-ai), so a job
 # behind it never runs outside manaflow-ai either (fast-checks.yml's checks job since #30529).
 OWNER_ONLY_JOB_IFS = frozenset({OWNER_ONLY_JOB_IF, "if: github.repository == 'manaflow-ai/cmux'"})
+
+
+def owner_only_if(line: str) -> bool:
+    """One of OWNER_ONLY_JOB_IFS, alone or ANDed with more conditions (no ||), which only narrows it further:
+    the probe job's `&& vars.CI_BLACKSMITH_OFF != '1'` (Leo, 2026-11-10: "just stop using blacksmith temporarily")."""
+    for gate in OWNER_ONLY_JOB_IFS:
+        if line == gate or (line.startswith(gate + " && ") and "||" not in line):
+            return True
+    return False
+
+
 EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}")
 JOB_HEADER = re.compile(r"^  ([A-Za-z0-9_-]+):\s*(?:#.*)?$")
 INPUT_HEADER = re.compile(r"^      ([A-Za-z0-9_-]+):\s*$")
@@ -914,7 +925,7 @@ def ungated_blacksmith_labels(name: str, text: str) -> list[str]:
         header = JOB_HEADER.match(raw)
         if header:
             job = header.group(1)
-        elif job and raw.strip() in OWNER_ONLY_JOB_IFS and raw.startswith("    if:"):
+        elif job and raw.startswith("    if:") and owner_only_if(raw.strip()):
             owner_only_jobs.add(job)
 
     def input_is_translated(input_name: str) -> bool:
