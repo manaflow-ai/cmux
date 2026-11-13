@@ -51,11 +51,6 @@ extension CEFTab {
     static func documentFavicon(_ value: BrowserJSValue?, page: URL) -> URL? {
         guard case .string(let href)? = value else { return nil }
         if !href.isEmpty, let url = URL(string: href) { return url }
-        var site = URLComponents()
-        site.scheme = page.scheme
-        site.host = page.host()
-        site.port = page.port
-        site.path = "/favicon.ico"
-        return site.url
+        return URL(string: "/favicon.ico", relativeTo: page)?.absoluteURL
     }
 }
