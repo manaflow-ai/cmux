@@ -19,7 +19,6 @@ final class AccountsService: AccountsServices {
     private(set) lazy var github = GitHubConnections.live(auth: services.cloud.auth, ownerAPI: services.cloud.configuration.ownerAPIBaseURL(), preview: services.environment.showcase || fixtureHome != nil)
     private(set) lazy var agentKeys = TeamAgentKeys.live(auth: services.cloud.auth, ownerAPI: services.cloud.configuration.ownerAPIBaseURL(), preview: services.environment.showcase || fixtureHome != nil)
     private(set) lazy var modelsPolicy = TeamModelsPolicy.live(auth: services.cloud.auth, ownerAPI: services.cloud.configuration.ownerAPIBaseURL(), preview: services.environment.showcase || fixtureHome != nil)
-    private(set) lazy var teamGateway = TeamModelsPolicy.liveGateway(auth: services.cloud.auth, ownerAPI: services.cloud.configuration.ownerAPIBaseURL(), preview: services.environment.showcase || fixtureHome != nil)
     /// `models.spreadUsage` mirrored into acpmux for the app's life (SettingsModels.mirrorSpread).
     private var spreadMirror: Task<Void, Never>?
     let keys: any ProviderKeyStoring

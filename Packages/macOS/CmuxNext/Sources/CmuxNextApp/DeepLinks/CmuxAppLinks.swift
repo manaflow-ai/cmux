@@ -20,6 +20,7 @@ enum CmuxAppLinks {
     @discardableResult
     static func open(_ url: URL, services: AppServices, click: LinkRouter.Click = .init()) -> Bool {
         if url.isFileURL { return openPath(url, services: services) }
+        if let route = DeepLink.settingsRoute(for: url, linkScheme: services.linkScheme) { return (try? services.settingsWindow.show(section: nil, route: route)) != nil }
         if let action = settingsAction(for: url, linkScheme: services.linkScheme) {
             return services.registry.perform(action, invocation: ActionInvocation(origin: .user))
         }

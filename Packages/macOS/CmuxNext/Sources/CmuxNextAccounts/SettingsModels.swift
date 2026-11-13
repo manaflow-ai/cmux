@@ -1,26 +1,28 @@
 public import CmuxNextAgentPane
+import CmuxNextDaemonService
 public import CmuxNextPages
 public import CmuxNextSettings
 public import Foundation
 import Observation
 
 /// Settings > Models (cmux-tui/docs/model-connections.md): the person's model connections from acpmux
-/// (`_acpmux/connections`), the team's (its gateway and shared keys) and the team's members policy, for
+/// (`_acpmux/connections`), the team's shared keys and the team's members policy, for
 /// the React Settings page's `cmux.settings.models.state|run` and its `.changed` stream.
 ///
 /// Every run maps to one owner: acpmux for the person's connections (order, spread, enable, remove,
-/// Sign in with ChatGPT, an API key), the existing Claude account sign-in (``SettingsHarnesses``), the
-/// owner API for the team's keys (``TeamAgentKeys``) and policy (``TeamModelsPolicy``).
+/// Sign in with ChatGPT, an API key, a Claude setup token), the existing Claude account sign-in and a
+/// terminal tab running `claude setup-token` (``SettingsHarnesses``), the owner API for the team's keys
+/// (``TeamAgentKeys``) and policy (``TeamModelsPolicy``). Revision 2: no team gateway.
 ///
-/// A pasted API key goes into this Mac's Keychain (``ModelKeyStoring``) before anything else sees it;
-/// acpmux gets only its `keychain:ITEM` reference. The key never reaches page state, a log or a file.
+/// A pasted API key or setup token goes into this Mac's Keychain (``ModelKeyStoring``) before anything
+/// else sees it; acpmux gets only its `keychain:ITEM` reference. It never reaches page state, a log or a file.
 /// Spread lives in the settings schema (`models.spreadUsage`, so the palette, `cmux settings` and MCP
 /// reach it); this mirrors it into acpmux, which keeps a copy in its bindings.
 @MainActor
 @Observable
 public final class SettingsModels {
     /// acpmux's connection kinds and providers the page draws (`ModelConnection`).
-    nonisolated static let kinds: Set<String> = ["codex-login", "claude-login", "subscription", "chatgpt-plan", "api-key"]
+    nonisolated static let kinds: Set<String> = ["codex-login", "claude-login", "subscription", "chatgpt-plan", "claude-token", "api-key"]
     nonisolated static let providers: Set<String> = ["openai", "anthropic", "openrouter", "google", "xai"]
     /// `chatgpt.wait` rounds (each up to 25 s) before an attempt is given up: about 15 minutes.
     nonisolated static let chatgptRounds = 36
@@ -35,8 +37,6 @@ public final class SettingsModels {
     /// Whether acpmux answered `_acpmux/connections` at the last read.
     private(set) var available = false
     private(set) var read = false
-    /// The team gateway (`GET /v1/cloud/inference-gateway`'s `gateway`), nil before a read or without a team.
-    private(set) var gateway: JSONValue?
     private(set) var chatgptAttempt: String?
     private(set) var chatgptError: String?
 
@@ -48,7 +48,6 @@ public final class SettingsModels {
     @ObservationIgnored private let team: @MainActor () -> (id: String, name: String)?
     @ObservationIgnored private let agentKeys: TeamAgentKeys?
     @ObservationIgnored private let policy: TeamModelsPolicy?
-    @ObservationIgnored private let readGateway: (@MainActor () async throws -> JSONValue)?
     @ObservationIgnored private let spreadSetting: (@MainActor () -> Bool)?
     @ObservationIgnored private let writeSpreadSetting: (@MainActor (Bool) async throws -> Void)?
     @ObservationIgnored private var generation = 0
@@ -60,7 +59,6 @@ public final class SettingsModels {
     ///   - call: a test's stand-in for the daemon; nil calls it (``AcpmuxEnvironment/harness(_:params:)``).
     ///   - openURL: opens the ChatGPT sign-in page in the person's browser, in the background.
     ///   - team: the active team's id and name; nil signed out or for the personal team.
-    ///   - readGateway: the team gateway's status answer (`{ok, gateway: {mode, machine, online}}`).
     ///   - spreadSetting, writeSpreadSetting: `models.spreadUsage`, read and written through the settings writer.
     public init(environment: @escaping @MainActor () -> AcpmuxEnvironment?,
                 call: (@Sendable (AcpmuxEnvironment, AcpmuxHarnessMethod, [String: any Sendable]) async throws -> Data)? = nil,
@@ -70,7 +68,6 @@ public final class SettingsModels {
                 team: @escaping @MainActor () -> (id: String, name: String)? = { nil },
                 agentKeys: TeamAgentKeys? = nil,
                 policy: TeamModelsPolicy? = nil,
-                readGateway: (@MainActor () async throws -> JSONValue)? = nil,
                 spreadSetting: (@MainActor () -> Bool)? = nil,
                 writeSpreadSetting: (@MainActor (Bool) async throws -> Void)? = nil) {
         self.environment = environment
@@ -81,7 +78,6 @@ public final class SettingsModels {
         self.team = team
         self.agentKeys = agentKeys
         self.policy = policy
-        self.readGateway = readGateway
         self.spreadSetting = spreadSetting
         self.writeSpreadSetting = writeSpreadSetting
     }
@@ -104,7 +100,6 @@ public final class SettingsModels {
             "organization": [
                 "team": active.map { team -> JSONValue in ["id": .string(team.id), "name": .string(team.name)] } ?? .null,
                 "canEdit": .bool(active != nil && agentKeys?.canManage == true),
-                "gateway": (active == nil ? nil : gateway) ?? .null,
                 "keys": .array(keys),
             ],
             "members": members,
@@ -121,16 +116,17 @@ public final class SettingsModels {
         return state
     }
 
-    /// Reads acpmux's connections, the team's gateway, keys and policy again. Only the newest read writes.
+    /// Reads acpmux's connections, the team's keys and policy again. Only the newest read writes.
     public func refresh() async {
         generation += 1
         let mine = generation
         read = true
-        async let teamRead: Void = refreshTeam(generation: mine)
+        async let teamRead: Void = refreshTeam()
         if let environment = environment() {
             do {
                 let reply = try JSONValue.parse(try await daemon(environment, .connections, [:]))
                 if mine == generation { apply(reply) }
+                startWatch()
                 // The setting is the writer: an acpmux copy that differs (another client, an older run) follows it.
                 if mine == generation, let wanted = spreadSetting?(), wanted != daemonSpread {
                     try? await push(spread: wanted, environment)
@@ -145,16 +141,11 @@ public final class SettingsModels {
         await teamRead
     }
 
-    private func refreshTeam(generation mine: Int) async {
-        guard team() != nil else {
-            gateway = nil
-            return
-        }
-        // Each owns its own staleness check; the gateway answer is this read's.
+    private func refreshTeam() async {
+        guard team() != nil else { return }
+        // Each owns its own staleness check.
         await agentKeys?.refresh()
         await policy?.refresh()
-        let answer = try? await readGateway?()
-        if mine == generation { gateway = answer.flatMap(Self.gateway) }
     }
 
     /// An acpmux `ConnectionsState`: its connections as the page draws them, and its spread.
@@ -164,7 +155,8 @@ public final class SettingsModels {
         available = true
     }
 
-    /// One acpmux `Connection` as the page's `ModelConnection` (camelCase; `serves_cloud` stays in acpmux).
+    /// One acpmux `Connection` as the page's `ModelConnection` (camelCase). `servesCloud`: whether it can
+    /// serve a Cloud chat (Revision 2: the Mac CLI logins do not).
     nonisolated static func connection(_ value: JSONValue) -> JSONValue? {
         guard let id = value["id"]?.stringValue, !id.isEmpty, let kind = value["kind"]?.stringValue, kinds.contains(kind) else { return nil }
         let strings = { (key: String, camel: String) -> JSONValue in
@@ -172,7 +164,7 @@ public final class SettingsModels {
         }
         let text = { (key: String) -> JSONValue in value[key]?.stringValue.map(JSONValue.string) ?? .null }
         let provider = value["provider"]?.stringValue.flatMap { providers.contains($0) ? $0 : nil }
-            ?? (kind == "claude-login" ? "anthropic" : "openai")
+            ?? (kind == "claude-login" || kind == "claude-token" ? "anthropic" : "openai")
         return [
             "id": .string(id), "kind": .string(kind), "provider": .string(provider),
             "families": strings("families", "families"), "label": .string(value["label"]?.stringValue ?? id),
@@ -180,15 +172,8 @@ public final class SettingsModels {
             "signedIn": .bool(value["signed_in"]?.boolValue ?? value["signedIn"]?.boolValue ?? false),
             "enabled": .bool(value["enabled"]?.boolValue ?? false),
             "defaultFor": strings("default_for", "defaultFor"),
+            "servesCloud": .bool(value["serves_cloud"]?.boolValue ?? value["servesCloud"]?.boolValue ?? false),
         ]
-    }
-
-    /// The gateway status answer's `{mode, machine, online}`; nil for a refusal or another shape.
-    nonisolated static func gateway(_ answer: JSONValue) -> JSONValue? {
-        guard answer["ok"]?.boolValue != false, let gateway = answer["gateway"] else { return nil }
-        let mode = gateway["mode"]?.stringValue == "gateway" ? "gateway" : "off"
-        return ["mode": .string(mode), "machine": gateway["machine"]?.stringValue.map(JSONValue.string) ?? .null,
-                "online": .bool(gateway["online"]?.boolValue == true)]
     }
 
     // MARK: Watching
@@ -196,7 +181,13 @@ public final class SettingsModels {
     /// The page shows the card: acpmux's `_acpmux/connections.changed` reads the state again.
     public func beginWatching() {
         watchers += 1
-        guard watchers == 1, watch == nil, let environment = environment() else { return }
+        startWatch()
+    }
+
+    /// The watch, once a page shows the card and acpmux is up (a daemon that comes up later starts it
+    /// at the card's next read).
+    private func startWatch() {
+        guard watchers > 0, watch == nil, let environment = environment() else { return }
         let (changes, continuation) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
         let socket = environment.watchConnections { continuation.yield() }
         // task-owner: SettingsModels.watch: one read per acpmux change while a page shows the card; endWatching cancels it.
@@ -256,11 +247,19 @@ public final class SettingsModels {
         case "connectClaude":
             guard let harnesses else { throw PageError.unavailable("Claude sign-in is not available here") }
             try await harnesses.connectClaude(context: context)
+        case "claudeSetupToken":
+            // The person's own gesture: a new terminal tab in their window runs Claude Code's `claude setup-token`.
+            guard let harnesses else { throw PageError.unavailable("no terminal tab could be opened on this Mac") }
+            try await harnesses.typeLine("claude setup-token")
+        case "addClaudeToken":
+            try await addClaudeToken(params["token"]?.stringValue ?? "", label: params["label"]?.stringValue)
         case "addKey":
             try await addKey(provider: params["provider"]?.stringValue ?? "", key: params["key"]?.stringValue ?? "",
                              label: params["label"]?.stringValue)
         case "orgKey":
-            try await orgKey(agent: params["agent"]?.stringValue ?? "", key: params["key"]?.stringValue, kind: params["kind"]?.stringValue)
+            // `key: null` removes; a missing key is a mistake, not a removal.
+            guard let key = params["key"] else { throw PageError.invalidParams("orgKey needs key (a key, or null to remove)") }
+            try await orgKey(agent: params["agent"]?.stringValue ?? "", key: key.stringValue, kind: params["kind"]?.stringValue)
         case "members":
             guard let policy, team() != nil else { throw PageError.unavailable("no team") }
             let own = params["ownConnections"]?.boolValue, runout = params["chooseRunout"]?.boolValue

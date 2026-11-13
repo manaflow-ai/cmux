@@ -5,7 +5,7 @@ import CmuxNextCompat
 import CmuxNextWakeups
 public import CmuxNextPages
 public import CmuxNextSettings
-public import Foundation
+import Foundation
 
 /// The Settings page's `cmux.settings.models.*` (webviews/src/pages/settings/ops.ts): `state` (after the
 /// first read), `run`, and the `changed` stream, which watches acpmux's changes while a page shows the card.
@@ -40,11 +40,10 @@ extension SettingsModels: PageProvider {
 
     /// The app's Settings > Models: acpmux at `environment`, the person's browser for the ChatGPT sign-in,
     /// the Claude account sign-in of `harnesses`, `models.spreadUsage` through `settings`' one writer, and the
-    /// active team (none for the personal team) with its keys, policy and gateway.
+    /// active team (none for the personal team) with its keys and policy.
     public static func live(environment: @escaping @MainActor () -> AcpmuxEnvironment?, harnesses: SettingsHarnesses,
                             settings: SettingsController, activeTeam: @escaping @MainActor () -> ActiveTeam?,
-                            agentKeys: TeamAgentKeys, policy: TeamModelsPolicy,
-                            gateway: @escaping @MainActor () async throws -> JSONValue) -> SettingsModels {
+                            agentKeys: TeamAgentKeys, policy: TeamModelsPolicy) -> SettingsModels {
         SettingsModels(
             environment: environment, keys: KeychainModelKeyStore(),
             openURL: { NSWorkspace.shared.openInBackground($0) },
@@ -53,7 +52,7 @@ extension SettingsModels: PageProvider {
                 guard !agentKeys.isPersonal, let team = activeTeam()?.team else { return nil }
                 return (team.id, team.displayName)
             },
-            agentKeys: agentKeys, policy: policy, readGateway: gateway,
+            agentKeys: agentKeys, policy: policy,
             spreadSetting: { ModelsSettings(root: settings.snapshot.root).spreadUsage },
             writeSpreadSetting: { on in
                 let value: JSONValue? = on == ModelsSettings.spreadUsageDefault ? nil : .bool(on)

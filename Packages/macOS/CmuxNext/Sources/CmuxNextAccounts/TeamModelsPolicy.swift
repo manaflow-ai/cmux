@@ -64,15 +64,15 @@ public final class TeamModelsPolicy {
         if let ownConnections { params["own_connections"] = .bool(ownConnections) }
         if let chooseRunout { params["choose_runout"] = .bool(chooseRunout) }
         guard !params.isEmpty else { return }
-        generation += 1
-        let ticket = generation
         do {
             let value = try await call(bound, "team.models_policy.set", .object(params), UUID().uuidString)
-            guard scope() == bound, generation == ticket else { return }
+            guard scope() == bound else { return }
+            // The change's answer is the newest row: a read that started before it answers no more.
+            generation += 1
             loaded = (bound, try Self.policy(value))
             problem = nil
         } catch {
-            if scope() == bound, generation == ticket { problem = (bound, Self.code(error)) }
+            if scope() == bound { problem = (bound, Self.code(error)) }
             throw error
         }
     }
@@ -94,20 +94,5 @@ public final class TeamModelsPolicy {
     public static func live(auth: CloudAuth, ownerAPI: URL, preview: Bool) -> TeamModelsPolicy {
         let owner = TeamAgentKeys.ownerAPICall(auth: auth, ownerAPI: ownerAPI, preview: preview)
         return TeamModelsPolicy(scope: owner.scope, call: owner.call)
-    }
-
-    /// The active team's inference gateway, as `cmux inference gateway status` reads it
-    /// (`GET /v1/cloud/inference-gateway`): `{ok, gateway: {mode, machine, online, ...}}`.
-    public static func liveGateway(auth: CloudAuth, ownerAPI: URL, preview: Bool) -> @MainActor () async throws -> JSONValue {
-        let transport = InstallHTTPTransport(baseURL: ownerAPI)
-        return {
-            guard !preview, auth.isSignedIn else { throw TeamAgentKeys.Failure.refused("auth.unauthenticated") }
-            let access = try await auth.tokens().access
-            var headers: [String: String] = [:]
-            if let team = GitHubConnections.backendTeam(project: auth.configuration.stackProjectID, stackTeam: auth.teamID) { headers["x-cmux-team"] = team }
-            let response = try await transport.get("v1/cloud/inference-gateway", bearer: access, headers: headers)
-            guard (200..<300).contains(response.status) else { throw TeamAgentKeys.Failure.refused(response.status == 403 ? "auth.forbidden" : "owner.unreachable") }
-            return try JSONValue.parse(response.body)
-        }
     }
 }

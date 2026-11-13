@@ -221,3 +221,12 @@ Delivery (`_acpmux/connections/credential {id}` -> `{ "family", "kind", "env": {
   once one is added. Without a credential the machine falls back to today's coderouter path.
 - Organization: team shared keys (`team.agent_key.*`, served by the platform edge) stay listed;
   the team gateway row is removed from the page.
+
+Revision 2 in the app (lane D): `ModelsState.organization` has no `gateway`; `ModelConnection`
+carries `servesCloud` (acpmux `serves_cloud`) and kind `claude-token`. `{action:"claudeSetupToken"}`
+opens a terminal tab in the person's window running `claude setup-token` (Settings > Agents' own
+terminal path); `{action:"addClaudeToken", token, label?}` refuses a value without the `sk-ant-oat`
+prefix or with whitespace inside, stores it like an API key (account `claude-token-<8 hex>`) and
+sends `_acpmux/connections/claude_token.add {secret: "keychain:...", label?}`; a refused add deletes
+the item. `cmux://settings/models/add` opens `#/settings/models?focus=models.add`
+(`DeepLink.settingsRoute`).
