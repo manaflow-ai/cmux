@@ -63,6 +63,10 @@ type Frame = {
   paint: number;
   rows: string;
   writes?: string;
+  /// WHY=1: where the frame's main-thread time went (ms): scroll handlers, frame callbacks (the
+  /// drive's wheel and offset write, the app's pacer), and the rest of the rendering update (style,
+  /// layout, observers, paint), from its first scroll event or frame callback to the task after it.
+  why?: { scroll: number; raf: number; render: number; busy: number; between: number; layout: number };
 };
 
 const percentile = (values: number[], p: number) => {
@@ -118,93 +122,230 @@ async function run(name: string, engine: BrowserType) {
         }),
     );
     console.log(`transcript-scroll-up ${name} idleFrameP95: ${idleP95.toFixed(1)}`);
-    // The thumb and long tasks, read after every painted frame for the whole run.
-    await page.evaluate((logWrites) => {
-      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-      const holder = window as unknown as {
-        __upWatch: { frames: Frame[]; long: number[]; spans: [number, number][]; origin: number; stop(): void };
-      };
-      const frames: Frame[] = [];
-      const long: number[] = [];
-      const spans: [number, number][] = [];
-      let observer: PerformanceObserver | undefined;
-      try {
-        observer = new PerformanceObserver((list) => {
-          for (const entry of list.getEntries()) {
-            long.push(entry.duration);
-            spans.push([entry.startTime, entry.startTime + entry.duration]);
+    // ABLATE=a,b: switch a suspected per-frame cost off, to weigh it (bench-only CSS).
+    const ablations: Record<string, string> = {
+      // The soft edges: a mask on the scroller, its reach moved by every scroll.
+      mask: ".acpmux-scroll{-webkit-mask-image:none!important;mask-image:none!important}",
+      // The thread as its own layer under the scroller's mask.
+      threadlayer: ".acpmux-thread{will-change:transform}",
+      // The soft edges as a mask on a non-scrolling ancestor, not on the scroller (cost only: this
+      // also masks the stage's other children).
+      stagemask:
+        ".acpmux-scroll{-webkit-mask-image:none!important;mask-image:none!important}.acpmux-stage{-webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 18px,#000 calc(100% - 140px),transparent calc(100% - 122px));mask-image:linear-gradient(to bottom,transparent 0,#000 18px,#000 calc(100% - 140px),transparent calc(100% - 122px))}",
+      // The scroller's content as one composited scrolling layer.
+      scrolllayer: ".acpmux-spacer{will-change:transform}",
+      // The thread paints only inside its own box.
+      threadpaint: ".acpmux-thread{contain:layout style}",
+      // The soft edges drawn as overlays in the page color instead of a mask (cost only).
+      overlay:
+        ".acpmux-scroll{-webkit-mask-image:none!important;mask-image:none!important}.acpmux-stage::before,.acpmux-stage::after{content:'';position:absolute;left:0;right:0;height:18px;z-index:5;pointer-events:none}.acpmux-stage::before{top:0;background:linear-gradient(var(--agent-page-bg),transparent)}.acpmux-stage::after{bottom:120px;background:linear-gradient(transparent,var(--agent-page-bg))}",
+      // The soft edges as one still layer cut by a mask, instead of the two gradient bands
+      // (softEdges.gallery.ts `static-mask`).
+      staticmask:
+        ":root .acpmux-edges__veil::before,:root .acpmux-edges__veil::after{content:none!important}:root .acpmux-edges__veil{bottom:auto;background:linear-gradient(var(--acpmux-veil-ink),var(--acpmux-veil-ink)),var(--acpmux-veil-ground);-webkit-mask-image:linear-gradient(to bottom,#000 var(--acpmux-veil-top),transparent calc(var(--acpmux-veil-top) + var(--acpmux-veil-top-fade)),transparent calc(100% - var(--acpmux-veil-dock) - var(--acpmux-veil-bottom-fade)),#000 calc(100% - var(--acpmux-veil-dock)));mask-image:linear-gradient(to bottom,#000 var(--acpmux-veil-top),transparent calc(var(--acpmux-veil-top) + var(--acpmux-veil-top-fade)),transparent calc(100% - var(--acpmux-veil-dock) - var(--acpmux-veil-bottom-fade)),#000 calc(100% - var(--acpmux-veil-dock)))}",
+      // Rows away from the view skip their rendering.
+      cv: ".acpmux-row{content-visibility:auto;contain-intrinsic-size:auto 200px}",
+      // Rows as their own paint layers.
+      layer: ".acpmux-row{will-change:transform}",
+      // The minimap rail and scroll map.
+      minimap: ".acpmux-minimap,.acpmux-chat-minimap{display:none!important}",
+    };
+    // DROP=has,sib,nth,attr: delete every rule whose selector uses that feature (cost only), to
+    // find the selectors that make a row inserted or an attribute written restyle the whole thread.
+    if (process.env.DROP) {
+      const dropped = await page.evaluate((kinds) => {
+        const tests: Record<string, RegExp> = {
+          has: /:has\(/,
+          sib: /[~+]|:(first|last|only|nth)-(child|of-type)|:(first|last|only)-child|:nth-/,
+          not: /:not\(/,
+          attr: /\[data-(older|loads|fade|docked|jump|cmux)/,
+        };
+        const kill = kinds.split(",").map((kind) => tests[kind]!);
+        let count = 0;
+        const walk = (rules: CSSRuleList, owner: CSSStyleSheet | CSSGroupingRule) => {
+          for (let index = rules.length - 1; index >= 0; index -= 1) {
+            const rule = rules[index]!;
+            if (rule instanceof CSSStyleRule && kill.some((test) => test.test(rule.selectorText))) {
+              owner.deleteRule(index);
+              count += 1;
+            } else if ("cssRules" in rule && (rule as CSSGroupingRule).cssRules)
+              walk((rule as CSSGroupingRule).cssRules, rule as CSSGroupingRule);
           }
-        });
-        observer.observe({ type: "longtask", buffered: false });
-      } catch {
-        observer = undefined;
-      }
-      // LANDINGS=1: what each frame wrote under the transcript, by attribute and by nodes added or removed.
-      let writes = new Map<string, number>();
-      const count = (list: MutationRecord[]) => {
-        for (const each of list) {
-          const target = (each.target.nodeType === 1 ? each.target : each.target.parentElement) as Element | null;
-          const where = target?.classList.contains("acpmux-row")
-            ? "row"
-            : target?.closest(".acpmux-row")
-              ? "in-row"
-              : (target?.className?.toString().split(" ")[0] ?? "?");
-          const key =
-            each.type === "attributes"
-              ? `${where}@${each.attributeName}`
-              : each.type === "childList"
-                ? `${where}+${each.addedNodes.length}-${each.removedNodes.length}`
-                : `${where}#text`;
-          writes.set(key, (writes.get(key) ?? 0) + 1);
-          // One sample of each style write a frame: what it was and what it became.
-          if (each.type === "attributes" && each.attributeName === "style" && !samples.has(where))
-            samples.set(where, `${each.oldValue ?? ""} => ${target?.getAttribute("style") ?? ""}`);
+        };
+        for (const sheet of document.styleSheets) {
+          try {
+            walk(sheet.cssRules, sheet);
+          } catch {}
         }
-      };
-      let samples = new Map<string, string>();
-      const mutations = logWrites ? new MutationObserver(count) : undefined;
-      mutations?.observe(scroller, {
-        subtree: true,
-        attributes: true,
-        attributeOldValue: true,
-        childList: true,
-        characterData: true,
-      });
-      const stop = window.cmuxAfterPaint((paint) => {
-        let written: string | undefined;
-        if (mutations) {
-          count(mutations.takeRecords());
-          written =
-            [...writes.entries()]
-              .sort((a, b) => b[1] - a[1])
-              .slice(0, 12)
-              .map(([key, n]) => `${key}:${n}`)
-              .join(" ") + ` | ${[...samples.entries()].map(([where, change]) => `${where}{${change}}`).join(" ")}`;
-          writes = new Map();
-          samples = new Map();
+        return count;
+      }, process.env.DROP);
+      console.log(`transcript-scroll-up ${name} dropped ${dropped} rules (${process.env.DROP})`);
+    }
+    for (const key of (process.env.ABLATE ?? "").split(",").filter(Boolean)) {
+      if (!ablations[key]) throw new Error(`unknown ABLATE ${key}`);
+      await page.addStyleTag({ content: ablations[key]! });
+    }
+    // The thumb and long tasks, read after every painted frame for the whole run.
+    await page.evaluate(
+      ({ logWrites, why }) => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        const holder = window as unknown as {
+          __upWatch: { frames: Frame[]; long: number[]; spans: [number, number][]; origin: number; stop(): void };
+        };
+        const frames: Frame[] = [];
+        const long: number[] = [];
+        const spans: [number, number][] = [];
+        let observer: PerformanceObserver | undefined;
+        try {
+          observer = new PerformanceObserver((list) => {
+            for (const entry of list.getEntries()) {
+              long.push(entry.duration);
+              spans.push([entry.startTime, entry.startTime + entry.duration]);
+            }
+          });
+          observer.observe({ type: "longtask", buffered: false });
+        } catch {
+          observer = undefined;
         }
-        frames.push({
-          ...(written !== undefined ? { writes: written } : {}),
-          paint,
-          scrollTop: scroller.scrollTop,
-          scrollHeight: scroller.scrollHeight,
-          clientHeight: scroller.clientHeight,
-          // The mounted rows, first and last: a frame that mounts or unmounts rows changes them.
-          rows: `${scroller.querySelector("[data-row-id]")?.getAttribute("data-row-id")}..${scroller.querySelectorAll("[data-row-id]").length}`,
+        // LANDINGS=1: what each frame wrote under the transcript, by attribute and by nodes added or removed.
+        let writes = new Map<string, number>();
+        const count = (list: MutationRecord[]) => {
+          for (const each of list) {
+            const target = (each.target.nodeType === 1 ? each.target : each.target.parentElement) as Element | null;
+            const where = target?.classList.contains("acpmux-row")
+              ? "row"
+              : target?.closest(".acpmux-row")
+                ? "in-row"
+                : (target?.className?.toString().split(" ")[0] ?? "?");
+            const key =
+              each.type === "attributes"
+                ? `${where}@${each.attributeName}`
+                : each.type === "childList"
+                  ? `${where}+${each.addedNodes.length}-${each.removedNodes.length}`
+                  : `${where}#text`;
+            writes.set(key, (writes.get(key) ?? 0) + 1);
+            // One sample of each style write a frame: what it was and what it became.
+            if (each.type === "attributes" && each.attributeName === "style" && !samples.has(where))
+              samples.set(where, `${each.oldValue ?? ""} => ${target?.getAttribute("style") ?? ""}`);
+          }
+        };
+        let samples = new Map<string, string>();
+        const mutations = logWrites || why ? new MutationObserver(count) : undefined;
+        // WHY=1: per-frame timing. The window's capture sees a frame's first scroll event before any
+        // handler; a listener added now on the scroller runs after the app's own. Frame callbacks
+        // registered from now on (the drive's, the pacer's) are timed by wrapping them.
+        let frameStart: number | undefined;
+        let scrollStart: number | undefined;
+        let scrollMs = 0;
+        let rafMs = 0;
+        let rafEnd: number | undefined;
+        let lastRead: number | undefined;
+        // Style and layout: a probe resized in each frame's callbacks is reported by a ResizeObserver,
+        // which runs once the frame's style and layout are done, before its paint.
+        let layoutMs = 0;
+        let probeOn = false;
+        const probe = document.createElement("div");
+        probe.style.cssText = "position:fixed;left:-10px;top:0;width:1px;height:1px;pointer-events:none";
+        if (why) {
+          document.body.append(probe);
+          new ResizeObserver(() => {
+            if (rafEnd !== undefined) layoutMs = performance.now() - rafEnd;
+          }).observe(probe);
+          addEventListener(
+            "scroll",
+            () => {
+              const now = performance.now();
+              scrollStart = now;
+              frameStart ??= now;
+            },
+            { capture: true, passive: true },
+          );
+          scroller.addEventListener(
+            "scroll",
+            () => {
+              if (scrollStart !== undefined) scrollMs += performance.now() - scrollStart;
+              scrollStart = undefined;
+            },
+            { passive: true },
+          );
+          const raf = window.requestAnimationFrame.bind(window);
+          window.requestAnimationFrame = (callback) =>
+            raf((time) => {
+              const start = performance.now();
+              frameStart ??= start;
+              try {
+                callback(time);
+              } finally {
+                rafEnd = performance.now();
+                rafMs += rafEnd - start;
+                probeOn = !probeOn;
+                probe.style.width = probeOn ? "2px" : "1px";
+              }
+            });
+        }
+        mutations?.observe(scroller, {
+          subtree: true,
+          attributes: true,
+          attributeOldValue: true,
+          childList: true,
+          characterData: true,
         });
-      });
-      holder.__upWatch = {
-        frames,
-        long,
-        spans,
-        origin: performance.timeOrigin,
-        stop: () => {
-          stop();
-          observer?.disconnect();
-        },
-      };
-      (holder as unknown as { __longtasks: boolean }).__longtasks = observer !== undefined;
-    }, process.env.LANDINGS === "1");
+        const stop = window.cmuxAfterPaint((paint) => {
+          const readAt = performance.now();
+          const timing =
+            why && frameStart !== undefined
+              ? {
+                  scroll: scrollMs,
+                  raf: rafMs,
+                  render: readAt - (rafEnd ?? frameStart),
+                  busy: readAt - frameStart,
+                  between: lastRead === undefined ? 0 : frameStart - lastRead,
+                  layout: layoutMs,
+                }
+              : undefined;
+          frameStart = undefined;
+          layoutMs = 0;
+          scrollMs = 0;
+          rafMs = 0;
+          rafEnd = undefined;
+          let written: string | undefined;
+          if (mutations) {
+            count(mutations.takeRecords());
+            written =
+              [...writes.entries()]
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 12)
+                .map(([key, n]) => `${key}:${n}`)
+                .join(" ") + ` | ${[...samples.entries()].map(([where, change]) => `${where}{${change}}`).join(" ")}`;
+            writes = new Map();
+            samples = new Map();
+          }
+          frames.push({
+            ...(written !== undefined ? { writes: written } : {}),
+            ...(timing ? { why: timing } : {}),
+            paint,
+            scrollTop: scroller.scrollTop,
+            scrollHeight: scroller.scrollHeight,
+            clientHeight: scroller.clientHeight,
+            // The mounted rows, first and last: a frame that mounts or unmounts rows changes them.
+            rows: `${scroller.querySelector("[data-row-id]")?.getAttribute("data-row-id")}..${scroller.querySelectorAll("[data-row-id]").length}`,
+          });
+          lastRead = performance.now();
+        });
+        holder.__upWatch = {
+          frames,
+          long,
+          spans,
+          origin: performance.timeOrigin,
+          stop: () => {
+            stop();
+            observer?.disconnect();
+          },
+        };
+        (holder as unknown as { __longtasks: boolean }).__longtasks = observer !== undefined;
+      },
+      { logWrites: process.env.LANDINGS === "1", why: process.env.WHY === "1" },
+    );
     // TRACE=1 (Chromium): the timeline of the wheel; each frame over 50 ms prints what took its time.
     const tracing =
       process.env.TRACE === "1" && name === "chromium" ? await page.context().newCDPSession(page) : undefined;
@@ -575,6 +716,8 @@ async function run(name: string, engine: BrowserType) {
       // mounted or unmounted rows with no landing, and a frame that only scrolled.
       ...(() => {
         const kinds = { landing: [] as number[], mount: [] as number[], scroll: [] as number[] };
+        const whyBy: Record<string, NonNullable<Frame["why"]>[]> = {};
+        const scrollWrites: string[] = [];
         for (let index = 1; index < watched.frames.length; index++) {
           const [was, now] = [watched.frames[index - 1]!, watched.frames[index]!];
           const kind = now.scrollHeight !== was.scrollHeight ? "landing" : now.rows !== was.rows ? "mount" : "scroll";
@@ -583,6 +726,44 @@ async function run(name: string, engine: BrowserType) {
               `transcript-scroll-up ${name} landing gap ${round2(now.paint - was.paint)} rows ${was.rows} -> ${now.rows} height ${was.scrollHeight} -> ${now.scrollHeight} next ${round2((watched.frames[index + 1]?.paint ?? now.paint) - now.paint)} writes ${now.writes ?? ""}`,
             );
           kinds[kind].push(now.paint - was.paint);
+          if (now.why) (whyBy[kind] ??= []).push(now.why);
+          if (process.env.WHY === "1" && kind === "scroll" && now.writes)
+            scrollWrites.push(now.writes.split(" | ")[0]!);
+        }
+        // WHY=1: each kind's frames by where their time went, p50/p95 of each part.
+        if (process.env.WHY === "1") {
+          for (const [kind, list] of Object.entries(whyBy)) {
+            const part = (key: keyof NonNullable<Frame["why"]>) =>
+              `${key} ${round2(
+                percentile(
+                  list.map((each) => each[key]),
+                  50,
+                ),
+              )}/${round2(
+                percentile(
+                  list.map((each) => each[key]),
+                  95,
+                ),
+              )}`;
+            console.log(
+              `transcript-scroll-up ${name} why ${kind} (${list.length} frames, p50/p95 ms): ${part("busy")} ${part("scroll")} ${part("raf")} ${part("render")} ${part("between")} ${part("layout")}`,
+            );
+          }
+          // What scroll-only frames wrote, summed over the run.
+          const total = new Map<string, number>();
+          for (const line of scrollWrites)
+            for (const item of line.split(" ")) {
+              const at = item.lastIndexOf(":");
+              if (at > 0)
+                total.set(item.slice(0, at), (total.get(item.slice(0, at)) ?? 0) + Number(item.slice(at + 1)));
+            }
+          console.log(
+            `transcript-scroll-up ${name} why scroll writes over ${scrollWrites.length} frames: ${[...total.entries()]
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 16)
+              .map(([key, n]) => `${key}:${n}`)
+              .join(" ")}`,
+          );
         }
         return Object.fromEntries(
           Object.entries(kinds).flatMap(([kind, gaps]) => [

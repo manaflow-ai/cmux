@@ -5772,7 +5772,10 @@ a.cv-sha:focus-visible {
 }
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-user.acpmux-row--message-enter .acpmux-row__message-presentation,
-  .acpmux-user.acpmux-row--message-enter ~ .acpmux-thinking.acpmux-row--enter {
+  /* The thinking line that comes in with a sent prompt takes the send's clock. It is marked by
+     itself (RowFrame `sendPaced`), never found from the prompt with a sibling combinator: a `~`
+     rule makes every row the thread gains or loses restyle all the rows after it. */
+  .acpmux-thinking.acpmux-row--enter.acpmux-row--send-paced {
     animation-duration: var(--agent-motion-send-fade, var(--agent-motion-send, 180ms));
     animation-timing-function: var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1));
   }
@@ -6678,6 +6681,105 @@ a.cv-sha:focus-visible {
     100% 0,
     100% 0,
     var(--acpmux-find-hole-position, 0 0);
+}
+/* Over an opaque page the same soft edges cost far less as a veil than as a mask. What shows through
+   the mask there is the page's own color (the shell's --agent-page-bg over the root's
+   --cmux-surface-background), so a still layer in that color, opaque where the mask is clear and clear
+   where it is full, draws the same pixels: rows fade into the page as they did, none show under the
+   bottom stack or a pinned line, and the scrollbar's lane is left alone. A mask on the scroller is
+   applied again to every pixel of the view on each scrolled frame; the veil is a sticky layer that
+   never moves while the rows scroll under it (bench/transcript-scroll-up.bench.ts, WHY=1). Over a
+   see-through window or an image (data-cmux-see-through) the backdrop is not one color, so the mask
+   above stays there.
+   Rows paint in their own stacking contexts (`contain: paint`), so nothing in a row rises over the
+   veil; the prompt rail (z 3), the VS Code minimap and Find's bar (z 10) draw over it in full ink, as
+   their lanes kept them under the mask. The scroller is `contain: strict`, so the veil's layer never
+   reaches the dock or the header. */
+.acpmux-edges {
+  display: none;
+}
+:root:not([data-cmux-see-through])
+  .acpmux-scroll:is([data-fade-top], [data-fade-bottom], [data-docked], [data-pinned-top]):has(> .acpmux-edges) {
+  -webkit-mask-image: none;
+  mask-image: none;
+  > .acpmux-edges {
+    display: block;
+    position: sticky;
+    top: 0;
+    /* Over the rows, under the prompt rail (z 3). */
+    z-index: calc(var(--layer-raised) + 1);
+    height: 0;
+    pointer-events: none;
+  }
+}
+/* Two bands in the page's color, ramping to clear: the top one over the pinned line and the fade under
+   the header, the bottom one over the fade above the composer and everything under the bottom stack.
+   Plain gradients, no mask: a mask costs a full offscreen pass wherever it sits, a gradient band only
+   its own few pixels (bench ABLATE=overlay against ABLATE=stagemask). The reach is resolved here, as
+   the reach does not inherit; the bands take the lengths. */
+.acpmux-edges__veil {
+  --acpmux-veil-top: var(--acpmux-view-top, 0px);
+  --acpmux-veil-top-fade: calc(var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach));
+  --acpmux-veil-bottom-fade: calc(var(--acpmux-fade-bottom, 0px) * var(--acpmux-fade-bottom-reach));
+  --acpmux-veil-dock: var(--acpmux-dock-space, 0px);
+  --acpmux-veil-ink: var(--agent-page-bg, transparent);
+  --acpmux-veil-ground: var(--cmux-surface-background, var(--cmux-diff-viewer-bg, Canvas));
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: var(--acpmux-scrollbar-lane, 16px);
+}
+.acpmux-edges__veil::before,
+.acpmux-edges__veil::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+}
+.acpmux-edges__veil::before {
+  top: 0;
+  height: calc(var(--acpmux-veil-top) + var(--acpmux-veil-top-fade));
+  background:
+    linear-gradient(
+      to bottom,
+      var(--acpmux-veil-ink) var(--acpmux-veil-top),
+      transparent calc(var(--acpmux-veil-top) + var(--acpmux-veil-top-fade))
+    ),
+    linear-gradient(
+      to bottom,
+      var(--acpmux-veil-ground) var(--acpmux-veil-top),
+      transparent calc(var(--acpmux-veil-top) + var(--acpmux-veil-top-fade))
+    );
+}
+.acpmux-edges__veil::after {
+  bottom: 0;
+  height: calc(var(--acpmux-veil-dock) + var(--acpmux-veil-bottom-fade));
+  background:
+    linear-gradient(to top, var(--acpmux-veil-ink) var(--acpmux-veil-dock), transparent),
+    linear-gradient(to top, var(--acpmux-veil-ground) var(--acpmux-veil-dock), transparent);
+}
+/* Find's bar: the rows under its box keep full ink, so its glass blurs them as they are (above). Only
+   while the bar is open does the top band take a mask, to cut that hole. */
+.acpmux-scroll:has(> .acpmux-find) > .acpmux-edges > .acpmux-edges__veil::before {
+  height: 100%;
+  -webkit-mask-image: linear-gradient(#000, #000), var(--acpmux-find-hole);
+  mask-image: linear-gradient(#000, #000), var(--acpmux-find-hole);
+  -webkit-mask-size:
+    100% 100%,
+    var(--acpmux-find-hole-size);
+  mask-size:
+    100% 100%,
+    var(--acpmux-find-hole-size);
+  -webkit-mask-position:
+    0 0,
+    var(--acpmux-find-hole-position);
+  mask-position:
+    0 0,
+    var(--acpmux-find-hole-position);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-composite: source-out;
+  mask-composite: subtract;
 }
 /* Plain edges: the rows under the bottom stack still stay out of sight, with a hard cut. */
 @media (prefers-reduced-transparency: reduce) {
