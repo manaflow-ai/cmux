@@ -1552,11 +1552,15 @@ fn a_proof_outlives_the_copy_and_goes_back_whole_or_not_at_all() {
     let (back, _) = restore::with_proofs(ahead, proofs, &rows);
     assert!(back[0].3.first().and_then(seq_of) > Some(5), "p1's proof went back");
 
-    // The captures' queue overflowed: the copy went, so whether p1 left its queue since is not
-    // known: nothing of it goes back (it would run again), and it stays open.
+    // The captures' queue overflowed: the copy went, and its proof is all that is left of p1's
+    // life here: it goes back (review at 27f3761b, F1). 27f3761b held it back for good.
     store.take(Op::LostPeer(PEER.into()));
     let (_, since) = store.ahead(PEER, rows.clone()).unwrap();
+    let back = od::proofs_past(&outbox, PEER, &rows, &since);
+    assert_eq!(back["m1"].iter().flatten().filter_map(seq_of).collect::<Vec<_>>(), vec![4]);
+    set_rules(crate::hub::journal_restore::AT_27F3);
     assert!(od::proofs_past(&outbox, PEER, &rows, &since).is_empty());
+    set_rules(0);
     // Its removal from the queue came in its proof before: then all of it goes back.
     od::take_written(&outbox, (PEER, "m1", 7), &[life("m1", 9, "queue_removed", "p1")], (1, 1));
     let back = od::proofs_past(&outbox, PEER, &rows, &since);
@@ -2311,4 +2315,149 @@ fn a_delivery_again_goes_to_its_pinned_session_after_a_rename_and_the_names_reus
     crate::hub::journal_restore::OLD_RULES.with(|r| r.set(0));
     assert_eq!(old["sessionId"], by_name.as_str());
     assert_eq!(resolved(&old), ("m2".to_owned(), Some(9)), "4bce04df sent it to the new holder");
+}
+
+/// What [`a_proof_whose_copy_is_not_kept`] found.
+type NotKept = (
+    Vec<u64>,
+    crate::hub::open_delivery::Step,
+    crate::hub::open_delivery::Step,
+    crate::hub::outbox::Outbox,
+);
+
+/// p1's delivery to `mux` (generation 7), once a write told its `queued` record (seq 4) and no
+/// copy of the session is kept any more: `stopped`, the daemon stopped after the write told it
+/// and before the copy's file was written, and started again; else the disk's eviction took
+/// the written copy. A machine on a disk that ends at 3 is restored under `rules`: what goes
+/// back to it, the step of the link's redelivery once it took that, and the step had it
+/// refused the restore (its journal still ending at 3). The outbox afterwards.
+fn a_proof_whose_copy_is_not_kept(rules: u8, stopped: bool) -> NotKept {
+    use crate::hub::open_delivery as od;
+    let mux = if stopped { "m-stopped" } else { "m-evicted" };
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let told: Arc<StdMutex<Vec<Vec<Value>>>> = Arc::default();
+    let hook: Written = {
+        let told = told.clone();
+        Arc::new(move |_, _, _, records| {
+            told.lock().unwrap().push(records);
+            true
+        })
+    };
+    let mut store =
+        Store::new(disk::root(dir.path()), Arc::default(), Arc::new(StdMutex::new(Some(hook))));
+    store.scan();
+    let outbox = crate::hub::outbox::Outbox::default();
+    let now = crate::store::now_ms();
+    let d: crate::hub::outbox::Delivery = serde_json::from_value(json!({
+        "id": "d1", "target": format!("{PEER}/{mux}"),
+        "request": {"sessionId": format!("{PEER}/{mux}"),
+                    "prompt": [{"type": "text", "text": "hi"}],
+                    "_meta": {"acpmux": {"promptId": "p1"}}},
+        "state": "delivered", "openOnPeer": true, "createdAt": now, "updatedAt": now,
+        "pin": {"peer": PEER, "session": mux, "generation": 7, "link": [1, 1]},
+    }))
+    .unwrap();
+    outbox.add(d).unwrap();
+    keep(&mut store, mux, 1..=3);
+    store.add(&key(mux), vec![life(mux, 4, "queued", "p1")]);
+    if stopped {
+        super::stop_before_write_once(&key(mux));
+    }
+    store.write_due(None, When::Last);
+    for records in std::mem::take(&mut *told.lock().unwrap()) {
+        od::take_written(&outbox, (PEER, mux, 7), &records, (1, 1));
+    }
+    assert!(outbox.get("d1").and_then(|d| d.proof).is_some(), "the write told p1's record");
+    if stopped {
+        assert!(!file(dir.path(), mux).exists(), "the copy's file was never written");
+        // The daemon starts again on that disk.
+        store = store_at(dir.path());
+    } else {
+        assert!(file(dir.path(), mux).exists());
+        // The disk's eviction takes the written copy, file and all.
+        store.evict_disk(None, TOTAL_BYTES);
+    }
+    assert!(!store.copies.contains_key(&key(mux)), "no copy of the session is kept");
+    set_rules(rules);
+    let rows = vec![(mux.to_owned(), 7, 3)];
+    let (ahead, since) = store.ahead(PEER, rows.clone()).unwrap();
+    let proofs = od::proofs_past(&outbox, PEER, &rows, &since);
+    let (back, held) = restore::with_proofs(ahead, proofs, &rows);
+    assert!(held.is_empty());
+    let back: Vec<u64> = back.iter().flat_map(|a| &a.3).filter_map(seq_of).collect();
+    // The machine took what went back: its journal ends at 4 then.
+    let last = if back.is_empty() { 3 } else { 4 };
+    let d = outbox.get("d1").unwrap();
+    let old = crate::hub::journal_restore::rules_of_27f3();
+    let ends = HashMap::from([(mux.to_owned(), (7, last))]);
+    let taken = od::step_after_restore(&d, (now, (1, 2)), (&ends, &since), old);
+    let ends = HashMap::from([(mux.to_owned(), (7, 3))]);
+    let refused = od::step_after_restore(&d, (now, (1, 2)), (&ends, &since), old);
+    set_rules(0);
+    (back, taken, refused, outbox)
+}
+
+/// After [`a_proof_whose_copy_is_not_kept`] at the rules of now: the delivery a machine refused
+/// the restore of goes again once, as one never proven, and the machine's own records of it
+/// prove it from there: a later link whose journal holds them releases it.
+fn delivered_again_once(outbox: &crate::hub::outbox::Outbox, mux: &str) {
+    use crate::hub::open_delivery as od;
+    let now = crate::store::now_ms();
+    outbox.update("d1", od::unprove);
+    let d = outbox.get("d1").unwrap();
+    let ends = HashMap::from([(mux.to_owned(), (7, 3))]);
+    assert_eq!(od::step(&d, now, (1, 2), &ends), od::Step::Again);
+    let again = od::again_request(&d, d.pin.as_ref().unwrap());
+    assert_eq!(again["sessionId"], format!("{PEER}/{mux}"), "{again}");
+    assert_eq!(again["_meta"]["acpmux"]["resend"], true, "{again}");
+    // The machine ran it: a write tells its records, which prove it.
+    let mut ran = vec![life(mux, 4, "user_message", "p1"), life(mux, 5, "turn_result", "p1")];
+    for r in &mut ran {
+        r["at"] = json!(1000);
+    }
+    od::take_written(outbox, (PEER, mux, 7), &ran, (1, 2));
+    let d = outbox.get("d1").unwrap();
+    let seqs: Vec<u64> = d.proof.as_ref().unwrap().records.iter().filter_map(seq_of).collect();
+    assert_eq!(seqs, vec![4, 5], "only the resend's records prove it");
+    let ends = HashMap::from([(mux.to_owned(), (7, 5))]);
+    let since = od::Since::new();
+    let step = od::step_after_restore(&d, (now, (1, 3)), (&ends, &since), false);
+    assert_eq!(step, od::Step::Check, "a later link whose journal holds it reads it");
+}
+
+/// Review of #37284 at 27f3761b, F1: the daemon stopped after a write told p1's `queued` record
+/// to its delivery (`tell_written`) and before the copy's file was written. Started again, it
+/// keeps no copy of the session, and the proof is all that is left of p1 here: it goes back to
+/// a machine on an older disk, once, and the link's redelivery then reads the machine's
+/// journal and releases it; a machine that refused it gets p1 again. Under 27f3761b's rules
+/// nothing went back, and the delivery waited, never sent again, until it lapsed.
+#[test]
+fn a_proof_told_before_a_stop_that_kept_no_copy_goes_back_or_again() {
+    use crate::hub::open_delivery::Step;
+    let at_27f3 = crate::hub::journal_restore::AT_27F3;
+    let (back, taken, refused, _) = a_proof_whose_copy_is_not_kept(at_27f3, true);
+    assert!(back.is_empty(), "27f3761b gave nothing back");
+    assert_eq!((taken, refused), (Step::Wait, Step::Wait), "27f3761b waited for good");
+    let (back, taken, refused, outbox) = a_proof_whose_copy_is_not_kept(0, true);
+    assert_eq!(back, vec![4], "p1's queued record goes back, once");
+    assert_eq!(taken, Step::Check);
+    assert_eq!(refused, Step::Unproven);
+    delivered_again_once(&outbox, "m-stopped");
+}
+
+/// Review of #37284 at 27f3761b, F1: the disk's eviction took the written copy of the session
+/// whose write told p1's `queued` record to its delivery: as above, the proof goes back, or
+/// p1 goes again. Under 27f3761b's rules it waited until it lapsed.
+#[test]
+fn a_proof_whose_copy_was_evicted_goes_back_or_again() {
+    use crate::hub::open_delivery::Step;
+    let at_27f3 = crate::hub::journal_restore::AT_27F3;
+    let (back, taken, refused, _) = a_proof_whose_copy_is_not_kept(at_27f3, false);
+    assert!(back.is_empty(), "27f3761b gave nothing back");
+    assert_eq!((taken, refused), (Step::Wait, Step::Wait), "27f3761b waited for good");
+    let (back, taken, refused, outbox) = a_proof_whose_copy_is_not_kept(0, false);
+    assert_eq!(back, vec![4], "p1's queued record goes back, once");
+    assert_eq!(taken, Step::Check);
+    assert_eq!(refused, Step::Unproven);
+    delivered_again_once(&outbox, "m-evicted");
 }

@@ -1615,6 +1615,10 @@ impl Store {
         // on disk writes that it does not vouch for its records through those (`since`), so a
         // proof that missed a later record of its prompt is never whole, after a restart too.
         let unsaved = !crate::hub::journal_restore::rules_of_a088() && !self.tell_written(key);
+        #[cfg(test)]
+        if stops_before_write(key) {
+            anyhow::bail!("tests only: the daemon stopped before the copy's file was written");
+        }
         let Some(c) = self.copies.get(key) else { return Ok(()) };
         let Some(records) = &c.records else { return Ok(()) };
         let bytes = disk::encode(&c.head, records);
@@ -1691,6 +1695,26 @@ impl Store {
         c.due = Some(due);
         self.wake_by(due);
     }
+}
+
+/// Tests only: the chats (peer, session) whose next copy write stops once its records were
+/// told (`Store::tell_written`) and before its file is written: a daemon that stopped there
+/// (review of #37284 at 27f3761b, F1).
+// test-hook-allow: armed per chat id, and only that chat's write takes it
+#[cfg(test)]
+static STOP_BEFORE_WRITE: StdMutex<Vec<(String, String)>> = StdMutex::new(Vec::new());
+
+#[cfg(test)]
+pub(crate) fn stop_before_write_once(key: &Key) {
+    STOP_BEFORE_WRITE.lock().unwrap_or_else(|e| e.into_inner()).push(key.clone());
+}
+
+/// Whether [`stop_before_write_once`] armed `key`'s write; it takes the arming.
+#[cfg(test)]
+fn stops_before_write(key: &Key) -> bool {
+    let mut armed = STOP_BEFORE_WRITE.lock().unwrap_or_else(|e| e.into_inner());
+    let at = armed.iter().position(|k| k == key);
+    at.map(|at| armed.swap_remove(at)).is_some()
 }
 
 impl Hub {

@@ -18,7 +18,9 @@
 //!   never sent again: a link whose machine ends before them gives them back with the copy
 //!   (`peer_snapshot/restore.rs`, [`proofs_past`]), unless the copy did not see the prompt's
 //!   whole life since its first record and giving it back would start its work again
-//!   ([`whole`]): then nothing goes back, nothing runs again, and it stays open.
+//!   ([`whole`]): then nothing goes back, nothing runs again, and it stays open. A proof whose
+//!   copy is not kept at all is the only record of its prompt's life left and goes back; one
+//!   its machine refused is delivered again ([`unproven`]).
 //! - Released ([`step`]): when a later link than the one its proof came on lists the session,
 //!   of its generation, with a journal that ends past the proof and holds each of its records
 //!   (read on that link, by seq, time and kind: [`Hub::proof_held`]); or it fails, saying why:
@@ -440,13 +442,51 @@ pub(crate) type Since = HashMap<String, (u64, u64)>;
 /// copy of its session and generation saw every record since the proof's first one. A proof
 /// with a gap after it (the copy was replaced past a gap, or went: a bound, a queue that
 /// overflowed, the disk's eviction) may miss the records that ended it.
+///
+/// A proof whose session no copy of its generation is kept for any more (`since` names none:
+/// the copy went, or the daemon stopped after a write told its records and before the copy's
+/// file was written) is the only record of its prompt's life left on this side, and goes back
+/// (review of #37284 at 27f3761b, F1): 27f3761b held it back, no later link's journal held it,
+/// and the prompt was neither restored nor sent again. A machine whose journal holds it takes
+/// nothing of it (`proofs_past` gives back only what is past where the journal ends), so
+/// nothing it ran runs twice; one that lost it waits in its queue again, or its cut turn is
+/// settled as a restart's is (`log_load.rs` `settle_restored`, [`RERUN_ON_RESEND`]).
 pub(crate) fn whole(d: &Delivery, since: &Since) -> bool {
     let (Some(pin), Some(proof)) = (&d.pin, &d.proof) else { return false };
     let first = proof.records.first().and_then(seq);
-    !restarts(&proof.records)
-        || since.get(&pin.session).is_some_and(|(generation, since)| {
-            *generation == pin.generation && first.is_some_and(|f| *since <= f)
-        })
+    let kept = since.get(&pin.session).filter(|(generation, _)| *generation == pin.generation);
+    let gone = kept.is_none() && !crate::hub::journal_restore::rules_of_27f3();
+    let seen = kept.is_some_and(|(_, since)| first.is_some_and(|f| *since <= f));
+    !restarts(&proof.records) || gone || seen
+}
+
+/// Whether `d`, which its link's redelivery would leave waiting ([`Step::Wait`]), is proven by
+/// nothing that link can settle (review of #37284 at 27f3761b, F1): its machine's journal is
+/// listed, of its generation, and ends before its proof once the link's restores ran; the
+/// proof would start its work again ([`restarts`]); and no copy of its pinned session and
+/// generation is kept (`since`, what the link's restore read: `Store::ahead`). Such a proof
+/// goes back with the restore ([`whole`]); one the machine did not take (it refused the
+/// restore as another history) is neither restored nor held by any later link's journal, and
+/// 27f3761b left it waiting until it lapsed. It is delivered again instead ([`unprove`],
+/// [`again_request`]): a machine that holds its prompt answers with its first outcome, and one
+/// that lost it runs it, once. A machine whose journal holds the proof is read
+/// ([`Step::Check`]) and never gets here.
+pub(crate) fn unproven(d: &Delivery, ends: &HashMap<String, (u64, u64)>, since: &Since) -> bool {
+    let (Some(pin), Some(proof)) = (&d.pin, &d.proof) else { return false };
+    let Some((generation, last)) = ends.get(&pin.session) else { return false };
+    let through = proof.records.iter().filter_map(seq).max();
+    let copy = since.get(&pin.session).is_some_and(|(g, _)| *g == pin.generation);
+    *generation == pin.generation
+        && through.is_some_and(|t| t > *last)
+        && restarts(&proof.records)
+        && !copy
+}
+
+/// `d` is delivered again as one never proven ([`unproven`]): its proof goes, since its
+/// records are of a history no machine holds now, and the machine's own records of the resend
+/// prove it from here.
+pub(crate) fn unprove(d: &mut Delivery) {
+    d.proof = None;
 }
 
 /// What the open deliveries' proofs give back to `peer`'s journals that end before them, by
@@ -549,6 +589,9 @@ pub(crate) enum Step {
     Wait,
     /// Not proven: delivered again.
     Again,
+    /// Proven by records no restore gave back and no journal holds ([`unproven`]): its proof
+    /// goes ([`unprove`]), and it is delivered again.
+    Unproven,
 }
 
 /// What the redelivery on link `link` does with open delivery `d` at `now`, its peer's journals
@@ -585,6 +628,21 @@ pub(crate) fn step(
         Some((generation, _)) if *generation != pin.generation => Step::Stale,
         Some((_, last)) if later && through.is_some_and(|t| t <= *last) => Step::Check,
         _ => Step::Wait,
+    }
+}
+
+/// [`step`] on a link whose restores read `since` (`Store::ahead`): a delivery it leaves
+/// waiting that is [`unproven`] is [`Step::Unproven`]. `old`: 27f3761b's rules, which left it
+/// waiting (review of #37284 at 27f3761b, F1).
+pub(crate) fn step_after_restore(
+    d: &Delivery,
+    (now, link): (u64, (u64, u64)),
+    (ends, since): (&HashMap<String, (u64, u64)>, &Since),
+    old: bool,
+) -> Step {
+    match step(d, now, link, ends) {
+        Step::Wait if !old && unproven(d, ends, since) => Step::Unproven,
+        step => step,
     }
 }
 

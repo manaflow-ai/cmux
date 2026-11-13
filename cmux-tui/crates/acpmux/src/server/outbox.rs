@@ -780,12 +780,15 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
 /// answers with its first outcome; one that lost it with its disk runs it now, once; a refused
 /// one fails it, saying why). All of them go on this link, in batches of [`REDELIVER_BATCH`],
 /// while it is up; the next link goes on after the last one reached, so none waits behind the
-/// others for good. One task per call; each resend waits at most [`ATTEMPT_WAIT`].
+/// others for good. One task per call; each resend waits at most [`ATTEMPT_WAIT`]. `since`: where
+/// each kept copy's open deliveries' proofs begin, as the link's restore read it (`Store::ahead`);
+/// a proven delivery whose copy is not kept is sent again (`od::unproven`).
 pub(crate) fn redeliver_open(
     hub: &Arc<Hub>,
     peer: &str,
     link: (u64, u64),
     ends: HashMap<String, (u64, u64)>,
+    since: crate::hub::open_delivery::Since,
 ) {
     let open: Vec<Delivery> = hub
         .outbox
@@ -801,9 +804,9 @@ pub(crate) fn redeliver_open(
         let on_link = || hub.peer_on_link(&peer, link);
         let from = cursor(&hub).get(&peer).cloned();
         let one = |d: Delivery| {
-            let (hub, peer, ends) = (hub.clone(), peer.clone(), &ends);
+            let (hub, peer, ends, since) = (hub.clone(), peer.clone(), &ends, &since);
             async move {
-                redeliver_one(&hub, &d, link, ends).await;
+                redeliver_one(&hub, &d, link, (ends, since)).await;
                 cursor(&hub).insert(peer, (d.created_at, d.id.clone()));
             }
         };
@@ -856,12 +859,12 @@ async fn redeliver_one(
     hub: &Arc<Hub>,
     d: &Delivery,
     link: (u64, u64),
-    ends: &HashMap<String, (u64, u64)>,
+    (ends, since): (&HashMap<String, (u64, u64)>, &crate::hub::open_delivery::Since),
 ) {
     use crate::hub::open_delivery::{self as od, Again, Step};
     let now = crate::store::now_ms();
     let Some(pin) = d.pin.clone() else { return };
-    let mut step = od::step(d, now, link, ends);
+    let mut step = od::step_after_restore(d, (now, link), (ends, since), hub.at_27f3());
     if step == Step::Check {
         step = od::checked(hub.proof_held(d, link).await);
     }
@@ -880,7 +883,13 @@ async fn redeliver_one(
         }
         Step::Release => close_open(hub, d, od::release).await,
         Step::Wait | Step::Check => {}
-        Step::Again => {
+        Step::Again | Step::Unproven => {
+            if step == Step::Unproven {
+                // Proven by records no restore gave back and no journal holds (review of #37284
+                // at 27f3761b, F1): delivered again, as one never proven.
+                tracing::warn!(delivery = %d.id, "a proof no machine holds; delivered again");
+                hub.outbox.update(&d.id, od::unprove);
+            }
             // To the pinned session, by its id, never by the name it was sent to (review of
             // #37284 at 4bce04df, F2).
             let request = od::again_request(d, &pin);

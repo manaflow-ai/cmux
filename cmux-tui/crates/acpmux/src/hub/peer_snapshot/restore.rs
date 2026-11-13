@@ -405,7 +405,7 @@ impl Hub {
             let clear = held.is_empty();
             hub.peer_snapshots.restoring.decide(&peer, Decision { link, held: Some(held) });
             if clear {
-                crate::server::outbox::redeliver_open(&hub, &peer, link, ends);
+                crate::server::outbox::redeliver_open(&hub, &peer, link, ends, since);
             }
         });
     }

@@ -729,6 +729,8 @@ struct RestoreTask {
     tries: u32,
     /// Where the journal ends once this link's restore ran (`redeliver_open`).
     ends: HashMap<String, (u64, u64)>,
+    /// Where the kept copy's proofs begin, as the restore read it (`Store::ahead`).
+    since: od::Since,
 }
 
 struct World {
@@ -1149,6 +1151,7 @@ impl World {
             ahead: None,
             tries: 0,
             ends: HashMap::from([(MUX.to_owned(), end)]),
+            since: od::Since::new(),
         });
         if task.ahead.is_none() {
             let (generation, last) = task.rows;
@@ -1166,15 +1169,16 @@ impl World {
             if ahead.is_none() {
                 self.check_not_hidden();
             }
-            self.task.as_mut().unwrap().ahead = Some(ahead);
+            let task = self.task.as_mut().unwrap();
+            (task.ahead, task.since) = (Some(ahead), since);
             return;
         }
         let task = self.task.as_mut().unwrap();
         let Some(Some((after, records))) = task.ahead.clone() else {
-            let ends = task.ends.clone();
+            let (ends, since) = (task.ends.clone(), task.since.clone());
             self.decided = true;
             self.note(format!("link {link}: nothing ahead; decided"));
-            self.redeliver(&ends);
+            self.redeliver(&ends, &since);
             return;
         };
         let generation = task.rows.0;
@@ -1257,8 +1261,10 @@ impl World {
             }
         }
         self.decided = true;
-        let ends = self.task.as_ref().map(|t| t.ends.clone()).unwrap_or_default();
-        self.redeliver(&ends);
+        let task = self.task.as_ref();
+        let ends = task.map(|t| t.ends.clone()).unwrap_or_default();
+        let since = task.map(|t| t.since.clone()).unwrap_or_default();
+        self.redeliver(&ends, &since);
     }
 
     /// Nothing goes back: then the copy holds no record past where the machine's own recovery at
@@ -1304,7 +1310,7 @@ impl World {
     }
 
     /// The link's redelivery (`server/outbox.rs` `redeliver_open`).
-    fn redeliver(&mut self, ends: &HashMap<String, (u64, u64)>) {
+    fn redeliver(&mut self, ends: &HashMap<String, (u64, u64)>, since: &od::Since) {
         let now = crate::store::now_ms();
         let link = (1, self.link);
         for d in self.outbox.open_on_peers() {
@@ -1331,7 +1337,8 @@ impl World {
             }
             let step = match self.rules {
                 Rules::Now | Rules::Hidden | Rules::Prior | Rules::Last | Rules::Recent => {
-                    match od::step(&d, now, link, ends) {
+                    let old = crate::hub::journal_restore::rules_of_27f3();
+                    match od::step_after_restore(&d, (now, link), (ends, since), old) {
                         // The machine's journal read on this link (`Hub::proof_held`); the link may
                         // flip first.
                         od::Step::Check if !self.calm && self.rng.chance(8) => {
@@ -1398,7 +1405,13 @@ impl World {
                 od::Step::Wait | od::Step::Check => {
                     self.note(format!("{} proven, waits", d.id));
                 }
-                od::Step::Again => {
+                od::Step::Again | od::Step::Unproven => {
+                    if step == od::Step::Unproven {
+                        // A proof no restore gave back and no journal holds (review at
+                        // 27f3761b, F1): delivered again, as one never proven.
+                        self.note(format!("{} unproven", d.id));
+                        self.outbox.update(&d.id, od::unprove);
+                    }
                     let queue = self.rng.chance(50);
                     let answer =
                         self.machine.prompt(d.prompt_id(), Some(pin.generation), queue, false);
@@ -1618,7 +1631,12 @@ impl World {
             self.page(records, false);
         }
         let ends = HashMap::from([(MUX.to_owned(), (self.machine.generation, self.machine.end()))]);
-        self.redeliver(&ends);
+        // Where the kept copy's proofs begin, as `Store::ahead` reads it.
+        let generation = self.machine.generation;
+        let copy = self.store.copies.get(&key()).filter(|c| c.head.generation == Some(generation));
+        let since: od::Since =
+            copy.map(|c| (MUX.to_owned(), (generation, c.head.since))).into_iter().collect();
+        self.redeliver(&ends, &since);
         self.look();
     }
 
