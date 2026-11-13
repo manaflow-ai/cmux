@@ -1088,11 +1088,11 @@ fn test_fails_here(_: &str, _: bool) -> bool {
 type Gap = Box<dyn FnOnce() + Send>;
 
 #[cfg(test)]
-static AFTER_DRAIN: std::sync::Mutex<Option<(String, Gap)>> = std::sync::Mutex::new(None);
+static AFTER_DRAIN: std::sync::Mutex<Vec<(String, Gap)>> = std::sync::Mutex::new(Vec::new());
 
 #[cfg(test)]
 pub(crate) fn after_drain_once(id: &str, change: Gap) {
-    *AFTER_DRAIN.lock().unwrap_or_else(|e| e.into_inner()) = Some((id.to_owned(), change));
+    AFTER_DRAIN.lock().unwrap_or_else(|e| e.into_inner()).push((id.to_owned(), change));
 }
 
 /// Runs [`after_drain_once`]'s change of chat `id` on its own thread, and waits for it.
@@ -1100,13 +1100,8 @@ pub(crate) fn after_drain_once(id: &str, change: Gap) {
 pub(super) fn test_after_drain(id: &str) {
     let change = {
         let mut armed = AFTER_DRAIN.lock().unwrap_or_else(|e| e.into_inner());
-        match armed.take() {
-            Some((at, change)) if at == id => Some(change),
-            other => {
-                *armed = other;
-                None
-            }
-        }
+        let at = armed.iter().position(|(at, _)| at == id);
+        at.map(|at| armed.swap_remove(at).1)
     };
     if let Some(change) = change {
         std::thread::spawn(change).join().unwrap();
@@ -1116,11 +1111,11 @@ pub(super) fn test_after_drain(id: &str) {
 /// Tests only: what runs once a restore of chat `id` put its first record back, before its
 /// second: a crash there, as a test copies what the disk holds then.
 #[cfg(test)]
-static BETWEEN_RECORDS: std::sync::Mutex<Option<(String, Gap)>> = std::sync::Mutex::new(None);
+static BETWEEN_RECORDS: std::sync::Mutex<Vec<(String, Gap)>> = std::sync::Mutex::new(Vec::new());
 
 #[cfg(test)]
 pub(crate) fn between_records_once(id: &str, crash: Gap) {
-    *BETWEEN_RECORDS.lock().unwrap_or_else(|e| e.into_inner()) = Some((id.to_owned(), crash));
+    BETWEEN_RECORDS.lock().unwrap_or_else(|e| e.into_inner()).push((id.to_owned(), crash));
 }
 
 /// Runs [`between_records_once`]'s crash of chat `id`, on the restore's thread.
@@ -1128,13 +1123,8 @@ pub(crate) fn between_records_once(id: &str, crash: Gap) {
 fn test_between_records(id: &str) {
     let crash = {
         let mut armed = BETWEEN_RECORDS.lock().unwrap_or_else(|e| e.into_inner());
-        match armed.take() {
-            Some((at, crash)) if at == id => Some(crash),
-            other => {
-                *armed = other;
-                None
-            }
-        }
+        let at = armed.iter().position(|(at, _)| at == id);
+        at.map(|at| armed.swap_remove(at).1)
     };
     if let Some(crash) = crash {
         crash();

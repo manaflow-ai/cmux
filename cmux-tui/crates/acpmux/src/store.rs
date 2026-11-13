@@ -2270,7 +2270,7 @@ impl Store for LocalStore {
         let path = self.dir(id).join(PARKED);
         match kept {
             Some(bytes) => compact::write_durably(&path, bytes),
-            None => match std::fs::remove_file(&path) {
+            None => match crate::home_fs::remove_file(&path) {
                 Ok(()) => sync_directory(&self.dir(id)),
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
                 Err(e) => Err(e).with_context(|| format!("remove {}", path.display())),
@@ -2290,7 +2290,7 @@ impl Store for LocalStore {
                 BufReader::new(file).read_to_end(&mut bytes)?;
                 Ok(Some(bytes))
             }
-            Err(_) if std::fs::symlink_metadata(&path).is_err() => Ok(None),
+            Err(_) if crate::home_fs::symlink_metadata(&path).is_err() => Ok(None),
             Err(e) => Err(e),
         }
     }
@@ -2495,12 +2495,12 @@ mod startup_tests;
 /// record does: the log is the shorter one already, and the call fails (review of #37284 at
 /// fd33a65b, F2).
 #[cfg(test)]
-static FAIL_BEFORE_MARKER: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+static FAIL_BEFORE_MARKER: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
 /// Tests only: arms [`FAIL_BEFORE_MARKER`] for chat `id`, once.
 #[cfg(test)]
 pub(crate) fn fail_before_marker_once(id: &str) {
-    *FAIL_BEFORE_MARKER.lock().unwrap_or_else(|e| e.into_inner()) = Some(id.to_owned());
+    FAIL_BEFORE_MARKER.lock().unwrap_or_else(|e| e.into_inner()).push(id.to_owned());
 }
 
 /// Tests only: what runs once a commit of chat `id`'s staged log (`compact.rs`
@@ -2510,12 +2510,12 @@ pub(crate) fn fail_before_marker_once(id: &str) {
 type Crash = Box<dyn FnOnce() + Send>;
 
 #[cfg(test)]
-static BETWEEN_SEGMENTS: std::sync::Mutex<Option<(String, Crash)>> = std::sync::Mutex::new(None);
+static BETWEEN_SEGMENTS: std::sync::Mutex<Vec<(String, Crash)>> = std::sync::Mutex::new(Vec::new());
 
 /// Tests only: arms [`BETWEEN_SEGMENTS`] for chat `id`, once.
 #[cfg(test)]
 pub(crate) fn between_segments_once(id: &str, crash: Crash) {
-    *BETWEEN_SEGMENTS.lock().unwrap_or_else(|e| e.into_inner()) = Some((id.to_owned(), crash));
+    BETWEEN_SEGMENTS.lock().unwrap_or_else(|e| e.into_inner()).push((id.to_owned(), crash));
 }
 
 /// Runs [`between_segments_once`]'s crash of chat `id`, on the committing thread.
@@ -2523,13 +2523,8 @@ pub(crate) fn between_segments_once(id: &str, crash: Crash) {
 fn between_segments(id: &str) {
     let crash = {
         let mut armed = BETWEEN_SEGMENTS.lock().unwrap_or_else(|e| e.into_inner());
-        match armed.take() {
-            Some((at, crash)) if at == id => Some(crash),
-            other => {
-                *armed = other;
-                None
-            }
-        }
+        let at = armed.iter().position(|(at, _)| at == id);
+        at.map(|at| armed.swap_remove(at).1)
     };
     if let Some(crash) = crash {
         crash();
@@ -2558,9 +2553,6 @@ fn fails_kept_read(id: &str) -> bool {
 #[cfg(test)]
 fn fails_before_marker(id: &str) -> bool {
     let mut armed = FAIL_BEFORE_MARKER.lock().unwrap_or_else(|e| e.into_inner());
-    let fails = armed.as_deref() == Some(id);
-    if fails {
-        *armed = None;
-    }
-    fails
+    let at = armed.iter().position(|a| a == id);
+    at.map(|at| armed.swap_remove(at)).is_some()
 }

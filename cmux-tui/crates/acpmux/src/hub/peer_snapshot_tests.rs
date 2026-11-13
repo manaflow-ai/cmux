@@ -1948,7 +1948,7 @@ fn a_proof_whose_save_failed(rules: u8) -> bool {
     .unwrap();
     // The proof as the outbox's file holds it: only what a save that worked wrote.
     let on_disk = crate::hub::outbox::Outbox::default();
-    on_disk.add(d.clone());
+    on_disk.add(d.clone()).unwrap();
     outbox.add(d).unwrap();
     {
         let hook = Arc::new(StdMutex::new(Some(hook)));

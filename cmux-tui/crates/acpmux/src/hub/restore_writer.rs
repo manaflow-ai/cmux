@@ -692,6 +692,8 @@ mod tests {
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/src");
         let allowed =
             ["hub/mod.rs", "hub/journal_restore.rs", "hub/transfer.rs", "write_journal.rs"];
+        // A bench home's fixture and the store's stress tests write their own homes, no hub's.
+        let fixtures = ["god_fixture.rs", "stress/"];
         let mut found = Vec::new();
         let mut dirs = vec![std::path::PathBuf::from(root)];
         while let Some(dir) = dirs.pop() {
@@ -706,6 +708,7 @@ mod tests {
                     || rel.ends_with("_tests.rs")
                     || rel.starts_with("store")
                     || allowed.contains(&rel.as_str())
+                    || fixtures.iter().any(|f| rel.starts_with(f))
                 {
                     continue;
                 }

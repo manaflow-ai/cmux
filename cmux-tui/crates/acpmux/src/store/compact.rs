@@ -154,7 +154,7 @@ impl LocalStore {
         {
             for segment in &mut staged.segments {
                 if let Some(tmp) = segment.tmp.take() {
-                    std::fs::rename(&tmp, &segment.path)?;
+                    crate::home_fs::rename(&tmp, &segment.path)?;
                 }
             }
         }
@@ -166,7 +166,7 @@ impl LocalStore {
             marker.complete = true;
             write_durably(&self.marker(id), &serde_json::to_vec_pretty(&marker)?)?;
         }
-        std::fs::remove_file(&path)?;
+        crate::home_fs::remove_file(&path)?;
         sync_directory(&self.dir(id).join("events"))?;
         Ok(())
     }
@@ -348,7 +348,7 @@ impl LocalStore {
             }
             sync_directory(&self.dir(id).join("events"))?;
             if intent.is_some() {
-                std::fs::remove_file(self.cut_intent(id))?;
+                crate::home_fs::remove_file(self.cut_intent(id))?;
             }
         }
         sync_directory(&self.dir(id).join("events"))?;
