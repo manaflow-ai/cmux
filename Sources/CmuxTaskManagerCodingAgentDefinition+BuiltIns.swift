@@ -47,6 +47,10 @@ extension CmuxTaskManagerCodingAgentDefinition {
               launchKinds: ["factory"], directBasenames: ["droid", "factory"], argumentNeedles: ["factory"]),
         .init(id: "qoder", displayName: "Qoder", assetName: "AgentIcons/Qoder",
               launchKinds: ["qoder"], directBasenames: ["qoder", "qodercli"], argumentNeedles: ["qoder", "qodercli"]),
+        // loop reports over the socket itself; no needles, since a bare "loop"
+        // token would match unrelated argv such as `while loop` scripts.
+        .init(id: "loop", displayName: "loop", assetName: "AgentIcons/Loop",
+              launchKinds: ["loop"], directBasenames: ["loop"], argumentNeedles: []),
         .init(
             id: "kimi",
             displayName: String(localized: "agent.kimi.displayName", defaultValue: "Kimi Code"),

@@ -49,6 +49,7 @@ Inside tmux, these hooks report to the cmux workspace attached to the tmux sessi
 | Kimi Code | `kimi` | `~/.kimi-code/config.toml` or `~/.kimi/config.toml` | `kimi --resume <id>` | PreToolUse, PostToolUse |
 | Muse Code | `muse` | `~/.config/muse/settings.json` or `$XDG_CONFIG_HOME/muse/settings.json` | `muse resume <id>` | none |
 | Antigravity | `agy` | `~/.gemini/config/hooks.json` (`cmux` hook group) | `agy --conversation <id>` | none |
+| loop | `loop` | none — built into loop | `loop --session <id>` | PermissionRequest, AskUserQuestion, ExitPlanMode |
 
 Kimi Code resumes with the captured executable and working directory, preserving supported
 model and configuration options. Prompts, old session selectors, and noninteractive commands
@@ -233,6 +234,8 @@ Pi uses Pi's extension system, not the legacy Pi hooks API. The installed extens
 OMP uses OMP's native extension system. OMP native extension discovery scans `${PI_CODING_AGENT_DIR:-~/${PI_CONFIG_DIR:-.omp}/agent}/extensions/`, so cmux installs OMP's extension with a distinct `cmux-omp-session.ts` filename and does not reuse Pi's `cmux-session.ts`.
 
 Campfire ships this integration natively: current campfire versions include a built-in cmux bridge, so no install step is needed (like Claude Code via the cmux wrapper) — `cmux hooks campfire install` exists for older campfire versions, and the installed extension defers to the native bridge when both are present. Campfire embeds vanilla Pi under a `.campfire` white-label, so its extension discovery scans `${CAMPFIRE_CODING_AGENT_DIR:-~/.campfire/agent}/extensions/`. The cmux extension records only the HOST role (`CAMPFIRE_SESSION_ROLE=host`); a joiner is an ephemeral view whose argv carries the invite URL — a capability token that is never persisted or replayed. The extension also subscribes to campfire's in-process observer bridge and surfaces driver-actionable collaborative moments (a joiner waiting in the lobby, a capability ask) as cmux notifications.
+
+[loop](https://github.com/notshekhar/loop) ships its cmux bridge natively and needs no install step. Inside a cmux terminal it talks to the socket directly: `set_status` and `notify_target` for the sidebar and notifications, `feed.push` for Feed rows and approval cards, and `surface.resume.set` with `auto_resume` for session restore. It registers its process with `set_agent_pid loop.<session> <pid>`, which is the evidence cmux uses to keep that binding automatic while loop runs, since loop has no hook-store file and a fresh `loop` has no session id in its argv. A clean `/exit` clears the binding. Turn it off with loop's `cmux` setting.
 
 Kiro stores hooks inside agent configuration files. The cmux installer creates or updates a `cmux` agent config with lifecycle, tool, and completion hooks; merge the generated `hooks` block into another Kiro agent config if you want the same cmux notifications on that agent.
 
