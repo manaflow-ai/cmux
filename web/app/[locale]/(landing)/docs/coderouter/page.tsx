@@ -77,6 +77,7 @@ export default async function CoderouterOverviewPage({
 cr login
 cr add codex
 cr codex`}</CodeBlock>
+      <p>{t("quickstartClaude")} <Link href="/docs/coderouter/agents#claude-code" className={linkClass}>{t("quickstartClaudeLink")}</Link></p>
 
       <DocsHeading level={2} id="cloud-machines">{t("cloudTitle")}</DocsHeading>
       <p>{t("cloudDesc")}</p>

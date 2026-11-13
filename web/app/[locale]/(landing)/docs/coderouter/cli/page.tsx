@@ -3,6 +3,7 @@ import { auditedDocsMetadata } from "../../audited-docs-metadata";
 import { DocsSchema } from "../../docs-schema";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
 import { DocsHeading } from "@/app/[locale]/components/docs-heading";
+import { DocsLink as Link } from "@/app/[locale]/components/docs-link";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -57,6 +58,7 @@ cr login [--api-key <key>] [--device-auth] [--code [code-or-url]]
 cr logout
 cr doctor
 cr upgrade`}</CodeBlock>
+      <p>{t("localClaudeDesc")} <Link href="/docs/coderouter/agents#claude-code" className="underline underline-offset-2 decoration-link-underline hover:decoration-foreground transition-colors">{t("localClaudeLink")}</Link></p>
       <p>{t("crAddCodex")}</p>
 
       <DocsHeading level={2} id="cmux-coderouter">{t("cmuxTitle")}</DocsHeading>
