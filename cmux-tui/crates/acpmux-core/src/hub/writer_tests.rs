@@ -69,13 +69,16 @@ async fn close_drains_more_than_one_batch_of_recovered_writes() {
         let summary = closed(&format!("retry-{n}"));
         writer.retry_log.insert(
             summary.key(),
-            acpmux_book::index::IndexRecord {
-                seq: 1,
-                origin: summary.origin.clone(),
-                chat_id: summary.chat_id.clone(),
-                summary,
-                gone: false,
-            },
+            (
+                Source::Local,
+                acpmux_book::index::IndexRecord {
+                    seq: 1,
+                    origin: summary.origin.clone(),
+                    chat_id: summary.chat_id.clone(),
+                    summary,
+                    gone: false,
+                },
+            ),
         );
     }
     hub.close();
@@ -110,7 +113,7 @@ fn unwritten_changes_never_escape_before_a_same_boot_restart() {
         assert!(writer.apply(latest).is_err());
         assert_eq!(writer.retry_log.len(), 2);
         assert_eq!(
-            writer.retry_log.get(&RowKey::new("local", "pending")).unwrap().summary.title,
+            writer.retry_log.get(&RowKey::new("local", "pending")).unwrap().1.summary.title,
             "latest"
         );
         assert!(writer.log_errors() >= 3);
@@ -177,8 +180,9 @@ fn an_unreadable_cold_comparison_does_not_defer_its_replacement() {
 async fn byte_history_resumes_recent_changes_and_windows_after_eviction() {
     let (hub, mut writer) = Hub::new(SummaryIndex::new());
     for activity in 1..=6000 {
-        let mut row = closed("one");
+        let mut row = Summary::new("one");
         row.origin = "remote".into();
+        row.state = "running".into();
         row.last_activity = activity;
         writer.apply(row).unwrap();
     }
