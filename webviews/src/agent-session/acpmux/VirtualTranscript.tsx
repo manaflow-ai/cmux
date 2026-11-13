@@ -53,7 +53,13 @@ import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { railOwnsWheel } from "./threadMinimap/railWheel";
 import { animateScroll, MOTION_SCROLL_EVENT, scrollRunning, stopScroll } from "./threadMinimap/scrollMotion";
 import { holdMomentum, installMomentumHold } from "./threadMinimap/momentumHold";
-import { JUMP_CURVE, jumpDuration, jumpGlideStart, transcriptFadeReach } from "./threadMinimap/model";
+import {
+  JUMP_CURVE,
+  jumpDuration,
+  jumpGlideStart,
+  railBottomShadowReach,
+  transcriptFadeReach,
+} from "./threadMinimap/model";
 import { cssTimeMs, foldMotion, foldMs } from "./conversation/fold";
 import { ChatMinimap } from "./chatMinimap/ChatMinimap";
 import { minimapReserve } from "./chatMinimap/paint";
@@ -3193,7 +3199,8 @@ function TranscriptView({
   // up. That holds for a stack over the view's foot (its room shrinks) and under it (the view grows).
   // The room goes once rows grow into it, the reader leaves the latest row, the rows rewrap, or after
   // FLOOR_HOLD_MS (a prompt deleted from the queue never arrives), when the view moves down with it.
-  const floor = useRef({ height: 0, width, sessionId });
+  // `rows`: the rows' own height the last pass held it over (`rowsShrank` below).
+  const floor = useRef({ height: 0, width, sessionId, rows: 0 });
   const [, releaseFloor] = useReducer((count: number) => count + 1, 0);
   const floorTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(floorTimer.current), []);
@@ -3206,11 +3213,20 @@ function TranscriptView({
   const footDropped = height - dockSpace > box.height - box.dockSpace;
   // Held as the end the view would have with all the stack's room (the composer's growth not taken
   // out, `lifted` below): the content end the reader sees is that less the lift on screen.
+  // The room held is the stack's, never the rows': rows that got shorter under it (older history
+  // landing above folds the turn it completes, a rebuild redraws the tail) bring the end up with them.
+  // Held at the old end, the view kept its offset over the shorter rows and showed the room instead
+  // of the latest rows until FLOOR_HOLD_MS let it go (agent-pane-settled-load, cold open after a
+  // restart: the last turn's rows 3,221 px over the view for a second while the queue came back).
+  const rowsShrank = kept ? Math.max(0, floor.current.rows - measured.layout.totalHeight) : 0;
   const floorHeight = !kept
     ? 0
-    : queueLeft.current && footDropped && previousLayout.current
-      ? Math.max(floor.current.height, previousLayout.current.totalHeight + liftedBefore.current - box.height + height)
-      : floor.current.height;
+    : (queueLeft.current && footDropped && previousLayout.current
+        ? Math.max(
+            floor.current.height,
+            previousLayout.current.totalHeight + liftedBefore.current - box.height + height,
+          )
+        : floor.current.height) - rowsShrank;
   // The room under the last row is the stack's height while the view follows the latest row, so
   // the latest row ends above a composer that grows. Scrolled up, nothing under the stack is in view:
   // the room stays as it was, and a composer that grows or shrinks a line (Shift-Return, a wrap)
@@ -4242,7 +4258,7 @@ function TranscriptView({
         forSent ? FLOOR_HOLD_MS : WITHDRAWN_HOLD_MS,
       );
     } else if (!holding) clearTimeout(floorTimer.current);
-    floor.current = { height: holding ? floorHeight : 0, width, sessionId };
+    floor.current = { height: holding ? floorHeight : 0, width, sessionId, rows: measured.layout.totalHeight };
     if (!holding && !queueLeft.current) heldFor.current.clear();
     if (node && node.clientHeight > 0 && height > 0 && didOpenAtLatest.current) {
       scrolledTo.current = { top: node.scrollTop, atLatest: followingRef.current };
@@ -5871,6 +5887,7 @@ function TranscriptView({
               layout={layout}
               scroller={ref}
               scrollTop={renderScroll.top - origin}
+              latestShadowReach={railBottomShadowReach(renderFollowing ? 0 : below - FOLLOW_BOTTOM_DEADBAND_PX)}
               // Above the room under the last row, so a composer that grows while the reader is scrolled
               // up leaves the map as it was, as it does the scrollbar.
               viewportHeight={height - room}
