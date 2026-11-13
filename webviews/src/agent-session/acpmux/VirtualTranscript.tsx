@@ -51,9 +51,15 @@ import {
 } from "./model";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { railOwnsWheel } from "./threadMinimap/railWheel";
-import { animateScroll, MOTION_SCROLL_EVENT, stopScroll, scrollRunning } from "./threadMinimap/scrollMotion";
+import { animateScroll, MOTION_SCROLL_EVENT, scrollRunning, stopScroll } from "./threadMinimap/scrollMotion";
 import { holdMomentum, installMomentumHold } from "./threadMinimap/momentumHold";
-import { JUMP_CURVE, jumpDuration, jumpGlideStart, transcriptFadeReach } from "./threadMinimap/model";
+import {
+  JUMP_CURVE,
+  jumpDuration,
+  jumpGlideStart,
+  railBottomShadowReach,
+  transcriptFadeReach,
+} from "./threadMinimap/model";
 import { cssTimeMs, foldMotion, foldMs } from "./conversation/fold";
 import { ChatMinimap } from "./chatMinimap/ChatMinimap";
 import { minimapReserve } from "./chatMinimap/paint";
@@ -73,10 +79,10 @@ import { createFollowGlide, followRoom } from "./conversation/followGlide";
 import { createTailGlide, type TailGlide } from "./conversation/tailGlide";
 import { finishCarry, notePinPass, pinLiveLine, refreshPinned } from "./conversation/pinnedLiveLine";
 import {
-  createFollowChase,
-  type FollowChase,
   ARRIVAL_EASE,
   arrivalStepMs,
+  createFollowChase,
+  type FollowChase,
   sendMotionMs,
 } from "./conversation/followChase";
 import { followMotion } from "./conversation/followMotion.experiment";
@@ -89,7 +95,7 @@ import { followTrace } from "./followTrace";
 import { FIELD_GROWTH_EVENT, growthTranslate, type FieldGrowthEvent } from "./composer/fieldGrowthEvent";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
-import { noteReplyUnpainted, noteTranscriptMount } from "./flickerLog";
+import { noteTranscriptMount, noteReplyUnpainted } from "./flickerLog";
 import { finalReplyId, REPLY_SETTLE_MS, replyUnpainted } from "./conversation/replyPainted";
 import { authoritativeScrollIntent, createScrollPacer, type ScrollFrame } from "./scrollPacer";
 import { type Translate, useT } from "./i18n";
@@ -174,7 +180,8 @@ import { chatColumnOf, useChatSizing } from "./chatWidth";
 import { useChatDisplay } from "./chatDisplay";
 import { useComposerSettings } from "./composerSettings";
 import { type Folds } from "./conversation/viewFolds";
-import { SUBAGENT_DONE, SUBAGENT_OF, SUBAGENT_STARTED } from "./subagents/subagentRows";
+import { SUBAGENT_DONE, SUBAGENT_OF, SUBAGENT_STARTED, SUBAGENT_ROW, isRunGroup } from "./subagents/subagentRows";
+import { SUBAGENTS } from "./subagents/subagentFold";
 import { SubagentOfRow } from "./subagents/SubagentGroup";
 import { SUBAGENT_OF_HEIGHT } from "./rows/SubagentOfPillRow";
 import { noteSendFromLatest, playSendMorph } from "./conversation/sendMorph";
@@ -638,6 +645,8 @@ const isStepRow = (row: AcpmuxRow | undefined) =>
     row.kind === "backgroundTask" ||
     row.kind === SUBAGENT_DONE ||
     row.kind === SUBAGENT_STARTED ||
+    row.kind === SUBAGENT_ROW ||
+    (row.kind === SUBAGENTS && !isRunGroup(row)) ||
     row.kind === "compaction" ||
     row.kind === "failover" ||
     row.kind === "policyUnenforced" ||
@@ -2158,6 +2167,13 @@ function TranscriptView({
   if (sessionChanged) olderRows.current.clear();
   /// The room above the rows for history not loaded yet, and the row it is held against.
   const olderRoom = useRef<OlderReserve | undefined>(undefined);
+  const olderDragPending = useRef(false);
+  const [scrollbarRange, setScrollbarRange] = useState<{ session: string; height: number } | undefined>(undefined);
+  const draggedHeight = scrollbarRange?.session === sessionKey ? scrollbarRange.height : undefined;
+  useLayoutEffect(() => {
+    olderDragPending.current = false;
+    setScrollbarRange(undefined);
+  }, [sessionKey]);
   /// How far the reader has scrolled up among the rows while room was owed (olderReserve.ts `rose`),
   /// in total, and the offset the last scroll event read: each rise pays some of what is owed.
   /// offset the last scroll event read.
@@ -3114,6 +3130,7 @@ function TranscriptView({
           earlier: earlier?.length,
           promptCount,
           rose: roomRose,
+          dragging: draggedHeight !== undefined,
           // Exact where this chat was held whole before at this width (transcriptHeights.ts).
           knownAbove: hasPromptTops(sessionId, rowWidth)
             ? (row) => knownPromptTop(sessionId, rowWidth, row.id)
@@ -3149,6 +3166,7 @@ function TranscriptView({
     promptCount,
     roomGone,
     roomRose,
+    draggedHeight,
   ]);
   // A chat held whole keeps each prompt's measured place (transcriptHeights.ts), so the next open on
   // its tail holds exactly the older history's room. In idle time, once the rows stop changing: one
@@ -3181,7 +3199,8 @@ function TranscriptView({
   // up. That holds for a stack over the view's foot (its room shrinks) and under it (the view grows).
   // The room goes once rows grow into it, the reader leaves the latest row, the rows rewrap, or after
   // FLOOR_HOLD_MS (a prompt deleted from the queue never arrives), when the view moves down with it.
-  const floor = useRef({ height: 0, width, sessionId });
+  // `rows`: the rows' own height the last pass held it over (`rowsShrank` below).
+  const floor = useRef({ height: 0, width, sessionId, rows: 0 });
   const [, releaseFloor] = useReducer((count: number) => count + 1, 0);
   const floorTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(floorTimer.current), []);
@@ -3194,11 +3213,20 @@ function TranscriptView({
   const footDropped = height - dockSpace > box.height - box.dockSpace;
   // Held as the end the view would have with all the stack's room (the composer's growth not taken
   // out, `lifted` below): the content end the reader sees is that less the lift on screen.
+  // The room held is the stack's, never the rows': rows that got shorter under it (older history
+  // landing above folds the turn it completes, a rebuild redraws the tail) bring the end up with them.
+  // Held at the old end, the view kept its offset over the shorter rows and showed the room instead
+  // of the latest rows until FLOOR_HOLD_MS let it go (agent-pane-settled-load, cold open after a
+  // restart: the last turn's rows 3,221 px over the view for a second while the queue came back).
+  const rowsShrank = kept ? Math.max(0, floor.current.rows - measured.layout.totalHeight) : 0;
   const floorHeight = !kept
     ? 0
-    : queueLeft.current && footDropped && previousLayout.current
-      ? Math.max(floor.current.height, previousLayout.current.totalHeight + liftedBefore.current - box.height + height)
-      : floor.current.height;
+    : (queueLeft.current && footDropped && previousLayout.current
+        ? Math.max(
+            floor.current.height,
+            previousLayout.current.totalHeight + liftedBefore.current - box.height + height,
+          )
+        : floor.current.height) - rowsShrank;
   // The room under the last row is the stack's height while the view follows the latest row, so
   // the latest row ends above a composer that grows. Scrolled up, nothing under the stack is in view:
   // the room stays as it was, and a composer that grows or shrinks a line (Shift-Return, a wrap)
@@ -3301,8 +3329,10 @@ function TranscriptView({
   // never clamps and the line the reader clicked stays on its pixel.
   const keptEnd = sessionSwitched ? 0 : foldRoom;
   const layout = useMemo(
-    () => ({ ...measured.layout, totalHeight: Math.max(rowsEnd, keptEnd) }),
-    [measured, rowsEnd, keptEnd],
+    // A loaded page can exceed the reserve estimate. Keep the spacer's clipped physical extent
+    // through the thumb gesture even then; all newly loaded rows are still placed and measured.
+    () => ({ ...measured.layout, totalHeight: draggedHeight ?? Math.max(rowsEnd, keptEnd) }),
+    [measured, rowsEnd, keptEnd, draggedHeight],
   );
   // Where the rows draw against where they lay out: the followed offset of this layout against the
   // one the unlifted layout would hold. Negative draws them up, positive down.
@@ -3332,7 +3362,7 @@ function TranscriptView({
     jumpTarget.current !== undefined ||
     (scroller !== null && userScrollIntent(scroller).isHeld() && !followRequest.current?.());
   const projectedTop =
-    sessionSwitched || placedBefore === layout
+    sessionSwitched || placedBefore === layout || draggedHeight !== undefined
       ? undefined
       : followingRef.current
         ? openedAtLatest && !followHeld
@@ -3776,6 +3806,10 @@ function TranscriptView({
           foldRoomRef.current > rowsEndRef.current + 0.5)
       )
         follow(false);
+    } else if (old && node && userScrollIntent(node).isScrollbarDragging()) {
+      // The native thumb owns its offset until release; row anchoring must not write over it.
+      scrollPacer.current?.cancel();
+      if (Math.abs(scrollRef.current.top - node.scrollTop) > 0.5) setScrollAt(node.scrollTop, 0);
     } else if (old && node) {
       // Content that shrank under the viewport has already clamped the live offset to
       // the new end; the offset recorded before this commit is where the reader was.
@@ -4224,7 +4258,7 @@ function TranscriptView({
         forSent ? FLOOR_HOLD_MS : WITHDRAWN_HOLD_MS,
       );
     } else if (!holding) clearTimeout(floorTimer.current);
-    floor.current = { height: holding ? floorHeight : 0, width, sessionId };
+    floor.current = { height: holding ? floorHeight : 0, width, sessionId, rows: measured.layout.totalHeight };
     if (!holding && !queueLeft.current) heldFor.current.clear();
     if (node && node.clientHeight > 0 && height > 0 && didOpenAtLatest.current) {
       scrolledTo.current = { top: node.scrollTop, atLatest: followingRef.current };
@@ -4641,6 +4675,7 @@ function TranscriptView({
     const room = layout.origin ?? 0;
     const first = rows[0];
     if (!node || !first || !canLoadOlder || room <= 0.5 || !didOpenAtLatest.current || node.clientHeight === 0) return;
+    if (userScrollIntent(node).isScrollbarDragging()) return;
     if (layoutScrollTop(node) - room >= node.clientHeight * OLDER_LATE_VIEWPORTS) return;
     // A tail shorter than the view keeps its place at the view's foot: the room left is what lies
     // between the view's top and the rows, so nothing scrolls (read from the scroller itself, whose
@@ -4893,7 +4928,7 @@ function TranscriptView({
     // the view's foot: nothing to hold the reader from.
     const gone = roomGone !== undefined && roomGone.sessionId === sessionId && rows[0]?.id === roomGone.firstId;
     const room = gone ? 0 : (latestLayout.current.layout.origin ?? 0);
-    if (room > 0 && layoutScrollTop(node) < room) {
+    if (room > 0 && layoutScrollTop(node) < room && !userScrollIntent(node).isScrollbarDragging()) {
       wheelGlide.current?.stop();
       node.scrollTop = physicalScrollTop(node, room);
     }
@@ -5170,6 +5205,13 @@ function TranscriptView({
     const detachIntent = attachUserScrollIntent(node);
     const followIntent = (next: boolean) => followRef.current(next);
     const cancelProgrammatic = (event?: Event) => {
+      if (intent.isScrollbarDragging()) {
+        if (!olderDragPending.current && previousLayout.current) {
+          setScrollbarRange({ session: heldSession.current, height: previousLayout.current.totalHeight });
+        }
+        olderDragPending.current = true;
+        followIntent(false);
+      }
       revealing.current = undefined;
       revealWindow.current = 0;
       // A sideways wheel (a code block's own scroll) keeps a disclosure's hold; the rest lets go.
@@ -5344,6 +5386,10 @@ function TranscriptView({
       setScrollAt(node.scrollTop, 0);
     };
     const unsubscribeQuiet = intent.subscribeQuiet(() => {
+      if (olderDragPending.current) {
+        olderDragPending.current = false;
+        setScrollbarRange(undefined);
+      }
       settleHeldFollowMotion();
       if (!followDeferred.current) return;
       followDeferred.current = false;
@@ -5354,6 +5400,10 @@ function TranscriptView({
     // streaming can commit. A drag's end or a canceled input leaves no upward move pending.
     const readerReleased = () => {
       readerUpPending.current = false;
+      if (olderDragPending.current) {
+        olderDragPending.current = false;
+        setScrollbarRange(undefined);
+      }
     };
     const readerCanceled = (event: Event) => {
       if (event.defaultPrevented && node.contains(event.target as Node)) readerUpPending.current = false;
@@ -5837,6 +5887,7 @@ function TranscriptView({
               layout={layout}
               scroller={ref}
               scrollTop={renderScroll.top - origin}
+              latestShadowReach={railBottomShadowReach(renderFollowing ? 0 : below - FOLLOW_BOTTOM_DEADBAND_PX)}
               // Above the room under the last row, so a composer that grows while the reader is scrolled
               // up leaves the map as it was, as it does the scrollbar.
               viewportHeight={height - room}

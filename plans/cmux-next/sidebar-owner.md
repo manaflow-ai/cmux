@@ -1,5 +1,13 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-13 (ask-b931ea5095): a cmux page draws its own icon, never the site globe. Leo, verbatim (2026-11-12, on
+  the Cloud machine row `chat-800dd580cab0487c`, whose focused tab is the machine's desktop): "and it's using the old
+  crummy icon". `cmux://remote-view?...` parsed as a site with host "remote-view" and no favicon, so the row and its
+  hover card tab drew `WorkspaceIcon.pagePlaceholder`. A cmux page's face now carries the tab strip's icon
+  (`BrowserTabIconState.pageIcon`) as `WorkspaceIcon.page` and `SidebarTab.pageIcon`, ahead of the globe; the saved
+  sidebar keeps it (`page:<icon>`). A cmux page with no icon of its own keeps the globe slot.
+  A Cloud desktop wears `.cloud`, the icon its machine has on every other surface; another computer's desktop keeps
+  `.machineRemote`. Regression: `CloudDesktopPageIconTests`.
 - 2026-11-12: no "Needs a newer cmux" card under the pins. Lawrence, verbatim: "get rid of “Needs a newer cmux”".
   A build whose daemon has no `cmux-app-host` beside it advertises no `apps-v1`, so an app section in the layout
   showed the apps-unavailable reason as a card; updating cmux would not change it. An app section now draws nothing

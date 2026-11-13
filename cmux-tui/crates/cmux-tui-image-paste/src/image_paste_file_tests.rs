@@ -115,3 +115,86 @@ fn cloud_image_paste_receipt_rewrite_removes_only_an_owned_leftover() {
     fs::remove_dir(&directory).unwrap();
     file.cleanup = false;
 }
+
+/// A child forked from this test process that keeps a copy of every descriptor this process has
+/// at the fork, as a child another daemon thread forks keeps them until it execs. Dropping this
+/// kills and reaps the child.
+///
+/// Fork safety: a test binary runs many threads, so the child of `fork` may make only
+/// async-signal-safe calls. It calls `pause` in a loop and nothing else: it never returns from
+/// [`Keeper::fork`], allocates, takes a lock, unwinds or calls `_exit` or `exit` itself. The
+/// parent's drop ends it with SIGKILL (from outside the child) and reaps it with `waitpid`.
+struct Keeper(libc::pid_t);
+
+impl Keeper {
+    fn fork() -> Keeper {
+        // SAFETY: the child runs only async-signal-safe `pause` until SIGKILL ends it.
+        let child = unsafe { libc::fork() };
+        assert!(child >= 0, "fork failed");
+        if child == 0 {
+            loop {
+                // SAFETY: as above.
+                unsafe { libc::pause() };
+            }
+        }
+        Keeper(child)
+    }
+}
+
+impl Drop for Keeper {
+    fn drop(&mut self) {
+        let mut status = 0;
+        // SAFETY: `self.0` is this test's own child and `status` outlives the call.
+        unsafe {
+            libc::kill(self.0, libc::SIGKILL);
+            libc::waitpid(self.0, &mut status, 0);
+        }
+    }
+}
+
+/// An upload that its daemon drops without removing it lets go of its lease, also while a child
+/// the daemon forked meanwhile has the descriptor: else the recovery sweep cannot claim the
+/// expired file and keeps it for another round.
+#[test]
+fn a_dropped_upload_frees_its_lease_while_a_forked_child_keeps_its_descriptor() {
+    let mut file = ImagePasteFile::create("png").unwrap();
+    file.append(b"private image bytes").unwrap();
+    let path = file.path().unwrap();
+    let directory = path.parent().unwrap().to_owned();
+    // Kept on disk (as when its removal failed), so the sweep finds it.
+    file.cleanup = false;
+    let keeper = Keeper::fork();
+    drop(file);
+    let (_, recovered) =
+        ImagePasteFile::recover_one(directory.clone(), WallClock::default().now()).unwrap();
+    let claimed = recovered.claim_for_removal();
+    drop(keeper);
+    assert!(claimed, "a dropped upload left its lease held");
+    assert!(recovered.remove_owned());
+    drop(recovered);
+    assert!(!directory.exists());
+}
+
+/// A sweep that claimed a file and could not remove it lets go of its claim, also while a child
+/// the daemon forked meanwhile has the descriptor: else the next sweep cannot claim it.
+#[test]
+fn a_dropped_claim_is_free_while_a_forked_child_keeps_its_descriptor() {
+    let mut file = ImagePasteFile::create("png").unwrap();
+    file.append(b"private image bytes").unwrap();
+    let directory = file.path().unwrap().parent().unwrap().to_owned();
+    file.cleanup = false;
+    drop(file);
+    let (_, first) =
+        ImagePasteFile::recover_one(directory.clone(), WallClock::default().now()).unwrap();
+    assert!(first.claim_for_removal(), "the first sweep claims the file");
+    let keeper = Keeper::fork();
+    drop(first);
+    let (_, next) =
+        ImagePasteFile::recover_one(directory.clone(), WallClock::default().now()).unwrap();
+    let claimed = next.claim_for_removal();
+    drop(keeper);
+    assert!(claimed, "a dropped claim left the file locked");
+    assert!(next.remove_owned());
+    drop(next);
+    assert!(!directory.exists());
+}

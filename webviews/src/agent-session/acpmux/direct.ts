@@ -47,6 +47,7 @@ import type {
   PromptDeliveryHop,
   StartSource,
   TurnTokenSplit,
+  AcpmuxRecap,
 } from "./model";
 import {
   PROMPT_PENDING_AFTER_MS,
@@ -478,8 +479,47 @@ const sentByChief = (msg: { promptId?: unknown }) =>
   typeof msg.promptId === "string" && msg.promptId.startsWith("optchat-");
 
 /// Page size caps acpmux applies (maxBytes): opening a chat, then each older page as the reader scrolls up.
+/// An older page was 400 records and 256 KiB: a page of a tool-heavy chat was a few turns, so a
+/// scroll up waited on a daemon round trip every few screens (Leo, 2026-11-10: "the infinite
+/// scrolling does kind of work, but it's too slow. It needs to do more. It needs to do a lot").
 const OPEN_PAGE_BYTES = 128 * 1024;
-const OLDER_PAGE_BYTES = 256 * 1024;
+const OLDER_PAGE_BYTES = 1024 * 1024;
+/// Records one older page asks for at most (`limit`), with OLDER_PAGE_BYTES.
+const OLDER_PAGE_RECORDS = 2000;
+/// The prompt index's byte cap (`loadPromptIndex`), as it was before older pages grew.
+const PROMPT_INDEX_BYTES = 256 * 1024;
+/// Pages read ahead of the reader once an older read lands (`readOlderAhead`): the next ask at the top
+/// is answered from memory while the reader reads down through what just landed.
+const OLDER_AHEAD_PAGES = 4;
+/// Pages a read through a seq (`loadThrough`: a jump to the unread line or a rail tick) asks for
+/// at once, each for its own stretch of seqs (`readWindow`), so a jump far back waits on about one
+/// round trip instead of one per page.
+const WINDOW_PARALLEL_PAGES = 16;
+/// An indexed rail jump reads a bounded window around the prompt instead of walking every page
+/// between the open tail and the target. The cache key is a sequence bucket; adjacent buckets are
+/// warmed after the target page so a fast drag has a page ready before its next frame.
+const INDEXED_PAGE_RADIUS = 240;
+const INDEXED_PAGE_LIMIT = 400;
+const INDEXED_PAGE_CACHE_LIMIT = 5;
+/// Gap pages (`fillIndexedGaps`) merged per redraw after the first: each redraw refolds from the gap
+/// to the tail, so drawing every page would cost pages × (gap + tail) folds on a long gap.
+const INDEXED_GAP_PAGES_PER_DRAW = 4;
+
+/// Prompt rows that stand in for the turns between a directly fetched target page and the held
+/// tail. Keeping these rows in sequence order prevents the minimap from shrinking while pages warm.
+export function indexedPromptPlaceholders(
+  indexRows: readonly AcpmuxRow[],
+  heldSeqs: ReadonlySet<number>,
+  pageStart: number,
+  tailStart: number,
+): AcpmuxRow[] {
+  return indexRows.flatMap((row) => {
+    const seq = Number(row.id.slice("user-".length));
+    return Number.isFinite(seq) && seq > pageStart && seq < tailStart && !heldSeqs.has(seq)
+      ? [{ ...row, seq, kind: "user" }]
+      : [];
+  });
+}
 /// The most pages of one subagent's own records a subagent pane reads (`readSubagentLog`).
 const SUBAGENT_LOG_PAGES = 8;
 /// How many times an attach is asked when its reply is of another session or machine than the row
@@ -3075,6 +3115,19 @@ export class AcpmuxDirectClient {
     { delivery: PromptDelivery; rowId: string; timers: ReturnType<typeof setTimeout>[] }
   >();
   private firstSeq?: number;
+  /// Pages fetched by an indexed rail jump. They are scoped by session generation in the key, so a
+  /// reconnect or chat switch can never reuse rows from another journal. Values are promises to
+  /// coalesce a click and a nearby scrub into one daemon read.
+  private indexedPages = new Map<string, Promise<EventRecord[]>>();
+  /// Prompt rows named by the index but not present in a sparse target page. They keep the full
+  /// rail geometry stable while the adjacent transcript pages warm; a real event row supersedes
+  /// the placeholder on the next snapshot.
+  private indexedPlaceholders = new Map<string, AcpmuxRow>();
+  /// Stretches between an indexed page and the history held below it (`mergeIndexedPage`), newest
+  /// jump first, read forward one bounded page at a time (`fillIndexedGaps`) so the turns between a
+  /// rail target and the tail draw whole instead of as prompt-only placeholders.
+  private indexedGaps: { after: number; before: number }[] = [];
+  private indexedGapFill?: Promise<void>;
   /// The prompt that opened the turn the held history starts in, when that prompt is older than
   /// every held event: a Chief subagent's first prompt carries the Chief's whole view (100+ KB),
   /// so once its turn's output passes the open page's cap the page starts mid-turn and the prompt
@@ -3605,6 +3658,30 @@ export class AcpmuxDirectClient {
     // Not this page's chat to hand over or to read again when shown: no page listeners.
     client.stopPageListeners();
     return client;
+  }
+
+  /// The restored tab's retained history before its host handshake answers. Reuse the normal
+  /// tail fold without a connection; no live status, queue or permission can come from a cache.
+  static retainedSnapshot(sessionId: string, tail: KeptTail): AcpmuxSnapshot | undefined {
+    if (
+      (tail.summary?.sessionId !== undefined && tail.summary.sessionId !== sessionId) ||
+      (tail.turnOpener?.sessionId !== undefined && tail.turnOpener.sessionId !== sessionId) ||
+      tail.events.some((event) => event.sessionId !== undefined && event.sessionId !== sessionId)
+    )
+      return undefined;
+    let snapshot: AcpmuxSnapshot | undefined;
+    const client = AcpmuxDirectClient.fed(sessionId, (value) => {
+      snapshot = value;
+    });
+    try {
+      const { status: _status, retry: _retry, queue: _queue, ...past } = tail.summary ?? {};
+      if (client.drawKeptTail(sessionId, { ...tail, summary: tail.summary && past, queue: [] }) === 0) return undefined;
+      client.drewKeptTail = true;
+      client.emit("connecting");
+      return snapshot;
+    } finally {
+      client.dispose();
+    }
   }
 
   /// Ends a `fed` client: nothing it was fed draws after this, a frame already asked for included.
@@ -4251,6 +4328,8 @@ export class AcpmuxDirectClient {
     // A page still in flight belongs to the session before; it is dropped when it lands.
     this.loadingOlder = undefined;
     this.rows.clear();
+    this.clearIndexedHistory();
+    this.latestRecap = undefined;
     this.planBuilds.clear();
     this.memoryEarly.clear();
     this.presetApprovals.clear();
@@ -5843,8 +5922,8 @@ export class AcpmuxDirectClient {
   /// "New since you looked" for the chat on screen (`markSeen`): its row, after the record at
   /// `since.seq`. Placed again after a reset clears the rows; O(1) when it is there already.
   private since?: Omit<AcpmuxSince, "key"> & { sessionId: string };
-  /// Each standalone recap row by the chat and the `since` its record named (`placeSince`).
-  private readonly recapsBySince = new Map<string, string>();
+  /// Only the latest recap survives replay, paging and live updates, including its dismissal.
+  private latestRecap?: { sessionId: string; seq: number; since?: number; recap?: AcpmuxRecap };
   /// An older page folded in (`foldOlder`): a reply it brought may span `since.seq`, so the drawn
   /// divider is placed again even when its mark did not change.
   private sinceStale = false;
@@ -5860,10 +5939,11 @@ export class AcpmuxDirectClient {
       return;
     }
     // The recap made for this return, drawn on its own before the divider was known: onto it.
-    const recapId = since.recap ? undefined : this.recapsBySince.get(`${since.sessionId}:${since.seq}`);
-    const recap = recapId ? this.rows.get(recapId)?.recap : undefined;
-    if (recapId && recap) {
-      this.rows.delete(recapId);
+    const latest = this.latestRecap;
+    const recap =
+      !since.recap && latest?.sessionId === since.sessionId && latest.since === since.seq ? latest.recap : undefined;
+    if (latest && recap) {
+      this.rows.delete(`recap-${latest.seq}`);
       this.since = { ...since, recap };
       return this.placeSince();
     }
@@ -5888,6 +5968,40 @@ export class AcpmuxDirectClient {
         ...(since.recap && { recap: since.recap }),
       },
     });
+  }
+
+  private recordRecap(event: EventRecord, msg: { text?: unknown; awayMs?: unknown; since?: unknown }): void {
+    if (typeof msg.text !== "string" || !msg.text.trim()) return;
+    const sessionId = this.selectedSessionId ?? "";
+    const previous = this.latestRecap;
+    if (previous?.sessionId === sessionId && event.seq <= previous.seq) return;
+    if (previous?.sessionId === sessionId) this.rows.delete(`recap-${previous.seq}`);
+    if (this.since?.sessionId === sessionId && this.since.recap) {
+      this.since = { ...this.since, recap: undefined };
+    }
+    const key = `${sessionId}:${event.seq}`;
+    const recap = recapDismissed(key)
+      ? undefined
+      : {
+          key,
+          text: msg.text.trim(),
+          awayMs: typeof msg.awayMs === "number" ? msg.awayMs : undefined,
+        };
+    this.latestRecap = {
+      sessionId,
+      seq: event.seq,
+      since: typeof msg.since === "number" ? msg.since : undefined,
+      recap,
+    };
+    if (recap) {
+      const since = this.since;
+      if (since?.sessionId === sessionId && msg.since === since.seq) this.since = { ...since, recap };
+      else {
+        const id = `recap-${event.seq}`;
+        this.rows.set(id, { id, version: 1, at: event.at, kind: "recap", recap });
+      }
+    }
+    this.placeSince();
   }
 
   /// A refused peer start has no session id yet. Keep its destination until a session is
@@ -6958,6 +7072,8 @@ export class AcpmuxDirectClient {
       this.usage = undefined;
       // An older page already in flight was read for the transcript that just went.
       this.historyEpoch += 1;
+      // So were the rail's indexed placeholders and the gaps still being filled under them.
+      this.clearIndexedHistory();
     }
     // A reconnect to the same session keeps its events, and open() fills the gap to the new page
     // (every kind, usage included): the client still holds what it held. A fresh attach (Infinity,
@@ -7737,6 +7853,10 @@ export class AcpmuxDirectClient {
     // Found again as the held init lines are reduced: a seek back keeps no later model or version.
     // Past a cut, the ones above it stay: the refold finds only its own.
     const above = (seq: number) => frozenBefore !== undefined && seq < frozenBefore;
+    if (!above(this.latestRecap?.seq ?? Infinity)) {
+      this.latestRecap = undefined;
+      if (this.since?.recap) this.since = { ...this.since, recap: undefined };
+    }
     this.runChanges = this.runChanges.filter((change) => above(change.seq));
     for (const id of this.runChangeRows)
       if (!this.runChanges.some((change) => `${SESSION_START_ROW}-${change.seq}` === id)) this.runChangeRows.delete(id);
@@ -8877,38 +8997,7 @@ export class AcpmuxDirectClient {
           });
         }
       } else if (event.kind === "recap") {
-        // The person came back after 5+ minutes away (`hub/away_recap.rs`): Claude Code's recap
-        // of where the chat stands. A record without text, or one the person dismissed on this
-        // device, is skipped; never a turn of its own. Its key names the chat too: seqs repeat
-        // across chats.
-        const key = `${this.selectedSessionId ?? ""}:${event.seq}`;
-        const since = this.since;
-        if (
-          typeof msg.text === "string" &&
-          msg.text.trim() &&
-          !recapDismissed(key) &&
-          since &&
-          // A hidden selection skips markSeen, so the mark may still be another chat's.
-          since.sessionId === this.selectedSessionId &&
-          msg.since === since.seq
-        ) {
-          // Made for this return: it draws on "New since you looked", not as a second summary.
-          const recap = { key, text: msg.text.trim(), awayMs: typeof msg.awayMs === "number" ? msg.awayMs : undefined };
-          this.since = { ...since, recap };
-          this.placeSince();
-        } else if (typeof msg.text === "string" && msg.text.trim() && !recapDismissed(key)) {
-          const id = `recap-${event.seq}`;
-          // Its return's divider may come only after this (an attach that answered before the
-          // list): `placeSince` moves the recap onto it then.
-          if (typeof msg.since === "number") this.recapsBySince.set(`${this.selectedSessionId ?? ""}:${msg.since}`, id);
-          this.rows.set(id, {
-            id,
-            version: 1,
-            at: event.at,
-            kind: "recap",
-            recap: { key, text: msg.text.trim(), awayMs: typeof msg.awayMs === "number" ? msg.awayMs : undefined },
-          });
-        }
+        this.recordRecap(event, msg);
       } else if (event.kind === "memory_offer") {
         // Facts acpmux offers to add to the project's instructions file after a turn in which the
         // person corrected the agent: one card under that turn (conversation/MemoryOfferCard.tsx).
@@ -10303,7 +10392,20 @@ export class AcpmuxDirectClient {
       (option: any) => option.category === "thought_level" || option.id === "reasoning_effort",
     );
     this.placeSince();
-    const publishedRows = this.rows.sorted();
+    const actualRows = this.rows.sorted();
+    // Only a rail jump's sparse window holds placeholders: the common snapshot builds no id set.
+    const placeholders = this.indexedPlaceholders;
+    const actualIds = placeholders?.size ? new Set(actualRows.map((row) => row.id)) : undefined;
+    const indexedRows = actualIds ? [...placeholders.values()].filter((row) => !actualIds.has(row.id)) : [];
+    // Indexed placeholders carry only prompt text, but sorting them by their sequence keeps every
+    // prompt at its final rail slot while a sparse target page is being filled in.
+    const publishedRows =
+      indexedRows.length === 0
+        ? actualRows
+        : [...actualRows, ...indexedRows].sort(
+            (left, right) =>
+              (left.seq ?? Number.POSITIVE_INFINITY) - (right.seq ?? Number.POSITIVE_INFINITY) || left.at - right.at,
+          );
     this.noteReplace(publishedRows);
     const progressPlan = this.progressRow ? this.rows.get(this.progressRow)?.plan : undefined;
     const progress = projectLiveProgress(this.publishedProgress, progressPlan, working && !this.progressSuperseded);
@@ -13412,6 +13514,7 @@ export class AcpmuxDirectClient {
   /// (a press on the chat a switch still shows).
   dismissRecap(rowId: string, key: string): void {
     rememberRecapDismissed(key);
+    if (this.latestRecap?.recap?.key === key) this.latestRecap = { ...this.latestRecap, recap: undefined };
     if (rowId === SINCE_DIVIDER && this.since?.recap?.key === key) {
       this.since = { sessionId: this.since.sessionId, seq: this.since.seq, turns: this.since.turns };
       this.placeSince();
@@ -14150,7 +14253,7 @@ export class AcpmuxDirectClient {
           promptIndex: true,
           kinds: ["user_message"],
           limit: 5000,
-          maxBytes: OLDER_PAGE_BYTES,
+          maxBytes: PROMPT_INDEX_BYTES,
         },
         PROMPT_INDEX_DEADLINE_MS,
       )
@@ -14199,6 +14302,174 @@ export class AcpmuxDirectClient {
     return entry.read;
   }
 
+  /// Reads the transcript window containing an indexed prompt. `_acpmux/events` accepts both
+  /// cursors, so the daemon can seek to the target in one bounded read; this is deliberately
+  /// separate from `fetchOlder`, whose cursor must walk from the currently held tail.
+  private indexedPage(seq: number): Promise<EventRecord[]> | undefined {
+    const sessionId = this.selectedSessionId;
+    const generation = this.selectionGeneration;
+    if (!sessionId || !Number.isFinite(seq) || seq < 1) return undefined;
+    const bucket = Math.floor(seq / INDEXED_PAGE_RADIUS);
+    const key = `${sessionId}:${generation}:${bucket}`;
+    const held = this.indexedPages.get(key);
+    if (held) return held;
+    const after = Math.max(0, seq - INDEXED_PAGE_RADIUS);
+    const before = seq + INDEXED_PAGE_RADIUS + 1;
+    const kinds = ["transcript", ...(this.localOrigin ? PRESET_APPROVAL_KINDS : [])];
+    const read = this.typed(
+      "_acpmux/events",
+      {
+        sessionId,
+        afterSeq: after,
+        beforeSeq: before,
+        limit: INDEXED_PAGE_LIMIT,
+        maxBytes: OLDER_PAGE_BYTES,
+        kinds,
+      },
+      PROMPT_INDEX_DEADLINE_MS,
+    )
+      .then((result: any) => {
+        if (this.closed || generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
+        return records(result?.events);
+      })
+      .catch(() => []);
+    this.indexedPages.set(key, read);
+    // Keep only a small neighborhood. The target stays first in the map until the adjacent reads
+    // settle, while old drag targets cannot grow this cache with a whole chat's pages.
+    while (this.indexedPages.size > INDEXED_PAGE_CACHE_LIMIT) {
+      const oldest = this.indexedPages.keys().next().value;
+      if (oldest === undefined || oldest === key) break;
+      this.indexedPages.delete(oldest);
+    }
+    return read;
+  }
+
+  private mergeIndexedPage(page: EventRecord[]): boolean {
+    if (!page.length) return false;
+    const before = this.events.length ? this.events[0]!.seq : Number.POSITIVE_INFINITY;
+    const pageStart = Math.min(...page.map((event) => event.seq));
+    const tailStart = this.firstSeq ?? Number.POSITIVE_INFINITY;
+    this.events = mergeEventRecords(this.events, page);
+    this.sawPrompts(page);
+    // Preserve the live queue/permissions and the reconnect reader anchor while replaying the
+    // newly held records, as `checkFinishedTurn` does for a narrow repair read.
+    this.rebuildKeepingLiveState(Math.min(before, ...page.map((event) => event.seq)) - 1);
+    const held = new Set(this.events.map((event) => event.seq));
+    for (const row of indexedPromptPlaceholders(this.promptIndex?.rows ?? [], held, pageStart, tailStart))
+      this.indexedPlaceholders.set(row.id, row);
+    this.emit("history");
+    // The page sits below the held tail with a hole between them: no older page reads across it
+    // (they page down from `firstSeq`), so read it forward from the page's end, in the background.
+    const pageEnd = Math.max(...page.map((event) => event.seq));
+    if (Number.isFinite(tailStart) && pageEnd + 1 < tailStart) {
+      this.indexedGaps.unshift({ after: pageEnd, before: tailStart });
+      this.startIndexedGapFill();
+    }
+    return true;
+  }
+
+  private clearIndexedHistory(): void {
+    // `?.`: a client a test builds from the prototype has none of these yet.
+    this.indexedPlaceholders?.clear();
+    this.indexedPages?.clear();
+    this.indexedGaps = [];
+  }
+
+  /// Runs `fillIndexedGaps` unless one is running. A fill that ended stale (another chat or held history
+  /// while its read was out) starts again for the gaps queued since; a failed read is read again on
+  /// LAG_RETRY_MS, and past its last step the gaps wait for the next jump.
+  private startIndexedGapFill(attempt = 0): void {
+    if (this.indexedGapFill || this.closed) return;
+    this.indexedGapFill = this.fillIndexedGaps().then((ended) => {
+      this.indexedGapFill = undefined;
+      if (this.closed || this.indexedGaps.length === 0) return;
+      if (ended === "stale") this.startIndexedGapFill();
+      else if (ended === "failed") {
+        const delay = LAG_RETRY_MS[attempt];
+        const generation = this.selectionGeneration;
+        if (delay !== undefined)
+          setTimeout(() => {
+            if (generation === this.selectionGeneration) this.startIndexedGapFill(attempt + 1);
+          }, delay);
+      }
+    });
+  }
+
+  /// Reads each indexed gap forward, one page of at most OLDER_PAGE_BYTES at a time (a relayed
+  /// daemon's socket never carries more than one), merging every page as it lands so the turns just
+  /// below the reader's jump target draw first. A new jump's gap goes first; another chat, visit or
+  /// held history (`clearIndexedHistory`) ends the fill.
+  private async fillIndexedGaps(): Promise<"done" | "stale" | "failed"> {
+    const sessionId = this.selectedSessionId;
+    const generation = this.selectionGeneration;
+    const epoch = this.historyEpoch;
+    const stale = () =>
+      this.closed ||
+      generation !== this.selectionGeneration ||
+      this.selectedSessionId !== sessionId ||
+      epoch !== this.historyEpoch;
+    const kinds = ["transcript", ...(this.localOrigin ? PRESET_APPROVAL_KINDS : [])];
+    // Merged pages not yet drawn: the oldest seq among them, and how many.
+    let undrawnFrom = Number.POSITIVE_INFINITY;
+    let undrawn = 0;
+    let drawn = 0;
+    const draw = () => {
+      if (undrawn === 0) return;
+      this.rebuildKeepingLiveState(undrawnFrom - 1);
+      for (const [id, row] of this.indexedPlaceholders)
+        if (row.seq !== undefined && this.events[firstHeldFrom(this.events, row.seq)]?.seq === row.seq)
+          this.indexedPlaceholders.delete(id);
+      this.emit("history");
+      undrawnFrom = Number.POSITIVE_INFINITY;
+      undrawn = 0;
+      drawn += 1;
+    };
+    if (!sessionId) return "done";
+    while (!stale()) {
+      const gap = this.indexedGaps[0];
+      if (!gap) {
+        draw();
+        return "done";
+      }
+      if (gap.after + 1 >= gap.before) {
+        this.indexedGaps.shift();
+        continue;
+      }
+      let result: any;
+      try {
+        // `afterSeq` alone: with `beforeSeq` too acpmux reads the stretch newest first
+        // (server/requests.rs), which would skip the gap's oldest records.
+        result = await this.typed("_acpmux/events", {
+          sessionId,
+          afterSeq: gap.after,
+          limit: OLDER_PAGE_RECORDS,
+          maxBytes: OLDER_PAGE_BYTES,
+          kinds,
+        });
+      } catch {
+        if (stale()) return "stale";
+        draw();
+        return "failed";
+      }
+      if (stale()) return "stale";
+      const read = records(result?.events);
+      const page = read.filter((event) => event.seq > gap.after && event.seq < gap.before);
+      const reachedTail = result?.hasMore !== true || read.some((event) => event.seq >= gap.before - 1);
+      if (page.length === 0) {
+        if (this.indexedGaps[0] === gap) this.indexedGaps.shift();
+        continue;
+      }
+      gap.after = reachedTail ? gap.before - 1 : Math.max(...page.map((event) => event.seq));
+      this.events = mergeEventRecords(this.events, page);
+      this.sawPrompts(page);
+      undrawnFrom = Math.min(undrawnFrom, page[0]!.seq);
+      undrawn += 1;
+      // The page just below the jump target draws at once; later ones in batches.
+      if (drawn === 0 || undrawn >= INDEXED_GAP_PAGES_PER_DRAW) draw();
+    }
+    return "stale";
+  }
+
   /// Pages history in until the record at `seq` is held: a click on the rail's tick of a prompt
   /// older than the held rows (`earlierPrompts`). Each step is `loadOlder` reading on through `seq`
   /// (up to OLDER_PAGES_PER_ASK pages in one commit), with its guards; a step that moves nothing, or
@@ -14207,6 +14478,20 @@ export class AcpmuxDirectClient {
   async loadThrough(seq: number): Promise<boolean> {
     const generation = this.selectionGeneration;
     const held = () => generation === this.selectionGeneration && this.firstSeq !== undefined && this.firstSeq <= seq;
+    // The prompt index gives us the target's sequence before its transcript page is held. Fetch
+    // that window first, then warm one page on each side for the next scrub step. If an older
+    // daemon cannot serve the bounded read, the established page walker remains the fallback.
+    const indexed = this.promptIndex?.rows?.some((row) => row.id === `user-${seq}`) ? this.indexedPage(seq) : undefined;
+    if (indexed) {
+      const page = await indexed;
+      if (generation !== this.selectionGeneration || this.selectedSessionId === undefined) return false;
+      if (page.some((event) => event.seq === seq)) {
+        this.mergeIndexedPage(page);
+        void this.indexedPage(Math.max(1, seq - INDEXED_PAGE_RADIUS));
+        void this.indexedPage(seq + INDEXED_PAGE_RADIUS);
+        if (held()) return true;
+      }
+    }
     for (let pages = 0; pages < 200; pages++) {
       const from = this.firstSeq;
       if (held()) return true;
@@ -14254,11 +14539,124 @@ export class AcpmuxDirectClient {
     this.loadingOlder = loading;
     return loading;
   }
+  /// Older pages read ahead of the reader (`readOlderAhead`), by the `beforeSeq` each was asked with, for
+  /// the chat, visit, held history and paging epoch they were read in (`olderKey`).
+  private olderAhead?: { key: string; pages: Map<number, Promise<any>> };
+  private olderKey(sessionId: string, pagingEpoch: number): string {
+    return `${sessionId}\u0000${this.selectionGeneration}\u0000${this.historyEpoch}\u0000${pagingEpoch}`;
+  }
+  /// The older page of `sessionId` that ends before `before`: the one read ahead for it, else a read.
+  private olderPage(sessionId: string, before: number, pagingEpoch: number): Promise<any> {
+    const ahead = this.olderAhead;
+    const kept = ahead?.key === this.olderKey(sessionId, pagingEpoch) ? ahead.pages.get(before) : undefined;
+    if (kept) {
+      ahead!.pages.delete(before);
+      return kept;
+    }
+    return this.typed("_acpmux/events", {
+      sessionId,
+      beforeSeq: before,
+      limit: OLDER_PAGE_RECORDS,
+      maxBytes: OLDER_PAGE_BYTES,
+      // acpmux's "transcript" leaves out the preset approval records (paging.rs): a card older
+      // than the attach's page comes with the older page that holds it, on a local acpmux as at
+      // attach (three kinds, within a remote cmux-tui's eight either way).
+      kinds: ["transcript", ...(this.localOrigin ? PRESET_APPROVAL_KINDS : [])],
+    });
+  }
+  /// Reads the next OLDER_AHEAD_PAGES older pages after an older read lands, one after another, and
+  /// keeps them for the next ask (`olderPage`). A page that fails is dropped, and the ask reads it
+  /// again. Another chat, visit, held history or paging epoch keys the kept pages out.
+  private readOlderAhead(pagingEpoch: number): void {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId || this.historyExhausted || !this.firstSeq || this.firstSeq <= 1 || !this.canPageOlder(pagingEpoch))
+      return;
+    const key = this.olderKey(sessionId, pagingEpoch);
+    // Reuse only the next contiguous chain. Trimming a partial turn changes its cursor;
+    // unrelated pages from previous chains must not accumulate across a long scroll.
+    const previous = this.olderAhead?.key === key ? this.olderAhead.pages : undefined;
+    const pages = new Map<number, Promise<any>>();
+    const ahead = { key, pages };
+    this.olderAhead = ahead;
+    let before = this.firstSeq;
+    void (async () => {
+      for (let read = 0; read < OLDER_AHEAD_PAGES; read++) {
+        if (this.olderAhead !== ahead || !this.canPageOlder(pagingEpoch)) return;
+        const asked = before;
+        const page = previous?.get(asked) ?? this.olderPage(sessionId, asked, pagingEpoch);
+        pages.set(asked, page);
+        let result: any;
+        try {
+          result = await page;
+        } catch {
+          if (pages.get(asked) === page) pages.delete(asked);
+          return;
+        }
+        const events = records(result?.events);
+        if (result?.hasMore !== true || events.length === 0 || events[0]!.seq >= asked) return;
+        before = events[0]!.seq;
+      }
+    })();
+  }
+  /// The records from below `through` up to `from` (exclusive), newest page first, read at once: the
+  /// stretch is cut into slots of OLDER_PAGE_RECORDS seqs, and each slot's page (the newest records
+  /// before its top) is asked together, WINDOW_PARALLEL_PAGES at a time. A page reaches at least its
+  /// slot's foot unless its byte cap ends it first; that gap is read page by page before the next
+  /// slot's records are taken, so what comes back holds every record from its oldest page up.
+  /// Undefined when the read went stale (another chat, visit, held history or paging epoch).
+  private async readWindow(
+    sessionId: string,
+    from: number,
+    through: number,
+    pagingEpoch: number,
+    stale: () => boolean,
+  ): Promise<{ pages: EventRecord[][]; before: number; more: boolean } | undefined> {
+    const pages: EventRecord[][] = [];
+    let before = from;
+    let more = true;
+    const take = (result: any) => {
+      const page = records(result?.events).filter((event) => event.seq < before);
+      if (page.length > 0) {
+        pages.push(page);
+        before = page[0]!.seq;
+      }
+      more = result?.hasMore === true && page.length > 0;
+      return page.length > 0;
+    };
+    // A slot's page the gap reads above already passed (they ran below its top past a byte cap)
+    // holds nothing older than `before`; that says nothing of what is left below, so it is
+    // skipped, and the next round reads on from `before`. Only an empty read at `before` ends it.
+    const takeSlot = (result: any) => {
+      if (records(result?.events).some((event) => event.seq < before)) take(result);
+    };
+    while (more && before > through && before > 1) {
+      const slots: number[] = [];
+      // Down to the first slot that starts at or below `through`: its page holds the records just
+      // above the place, and usually the prompt of the turn the place is in.
+      for (let top = before; slots.length < WINDOW_PARALLEL_PAGES && top > 1; top -= OLDER_PAGE_RECORDS) {
+        slots.push(top);
+        if (top <= through) break;
+      }
+      const results = await Promise.all(slots.map((top) => this.olderPage(sessionId, top, pagingEpoch)));
+      if (stale()) return undefined;
+      for (let slot = 0; slot < slots.length && more; slot++) {
+        // The page above ended short of this slot (its byte cap): read the gap page by page.
+        while (more && before > slots[slot]!) {
+          const result = await this.olderPage(sessionId, before, pagingEpoch);
+          if (stale()) return undefined;
+          if (!take(result)) more = false;
+        }
+        if (more) takeSlot(results[slot]);
+      }
+    }
+    return { pages, before, more };
+  }
   private canPageOlder(epoch = this.olderPagingEpoch): boolean {
     return !this.closed && epoch === this.olderPagingEpoch && this.socket?.readyState === WebSocket.OPEN;
   }
   private cancelOlderPaging(): void {
     this.olderPagingEpoch += 1;
+    this.olderAhead = undefined;
     this.olderDelay.cancel();
     this.olderRetryAt = 0;
   }
@@ -14286,52 +14684,54 @@ export class AcpmuxDirectClient {
     // The prompt drawn first: the open turn's opener when the held events start mid-turn.
     const drawnFrom = this.turnOpener?.seq ?? this.firstSeq;
     const opensOlderTurn = (event: EventRecord) => startsTurn(event) && event.seq < drawnFrom;
+    // Keep the target's preceding turn, including when byte caps end a page at the target prompt.
+    const opensAbove = (event: EventRecord) => through !== undefined && startsTurn(event) && event.seq < through;
     // Newest page first; joined once at the end, so a long read copies its records once.
     const read: EventRecord[][] = [];
     let more = true;
     let found = false;
+    let foundThrough = through === undefined;
     // The open landed inside the turn on screen: the page holding its prompt makes it whole, so it
     // lands at once. The reply's start must not wait on a far longer turn above it (the user,
     // 2026-11-03: a reply starting mid-sentence under its prompt, and nothing above).
     const cutOpener = this.turnOpener && this.turnOpener.seq < this.firstSeq ? this.turnOpener.seq : undefined;
     let completed = false;
-    const minPages = fill ? 1 : OLDER_MIN_PAGES_PER_ASK;
+    const minPages = fill ? 1 : read.length > 0 ? 0 : OLDER_MIN_PAGES_PER_ASK;
+    const stale = () =>
+      !this.canPageOlder(pagingEpoch) ||
+      generation !== this.selectionGeneration ||
+      this.selectedSessionId !== sessionId ||
+      epoch !== this.historyEpoch;
+    let before = this.firstSeq;
+    if (through !== undefined && through < before) {
+      const window = await this.readWindow(sessionId, before, through, pagingEpoch, stale);
+      if (!window || stale()) return;
+      for (const page of window.pages) {
+        read.push(page);
+        found ||= page.some(opensOlderTurn);
+        foundThrough ||= page.some(opensAbove);
+        completed ||= cutOpener !== undefined && page.some((event) => event.seq <= cutOpener);
+      }
+      before = window.before;
+      more = window.more;
+    }
     // A page can draw nothing above the first row: a prompt queued with a big paste or image is a
     // page of its own, a page that ends in the opener already drawn adds no turn, and every page of
     // a long turn the open landed in is that turn's. Read on until a turn older than the first row
     // starts, at most OLDER_PAGES_PER_ASK pages; a capped read still moves `historyFrom`, which
     // makes the transcript ask again.
     for (
-      let before = this.firstSeq, pages = 0;
-      more &&
-      pages < OLDER_PAGES_PER_ASK &&
-      ((through !== undefined && before > through) || (!completed && (pages < minPages || !found)));
+      let pages = 0;
+      more && pages < OLDER_PAGES_PER_ASK && (!foundThrough || (!completed && (pages < minPages || !found)));
       pages++
     ) {
       if (!this.canPageOlder(pagingEpoch)) return;
-      const result = await this.typed("_acpmux/events", {
-        sessionId,
-        beforeSeq: before,
-        limit: 400,
-        maxBytes: OLDER_PAGE_BYTES,
-        // acpmux's "transcript" leaves out the preset approval records (paging.rs): a card older
-        // than the attach's page comes with the older page that holds it, on a local acpmux as at
-        // attach (three kinds, within a remote cmux-tui's eight either way).
-        kinds: ["transcript", ...(this.localOrigin ? PRESET_APPROVAL_KINDS : [])],
-      });
-      if (
-        !this.canPageOlder(pagingEpoch) ||
-        generation !== this.selectionGeneration ||
-        this.selectedSessionId !== sessionId
-      )
-        return;
-      // The held transcript's older end moved while this read was out (a kept tail the attach
-      // page did not continue): these records sit above a transcript the chat no longer holds. The
-      // ask brings nothing, and the transcript asks again (App.tsx checkOlder).
-      if (epoch !== this.historyEpoch) return;
+      const result = await this.olderPage(sessionId, before, pagingEpoch);
+      if (stale()) return;
       const page = records(result?.events);
       read.push(page);
       found ||= page.some(opensOlderTurn);
+      foundThrough ||= page.some(opensAbove);
       completed ||= cutOpener !== undefined && page.some((event) => event.seq <= cutOpener);
       more = result?.hasMore === true && page.length > 0 && page[0]!.seq < before;
       if (page.length > 0) before = Math.min(before, page[0]!.seq);
@@ -14366,6 +14766,7 @@ export class AcpmuxDirectClient {
     else this.rebuildKeepingLiveState();
     this.historyExhausted = !more || older.length === 0 || (this.firstSeq ?? 1) <= 1;
     this.emit("history");
+    this.readOlderAhead(pagingEpoch);
   }
 
   /// Pages older turns in from the chat's Claude Code transcript, past the newest page its log was
