@@ -679,7 +679,10 @@ fn deterministic_translation_failure_is_counted_five_times_without_advancing_raw
     wait_health(&actor.handle, crate::life::Health::Failed);
     assert_eq!(actor.handle.failures(), 5);
     actor.join();
-    assert!(log::saved_checkpoint(home.path()).unwrap().is_none());
+    let saved = log::saved_checkpoint(home.path()).unwrap().unwrap();
+    let checkpoint = Checkpoint::from_recovered(&saved).unwrap();
+    assert!(checkpoint.cursors.is_empty());
+    assert_eq!(checkpoint.last_row, 0);
 }
 
 #[test]

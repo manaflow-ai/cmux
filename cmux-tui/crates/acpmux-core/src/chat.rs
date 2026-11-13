@@ -414,6 +414,12 @@ fn open_state(config: ChatConfig) -> Result<ActorState, ChatError> {
         fs::remove_dir_all(old)?;
         sync_parent(&config.book)?;
     }
+    if !config.book.join("checkpoint").exists()
+        && fs::metadata(config.book.join("rows/000001.seg"))
+            .is_ok_and(|metadata| metadata.len() > log::SEGMENT_HEADER_LEN)
+    {
+        return Err(BookError::Rebuild("checkpoint disappeared from a nonempty book").into());
+    }
     let source_cell = RefCell::new((config.source_factory)()?);
     let source_stamp = source_cell.borrow().stamp();
     let opened = Log::open_with_raw_holds(&config.book, config.log_options, |_, place| {
@@ -743,7 +749,7 @@ fn open_state_from_log(
         actor.boot_id = actor.config.boot_id;
         actor.replay_remaining = 0;
     }
-    if stamp_changed || (!recovered.checkpoint && rebuilt_edition.is_some()) {
+    if stamp_changed || !recovered.checkpoint {
         checkpoint(&mut actor)?;
     }
     Ok(actor)
