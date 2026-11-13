@@ -7,6 +7,8 @@ import {
 } from "../services/account/deletionLock";
 import { AccountMetadataUserUnavailableError } from "../services/account/metadataMutation";
 import {
+  ADMIN_TEAM_SEARCH_MAX_PAGES,
+  ADMIN_TEAM_SEARCH_PAGE_SIZE,
   AdminGrantConflictError,
   AdminInvalidEmailError,
   AdminTeamNotFoundError,
@@ -20,6 +22,7 @@ import {
   isPlausibleEmail,
   listPendingEmailGrants,
   revokePendingEmailGrant,
+  isProbeTeamName,
   searchAdminTeams,
   searchAdminUsers,
   setManualPlanGrant,
@@ -126,6 +129,21 @@ function fakeApp(
       return teams.filter((team) =>
         team.id === query || team.displayName.toLowerCase().includes(query),
       );
+    },
+  };
+}
+
+/** A Stack directory that pages like Stack: oldest first, `limit` per call, an opaque cursor. */
+function pagedApp(teams: readonly AdminStackTeam[]): AdminStackApp {
+  const base = fakeApp([], teams);
+  return {
+    ...base,
+    async listTeams(options) {
+      const query = (options.query ?? "").toLowerCase();
+      const matching = teams.filter((team) => team.id === query || team.displayName.toLowerCase().includes(query));
+      const start = options.cursor ? Number(options.cursor) : 0;
+      const end = start + (options.limit ?? 100);
+      return Object.assign(matching.slice(start, end), { nextCursor: end < matching.length ? String(end) : null });
     },
   };
 }
@@ -372,7 +390,7 @@ describe("teams", () => {
   test("a team whose member list fails to load reports an unknown count", async () => {
     const broken = fakeTeam({ id: "tb", displayName: "Broken" });
     (broken as unknown as { listUsers: () => Promise<never> }).listUsers = async () => { throw new Error("provider down"); };
-    const rows = await searchAdminTeams("broken", { app: fakeApp([], [broken]), stripeBillingStatus: async () => noStripe });
+    const { teams: rows } = await searchAdminTeams("broken", { app: fakeApp([], [broken]), stripeBillingStatus: async () => noStripe });
     expect(rows[0]?.memberCount).toBeNull();
   });
 
@@ -382,7 +400,7 @@ describe("teams", () => {
       fakeTeam({ id: "t2", displayName: "Acme Labs", members: 1 }),
       fakeTeam({ id: "t3", displayName: "Other" }),
     ]);
-    const rows = await searchAdminTeams("acme", {
+    const { teams: rows } = await searchAdminTeams("acme", {
       app,
       stripeBillingStatus: async (teamId) => (teamId === "t2" ? activeStripe : noStripe),
     });
@@ -390,6 +408,69 @@ describe("teams", () => {
       ["t1", true, "team", 3],
       ["t2", true, null, 1],
     ]);
+  });
+
+  test("a probe's empty personal team is a test team; a real team or a probe name with members is not", () => {
+    for (const name of [
+      "cmux prod smoke's Team",
+      "cmux staging smoke's Team",
+      "cmux prod team check's Team",
+      "cmux prod freestyle rpc smoke's Team",
+      "cmux prod stress 3's Team",
+      "cmux prod startup bench's Team",
+      "cmux dogfood's Team",
+      "cmux Iroh production gate's Team",
+    ]) expect(isProbeTeamName(name)).toBe(true);
+    for (const name of ["cmux", "cmux Team", "cmux prod", "Acme smoke's Team", "my cmux prod smoke's Team"]) {
+      expect(isProbeTeamName(name)).toBe(false);
+    }
+  });
+
+  // Leo, 2026-11-09: the company team "cmux" was missing from "Teams (25)":
+  // the first Stack page for "cmux" was all empty probe teams, oldest first.
+  test("searchAdminTeams hides empty probe teams and pages past them to the real team", async () => {
+    const probes = Array.from({ length: 60 }, (_, index) =>
+      fakeTeam({ id: `probe-${index}`, displayName: "cmux prod smoke's Team" }));
+    const company = fakeTeam({ id: "company", displayName: "cmux", members: 12 });
+    const live = fakeTeam({ id: "live-probe", displayName: "cmux prod smoke's Team", members: 1 });
+    const app = pagedApp([...probes, live, company]);
+    const { teams, nextCursor, hiddenTestTeams } = await searchAdminTeams("cmux", {
+      app,
+      stripeBillingStatus: async () => noStripe,
+    });
+    expect(teams.map((team) => [team.id, team.isTestTeam])).toEqual([["live-probe", false], ["company", false]]);
+    expect(hiddenTestTeams).toBe(60);
+    expect(nextCursor).toBeNull();
+  });
+
+  test("searchAdminTeams shows test teams when asked and hands back a cursor for the next page", async () => {
+    const probes = Array.from({ length: 30 }, (_, index) =>
+      fakeTeam({ id: `probe-${index}`, displayName: "cmux prod stress 3's Team" }));
+    const company = fakeTeam({ id: "company", displayName: "cmux", members: 12 });
+    const app = pagedApp([...probes, company]);
+    const first = await searchAdminTeams("cmux", { app, includeTestTeams: true, stripeBillingStatus: async () => noStripe });
+    expect(first.teams).toHaveLength(25);
+    expect(first.teams.every((team) => team.isTestTeam)).toBe(true);
+    expect(first.hiddenTestTeams).toBe(0);
+    expect(first.nextCursor).toBe("25");
+    const second = await searchAdminTeams("cmux", {
+      app,
+      includeTestTeams: true,
+      cursor: first.nextCursor!,
+      stripeBillingStatus: async () => noStripe,
+    });
+    expect(second.teams.map((team) => team.id)).toEqual(["probe-25", "probe-26", "probe-27", "probe-28", "probe-29", "company"]);
+    expect(second.nextCursor).toBeNull();
+  });
+
+  test("searchAdminTeams stops after its page budget and returns where to resume", async () => {
+    const probes = Array.from({ length: 1000 }, (_, index) =>
+      fakeTeam({ id: `probe-${index}`, displayName: "cmux prod smoke's Team" }));
+    const app = pagedApp([...probes, fakeTeam({ id: "company", displayName: "cmux", members: 12 })]);
+    const page = await searchAdminTeams("cmux", { app, stripeBillingStatus: async () => noStripe });
+    expect(page.teams).toEqual([]);
+    expect(page.hiddenTestTeams).toBe(ADMIN_TEAM_SEARCH_MAX_PAGES * ADMIN_TEAM_SEARCH_PAGE_SIZE);
+    expect(page.nextCursor).toBe(String(ADMIN_TEAM_SEARCH_MAX_PAGES * ADMIN_TEAM_SEARCH_PAGE_SIZE));
   });
 
   function directTeamMutation(app: AdminStackApp) {
