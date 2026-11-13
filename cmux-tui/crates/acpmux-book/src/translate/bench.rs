@@ -44,7 +44,7 @@ fn v1_corpus() -> Vec<String> {
     ].iter().map(|body|format!("{{\"seq\":0,\"at\":1000,{body},\"cold\":\"{padding}\"}}\n")).collect()
 }
 fn line_at(harness: Harness, lines: &[String], n: usize) -> String {
-    if harness == Harness::Claude && n == 0 {
+    if harness == Harness::Claude && n > 0 && n % 1000 == 0 {
         return format!(
             "{{\"type\":\"user\",\"message\":{{\"content\":[{{\"type\":\"tool_result\",\"tool_use_id\":\"blob\",\"content\":\"{}\"}}]}}}}\n",
             "b".repeat(5 * 1024 * 1024)
@@ -56,6 +56,32 @@ fn line_at(harness: Harness, lines: &[String], n: usize) -> String {
     } else {
         line.clone()
     }
+}
+fn full_state() -> State {
+    let mut state = State::default();
+    let prompt = r#"{"seq":1,"at":1000,"dir":"mux","kind":"user_message","msg":{"text":"q"}}"#;
+    let _ = t(&mut state, Harness::V1, prompt.as_bytes());
+    for n in 0..1024u64 {
+        let line = format!(
+            r#"{{"seq":{},"at":1000,"dir":"mux","kind":"queued","msg":{{"text":"q-{}","promptId":"q-{}"}}}}"#,
+            n + 2,
+            n,
+            n
+        );
+        let _ = t(&mut state, Harness::V1, line.as_bytes());
+    }
+    state
+}
+fn full_state_p95(harness: Harness, lines: &[String], start: usize) -> u128 {
+    let mut state = full_state();
+    let mut samples = Vec::with_capacity(200);
+    for n in start..start + 200 {
+        let line = line_at(harness, lines, n);
+        let began = Instant::now();
+        black_box(t(&mut state, harness, line.as_bytes()).unwrap());
+        samples.push(began.elapsed().as_nanos());
+    }
+    p95(&mut samples)
 }
 fn p95(samples: &mut [u128]) -> u128 {
     samples.sort_unstable();
@@ -130,24 +156,13 @@ fn measure_child() {
         cold_all.extend(cold);
     }
     let peak = rss();
+    let full = full_state_p95(harness, &lines, cursor);
     println!(
-        "MEASURE {count} {bytes} {best} {} {cold_best} {} {peak} {}",
+        "MEASURE {count} {bytes} {best} {} {cold_best} {} {peak} {} {full}",
         p95(&mut all),
         p95(&mut cold_all),
         checkpoint.len()
     );
-    if let Ok(path) = std::env::var("V2_GATE_OUT") {
-        let line = format!(
-            "{{\"name\":\"v2.pr02.translate_line\",\"small_p95\":{},\"god_p95\":{},\"unit\":\"ns\"}}\n",
-            best,
-            p95(&mut all)
-        );
-        let _ = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)
-            .and_then(|mut file| std::io::Write::write_all(&mut file, line.as_bytes()));
-    }
     assert!(peak * 1024 < 64_000_000, "resident peak {peak} KiB must be under 64 MB");
 }
 fn child(harness: &str, count: usize) -> Vec<u64> {
@@ -155,6 +170,7 @@ fn child(harness: &str, count: usize) -> Vec<u64> {
         .args(["--exact", "translate::bench::measure_child", "--ignored", "--nocapture"])
         .env("BOOK_TRANSLATE_LINES", count.to_string())
         .env("BOOK_TRANSLATE_HARNESS", harness)
+        .env_remove("V2_GATE_OUT")
         .output()
         .unwrap();
     let stdout = String::from_utf8(output.stdout).unwrap();
@@ -194,5 +210,34 @@ fn god_vs_small() {
         assert!(god[6] * 1024 < 64_000_000);
         assert!(god[6] as f64 <= small[6] as f64 * 1.2, "god RSS must stay within 1.2x small");
         assert!(god[7] <= small[7] + 64, "only varint counter widths may grow with history");
+        if harness == "claude" {
+            if let Ok(path) = std::env::var("V2_GATE_OUT") {
+                let lines = [
+                    format!(
+                        "{{\"name\":\"v2.pr02.translate_line\",\"small_p95\":{},\"god_p95\":{},\"unit\":\"ns\"}}\n",
+                        small[2], god[3]
+                    ),
+                    format!(
+                        "{{\"name\":\"v2.pr02.translate_line_full_state\",\"small_p95\":{},\"god_p95\":{},\"unit\":\"ns\"}}\n",
+                        small[8], god[8]
+                    ),
+                    format!(
+                        "{{\"name\":\"v2.pr02.jsonl_peak_rss\",\"small_p95\":{},\"god_p95\":{},\"unit\":\"KiB\"}}\n",
+                        small[6], god[6]
+                    ),
+                    format!(
+                        "{{\"name\":\"v2.pr02b.translate_line_queue_full\",\"small_p95\":{},\"god_p95\":{},\"unit\":\"ns\"}}\n",
+                        small[8], god[8]
+                    ),
+                ]
+                .join("");
+                std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(path)
+                    .and_then(|mut file| std::io::Write::write_all(&mut file, lines.as_bytes()))
+                    .unwrap();
+            }
+        }
     }
 }

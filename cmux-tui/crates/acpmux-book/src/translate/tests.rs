@@ -17,6 +17,7 @@ struct Mirror {
     text: BTreeMap<u64, String>,
     raw: BTreeMap<(u64, String), String>,
     queue: BTreeMap<u64, QueueEntry>,
+    queued_text: BTreeMap<(u64, u32), String>,
 }
 impl Mirror {
     fn apply(&mut self, op: &Op, bytes: &[u8]) {
@@ -61,6 +62,14 @@ impl Mirror {
             }
             Change::Queue(QueueChange::Add(entry)) => {
                 self.queue.insert(entry.id_hash, *entry);
+                if let Ok(value) = serde_json::from_slice::<serde_json::Value>(bytes)
+                    && let Some(text) = value
+                        .get("msg")
+                        .and_then(|msg| msg.get("text"))
+                        .and_then(serde_json::Value::as_str)
+                {
+                    self.queued_text.insert((entry.place, entry.span), text.to_owned());
+                }
             }
             Change::Queue(QueueChange::Remove(hash)) => {
                 self.queue.remove(hash);
@@ -86,7 +95,11 @@ impl Mirror {
                         }
                         s
                     }
-                    BodySource::Raw { .. } => String::new(),
+                    BodySource::Raw { place, span } => self
+                        .queued_text
+                        .get(&(*place, u32::try_from(*span).unwrap_or(u32::MAX)))
+                        .cloned()
+                        .unwrap_or_default(),
                 };
                 if matches!(field, BodyField::Text | BodyField::Content) {
                     let text = self.text.entry(*id).or_default();
