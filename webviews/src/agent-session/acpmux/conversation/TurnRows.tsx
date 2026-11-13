@@ -32,7 +32,15 @@ import { stoppedTurnLook } from "./stoppedTurn.experiment";
 import { turnCopyText } from "./turnCopy";
 import { TimedLabel } from "./TurnTokens";
 import { AlertCircle, ChevronRight, Retry } from "./icons";
-import { ForkButton, MessageCopy, MessageFooterRow, MessageMore, PinButton, ReadAloudButton } from "./MessageActions";
+import {
+  ForkButton,
+  MessageCopy,
+  MessageFooterRow,
+  MessageMore,
+  PinButton,
+  ReadAloudButton,
+  ReplyTime,
+} from "./MessageActions";
 import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { CloudSignIn } from "./CloudSignIn";
@@ -383,8 +391,8 @@ export function TurnFooter({ row, inline = false }: { row: AcpmuxRow; inline?: b
   // says so here only, never in the transcript's text (Leo, 2026-11-03: "idk if it should be showing
   // things like that").
   const forced = row.stopForced ? t("stop.forced") : undefined;
-  // No time at the row's end: the Codex app shows none (Lawrence, 2026-11-11 standup: "when I hover,
-  // the time shows up on the right, which I don't think is good").
+  // The shared reply timestamp is rendered in the footer rail below; the worked-row host places that
+  // rail beside its label so the hover time never covers the transcript or the next row.
   // A stopped turn says so in one muted word, whoever ended it (stoppedTurn.experiment.ts).
   const stoppedLook = isStopped(row) ? experimentArm(stoppedTurnLook) : "none";
   const stoppedWord = stoppedLook !== "none" && (
@@ -575,6 +583,7 @@ export function TurnFooter({ row, inline = false }: { row: AcpmuxRow; inline?: b
           </span>
           {stoppedLook === "word" && stoppedWord}
           {stoppedLook === "trailing" && stoppedWord}
+          <ReplyTime at={row.at} />
         </MessageFooterRow>
       </div>
       {!messages && timeline.panel}
