@@ -44,7 +44,7 @@ import Testing
         return (transport, client, AppSectionProvider(client: client, isPresented: { _ in true }))
     }
 
-    @Test(arguments: [AppsUnavailableReason.needsNewerDaemon, .turnedOff("Turned off by your administrator")])
+    @Test(arguments: [AppsUnavailableReason.noAppHost, .turnedOff("Turned off by your administrator")])
     func aSectionDrawsNothingWhileAppsCannotRunHere(_ reason: AppsUnavailableReason) {
         let (_, _, provider) = Self.provider(.unavailable(reason))
         #expect(provider.makeView(for: Self.contribution) == nil, "the sidebar draws a \"\(reason.text)\" card")
@@ -55,9 +55,9 @@ import Testing
         let (transport, client, provider) = Self.provider(.unavailable(.notConnected))
         // Not connected yet: the section mounts and says why it is empty.
         #expect(provider.makeView(for: Self.contribution) != nil)
-        transport.availability = .unavailable(.needsNewerDaemon)
-        transport.onEvent?(.availability(.unavailable(.needsNewerDaemon)))
-        #expect(client.unavailableReason == .needsNewerDaemon)
+        transport.availability = .unavailable(.noAppHost)
+        transport.onEvent?(.availability(.unavailable(.noAppHost)))
+        #expect(client.unavailableReason == .noAppHost)
         #expect(provider.makeView(for: Self.contribution) == nil, "the section's card stays after the daemon answered without apps")
         #expect(provider.preferredHeight(for: Self.contribution, width: 260) == 0)
     }

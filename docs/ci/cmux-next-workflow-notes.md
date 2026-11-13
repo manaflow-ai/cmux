@@ -3011,3 +3011,17 @@ the repository token's hourly budget, as push attribution does (note-343). On 20
 43370687308 through 43372812335), so the job went red on its own read, not on a compile, and
 named no culprit. A failed mint leaves every read on the workflow token; a refused read prints
 gh's message and body (`gh_failure` in `scripts/ci/cmux_next_push_attribution.py`).
+
+## note-348
+
+Above `light_runner` in macos-placement's outputs and `LIGHT_SPILL_JOBS` in its place step in `.github/workflows/cmux-next.yml`.
+
+A pull request's swift-canary, daemon-test and generated-files take an idle light side runner
+(glaeda-side-light-xcode-26.6) when no idle std side runner took them, before the cascade
+(side_lane_placement.light_spill_route(); Leo, 2026-11-11: "nobody seems to be doing stuff rn", with
+the std minis at 95 to 100% CPU and the light minis at 21 of 92 capacity units). Only these three: they
+build the same CmuxNext package seed the fast tier builds, which the 16 GB light minis already run, and
+on a pull request they need no GUI session. The Release and app scheme compiles stay on std. Attempt 1
+only, one job per idle light runner beyond its queue, never while a nightly or release job waits on the
+light family, and nothing with an unread or stale pool snapshot. Each job's runs-on and its
+CMUX_NEXT_RUNNER copy read `light_jobs` right after the fork clause.

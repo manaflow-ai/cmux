@@ -26,6 +26,10 @@
     webviews_test_history.py fetch OUT --repo OWNER/REPO --branch BRANCH
         write to OUT the newest history a push on BRANCH uploaded (the ARTIFACT artifact), or an empty
         one when there is none or it cannot be read; GITHUB_TOKEN reads it (actions: read)
+    webviews_test_history.py stuck HISTORY [--runs N] [--repo OWNER/REPO] [--summary FILE] [--fail]
+        name every file red on each of the last N pushes it ran on (default STUCK_RUNS), with the push it first
+        went red on and the last one it passed, grouped by that range: one ::error annotation a range, a table in
+        SUMMARY (the job summary), and with --fail exit 1 when any is stuck
 
 Why: a pull request fails only on the webview tests its base replay (react-apps-base-check)
 passes, and that replay runs each red file once, alone, on the merge parent. A test that fails
@@ -42,6 +46,11 @@ its fix make one red stretch, and a busy day changes the inputs on nearly every 
 never run twice on the same ones. So is a red of a test that failed on the base itself while its
 file's reds came back after a green: one flake may fail a different test of its file each run. The inputs are the paths the router (web_subareas.py) runs the webview
 suite for; a test that reads a file outside them is a router gap, which also skips it on pull requests.
+A base red is excused on every pull request (it is red at the base too), and nothing else asked how long it
+had been red: on 2026-11-13 react-apps-check had been red on every one of 78 completed push runs since
+2026-11-11 16:59 UTC, and model-picker-scaling on 62 recorded pushes in a row, before anyone read the
+failures (cmuxterm-hq#10383). `stuck` names such a red after STUCK_RUNS pushes (about 5 h at two runs an
+hour), with the commits it went red between, so it becomes someone's while pull requests keep passing it.
 Each run stores only what it needs: its inputs key, the files that ran and the names that were red.
 A test is green on a run whose file ran and named neither it nor the file as red; a file red
 without naming tests (a timeout, a crash) says nothing about that file's tests on that run.
@@ -268,6 +277,93 @@ def flaky(runs: list[dict], names: list[str] | None = None) -> list[str]:
     return sorted(name for name in names if flaky_name(runs, name))
 
 
+STUCK_RUNS = 10  # pushes in a row a file may stay red before it is named: about 5 h of coalesced runs
+STUCK_TESTS_SHOWN = 5  # red tests named a file; the rest are counted
+STUCK_NOTES = 9  # ::error annotations at most, one a range (GitHub shows 10 a step); one more counts the rest
+
+
+def file_red(run: dict, file: str) -> bool | None:
+    """FILE's verdict on RUN: None when it did not run, False when it or any of its tests was red."""
+    if file not in run["files"]:
+        return None
+    return not (file in run["red"] or any(name.startswith(f"{file} > ") for name in run["red"]))
+
+
+def stuck(runs: list[dict], streak: int = STUCK_RUNS) -> list[dict]:
+    """The files red on each of the last STREAK pushes they ran on, newest run's reds only, by file.
+
+    Each: file, reds (the pushes in a row it was red, back to its last green or the history's start), first (the
+    oldest of those pushes), green (the push before it, its last pass; None when the history holds none), tests
+    (its red names on the newest push). A flake is never stuck: one green ends the stretch."""
+    if not runs:
+        return []
+    newest = runs[-1]
+    files = sorted({name.split(" > ", 1)[0] for name in newest["red"]})
+    out = []
+    for file in files:
+        reds, first, green = 0, None, None
+        for run in reversed(runs):
+            ok = file_red(run, file)
+            if ok is None:
+                continue
+            if ok:
+                green = run
+                break
+            reds, first = reds + 1, run
+        if reds >= streak:
+            tests = sorted(name for name in newest["red"] if name.startswith(f"{file} > "))
+            out.append({"file": file, "reds": reds, "first": first, "green": green, "tests": tests})
+    return out
+
+
+def _when(run: dict) -> str:
+    import datetime  # noqa: PLC0415
+    return datetime.datetime.fromtimestamp(run["time"], datetime.timezone.utc).strftime("%Y-%m-%d %H:%MZ")
+
+
+def stuck_report(found: list[dict], runs: list[dict], streak: int, repo: str = "") -> tuple[list[str], str]:
+    """(the ::error annotations, one a first-red range; the Markdown summary) for stuck()'s FOUND."""
+    url = f"https://github.com/{repo}" if repo else ""
+    groups: dict[tuple[str, str], list[dict]] = {}
+    for item in found:
+        groups.setdefault((item["first"]["sha"], item["green"]["sha"] if item["green"] else ""), []).append(item)
+    notes, rows = [], []
+    for (first, green), items in sorted(groups.items(), key=lambda kv: kv[1][0]["first"]["time"]):
+        start = items[0]["first"]
+        since = f"since {first[:12]} ({_when(start)})"
+        if green:
+            span = f"last green {green[:12]} ({_when(items[0]['green'])})"
+            commits = f"{url}/compare/{green}...{first}" if url else f"{green}..{first}"
+        else:
+            span = f"no green in the {len(runs)} pushes recorded (since {_when(runs[0])})"
+            commits = f"{url}/commit/{first}" if url else first
+        names = ", ".join(i["file"] for i in items)
+        most = max(i["reds"] for i in items)
+        notes.append(f"::error title=Webview base red for {most} pushes::{len(items)} webview test file(s) red on "
+                     f"every feat-cmux-next push {since}, {span}; pull requests excuse them as base reds, so they "
+                     f"are nobody's until fixed. Went red in: {commits}. Files: {names}")
+        for item in items:
+            shown = "<br>".join(t.split(" > ", 1)[1] for t in item["tests"][:STUCK_TESTS_SHOWN])
+            more = len(item["tests"]) - STUCK_TESTS_SHOWN
+            if more > 0:
+                shown += f"<br>and {more} more"
+            went = f"[{green[:12]}...{first[:12]}]({commits})" if url and green else commits
+            rows.append(f"| `{item['file']}` | {item['reds']} | {first[:12]} ({_when(item['first'])}) | "
+                        f"{green[:12] if green else 'none recorded'} | {went} | {shown or '(the file failed)'} |")
+    if len(notes) > STUCK_NOTES:
+        rest = len(notes) - STUCK_NOTES
+        notes = notes[:STUCK_NOTES] + [f"::error title=Webview base reds::{rest} more range(s) of stuck webview base "
+                                       "reds; the job summary lists every file"]
+    if not found:
+        return [], f"### Webview base reds\n\nNo webview test file is red on the last {streak} pushes it ran on.\n"
+    summary = (f"### Webview base reds stuck for {streak}+ pushes\n\n"
+               f"{len(found)} file(s) red on every push since they went red. Pull requests excuse them as base reds; "
+               "each range below is where one went red.\n\n"
+               "| File | Red pushes in a row | First red | Last green | Went red in | Red tests now |\n"
+               "| --- | --- | --- | --- | --- | --- |\n" + "\n".join(rows) + "\n")
+    return notes, summary
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs):  # the download's storage URL is fetched without the token
         return None
@@ -373,7 +469,24 @@ def main(argv: list[str]) -> int:
     fe.add_argument("--branch", required=True)
     fe.add_argument("--need-read", action="store_true",
                     help="exit 1 when the history could not be read (a missing one is fine): a push then saves none")
+    st = sub.add_parser("stuck")
+    st.add_argument("history")
+    st.add_argument("--runs", type=int, default=STUCK_RUNS)
+    st.add_argument("--repo", default="")
+    st.add_argument("--summary")
+    st.add_argument("--fail", action="store_true", help="exit 1 when a file is stuck")
     args = parser.parse_args(argv)
+    if args.command == "stuck":
+        runs = load(args.history)
+        found = stuck(runs, max(1, args.runs))
+        notes, summary = stuck_report(found, runs, max(1, args.runs), args.repo)
+        for note in notes:
+            print(note)
+        print(summary)
+        if args.summary:
+            with open(args.summary, "a", encoding="utf-8") as handle:
+                handle.write(summary)
+        return 1 if args.fail and found else 0
     if args.command == "fetch":
         found, said, read = fetch(args.repo, args.branch, os.environ.get("GITHUB_TOKEN"))
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
