@@ -55,8 +55,13 @@ export interface IconPickerProps {
    * page tints with its theme color (CSS mask); multicolor is a finished image.
    */
   symbolImageURL?: (name: string, mode: SymbolMode) => string;
-  /** Why the last pick did not apply (the host refused it); shown until the next session. */
+  /** Why the last pick did not apply (the host refused it); shown until the next try or session. */
   error?: string;
+  /**
+   * A new try starts in the Image or SVG sheet (a file or a URL, also one that the sheet refuses
+   * itself, which gives no `onPick`). The owner of `error` takes it away then.
+   */
+  onTry?: () => void;
 }
 
 export function IconPicker({
@@ -69,6 +74,7 @@ export function IconPicker({
   assets,
   symbolImageURL,
   error,
+  onTry,
 }: IconPickerProps) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [viewport] = useState(() => {
@@ -316,6 +322,7 @@ export function IconPicker({
           kind={snap.view === "svg" ? "svg" : "image"}
           sink={assets}
           strings={strings}
+          onTry={onTry}
           onPicked={(value) => {
             store.recordAsset(value);
             onPick(value);
