@@ -87,6 +87,16 @@
    }
   },
   {
+   "title": "Split right: the browser keeps the left half, so its menu opens inside the window",
+   "cmux": [
+    "action",
+    "run",
+    "splitRight"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
    "title": "A browser tab in the default profile; the omnibar shows its avatar",
    "wait": 0.5
   },
