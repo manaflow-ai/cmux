@@ -112,11 +112,8 @@ fn old_padded_wire_bytes(
 ) -> usize {
     let max_payload = max_datagram - HEADER_LEN;
     let data_shards = encoded_len.div_ceil(max_payload).max(1);
-    let parity = if data_shards + requested_parity > cmux_rd_core::fec::MAX_SHARDS {
-        0
-    } else {
-        requested_parity
-    };
+    let parity =
+        if data_shards + requested_parity > fec::MAX_SHARDS { 0 } else { requested_parity };
     if data_shards == 1 && parity == 0 {
         HEADER_LEN + encoded_len
     } else {
@@ -182,6 +179,40 @@ fn balanced_shards_reduce_padding_without_changing_frame_shape() {
             }
         }
     }
+}
+
+#[test]
+fn legacy_max_width_shards_still_reassemble() {
+    let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);
+    let mut r = Reassembler::new(1_000_000);
+    let frame = 91;
+    let b = body(frame, 2_600, true);
+    let encoded = b.encode();
+    let max_payload = MAX_DATAGRAM_VPC - HEADER_LEN;
+    let count = encoded.len().div_ceil(max_payload);
+    assert!(count > 1);
+    let mut released = Vec::new();
+    for (index, chunk) in encoded.chunks(max_payload).enumerate() {
+        let header = DatagramHeader {
+            flags: flags::KEYFRAME,
+            kind: cmux_rd_proto::DatagramKind::Video,
+            stream: 0,
+            frame,
+            index: index as u16,
+            count: count as u16,
+            fec_count: 0,
+            transport_seq: p.reserve_transport_seq(1),
+        };
+        let mut datagram = Vec::with_capacity(MAX_DATAGRAM_VPC);
+        header.encode_into(&mut datagram);
+        datagram.extend_from_slice(chunk);
+        datagram.resize(MAX_DATAGRAM_VPC, 0);
+        let (decoded_header, payload) =
+            DatagramHeader::decode(&datagram).expect("legacy datagram decodes");
+        released.extend(r.push(&decoded_header, payload, 0));
+    }
+    assert_eq!(released.len(), 1);
+    assert_eq!(released[0].body, b);
 }
 
 #[test]
