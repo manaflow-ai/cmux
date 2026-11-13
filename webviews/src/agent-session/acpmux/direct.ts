@@ -6108,7 +6108,7 @@ export class AcpmuxDirectClient {
   /// `since.seq`. Placed again after a reset clears the rows; O(1) when it is there already.
   private since?: Omit<AcpmuxSince, "key"> & { sessionId: string };
   /// Only the latest recap survives replay, paging and live updates, including its dismissal.
-  private latestRecap?: { sessionId: string; seq: number; since?: number; recap?: AcpmuxRecap };
+  private latestRecap?: { sessionId: string; seq: number; at: number; since?: number; recap?: AcpmuxRecap };
   /// An older page folded in (`foldOlder`): a reply it brought may span `since.seq`, so the drawn
   /// divider is placed again even when its mark did not change.
   private sinceStale = false;
@@ -6116,12 +6116,20 @@ export class AcpmuxDirectClient {
     const since = this.since;
     if (!since || since.sessionId !== this.selectedSessionId) {
       if (this.rows.has(SINCE_DIVIDER)) this.rows.delete(SINCE_DIVIDER);
+      // The line went (nothing unseen at an open) with the recap on it: the recap stays, on its own.
+      const latest = this.latestRecap;
+      const id = latest ? `recap-${latest.seq}` : "";
+      if (latest?.recap && latest.sessionId === this.selectedSessionId && !this.rows.has(id))
+        this.rows.setAt(latest.seq, { id, version: 1, at: latest.at, kind: "recap", recap: latest.recap });
       return;
     }
-    // The recap made for this return, drawn on its own before the divider was known: onto it.
+    // The recap made for a return, drawn on its own before the line was placed: onto it. The line
+    // sits above the first unseen row (the seen cursor, `placeUnseenSince`), not at the record acpmux
+    // named where the reader left (the recap's `since`), so a recap made for a return rides on
+    // whichever line this chat has.
     const latest = this.latestRecap;
     const recap =
-      !since.recap && latest?.sessionId === since.sessionId && latest.since === since.seq ? latest.recap : undefined;
+      !since.recap && latest?.sessionId === since.sessionId && latest.since !== undefined ? latest.recap : undefined;
     if (latest && recap) {
       this.rows.delete(`recap-${latest.seq}`);
       this.since = { ...since, recap };
@@ -6170,12 +6178,13 @@ export class AcpmuxDirectClient {
     this.latestRecap = {
       sessionId,
       seq: event.seq,
+      at: event.at,
       since: typeof msg.since === "number" ? msg.since : undefined,
       recap,
     };
     if (recap) {
       const since = this.since;
-      if (since?.sessionId === sessionId && msg.since === since.seq) this.since = { ...since, recap };
+      if (since?.sessionId === sessionId && typeof msg.since === "number") this.since = { ...since, recap };
       else {
         const id = `recap-${event.seq}`;
         this.rows.set(id, { id, version: 1, at: event.at, kind: "recap", recap });
