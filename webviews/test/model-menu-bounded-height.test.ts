@@ -1,6 +1,8 @@
 // cmux-web-test-timeout: 300
-// Lawrence: "model picker too tall". The model popup is capped at 259px and the available room.
-// Its rail, model list and settings scroll independently while search and update stay in view.
+// Lawrence: "model picker too tall". The model popup keeps to one default height and the available
+// room: since #41212 (Lucas 2026-11-12: "we should have a default fixed height") that height is
+// measured to fit six effort levels and Fast (`data-fit-height`), not a flat 259px.
+// Its rail, model list and effort levels scroll independently while search and update stay in view.
 // The account avatar opens a card: its active account heads it, and its other accounts scroll
 // to the real last row without running past the window or reserving an empty spacer.
 // Real Chromium and WebKit (the app's engine) on the gallery stage at a short window. CI fails the
@@ -149,7 +151,13 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
         search: inside(box(search), frameBox),
         footerPresent: !!footer,
         footer: !footer || inside(box(footer), frameBox),
-        columns: [...body.querySelectorAll<HTMLElement>(":scope > .acpmux-cols-list")].map((list) => ({
+        fitHeight: Number(frame.dataset.fitHeight),
+        // The rail and the models (.acpmux-cols-lists), and the effort column's levels, which scroll
+        // between its Reasoning heading and Fast (.acpmux-cols-tune-scroll, #41212).
+        columns: [
+          ...body.querySelectorAll<HTMLElement>(":scope > .acpmux-cols-lists > .acpmux-cols-list"),
+          ...body.querySelectorAll<HTMLElement>(":scope > .acpmux-cols-tune > .acpmux-cols-tune-scroll"),
+        ].map((list) => ({
           ...scrollEnd(list, [...list.querySelectorAll<HTMLElement>("[role]")]),
           box: box(list),
           overflow: getComputedStyle(list).overflowY,
@@ -171,7 +179,8 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
     });
 
   const expectBounded = (layout: Awaited<ReturnType<typeof measure>>) => {
-    expect(layout.frame.height, "the columns keep their 259px cap").toBeLessThanOrEqual(259.5);
+    expect(Number.isFinite(layout.fitHeight), "the menu measured its default height").toBe(true);
+    expect(layout.frame.height, "the columns keep their default height").toBeLessThanOrEqual(layout.fitHeight + 0.5);
     if (Number.isFinite(layout.available))
       expect(layout.frame.height, "the columns fit their published room").toBeLessThanOrEqual(layout.available + 0.5);
     expect(layout.popup.top, "the popup starts inside the window").toBeGreaterThanOrEqual(-0.5);
