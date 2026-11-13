@@ -97,6 +97,10 @@ mod tests {
             ["cmux-browser", "cmux-customization", "cmux-live", "acpmux"],
             "no computer use or secrets server, no cmux-cua or cmux-sudo"
         );
+        // Agent Board on (`agents.board.enabled`): Codex is told about `work-tracking` too.
+        let board = AgentTools { work_tracking: true, ..full.clone() };
+        assert_eq!(names(&board).last().map(String::as_str), Some("work-tracking"));
+        assert!(!names(&full).iter().any(|n| n == "work-tracking"), "off by default");
         assert!(AgentTools { plugin_dir: None, ..full }.skill_index().is_empty());
     }
 

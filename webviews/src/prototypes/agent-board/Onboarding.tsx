@@ -73,7 +73,7 @@ export function Onboarding({ confirming, onConfirm }: { confirming?: boolean; on
           <DialogTitle className="ab-dialog-title">Turn on Agent Board?</DialogTitle>
           <DialogDescription className="ab-dialog-body">
             New agent sessions get the work-tracking skill and spend more tokens recording their work and capturing
-            evidence. Sessions already running stay as they are. You can turn it off in Settings → Agents.
+            evidence. Sessions already running stay as they are. To turn it off, set agents.board.enabled to false.
           </DialogDescription>
           <div className="ab-dialog-actions">
             <DialogButton dialogKey="escape" onClick={() => setOpen(false)}>

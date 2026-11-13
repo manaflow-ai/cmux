@@ -977,7 +977,9 @@ evidence for each), and the Agent Board shows it. Off by default because it cost
 every Claude Code session lists one more skill (`work-tracking`) and reads it once, and the
 agent spends extra tool calls writing ledger lines and capturing evidence for each state it
 builds. With `enabled` set to `true`, sessions started after the change get the
-[work-tracking skill](../skills/work-tracking/SKILL.md); running sessions are not changed.
+[work-tracking skill](../skills/work-tracking/SKILL.md) (Claude Code as a plugin skill, Codex in
+its first-turn skill list); running sessions are not changed. Experimental: the board that reads
+the ledgers is a gallery prototype (`prototype.agent-board`) and does not ship yet.
 
 ```json
 { "agents": { "board": { "enabled": true } } }

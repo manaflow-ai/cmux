@@ -210,7 +210,7 @@ function Detail({ loaded, design, needsYou }: { loaded: Loaded; design: Design; 
       {board.capabilities.length === 0 && board.decisions.length === 0 ? (
         <p className="ab-muted">This agent has not recorded anything yet.</p>
       ) : (
-        <View key={`${agent.id}:${design}`} board={board} needsYou={needsYou} onOpen={setViewing} />
+        <View key={`${agent.id}:${design}:${needsYou}`} board={board} needsYou={needsYou} onOpen={setViewing} />
       )}
       <EvidenceViewer board={board} evidence={viewing} onClose={() => setViewing(null)} />
     </section>

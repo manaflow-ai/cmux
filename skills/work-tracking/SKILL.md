@@ -16,27 +16,25 @@ tokens, so record what a reviewer needs and nothing else.
 
 ## The ledger
 
-One JSON object per line, appended to one file per task:
+One JSON object per line, appended to one file per task. Each tool call runs in a new
+shell, so every append computes the path itself; never keep it in a variable across calls:
 
 ```bash
-BOARD_DIR="${CMUX_AGENT_BOARD_DIR:-$HOME/.cmux/agent-board}"
-mkdir -p "$BOARD_DIR"
-BOARD="$BOARD_DIR/${CMUX_AGENT_SESSION:-$(basename "$PWD")}.jsonl"
-```
-
-Append with a quoted heredoc so the shell does not touch the JSON. Batch the
-lines of one step into one append; never rewrite or delete earlier lines. A
-later line with the same `id` replaces the earlier record (status changes,
-added evidence).
-
-```bash
-cat >> "$BOARD" <<'EOF'
+d="${CMUX_AGENT_BOARD_DIR:-$HOME/.cmux/agent-board}"; mkdir -p "$d"
+cat >> "$d/${CMUX_AGENT_SESSION:-$(basename "$PWD")}.jsonl" <<'EOF'
 {"kind":"capability","id":"cap-onboarding","title":"Agent Board onboarding","summary":"Off-by-default card that explains the token cost and turns the board on.","area":"Settings","status":"done","files":["webviews/src/prototypes/agent-board/Onboarding.tsx"]}
 EOF
 ```
 
-Every line has `kind` and `id` (lower kebab case, unique within the ledger).
-`at` (ISO 8601) is optional; the board uses the line's order when it is absent.
+cmux sets `CMUX_AGENT_SESSION` for every agent it starts. The quoted heredoc keeps the
+shell away from the JSON. Batch the lines of one step into one append; never rewrite or
+delete earlier lines. A later line with the same `kind` and `id` replaces that record
+(status changes, added evidence) and keeps its place in the list. If your sandbox refuses
+writes outside the workspace, set `CMUX_AGENT_BOARD_DIR` to a folder inside it.
+
+Every line has `kind` and `id` (lower kebab case, unique per kind within the ledger).
+The board orders records by when they first appear. Field types are checked: a line with an
+unknown `status` or `type`, or a list that is not a list of strings, shows as an error row.
 
 | kind | when | fields |
 | --- | --- | --- |
@@ -61,7 +59,7 @@ scratch folder, the PR, the artifact); the board links to it and does not copy i
   check one, record it as `unverified` with a `note` saying why. A missing
   permutation is worse than an unverified one.
 - **Evidence**: the screenshot, video, test command and result, build job, or
-  link that proves a permutation. Name the commit SHA it was taken at. Evidence
+  link that proves a permutation. Name the full 40-character commit SHA it was taken at. Evidence
   from an older commit is still useful but the board flags it as stale.
 
 ## Keep it cheap

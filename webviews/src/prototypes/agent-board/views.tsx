@@ -10,6 +10,7 @@ import {
   type CapabilityRecord,
   type DecisionRecord,
   type EvidenceRecord,
+  orderOf,
 } from "./ledger";
 import { EvidenceChip, StatusMark, STATUS_LABEL, Thumb, evidenceOf } from "./parts";
 
@@ -28,8 +29,8 @@ function DecisionCard({ decision, compact }: { decision: DecisionRecord; compact
       {!compact && decision.why && <p className="ab-why">{decision.why}</p>}
       {decision.rejected?.length ? (
         <ul className="ab-rejected" aria-label="Rejected options">
-          {decision.rejected.map((r) => (
-            <li key={r.option}>
+          {decision.rejected.map((r, i) => (
+            <li key={`${i}:${r.option}`}>
               <s>{r.option}</s>
               {r.why && <span className="ab-muted"> — {r.why}</span>}
             </li>
@@ -177,7 +178,7 @@ export function MatrixView({ board, needsYou, onOpen }: ViewProps) {
                     key={p.id}
                     className="ab-cell"
                     data-status={p.status}
-                    disabled={!ev.length}
+                    aria-disabled={!ev.length || undefined}
                     onClick={() => ev[0] && onOpen(ev[0])}
                     aria-label={`${axesLabel(p.axes)}: ${STATUS_LABEL[p.status]}`}
                   >
@@ -213,13 +214,22 @@ type StoryEvent =
 
 /** Story: the work in the order it happened, decisions written out with what was turned down. */
 export function StoryView({ board, needsYou, onOpen }: ViewProps) {
-  const at = (id: string) => board.order.get(id) ?? 0;
+  const attention = new Set(visibleCapabilities(board, true).map((c) => c.id));
   const events: StoryEvent[] = [
-    ...board.capabilities.map((record) => ({ kind: "capability" as const, at: at(record.id), record })),
-    ...board.decisions.map((record) => ({ kind: "decision" as const, at: at(record.id), record })),
-    ...[...board.evidence.values()].map((record) => ({ kind: "evidence" as const, at: at(record.id), record })),
+    ...board.capabilities.map((record) => ({ kind: "capability" as const, at: orderOf(board, record), record })),
+    ...board.decisions.map((record) => ({ kind: "decision" as const, at: orderOf(board, record), record })),
+    ...[...board.evidence.values()].map((record) => ({
+      kind: "evidence" as const,
+      at: orderOf(board, record),
+      record,
+    })),
   ]
-    .filter((e) => !needsYou || (e.kind === "decision" && e.record.needsHuman))
+    .filter((e) => {
+      if (!needsYou) return true;
+      if (e.kind === "decision") return Boolean(e.record.needsHuman);
+      if (e.kind === "capability") return attention.has(e.record.id);
+      return false;
+    })
     .sort((a, b) => a.at - b.at);
   return (
     <ol className="ab-story">

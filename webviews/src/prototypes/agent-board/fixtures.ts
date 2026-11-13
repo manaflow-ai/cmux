@@ -365,7 +365,7 @@ export const AGENTS_WITH_ERROR: AgentFixture[] = AGENTS.map((agent, i) =>
   i === 0
     ? {
         ...agent,
-        ledger: `${agent.ledger}\n{"kind":"permutation","id":"perm-card-ipad",for:"invite-card"}\n{"kind":"evidence","id":"Bad ID","type":"screenshot","path":"/tmp/x.png"}`,
+        ledger: `${agent.ledger}\n{"kind":"permutation","id":"perm-card-ipad",for:"invite-card"}\n{"kind":"evidence","id":"Bad ID","type":"screenshot","path":"/tmp/x.png"}\n{"kind":"permutation","id":"perm-card-tablet","for":"invite-card","axes":{"theme":1},"status":"passed"}`,
       }
     : agent,
 );

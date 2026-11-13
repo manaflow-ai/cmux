@@ -710,13 +710,13 @@
   cursor: pointer;
   transition: transform var(--cmux-motion-quick, 120ms) var(--cmux-ease-out, ease-out);
 }
-.ab-cell:disabled {
+.ab-cell[aria-disabled="true"] {
   cursor: default;
 }
-.ab-cell:not(:disabled):hover {
+.ab-cell:not([aria-disabled="true"]):hover {
   border-color: color-mix(in srgb, var(--ab-accent) 55%, transparent);
 }
-.ab-cell:not(:disabled):active {
+.ab-cell:not([aria-disabled="true"]):active {
   transform: scale(0.98);
 }
 .ab-cell[data-status="broken"] {

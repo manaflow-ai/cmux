@@ -56,40 +56,89 @@ export type Board = {
   decisions: DecisionRecord[];
   permutations: PermutationRecord[];
   evidence: Map<string, EvidenceRecord>;
-  /** Record id → the order it was last written (the board's timeline). */
+  /** `kind:id` → the line order it first appeared at: list order and the Story timeline. */
   order: Map<string, number>;
+  /** The newest commit the ledger names: the SHA on the last line that introduced a new one. */
+  head?: string;
   problems: LedgerProblem[];
 };
 
 const KINDS = new Set(["task", "capability", "decision", "permutation", "evidence"]);
 const ID = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+const CAPABILITY_STATUS = new Set(["building", "done", "dropped"]);
+const PERMUTATION_STATUS = new Set(["verified", "unverified", "broken"]);
+const EVIDENCE_TYPE = new Set(["screenshot", "video", "test", "build", "log", "link"]);
 
-function problem(record: Record<string, unknown>): string | null {
-  const kind = record.kind;
-  if (typeof kind !== "string" || !KINDS.has(kind)) return "unknown kind";
-  if (typeof record.id !== "string" || !ID.test(record.id)) return "id must be lower kebab case";
-  switch (kind) {
+const isString = (v: unknown): v is string => typeof v === "string";
+const optional = (v: unknown, check: (v: unknown) => boolean) => v === undefined || check(v);
+const stringList = (v: unknown) => Array.isArray(v) && v.every(isString);
+const stringMap = (v: unknown) =>
+  Boolean(v) && typeof v === "object" && !Array.isArray(v) && Object.values(v as object).every(isString);
+const oneOf = (set: Set<string>) => (v: unknown) => isString(v) && set.has(v);
+
+/** Why a parsed line cannot be drawn, or null. Every field the board reads is type-checked, so a
+ * wrong type becomes an error row instead of breaking the page. */
+function problem(r: Record<string, unknown>): string | null {
+  if (!oneOf(KINDS)(r.kind)) return "unknown kind";
+  if (!isString(r.id) || !ID.test(r.id)) return "id must be lower kebab case";
+  for (const key of [
+    "title",
+    "summary",
+    "area",
+    "goal",
+    "branch",
+    "pr",
+    "chosen",
+    "why",
+    "note",
+    "path",
+    "url",
+    "caption",
+    "sha",
+  ])
+    if (!optional(r[key], isString)) return `${key} must be a string`;
+  switch (r.kind) {
     case "task":
+      return isString(r.title) ? null : "missing title";
     case "capability":
-      return typeof record.title === "string" ? null : "missing title";
+      if (!isString(r.title)) return "missing title";
+      if (!optional(r.status, oneOf(CAPABILITY_STATUS))) return "status must be building, done or dropped";
+      return optional(r.files, stringList) ? null : "files must be a list of strings";
     case "decision":
-      return typeof record.title === "string" && typeof record.chosen === "string" ? null : "missing title or chosen";
-    case "permutation":
-      return typeof record.for === "string" && record.axes && typeof record.axes === "object"
+      if (!isString(r.title) || !isString(r.chosen)) return "missing title or chosen";
+      if (!optional(r.for, stringList)) return "for must be a list of ids";
+      if (!optional(r.needsHuman, (v) => typeof v === "boolean")) return "needsHuman must be true or false";
+      return optional(
+        r.rejected,
+        (v) =>
+          Array.isArray(v) &&
+          v.every((o) => o && typeof o === "object" && isString(o.option) && optional(o.why, isString)),
+      )
         ? null
-        : "missing for or axes";
+        : "rejected must be a list of { option, why }";
+    case "permutation":
+      if (!isString(r.for)) return "missing for";
+      if (!stringMap(r.axes)) return "axes must map names to strings";
+      if (!optional(r.status, oneOf(PERMUTATION_STATUS))) return "status must be verified, unverified or broken";
+      return optional(r.evidence, stringList) ? null : "evidence must be a list of ids";
     case "evidence":
-      return typeof record.path === "string" || typeof record.url === "string" ? null : "missing path or url";
+      if (!oneOf(EVIDENCE_TYPE)(r.type)) return "type must be screenshot, video, test, build, log or link";
+      if (!isString(r.path) && !isString(r.url)) return "missing path or url";
+      return optional(r.for, stringList) ? null : "for must be a list of ids";
   }
   return null;
 }
 
-/** Folds ledger text into a board. A later line with the same id replaces the earlier record. */
+const sameCommit = (a: string, b: string) => a.startsWith(b) || b.startsWith(a);
+
+/** Folds ledger text into a board. A later line with the same kind and id replaces that record and
+ * keeps its first position. */
 export function foldLedger(text: string): Board {
   const latest = new Map<string, LedgerRecord>();
   const order = new Map<string, number>();
   const problems: LedgerProblem[] = [];
-  let seq = 0;
+  const seen: string[] = [];
+  let head: string | undefined;
   text.split("\n").forEach((raw, index) => {
     const line = raw.trim();
     if (!line) return;
@@ -112,9 +161,21 @@ export function foldLedger(text: string): Board {
     }
     const key = `${record.kind as string}:${record.id as string}`;
     latest.set(key, record as LedgerRecord);
-    order.set(record.id as string, seq++);
+    if (!order.has(key)) order.set(key, order.size);
+    if (record.kind === "evidence" && isString(record.sha) && !seen.some((s) => sameCommit(s, record.sha as string))) {
+      seen.push(record.sha);
+      head = record.sha;
+    }
   });
-  const board: Board = { capabilities: [], decisions: [], permutations: [], evidence: new Map(), order, problems };
+  const board: Board = {
+    capabilities: [],
+    decisions: [],
+    permutations: [],
+    evidence: new Map(),
+    order,
+    head,
+    problems,
+  };
   for (const record of latest.values()) {
     if (record.kind === "task") board.task = record;
     else if (record.kind === "capability") board.capabilities.push({ ...record, status: record.status ?? "building" });
@@ -123,11 +184,12 @@ export function foldLedger(text: string): Board {
       board.permutations.push({ ...record, status: record.status ?? "unverified" });
     else board.evidence.set(record.id, record);
   }
-  const at = (id: string) => order.get(id) ?? 0;
-  board.capabilities.sort((a, b) => at(a.id) - at(b.id));
-  board.decisions.sort((a, b) => at(a.id) - at(b.id));
-  board.permutations.sort((a, b) => at(a.id) - at(b.id));
   return board;
+}
+
+/** Where a record first appeared in its ledger. */
+export function orderOf(board: Board, record: LedgerRecord): number {
+  return board.order.get(`${record.kind}:${record.id}`) ?? 0;
 }
 
 export type Coverage = { verified: number; unverified: number; broken: number; total: number };
@@ -142,20 +204,10 @@ export function permutationsFor(board: Board, capability: string): PermutationRe
   return board.permutations.filter((p) => p.for === capability);
 }
 
-/** Evidence older than the newest SHA the ledger names is stale: it proves an earlier head. */
-export function headSha(board: Board): string | undefined {
-  let best: { sha: string; at: number } | undefined;
-  for (const e of board.evidence.values()) {
-    if (!e.sha) continue;
-    const at = board.order.get(e.id) ?? 0;
-    if (!best || at > best.at) best = { sha: e.sha, at };
-  }
-  return best?.sha;
-}
-
+/** Evidence taken at a commit older than the ledger's newest one proves an earlier head. Short and
+ * full SHAs of the same commit match. */
 export function isStale(board: Board, evidence: EvidenceRecord): boolean {
-  const head = headSha(board);
-  return Boolean(head && evidence.sha && evidence.sha !== head);
+  return Boolean(board.head && evidence.sha && !sameCommit(evidence.sha, board.head));
 }
 
 export function axesLabel(axes: Record<string, string>): string {
