@@ -17,10 +17,13 @@
 //! other form only the status run says what its headers hold: with no commit
 //! `for-each-ref` has no line for the branch, though it may have an
 //! upstream; a detached HEAD gets the upstream of the branch that has the
-//! name of the place HEAD was detached at. For those the status run stays,
+//! name of the place HEAD was detached at; a branch name that is not UTF-8
+//! cannot go back to git as an argument. For those the status run stays,
 //! limited to the path `.git`, which no tracked file has, so git looks at no
-//! tracked file; and because it is a run that can read content, the filter
-//! drivers are blanked for it, as [`Repository::open`] does.
+//! tracked file (each run of this crate sets `GIT_OPTIONAL_LOCKS=0`; with no
+//! such setting the status run looks at each of them to refresh the index);
+//! and because it is a run that can read content, the filter drivers are
+//! blanked for it, as [`Repository::open`] does.
 
 use std::path::{Path, PathBuf};
 
@@ -79,24 +82,25 @@ impl Checkout {
     /// in each other form, which the refs do not answer.
     fn branch_from_refs(&self) -> Result<Option<BranchHeaders>, GitFailure> {
         let arguments = ["symbolic-ref", "--quiet", "HEAD"];
-        let reference = match self.refs.run(&arguments, MAX_SMALL_OUTPUT_BYTES) {
-            Ok(output) => String::from_utf8_lossy(&output.stdout).trim_end().to_string(),
+        let head = match self.refs.run(&arguments, MAX_SMALL_OUTPUT_BYTES) {
+            Ok(output) => output,
             // Detached (`--quiet` exits 1 with no message), or a HEAD that
             // git cannot read: the status run says which.
             Err(GitFailure::Exit(_)) => return Ok(None),
             Err(failure) => return Err(failure),
         };
+        // The name goes back to git as an argument, so it must be the bytes
+        // that git printed: a loose read (lossy, or one that cuts more than
+        // the line feed) can name a second branch. A name that is not UTF-8
+        // cannot be an argument here; the status run answers for it.
+        let Ok(reference) = std::str::from_utf8(&head.stdout) else { return Ok(None) };
+        let reference = reference.trim_end_matches('\n');
         let Some(branch) = reference.strip_prefix("refs/heads/") else { return Ok(None) };
         // The status headers shorten the upstream's name with the loose
         // rule; `for-each-ref` takes the strict one from this setting, and
         // then prints `heads/origin` for a local upstream named as a remote.
-        let arguments = [
-            "-c",
-            "core.warnAmbiguousRefs=false",
-            "for-each-ref",
-            BRANCH_FORMAT,
-            reference.as_str(),
-        ];
+        let arguments =
+            ["-c", "core.warnAmbiguousRefs=false", "for-each-ref", BRANCH_FORMAT, reference];
         let output = match self.refs.run(&arguments, MAX_SMALL_OUTPUT_BYTES) {
             Ok(output) if output.truncated => return Ok(None),
             Ok(output) => output,
@@ -104,7 +108,7 @@ impl Checkout {
             Err(failure) => return Err(failure),
         };
         let text = String::from_utf8_lossy(&output.stdout);
-        Ok(text.lines().find_map(|line| branch_line(line, &reference, branch)))
+        Ok(text.lines().find_map(|line| branch_line(line, reference, branch)))
     }
 
     /// The branch headers of the status run, limited to the path `.git`.
