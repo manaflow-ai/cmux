@@ -96,56 +96,128 @@ struct AgentAutoResumePolicyTests {
     private static let droppedConnectionDetail =
         "connection_dropped: API Error: Connection to the API was lost (StreamSuspended)"
 
+    /// Feeds live events through the notification reconciler and the tracker
+    /// the way the app's journal lifecycle center does: the reconciler's turn
+    /// read before and after `apply` goes to the tracker.
+    private struct LiveObservation {
+        var reconciler = AgentNotificationReconciler()
+        var tracker: AgentAutoResumeTracker
+        var sequence: Int64 = 0
+        /// Turn identity events carry unless they name one or have none.
+        var currentTurn = "turn-1"
+        let surface: String
+
+        init(surface: String, delays: [Duration] = AgentAutoResumeTracker.defaultDelays) {
+            self.surface = surface
+            tracker = AgentAutoResumeTracker(delays: delays)
+        }
+
+        mutating func observe(
+            _ kind: AgentJournalEventKind, child: String? = nil, detail: String? = nil, notify: Bool = false,
+            turn: String? = nil, identityless: Bool = false, pendingWork: Bool = false, nativeEvent: String? = nil,
+            declaredPhase: AgentLifecyclePhase? = nil, isSubagent: Bool = false
+        ) -> AgentAutoResumeTracker.Action {
+            sequence += 1
+            if let turn { currentTurn = turn }
+            let draft = AgentJournalEventDraft(
+                eventId: "event-\(sequence)", kind: kind, occurredAtMs: sequence, source: "claude",
+                agentKey: "claude", sessionId: "session", workspaceId: "workspace", surfaceId: surface,
+                isSubagent: isSubagent, pendingWork: pendingWork, nativeEvent: nativeEvent,
+                declaredPhase: declaredPhase, detail: detail,
+                attention: AgentAttentionContext(
+                    turnIdentity: identityless ? nil : currentTurn, requestIdentity: child,
+                    notification: notify ? AgentJournalNotification(
+                        title: "Agent", subtitle: "", body: "Ready", category: "turn-complete") : nil))
+            let event = AgentJournalEvent(sequence: sequence, committedAtMs: 1000 + sequence, draft: draft)
+            let turnOverBefore = reconciler.turnIsOver(for: event)
+            // The app hands only non-stale events to auto-resume. These tests
+            // never mean to send one, so a stale event is a broken scenario.
+            guard reconciler.apply(event).disposition != .stale else {
+                Issue.record("\(kind) was stale for the reconciler")
+                return .none
+            }
+            return tracker.observe(
+                kind: kind, surfaceId: surface, isSubagent: isSubagent, detail: detail, sessionId: "session",
+                turnOverBefore: turnOverBefore, turnOverAfter: reconciler.turnIsOver(for: event)
+            )
+        }
+
+        /// The pane's own idle settlement, journaled before the agent's Stop.
+        mutating func paneSettles() -> AgentAutoResumeTracker.Action {
+            observe(.turnCompleted, identityless: true, nativeEvent: AgentJournalEventDraft.paneIdleSettlementNativeEvent)
+        }
+
+        mutating func expectSchedule(
+            attempt: Int, _ comment: Comment, sourceLocation: SourceLocation = #_sourceLocation
+        ) -> UInt64? {
+            guard case let .schedule(_, scheduled, _, token) = observe(.errorReported, detail: "overloaded"),
+                  scheduled == attempt else {
+                Issue.record(comment, sourceLocation: sourceLocation)
+                return nil
+            }
+            return token
+        }
+    }
+
     @Test func aLateErrorAfterACompletedTurnDoesNotSchedule() {
-        // The turn ended normally with a question, then a dark wake reported
-        // a dropped connection an hour later with no prompt in between.
-        var tracker = AgentAutoResumeTracker()
-        let session = "c0ffee00-0000-4000-8000-000000000001"
-        #expect(tracker.observe(kind: .sessionStarted, surfaceId: surface, isSubagent: false, detail: nil, sessionId: session) == .none)
-        #expect(tracker.observe(kind: .turnStarted, surfaceId: surface, isSubagent: false, detail: nil, sessionId: session) == .none)
-        #expect(tracker.observe(kind: .turnCompleted, surfaceId: surface, isSubagent: false, detail: nil, sessionId: session) == .none)
-        #expect(tracker.observe(kind: .idleObserved, surfaceId: surface, isSubagent: false, detail: nil, sessionId: session) == .none)
-        #expect(tracker.observe(
-            kind: .errorReported, surfaceId: surface, isSubagent: false,
-            detail: Self.droppedConnectionDetail, sessionId: session
-        ) == .none)
+        // The turn ended normally, then a dark wake reported a dropped
+        // connection an hour later with no prompt in between.
+        var live = LiveObservation(surface: surface)
+        #expect(live.observe(.sessionStarted) == .none)
+        #expect(live.observe(.turnStarted) == .none)
+        #expect(live.observe(.turnCompleted, notify: true) == .none)
+        #expect(live.observe(.idleObserved) == .none)
+        #expect(live.observe(.errorReported, detail: Self.droppedConnectionDetail) == .none)
 
         // The next turn can be resumed again.
-        #expect(tracker.observe(kind: .turnStarted, surfaceId: surface, isSubagent: false, detail: nil, sessionId: session) == .none)
-        guard case .schedule(_, 1, _, _) = tracker.observe(
-            kind: .errorReported, surfaceId: surface, isSubagent: false,
-            detail: Self.droppedConnectionDetail, sessionId: session
-        ) else {
+        #expect(live.observe(.turnStarted, turn: "turn-2") == .none)
+        guard case .schedule(_, 1, _, _) = live.observe(.errorReported, detail: Self.droppedConnectionDetail) else {
             Issue.record("an error in a new turn should schedule")
             return
         }
     }
 
-    @Test func aLateErrorAfterTheFirstCompletedTurnTheTrackerSeesDoesNotSchedule() {
-        var tracker = AgentAutoResumeTracker()
-        #expect(tracker.observe(kind: .turnCompleted, surfaceId: surface, isSubagent: false, detail: nil) == .none)
-        #expect(tracker.observe(kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "overloaded") == .none)
+    @Test func aRepeatedLateErrorStillDoesNotSchedule() {
+        // The first late report moves the session to its error phase. That
+        // must not make the finished turn look live to the next report.
+        var live = LiveObservation(surface: surface)
+        #expect(live.observe(.turnStarted) == .none)
+        #expect(live.observe(.turnCompleted) == .none)
+        #expect(live.observe(.errorReported, detail: "overloaded") == .none)
+        #expect(live.observe(.errorReported, detail: Self.droppedConnectionDetail) == .none)
     }
 
-    @Test(arguments: [
-        AgentJournalEventKind.stateChanged,
-        .childSpawned,
-        .childCompleted,
-        .childFailed,
-        .attentionResolved,
-    ])
-    func activityAfterACompletedTurnLetsTheNextErrorSchedule(kind: AgentJournalEventKind) {
+    @Test func aLateErrorAfterTheFirstCompletedTurnTheAppSeesDoesNotSchedule() {
+        var live = LiveObservation(surface: surface)
+        #expect(live.observe(.turnCompleted) == .none)
+        #expect(live.observe(.errorReported, detail: "overloaded") == .none)
+    }
+
+    @Test func aNewTurnAfterACompletedTurnLetsTheNextErrorSchedule() {
+        var live = LiveObservation(surface: surface)
+        #expect(live.observe(.turnStarted) == .none)
+        #expect(live.observe(.turnCompleted) == .none)
+        #expect(live.observe(.turnStarted, turn: "turn-2") == .none)
+        _ = live.expectSchedule(attempt: 1, "an error in the next turn should schedule")
+    }
+
+    @Test func toolActivityWithoutAPromptReopensTheTurn() {
         // A continuation can start without a prompt hook (a background task
-        // finishing, for one); its tool activity shows the agent is working.
-        var tracker = AgentAutoResumeTracker()
-        #expect(tracker.observe(kind: .turnCompleted, surfaceId: surface, isSubagent: false, detail: nil) == .none)
-        _ = tracker.observe(kind: kind, surfaceId: surface, isSubagent: false, detail: nil)
-        guard case .schedule(_, 1, _, _) = tracker.observe(
-            kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "overloaded"
-        ) else {
-            Issue.record("an error after \(kind) should schedule")
-            return
-        }
+        // finishing, for one); its fresh tool activity shows it working.
+        var live = LiveObservation(surface: surface)
+        #expect(live.observe(.turnStarted) == .none)
+        #expect(live.observe(.turnCompleted) == .none)
+        #expect(live.observe(.stateChanged, identityless: true, nativeEvent: "PreToolUse", declaredPhase: .running) == .none)
+        _ = live.expectSchedule(attempt: 1, "tool activity after a completed turn should let an error schedule")
+    }
+
+    @Test func anAnswerThatContinuesWorkReopensTheTurn() {
+        var live = LiveObservation(surface: surface)
+        #expect(live.observe(.turnStarted) == .none)
+        #expect(live.observe(.turnCompleted) == .none)
+        #expect(live.observe(.questionRequested, child: "question", notify: true) == .none)
+        #expect(live.observe(.attentionResolved, child: "question", pendingWork: true, declaredPhase: .running) == .none)
+        _ = live.expectSchedule(attempt: 1, "work after an answered question should let an error schedule")
     }
 
     @Test(arguments: [
@@ -153,48 +225,43 @@ struct AgentAutoResumePolicyTests {
         .questionRequested,
         .planReviewRequested,
     ])
-    func aWaitForAHumanAfterACompletedTurnKeepsTheTurnEnded(kind: AgentJournalEventKind) {
+    func aWaitForAHumanAfterACompletedTurnKeepsTheTurnOver(kind: AgentJournalEventKind) {
         // Older Claude Code idle reminders read as a question. Waiting on a
         // human is not a running turn, so a late error still must not resume.
-        var tracker = AgentAutoResumeTracker()
-        #expect(tracker.observe(kind: .turnCompleted, surfaceId: surface, isSubagent: false, detail: nil) == .none)
-        #expect(tracker.observe(kind: kind, surfaceId: surface, isSubagent: false, detail: nil) == .none)
-        #expect(tracker.observe(kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "overloaded") == .none)
+        var live = LiveObservation(surface: surface)
+        #expect(live.observe(.turnStarted) == .none)
+        #expect(live.observe(.turnCompleted) == .none)
+        #expect(live.observe(kind, child: "request", notify: true) == .none)
+        #expect(live.observe(.errorReported, detail: "overloaded") == .none)
     }
 
-    @Test func aCompletionThatDoesNotEndTheTurnLetsTheNextErrorSchedule() {
-        // Background work still pending, or the app settling a pane before a
-        // slow Stop hook: the turn's own failure may still follow.
-        var tracker = AgentAutoResumeTracker()
-        #expect(tracker.observe(kind: .turnCompleted, surfaceId: surface, isSubagent: false, detail: nil, endsTurn: false) == .none)
-        guard case .schedule(_, 1, _, _) = tracker.observe(
-            kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "overloaded"
-        ) else {
-            Issue.record("an error after a completion that did not end the turn should schedule")
-            return
-        }
+    @Test func aCompletionWithBackgroundWorkLetsTheNextErrorSchedule() {
+        var live = LiveObservation(surface: surface)
+        #expect(live.observe(.turnStarted) == .none)
+        #expect(live.observe(.turnCompleted, pendingWork: true) == .none)
+        _ = live.expectSchedule(attempt: 1, "the turn continues while background work runs")
+    }
+
+    @Test func thePanesSettlementLetsASlowStopFailureSchedule() {
+        // The app settles a quiet pane after a 3 s grace; the agent's own
+        // StopFailure for that turn can land after it.
+        var live = LiveObservation(surface: surface)
+        #expect(live.observe(.turnStarted) == .none)
+        #expect(live.paneSettles() == .none)
+        _ = live.expectSchedule(attempt: 1, "a failure after the pane's settlement should schedule")
     }
 
     @Test func aCompletionThatDoesNotEndTheTurnKeepsTheFailingStreak() {
         // A resumed turn that fails again, with the pane's idle settlement
         // landing before its StopFailure, must keep backing off and stop.
-        var tracker = AgentAutoResumeTracker(delays: [.seconds(1), .seconds(2)])
-        guard case let .schedule(_, _, _, token) = tracker.observe(
-            kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "overloaded"
-        ) else {
-            Issue.record("expected a schedule")
-            return
-        }
-        #expect(tracker.resumeSent(surfaceId: surface, token: token) == 1)
-        #expect(tracker.observe(kind: .turnStarted, surfaceId: surface, isSubagent: false, detail: nil) == .none)
-        #expect(tracker.observe(kind: .turnCompleted, surfaceId: surface, isSubagent: false, detail: nil, endsTurn: false) == .none)
-        #expect(tracker.totalResumes(surfaceId: surface) == 1)
-        guard case .schedule(_, 2, _, _) = tracker.observe(
-            kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "overloaded"
-        ) else {
-            Issue.record("the streak should continue at attempt 2")
-            return
-        }
+        var live = LiveObservation(surface: surface, delays: [.seconds(1), .seconds(2)])
+        #expect(live.observe(.turnStarted) == .none)
+        guard let token = live.expectSchedule(attempt: 1, "expected a schedule") else { return }
+        #expect(live.tracker.resumeSent(surfaceId: surface, token: token) == 1)
+        #expect(live.observe(.turnStarted, turn: "turn-2") == .none)
+        #expect(live.paneSettles() == .none)
+        #expect(live.tracker.totalResumes(surfaceId: surface) == 1)
+        _ = live.expectSchedule(attempt: 2, "the streak should continue at attempt 2")
     }
 
     @Test func aCompletionThatDoesNotEndTheTurnCancelsAPendingResume() {
@@ -206,19 +273,28 @@ struct AgentAutoResumePolicyTests {
             return
         }
         #expect(tracker.observe(
-            kind: .turnCompleted, surfaceId: surface, isSubagent: false, detail: nil, endsTurn: false
+            kind: .turnCompleted, surfaceId: surface, isSubagent: false, detail: nil, turnOverAfter: false
         ) == .cancel(surfaceId: surface))
         #expect(!tracker.isPending(surfaceId: surface, token: token))
         #expect(tracker.resumeSent(surfaceId: surface, token: token) == nil)
     }
 
-    @Test func thePanesSettlementAfterAFinalStopKeepsTheTurnEnded() {
+    @Test func thePanesSettlementAfterAFinalStopKeepsTheTurnOver() {
         // The Stop was still queued when the pane settled, so the synthetic
-        // completion lands after it. It is no sign of a new turn.
-        var tracker = AgentAutoResumeTracker()
-        #expect(tracker.observe(kind: .turnCompleted, surfaceId: surface, isSubagent: false, detail: nil) == .none)
-        #expect(tracker.observe(kind: .turnCompleted, surfaceId: surface, isSubagent: false, detail: nil, endsTurn: false) == .none)
-        #expect(tracker.observe(kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "overloaded") == .none)
+        // completion lands after it. It does not make the turn provisional.
+        var live = LiveObservation(surface: surface)
+        #expect(live.observe(.turnStarted) == .none)
+        #expect(live.observe(.turnCompleted) == .none)
+        #expect(live.paneSettles() == .none)
+        #expect(live.observe(.errorReported, detail: "overloaded") == .none)
+    }
+
+    @Test func theAgentsStopAfterThePanesSettlementEndsTheTurn() {
+        var live = LiveObservation(surface: surface)
+        #expect(live.observe(.turnStarted) == .none)
+        #expect(live.paneSettles() == .none)
+        #expect(live.observe(.turnCompleted) == .none)
+        #expect(live.observe(.errorReported, detail: "overloaded") == .none)
     }
 
     @Test(arguments: [
@@ -228,58 +304,29 @@ struct AgentAutoResumePolicyTests {
         .error,
         .unknown,
     ])
-    func aStateChangeDeclaringANonRunningPhaseKeepsTheTurnEnded(phase: AgentLifecyclePhase) {
+    func aStateChangeDeclaringANonRunningPhaseKeepsTheTurnOver(phase: AgentLifecyclePhase) {
         // Codex corrects a stale prompt-submit for a finished turn with a
         // state change that names the stored, non-running phase.
-        var tracker = AgentAutoResumeTracker()
-        #expect(tracker.observe(kind: .turnCompleted, surfaceId: surface, isSubagent: false, detail: nil) == .none)
-        #expect(tracker.observe(
-            kind: .stateChanged, surfaceId: surface, isSubagent: false, detail: nil, declaredPhase: phase
-        ) == .none)
-        #expect(tracker.observe(kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "overloaded") == .none)
+        var live = LiveObservation(surface: surface)
+        #expect(live.observe(.turnStarted) == .none)
+        #expect(live.observe(.turnCompleted) == .none)
+        #expect(live.observe(.stateChanged, declaredPhase: phase) == .none)
+        #expect(live.observe(.errorReported, detail: "overloaded") == .none)
     }
 
     @Test func aStaleTurnCorrectionClosesTheTurnASpuriousStartReopened() {
         // Codex can journal a turn-started for a prompt-submit that belongs to
         // a finished turn, then correct it with the store's idle phase. The
-        // correction must close the turn again so a late error is ignored.
-        var tracker = AgentAutoResumeTracker()
-        #expect(tracker.observe(kind: .turnCompleted, surfaceId: surface, isSubagent: false, detail: nil) == .none)
-        #expect(tracker.observe(kind: .turnStarted, surfaceId: surface, isSubagent: false, detail: nil) == .none)
-        #expect(tracker.observe(
-            kind: .stateChanged, surfaceId: surface, isSubagent: false,
-            detail: "stale-turn-corrected", declaredPhase: .idle
-        ) == .none)
-        #expect(tracker.observe(kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "overloaded") == .none)
+        // correction closes the turn again, so a late error is ignored.
+        var live = LiveObservation(surface: surface)
+        #expect(live.observe(.turnStarted) == .none)
+        #expect(live.observe(.turnCompleted) == .none)
+        #expect(live.observe(.turnStarted, turn: "turn-2") == .none)
+        #expect(live.observe(.stateChanged, detail: "stale-turn-corrected", declaredPhase: .idle) == .none)
+        #expect(live.observe(.errorReported, detail: "overloaded") == .none)
     }
 
-    /// Feeds live events through the notification reconciler and the tracker
-    /// the way the app's journal lifecycle center does.
-    private struct LiveObservation {
-        var reconciler = AgentNotificationReconciler()
-        var tracker = AgentAutoResumeTracker()
-        var sequence: Int64 = 0
-        let surface: String
-
-        mutating func observe(
-            _ kind: AgentJournalEventKind, child: String? = nil, detail: String? = nil, notify: Bool = false
-        ) -> AgentAutoResumeTracker.Action {
-            sequence += 1
-            let draft = AgentJournalEventDraft(
-                eventId: "event-\(sequence)", kind: kind, occurredAtMs: sequence, source: "claude",
-                agentKey: "claude", sessionId: "session", workspaceId: "workspace", surfaceId: surface,
-                detail: detail,
-                attention: AgentAttentionContext(
-                    turnIdentity: "turn-1", requestIdentity: child,
-                    notification: notify ? AgentJournalNotification(
-                        title: "Agent", subtitle: "", body: "Ready", category: "turn-complete") : nil))
-            let event = AgentJournalEvent(sequence: sequence, committedAtMs: 1000 + sequence, draft: draft)
-            _ = reconciler.apply(event)
-            return tracker.observe(draft, surfaceId: surface, projected: reconciler.lifecycleEvent(event).draft)
-        }
-    }
-
-    @Test func aChildThatFinishesAfterTheFinalStopKeepsTheTurnEnded() {
+    @Test func aChildThatFinishesAfterTheFinalStopKeepsTheTurnOver() {
         // The root stops while a child is still running. The child's later
         // completion leaves the session idle, so it is not work starting
         // again and a late error must not schedule a resume.
@@ -292,6 +339,48 @@ struct AgentAutoResumePolicyTests {
         #expect(live.tracker.totalResumes(surfaceId: surface) == 0)
     }
 
+    @Test func aStopWithAChildStillRunningEndsTheTurn() {
+        // A background subagent, or one whose SubagentStop never came, is
+        // still listed at the root's Stop. The turn is over: a late error is
+        // not resumed, and the "Auto-resumed ×N" marker has nothing left to say.
+        var live = LiveObservation(surface: surface)
+        #expect(live.observe(.turnStarted) == .none)
+        guard let token = live.expectSchedule(attempt: 1, "expected a schedule") else { return }
+        #expect(live.tracker.resumeSent(surfaceId: surface, token: token) == 1)
+        #expect(live.observe(.turnStarted, turn: "turn-2") == .none)
+        #expect(live.observe(.childSpawned, child: "child") == .none)
+        #expect(live.observe(.turnCompleted, notify: true) == .none)
+        #expect(live.tracker.totalResumes(surfaceId: surface) == 0)
+        #expect(live.observe(.errorReported, detail: Self.droppedConnectionDetail) == .none)
+    }
+
+    @Test func aBlockedStopThatKeepsWorkingLetsItsFailureSchedule() {
+        // A Stop hook that blocks continues the same turn, so its tool
+        // activity carries the stopped turn's identity.
+        var live = LiveObservation(surface: surface)
+        #expect(live.observe(.turnStarted) == .none)
+        #expect(live.observe(.turnCompleted) == .none)
+        #expect(live.observe(.stateChanged, nativeEvent: "PreToolUse", declaredPhase: .running) == .none)
+        _ = live.expectSchedule(attempt: 1, "a failure in work after a blocked Stop should schedule")
+    }
+
+    @Test func aToolResultReceivedAfterTheStopKeepsTheTurnOver() {
+        // The stopped turn's last PostToolUse can reach the app after its Stop.
+        var live = LiveObservation(surface: surface)
+        #expect(live.observe(.turnStarted) == .none)
+        #expect(live.observe(.turnCompleted) == .none)
+        #expect(live.observe(.stateChanged, nativeEvent: "PostToolUse", declaredPhase: .running) == .none)
+        #expect(live.observe(.errorReported, detail: "overloaded") == .none)
+    }
+
+    @Test func aLateErrorAfterTheSessionEndedDoesNotSchedule() {
+        var live = LiveObservation(surface: surface)
+        #expect(live.observe(.sessionStarted) == .none)
+        #expect(live.observe(.turnStarted) == .none)
+        #expect(live.observe(.sessionEnded) == .none)
+        #expect(live.observe(.errorReported, detail: Self.droppedConnectionDetail) == .none)
+    }
+
     @Test func aChildSpawnedAfterTheFinalStopReopensTheTurn() {
         // A new child after the Stop is the session running again, so a
         // failure in that work still gets its resume.
@@ -299,35 +388,14 @@ struct AgentAutoResumePolicyTests {
         #expect(live.observe(.turnStarted) == .none)
         #expect(live.observe(.turnCompleted, notify: true) == .none)
         #expect(live.observe(.childSpawned, child: "late-child") == .none)
-        guard case .schedule = live.observe(.errorReported, detail: "overloaded") else {
-            Issue.record("an error after a child spawned past the Stop should schedule a resume")
-            return
-        }
-    }
-
-    @Test func aStateChangeDeclaringRunningReopensTheTurn() {
-        var tracker = AgentAutoResumeTracker()
-        #expect(tracker.observe(kind: .turnCompleted, surfaceId: surface, isSubagent: false, detail: nil) == .none)
-        #expect(tracker.observe(
-            kind: .stateChanged, surfaceId: surface, isSubagent: false, detail: nil, declaredPhase: .running
-        ) == .none)
-        guard case .schedule = tracker.observe(
-            kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "overloaded"
-        ) else {
-            Issue.record("tool activity after a completed turn should let an error schedule")
-            return
-        }
+        _ = live.expectSchedule(attempt: 1, "an error after a child spawned past the Stop should schedule a resume")
     }
 
     @Test func aSubagentsCompletedTurnDoesNotHoldBackTheParentsError() {
-        var tracker = AgentAutoResumeTracker()
-        #expect(tracker.observe(kind: .turnCompleted, surfaceId: surface, isSubagent: true, detail: nil) == .none)
-        guard case .schedule = tracker.observe(
-            kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "overloaded"
-        ) else {
-            Issue.record("a subagent's completion must not end the parent's turn")
-            return
-        }
+        var live = LiveObservation(surface: surface)
+        #expect(live.observe(.turnStarted) == .none)
+        #expect(live.observe(.turnCompleted, isSubagent: true) == .none)
+        _ = live.expectSchedule(attempt: 1, "a subagent's completion must not end the parent's turn")
     }
 
     /// Subrouter's 503 when every pooled account is exhausted, as Claude Code
