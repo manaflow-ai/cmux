@@ -253,8 +253,8 @@ one the person has focused. This holds for the CLI and for the MCP server:
 | Command (no `--workspace`, `--screen`, `--pane`) | Agent chat or Chief turn | cmux terminal |
 | --- | --- | --- |
 | `tab create terminal`, `browser open`, `tab create browser`, `browser profile open`, `open <url>`, `open <file>` | Beside the chat: the column right of it, made when missing. | Beside the terminal when it runs an agent; else a tab in the terminal's own pane. |
-| `pane create` | The chat's screen. | The terminal's screen. |
-| `screen create`, `workspace open-url` | The chat's workspace. | The terminal's workspace. |
+| `pane create` | The chat's screen (a Chief turn: the daemon's default). | The terminal's screen. |
+| `screen create`, `workspace open-url` | The chat's workspace (a Chief turn: the daemon's default). | The terminal's workspace. |
 | `agent start`, `agent resume`, `terminal <t> resume` (no `--pane`, no `--split`) | Beside the chat. | A split right of the terminal's pane. |
 | `agents terminal split` (no `--surface`) | A split of the chat's pane (a Chief turn: the Home chat's pane). | A split of the terminal's pane. |
 
@@ -272,6 +272,15 @@ Rules:
   shows, or a request to another session or machine (`--socket`, `--machine`,
   `--session` naming another session), the daemon's default applies: its active
   workspace, screen and pane.
+- A Chief turn's place is the Home chat. Its tabs open beside the Home chat,
+  but `pane create`, `screen create` and `workspace open-url` from a Chief turn
+  keep the daemon's default: the app draws the Home workspace as a page, so a
+  pane or a screen made there may never be seen.
+- A retry with the same `--idempotency-key` (MCP `idempotency_key`) never opens
+  a second tab, also when the layout changed between the tries: the creation
+  is recorded under that key (`correlation_key`), the retry answers with the
+  tab the first try made, and a creation of another kind under the same key
+  fails with `creation.conflict`.
 - Name a place only when the person names one.
 
 A selector id, or an id given to `--workspace`, `--screen`, `--pane`, `--tab`,
