@@ -81,9 +81,8 @@ struct CloudMachineCreateFlow {
     /// Same-key calls after the approval before ``Failure/stillPending``.
     var retries = 8
 
-    /// The default machine named `name` (trimmed; empty is none): 4 vCPU, 16 GB of memory and a 64 GB disk
-    /// (2026-11-13: a chat's 23 GB folder did not fit the 16 GB disk of the 2 vCPU / 4 GB default; the
-    /// backend checks the plan); `sizeShown` false when the plan picks the size.
+    /// The default machine named `name` (trimmed; empty is none): 4 vCPU, 16 GB of memory and a 64 GB disk, so a
+    /// chat's folder fits (the backend checks the plan); `sizeShown` false when the plan picks the size.
     static func named(_ name: String?, sizeShown: Bool = true, askedBy: String? = nil) -> Machine {
         Machine(name: name.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }, cpu: 4, memoryMB: 16384, diskMB: 65536, sizeShown: sizeShown, askedBy: askedBy)
     }
