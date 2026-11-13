@@ -27,7 +27,7 @@ impl SummaryIndex {
     ) -> Option<RowKey> {
         self.kin()
             .children(parent)?
-            .range((after.map_or(Unbounded, Excluded), Unbounded))
+            .range::<_, RowKey>((after.map_or(Unbounded, Excluded), Unbounded))
             .find(|key| *key != root)
             .cloned()
     }

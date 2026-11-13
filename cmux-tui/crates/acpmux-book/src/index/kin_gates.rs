@@ -207,7 +207,7 @@ fn folder_page_gate() {
 #[test]
 #[ignore = "release gate"]
 fn random_replay_gate() {
-    super::kin_lifecycle_tests::randomized_hot_lifecycle();
+    kin_lifecycle_tests::randomized_hot_lifecycle();
     emit("v2.pr05e.random_replay", 10_000, 10_000, None, "checks");
 }
 

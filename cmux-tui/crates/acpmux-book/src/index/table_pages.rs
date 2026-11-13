@@ -1,6 +1,6 @@
 //! Hot folder/fork ranges. Cold requests use the physical snapshot pager.
 
-use super::{IndexPage, ListFilter, ReadSide, SortKey, SummaryIndex};
+use super::{IndexPage, ListFilter, ReadSide, RowKey, SortKey, SummaryIndex};
 use std::cmp::Ordering;
 use std::io;
 use std::ops::Bound::{Excluded, Included, Unbounded};
@@ -47,12 +47,19 @@ impl SummaryIndex {
                 .map_or(Unbounded, |key| if inclusive { Included(key) } else { Excluded(key) });
             if side == ReadSide::Before {
                 keys.extend(
-                    table.range((Unbounded, bound)).rev().take(limit).map(|(key, _)| key.clone()),
+                    table
+                        .range::<_, SortKey>((Unbounded, bound))
+                        .rev()
+                        .take(limit)
+                        .map(|(key, _)| key.clone()),
                 );
                 keys.reverse();
             } else {
                 keys.extend(
-                    table.range((bound, Unbounded)).take(limit).map(|(key, _)| key.clone()),
+                    table
+                        .range::<_, SortKey>((bound, Unbounded))
+                        .take(limit)
+                        .map(|(key, _)| key.clone()),
                 );
             }
         } else if let Some(root) = &filter.forks
@@ -64,7 +71,7 @@ impl SummaryIndex {
             if side == ReadSide::Before {
                 keys.extend(
                     table
-                        .range((Unbounded, bound))
+                        .range::<_, RowKey>((Unbounded, bound))
                         .rev()
                         .take(limit)
                         .map(|(key, _)| SortKey { last_activity: 0, row: key.clone() }),
@@ -73,7 +80,7 @@ impl SummaryIndex {
             } else {
                 keys.extend(
                     table
-                        .range((bound, Unbounded))
+                        .range::<_, RowKey>((bound, Unbounded))
                         .take(limit)
                         .map(|(key, _)| SortKey { last_activity: 0, row: key.clone() }),
                 );
