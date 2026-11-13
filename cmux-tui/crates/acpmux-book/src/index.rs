@@ -46,7 +46,10 @@ pub use compaction::{Compaction, CompactionResult};
 pub use edition::IndexEdition;
 pub use kin::{FolderKey, KinTables};
 pub use log::{IndexLog, replay_generation_logs, replay_log, replay_log_from};
-pub use snapshot::{DiskSnapshot, SnapshotRows, SortedSnapshot};
+pub use snapshot::{
+    DiskSnapshot, FatalSnapshotRead, SnapshotRows, SortedSnapshot, is_corrupt_snapshot_row,
+    is_fatal_snapshot_read, snapshot_skipped_frames,
+};
 
 use std::io;
 
@@ -96,6 +99,8 @@ pub struct Summary {
     pub workspace: Option<String>,
     pub origin: String,
     pub pinned: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub archived: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub peer_form: Option<Box<RawValue>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -154,6 +159,7 @@ impl Clone for Summary {
             workspace: self.workspace.clone(),
             origin: self.origin.clone(),
             pinned: self.pinned,
+            archived: self.archived,
             peer_form: self.peer_form.as_ref().map(|value| value.to_owned()),
             parent: self.parent.clone(),
             fork_of: self.fork_of.clone(),
@@ -176,6 +182,7 @@ impl Summary {
             workspace: None,
             origin: "local".to_owned(),
             pinned: false,
+            archived: false,
             peer_form: None,
             parent: None,
             fork_of: None,
@@ -193,18 +200,10 @@ impl Summary {
     /// archived or non-root parent cannot hide a child after it changes.
     pub fn listed_under(child: &Summary, parent: Option<&Summary>) -> bool {
         let Some(parent) = parent else { return false };
-        if child.key() == parent.key() || parent.parent.is_some() || parent.archived() {
+        if child.key() == parent.key() || parent.parent.is_some() || parent.archived {
             return false;
         }
         child.parent.as_ref() == Some(&parent.key())
-    }
-
-    fn archived(&self) -> bool {
-        serde_json::from_str::<serde_json::Value>(self.extra.get())
-            .ok()
-            .as_ref()
-            .and_then(|value| value.pointer("/tags/archived"))
-            .is_some_and(|value| !value.is_null())
     }
 
     /// Keys are refused, never shortened. Opaque data stays opaque.
@@ -255,6 +254,7 @@ impl Summary {
             workspace,
             origin,
             pinned,
+            archived,
             peer_form,
             parent,
             fork_of,
@@ -270,6 +270,7 @@ impl Summary {
             && workspace == &other.workspace
             && origin == &other.origin
             && pinned == &other.pinned
+            && archived == &other.archived
             && peer_form.as_ref().map(|value| value.get())
                 == other.peer_form.as_ref().map(|value| value.get())
             && parent == &other.parent
@@ -500,6 +501,9 @@ impl SummaryIndex {
                             next_disk = Some(row);
                         }
                         Some(Err(error)) => {
+                            if is_corrupt_snapshot_row(&error) {
+                                return Some(Err(error));
+                            }
                             disk_done = true;
                             return Some(Err(error));
                         }
@@ -699,6 +703,7 @@ impl SummaryIndex {
         for key in &keys {
             if let Some(old) = next.by_id.remove(key) {
                 next.ordered.remove(&SortKey::of(&old));
+                next.live_ordered.remove(&SortKey::of(&old));
                 next.kin.remove(&old);
             }
             next.shadowed.insert(key.clone());
@@ -720,6 +725,7 @@ impl SummaryIndex {
         let mut next = self.clone();
         if let Some(old) = next.by_id.remove(key) {
             next.ordered.remove(&SortKey::of(&old));
+            next.live_ordered.remove(&SortKey::of(&old));
             next.kin.remove(&old);
         }
         next
@@ -998,17 +1004,47 @@ mod tests {
         assert!(!Summary::listed_under(&nested, Some(&parent)));
 
         parent.parent = None;
-        parent.extra = RawValue::from_string("{\"tags\":{\"archived\":true}}".to_owned()).unwrap();
+        parent.archived = true;
         assert!(!Summary::listed_under(&child, Some(&parent)));
 
+        parent.archived = true;
         parent.extra =
             RawValue::from_string("{\"tags\":{\"archived\":\"reason\"}}".to_owned()).unwrap();
         assert!(!Summary::listed_under(&child, Some(&parent)));
         assert!(!Summary::listed_under(&parent, Some(&parent)));
 
+        parent.archived = false;
         parent.extra = RawValue::from_string("{\"tags\":{}}".to_owned()).unwrap();
         child.parent = Some(RowKey::new("local", "other"));
         assert!(!Summary::listed_under(&child, Some(&parent)));
+    }
+
+    #[test]
+    fn archived_is_typed_through_bounds_and_codec_with_legacy_default() {
+        let legacy: Summary = serde_json::from_str(
+            r#"{"chatId":"legacy","title":"","harness":"","state":"closed","lastActivity":0,"unread":0,"workspace":null,"origin":"local","pinned":false,"extra":{}}"#,
+        )
+        .unwrap();
+        assert!(!legacy.archived);
+
+        let mut archived = Summary::new("archived");
+        archived.archived = true;
+        archived.extra =
+            RawValue::from_string(format!("{{\"blob\":\"{}\"}}", "x".repeat(8_000))).unwrap();
+        let index = SummaryIndex::new().apply(1, archived);
+        let row = index.get("archived").unwrap();
+        assert!(row.archived);
+        assert_eq!(row.extra.get(), "{}");
+        let mut child = Summary::new("child");
+        child.parent = Some(row.key());
+        assert!(!Summary::listed_under(&child, Some(&row)));
+
+        let dir = tempdir().unwrap();
+        let mut log = IndexLog::open(dir.path().join("index.log")).unwrap();
+        log.append(row.as_ref().clone()).unwrap();
+        log.sync().unwrap();
+        let restored = replay_log(log.path(), SummaryIndex::new()).unwrap();
+        assert!(restored.get("archived").unwrap().archived);
     }
 
     #[test]
@@ -1142,6 +1178,90 @@ mod tests {
             }
             assert_eq!(actual, expected, "change {seq}");
         }
+    }
+
+    #[test]
+    fn every_index_mutator_keeps_live_pages_equal_to_the_ordered_filter() {
+        fn assert_live_matches_filter(index: &SummaryIndex) {
+            let expected = index
+                .iter()
+                .filter(|row| row.is_live() && !index.is_origin_removed(row.origin.as_str()))
+                .map(|row| row.key())
+                .collect::<Vec<_>>();
+            let mut actual = Vec::new();
+            let mut anchor = None;
+            loop {
+                let page = index
+                    .read_live_page(anchor.as_ref(), ReadSide::After, false, 16, 64 * 1024, None)
+                    .unwrap();
+                actual.extend(page.rows.iter().map(|row| row.key()));
+                if !page.has_after {
+                    break;
+                }
+                anchor = page.after_key;
+            }
+            assert_eq!(actual, expected);
+        }
+
+        let mut peer = summary("peer", 20, "{}");
+        peer.origin = "peer".into();
+        peer.state = "running".into();
+        let mut local = summary("local", 10, "{}");
+        local.state = "running".into();
+        let mut closed = summary("closed", 5, "{}");
+        closed.state = "closed".into();
+        let mut index = SummaryIndex::new().apply(1, peer.clone()).apply(2, local).apply(3, closed);
+        assert_live_matches_filter(&index);
+
+        let mut hydrated = peer.clone();
+        hydrated.last_activity = 30;
+        index = index.hydrate(Arc::new(hydrated), 100);
+        assert_live_matches_filter(&index);
+
+        let key = peer.key();
+        let mut evicted = index.clone();
+        assert!(evicted.evict_compacted(&key));
+        assert_live_matches_filter(&evicted);
+        evicted.hydrate_compacted(Arc::new(peer.clone()));
+        assert_live_matches_filter(&evicted);
+
+        let mut removed =
+            evicted.apply_origin(10, origin_record("peer".into(), 10, OriginState::Removed));
+        assert_live_matches_filter(&removed);
+        let (next, count) = removed.remove_origin_batch(10, "peer", 256);
+        removed = next;
+        assert_eq!(count, 1);
+        assert_live_matches_filter(&removed);
+        removed = removed.finish_origin_removal("peer");
+        assert_live_matches_filter(&removed);
+
+        removed =
+            removed.apply_origin(11, origin_record("peer".into(), 11, OriginState::Connected));
+        assert_live_matches_filter(&removed);
+
+        let mut returned = peer.clone();
+        returned.chat_id = "peer-returned".into();
+        returned.last_activity = 40;
+        removed = removed.apply(12, returned.clone());
+        assert_live_matches_filter(&removed);
+        removed = removed.remove_row(13, &returned.key()).unwrap();
+        assert_live_matches_filter(&removed);
+        removed = removed.remove_row(14, &RowKey::new("local", "local")).unwrap();
+        assert_live_matches_filter(&removed);
+        let mut ephemeral = peer;
+        ephemeral.chat_id = "peer-ephemeral".into();
+        ephemeral.last_activity = 50;
+        let removed = removed.apply(15, ephemeral.clone());
+        assert_live_matches_filter(&removed);
+        let removed = removed.remove_ephemeral(&ephemeral.key());
+        assert_live_matches_filter(&removed);
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("index.snap");
+        SortedSnapshot::write(&path, &removed).unwrap();
+        let disk = DiskSnapshot::open(&path).unwrap().unwrap();
+        let (compacted, _) = removed.with_compacted_snapshot(disk, Default::default());
+        assert_live_matches_filter(&compacted);
     }
 
     #[test]

@@ -175,6 +175,7 @@ impl HubWriter {
         let Some(result) = job.ready.take() else { return };
         match result {
             Ok(Ok(result)) => {
+                self.log_errors.fetch_add(result.skipped_snapshot_rows as u64, Ordering::Relaxed);
                 if result.cleanup_errors == 0 {
                     self.compaction_backoff = 0;
                     self.next_compaction = None;

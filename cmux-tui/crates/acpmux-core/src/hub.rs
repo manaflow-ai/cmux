@@ -21,6 +21,7 @@ use crate::wire::{Frame, FrameError, FrameKind, Origin, Sub};
 mod compaction;
 mod disk;
 mod history;
+mod keyed_page;
 mod origins;
 pub use compaction::CompactionStats;
 use history::History;
@@ -609,6 +610,18 @@ impl Hub {
         self.history.lock().map_or(0, |history| history.encoded_ops())
     }
 
+    #[cfg(test)]
+    pub(crate) fn reset_history_raw_copies(&self) {
+        if let Ok(history) = self.history.lock() {
+            history.reset_raw_copies();
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn history_raw_copies(&self) -> usize {
+        self.history.lock().map_or(0, |history| history.raw_copies())
+    }
+
     pub fn set_page_provider(&self, provider: Arc<dyn PageProvider>) {
         if let Ok(mut slot) = self.page_provider.lock() {
             *slot = Some(provider);
@@ -769,6 +782,16 @@ impl Hub {
         if request.stream.as_str() != "list" {
             return Err(HubError::WrongStream(request.stream.as_str().to_owned()));
         }
+        if matches!(request.view, Some(crate::wire::ListView::Live))
+            && request.filter.as_ref().is_some_and(|filter| {
+                filter.family.is_some()
+                    || filter.forks.is_some()
+                    || filter.folder.is_some()
+                    || filter.cold
+            })
+        {
+            return Err(HubError::InvalidParams("table filters require the all view".into()));
+        }
         let max = request.max_bytes as usize;
         if max > crate::wire::MAX_PAGE_BYTES || max <= 8192 + request.sid.len() {
             return Err(HubError::InvalidPage);
@@ -781,41 +804,7 @@ impl Hub {
             {
                 return Err(HubError::InvalidPage);
             }
-            let index = self.snapshot();
-            let mut rows = Vec::with_capacity(keys.len());
-            let mut missing = Vec::new();
-            let mut unknown = Vec::new();
-            let provider = self.page_provider.lock().ok().and_then(|slot| slot.clone());
-            for key in keys {
-                let row_key = book_key(key).row;
-                if let Some(row) = index.get_row(&row_key) {
-                    rows.push(row);
-                } else if let Some(row) =
-                    provider.as_ref().map(|provider| provider.row(&row_key)).transpose()?.flatten()
-                {
-                    rows.push(row);
-                } else if key.origin == "local" {
-                    missing.push(key.clone());
-                } else {
-                    unknown.push(key.clone());
-                }
-            }
-            let reply = crate::wire::PageResult {
-                sid: request.sid.clone(),
-                rows: rows.iter().map(Arc::as_ref).collect::<Vec<_>>(),
-                has_before: false,
-                has_after: false,
-                cold_unread: false,
-                before_key: None,
-                after_key: None,
-                missing,
-                unknown,
-            };
-            let frame = Frame::json(FrameKind::Page, &reply)?;
-            if frame.encoded_len() > max {
-                return Err(HubError::InvalidPage);
-            }
-            return Ok(frame);
+            return self.keyed_page(request, keys);
         }
         let (key, side) = match request.side() {
             Some((side, crate::wire::Position::List(key))) => (
@@ -869,6 +858,7 @@ impl Hub {
             after_key: page.after_key.map(wire_key),
             missing: Vec::new(),
             unknown: Vec::new(),
+            rest: Vec::new(),
         };
         let frame = Frame::json(FrameKind::Page, &reply)?;
         if frame.encoded_len() > max {

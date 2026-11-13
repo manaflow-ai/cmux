@@ -3,8 +3,22 @@ use super::{
     read_u32,
 };
 use crate::index::{ReadSide, SortKey, Summary, codec};
-use std::io::{self, Read};
+use std::io;
 use std::sync::Arc;
+
+pub(super) enum Frame {
+    Row(Summary, usize),
+    Skipped(usize),
+    End,
+}
+
+struct Forward {
+    rows: Vec<BufferedRow>,
+    next_offset: u64,
+    skipped: usize,
+    scanned: usize,
+    first_ordinal: Option<u64>,
+}
 
 impl DiskSnapshot {
     /// One sparse seek (at most 64 KiB of records), followed by one bounded
@@ -31,11 +45,9 @@ impl DiskSnapshot {
             ReadSide::Around => true,
         };
         let position = self.seek_position(anchor, seek_inclusive)?;
-        // A page needs only the requested candidate rows. The seek has
-        // already located one record, so size the single physical read from
-        // that record's frame length instead of consuming the whole 256 KiB
-        // response budget for every request. Backward/around reads must also
-        // fit an unknown preceding frame; its size can exceed the anchor's.
+        // Start with the expected frame span to preserve the bounded seek
+        // cost. A caller that encounters complete corrupt frames extends the
+        // same request within this original byte budget.
         let minimum = match side {
             ReadSide::After => 0,
             ReadSide::Before | ReadSide::Around => {
@@ -68,45 +80,101 @@ impl DiskSnapshot {
             }
         };
         let bytes = self.read_range(start, (end - start) as usize)?;
-        let (rows, first_ordinal, next_offset) = match side {
+        let mut bytes_read = bytes.len();
+        let (rows, first_ordinal, next_offset, physical_count, next_ordinal) = match side {
             ReadSide::After => {
-                let rows = self.forward(&bytes, start, limit)?;
-                let next = rows.last().map_or(position.offset, |row| row.end);
-                (rows, position.ordinal, next)
+                let mut forward = self.forward(&bytes, start, position.ordinal, limit)?;
+                self.extend_forward(
+                    &mut forward,
+                    position.ordinal,
+                    limit,
+                    max_bytes,
+                    &mut bytes_read,
+                )?;
+                let next = forward.next_offset.max(position.offset);
+                let first =
+                    forward.first_ordinal.unwrap_or(position.ordinal + forward.scanned as u64);
+                (
+                    forward.rows,
+                    first,
+                    next,
+                    forward.scanned,
+                    position.ordinal + forward.scanned as u64,
+                )
             }
             ReadSide::Before => {
-                let rows = self.backward(&bytes, start, position.offset, limit)?;
-                let first = position.ordinal.saturating_sub(rows.len() as u64);
-                (rows, first, position.offset)
+                let mut backward =
+                    self.backward(&bytes, start, position.offset, position.ordinal, limit)?;
+                self.extend_backward(
+                    &mut backward,
+                    position.ordinal,
+                    limit,
+                    max_bytes,
+                    &mut bytes_read,
+                )?;
+                let first = backward
+                    .first_ordinal
+                    .unwrap_or(position.ordinal.saturating_sub(backward.scanned as u64));
+                (backward.rows, first, position.offset, backward.scanned, position.ordinal)
             }
             ReadSide::Around => {
                 let split = (position.offset - start) as usize;
-                let left = bytes.get(..split).ok_or_else(|| codec::invalid("around offset"))?;
-                let right = bytes.get(split..).ok_or_else(|| codec::invalid("around offset"))?;
-                let mut before = self.backward(left, start, position.offset, limit)?;
-                let after = self.forward(right, position.offset, limit)?;
-                let mut left_count = before.len().min(limit / 2);
-                let right_count = after.len().min(limit - left_count);
-                left_count = before.len().min(limit - right_count);
-                let first = position.ordinal.saturating_sub(left_count as u64);
-                let skip = before.len().saturating_sub(left_count);
-                before.drain(..skip);
-                before.extend(after.into_iter().take(right_count));
-                let next = before.last().map_or(position.offset, |row| row.end);
-                (before, first, next)
+                let left = bytes.get(..split).ok_or_else(|| super::fatal("around offset"))?;
+                let right = bytes.get(split..).ok_or_else(|| super::fatal("around offset"))?;
+                let mut before =
+                    self.backward(left, start, position.offset, position.ordinal, limit)?;
+                let mut after = self.forward(right, position.offset, position.ordinal, limit)?;
+                self.extend_forward(
+                    &mut after,
+                    position.ordinal,
+                    limit,
+                    max_bytes,
+                    &mut bytes_read,
+                )?;
+                self.extend_backward(
+                    &mut before,
+                    position.ordinal,
+                    limit,
+                    max_bytes,
+                    &mut bytes_read,
+                )?;
+                let mut left_rows = before.rows;
+                let mut left_count = left_rows.len().min(limit / 2);
+                let right_count = after.rows.len().min(limit - left_count);
+                left_count = left_rows.len().min(limit - right_count);
+                let skip = left_rows.len().saturating_sub(left_count);
+                left_rows.drain(..skip);
+                let first = left_rows.first().map_or(position.ordinal, |row| row.ordinal);
+                left_rows.extend(after.rows.into_iter().take(right_count));
+                let next = left_rows.last().map_or(position.offset, |row| row.end);
+                let next_ordinal = left_rows
+                    .last()
+                    .map_or(position.ordinal + after.scanned as u64, |row| row.ordinal + 1);
+                (left_rows, first, next, before.scanned + after.scanned, next_ordinal)
             }
         };
         if rows.is_empty()
             && match side {
-                ReadSide::After => position.ordinal < self.len(),
-                ReadSide::Before => position.ordinal > 0,
-                ReadSide::Around => !self.is_empty(),
+                ReadSide::After => next_ordinal < self.len(),
+                ReadSide::Before => first_ordinal > 0,
+                ReadSide::Around => first_ordinal > 0 || next_ordinal < self.len(),
             }
         {
-            return Err(page_bound());
+            return Err(if physical_count == 0 {
+                page_bound()
+            } else {
+                super::fatal("damaged snapshot span exceeds page read bound")
+            });
         }
         // Count the complete request, including locating the bounded piece.
-        Ok(self.finish_piece(rows, first_ordinal, next_offset, position.bytes_read + bytes.len()))
+        Ok(self.finish_piece(
+            rows,
+            first_ordinal,
+            next_offset,
+            physical_count,
+            next_ordinal,
+            position.bytes_read + bytes_read,
+        ))
     }
 
     pub fn first_rows(&self, rows: usize, max_bytes: usize) -> io::Result<SnapshotPiece> {
@@ -123,26 +191,69 @@ impl DiskSnapshot {
         if rows == 0 || max_bytes == 0 {
             return Err(page_bound());
         }
+        let max_bytes = max_bytes.min(PAGE_BYTES);
         let remaining = self.len().saturating_sub(ordinal).min(rows as u64) as usize;
-        let mut budget = max_bytes.min(PAGE_BYTES);
+        let mut initial = max_bytes;
         if ordinal.saturating_add(remaining as u64) <= self.head.first_lengths.len() as u64 {
-            budget = budget.min(
+            initial = initial.min(
                 self.head
                     .first_lengths
                     .iter()
                     .skip(ordinal as usize)
                     .take(remaining)
-                    .map(|len| usize::from(*len))
+                    .map(|length| usize::from(*length))
                     .sum(),
             );
         }
-        let bytes = self.read_range(offset, budget)?;
-        let selected = self.forward(&bytes, offset, rows)?;
-        if selected.is_empty() && ordinal < self.len() {
+        let bytes = self.read_range(offset, initial)?;
+        let mut bytes_read = bytes.len();
+        let mut selected = self.forward(&bytes, offset, ordinal, rows)?;
+        self.extend_forward(&mut selected, ordinal, rows, max_bytes, &mut bytes_read)?;
+        if selected.rows.is_empty() && selected.next_offset < self.head.data_end {
+            return Err(if selected.skipped == 0 {
+                page_bound()
+            } else {
+                super::fatal("damaged snapshot span exceeds page read bound")
+            });
+        }
+        Ok(self.finish_piece(
+            selected.rows,
+            selected.first_ordinal.unwrap_or(ordinal + selected.scanned as u64),
+            selected.next_offset,
+            selected.scanned,
+            ordinal + selected.scanned as u64,
+            bytes_read,
+        ))
+    }
+
+    /// Read a bounded stream piece while recovering past complete but
+    /// unreadable records. The frame length is checked before decoding, so a
+    /// CRC or payload error can advance to the following record without
+    /// retaining a partial row. Structural truncation still returns an error.
+    pub(super) fn rows_at_tolerant(
+        &self,
+        offset: u64,
+        ordinal: u64,
+        rows: usize,
+        max_bytes: usize,
+    ) -> io::Result<(SnapshotPiece, usize)> {
+        if rows == 0 || max_bytes == 0 {
             return Err(page_bound());
         }
-        let next = selected.last().map_or(offset, |row| row.end);
-        Ok(self.finish_piece(selected, ordinal, next, bytes.len()))
+        let bytes = self.read_range(offset, max_bytes.min(PAGE_BYTES))?;
+        let forward = self.forward(&bytes, offset, ordinal, rows)?;
+        if forward.scanned == 0 && offset < self.head.data_end {
+            return Err(page_bound());
+        }
+        let piece = self.finish_piece(
+            forward.rows,
+            forward.first_ordinal.unwrap_or(ordinal + forward.scanned as u64),
+            forward.next_offset,
+            forward.scanned,
+            ordinal + forward.scanned as u64,
+            bytes.len(),
+        );
+        Ok((piece, forward.skipped))
     }
 
     pub fn first_page(&self, max_bytes: usize) -> io::Result<SnapshotPiece> {
@@ -152,12 +263,22 @@ impl DiskSnapshot {
     /// One bounded read. A partial final frame remains for the next request.
     pub fn piece(&self, offset: u64, ordinal: u64, max_bytes: usize) -> io::Result<SnapshotPiece> {
         let bytes = self.read_range(offset, max_bytes.min(PAGE_BYTES))?;
-        let rows = self.forward(&bytes, offset, usize::MAX)?;
-        if rows.is_empty() && offset < self.head.data_end {
-            return Err(page_bound());
+        let rows = self.forward(&bytes, offset, ordinal, usize::MAX)?;
+        if rows.rows.is_empty() && rows.next_offset < self.head.data_end {
+            return Err(if rows.skipped == 0 {
+                page_bound()
+            } else {
+                super::fatal("damaged snapshot span exceeds page read bound")
+            });
         }
-        let next = rows.last().map_or(offset, |row| row.end);
-        Ok(self.finish_piece(rows, ordinal, next, bytes.len()))
+        Ok(self.finish_piece(
+            rows.rows,
+            rows.first_ordinal.unwrap_or(ordinal + rows.scanned as u64),
+            rows.next_offset,
+            rows.scanned,
+            ordinal + rows.scanned as u64,
+            bytes.len(),
+        ))
     }
 
     fn finish_piece(
@@ -165,51 +286,108 @@ impl DiskSnapshot {
         rows: Vec<BufferedRow>,
         first_ordinal: u64,
         next_offset: u64,
+        physical_count: usize,
+        next_ordinal: u64,
         bytes_read: usize,
     ) -> SnapshotPiece {
         SnapshotPiece {
             has_before: first_ordinal > 0,
-            has_after: first_ordinal.saturating_add(rows.len() as u64) < self.len(),
+            has_after: next_ordinal < self.len(),
             rows: rows.into_iter().map(|row| row.summary).collect(),
+            physical_count,
+            next_ordinal,
             first_ordinal,
             next_offset,
             bytes_read,
         }
     }
 
-    pub(super) fn read_record(&self, input: &mut &[u8]) -> io::Result<Option<(Summary, usize)>> {
-        let Some((record, len)) = codec::read(input)? else {
-            return Ok(None);
-        };
-        let mut trailer = [0; TRAILER_BYTES];
-        input.read_exact(&mut trailer)?;
-        if u32::from_le_bytes(trailer) as usize != len || record.seq != self.seq() || record.gone {
-            return Err(codec::invalid("snapshot record"));
+    pub(super) fn read_frame(&self, input: &mut &[u8]) -> io::Result<Frame> {
+        if input.is_empty() {
+            return Ok(Frame::End);
         }
-        Ok(Some((record.summary, len + TRAILER_BYTES)))
+        let available = input.len();
+        if available < 4 {
+            return Err(super::fatal("short snapshot frame length"));
+        }
+        let body_len =
+            read_u32(input.get(..4).ok_or_else(|| super::fatal("snapshot frame length")))? as usize;
+        if body_len > crate::index::MAX_INDEX_RECORD_BYTES - 8 {
+            return Err(super::fatal("snapshot frame length"));
+        }
+        let frame_len =
+            body_len.checked_add(12).ok_or_else(|| super::fatal("snapshot frame length"))?;
+        if frame_len > available {
+            return Err(super::fatal("short snapshot frame"));
+        }
+        let (frame, rest) = input.split_at(frame_len);
+        *input = rest;
+        let body_len = frame_len - TRAILER_BYTES;
+        let trailer =
+            read_u32(frame.get(body_len..).ok_or_else(|| super::fatal("snapshot frame trailer"))?)?
+                as usize;
+        if trailer != body_len {
+            return Err(super::fatal("snapshot frame extent"));
+        }
+        let mut record =
+            frame.get(..body_len).ok_or_else(|| super::fatal("snapshot frame body"))?;
+        match codec::read(&mut record) {
+            Ok(Some((record_value, len)))
+                if len == body_len
+                    && record.is_empty()
+                    && record_value.seq == self.seq()
+                    && !record_value.gone =>
+            {
+                Ok(Frame::Row(record_value.summary, frame_len))
+            }
+            Ok(Some(_)) | Ok(None) | Err(_) => {
+                super::SKIPPED_SNAPSHOT_FRAMES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                Ok(Frame::Skipped(frame_len))
+            }
+        }
     }
 
-    fn forward(&self, bytes: &[u8], offset: u64, limit: usize) -> io::Result<Vec<BufferedRow>> {
+    fn forward(
+        &self,
+        bytes: &[u8],
+        offset: u64,
+        ordinal: u64,
+        limit: usize,
+    ) -> io::Result<Forward> {
         let mut input = bytes;
         let mut end = offset;
         let mut rows = Vec::new();
-        while rows.len() < limit {
-            match self.read_record(&mut input) {
-                Ok(Some((summary, len))) => {
+        let mut skipped = 0;
+        let mut scanned = 0;
+        while rows.len() < limit && !input.is_empty() {
+            let Some(frame_len) =
+                frame_len(input, offset + (bytes.len() as u64) >= self.head.data_end)?
+            else {
+                break;
+            };
+            let (frame, rest) = input.split_at(frame_len);
+            let mut frame = frame;
+            let frame_ordinal = ordinal + scanned as u64;
+            match self.read_frame(&mut frame)? {
+                Frame::Row(summary, len) => {
                     end += len as u64;
-                    rows.push(BufferedRow { summary: Arc::new(summary), end });
+                    rows.push(BufferedRow {
+                        summary: Arc::new(summary),
+                        end,
+                        ordinal: frame_ordinal,
+                    });
                 }
-                Ok(None) => break,
-                Err(error)
-                    if error.kind() == io::ErrorKind::UnexpectedEof
-                        && offset + (bytes.len() as u64) < self.head.data_end =>
-                {
-                    break;
+                Frame::Skipped(len) => {
+                    end += len as u64;
+                    skipped += 1;
                 }
-                Err(error) => return Err(error),
+                Frame::End => return Err(super::fatal("snapshot frame ended")),
             }
+            scanned += 1;
+            input = rest;
         }
-        Ok(rows)
+        let first_ordinal = rows.first().map(|row| row.ordinal);
+        Ok(Forward { rows, next_offset: end, skipped, scanned, first_ordinal })
     }
 
     fn backward(
@@ -217,58 +395,155 @@ impl DiskSnapshot {
         bytes: &[u8],
         start: u64,
         end: u64,
+        ordinal: u64,
         limit: usize,
-    ) -> io::Result<Vec<BufferedRow>> {
+    ) -> io::Result<Forward> {
         let mut input = bytes;
         let mut end = end;
         let mut rows = Vec::new();
+        let mut skipped = 0;
+        let mut scanned = 0;
         while !input.is_empty() && rows.len() < limit {
             if input.len() < TRAILER_BYTES {
                 if start > HEADER_BYTES as u64 {
                     break;
                 }
-                return Err(codec::invalid("short snapshot trailer"));
+                return Err(super::fatal("short snapshot trailer"));
             }
             let trailer = input
                 .get(input.len() - TRAILER_BYTES..)
-                .ok_or_else(|| codec::invalid("snapshot trailer"))?;
+                .ok_or_else(|| super::fatal("snapshot trailer"))?;
             let frame_len = read_u32(trailer)? as usize;
             if !(8..=crate::index::MAX_INDEX_RECORD_BYTES).contains(&frame_len) {
-                return Err(codec::invalid("snapshot frame length"));
+                return Err(super::fatal("snapshot frame length"));
             }
             let len = frame_len + TRAILER_BYTES;
             if len > input.len() {
                 if start > HEADER_BYTES as u64 {
                     break;
                 }
-                return Err(codec::invalid("short snapshot frame"));
+                return Err(super::fatal("short snapshot frame"));
             }
             let boundary = input.len() - len;
-            let mut frame =
-                input.get(boundary..).ok_or_else(|| codec::invalid("snapshot frame"))?;
-            let (summary, actual) = self
-                .read_record(&mut frame)?
-                .ok_or_else(|| codec::invalid("empty snapshot frame"))?;
-            if actual != len || !frame.is_empty() {
-                return Err(codec::invalid("snapshot frame extent"));
+            let mut frame = input.get(boundary..).ok_or_else(|| super::fatal("snapshot frame"))?;
+            let frame_ordinal = ordinal.saturating_sub(scanned as u64 + 1);
+            match self.read_frame(&mut frame)? {
+                Frame::Row(summary, actual) if actual == len && frame.is_empty() => {
+                    rows.push(BufferedRow {
+                        summary: Arc::new(summary),
+                        end,
+                        ordinal: frame_ordinal,
+                    });
+                }
+                Frame::Skipped(actual) if actual == len && frame.is_empty() => skipped += 1,
+                Frame::Skipped(_) => return Err(super::fatal("snapshot frame extent")),
+                Frame::End => return Err(super::fatal("empty snapshot frame")),
+                Frame::Row(_, _) => return Err(super::fatal("snapshot frame extent")),
             }
-            rows.push(BufferedRow { summary: Arc::new(summary), end });
             end -= len as u64;
-            input = input.get(..boundary).ok_or_else(|| codec::invalid("snapshot frame prefix"))?;
+            scanned += 1;
+            input = input.get(..boundary).ok_or_else(|| super::fatal("snapshot frame prefix"))?;
         }
         rows.reverse();
-        Ok(rows)
+        let first_ordinal = rows.first().map(|row| row.ordinal);
+        Ok(Forward { rows, next_offset: end, skipped, scanned, first_ordinal })
+    }
+
+    // Sound reads retain their small-read accelerator. Only a skipped frame
+    // can extend the physical read, and every additional byte is charged to
+    // the original page budget. Complete frames are never decoded twice.
+    fn extend_forward(
+        &self,
+        scan: &mut Forward,
+        ordinal: u64,
+        limit: usize,
+        max_bytes: usize,
+        bytes_read: &mut usize,
+    ) -> io::Result<()> {
+        if scan.skipped == 0 || scan.rows.len() >= limit || scan.next_offset == self.head.data_end {
+            return Ok(());
+        }
+        let remaining = max_bytes.saturating_sub(*bytes_read);
+        if remaining == 0 {
+            return Ok(());
+        }
+        let bytes = self.read_range(scan.next_offset, remaining)?;
+        *bytes_read += bytes.len();
+        let next = self.forward(
+            &bytes,
+            scan.next_offset,
+            ordinal + scan.scanned as u64,
+            limit - scan.rows.len(),
+        )?;
+        scan.next_offset = next.next_offset;
+        scan.skipped += next.skipped;
+        scan.scanned += next.scanned;
+        scan.first_ordinal = scan.first_ordinal.or(next.first_ordinal);
+        scan.rows.extend(next.rows);
+        Ok(())
+    }
+
+    fn extend_backward(
+        &self,
+        scan: &mut Forward,
+        ordinal: u64,
+        limit: usize,
+        max_bytes: usize,
+        bytes_read: &mut usize,
+    ) -> io::Result<()> {
+        if scan.skipped == 0 || scan.rows.len() >= limit || scan.next_offset == HEADER_BYTES as u64
+        {
+            return Ok(());
+        }
+        let remaining = max_bytes.saturating_sub(*bytes_read);
+        if remaining == 0 {
+            return Ok(());
+        }
+        let end = scan.next_offset;
+        let start = end.saturating_sub(remaining as u64).max(HEADER_BYTES as u64);
+        let bytes = self.read_range(start, (end - start) as usize)?;
+        *bytes_read += bytes.len();
+        let mut next = self.backward(
+            &bytes,
+            start,
+            end,
+            ordinal.saturating_sub(scan.scanned as u64),
+            limit - scan.rows.len(),
+        )?;
+        scan.next_offset = next.next_offset;
+        scan.skipped += next.skipped;
+        scan.scanned += next.scanned;
+        scan.first_ordinal = next.first_ordinal.or(scan.first_ordinal);
+        next.rows.append(&mut scan.rows);
+        scan.rows = next.rows;
+        Ok(())
     }
 
     pub(super) fn read_range(&self, offset: u64, max_bytes: usize) -> io::Result<Vec<u8>> {
         if offset < HEADER_BYTES as u64 || offset > self.head.data_end {
-            return Err(codec::invalid("snapshot offset"));
+            return Err(super::fatal("snapshot offset"));
         }
         let len = (self.head.data_end - offset).min(max_bytes as u64) as usize;
         let mut bytes = vec![0; len];
         read_at(&self.file, &mut bytes, offset)?;
         Ok(bytes)
     }
+}
+
+fn frame_len(input: &[u8], at_end: bool) -> io::Result<Option<usize>> {
+    if input.len() < 4 {
+        return if at_end { Err(super::fatal("short snapshot frame length")) } else { Ok(None) };
+    }
+    let body_len =
+        read_u32(input.get(..4).ok_or_else(|| super::fatal("snapshot frame length"))?)? as usize;
+    if body_len > crate::index::MAX_INDEX_RECORD_BYTES - 8 {
+        return Err(super::fatal("snapshot frame length"));
+    }
+    let total = body_len.checked_add(12).ok_or_else(|| super::fatal("snapshot frame length"))?;
+    if total > input.len() {
+        return if at_end { Err(super::fatal("short snapshot frame")) } else { Ok(None) };
+    }
+    Ok(Some(total))
 }
 
 fn page_bound() -> io::Error {

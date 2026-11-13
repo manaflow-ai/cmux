@@ -1,7 +1,7 @@
 //! Blocking storage work owned by the one writer, and bounded background load.
 use super::*;
 use acpmux_book::index::IndexRecord;
-use acpmux_book::index::SnapshotRows;
+use acpmux_book::index::{SnapshotRows, is_corrupt_snapshot_row};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Attribution only; the release gate still measures the complete turn.
@@ -68,6 +68,9 @@ impl HubWriter {
         for _ in 0..256 {
             match load.rows.next() {
                 Some(Ok(row)) => next = next.hydrate(row, now),
+                Some(Err(error)) if is_corrupt_snapshot_row(&error) => {
+                    self.log_errors.fetch_add(1, Ordering::Relaxed);
+                }
                 Some(Err(_)) => {
                     self.log_errors.fetch_add(1, Ordering::Relaxed);
                     failed = true;

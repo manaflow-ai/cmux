@@ -8,6 +8,13 @@ use summary::summary_from_session;
 use tokio::sync::Notify;
 
 const BATCH: usize = 256;
+/// Accounting used by the walk-memory gate: the hash set owns one `String`
+/// slot and one control byte per bucket, in addition to each id's allocation.
+#[cfg(test)]
+pub(crate) const WALK_ID_STATE_BYTES: usize = std::mem::size_of::<String>() + 1;
+
+#[cfg(test)]
+const WALK_HASH_GROUP_BYTES: usize = std::mem::size_of::<[usize; 2]>();
 
 pub(crate) struct TeeHandle {
     state: Arc<TeeState>,
@@ -19,8 +26,12 @@ impl TeeHandle {
     }
 
     pub(super) fn mark_all(&self) {
+        #[cfg(test)]
+        let started = std::time::Instant::now();
         self.state.all.store(true, Ordering::Release);
         self.state.notify.notify_one();
+        #[cfg(test)]
+        self.state.mark_all_ns.store(started.elapsed().as_nanos() as u64, Ordering::Relaxed);
     }
 }
 
@@ -30,6 +41,16 @@ struct TeeState {
     notify: Notify,
     marks: AtomicU64,
     all: AtomicBool,
+    #[cfg(test)]
+    walk_peak_page_bytes: AtomicU64,
+    #[cfg(test)]
+    walk_peak_id_bytes: AtomicU64,
+    #[cfg(test)]
+    store_load_ns: AtomicU64,
+    #[cfg(test)]
+    mark_all_ns: AtomicU64,
+    #[cfg(test)]
+    walk_done: AtomicBool,
 }
 
 impl TeeState {
@@ -52,6 +73,47 @@ impl TeeState {
         }
         ids
     }
+
+    #[cfg(test)]
+    fn record_walk_id_memory(&self, ids: &HashSet<String>) {
+        // `HashSet` uses hashbrown's power-of-two bucket table. `capacity()`
+        // is the number of elements admitted before a resize, not its bucket
+        // count, so round it up and include the control-group tail. `String`
+        // capacities are the owned heap bytes; lengths undercount reused
+        // allocations. This is a structural upper bound, not serialized data.
+        let buckets = ids
+            .capacity()
+            .checked_next_power_of_two()
+            .unwrap_or(ids.capacity())
+            .max(if ids.is_empty() { 0 } else { 8 });
+        let id_bytes = ids.iter().map(|id| id.capacity()).sum::<usize>().saturating_add(
+            buckets.saturating_mul(WALK_ID_STATE_BYTES).saturating_add(WALK_HASH_GROUP_BYTES),
+        );
+        self.walk_peak_id_bytes.fetch_max(id_bytes as u64, Ordering::Relaxed);
+    }
+
+    #[cfg(test)]
+    fn record_walk_page_memory(&self, page_bytes: usize) {
+        self.walk_peak_page_bytes.fetch_max(page_bytes as u64, Ordering::Relaxed);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn walk_peak_memory(&self) -> (u64, u64) {
+        (
+            self.walk_peak_page_bytes.load(Ordering::Relaxed),
+            self.walk_peak_id_bytes.load(Ordering::Relaxed),
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn load_and_mark_all_ns(&self) -> (u64, u64) {
+        (self.store_load_ns.load(Ordering::Relaxed), self.mark_all_ns.load(Ordering::Relaxed))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn walk_finished(&self) -> bool {
+        self.walk_done.load(Ordering::Acquire)
+    }
 }
 
 /// One scheduled deadline per chat. A tag update replaces its old deadline;
@@ -60,6 +122,9 @@ impl TeeState {
 struct Expiries {
     by_id: HashMap<String, u64>,
     ordered: BTreeSet<(u64, String)>,
+    stalled_by_id: HashMap<String, u64>,
+    stalled_ordered: BTreeSet<(u64, String)>,
+    stalled_fired: HashMap<String, u64>,
 }
 
 impl Expiries {
@@ -73,6 +138,22 @@ impl Expiries {
         }
     }
 
+    fn set_stalled(&mut self, id: &str, next: Option<u64>) {
+        if let Some(old) = self.stalled_by_id.remove(id) {
+            self.stalled_ordered.remove(&(old, id.to_owned()));
+        }
+        match next {
+            Some(next) if self.stalled_fired.get(id).copied() != Some(next) => {
+                self.stalled_by_id.insert(id.to_owned(), next);
+                self.stalled_ordered.insert((next, id.to_owned()));
+            }
+            Some(_) => {}
+            None => {
+                self.stalled_fired.remove(id);
+            }
+        }
+    }
+
     fn mark_due(&mut self, state: &TeeState, now: u64) {
         for _ in 0..BATCH {
             if self.ordered.first().is_none_or(|(at, _)| *at > now) {
@@ -83,15 +164,50 @@ impl Expiries {
             state.mark(&id);
         }
     }
+
+    fn take_stalled_due(&mut self, now: u64) -> Vec<(u64, String)> {
+        let mut due = Vec::new();
+        for _ in 0..BATCH {
+            if self.stalled_ordered.first().is_none_or(|(at, _)| *at > now) {
+                break;
+            }
+            let Some((at, id)) = self.stalled_ordered.pop_first() else { break };
+            self.stalled_by_id.remove(&id);
+            self.stalled_fired.insert(id.clone(), at);
+            due.push((at, id));
+        }
+        due
+    }
+
+    #[cfg(test)]
+    fn mark_stalled_due(&mut self, state: &TeeState, now: u64) {
+        for (_, id) in self.take_stalled_due(now) {
+            state.mark(&id);
+        }
+    }
 }
 
 fn session_by_id(v1: &Hub, id: &str) -> Option<Arc<Session>> {
     v1.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned()
 }
 
+fn stalled_deadline(v1: &Hub, session: &Session, live: bool) -> Option<u64> {
+    if !live {
+        return None;
+    }
+    let after = v1.config.try_read().ok().and_then(|config| config.stalled_turn());
+    session.turn().and_then(|turn| {
+        after.map(|after| {
+            let heard = session.last_model_at.load(Ordering::Relaxed);
+            turn.started_at.max(heard).saturating_add(after)
+        })
+    })
+}
+
 fn submit_id(v1: &Hub, v2: &V2, expiries: &mut Expiries, id: &str) {
     let Some(session) = session_by_id(v1, id) else {
         expiries.set(id, None);
+        expiries.set_stalled(id, None);
         let _ = v2.hub.remove("local", id);
         return;
     };
@@ -99,6 +215,7 @@ fn submit_id(v1: &Hub, v2: &V2, expiries: &mut Expiries, id: &str) {
     expiries.set(id, session.read_meta(|meta| super::views::next_tag_expiry(meta, now)));
     match summary_from_session(v1, &session) {
         Ok(summary) => {
+            expiries.set_stalled(id, stalled_deadline(v1, &session, summary.is_live()));
             if let Err(error) = v2.hub.submit(summary) {
                 tracing::warn!(session_id = id, %error, "v2 list tee rejected a summary");
             }
@@ -121,11 +238,17 @@ fn drain_marks(v1: &Hub, v2: &V2, state: &TeeState, expiries: &mut Expiries) {
 }
 
 async fn reconcile(v1: &Hub, v2: &V2, state: &TeeState) -> Expiries {
+    #[cfg(test)]
+    let started = std::time::Instant::now();
     v1.wait_store().await;
+    #[cfg(test)]
+    state.store_load_ns.store(started.elapsed().as_nanos() as u64, Ordering::Relaxed);
     // Only ids survive a page. Each lookup uses the current session map,
     // so a purge drained between pages cannot be undone by an old handle.
     let mut unseen: HashSet<_> =
         v1.sessions.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect();
+    #[cfg(test)]
+    state.record_walk_id_memory(&unseen);
     let mut expiries = Expiries::default();
     let mut anchor: Option<SortKey> = None;
     loop {
@@ -143,6 +266,10 @@ async fn reconcile(v1: &Hub, v2: &V2, state: &TeeState) -> Expiries {
                 break;
             }
         };
+        #[cfg(test)]
+        state.record_walk_page_memory(
+            page.rows.capacity().saturating_mul(std::mem::size_of::<Arc<Summary>>()),
+        );
         for row in &page.rows {
             if row.origin == "local" {
                 unseen.remove(&row.chat_id);
@@ -164,6 +291,8 @@ async fn reconcile(v1: &Hub, v2: &V2, state: &TeeState) -> Expiries {
             tokio::task::yield_now().await;
         }
     }
+    #[cfg(test)]
+    state.walk_done.store(true, Ordering::Release);
     expiries
 }
 
@@ -184,7 +313,24 @@ pub(crate) fn start_v2_tee(
                 _ = state.notify.notified() => {},
                 _ = std::future::ready(()), if state.has_pending() => {},
             }
-            expiries.mark_due(&state, crate::store::now_ms());
+            let now = crate::store::now_ms();
+            expiries.mark_due(&state, now);
+            for (scheduled, id) in expiries.take_stalled_due(now) {
+                let Some(session) = session_by_id(&v1, &id) else {
+                    expiries.set_stalled(&id, None);
+                    continue;
+                };
+                let live =
+                    session.read_meta(|meta| meta.status != crate::store::SessionStatus::Closed);
+                let current = stalled_deadline(&v1, &session, live);
+                if current == Some(scheduled) {
+                    state.mark(&id);
+                } else {
+                    // A model sign may have arrived on an unmarked chunk. Move
+                    // the crossing forward without emitting a row operation.
+                    expiries.set_stalled(&id, current);
+                }
+            }
             drain_marks(&v1, &v2, &state, &mut expiries);
             tokio::task::yield_now().await;
         }
@@ -220,5 +366,7 @@ impl acpmux_core::hub::PageProvider for V1PageProvider {
 
 #[cfg(all(test, target_os = "linux"))]
 mod gates;
+#[cfg(test)]
+mod snapshot_tests;
 #[cfg(test)]
 mod tests;

@@ -144,7 +144,7 @@ async fn replay_once(verbose: bool) -> (usize, usize) {
     let (client, server) = tokio::io::duplex(1024);
     let (server_reader, server_writer) = tokio::io::split(server);
     let scope = cmux_scope::Scope::new("list-replay-gate");
-    let task = scope.spawn(async move {
+    let server_task = scope.spawn(async move {
         let features = ["list".to_owned()];
         run(server_reader, server_writer, source, "v2-replay-gate", &features).await
     });
@@ -158,7 +158,7 @@ async fn replay_once(verbose: bool) -> (usize, usize) {
     let replay = read_replay(&mut reader, target, cursor).await;
     drop(writer_io);
     drop(reader);
-    task.await.unwrap().unwrap();
+    server_task.await.unwrap().unwrap();
     assert!(scope.close(Duration::from_secs(1)).await.joined());
     (replay.0, replay.1)
 }
@@ -179,74 +179,75 @@ fn append_round() -> Vec<u128> {
 
 async fn append_replay_sample(
     hub: Arc<Hub>,
-    writer: &mut HubWriter,
+    writer: HubWriter,
     target: u64,
     offset: usize,
-) -> (u128, bool) {
+) -> (HubWriter, u128, usize) {
     let cursor = first_retained_cursor(&hub, target);
-    let source = Arc::new(HubSource::new(hub));
-    let (client, server) = tokio::io::duplex(1024);
-    let (server_reader, server_writer) = tokio::io::split(server);
-    let scope = cmux_scope::Scope::new("list-replay-gate");
-    let task = scope.spawn(async move {
-        let features = ["list".to_owned()];
-        run(server_reader, server_writer, source, "v2-replay-gate", &features).await
-    });
-    let (mut reader, mut writer_io) = tokio::io::split(client);
-    hello(&mut writer_io, &mut reader).await;
-    send(
-        &mut writer_io,
-        json!({"method":"sub","params":{"sid":"replay","stream":"list","cursor":cursor,"edition":0}}),
-    )
-    .await;
-    let first = receive(&mut reader).await;
-    assert_eq!(first.kind, FrameKind::Delta);
-    assert!(first.encoded_len() <= MAX_REPLAY_FRAME_BYTES);
-    let first_delta: DeltaFrame<Summary> = first.decode_json().unwrap();
-    assert!(first_delta.replay.is_some());
-    let active = Arc::new(AtomicBool::new(true));
-    let reader_active = active.clone();
-    let reader_task = scope.spawn(async move {
-        let mut ended = false;
-        while !ended {
-            let frame = receive(&mut reader).await;
-            assert_eq!(frame.kind, FrameKind::Delta);
-            assert!(frame.encoded_len() <= MAX_REPLAY_FRAME_BYTES);
-            let delta: DeltaFrame<Summary> = frame.decode_json().unwrap();
-            ended = delta.replay == Some(crate::wire::ReplayMark::End);
-            if ended {
-                reader_active.store(false, Ordering::Release);
-            }
-            tokio::task::yield_now().await;
+    let receiver = hub.subscribe_replay(&crate::wire::Sub::new("replay", "list"), cursor).unwrap();
+    let stop = Arc::new(AtomicBool::new(false));
+    let ready = Arc::new(AtomicBool::new(false));
+    hub.reset_history_raw_copies();
+    let copy_stop = stop.clone();
+    let copy_ready = ready.clone();
+    let copy_hub = hub.clone();
+    let copy_task = tokio::task::spawn_blocking(move || {
+        while !copy_stop.load(Ordering::Acquire) {
+            receiver.reposition(cursor);
+            let Some(RawRead::Span(_)) =
+                receiver.try_next_raw(Some(target), MAX_REPLAY_FRAME_BYTES)
+            else {
+                std::thread::yield_now();
+                continue;
+            };
+            copy_ready.store(true, Ordering::Release);
+            std::thread::yield_now();
         }
     });
-    let before = active.load(Ordering::Acquire);
-    let start = Instant::now();
-    writer.apply(summary(format!("during-{offset}"), target + 1, true)).unwrap();
-    let after = active.load(Ordering::Acquire);
-    let elapsed = start.elapsed().as_nanos().max(1);
-    let was_active = before && after;
-    timeout(Duration::from_secs(20), reader_task).await.unwrap().unwrap();
-    drop(writer_io);
-    task.await.unwrap().unwrap();
-    assert!(scope.close(Duration::from_secs(1)).await.joined());
-    (elapsed, was_active)
+    // Ensure the copier has entered the raw path before starting the timed
+    // append. It keeps copying until the sample completes, so the measured
+    // interval cannot merely observe a replay that already queued its bytes.
+    let ready_result = timeout(Duration::from_secs(20), async {
+        while !ready.load(Ordering::Acquire) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    if ready_result.is_err() {
+        stop.store(true, Ordering::Release);
+        copy_task.await.unwrap();
+        panic!("raw replay copier did not start");
+    }
+    let task_hub = copy_hub.clone();
+    let task = tokio::task::spawn_blocking(move || {
+        let start = Instant::now();
+        let before_copies = task_hub.history_raw_copies();
+        let mut writer = writer;
+        writer.apply(summary(format!("during-{offset}"), target + 1, true)).unwrap();
+        let copies_during = task_hub.history_raw_copies().saturating_sub(before_copies);
+        (writer, start.elapsed().as_nanos().max(1), copies_during)
+    });
+    let result = task.await;
+    stop.store(true, Ordering::Release);
+    copy_task.await.unwrap();
+    result.unwrap()
 }
 
-async fn append_replay_round() -> (Vec<u128>, bool) {
+async fn append_replay_round() -> (Vec<u128>, Vec<usize>) {
     let (hub, mut writer) = Hub::new(SummaryIndex::new());
     let target = fill_ring(&hub, &mut writer, true);
     let hub = Arc::new(hub);
     let mut samples = Vec::with_capacity(SAMPLES);
-    let mut all_active = true;
+    let mut copies = Vec::with_capacity(SAMPLES);
     for offset in 0..SAMPLES {
         let current = target + offset as u64;
-        let (elapsed, active) =
-            append_replay_sample(hub.clone(), &mut writer, current, offset).await;
+        let (next, elapsed, copy_count) =
+            append_replay_sample(hub.clone(), writer, current, offset).await;
+        writer = next;
         samples.push(elapsed);
-        all_active &= active;
+        copies.push(copy_count);
     }
-    (samples, all_active)
+    (samples, copies)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -267,29 +268,30 @@ async fn replay_append_gate() {
         baseline.push(append_round());
     }
     let mut during = Vec::with_capacity(ROUNDS);
-    let mut active = Vec::with_capacity(ROUNDS);
+    let mut copy_counts = Vec::with_capacity(ROUNDS);
     for _ in 0..ROUNDS {
-        let (samples, was_active) = append_replay_round().await;
+        let (samples, copies) = append_replay_round().await;
         during.push(samples);
-        active.push(was_active);
+        copy_counts.push(copies);
     }
     let small = best_p95(&baseline);
     let god = best_p95(&during);
     let all = p95(&during.iter().flatten().copied().collect::<Vec<_>>());
     for (round, (outside, inside)) in baseline.iter().zip(&during).enumerate() {
         eprintln!(
-            "REPLAY_APPEND_ROUND round={} outside_p95={} during_p95={} active={}",
+            "REPLAY_APPEND_ROUND round={} outside_p95={} during_p95={} raw_copies_min={} raw_copies_total={}",
             round + 1,
             p95(outside),
             p95(inside),
-            active[round]
+            copy_counts[round].iter().copied().min().unwrap_or(0),
+            copy_counts[round].iter().sum::<usize>()
         );
     }
-    emit("v2.pr05c.replay_append", small, god, all, "ns");
     assert!(
-        active.iter().all(|active| *active),
-        "every sampled append must overlap an active replay"
+        copy_counts.iter().all(|round| round.iter().sum::<usize>() > 0),
+        "every measured round must overlap a raw history copy"
     );
+    emit("v2.pr05c.replay_append", small, god, all, "ns");
     assert!(
         god <= small.saturating_mul(12) / 10,
         "replay append p95 exceeded 1.2x: {small}ns vs {god}ns"
