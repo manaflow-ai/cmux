@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The app half of scripts/measure/live-mode-swift.sh: Swift live mode end to end on a tagged build.
 
-A person's normal tagged build runs with a few workspaces, and they edit HomeConversationPage (Home red).
+A person's normal tagged build runs with a few workspaces, and they edit HomeHostView (Home red).
 `live-mode.py start` builds the live code build of that commit, turns Labs > Live Code on (its
 confirmation sheet is answered here through debug.dialog), restarts into it and patches the edit in
 (Home red). A save while live (Home blue) is patched in by the watcher, in the same process.
@@ -30,9 +30,18 @@ ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "measure"))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "cmux-next"))
 from bench_launch import account_home, rpc_at, socket_candidates  # noqa: E402
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'cmux-next'))
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script outside scripts/: the same helper (scripts/cmux-next/safe_log.py)
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 LIVE_MODE = os.path.join(ROOT, "scripts/live-code/live-mode.py")
-VIEW = os.path.join(ROOT, "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeConversationPage.swift")
+VIEW = os.path.join(ROOT, "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeHostView.swift")
 ORIGINAL = "layer?.backgroundColor = nil"
 RED = "layer?.backgroundColor = NSColor.systemRed.cgColor"
 BLUE = "layer?.backgroundColor = NSColor.systemBlue.cgColor"
@@ -331,11 +340,11 @@ def main():
         for name in sorted(os.listdir(opts.out)):
             if name != "live-mode-e2e.tar.gz":
                 bundle.add(os.path.join(opts.out, name), arcname=name)
-    print(json.dumps(result, indent=2))
+    safe_print(json.dumps(result, indent=2))
     for verb in ("start", "stop"):
         step = result.get(verb, {})
-        print(f"live-mode-swift: {verb}: restart {step.get('restart_s')} s (quit {step.get('quit_s')} s, launch "
-              f"{step.get('launch_s')} s), sessions kept {step.get('sessions')}, wall {step.get('wall_s')} s")
+        safe_print(f"live-mode-swift: {verb}: restart {step.get('restart_s')} s (quit {step.get('quit_s')} s, launch "
+                   f"{step.get('launch_s')} s), sessions kept {step.get('sessions')}, wall {step.get('wall_s')} s")
     sys.exit(0 if result["ok"] else 1)
 
 

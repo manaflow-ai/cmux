@@ -2,9 +2,22 @@
 
 use super::*;
 
+#[cfg(test)]
+thread_local! {
+    static PRESENTATION_READS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
 impl WorkspaceRegistry {
+    /// Whole presentation reads on this thread (test hook).
+    #[cfg(test)]
+    pub(crate) fn presentation_reads_for_test() -> u64 {
+        PRESENTATION_READS.with(std::cell::Cell::get)
+    }
+
     /// Groups in order plus the presentation of every live workspace.
     pub fn presentation_snapshot(&self) -> anyhow::Result<PresentationSnapshot> {
+        #[cfg(test)]
+        PRESENTATION_READS.with(|reads| reads.set(reads.get() + 1));
         let groups = read_groups(&self.connection.get())?;
         let db = self.connection.get();
         let mut statement = db.prepare(

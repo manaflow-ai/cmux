@@ -279,6 +279,20 @@ extension ChiefMockBackend: ChiefQuestionSource {
     }
 }
 
+/// The mock lists a few skills on `/`, as the Mac's Chief host does
+/// (ChiefSlashSkills.swift); layout and flow only.
+extension ChiefMockBackend: ChiefSlashSkillSource {
+    public var slashSkills: [ChiefSlashSkill] {
+        [
+            ChiefSlashSkill(name: "cmux-views", description: "Build a cmux view page from what you describe.", source: "chief"),
+            ChiefSlashSkill(name: "triage", description: "Sort the inbox and say what needs you.", source: "chief"),
+            ChiefSlashSkill(name: "emil-prototype", description: "Explore several versions behind a live picker.", source: "claude"),
+            ChiefSlashSkill(name: "verify-implementation", description: "Draft acceptance criteria, build, and verify with video.", source: "claude"),
+            ChiefSlashSkill(name: "vercel:ai-sdk", description: "Answer questions about the AI SDK.", source: "plugin:vercel"),
+        ]
+    }
+}
+
 /// Chief's seeded transcript and canned replies.
 struct ChiefMockScript {
     /// The question part of the seeded transcript's last message (seq 8).

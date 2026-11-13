@@ -64,8 +64,8 @@ public final class WindowRegistryStore {
         return changes
     }
 
-    /// Whether `old` and `new` give every workspace the same window kind and owner (equal lists share storage: the
-    /// compare is O(windows) then).
+    /// Whether `old` and `new` give every workspace the same window kind and owner. Lists that no transition wrote
+    /// share storage (the compare is O(windows) then); a reconcile writes each list again, and the compare reads them.
     private static func sameAnswers(_ old: WindowRegistry, _ new: WindowRegistry) -> Bool {
         old.incognito == new.incognito && old.discarding == new.discarding && old.windows.count == new.windows.count
             && zip(old.windows, new.windows).allSatisfy { $0.id == $1.id && $0.workspaceIDs == $1.workspaceIDs }

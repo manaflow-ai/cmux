@@ -10499,127 +10499,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This version of acpmux has no subagent limit. Update cmux to set one."
+            "value": "This version of cmux has no subagent limit. Update cmux to set one."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diese acpmux-Version hat kein Subagenten-Limit. Aktualisiere cmux, um eines festzulegen."
+            "value": "Diese cmux-Version hat kein Subagenten-Limit. Aktualisiere cmux, um eines festzulegen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cette version d’acpmux n’a pas de limite de sous-agents. Mettez cmux à jour pour en définir une."
+            "value": "Cette version d’cmux n’a pas de limite de sous-agents. Mettez cmux à jour pour en définir une."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا يتضمن هذا الإصدار من acpmux حدًّا للوكلاء الفرعيين. حدّث cmux لتعيين حدّ."
+            "value": "لا يتضمن هذا الإصدار من cmux حدًّا للوكلاء الفرعيين. حدّث cmux لتعيين حدّ."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esta versión de acpmux no tiene límite de subagentes. Actualiza cmux para establecer uno."
+            "value": "Esta versión de cmux no tiene límite de subagentes. Actualiza cmux para establecer uno."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "此版本的 acpmux 沒有子代理上限。請更新 cmux 後再設定。"
+            "value": "此版本的 cmux 沒有子代理上限。請更新 cmux 後再設定。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此版本的 acpmux 没有子代理上限。请更新 cmux 后再设置。"
+            "value": "此版本的 cmux 没有子代理上限。请更新 cmux 后再设置。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 버전의 acpmux에는 하위 에이전트 제한이 없습니다. 설정하려면 cmux를 업데이트하세요."
+            "value": "이 버전의 cmux에는 하위 에이전트 제한이 없습니다. 설정하려면 cmux를 업데이트하세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このバージョンの acpmux にはサブエージェント上限がありません。設定するには cmux をアップデートしてください。"
+            "value": "このバージョンの cmux にはサブエージェント上限がありません。設定するには cmux をアップデートしてください。"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ova verzija acpmux nema ograničenje podagenata. Ažurirajte cmux da ga postavite."
+            "value": "Ova verzija cmux nema ograničenje podagenata. Ažurirajte cmux da ga postavite."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Denne version af acpmux har ingen grænse for underagenter. Opdater cmux for at angive en."
+            "value": "Denne version af cmux har ingen grænse for underagenter. Opdater cmux for at angive en."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Questa versione di acpmux non ha un limite di subagenti. Aggiorna cmux per impostarne uno."
+            "value": "Questa versione di cmux non ha un limite di subagenti. Aggiorna cmux per impostarne uno."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "កំណែ acpmux នេះគ្មានដែនកំណត់ភ្នាក់ងាររងទេ។ ធ្វើបច្ចុប្បន្នភាព cmux ដើម្បីកំណត់វា។"
+            "value": "កំណែ cmux នេះគ្មានដែនកំណត់ភ្នាក់ងាររងទេ។ ធ្វើបច្ចុប្បន្នភាព cmux ដើម្បីកំណត់វា។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Denne versjonen av acpmux har ingen grense for underagenter. Oppdater cmux for å angi en."
+            "value": "Denne versjonen av cmux har ingen grense for underagenter. Oppdater cmux for å angi en."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ta wersja acpmux nie ma limitu podagentów. Zaktualizuj cmux, aby go ustawić."
+            "value": "Ta wersja cmux nie ma limitu podagentów. Zaktualizuj cmux, aby go ustawić."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esta versão do acpmux não tem limite de subagentes. Atualize o cmux para definir um."
+            "value": "Esta versão do cmux não tem limite de subagentes. Atualize o cmux para definir um."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "В этой версии acpmux нет лимита субагентов. Обновите cmux, чтобы задать его."
+            "value": "В этой версии cmux нет лимита субагентов. Обновите cmux, чтобы задать его."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux รุ่นนี้ไม่มีขีดจำกัดเอเจนต์ย่อย อัปเดต cmux เพื่อตั้งค่า"
+            "value": "cmux รุ่นนี้ไม่มีขีดจำกัดเอเจนต์ย่อย อัปเดต cmux เพื่อตั้งค่า"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux'un bu sürümünde alt ajan sınırı yok. Ayarlamak için cmux'u güncelleyin."
+            "value": "cmux'un bu sürümünde alt ajan sınırı yok. Ayarlamak için cmux'u güncelleyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ця версія acpmux не має ліміту субагентів. Оновіть cmux, щоб задати його."
+            "value": "Ця версія cmux не має ліміту субагентів. Оновіть cmux, щоб задати його."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Phiên bản acpmux này không có giới hạn tác tử phụ. Hãy cập nhật cmux để đặt giới hạn."
+            "value": "Phiên bản cmux này không có giới hạn tác tử phụ. Hãy cập nhật cmux để đặt giới hạn."
           }
         }
       }

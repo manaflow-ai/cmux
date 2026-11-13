@@ -12,24 +12,21 @@ public import Foundation
 public struct HomeDebugActions {
     private let flightRecorderOff: String
     private let themeFolders: [URL]
+    private let homes: HomeChiefHomes?
 
     /// - Parameters:
     ///   - flightRecorderOff: The refusal when the flight recorder is off or no Home conversation is open.
     ///   - themeFolders: The bundled theme folders the All Themes playground reads.
-    public init(flightRecorderOff: String, themeFolders: [URL] = []) {
+    ///   - homes: The app's Chief Homes: the Agent Messages Playground's queued pill menu runs its Start now action.
+    public init(flightRecorderOff: String, themeFolders: [URL] = [], homes: HomeChiefHomes? = nil) {
         self.flightRecorderOff = flightRecorderOff
         self.themeFolders = themeFolders
+        self.homes = homes
     }
 
     /// Binds `home.saveFlightRecording`, `debug.allThemesPlayground` and, in DEV builds, `home.agentMessagePlayground` (its `style`,
     /// `expanded`, `team`, `peer` and `dark` arguments switch the playground; none opens it as it is) and
     /// `home.chiefTeleportPlayground` (its `state` picks the menu shown beside the chips).
-    /// Why the agent message playground no longer opens.
-    static var playgroundMoved: String {
-        String(localized: "home.agentMessagePlayground.moved",
-               defaultValue: "The agent message playground moved to the web gallery (Home Messages cards).", table: "Home", bundle: .module)
-    }
-
     public func bind(into registry: ActionRegistry) {
         let off = flightRecorderOff
         // Both run on the input's turn and finish there (a dump written, a window shown): nothing to wait for.
@@ -41,9 +38,13 @@ public struct HomeDebugActions {
             return .done
         })
         #if DEBUG
-        // The agent message playground drew the native transcript's pills, which are gone: their
-        // looks are the web gallery's `home-messages` cards entry now.
-        registry.bindEffect("home.agentMessagePlayground", effect: { _ in .refused(Self.playgroundMoved) })
+        registry.bindEffect("home.agentMessagePlayground", effect: { [weak homes] invocation in
+            HomeAgentMessagePlayground.show(style: invocation["style"]?.intValue, expanded: invocation["expanded"]?.boolValue,
+                                            team: invocation["team"]?.boolValue, peer: invocation["peer"]?.stringValue,
+                                            dark: invocation["dark"]?.boolValue,
+                                            startsOwnAgents: { homes?.startsOwnAgents($0) })
+            return .done
+        })
         registry.bindEffect("home.mcpConnectPlayground", effect: { invocation in
             McpConnectCardPlayground.show(style: invocation["style"]?.intValue, fixture: invocation["fixture"]?.intValue,
                                           phase: invocation["phase"]?.intValue)

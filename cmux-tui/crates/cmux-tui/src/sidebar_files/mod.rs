@@ -135,6 +135,12 @@ impl FileBrowser {
         self.reload_directory();
     }
 
+    /// When the listing is read again (the app loop's idle wait ends there
+    /// while the file sidebar shows).
+    pub fn next_refresh_at(&self) -> Instant {
+        self.last_refresh + REFRESH_EVERY
+    }
+
     pub fn refresh_due(&self, now: Instant) -> bool {
         now.duration_since(self.last_refresh) >= REFRESH_EVERY
     }

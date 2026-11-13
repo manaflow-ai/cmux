@@ -15,7 +15,7 @@
 :is(.acpmux-composer-bar, .nt-pickers) .acpmux-chips .acpmux-access .acpmux-picker-button {
   height: var(--acpmux-permission-pill-height);
   padding-inline: var(--acpmux-permission-pill-inset);
-  border-radius: var(--acpmux-permission-pill-radius);
+  border-radius: var(--ds-radius-control);
 }
 
 .acpmux-context-ring {

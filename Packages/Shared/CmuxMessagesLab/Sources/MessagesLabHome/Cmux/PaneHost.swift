@@ -486,6 +486,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
     var pasteboardHasText: (NSPasteboard) -> Bool = { $0.availableType(from: [.string]) != nil }
     /// cmux: makes the pane's window key after a drop or a pick aimed at it
     /// (PaneHost+DropFocus.swift); tests stub it so no window comes forward.
+    /// cmux: the picture viewer open over the pane, nil once it starts closing (``ChatController/keyboardTarget``).
+    weak var shownPictureViewer: NSView?
     var bringWindowForward: (NSWindow) -> Void = { window in
         NSApp.activate()
         window.makeKeyAndOrderFront(nil)
@@ -649,7 +651,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
         }).cgImage { _ = MorphBubble.boxBlur(cg, radiusPx: 9) }
     }
 
-    func focusCompose() { if !Self.noFocus { window?.makeFirstResponder(demo?.compose.textView.view) } }
+    /// Gives the pane's keyboard target the keyboard: the compose field, or the picture viewer while it is open.
+    func focusCompose() { if !Self.noFocus { window?.makeFirstResponder(keyboardTarget) } }
 
     func dispatch(_ a: Action) {
         guard let store else { return }
@@ -883,6 +886,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
         if demo.longTextBandHit(p) { return }
         if approvalClicked(at: p) { return }
         if turnFailureClicked(at: p) { return }
+        // cmux: the red "!" of my Not Delivered message opens Try Again and Delete (Messages' pair).
+        if failedMarkClicked(at: p) { return }
         if let hit = demo.hit(p) {
             // cmux: a link (re-checked at click time, MarkdownLinkPolicy) opens in PaneLinks.
             if openLink(hit, at: p) { return }
