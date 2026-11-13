@@ -32,6 +32,21 @@ fn pair(opts: &Opts, key: &str) -> Res<(usize, usize)> {
     Ok((x.parse()?, y.parse()?))
 }
 
+fn nonce(opts: &Opts) -> Res<Option<[u8; 16]>> {
+    let Some(value) = opts.get("expected-nonce") else { return Ok(None) };
+    if value.len() != 32
+        || value != value.to_ascii_lowercase()
+        || !value.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err("--expected-nonce must be exactly 32 lowercase hexadecimal characters".into());
+    }
+    let mut out = [0u8; 16];
+    for (index, slot) in out.iter_mut().enumerate() {
+        *slot = u8::from_str_radix(&value[index * 2..index * 2 + 2], 16)?;
+    }
+    Ok(Some(out))
+}
+
 fn integer(dictionary: CFDictionaryRef, key: CFStringRef) -> Option<i64> {
     // SAFETY: the documented CGWindow dictionary keys contain CFNumbers.
     unsafe {
@@ -190,6 +205,7 @@ fn await_counter<T>(
 fn await_presented_marker(
     capture: &Capture,
     timeout_ms: u64,
+    expected_nonce: Option<[u8; 16]>,
 ) -> Res<observe::PresentedMarkerSample> {
     let deadline = now_ns() + timeout_ms * 1_000_000;
     loop {
@@ -197,12 +213,11 @@ fn await_presented_marker(
         if batch.queue_overflow {
             return Err("presented-marker callback queue overflowed; no FPS result is valid".into());
         }
-        if let Some(sample) = batch
-            .samples
-            .into_iter()
-            .rev()
-            .find(|sample| sample.counter.is_some() && sample.display_us.is_some())
-        {
+        if let Some(sample) = batch.samples.into_iter().rev().find(|sample| {
+            sample.counter.is_some()
+                && sample.display_us.is_some()
+                && expected_nonce.map_or(true, |expected| sample.nonce == Some(expected))
+        }) {
             return Ok(sample);
         }
         let left = deadline.saturating_sub(now_ns());
@@ -237,6 +252,7 @@ fn run_passive(opts: &Opts) -> Res<()> {
     let interval_ms = opts.num_or::<u64>("interval-ms", 1000)?;
     let start_timeout_ms = opts.num_or::<u64>("start-timeout-ms", 30_000)?;
     let start_file = opts.get("start-file").ok_or("passive mode requires --start-file PATH")?;
+    let expected_nonce = nonce(opts)?;
     if pid <= 0
         || window == 0
         || !(2..=1024).contains(&cell)
@@ -254,11 +270,11 @@ fn run_passive(opts: &Opts) -> Res<()> {
         &display,
         fps,
         None,
-        super::capture::MarkerConfig { origin, cell },
+        super::capture::MarkerConfig { origin, cell, expected_nonce },
     )?;
     let (width, height) = capture.size();
     let fits = origin.0.checked_add(cell * 20).is_some_and(|x| x <= width as usize)
-        && origin.1.checked_add(cell).is_some_and(|y| y <= height as usize);
+        && origin.1.checked_add(cell * 9).is_some_and(|y| y <= height as usize);
     if !fits {
         return Err("marker lies outside capture dimensions".into());
     }
@@ -269,10 +285,15 @@ fn run_passive(opts: &Opts) -> Res<()> {
             bounds.y + y as f64 * bounds.height / height as f64,
         )
     };
-    let points: Vec<_> =
-        (0..20).map(|i| point(origin.0 + i * cell + cell / 2, origin.1 + cell / 2)).collect();
+    let points: Vec<_> = (0..9)
+        .flat_map(|row| {
+            (0..20).map(move |i| {
+                point(origin.0 + i * cell + cell / 2, origin.1 + row * cell + cell / 2)
+            })
+        })
+        .collect();
     let geometry = target_geometry(window, pid, &points)?;
-    let baseline_sample = await_presented_marker(&capture, 3000)?;
+    let baseline_sample = await_presented_marker(&capture, 3000, expected_nonce)?;
     let baseline = baseline_sample.counter.ok_or("baseline marker is invalid")?;
     let before_start = capture.take_presented();
     if before_start.queue_overflow {
@@ -280,8 +301,10 @@ fn run_passive(opts: &Opts) -> Res<()> {
     }
     let callback_base = before_start.callback_count;
     let start_us = wait_start_file(start_file, start_timeout_ms)?;
-    let mut series = observe::PresentedSeries::with_baseline(Some(baseline));
-    let mut interval = observe::PresentedSeries::with_baseline(Some(baseline));
+    let mut series =
+        observe::PresentedSeries::with_baseline_and_nonce(Some(baseline), expected_nonce);
+    let mut interval =
+        observe::PresentedSeries::with_baseline_and_nonce(Some(baseline), expected_nonce);
     let mut intervals = Vec::new();
     let duration_us = duration_s.saturating_mul(1_000_000);
     let interval_us = interval_ms.saturating_mul(1000);
@@ -327,7 +350,10 @@ fn run_passive(opts: &Opts) -> Res<()> {
                 "callback_count": batch.callback_count.saturating_sub(callback_at_boundary),
             }));
             callback_at_boundary = batch.callback_count;
-            interval = observe::PresentedSeries::with_baseline(series.last_counter);
+            interval = observe::PresentedSeries::with_baseline_and_nonce(
+                series.last_counter,
+                expected_nonce,
+            );
             next_boundary = boundary.saturating_add(interval_us);
         }
         if now_us >= end_us {
@@ -346,7 +372,9 @@ fn run_passive(opts: &Opts) -> Res<()> {
             "complete": true,
             "method": "callback-time source marker with ScreenCaptureKit display timestamp; excludes decoder completion, physical scanout, and pixel response",
             "marker_observed": true,
-            "host_identity_verified": false,
+            "expected_nonce": expected_nonce.map(|nonce| nonce.iter().map(|byte| format!("{byte:02x}")).collect::<String>()),
+            "nonce_observed": expected_nonce.is_some(),
+            "host_identity_verified": expected_nonce.is_some(),
             "requires_real_visible_window": true,
             "pid": pid,
             "window": window,
@@ -370,6 +398,7 @@ fn run_passive(opts: &Opts) -> Res<()> {
             "gaps": series.gaps,
             "repeated": series.repeated,
             "invalid_samples": series.invalid,
+            "nonce_mismatch": series.nonce_mismatch,
             "intervals": intervals,
         })
     );

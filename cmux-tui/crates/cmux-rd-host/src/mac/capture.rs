@@ -91,6 +91,37 @@ impl PixelBuffer {
         }
     }
 
+    #[cfg(feature = "bench")]
+    pub fn marker_nonce(&self, origin: (usize, usize), cell: usize) -> Option<(u16, [u8; 16])> {
+        struct Unlock(sys::CVPixelBufferRef);
+        impl Drop for Unlock {
+            fn drop(&mut self) {
+                // SAFETY: this guard owns a successful read-only lock.
+                unsafe { cv::CVPixelBufferUnlockBaseAddress(self.0, 1) };
+            }
+        }
+        let buffer = self.0.as_ptr().cast_mut();
+        // SAFETY: retained NV12 pixel buffer from our ScreenCaptureKit stream.
+        unsafe {
+            if cv::CVPixelBufferLockBaseAddress(buffer, 1) != 0 {
+                return None;
+            }
+            let _unlock = Unlock(buffer);
+            let base = cv::CVPixelBufferGetBaseAddressOfPlane(buffer, 0);
+            let stride = cv::CVPixelBufferGetBytesPerRowOfPlane(buffer, 0);
+            let length = stride.checked_mul(cv::CVPixelBufferGetHeightOfPlane(buffer, 0))?;
+            if base.is_null() || length > isize::MAX as usize {
+                return None;
+            }
+            crate::observe::read_marker_nonce(
+                std::slice::from_raw_parts(base, length),
+                stride,
+                origin,
+                cell,
+            )
+        }
+    }
+
     /// The buffer's IOSurface (owned by the buffer).
     pub fn io_surface(&self) -> Option<*mut c_void> {
         // SAFETY: a live CVPixelBuffer.
@@ -131,6 +162,7 @@ impl Default for Shared {
 pub struct MarkerConfig {
     pub origin: (usize, usize),
     pub cell: usize,
+    pub expected_nonce: Option<[u8; 16]>,
 }
 
 #[cfg(feature = "bench")]
@@ -468,9 +500,12 @@ extern "C" fn did_output(
             .map(|display| arrived.saturating_sub(mach_age_us(display as u64)));
         let frame = (!buffer.is_null()).then(|| PixelBuffer(Retained::retain(buffer.cast_const())));
         #[cfg(feature = "bench")]
-        let counter = sink.marker.and_then(|marker| {
-            frame.as_ref().and_then(|pixels| pixels.marker(marker.origin, marker.cell))
-        });
+        let (counter, nonce) = sink
+            .marker
+            .and_then(|marker| {
+                frame.as_ref().and_then(|pixels| pixels.marker_nonce(marker.origin, marker.cell))
+            })
+            .map_or((None, None), |(counter, nonce)| (Some(counter), Some(nonce)));
         {
             let mut shared = sink.shared.lock().unwrap_or_else(|p| p.into_inner());
             #[cfg(feature = "bench")]
@@ -479,6 +514,7 @@ extern "C" fn did_output(
                 if sink.marker.is_some() {
                     shared.presented.push(crate::observe::PresentedMarkerSample {
                         counter,
+                        nonce,
                         display_us: shown,
                         arrived_us: arrived,
                     });
