@@ -145,7 +145,7 @@ extension UIScaleSetting {
     /// `app.uiScale`.
     public nonisolated static let configPath = ["app", "uiScale"]
     public nonisolated static let fallback: Double = 1
-    public nonisolated static let range: ClosedRange<Double> = 0.85...1.5
+    public nonisolated static let range: ClosedRange<Double> = 0.25...5
     public nonisolated static let placeholder: Double = 1
 }
 
@@ -215,6 +215,20 @@ extension ChromeStyleSetting {
     /// `appearance.chromeStyle`: The window's look; its choices and their titles are schemas/settings/chrome-styles.json (ChromeStyleSetting+Choices.swift).
     public nonisolated static let configPath = ["appearance", "chromeStyle"]
     public nonisolated static let fallback: ChromeStyle = .flat
+}
+
+extension TitleAreaToneSetting {
+    /// `appearance.titleAreaTone`: One colour (the default: no shade; the sidebar's edge line, the split panes' lines, the tab row's divider and the selected tab's pill separate) or a subtle tone (half the flush corner's frame shade, scaled by appearance.titleAreaContrast; the selected tab is a folder tab in the content's glass). Only the default flush-corner frame follows it; a picked chrome style keeps its own shade. Leo 2026-11-12: the default is mono-ish as Lawrence wants, with the divider kept across most panes; a refined subtle tone is the option.
+    public nonisolated static let configPath = ["appearance", "titleAreaTone"]
+    public nonisolated static let fallback: TitleAreaTone = .oneColor
+}
+
+extension TitleAreaContrastSetting {
+    /// `appearance.titleAreaContrast`: Scales the chrome's shade around the content card (Metrics.titleAreaShadeScale): Subtle Tone's share of the flush corner's frame, or a picked chrome style's own shade; 2 under Subtle Tone is the older two-tone shade. Leo 2026-11-11: the title area's contrast may be too intense for some people, so it needs to be adjustable.
+    public nonisolated static let configPath = ["appearance", "titleAreaContrast"]
+    public nonisolated static let fallback: Double = 1
+    public nonisolated static let range: ClosedRange<Double> = 0...2
+    public nonisolated static let placeholder: Double = 1
 }
 
 extension PaneAnimationsSetting {

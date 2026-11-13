@@ -18,7 +18,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { chromium, type Browser, type CDPSession, type Page } from "playwright";
+import { chromium } from "./browsers";
+import type { Browser, CDPSession, Page } from "playwright";
 import type { EventRecord } from "../src/agent-session/acpmux/direct";
 import { loadTurn, sourceFile } from "../src/agent-session/acpmux/loadFixture";
 import { perfRow, TARGET_MS } from "./perfRow";
@@ -445,9 +446,6 @@ if (import.meta.main) {
     });
     releases.push(() => statics.stop(true));
     const browser = await chromium.launch({
-      ...(process.env.CMUX_CHROME_HEADLESS_SHELL
-        ? { executablePath: process.env.CMUX_CHROME_HEADLESS_SHELL }
-        : { channel: "chrome" }),
       headless: true,
     });
     releases.push(() => browser.close());

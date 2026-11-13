@@ -102,14 +102,16 @@ await requireBrowserLane("tool-output-wraps-down-browser.test.ts", async () => {
           expect(output.wrap).toBe("true");
           expect(output.scrollWidth).toBe(output.clientWidth);
           expect(output.rows).toBeGreaterThan(1);
-          // One 10,000-character line, wrapped, is cut to eight rows with Show all, as a long output is
-          // (Codex review of #41108): it never fills the transcript with hundreds of rows.
+          // One 10,000-character line, wrapped, scrolls in an eight-row box, as a long output does
+          // (Codex review of #41108): it never fills the transcript with hundreds of rows. Short of the
+          // 40,000 characters past which only its end is drawn, it has no Show all row under it.
           const huge = await page.evaluate(() => {
             const body = document.querySelector<HTMLElement>('[data-gallery-block="huge"] .cv-shell__body')!;
             const row = parseFloat(getComputedStyle(body).lineHeight);
             return {
               preview: body.getAttribute("data-preview"),
               rows: body.clientHeight / row,
+              scrolls: body.scrollHeight > body.clientHeight,
               scrollWidth: body.scrollWidth,
               clientWidth: body.clientWidth,
               more: Boolean(document.querySelector('[data-gallery-block="huge"] .cv-output-more')),
@@ -118,16 +120,9 @@ await requireBrowserLane("tool-output-wraps-down-browser.test.ts", async () => {
           expect(HUGE.length).toBeGreaterThanOrEqual(10_000);
           expect(huge.preview).toBe("cut");
           expect(huge.rows).toBeLessThanOrEqual(9);
+          expect(huge.scrolls).toBe(true);
           expect(huge.scrollWidth).toBe(huge.clientWidth);
-          expect(huge.more).toBe(true);
-          await page.locator('[data-gallery-block="huge"] .cv-output-more').click();
-          await page.waitForFunction(
-            () =>
-              document.querySelector('[data-gallery-block="huge"] .cv-shell__body')?.getAttribute("data-preview") ===
-              "all",
-          );
-          // Open, it still offers Show less.
-          expect(await page.locator('[data-gallery-block="huge"] .cv-output-more').count()).toBe(1);
+          expect(huge.more).toBe(false);
           // A table keeps each row whole, its columns aligned, and scrolls for what runs past.
           const table = await measure(page, "table");
           expect(table.wrap).toBe("false");

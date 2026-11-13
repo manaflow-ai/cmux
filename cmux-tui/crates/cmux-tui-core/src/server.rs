@@ -162,6 +162,7 @@ pub(crate) use input_qos::raise_this_thread as raise_input_thread_qos;
 mod line_connection;
 mod line_value;
 pub(crate) mod tree_reply_flight;
+pub(crate) mod tree_reply_text;
 use command_args::{
     parse_direction, parse_split_dir, parse_zoom_mode, present_nullable, workspace_mutation,
 };
@@ -3105,6 +3106,16 @@ fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {
     mux.tree_reply_flight.read(|| list_workspaces_tree(mux))
 }
 
+/// [`list_workspaces_reply`] as the tree's text, which the concurrent
+/// readers of its build share (tree_reply_text.rs).
+fn list_workspaces_reply_text(
+    mux: &Mux,
+    render: &RenderService,
+) -> anyhow::Result<Arc<tree_reply_text::TreeText>> {
+    mux.tree_reply_flight
+        .read_text(|| list_workspaces_tree(mux), |tree| render.serialize_tree(tree))
+}
+
 fn list_workspaces_tree(mux: &Mux) -> anyhow::Result<Value> {
     let notifications = mux.tree_decorations();
     let mut workspaces = mux.with_state(|state| workspaces_json(state, &notifications));
@@ -3216,3 +3227,5 @@ mod tests;
 mod cloud_api;
 #[cfg(unix)]
 mod cloud_repos;
+#[cfg(unix)]
+mod cloud_runs;
