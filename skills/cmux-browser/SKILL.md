@@ -90,11 +90,18 @@ as `browser`.
 cmux --json tab create browser --url https://example.com
 ```
 
-The result carries the new tab's `tab_…` id. Add `--workspace S --screen S
---pane S` to place it in a pane other than the caller's, and `--name N` to name
-it. The app also has UI actions that open a browser in the focused place:
-`cmux tab new-browser`, `cmux browser split-right`, `cmux browser split-down`.
-Check their arguments with `cmux action describe "tab new-browser"` before use.
+The result carries the new tab's `tab_…` id. With no place flag the tab opens
+in your own workspace: beside your chat or terminal (the column right of it,
+made when missing), or in the pane of a plain terminal. `cmux browser open URL`
+is the same command. Add `--workspace S --screen S --pane S` only when the
+person names another place, and `--name N` to name the tab. Keep what you open
+in your own workspace: do not target the pane the person has focused, and do
+not pass `--workspace "$CMUX_WORKSPACE_ID"` (it can be stale). Prefer
+`cmux browser open URL`. The UI actions `cmux tab new-browser`,
+`cmux browser split-right` and `cmux browser split-down` act where the person
+looks unless you name a target: always pass `--target` with a tab or pane of
+your own workspace (`cmux --json identify` prints yours). Check their
+arguments with `cmux action describe "tab new-browser"` before use.
 
 ## Find an existing browser tab without changing focus
 
@@ -239,8 +246,9 @@ cmux --json tab "$TAB" show                              # extra.browser_profile
 ```
 
 `open` takes an http or https URL. Without `--engine webkit|cef` the tab opens
-in the person's default engine setting; `--pane <pane_…>` picks the pane (else
-the focused one) and `--background true` keeps the pane's selected tab.
+in the person's default engine setting; `--pane <pane_…>` picks the pane. With
+no `--pane` the tab is placed like `browser open`: in your own workspace,
+beside your chat or terminal. `--background true` keeps the pane's selected tab.
 
 A profile is named by its id or its exact name. `set-profile` keeps the tab (same id and
 position): the daemon moves the tab record and the app reloads the page at the

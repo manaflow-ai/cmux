@@ -103,7 +103,7 @@ fn every_recipe_command_parses_with_this_cli() {
                         panic!("{command}: {}", error.0);
                     }
                 }
-                ["events", ..] => match crate::cli::app::parse(&words) {
+                ["events" | "open", ..] => match crate::cli::app::parse(&words) {
                     Ok(Some(_)) => {}
                     Ok(None) => panic!("{command}: not an app command"),
                     Err(error) => panic!("{command}: {}", error.0),

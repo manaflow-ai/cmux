@@ -188,7 +188,8 @@ pub(crate) fn text(place: &Place) -> String {
     format!(
         "cmux: you run in a cmux terminal (a cmux-tui pane). Session {session}; workspace \
          {workspace}; screen {}; pane {}; tab {}; terminal {}. {own} `current` names your own \
-         pane, not the one the person looks at. Run `{cmux} skill show` for the full agent \
+         pane, not the one the person looks at. New tabs, browsers and splits open in your \
+         own workspace by default; keep them there unless the person names another place. Run `{cmux} skill show` for the full agent \
          guide (identity, targeting, `terminal send --wait`, `screen wait`, reads, errors, \
          cleanup) and `{cmux} --json identify` to check where you are. {peers} To talk to an \
          agent of this session, use `{cmux} terminal NAME send --text '...' --wait idle` \

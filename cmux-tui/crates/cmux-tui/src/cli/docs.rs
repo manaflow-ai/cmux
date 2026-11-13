@@ -93,8 +93,11 @@ pub(super) const GUIDES: &[Guide] = &[
         drops it. Tell the user the workspace and tab by their titles, never a ws_ or tab_ id. \
         The focus tools \
         (tab_focus, pane_focus, screen_focus, workspace_focus, agents_tab_select) and focus: true \
-        move the user's focus: use them only when the user asked. The selector `current` is what \
-        the user looks at, not your own workspace.",
+        move the user's focus: use them only when the user asked. The selector `current` is your \
+        own workspace, screen and pane (this chat's), not what the user looks at; `focused` is \
+        what the user looks at. A tab, pane, screen or browser you create with no workspace, \
+        screen or pane opens in your own workspace, beside this chat: keep it there unless the \
+        user names another place.",
     },
     Guide {
         topic: "Set up cmux for the person: trust, harnesses, machines, accounts",

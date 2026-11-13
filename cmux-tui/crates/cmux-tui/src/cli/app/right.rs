@@ -1,6 +1,9 @@
 //! `cmux browser right <verb> …`: page commands for the browser in the column
-//! right of the Home chat, the one every Chief, local or cloud, shows and
-//! drives pages in (plans/cmux-next/chief-browser-use-DESIGN.md). The app
+//! right of the caller. A Chief turn's is right of the Home chat, the one
+//! every Chief, local or cloud, shows and drives pages in
+//! (plans/cmux-next/chief-browser-use-DESIGN.md); any other caller's is right
+//! of its own chat or pane, in its own workspace, which the app finds from
+//! the `caller` every page verb names (app.rs `with_caller`). The app
 //! picks the tab (`browser.page.right`: the agent's own tab there, else the
 //! shown browser tab, else a new one there, never in the dock or with focus,
 //! and never a tab another agent holds); the verb then runs on that tab like

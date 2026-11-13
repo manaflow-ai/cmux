@@ -149,6 +149,10 @@ beside a chat. --viewport-width <fraction> makes a column of exactly that
 share of the window, and the row scrolls sideways when the columns are wider
 than the window.
 
+create makes the pane on the caller's own screen, in its own workspace (the
+session's active one for a shell outside cmux, or with --socket, --machine or
+--session for another session).
+
 split keeps the focus where it is unless --focus is given. With --shell or
 -- argv the new pane (of split or create) runs that command instead of a
 shell. To add a terminal
@@ -219,6 +223,12 @@ USAGE
   cmux tab group saved list [--room <room>]
   cmux tab group saved <saved> reopen [--pane <pane_…>]
   cmux tab group saved <saved> delete
+
+create with no --workspace, --screen or --pane opens the tab in the caller's
+own workspace: beside an agent's chat or terminal (the column right of it,
+made when missing) and in the pane of a plain terminal. A shell outside
+cmux, and --socket, --machine or --session for another session, get the
+session's active pane. Name a place only when the person names one.
 
 Zoom is a browser page zoom or a terminal font scale. Pinned tabs sort first
 and leave their group. A group or saved group is named by its id or exact

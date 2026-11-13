@@ -173,8 +173,10 @@ usage: cmux open <path|url>... [--workspace <ws_…>] [--focus [true|false]] [--
        cmux open --as-text <file>... [--focus [true|false]] [--no-focus]
        cmux open - [--workspace <ws_…>] [--focus [true|false]] [--no-focus]
        cmux open --link [--caller <names>] [--target <target>] (<url>... | -)
-URLs open as a browser tab in the caller's pane (or the --workspace pane),
-folders in a new workspace, files in the app. `open -` reads one http(s) URL
+URLs and files open in the caller's own workspace (or the --workspace pane):
+beside an agent's chat, in the pane of the caller's terminal, and in the
+focused pane only for a shell outside cmux. Folders open in a new workspace.
+`open -` reads one http(s) URL
 per stdin line, so a URL with a token never appears in argv; it checks every
 line first and stops at the first URL the app refuses.
 --as-text (or --source) opens HTML, SVG and Markdown files as their source in

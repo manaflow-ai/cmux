@@ -196,7 +196,10 @@ daemon inject, so no flags are needed.
 | `CMUX_BUNDLE_ID` | App bundle id; derives the app socket and daemon session. |
 | `CMUX_TAG` | Tagged dev build; derives `~/.local/state/cmux/cmux-debug-<tag>.sock`, session `cmux-app-<tag>` and, with the bundle id, the acpmux home `~/.acpmux/builds/<build key>`. |
 | `CMUX_TUI_SOCKET` | Daemon session socket. |
-| `CMUX_TUI_TERMINAL_ID` | The caller's terminal (`term_…`). `cmux notify` and `agent hook emit` default to it. `current` selectors do not use it. |
+| `CMUX_TUI_TERMINAL_ID` | The caller's terminal (`term_…`). `cmux notify` and `agent hook emit` default to it, `current` and `caller` selectors resolve to its tab, pane, screen and workspace, and a creation that names no place opens there. |
+| `CMUX_AGENT_SESSION` | The caller's agent chat (acpmux sets it for the agent and its cmux MCP server). The app that owns the daemon says where the chat is. |
+| `CMUX_CALLER_HOME_CHAT` | `1` for a Chief turn: its place is the Home chat of the app that owns the daemon. |
+| `CMUX_WORKSPACE_ID` | The key of the workspace an agent chat works in. Used only as a fallback place for an agent chat the app cannot find, and only when the request's session has that workspace. Do not pass it as `--workspace`: it can be stale. |
 | `ACPMUX_HOME` | acpmux state directory. Wins over the tag rule. |
 
 App socket order: `--app-socket`, then `CMUX_SOCKET_PATH`/`CMUX_BUNDLE_ID`/`CMUX_TAG`,
@@ -225,15 +228,51 @@ Every instance selector accepts:
 1. a public id: `ws_…`, `screen_…`, `pane_…`, `tab_…`, `term_…`, `browser_…`,
    `split_…`, `notification_…`, `agent_…`. Ids are persisted and survive app and
    daemon restarts;
-2. `current`;
+2. `caller` or `current`: the caller's own object;
 3. an exact name. `name:<value>` forces name interpretation and is required for
-   names equal to `current`, names shaped like ids, and names containing `_`.
+   names equal to `current` or `caller`, names shaped like ids, and names
+   containing `_`.
 
-For a `current` or name selector, missing structural ancestors default to
-`current`, so `cmux pane current split --right` means the session's active
-workspace, screen and pane (what the user sees), not the caller's. To act on
-the caller's own terminal, pass `$CMUX_TUI_TERMINAL_ID`. An id selector needs no ancestors. Nested forms name the chain
-explicitly: `cmux workspace api screen current pane current split --down`.
+For a `caller`, `current` or name selector, missing structural ancestors
+default to `current`. `caller` and `current` are the caller's own place: from a
+cmux terminal (`CMUX_TUI_TERMINAL_ID`) the CLI reads the tab, pane, screen and
+workspace that hold it; from an agent chat (`CMUX_AGENT_SESSION`) or a Chief
+turn it asks the app that owns the daemon where the chat is. So
+`cmux pane current split --right` splits the caller's own pane even while the
+person looks at another workspace. `caller` fails without a caller; `current`
+is then the session's active object, as it is for a shell outside cmux and
+with `--socket`, `--machine` or `--session` naming another session. An id
+selector needs no ancestors. Nested forms name the chain explicitly:
+`cmux workspace api screen current pane current split --down`.
+
+### The default place
+
+A creation that names no place acts in the caller's own workspace, never in the
+one the person has focused. This holds for the CLI and for the MCP server:
+
+| Command (no `--workspace`, `--screen`, `--pane`) | Agent chat or Chief turn | cmux terminal |
+| --- | --- | --- |
+| `tab create terminal`, `browser open`, `tab create browser`, `browser profile open`, `open <url>`, `open <file>` | Beside the chat: the column right of it, made when missing. | Beside the terminal when it runs an agent; else a tab in the terminal's own pane. |
+| `pane create` | The chat's screen. | The terminal's screen. |
+| `screen create`, `workspace open-url` | The chat's workspace. | The terminal's workspace. |
+| `agent start`, `agent resume`, `terminal <t> resume` (no `--pane`, no `--split`) | Beside the chat. | A split right of the terminal's pane. |
+| `agents terminal split` (no `--surface`) | A split of the chat's pane (a Chief turn: the Home chat's pane). | A split of the terminal's pane. |
+
+Rules:
+
+- Only the app that owns the request's daemon places a caller. A Cloud Chief
+  turn that reaches the Mac app over a relay keeps its machine's own default.
+- A terminal caller is placed beside its terminal only by an app whose
+  `system.identify` reports `caller_placement` 2 or more. With an older app, or
+  with no app (a plain cmux-tui session, a Cloud machine), the tab opens in the
+  terminal's own pane.
+- An agent chat the app cannot find falls back to the workspace
+  `CMUX_WORKSPACE_ID` names, when the request's session has it.
+- With no caller (a shell outside cmux), a caller terminal the daemon no longer
+  shows, or a request to another session or machine (`--socket`, `--machine`,
+  `--session` naming another session), the daemon's default applies: its active
+  workspace, screen and pane.
+- Name a place only when the person names one.
 
 A selector id, or an id given to `--workspace`, `--screen`, `--pane`, `--tab`,
 `--tabs`, `--terminal`, `--browser`, `--split`, `--target` or `--other-*`, may
@@ -331,7 +370,8 @@ cmux screen group <group> add --screens <screen_id,...>
 cmux screen group remove --screens <screen_id,...>
 ```
 
-`screen create` keeps the focused screen unless `--focus` is given.
+`screen create` adds the screen to the caller's own workspace ([the default
+place](#the-default-place)) and keeps the focused screen unless `--focus` is given.
 
 Pinned screens sort first and leave their group. Group colors are `grey`,
 `blue`, `red`, `yellow`, `green`, `pink`, `purple`, `cyan` and `orange`.

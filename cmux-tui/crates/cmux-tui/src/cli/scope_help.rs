@@ -23,18 +23,23 @@ USAGE
   cmux browser page|<tab_…> <verb> [ARGS]   Drive a page the cmux app hosts
     (`cmux browser page --help`)
   cmux browser right <verb> [ARGS] [--agent NAME]   The same verbs on the
-    browser right of the Home chat (an agent's own tab there, opened when
-    needed; `cmux browser right release` gives it back)
+    browser in the column right of the caller: a Chief's right of the Home
+    chat, any other agent's right of its own chat or pane (its own tab
+    there, opened when needed; `cmux browser right release` gives it back)
 
 browser open adds a browser tab, like
 `cmux tab create browser --url <url> [--workspace <selector>]`: in the named
-workspace, screen or pane, else the current one. --url <url> is the same as
-the positional URL.
+workspace, screen or pane. With none it opens in the caller's own workspace:
+beside an agent's chat or terminal (the column right of it), in the pane of
+a plain terminal, and in the focused pane only for a shell outside cmux.
+--url <url> is the same as the positional URL.
 
 browser profile list shows each profile's id, name, color, icon and index,
 never its cookies, history or site data. browser profile open opens a tab in
-the profile, in the named pane, else the focused one; the URL must be http or
-https. Without --engine the tab uses the browser.defaultEngine setting.
+the profile, in the named pane; with no --pane it is placed like browser
+open, in the caller's own workspace. --background true keeps the pane's
+selected tab. The URL must be http or https. Without --engine the tab uses
+the browser.defaultEngine setting.
 ";
 
 pub(super) const NOTIFICATION_HELP: &str = "\

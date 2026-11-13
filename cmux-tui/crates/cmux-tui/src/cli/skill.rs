@@ -52,6 +52,20 @@ pub(super) const RECIPES: &[Recipe] = &[
                shells have); it is absent when the shell reports none, never guessed.",
     },
     Recipe {
+        ask: "Open a page / a file / a diff beside you.",
+        commands: &["cmux --json browser open https://example.com", "cmux open README.md"],
+        read: "With no place flag they open in your own workspace: beside an agent's chat \
+               or terminal (the column right of it, made when missing), and in the pane of a \
+               plain terminal. The same holds for `cmux tab create terminal`, `cmux pane \
+               create`, `cmux screen create` and `cmux browser profile open URL --profile \
+               NAME` (sign-in links), and for a diff (`cmux browser open-diff-viewer`, an \
+               app action). Name another place only when the person names one: `--pane \
+               <pane>`, `--workspace <ws>`. `focused` (`--pane focused`) is the pane the \
+               person looks at: use it only when they say \"here\" or \"where I am \
+               looking\". browser open prints `value.tab_id` and `value.pane_id`; the \
+               person's focus stays.",
+    },
+    Recipe {
         ask: "Run this in my shell and give me its exit code.",
         commands: &["cmux --json terminal <term> run --timeout 10m -- npm test"],
         read: "run types the command into the terminal's shell, waits for its next prompt, \
@@ -400,10 +414,16 @@ the cmux app; `cmux app identify` asks the app around it (`outer_app`).
 - **Targets.** A selector is an id (`ws_…`, `screen_…`, `pane_…`, `tab_…`, `term_…`), a \
 unique id prefix of 4 or more hex digits (`pane_3f0a`; a shorter one is refused), the bare 32 \
 hex digits (for a terminal also the host `terminal_id` that `run` prints), `current`, `caller`, `focused`, or an exact name (`name:` forces a name). Inside a cmux terminal \
-`current` and `caller` are your own workspace, screen, pane, tab and terminal, not the one the \
-person looks at. For the person's focused pane, name the session: \
-`cmux --session <session.name> pane current show` (an explicit route makes `current` the \
-focused object).
+or an agent chat `current` and `caller` are your own workspace, screen, pane, tab and \
+terminal, not the one the person looks at; `--session` with your own session's name keeps \
+that. `focused` is the pane the person looks at (`cmux pane focused show`); `--socket`, \
+`--machine` and `--session` with another session make `current` that session's focused \
+object.
+- **Your own workspace.** What you open stays in your own workspace unless the person names \
+another place. A creation with no place flag (`browser open`, `open FILE`, `tab create`, \
+`pane create`, `screen create`, `agent start`) already goes there. Do not pass \
+`--workspace \"$CMUX_WORKSPACE_ID\"` (it can be stale) and do not target the focused pane \
+to \"show\" something.
 - **Use ids from JSON.** Pass `--json` and read the ids each command prints. Do not \
 guess them from names, order or examples.
 - **Words.** The person's \"window\" (tmux window, a TUI tab) is a **screen**; a split is a \
