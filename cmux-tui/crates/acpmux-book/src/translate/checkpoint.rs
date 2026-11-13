@@ -10,7 +10,7 @@ impl State {
         let queue = std::mem::take(&mut translator.queue);
         let mut bytes =
             codec().serialize(&(VERSION, &translator)).map_err(|_| Error::CheckpointInvalid)?;
-        if bytes.len() > MAX_TRANSLATOR_BYTES {
+        if bytes.len() + 4 > MAX_TRANSLATOR_BYTES {
             return Err(Error::StateTooLarge { bytes: bytes.len() });
         }
         bytes.extend_from_slice(&(queue.len() as u32).to_le_bytes());
@@ -90,7 +90,7 @@ impl State {
         {
             return Err(Error::CheckpointInvalid);
         }
-        if state.queue.len().saturating_mul(32) > MAX_STATE_BYTES - MAX_TRANSLATOR_BYTES {
+        if pos > MAX_TRANSLATOR_BYTES - 4 {
             return Err(Error::CheckpointInvalid);
         }
         if state.turn.is_some_and(|id| id == 0 || id > state.last_id)

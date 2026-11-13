@@ -732,7 +732,9 @@ impl State {
                 row.turn = self.turn;
             }
             row.fields.insert("steer".into(), "true".into());
-            self.fold.extra(row.id);
+            if !already_read {
+                self.fold.extra(row.id);
+            }
         } else {
             row.fields.insert("steer".into(), "false".into());
             self.turn = Some(row.id);

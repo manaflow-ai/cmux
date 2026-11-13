@@ -917,11 +917,19 @@ fn read_before_late_text_is_in_the_settled_turn_out() {
         mux(3, "turn_result", r#"{"turnId":"t1"}"#),
         mux(4, "user_message", r#"{"text":"next","turnId":"t2"}"#),
         mux(5, "user_message", r#"{"text":"late","promptId":"s","turnId":"t1"}"#),
+        mux(6, "turn_result", r#"{"turnId":"t2"}"#),
     ];
     let (_, mirror) = replay(&lines);
     let steer = mirror.reply("late");
     assert!(mirror.visible(steer));
     assert_eq!(steer.turn, Some(mirror.reply("first").id));
+    let next = mirror.reply("next");
+    let group = mirror
+        .rows
+        .values()
+        .find(|row| row.kind == RowKind::Group && row.turn == next.turn)
+        .unwrap();
+    assert!(!group.fields.get("out").is_some_and(|out| out.contains(&steer.id.to_string())));
 }
 
 #[test]
@@ -1144,6 +1152,38 @@ fn queue_split_replay_preserves_places_and_state() {
     }
     assert_eq!(whole.queue, split.queue);
     assert_eq!(whole.last_row_id(), split.last_row_id());
+}
+
+#[test]
+fn queue_split_property_runs_ten_thousand_random_splits() {
+    let lines = [
+        mux(1, "user_message", r#"{"text":"q","turnId":"t"}"#),
+        mux(2, "queued", r#"{"text":"wait","promptId":"w"}"#),
+        mux(3, "queue_paused", r#"{"held":["w"]}"#),
+        mux(4, "queue_resumed", r#"{"promptIds":["w"]}"#),
+        mux(5, "steer_read", r#"{"promptId":"w","turnId":"t"}"#),
+        mux(6, "user_message", r#"{"text":"answer","promptId":"w","steer":true}"#),
+        mux(7, "turn_result", r#"{"turnId":"t"}"#),
+    ];
+    for seed in 0..10_000usize {
+        let cut = seed % (lines.len() + 1);
+        let mut whole = State::default();
+        for (place, line) in lines.iter().enumerate() {
+            translate(&mut whole, Harness::V1, place as u64, line.len() as u64, line.as_bytes())
+                .unwrap();
+        }
+        let mut split = State::default();
+        for (place, line) in lines.iter().enumerate().take(cut) {
+            translate(&mut split, Harness::V1, place as u64, line.len() as u64, line.as_bytes())
+                .unwrap();
+        }
+        split = State::restore(&split.checkpoint().unwrap()).unwrap();
+        for (place, line) in lines.iter().enumerate().skip(cut) {
+            translate(&mut split, Harness::V1, place as u64, line.len() as u64, line.as_bytes())
+                .unwrap();
+        }
+        assert_eq!(whole.checkpoint().unwrap(), split.checkpoint().unwrap(), "seed {seed}");
+    }
 }
 
 #[test]
