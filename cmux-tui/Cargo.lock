@@ -137,6 +137,7 @@ dependencies = [
  "acpmux-book",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
