@@ -423,7 +423,12 @@ await requireBrowserLane("transcript-details-toggle-steady-browser.test.ts", asy
       const page = await open(true);
       const failures: string[] = [];
       for (let round = 0; round < 5; round += 1) {
-        const found = await bottomToggle(page, `message card ${round}`, '[data-row-id="msg"] .cv-agentmsg__toggle', "msg");
+        const found = await bottomToggle(
+          page,
+          `message card ${round}`,
+          '[data-row-id="msg"] .cv-agentmsg__toggle',
+          "msg",
+        );
         console.log(`VEHICLE ${name} message card round=${round}: ${found.length ? found.join(" ; ") : "no failure"}`);
         failures.push(...found);
         await toLatest(page);
