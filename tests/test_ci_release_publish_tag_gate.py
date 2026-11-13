@@ -122,6 +122,7 @@ GH_API_VALUE_FLAGS = {"-X", "--method", "-f", "--raw-field", "-F", "--field", "-
                       "--jq", "-t", "--template", "--hostname", "--cache", "-p", "--preview"}
 GH_API_FIELD_FLAGS = {"-f", "-F", "--field", "--raw-field", "--input"}
 GRAPHQL_MUTATION = re.compile(r"(?<![A-Za-z0-9_])mutation(?![A-Za-z0-9_])")
+GRAPHQL_DYNAMIC = re.compile(r"[$`\\]|[<>]\(")
 
 
 def gh_api_writes_release(args: list[str]) -> bool:
@@ -132,6 +133,7 @@ def gh_api_writes_release(args: list[str]) -> bool:
     paths: list[str] = []
     graphql_query: str | None = None
     graphql_query_known = False
+    graphql_input = False
     index = 0
 
     def readable_method(value: str) -> bool:
@@ -156,6 +158,8 @@ def gh_api_writes_release(args: list[str]) -> bool:
                 method_known = readable_method(method)
         elif name in GH_API_FIELD_FLAGS or (len(word) > 2 and word[:2] in ("-f", "-F") and not word.startswith("--")):
             fields = True
+            if name == "--input":
+                graphql_input = True
             value = attached
             if value is None and name in GH_API_VALUE_FLAGS and index < len(args):
                 value = args[index]
@@ -164,14 +168,14 @@ def gh_api_writes_release(args: list[str]) -> bool:
                 key, separator, field = value.partition("=")
                 if key == "query" and separator:
                     graphql_query = field
-                    graphql_query_known = not field.startswith(("$", "@"))
+                    graphql_query_known = not field.startswith("@") and not GRAPHQL_DYNAMIC.search(field)
         elif name in GH_API_VALUE_FLAGS:
             if attached is None:
                 index += 1
         elif not word.startswith("-"):
             paths.append(word)
-    if "graphql" in paths:
-        if not graphql_query_known or graphql_query is None:
+    if any(path in {"graphql", "/graphql"} for path in paths):
+        if graphql_input or not graphql_query_known or graphql_query is None:
             return True
         return bool(GRAPHQL_MUTATION.search(graphql_query))
     if not any(RELEASE_PATH.search(path) for path in paths):
