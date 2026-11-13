@@ -806,6 +806,7 @@ impl Hub {
                 has_before: false,
                 has_after: false,
                 cold_unread: false,
+                deeper: Vec::new(),
                 before_key: None,
                 after_key: None,
                 missing,
