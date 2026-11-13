@@ -29,6 +29,8 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/cmux_tui_tree_handoff.py"
 WORKFLOW = ROOT / ".github/workflows/cmux-tui-artifacts.yml"
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 spec = importlib.util.spec_from_file_location("handoff", SCRIPT)
 handoff = importlib.util.module_from_spec(spec)
 sys.modules["handoff"] = handoff
@@ -296,7 +298,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(mint["with"], {"app-id": "${{ vars.CMUX_BOT_APP_ID }}",
                                         "private-key": "${{ secrets.CMUX_BOT_APP_KEY }}",
                                         "permission-actions": "write"})
-        self.assertEqual(notify["environment"], {"name": "ci-routing-agent", "deployment": False})
+        self.assertEqual(workflow_jobs.resolve(notify, "notify-unpublished-tree").environment,
+                         {"name": "ci-routing-agent", "deployment": False})
 
 
 if __name__ == "__main__":
