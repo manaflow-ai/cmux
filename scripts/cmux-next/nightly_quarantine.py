@@ -91,7 +91,8 @@ def first_parents(tip: str) -> list[str]:
 
 
 def history(repo: str, oid: str) -> list:
-    """GraphQL nodes for OID's first-parent commits, newest first; a commit GitHub does not know is left out."""
+    """GraphQL nodes for OID's first-parent commits, newest first; a commit GitHub does not return reads as one with no
+    status (an open quarantine still holds it)."""
     shas = first_parents(oid)
     owner, name = repo.split("/", 1)
     out = json.loads(gh("api", "graphql", "-f", f"query={query(shas)}", "-f", f"o={owner}", "-f", f"n={name}"))
@@ -101,7 +102,7 @@ def history(repo: str, oid: str) -> list:
     if not isinstance(found, dict):
         raise ValueError(f"{oid}'s history unreadable")
     by_oid = {n["oid"]: n for n in found.values() if isinstance(n, dict) and isinstance(n.get("oid"), str)}
-    return [by_oid[sha] for sha in shas if sha in by_oid]
+    return [by_oid.get(sha) or {"oid": sha} for sha in shas]
 
 
 def quarantined(args: argparse.Namespace) -> int:
