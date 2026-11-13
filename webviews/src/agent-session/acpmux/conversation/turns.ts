@@ -1143,8 +1143,9 @@ const isWork = (row: AcpmuxRow) =>
   (row.items ?? []).some((item) => item.tool && !isEditTool(item.tool) && !renderCall(item.tool));
 
 /// Where a finished turn's answer is in `rows`: its last takeaway, or its last nonempty reply
-/// after the final tool call. -1: none, so all of it folds. Earlier takeaways are intermediate
-/// dialogue once the turn ends; they remain readable when its disclosure opens.
+/// after the final tool call. -1: none, so all of it folds. Earlier takeaways are substantive
+/// dialogue once the turn ends; they remain readable outside the closed disclosure and in order
+/// when it opens.
 function answerAt(rows: readonly AcpmuxRow[]): number {
   let stepped = false;
   for (let at = rows.length - 1; at >= 0; at -= 1) {
@@ -1198,8 +1199,9 @@ const isOwnSteer = (row: AcpmuxRow) => !row.incoming && !row.received;
 /// The person's steer always does: it and the reply before it stay in sight under every arm. Another
 /// agent's message does only after a reply that stays in sight beside the closed fold: with none, the
 /// fold above it would close onto the next one with nothing between them, so it folds in place, the
-/// nearest fold's entry. Under turnFoldReplies' `answer` arm (Codex's) every earlier reply folds with
-/// the work, so no agent's message splits.
+/// nearest fold's entry. Under turnFoldReplies' `answer` arm (Codex's), short narration folds with
+/// the work while substantive replies stay visible, so no agent's message splits merely because
+/// narration ran.
 const startsFold = (row: AcpmuxRow, replied: boolean) =>
   splitsFold(row) && (isOwnSteer(row) || (replied && experimentArm(turnFoldReplies) !== "answer"));
 /// A reply that lets another agent's message start a fold (`startsFold`), read the same way off the
@@ -1513,11 +1515,12 @@ function shapeTurn(
   const edits: AcpmuxRow[] = [];
   const replies = repliesIn(body);
   // How the closed fold treats the earlier replies (turnFoldReplies.experiment.ts). The `answer` arm,
-  // Codex's: every earlier reply folds with the work; `replies` still marks them, so each keeps its
-  // action row once the fold opens. A reply whose question another agent's message cut off stays
-  // out: its card waits on the person, under it (`cutOff`).
+  // Codex's: short narration folds with the work, while substantive replies stay in sight; `replies`
+  // still marks them, so each keeps its action row once the fold opens. A reply whose question another
+  // agent's message cut off stays out: its card waits on the person, under it (`cutOff`).
   const repliesArm = experimentArm(turnFoldReplies);
-  const keptOut: ReadonlySet<string> = repliesArm === "answer" ? new Set(cutOff ? [cutOff.reply.id] : []) : replies;
+  const keptOut: ReadonlySet<string> =
+    repliesArm === "answer" ? new Set([...replies, ...(cutOff ? [cutOff.reply.id] : [])]) : replies;
   const steerDialogue = steerDialogueIn(body);
   // A turn the person steered still has one fold (Leo, 2026-11-07, on a closed "Worked for 5m 15s"
   // with "Finished 2 background tasks and ran 8 commands" beside it: "this could have been, like,
@@ -2780,8 +2783,9 @@ function codexRuns(rows: AcpmuxRow[], named?: string, lineOnly = false, carried?
 /// lines at the pane's width.
 export const SHORT_NOTE_CHARS = 160;
 const TAKEAWAY_LINES = 3;
-/// A reply that reads as a takeaway, not narration of the work: over about three lines, or with a
-/// question, a list, a link, a code block or a second paragraph (Leo, 2026-10-21). Inline code alone
+/// A reply that reads as a takeaway, not narration of the work: over about three lines, more than
+/// about two sentences, or with a question, a list, a link, a code block or a second paragraph (Leo,
+/// 2026-10-21). Inline code alone
 /// does not make one: narration names files and calls ("Reading `client.ts` next."), and that is
 /// the work Lawrence asked to collapse; a short note keeps the fold it had before. Another agent's words
 /// always are. Shared by the finished turn's final answer and the running turn's runs
@@ -2790,10 +2794,12 @@ export function isTakeaway(row: AcpmuxRow): boolean {
   if (row.kind !== "assistant") return false;
   const text = (row.text ?? "").trim();
   if (!text) return false;
+  const sentences = text.replace(/\.{3,}/g, ".").match(/[.!?](?=\s|$)/g)?.length ?? 0;
   return (
     Boolean(row.incoming) ||
     text.length > SHORT_NOTE_CHARS ||
     text.split("\n").length > TAKEAWAY_LINES ||
+    sentences > 2 ||
     /\?|```|~~~|\n\s*\n|^\s*(?:[-*+]|\d+[.)])\s|\]\(|https?:\/\//m.test(text)
   );
 }

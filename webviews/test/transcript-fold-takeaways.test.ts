@@ -1,6 +1,6 @@
-// A completed turn folds its work and its earlier replies into one disclosure; only the final answer
-// stays in sight, as Codex ends a turn (Lawrence, 2026-11-11). The arms that keep every reply in sight
-// (Leo, 2026-11-06) are tested in turn-fold-keeps-replies.test.ts.
+// A completed turn folds its work into one disclosure; substantive replies stay in sight while short
+// narration folds with it. The arms that keep every reply in sight (Leo, 2026-11-06) are tested in
+// turn-fold-keeps-replies.test.ts.
 // Short narration between steps folds with them. While running, intermediate dialogue remains visible.
 import { afterEach, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -61,9 +61,14 @@ const leosTurn = () => [
   summary(),
 ];
 
-test("only the final answer stays in sight; every earlier answer folds with the work, as Codex does", () => {
-  // Lawrence, 2026-11-11 standup: the closed fold "does not hide enough stuff" (turnFoldReplies `answer`).
-  expect(drawn(leosTurn())).toEqual(["user:u", "worked:worked-u", "assistant:second", "turnSummary:end"]);
+test("substantive answers stay in sight; short narration folds with the work", () => {
+  expect(drawn(leosTurn())).toEqual([
+    "user:u",
+    "worked:worked-u",
+    "assistant:first",
+    "assistant:second",
+    "turnSummary:end",
+  ]);
 });
 
 test("the one fold opens every intermediate answer and command in order", () => {
@@ -118,9 +123,9 @@ test("short narration between tools folds with them", () => {
   expect(open.find((shaped) => shaped.id === "read")?.joined).toEqual(["read", "check", "grep", "running", "test"]);
 });
 
-test("long reply, then a tool, then 'Pushed.': the long reply folds with the work, 'Pushed.' ends the turn", () => {
+test("long reply, then a tool, then 'Pushed.': both replies stay visible", () => {
   const rows = [row("u", "user"), ran("read"), answer("reply"), ran("git push"), say("pushed", "Pushed."), summary()];
-  expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "assistant:pushed", "turnSummary:end"]);
+  expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "assistant:reply", "assistant:pushed", "turnSummary:end"]);
 });
 
 test("a substantive answer with a table stays visible before a tool and its short receipt", () => {
@@ -135,6 +140,16 @@ test("a substantive answer with a table stays visible before a tool and its shor
     "assistant:answer-before-tool",
     "assistant:receipt",
     "turnSummary:end",
+  ]);
+  // The live projection uses the same rows before a summary arrives; it must not lose the answer
+  // while the tool is still running, then the completed projection above must preserve it on reload.
+  expect(drawn(rows.slice(0, -1), new Set(), true)).toEqual([
+    "user:u",
+    "working:working-u",
+    "assistant:answer-before-tool",
+    "activity:ask-lane",
+    "assistant:receipt",
+    "thinking:thinking-live",
   ]);
 });
 
@@ -182,6 +197,8 @@ test("what reads as a takeaway: long prose, a question, a list or a link; not sh
   expect(isTakeaway(say("e", "Opened [#123](https://example.com/123)."))).toBe(true);
   expect(isTakeaway(say("f", "word ".repeat(60)))).toBe(true);
   expect(isTakeaway(say("g", "one\ntwo\nthree\nfour"))).toBe(true);
+  expect(isTakeaway(say("h", "First sentence. Second sentence. Third sentence."))).toBe(true);
+  expect(isTakeaway(say("i", "First sentence. Second sentence."))).toBe(false);
 });
 
 test("Find opens the right fold past a prompt that failed to send mid-turn", () => {

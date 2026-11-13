@@ -101,16 +101,17 @@ test("claude: Worked for over the conclusion, the chatter and runs folded under 
   expect(rows.find((row) => row.kind === "turnSummary")?.folded).toBe(true);
 });
 
-// Lawrence, 2026-11-11 (Codex parity): a closed fold keeps only the final answer in sight; the reply
-// between two runs folds with them. The arms that keep it in sight: turn-fold-keeps-replies.test.ts.
+// A closed fold keeps substantive replies in sight; short narration between two runs folds with
+// them. The arms that keep every reply in sight are covered by turn-fold-keeps-replies.test.ts.
 for (const family of ["claude", "codex", "gemini", "muse"])
-  test(`${family}: a closed fold hides a reply between two runs with the runs`, () => {
+  test(`${family}: a closed fold keeps a substantive reply between two runs`, () => {
     const rows = drawn(family, new Set(), replied);
     const worked = rows.find((row) => row.kind === WORKED)!;
     expect(worked.foldOpen).toBe(false);
-    // Codex's header counts the messages it folds; the other families read "Worked for" alone.
-    expect(worked.previous === undefined).toBe(family !== "codex");
-    expect(ids(rows.filter((row) => row.kind !== "turnSummary"))).toEqual([worked.id, "a"]);
+    // The substantive reply stays visible, so the closed fold contains only calls and uses the
+    // normal Worked for label without a previous-message count.
+    expect(worked.previous).toBeUndefined();
+    expect(ids(rows.filter((row) => row.kind !== "turnSummary"))).toEqual([worked.id, "n1", "a"]);
   });
 
 test("claude, opened: its runs fold per run with the chatter between them", () => {
