@@ -26,7 +26,10 @@ run() {
   done
 }
 run after "$here"
-base="$(git rev-parse --verify -q "$base^{commit}" || { git fetch -q --depth=1 origin "$base" && git rev-parse "$base^{commit}"; })"
+# A fetch here never turns a full clone shallow: --depth only when the checkout already is one.
+depth=()
+[ "$(git rev-parse --is-shallow-repository)" = true ] && depth=(--depth=1)
+base="$(git rev-parse --verify -q "$base^{commit}" || { git fetch -q "${depth[@]}" origin "$base" && git rev-parse "$base^{commit}"; })"
 tree="$(mktemp -d)/base"
 trap 'git -C "$here" worktree remove --force "$tree" 2>/dev/null || true' EXIT
 git worktree add -q --detach "$tree" "$base"
