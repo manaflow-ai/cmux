@@ -191,6 +191,8 @@ enum KeyboardShortcutSettings {
         case focusPreviousPane
         case focusNextPane, focusPaneByNumber
         case splitRight, splitDown, toggleSplitZoom, newPaneAutoLayout
+        case movePaneToOuterLeft, movePaneToOuterRight
+        case movePaneToOuterTop, movePaneToOuterBottom
         case increaseWorkspaceTerminalFontSize
         case decreaseWorkspaceTerminalFontSize
         case resetWorkspaceTerminalFontSize
@@ -363,6 +365,10 @@ enum KeyboardShortcutSettings {
             case .splitDown: return String(localized: "shortcut.splitDown.label", defaultValue: "Split Down")
             case .newPaneAutoLayout: return String(localized: "shortcut.newPaneAutoLayout.label", defaultValue: "New Pane (Auto Layout)")
             case .toggleSplitZoom: return String(localized: "shortcut.togglePaneZoom.label", defaultValue: "Toggle Pane Zoom")
+            case .movePaneToOuterLeft: return PaneOuterMovement.left.title
+            case .movePaneToOuterRight: return PaneOuterMovement.right.title
+            case .movePaneToOuterTop: return PaneOuterMovement.above.title
+            case .movePaneToOuterBottom: return PaneOuterMovement.below.title
             case .increaseWorkspaceTerminalFontSize:
                 return String(
                     localized: "shortcut.increaseWorkspaceTerminalFontSize.label",
@@ -618,6 +624,9 @@ enum KeyboardShortcutSettings {
             case .splitDown: return StoredShortcut(key: "d", command: true, shift: true, option: false, control: false)
             case .newPaneAutoLayout: return StoredShortcut(key: "n", command: true, shift: false, option: false, control: true)
             case .toggleSplitZoom: return StoredShortcut(key: "\r", command: true, shift: true, option: false, control: false)
+            case .movePaneToOuterLeft, .movePaneToOuterRight,
+                 .movePaneToOuterTop, .movePaneToOuterBottom:
+                return .unbound
             case .increaseWorkspaceTerminalFontSize:
                 return StoredShortcut(key: "=", command: true, shift: false, option: false, control: true)
             case .decreaseWorkspaceTerminalFontSize:

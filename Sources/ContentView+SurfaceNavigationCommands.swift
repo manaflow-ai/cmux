@@ -49,6 +49,21 @@ extension ContentView {
                 when: { $0.bool(CommandPaletteContextKeys.hasFocusedPanel) }
             )
         })
+        let paneLayoutSubtitle = constant(
+            String(
+                localized: "command.toggleSplitZoom.subtitle",
+                defaultValue: "Terminal Layout"
+            )
+        )
+        contributions.append(contentsOf: PaneOuterMovement.allCases.map { movement in
+            CommandPaletteCommandContribution(
+                commandId: movement.commandID,
+                title: constant(movement.title),
+                subtitle: paneLayoutSubtitle,
+                keywords: movement.keywords,
+                when: { $0.bool(CommandPaletteContextKeys.hasFocusedPanel) }
+            )
+        })
         return contributions
     }
 
@@ -89,6 +104,21 @@ extension ContentView {
                     return
                 }
                 if AppDelegate.shared?.performSurfacePaneMovement(
+                    movement,
+                    tabManager: tabManager,
+                    preferredWindow: preferredWindow
+                ) != true {
+                    NSSound.beep()
+                }
+            }
+        }
+        for movement in PaneOuterMovement.allCases {
+            registry.register(commandId: movement.commandID) {
+                guard let preferredWindow = preferredWindow() else {
+                    NSSound.beep()
+                    return
+                }
+                if AppDelegate.shared?.performPaneOuterMovement(
                     movement,
                     tabManager: tabManager,
                     preferredWindow: preferredWindow

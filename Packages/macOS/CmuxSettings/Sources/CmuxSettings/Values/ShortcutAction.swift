@@ -141,6 +141,14 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case splitDown
     case newPaneAutoLayout
     case toggleSplitZoom
+    /// Moves the focused pane into a new full-height root split on the left.
+    case movePaneToOuterLeft
+    /// Moves the focused pane into a new full-height root split on the right.
+    case movePaneToOuterRight
+    /// Moves the focused pane into a new full-width root split above the workspace.
+    case movePaneToOuterTop
+    /// Moves the focused pane into a new full-width root split below the workspace.
+    case movePaneToOuterBottom
     /// Increases every terminal font size in the selected workspace.
     case increaseWorkspaceTerminalFontSize
     /// Decreases every terminal font size in the selected workspace.

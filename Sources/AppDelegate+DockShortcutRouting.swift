@@ -42,6 +42,8 @@ extension KeyboardShortcutSettings.Action {
              .moveSurfaceToPreviousPane, .moveSurfaceToNextPane,
              .moveSurfaceToPaneLeft, .moveSurfaceToPaneRight,
              .moveSurfaceToPaneUp, .moveSurfaceToPaneDown,
+             .movePaneToOuterLeft, .movePaneToOuterRight,
+             .movePaneToOuterTop, .movePaneToOuterBottom,
              .selectSurfaceByNumber,
              .focusHistoryBack, .focusHistoryForward, .focusHistoryLast,
              .renameTab,

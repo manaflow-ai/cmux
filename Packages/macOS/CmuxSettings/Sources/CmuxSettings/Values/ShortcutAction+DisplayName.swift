@@ -135,6 +135,26 @@ extension ShortcutAction {
         case .newPaneAutoLayout:
             return String(localized: "shortcut.newPaneAutoLayout.label", defaultValue: "New Pane (Auto Layout)")
         case .toggleSplitZoom: return "Toggle Pane Zoom"
+        case .movePaneToOuterLeft:
+            return String(
+                localized: "shortcut.movePaneToOuterLeft.label",
+                defaultValue: "Move Pane to New Outer Split on Left"
+            )
+        case .movePaneToOuterRight:
+            return String(
+                localized: "shortcut.movePaneToOuterRight.label",
+                defaultValue: "Move Pane to New Outer Split on Right"
+            )
+        case .movePaneToOuterTop:
+            return String(
+                localized: "shortcut.movePaneToOuterTop.label",
+                defaultValue: "Move Pane to New Outer Split Above"
+            )
+        case .movePaneToOuterBottom:
+            return String(
+                localized: "shortcut.movePaneToOuterBottom.label",
+                defaultValue: "Move Pane to New Outer Split Below"
+            )
         case .increaseWorkspaceTerminalFontSize:
             return String(
                 localized: "shortcut.increaseWorkspaceTerminalFontSize.label",
