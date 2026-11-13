@@ -1,5 +1,10 @@
 # cmux Customization Examples
 
+The cmux NEXT showcase is the short, live catalog for people deciding what to make:
+[`showcase.json`](../showcase.json) and the matching [gallery capture states](../../../docs/cmux-next/customization-showcase.gallery.md).
+It points at the templates and sample apps below, so there is one source of truth for copy-paste
+files, App Store installs, hot reload, and the API gaps that still need an SDK change.
+
 This file is the catalog of workflow recipes. (`cmux docs workflows` was removed with the Swift CLI.)
 
 Most recipes here were written for classic cmux. cmux-next reads `~/.config/cmux/cmux-next.json` only, and does not yet run `workspaceCommand` or `workspace` actions, `commands` layouts, `ui.newWorkspace.*`, Dock files or project-local `.cmux/cmux.json`; see [the skill](../SKILL.md#choose-the-right-surface). Use a recipe on cmux-next only when it needs none of those.

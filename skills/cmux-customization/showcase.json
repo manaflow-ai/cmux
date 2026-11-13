@@ -1,0 +1,112 @@
+{
+  "$schema": "https://cmux.dev/schemas/customization-showcase/1.json",
+  "version": 1,
+  "title": "cmux NEXT customization samples",
+  "description": "Small, live examples that connect cmux to the work already in your sessions.",
+  "install": "Copy a template into ~/.config/cmux/customize, or install a sample app from the App Store.",
+  "reload": "Save the file; cmux reloads the local view without a restart. Use cmux apps reload for a manual refresh.",
+  "samples": [
+    {
+      "id": "my-prs",
+      "title": "My PRs",
+      "description": "Keep your pull requests and review requests in the sidebar.\nOpen a PR in a cmux browser tab with one click.",
+      "file": "skills/cmux-customization/templates/my-prs/main.js",
+      "manifest": "skills/cmux-customization/templates/my-prs/cmux-app.json",
+      "install": "template",
+      "gallery": ["fresh list", "review requests", "GitHub unavailable"]
+    },
+    {
+      "id": "threads",
+      "title": "Agent threads",
+      "description": "Turn live agent state into a needs-you-first sidebar.\nJump straight to the terminal behind a chat.",
+      "file": "skills/cmux-customization/templates/threads/main.js",
+      "manifest": "skills/cmux-customization/templates/threads/cmux-app.json",
+      "install": "template",
+      "gallery": ["working agents", "needs you", "empty"]
+    },
+    {
+      "id": "quick-links",
+      "title": "Quick links",
+      "description": "Keep Figma, Linear, docs, and dashboards beside your code.\nThe same tiny view works as a sidebar section and a pane.",
+      "file": "samples/apps/quick-links/src/main.ts",
+      "manifest": "samples/apps/quick-links/cmux-app.v2.json",
+      "app": "manaflow-ai/quick-links",
+      "install": "app-store",
+      "gallery": ["links", "empty", "settings edit"]
+    },
+    {
+      "id": "github-prs",
+      "title": "GitHub PRs",
+      "description": "Read real pull requests through cmux.watch and keep the list live.\nClick a row to open the matching browser tab.",
+      "file": "samples/apps/github-prs/src/main.ts",
+      "manifest": "samples/apps/github-prs/cmux-app.v2.json",
+      "app": "cmux/github-prs",
+      "install": "app-store",
+      "gallery": ["open PRs", "drafts and reviews", "stale/error"]
+    },
+    {
+      "id": "session-prs",
+      "title": "Session branch PRs",
+      "description": "Show the pull requests for the branch behind the current chat.\nThe Session Info section receives the real session context.",
+      "file": "samples/apps/session-prs/src/main.ts",
+      "manifest": "samples/apps/session-prs/cmux-app.v2.json",
+      "app": "cmux/session-prs",
+      "install": "app-store",
+      "gallery": ["branch with PRs", "no branch", "no matching PRs"]
+    },
+    {
+      "id": "running-agents",
+      "title": "Running agents",
+      "description": "Group agents by working, waiting, idle, and done.\nA click focuses the terminal that owns the agent.",
+      "file": "samples/apps/running-agents/src/main.ts",
+      "manifest": "samples/apps/running-agents/cmux-app.v2.json",
+      "app": "cmux/running-agents",
+      "install": "app-store",
+      "gallery": ["mixed states", "needs you", "no agents"]
+    },
+    {
+      "id": "command-buttons",
+      "title": "Command buttons",
+      "description": "Put the commands you run all day in one sidebar section.\nEach button uses the same cmux-next.json action as Cmd+K and shortcuts.",
+      "file": "skills/cmux-customization/templates/command-button/main.js",
+      "manifest": "skills/cmux-customization/templates/command-button/cmux-app.json",
+      "install": "template",
+      "gallery": ["ready", "last command", "permission prompt"]
+    },
+    {
+      "id": "design-links",
+      "title": "Design links",
+      "description": "Paste a Figma, FigJam, Linear, Notion, or Docs URL.\nThe link is saved locally and opens in a cmux browser tab.",
+      "file": "skills/cmux-customization/templates/design-links/main.js",
+      "manifest": "skills/cmux-customization/templates/design-links/cmux-app.json",
+      "install": "template",
+      "gallery": ["saved links", "paste field", "open permission"]
+    },
+    {
+      "id": "clock-weather",
+      "title": "Clock and weather",
+      "description": "A real clock plus a city weather lookup, stored on this Mac.\nIt demonstrates timers, network scopes, storage, and a live reloadable view.",
+      "file": "skills/cmux-customization/templates/clock-weather/main.js",
+      "manifest": "skills/cmux-customization/templates/clock-weather/cmux-app.json",
+      "install": "template",
+      "gallery": ["city set", "first run", "network error"]
+    },
+    {
+      "id": "standup",
+      "title": "Standup notes",
+      "description": "Add, list, and clear a tiny standup log from the palette or CLI.\nIt is a real storage-backed app with no UI to maintain.",
+      "file": "samples/apps/standup/src/main.ts",
+      "manifest": "samples/apps/standup/cmux-app.v2.json",
+      "app": "manaflow-ai/standup",
+      "install": "app-store",
+      "gallery": ["empty log", "notes", "cleared"]
+    }
+  ],
+  "apiGaps": [
+    { "id": "ci-status", "status": "gap", "note": "github.pulls has no CI/check-run fields yet; add a signal before advertising CI badges." },
+    { "id": "review-diff", "status": "gap", "note": "New-agent actions do not accept a prompt or diff attachment yet." },
+    { "id": "toolbar-button", "status": "gap", "note": "cmux.status/1 validates, but NEXT does not render titlebar or chat-toolbar contributions." },
+    { "id": "morning-layout", "status": "gap", "note": "workspaceCommand/workspace layout actions remain classic-only on NEXT." },
+    { "id": "chat-usage", "status": "gap", "note": "Session Info has no per-chat token or cost signal." }
+  ]
+}
