@@ -10,7 +10,7 @@ cargo's words; each wrapper asks it on its failure path.
 
 What this holds:
 - explain itself: each spelling, a path with a space, stdin, the GitHub annotation, silence on anything else, a
-  5 MB log answered, and a scan whose cost grows with a line's length and no faster.
+  5 MB log answered, and a scan that reads a line a fixed number of times, as a count.
 - The Python and shell wrappers, run against a fake cargo: a refusal prints the stale-lock block and not the old
   cause, with the old exit code; any other failure prints the old cause.
 - The four workflow steps ask explain before their own ::error.
@@ -88,48 +88,56 @@ def clean_env(**extra: str) -> dict[str, str]:
     return git_fixture_env.fixture_env(env)
 
 
-# The scaling check (tests/test_base_red_excuse.py's scaling_ratio protocol, cmux#41236): refused_locks on one line
-# of CHARS characters and on one of 4 CHARS, in a child process (this test file loads no script module itself), in
-# the child's CPU seconds, the two sizes in turn, the garbage collector off, best of 3, each sample repeated until
-# it takes 5 ms. Linear is about 4, quadratic about 16. The child exits 0 when one of 3 measurements is under LIMIT
-# (super-linear code is over it every time, a burst of load only once), else 1 with each ratio it measured.
-SCALING_CHILD = r"""
-import gc, importlib, math, pathlib, sys, time
+# The scan's cost as a count, with no clock: refused_locks on one line of about CHARS characters and on one with 4
+# times as many repeats, in a child process (this test file loads no script module itself). The line is a str that counts the characters
+# each of its own calls reads: a find reads from its start to the end of what it found (to the end of its range on
+# a miss), a startswith or endswith reads the words it compares, a slice reads what it returns. The same line
+# gives the same count on every host. The child prints, for each size, the line's length and the count.
+COUNT_CHILD = r"""
+import importlib, json, pathlib, sys
 sys.path.insert(0, sys.argv[1])
 scan = importlib.import_module(sys.argv[2]).refused_locks
-repo, unit, chars, limit = pathlib.Path(sys.argv[3]), sys.argv[4], int(sys.argv[5]), float(sys.argv[6])
-def line(size):
-    return [unit * (size // len(unit)) + "--locked was passed\n"]
-small, large = line(chars), line(4 * chars)
-def sample(lines, loops):
-    began = time.process_time()
-    for _ in range(loops):
-        scan(lines, repo)
-    return (time.process_time() - began) / loops
-gc.disable()
-tries = []
-for _ in range(3):
-    loops = max(1, math.ceil(0.005 / max(sample(small, 1), 1e-9)))
-    best_small = best_large = math.inf
-    for _ in range(3):
-        best_small = min(best_small, sample(small, loops))
-        best_large = min(best_large, sample(large, loops))
-    ratio = best_large / max(best_small, 1e-9)
-    if ratio < limit:
-        sys.exit(0)
-    tries.append(f"{ratio:.1f}x ({best_small:.6f} CPU s at {chars:,} characters, {best_large:.6f} at {4 * chars:,})")
-print(f"4x the line took {', then '.join(tries)}; linear is about 4x and quadratic 16x, the bound is {limit:g}x")
-sys.exit(1)
+repo, unit, chars = pathlib.Path(sys.argv[3]), sys.argv[4], int(sys.argv[5])
+read = [0]
+class Counted(str):
+    def _range(self, start, end):
+        low, high, _ = slice(start, end).indices(len(self))
+        return low, max(high, low)
+    def find(self, sub, start=None, end=None):
+        at, (low, high) = str.find(self, sub, start, end), self._range(start, end)
+        read[0] += high - low if at == -1 else at + len(sub) - low
+        return at
+    def rfind(self, sub, start=None, end=None):
+        at, (low, high) = str.rfind(self, sub, start, end), self._range(start, end)
+        read[0] += high - low if at == -1 else high - at
+        return at
+    def startswith(self, prefix, start=None, end=None):
+        read[0] += len(prefix) if isinstance(prefix, str) else sum(map(len, prefix))
+        return str.startswith(self, prefix, start, end)
+    def endswith(self, suffix, start=None, end=None):
+        read[0] += len(suffix) if isinstance(suffix, str) else sum(map(len, suffix))
+        return str.endswith(self, suffix, start, end)
+    def __getitem__(self, key):
+        part = str.__getitem__(self, key)
+        read[0] += len(part)
+        return part
+counts = []
+for units in (chars // len(unit), 4 * (chars // len(unit))):
+    line = Counted(unit * units + "--locked was passed\n")
+    read[0] = 0
+    scan([line], repo)
+    counts.append({"chars": len(line), "read": read[0]})
+print(json.dumps(counts))
 """
 # What one hostile line repeats (cmux#42375 review F2): a lock named again and again before cargo's last words, and
 # cargo's last words again and again, each after a lock that is named.
-SCALING_UNITS = ("the lock file ", "the lock file x is fine, --locked was passed ")
-# A line's length at the small size: 4 times it is still under cargo-locks.py's REFUSAL_WINDOW, and far above it.
-SCALING_CHARS = (900, 300_000)
-# The most a 4x longer line may cost relative to the shorter one.
-SCALING_LIMIT = 8
-# A hang guard for one measurement, never a timing bound.
-SCALING_CEILING = 120
+COUNT_UNITS = ("the lock file ", "the lock file x is fine, --locked was passed ")
+# A line's length at the small size: 70 times cargo-locks.py's REFUSAL_WINDOW, so a scan that reads the window
+# again for each match reads far more than COUNT_LIMIT times the line.
+COUNT_CHARS = 300_000
+# The most characters the scan may read for each character of the line. It reads about 3 today: one pass for
+# cargo's last words, one for the lock's name, and the words around each match.
+COUNT_LIMIT = 8
 
 
 class Scratch(unittest.TestCase):
@@ -234,22 +242,31 @@ class ExplainTests(Scratch):
             with self.subTest(refusal=bool(refusal)):
                 log = self.log(body + refusal, "big.log")
                 self.assertGreater(log.stat().st_size, 5_000_000)
-                # explain's own 60 s timeout is the hang guard here. How the cost grows is the next test's.
+                # explain's own 60 s timeout is the hang guard here. What the scan costs is the next test's.
                 result = self.explain(str(log))
                 self.assertEqual(result.returncode, 0 if refusal else 1)
 
-    def test_the_scan_costs_a_lines_length_and_no_more(self) -> None:
-        """cmux#42375 review F2, with no wall-clock bound (a bound of 2 s was here: on a loaded runner it measures
-        the runner). Each hostile line is scanned at a length and at 4 times that length: under the window, where
-        a scan that looks back over the window for each match costs the square of the length, and far above it."""
-        for unit in SCALING_UNITS:
-            for chars in SCALING_CHARS:
-                with self.subTest(unit=unit, chars=chars):
-                    result = subprocess.run(
-                        [sys.executable, "-I", "-c", SCALING_CHILD, str(SCRIPT.parent), SCRIPT.stem, str(ROOT),
-                         unit, str(chars), str(SCALING_LIMIT)],
-                        capture_output=True, text=True, env=clean_env(), timeout=SCALING_CEILING)
-                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    def test_the_scan_reads_a_line_a_fixed_number_of_times(self) -> None:
+        """cmux#42375 review F2, as a count (a bound of 2 s was here: on a loaded runner that measures the runner).
+        "One long line costs its length, not its length times a window": the characters the scan reads are at most
+        COUNT_LIMIT for each character of the line, at a length and at 4 times that length, and 4 times the line
+        is at most 4 times the reads."""
+        for unit in COUNT_UNITS:
+            with self.subTest(unit=unit):
+                result = subprocess.run(
+                    [sys.executable, "-I", "-c", COUNT_CHILD, str(SCRIPT.parent), SCRIPT.stem, str(ROOT), unit,
+                     str(COUNT_CHARS)], capture_output=True, text=True, env=clean_env(), timeout=120)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                small, large = json.loads(result.stdout)
+                self.assertEqual(large["chars"] - len("--locked was passed\n"),
+                                 4 * (small["chars"] - len("--locked was passed\n")))
+                for line in (small, large):
+                    self.assertGreaterEqual(
+                        line["read"], line["chars"],
+                        "the counting line saw less than one pass: the scan no longer reads the line through the "
+                        "str calls COUNT_CHILD counts, so this count proves nothing; count the calls it makes now")
+                    self.assertLessEqual(line["read"], COUNT_LIMIT * line["chars"], (small, large))
+                self.assertLessEqual(large["read"], 4 * small["read"], (small, large))
 
 
 class PythonAndShellSiteTests(Scratch):
