@@ -64,7 +64,10 @@ final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
             return serveDevServer(remote, server: server, url: url, task: task)
         }
         if task.request.httpMethod.map({ $0 == "GET" }) ?? true, let url = task.request.url,
-           let runtimeRoot = sharedRuntimeRoot, let file = Self.runtimeFileURL(for: url, root: runtimeRoot) {
+           let bundledRuntime = sharedRuntimeRoot {
+            let runtimeRoot = WebDevOverride.current.overlayRoot("webviews-app", entry: "__runtime/react-runtime.js")?
+                .appending(path: "__runtime", directoryHint: .isDirectory) ?? bundledRuntime
+            guard let file = Self.runtimeFileURL(for: url, root: runtimeRoot) else { return }
             let id = ObjectIdentifier(task)
             active.insert(id)
             WebBundleServedViews.shared.add(webView)

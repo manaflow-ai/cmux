@@ -153,11 +153,15 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         } else {
             await WebBundleOverlay.shared.root(for: served.root)
         }
-        let runtime = if let bundled = sharedRuntimeRoot {
+        let runtimeUpdate = if let bundled = sharedRuntimeRoot {
             if let webView { await WebBundleServedViews.shared.root(for: bundled, in: webView) }
             else { await WebBundleOverlay.shared.root(for: bundled) }
         } else { nil }
         let root = live.overlayRoot(for: served.page, bundledRoot: served.root) ?? update
+        let runtime = if sharedRuntimeRoot != nil,
+                            let overlay = live.overlayRoot("webviews-app", entry: "__runtime/react-runtime.js") {
+            overlay.appending(path: "__runtime", directoryHint: .isDirectory)
+        } else { runtimeUpdate }
         switch Self.route(for: url, page: served.page, root: root, runtimeRoot: runtime) {
         case nil:
             return nil
