@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43438744042",
+  "recorded_at": "2026-11-13T14:09:15Z",
+  "reason": "cmux-tui 380b645e2957 changes the image's cmux-tui (pinned e1080435dd2e)",
+  "dry_run": false,
+  "cmux_tui": "380b645e29570ce6a0134c8e036b35e65976f528",
+  "fixes": [
+    {
+      "sha": "380b645e29570ce6a0134c8e036b35e65976f528",
+      "mergedAt": "2026-11-13T05:39:29-08:00",
+      "subject": "cmux-remote: a device's redial of its pending invitation takes over its request instead of being refused (#42575)"
+    },
+    {
+      "sha": "78475966aeee448599b4832c78d35a43e2bf2641",
+      "mergedAt": "2026-11-13T05:36:41-08:00",
+      "subject": "acpmux tests: a drain ends only on a drop before its loop, and test modules' child files are read (#41961 review) (#42023)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-13T14:09:15Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
