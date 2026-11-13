@@ -152,6 +152,8 @@ mod hosts;
 mod lifecycle;
 mod log_deferral;
 mod log_load;
+#[cfg(debug_assertions)]
+pub(crate) use log_load::test_hold;
 #[cfg(test)]
 pub(crate) use log_load::{NOTE_BEFORE_CATCH_UP_LOCK, NOTE_BEFORE_REPLAY_SCAN, NOTE_IN_CATCH_UP};
 mod cold_archive;
@@ -162,8 +164,6 @@ mod retention;
 pub use retention::RetentionRequest;
 pub(crate) mod model_availability;
 pub(crate) use log_load::AdoptionReady;
-#[cfg(debug_assertions)]
-pub(crate) use log_load::test_hold;
 mod model_options;
 mod new_request;
 pub use model_options::{
@@ -267,7 +267,9 @@ pub use shutdown::SHUTTING_DOWN;
 mod bridge;
 pub(crate) mod desktop_bridge;
 pub(crate) mod register;
-pub(crate) use shutdown::{CREATED as REFUSED_CREATED, shutting_down_before_create};
+pub(crate) use shutdown::{
+    AGENT_END_BUDGET, CREATED as REFUSED_CREATED, shutting_down_before_create,
+};
 mod caller_registry;
 mod history_timing;
 pub(crate) mod inbox;
@@ -347,6 +349,7 @@ pub mod races;
 mod subsession_answer;
 mod subsession_guard;
 mod subsession_results;
+mod subsession_resume;
 mod subsession_runs;
 mod subsession_send;
 pub mod subsessions;
@@ -921,6 +924,14 @@ pub struct Hub {
     /// launcher checks) in the background. Session creation and agent
     /// spawns wait for it; every other request is answered at once.
     pub(super) startup_ready: tokio::sync::watch::Sender<bool>,
+    /// The first local client reached the daemon. Deferred peer dials wait for this so remote
+    /// handshakes cannot consume the runtime while the app paints its first chat.
+    pub(super) local_ready: tokio::sync::watch::Sender<bool>,
+    /// Whether an agent may start: the login environment, the catalog, the launcher checks and
+    /// the vault are ready (`startup.rs` `prepare_spawns`). Apart from `startup_ready`: a new chat
+    /// or a chat's own start waits for this and for its own adoption only, never for every
+    /// other chat's adoption or log (`daemon.rs`).
+    pub(super) spawn_ready: tokio::sync::watch::Sender<bool>,
     /// False while the daemon's startup task runs (`daemon.rs`: logs, adoption,
     /// `finish_startup`, the chat index's start). `_acpmux/status` `loading.startupDone`.
     pub(super) startup_work_done: tokio::sync::watch::Sender<bool>,
@@ -1196,16 +1207,16 @@ impl Hub {
     /// logs (their tails, queues and unsettled turns) load in `load_logs`, after
     /// the ready line (2026-10-20: reading 3.9 GB of logs first took 26.8 s).
     pub fn new_deferred(config: Config, store: Box<dyn Store>, mailbox: Mailbox) -> Arc<Self> {
-        Self::build(config, store, mailbox, true, false, None)
+        Self::build(config, store, mailbox, true, false, None, true)
     }
 
     pub fn new_with_mailbox(config: Config, store: Box<dyn Store>, mailbox: Mailbox) -> Arc<Self> {
-        Self::build(config, store, mailbox, false, false, None)
+        Self::build(config, store, mailbox, false, false, None, true)
     }
 
     /// A daemon serves immediately; metadata is read after its ready line.
     pub fn new_loading(config: Config, store: Box<dyn Store>, mailbox: Mailbox) -> Arc<Self> {
-        Self::build(config, store, mailbox, true, true, None)
+        Self::build(config, store, mailbox, true, true, None, true)
     }
 
     /// A hub whose configured peers may dial over `wireguard` first, as a daemon's do: for tests
@@ -1216,7 +1227,7 @@ impl Hub {
         store: Box<dyn Store>,
         wireguard: Arc<crate::wireguard::Transport>,
     ) -> Arc<Self> {
-        Self::build(config, store, Mailbox::memory(), false, false, Some(wireguard))
+        Self::build(config, store, Mailbox::memory(), false, false, Some(wireguard), true)
     }
 
     pub(crate) fn new_loading_with_wireguard(
@@ -1225,7 +1236,7 @@ impl Hub {
         mailbox: Mailbox,
         wireguard: Option<Arc<crate::wireguard::Transport>>,
     ) -> Arc<Self> {
-        Self::build(config, store, mailbox, true, true, wireguard)
+        Self::build(config, store, mailbox, true, true, wireguard, false)
     }
 
     fn build(
@@ -1235,6 +1246,7 @@ impl Hub {
         deferred: bool,
         loading: bool,
         wireguard: Option<Arc<crate::wireguard::Transport>>,
+        start_peers: bool,
     ) -> Arc<Self> {
         let events = list_guard::Events::new(8192);
         let (peer_notices, peer_notices_rx) = mpsc::channel(4096);
@@ -1351,6 +1363,8 @@ impl Hub {
             live_ages: StdMutex::new(live_ages::LiveAges::default()),
             refused_models: StdMutex::new(HashMap::new()),
             startup_ready: tokio::sync::watch::channel(true).0,
+            local_ready: tokio::sync::watch::channel(start_peers).0,
+            spawn_ready: tokio::sync::watch::channel(true).0,
             startup_work_done: tokio::sync::watch::channel(true).0,
             store_load: store_load::StoreLoad::new(loading),
             logs_ready: tokio::sync::watch::channel(true).0,
@@ -1510,8 +1524,10 @@ impl Hub {
             }
             hub.watch_titles();
             hub.watch_recaps();
-            for (name, pc) in peers_cfg {
-                hub.start_peer(&name, &pc);
+            if start_peers {
+                for (name, pc) in peers_cfg {
+                    hub.start_peer(&name, &pc);
+                }
             }
         }
         hub
