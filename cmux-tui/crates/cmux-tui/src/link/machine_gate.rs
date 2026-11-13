@@ -412,4 +412,23 @@ mod tests {
         assert!(message.contains("fs-v1") && !message.contains("update the machine"), "{message}");
         assert!(outdated_identity(&json!({"capabilities": ["fs-v1"]}), &["fs-v1"]).is_none());
     }
+
+    /// A carrier that closed the connection before any byte of its answer and
+    /// before this side's look: the answer is `unanswered`, so the first
+    /// contact dials again (module docs).
+    #[test]
+    fn read_timeout_site_a_connection_closed_before_the_look_is_unanswered() {
+        let (near, far) = UnixStream::pair().unwrap();
+        drop(far);
+        let mut reader = BufReader::new(near);
+        let budget = Duration::from_secs(30);
+
+        let failure = match read_line(&mut reader, Instant::now() + budget, budget) {
+            Ok(line) => panic!("a closed connection gave a line: {line:?}"),
+            Err(failure) => failure,
+        };
+
+        assert!(failure.unanswered, "{}", failure.why);
+        assert!(failure.why.contains("closed the connection after 0 bytes"), "{}", failure.why);
+    }
 }

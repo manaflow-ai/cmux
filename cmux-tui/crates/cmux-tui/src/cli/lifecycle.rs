@@ -1654,4 +1654,20 @@ mod tests {
             ExchangeError::Transport
         );
     }
+
+    /// A daemon that wrote its reply and closed before the client's next look:
+    /// the reply is on the socket and the client must read it.
+    #[cfg(unix)]
+    #[test]
+    fn read_timeout_site_a_reply_left_by_a_daemon_that_closed_is_read() {
+        let (near, mut far) = std::os::unix::net::UnixStream::pair().unwrap();
+        far.write_all(b"{\"id\":2,\"ok\":true,\"data\":{\"accepted\":true}}\n").unwrap();
+        drop(far);
+        let stream: Box<dyn transport::Stream> = Box::new(near);
+        let mut connection = BufReader::new(stream);
+
+        let reply = read_response(&mut connection, Instant::now() + Duration::from_secs(30));
+
+        assert_eq!(reply, Ok(Some(json!({"id": 2, "ok": true, "data": {"accepted": true}}))));
+    }
 }

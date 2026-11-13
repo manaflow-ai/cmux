@@ -187,3 +187,28 @@ fn timed_out(wait: &EventsWait, started: Instant, output: OutputMode) -> i32 {
     }
     TIMEOUT_EXIT
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The app wrote its last event and closed (it quit or restarted) before
+    /// this side's next look. The line is on the socket: the wait must read it
+    /// and then see the end of the stream, not a timeout.
+    #[test]
+    fn read_timeout_site_a_line_left_by_an_app_that_closed_is_read_before_the_deadline() {
+        let (near, mut far) = UnixStream::pair().unwrap();
+        far.write_all(b"{\"seq\":7}\n").unwrap();
+        drop(far);
+        let deadline = Some(Instant::now() + Duration::from_secs(30));
+        let mut lines = Lines { reader: near, pending: Vec::new(), deadline };
+
+        match lines.next_line() {
+            Ok(Some(line)) => assert_eq!(line, "{\"seq\":7}\n"),
+            Ok(None) => panic!("the line that the app left was lost"),
+            Err(ReadEnd::TimedOut) => panic!("a stream that ended was read as a timeout"),
+            Err(ReadEnd::Failed) => panic!("the read failed"),
+        }
+        assert!(matches!(lines.next_line(), Ok(None)), "the end of the stream was not seen");
+    }
+}
