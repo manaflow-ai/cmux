@@ -309,7 +309,7 @@ async fn startup_reconciles_local_rows_and_marks_purge_and_recreation() {
     let tee = tokio::spawn(task);
     let mut summaries = HashSet::new();
     let mut gone = HashSet::new();
-    for _ in 0..3 {
+    for _ in 0..4 {
         match next(&subscribed.receiver).await {
             ListItem::Summary(event) => {
                 summaries.insert(event.summary.chat_id.clone());
@@ -317,12 +317,12 @@ async fn startup_reconciles_local_rows_and_marks_purge_and_recreation() {
             ListItem::Gone { chat_id, .. } => {
                 gone.insert(chat_id);
             }
-            _ => panic!("a three-row walk must not lag"),
+            _ => panic!("the startup walk must not lag"),
         }
     }
     assert_eq!(summaries, HashSet::from(["existing".to_owned(), "new".to_owned()]));
-    assert_eq!(gone, HashSet::from(["gone-while-down".to_owned()]));
-    assert!(v2.hub.snapshot().get_row(&RowKey::new("peer", "peer-chat")).is_some());
+    assert_eq!(gone, HashSet::from(["gone-while-down".to_owned(), "peer-chat".to_owned()]));
+    assert!(v2.hub.snapshot().get_row(&RowKey::new("peer", "peer-chat")).is_none());
     let session = v1.sessions.lock().unwrap().remove("existing").unwrap();
     let mut purged = super::super::row_log::row_event("existing");
     Arc::make_mut(&mut purged.record).kind = "purged".into();

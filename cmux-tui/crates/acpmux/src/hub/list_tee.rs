@@ -206,7 +206,7 @@ fn submit_remote_id(v1: &Hub, v2: &V2, peer: &str, id: &str) {
         return;
     }
     let rows = v1.remote_sessions.snapshot();
-    if let Some(row) = rows.live_of_peer(peer).find(|row| row.receipt.mux_session_id == id) {
+    if let Some(row) = rows.find_live_mux(peer, id) {
         match summary_from_remote(peer, &row.summary) {
             Ok(summary) => {
                 if let Err(error) = v2.hub.submit_from(Source::V1, summary) {
