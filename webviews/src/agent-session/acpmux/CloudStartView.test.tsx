@@ -171,7 +171,7 @@ test("a start waiting on its browser sign-in says so, not starting or Thinking",
   expect(html).not.toContain("data-signing-in");
 });
 
-test("a plan refusal offers Upgrade, Run on This Mac and Not Now; other failures offer none", () => {
+test("a plan refusal offers Upgrade, Run on This Mac and Not Now; a start that failed on its way never Upgrade", () => {
   const refusal = { ...start, state: "failed" as const, code: "cloud_plan_required" };
   const html = renderToStaticMarkup(
     <CloudStartView
@@ -194,7 +194,8 @@ test("a plan refusal offers Upgrade, Run on This Mac and Not Now; other failures
     />,
   );
   expect(generic).not.toContain(">Upgrade</button>");
-  expect(generic).not.toContain(">Run on This Mac</button>");
+  // Its way on is the start's own (cloudStartWayOn): Run on This Mac, filled where App passes no Retry.
+  expect(generic).toContain('data-action="run-here" data-role="default">Run on This Mac</button>');
 });
 
 test("a plan refusal in a team says so, names the team and switches to the person's own; no Retry, no wait", async () => {
@@ -555,4 +556,72 @@ test("a folder too big to copy offers each repository inside it and no folder, n
   );
   expect(container.querySelectorAll("[data-repo]")).toHaveLength(2);
   expect(container.querySelector('[data-action="pick-folder"]')?.getAttribute("data-role")).toBeNull();
+});
+
+test("every failed start offers a way on in the card: the folder, a new Cloud chat, Retry or This Mac", async () => {
+  const failed = (code: string, extra: Partial<CloudStartProgress> = {}): CloudStartProgress => ({
+    ...start,
+    state: "failed",
+    code,
+    message: "refused",
+    ...extra,
+  });
+  const clicked: string[] = [];
+  const handlers = {
+    onRetry: () => void clicked.push("retry"),
+    onPickFolder: () => void clicked.push("pick-folder"),
+    onStartWithoutFolder: () => void clicked.push("no-folder"),
+    onOpenNewCloudChat: () => void clicked.push("new-cloud-chat"),
+    onRunHere: () => void clicked.push("run-here"),
+    onDismiss: () => void clicked.push("dismiss"),
+  };
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+  });
+  const shown = async (progress: CloudStartProgress) => {
+    await act(async () => root!.render(<CloudStartView start={progress} {...handlers} />));
+    const buttons = [...container.querySelectorAll<HTMLButtonElement>(".acpmux-cloud-start__way-on button")];
+    return buttons.map((button) => `${button.dataset.action}${button.dataset.role === "default" ? "*" : ""}`);
+  };
+  for (const code of [
+    "cloud_folder_missing",
+    "cloud_folder_home",
+    "cloud_folder_secret",
+    "transport.path_outside_roots",
+  ])
+    expect(await shown(failed(code, { refusedHere: true })), code).toEqual(["pick-folder*", "no-folder"]);
+  expect(await shown(failed("unavailable_now", { refusedHere: true }))).toEqual(["new-cloud-chat*"]);
+  expect(await shown(failed("transport.gesture_required", { refusedHere: true }))).toEqual(["retry*"]);
+  expect(await shown(failed("cloud_start_failed"))).toEqual(["retry*", "run-here"]);
+  for (const code of [
+    "cloud_disabled",
+    "unavailable",
+    "unsupported",
+    "cloud_attachments",
+    "sandbox_busy",
+    "sandbox_spent",
+  ])
+    expect(await shown(failed(code)), code).toEqual(["run-here*", "dismiss"]);
+  // A start with its own recovery words it itself: no second way on beside it.
+  for (const progress of [
+    failed("cloud_start_failed", { retryable: true }),
+    failed("not_signed_in"),
+    failed("cloud_plan_required"),
+    failed("cloud_spend_cap"),
+    { ...start },
+  ])
+    expect(await shown(progress), progress.code ?? "starting").toEqual([]);
+  // Each button runs its own handler.
+  await shown(failed("cloud_start_failed"));
+  for (const button of container.querySelectorAll<HTMLButtonElement>(".acpmux-cloud-start__way-on button"))
+    await act(async () => button.click());
+  expect(clicked).toEqual(["retry", "run-here"]);
+  // A handler App does not pass draws no button.
+  await act(async () =>
+    root!.render(
+      <CloudStartView start={failed("unavailable_now", { refusedHere: true })} onRunHere={() => undefined} />,
+    ),
+  );
+  expect(container.querySelector(".acpmux-cloud-start__way-on")).toBeNull();
 });

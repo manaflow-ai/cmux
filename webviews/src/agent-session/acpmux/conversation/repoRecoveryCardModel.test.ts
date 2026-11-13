@@ -104,6 +104,20 @@ describe("repository recovery: phase to next step", () => {
       ),
     ).toEqual(["connect", "requestAccess"]);
     expect(ids(repoRecoveryView({ code: "repo.no_access", org: "acme" }, { kind: "idle" }))).toEqual(["requestAccess"]);
+    // With the host's retry (the same add, no GitHub wait): Try again adds it here once access is granted.
+    const again = { action: "cloud.repo.add", args: { session: "s", repo: "acme/x" } };
+    expect(
+      ids(
+        repoRecoveryView(
+          { code: "repo.no_access", org: "acme", installUrl: needsGithub.installUrl, retry: again },
+          { kind: "idle" },
+        ),
+      ),
+    ).toEqual(["connect", "requestAccess", "retry"]);
+    expect(ids(repoRecoveryView({ code: "repo.no_access", org: "acme", retry: again }, { kind: "idle" }))).toEqual([
+      "requestAccess",
+      "retry",
+    ]);
     const choices = repoRecoveryView(
       { code: "repo.ambiguous", choices: [{ fullName: "a/x" }, { fullName: "b/x" }] },
       { kind: "idle" },

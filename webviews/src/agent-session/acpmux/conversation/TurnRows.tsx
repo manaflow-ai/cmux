@@ -26,6 +26,7 @@ import { groupId, runStretches, stretchStart, toolGroups, type RunStretch, type 
 import type { RetryNote } from "../subagents/retryState";
 import { RowReplyButton } from "./SelectionReply";
 import { TurnActionsContext } from "./turnActions";
+import { FailedSendsContext } from "./promptDeliveryModel";
 import { errorRecovery, signInRetry, type ErrorRecovery } from "./errorRecovery";
 import { isEmptyFooter, isStopped, offersRetry, workedCallsText, workedLabel, workedMessagesText } from "./turns";
 import { stoppedTurnLook } from "./stoppedTurn.experiment";
@@ -637,6 +638,7 @@ function TurnFailure({
   const t = useT();
   const actionsRef = useRef<HTMLSpanElement>(null);
   const { access } = useContext(TurnActionsContext);
+  const sends = useContext(FailedSendsContext);
   // One click sends one /compact: the button stays disabled until that send settles.
   const [compacting, setCompacting] = useState(false);
   const kind = failureKind(message, route, code);
@@ -683,6 +685,12 @@ function TurnFailure({
   // model they don't have api key, we offer them to add credits or add their own api key"): Use an API
   // key follows Sign in again, outlined; the key goes where the agent's own CLI reads it.
   const localKey = recovery === "sign-in" && cloudSignIn === undefined ? apiKeySignIn : undefined;
+  // The folder's trust holds this turn (its question open, or Not now): Trust folder answers it here, as a failed
+  // send's card does (PromptDelivery.tsx), where the folder is not trusted and this pane may answer for it.
+  const trustFix = kind === "trust-pending" || kind === "trust-untrusted" ? sends?.trustFolder : undefined;
+  // A team Cloud machine whose team has no account for the agent: the agent's own API key on the machine goes on
+  // now (CloudSignIn's Use an API key, as a team machine's sign-in offers); the team's account stays the card's words.
+  const teamAccountKey = kind === "no-team-account" && route?.hostKind === "cloud" ? cloudSignIn : undefined;
   // Continue or Retry is the way out, or the second one after Switch model for a key or proxy
   // failure, or after Sign in again; never for trust (errorRecovery.ts).
   const offersRetry = goOn !== undefined && (recovery !== "sign-in" || signInFirst);
@@ -752,6 +760,14 @@ function TurnFailure({
         </span>
       </span>
       <span className="cv-turn-error__actions" ref={actionsRef}>
+        {trustFix && (
+          <button type="button" className="cv-turn-auth-action cv-turn-error__primary" onClick={trustFix}>
+            {t("trust.trustFolder")}
+          </button>
+        )}
+        {teamAccountKey && (
+          <CloudSignIn signIn={teamAccountKey} rowId={retryRowId} prompt={prompt} keyOnly actionsRef={actionsRef} />
+        )}
         {accessButtons}
         {offerLeads && (
           <CodeRouterAction choice={codeRouter} retry={retry} className="cv-turn-auth-action cv-turn-error__primary" />
