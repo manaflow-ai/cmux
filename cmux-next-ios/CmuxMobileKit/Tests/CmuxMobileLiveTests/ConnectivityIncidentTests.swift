@@ -66,7 +66,8 @@ import Testing
         #expect(open.kind == .macUnreachable)
         #expect(open.state == .open)
         #expect(open.startedAt == at(20))
-        #expect(open.duration >= 30)
+        // 30 s of qualifying time after the stretch began at 20 s: the 50 s tick of the injected clock.
+        #expect(open.observedAt == at(50))
         #expect(open.lastError == "dial timed out")
         #expect(open.serviceReachable == true)
         #expect(open.network == "wifi")
