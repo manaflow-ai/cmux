@@ -816,6 +816,10 @@ def render_markdown(r: Dict[str, Any], public: bool) -> str:
     if skipped:
         out += ["", "God-vs-small rows skipped: " + ", ".join(
             f"`{row['name']}`" + (f" ({row['reason']})" if row.get("reason") else "") for row in skipped)]
+    failed = [row for row in g["rows"] if row.get("status") == "failed"]
+    if failed:
+        out += ["", "God-vs-small rows failed: " + ", ".join(
+            f"`{row['name']}`" + (f" ({row['reason']})" if row.get("reason") else "") for row in failed)]
     out += ci_markdown(r.get("ci_health") or {})
     return "\n".join(out) + "\n"
 

@@ -31,3 +31,15 @@ test build of `acpmux` does not end on the CI runner, so no lane starts one. The
 other three v2 crates (`acpmux-book`, `acpmux-client`, `acpmux-core`) build in `--release` as
 before. A row stays `measured: false` until its run with one of these two commands is in the
 PR that sets it.
+
+## Nightly rollout (v2 PR 0b)
+
+The rows whose gates are on the base are marked `measured: true` and run nightly as of this PR.
+The home reports a marked row as `not_run` when the spec check omits `--measures`; the nightly
+passes `--measures`, so a missing line is reported by row name as `failed` and the workflow fails
+after the report is written. Rows with measurements keep their `ok` or `red` verdicts.
+
+A lane's PR still appends its rows as `measured: false` and edits no workflow. The next 0b pass
+marks those rows and adds their run. The complete list of nightly commands lives in
+`scripts/cmux-next/run-v2-gates.sh`; edit that list in the next pass rather than spreading gate
+commands through workflow YAML.

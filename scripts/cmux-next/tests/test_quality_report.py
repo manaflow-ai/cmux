@@ -328,6 +328,15 @@ class Inputs(unittest.TestCase):
         self.assertIn("v2.pr03.measure", md)
         self.assertIn("PR 1 not landed", md)
 
+    def test_god_vs_small_keeps_failed_rows_in_markdown(self):
+        r = qr.build_report(24, T, None, None, None, None, hang_watch=lambda since: [])
+        r["god_vs_small"] = qr.god_vs_small({"rows": [
+            {"name": "v2.pr01.measure", "status": "failed", "reason": "the gate did not report a measure"},
+        ]}, None)
+        md = qr.render_markdown(r, public=False)
+        self.assertIn("v2.pr01.measure", md)
+        self.assertIn("the gate did not report a measure", md)
+
     def test_anim_coverage_shapes(self):
         self.assertEqual(qr.anim_coverage({"coverage": 0.875}, None)["value"], 0.875)
         self.assertEqual(qr.anim_coverage({"covered": 3, "total": 4}, None)["value"], 0.75)
