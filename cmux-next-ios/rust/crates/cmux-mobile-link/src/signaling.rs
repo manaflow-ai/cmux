@@ -582,7 +582,11 @@ impl Shared {
         let unanswered = &self.pings_unanswered;
         let settle = || {
             unanswered
-                .fetch_update(std::sync::atomic::Ordering::Relaxed, std::sync::atomic::Ordering::Relaxed, |n| n.checked_sub(1))
+                .fetch_update(
+                    std::sync::atomic::Ordering::Relaxed,
+                    std::sync::atomic::Ordering::Relaxed,
+                    |n| n.checked_sub(1),
+                )
                 .is_ok()
         };
         if text == APP_PONG {

@@ -220,9 +220,10 @@ public final class LiveCoordinator {
         let apiForIncidents = api
         // A headless coordinator (a notification reply on a cold background launch) never watches: its
         // reporter has no file, so it neither sends nor recovers the app's own open incidents.
+        let isTeam: @MainActor () -> Bool = watchesConnectivity ? { ConnectivityTelemetry.shared.audience == .team } : { false }
         incidents = ConnectivityIncidentReporter(
             file: watchesConnectivity ? ConnectivityIncidentReporter.file(account: userID) : nil, clock: clock,
-            isTeam: watchesConnectivity ? { ConnectivityTelemetry.shared.audience == .team } : { false },
+            isTeam: isTeam,
             check: ConnectivityIncidentReporter.liveCheck(serviceBase: api.baseURL),
             send: { incident, simulations, app in
                 try await apiForIncidents.reportConnectivityIncident(incident, simulations: simulations, app: app)
