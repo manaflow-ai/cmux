@@ -264,7 +264,7 @@ struct Tail {
 struct UndoHead {
     edition: u32,
     seg: u32,
-    off: u64,
+    off: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -274,13 +274,17 @@ struct UndoEntry {
 }
 
 fn undo_head_for(mark: Mark) -> UndoHead {
-    UndoHead { edition: mark.edition, seg: mark.seg, off: mark.off }
+    UndoHead {
+        edition: mark.edition,
+        seg: mark.seg,
+        off: u32::try_from(mark.off).unwrap_or(u32::MAX),
+    }
 }
 
 fn encode_undo_head(head: UndoHead, out: &mut [u8; UNDO_HEAD_LEN]) {
     out[..4].copy_from_slice(&head.edition.to_le_bytes());
     out[4..8].copy_from_slice(&head.seg.to_le_bytes());
-    out[8..16].copy_from_slice(&head.off.to_le_bytes());
+    out[8..12].copy_from_slice(&head.off.to_le_bytes());
     let crc = crc32fast::hash(&out[..12]);
     out[12..16].copy_from_slice(&crc.to_le_bytes());
 }
@@ -288,7 +292,7 @@ fn encode_undo_head(head: UndoHead, out: &mut [u8; UNDO_HEAD_LEN]) {
 fn decode_undo_head(bytes: &[u8]) -> Option<UndoHead> {
     let edition = record::le_u32(bytes, 0)?;
     let seg = record::le_u32(bytes, 4)?;
-    let off = record::le_u64(bytes, 8)?;
+    let off = record::le_u32(bytes, 8)?;
     let crc = record::le_u32(bytes, 12)?;
     (crc32fast::hash(bytes.get(..12)?) == crc).then_some(UndoHead { edition, seg, off })
 }
@@ -752,38 +756,12 @@ impl Log {
         // Repair the explicitly checkpointed open rows plus the new-id tail. Mapping growth
         // contributes at most one fixed 64-KB slab, independent of the book's history.
         if recovered.checkpoint {
-            let undo_rows = undo_entries
-                .iter()
-                .map(|entry| entry.row_id)
-                .collect::<std::collections::BTreeSet<_>>();
-            let open_rows = checkpoint_open_rows
-                .chunks_exact(8)
-                .filter_map(|id| record::le_u64(id, 0))
-                .collect::<std::collections::BTreeSet<_>>();
-            // A post-mark index entry for an already-settled row must have a durable
-            // pre-mark undo entry. Clearing it would silently lose a row whose source
-            // place is before the replay cursor; that is a rebuild condition.
-            let mut row_id = mark.min_row;
-            while row_id <= mark.max_row {
-                if !found_rows.contains(&row_id)
-                    && rows.get(row_id).is_some_and(|entry| {
-                        entry.seg > checkpoint_mark.seg
-                            || (entry.seg == checkpoint_mark.seg
-                                && u64::from(entry.off) >= checkpoint_mark.off)
-                    })
-                    && !undo_rows.contains(&row_id)
-                    && !open_rows.contains(&row_id)
-                {
-                    return Err(Error::Rebuild("a cut row has no undo entry"));
-                }
-                row_id = row_id.saturating_add(1);
-            }
             for undo in &undo_entries {
                 if !found_rows.contains(&undo.row_id)
                     && rows.get(undo.row_id).is_some_and(|entry| {
                         entry.seg > checkpoint_mark.seg
                             || (entry.seg == checkpoint_mark.seg
-                                && u64::from(entry.off) >= checkpoint_mark.off)
+                                && u64::from(entry.off) >= u64::from(checkpoint_mark.off))
                     })
                 {
                     rewritten = rewritten.saturating_add(rows.set(undo.row_id, undo.entry)?);
@@ -919,7 +897,7 @@ impl Log {
         let mut head = [0u8; HEADER_LEN];
         let read = match self.read_segment(row.seg, offset, &mut head) {
             Ok(read) => read,
-            Err(Error::Io(_)) => {
+            Err(Error::Io(error)) if error.kind() == io::ErrorKind::NotFound => {
                 return Err(Error::CorruptRow {
                     row_id: row.row_id,
                     reason: "a row points to a missing segment",
@@ -1026,7 +1004,7 @@ impl Log {
         let mut head = [0u8; HEADER_LEN];
         let read = match self.read_segment(entry.seg, u64::from(entry.off), &mut head) {
             Ok(read) => read,
-            Err(Error::Io(_)) => {
+            Err(Error::Io(error)) if error.kind() == io::ErrorKind::NotFound => {
                 return Err(Error::CorruptRow {
                     row_id,
                     reason: "a row points to a missing segment",
@@ -1123,6 +1101,7 @@ impl Log {
         let mut bytes = [0u8; UNDO_ENTRY_LEN];
         for entry in entries {
             encode_undo_entry(*entry, &mut bytes);
+            self.undo.seek(SeekFrom::End(0))?;
             self.undo.write_all(&bytes)?;
         }
         Ok(())

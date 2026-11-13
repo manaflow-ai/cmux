@@ -413,7 +413,7 @@ impl Log {
             let read = match buf.get_mut(base..) {
                 Some(space) => match self.read_segment(span.seg, span.lo, space) {
                     Ok(read) => read,
-                    Err(Error::Io(_)) => {
+                    Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
                         return Err(Error::CorruptRow {
                             row_id: first.row_id,
                             reason: "a row points to a missing segment",

@@ -533,7 +533,7 @@ fn read_source(state: &mut ActorState) -> Result<bool, ChatError> {
         let bytes = chunk.bytes().get(line.bytes.clone()).ok_or(ChatError::Closed)?;
         let bytes = bytes.strip_suffix(b"\n").unwrap_or(bytes);
         let span = line.end.saturating_sub(line.start);
-        apply_line(state, bytes, line.start, span)?;
+        apply_line(state, bytes, line.start, line.end, span)?;
         state.raw_place = line.end;
     }
     Ok(chunk.at_end)
@@ -543,13 +543,14 @@ fn apply_line(
     state: &mut ActorState,
     bytes: &[u8],
     base_offset: u64,
+    cursor_end: u64,
     span: u64,
 ) -> Result<(), ChatError> {
     if state.raw_file == 0 {
         state.raw_file = state.log.append_raw_file(state.source.identity())?;
     }
     let file = state.raw_file;
-    state.raw_place = base_offset.saturating_add(bytes.len() as u64).saturating_add(1);
+    state.raw_place = cursor_end;
     apply_ops(state, bytes, file, base_offset, span, true)
 }
 
@@ -568,7 +569,7 @@ fn apply_ops(
         let raw = RawRange {
             file,
             off: base_offset.saturating_add(op.raw.offset as u64),
-            len: op.raw.length as u32,
+            len: u32::try_from(op.raw.length).map_err(|_| ChatError::Closed)?,
         };
         match op.change {
             Change::Row(row) => settle_or_open(state, row, raw)?,
@@ -630,8 +631,25 @@ fn raw_body_value(state: &mut ActorState, place: u64, span: u64) -> Result<Strin
     Err(ChatError::Closed)
 }
 
-fn settle_or_open(state: &mut ActorState, row: OwnedRow, raw: RawRange) -> Result<(), ChatError> {
+fn merge_row_fields(
+    state: &mut ActorState,
+    row: &OwnedRow,
+    hidden_settle: bool,
+) -> Result<(), ChatError> {
+    if hidden_settle && row.fields.get("hidden").is_some_and(|value| value == "true") {
+        let body = Body::new(row.id).map_err(ChatError::Book)?;
+        state.bodies.insert(row.id, body);
+    }
     let body = state.bodies.entry(row.id).or_insert(Body::new(row.id).map_err(ChatError::Book)?);
+    for (field, value) in &row.fields {
+        state.blobs.set(body, field, value, false)?;
+    }
+    Ok(())
+}
+
+fn settle_or_open(state: &mut ActorState, row: OwnedRow, raw: RawRange) -> Result<(), ChatError> {
+    merge_row_fields(state, &row, true)?;
+    let body = state.bodies.get(&row.id).ok_or(ChatError::Closed)?;
     if row.open {
         state.raw_ranges.insert(row.id, raw);
         return Ok(());
@@ -676,6 +694,7 @@ fn settle_or_open(state: &mut ActorState, row: OwnedRow, raw: RawRange) -> Resul
 }
 
 fn patch(state: &mut ActorState, row: OwnedRow, raw: RawRange) -> Result<(), ChatError> {
+    merge_row_fields(state, &row, false)?;
     let mut encoded = Vec::new();
     let body = state.bodies.get(&row.id);
     let body_text = if let Some(body) = body {

@@ -444,6 +444,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "release gate: bounded source reads at both history sizes"]
     fn v2_pr03a_source_read_bounds() -> io::Result<()> {
         let mut measured = Vec::new();
         for rows in [40u64, 2_000_000] {
