@@ -31,7 +31,7 @@ FW_NAME="Chromium Embedded Framework.framework"
 FW_BINARY="Chromium Embedded Framework"
 source "$SCRIPT_DIR/cef-locale-allowlist.sh"
 # Bump when the embedded layout changes so existing app bundles are redone.
-LAYOUT="versioned-3-locale-fallback-allowlist-credits-license-stripped-libs-no-intro-sounds"
+LAYOUT="versioned-3-locale-fallback-allowlist-credits-license-stripped-libs-no-intro-sounds-trimmed-paks-kept-images-aliases"
 
 app="${TARGET_BUILD_DIR:?}/${WRAPPER_NAME:?}"
 frameworks="$app/Contents/Frameworks"
@@ -182,10 +182,21 @@ if [[ ! -f "$source_stamp" || ! -L "$frameworks/$FW_NAME/Versions/Current" || "$
   done
   prune_cef_locales "$fw/Versions/A/Resources"
   # Chrome's first-run intro sounds (IDR_INTRO_SOUND_*, 4.8 MB of FLAC that does
-  # not compress): CEF never shows that flow. Ids come from the artifact's own
-  # header; with none it leaves resources.pak as it is.
+  # not compress) and the chrome:// pages cmux never shows (New Tab page,
+  # History, Bookmarks, Password Manager, Chrome's omnibox popup and side
+  # panels, its AI assistant: 4.8 MB), and the strings of those Chrome features in
+  # every locale.pak (3.8 MB). Ids come from the artifact's own headers and the
+  # framework's own WebUI resource maps; with none it leaves the paks as they are.
   if [[ -f "$fw/Versions/A/Resources/resources.pak" ]]; then
-    /usr/bin/python3 "$SCRIPT_DIR/cef-pak-drop.py" "$fw/Versions/A/Resources/resources.pak" "$cef_dir/include/cef_pack_resources.h"
+    /usr/bin/python3 -I "$SCRIPT_DIR/cef-pak-drop.py" "$fw/Versions/A/Resources/resources.pak" \
+      "$cef_dir/include/cef_pack_resources.h" --webui "$fw/Versions/A/$FW_BINARY"
+  fi
+  locale_paks=()
+  for pak in "$fw/Versions/A/Resources"/*.lproj/locale.pak; do
+    if [[ -f "$pak" ]]; then locale_paks+=("$pak"); fi
+  done
+  if (( ${#locale_paks[@]} > 0 )); then
+    /usr/bin/python3 -I "$SCRIPT_DIR/cef-pak-drop.py" --strings "$cef_dir/include/cef_pack_strings.h" ${locale_paks[@]+"${locale_paks[@]}"}
   fi
   # CEF's dylibs ship with local symbols and debug stabs (7 MiB in
   # libvk_swiftshader.dylib). Drop them before signing; exported symbols stay

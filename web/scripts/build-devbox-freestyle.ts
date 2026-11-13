@@ -592,8 +592,8 @@ try {
     devboxTeamKindDefaultCommand(),
   );
 
-  // The Ghostty generation panes announce as TERM_PROGRAM_VERSION (the
-  // supervisor exports it next to TERM_PROGRAM=ghostty; see cmux-devbox-boot).
+  // The Ghostty .deb pin, recorded for the acpmux daemon launch
+  // (acpmuxPersonKey.ts); terminal panes carry cmux's own version.
   await step(
     "ghostty-version",
     `mkdir -p /etc/cmux && printf '%s\n' ${devboxGhosttyVersion()} > /etc/cmux/ghostty-version && cat /etc/cmux/ghostty-version`,

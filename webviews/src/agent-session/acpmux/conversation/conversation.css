@@ -907,9 +907,9 @@
   width: var(--cv-action-glyph);
   height: var(--cv-action-glyph);
 }
-/* Hover ramps need a fine pointer; keyboard focus shows them at full at once. */
+/* User actions appear instantly. Other footer hover ramps need a fine pointer;
+   keyboard focus shows them at full at once. */
 @media (prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine) {
-  .cv-user__actions,
   .cv-received-actions,
   .cv-received__hover,
   .cv-reply-actions,
@@ -917,8 +917,6 @@
   .cv-turn-actions .cv-turn-time {
     transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
   }
-  .cv-user:hover .cv-user__actions,
-  .cv-user:has([data-popup-open]) .cv-user__actions,
   .cv-received:hover .cv-received-actions,
   .cv-received > .cv-disclosure__line:hover .cv-received__hover,
   .cv-received > .cv-disclosure__line:has([data-popup-open]) .cv-received__hover,
@@ -936,7 +934,6 @@
   }
 }
 @media (prefers-reduced-motion: no-preference) {
-  .cv-user__actions:focus-within,
   .cv-received-actions:focus-within,
   .cv-received__hover:focus-within,
   .cv-reply-actions:focus-within,
@@ -5175,6 +5172,14 @@ a.cv-sha:focus-visible {
 }
 .cv-recap__label {
   color: var(--agent-text);
+}
+.cv-recap__points {
+  margin: 0;
+  padding-inline-start: var(--ds-space-4);
+}
+.cv-recap__label + .cv-recap__points,
+.cv-recap__points > li + li {
+  margin-block-start: var(--ds-space-1);
 }
 .cv-recap__close {
   all: unset;
