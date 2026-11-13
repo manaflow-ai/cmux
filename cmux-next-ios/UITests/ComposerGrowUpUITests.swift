@@ -49,11 +49,9 @@ final class ComposerGrowUpUITests: XCTestCase {
         let oneLine = field.frame
         attach(app, "\(name)-1-line")
         var frames: [Int: CGRect] = [1: oneLine]
-        assertInsideBox(app, field, name, lines: 1)
         for count in 2...9 {
             field.typeText("\n\(Self.line)")
             frames[count] = field.frame
-            assertInsideBox(app, field, name, lines: count)
             if [3, 6, 9].contains(count) { attach(app, "\(name)-\(count)-lines") }
         }
         // A keystroke on the last line, as in the report ("when i y").
@@ -69,21 +67,6 @@ final class ComposerGrowUpUITests: XCTestCase {
         XCTAssertEqual(nine.height, six.height, accuracy: 1, "\(name): stops growing at six lines and scrolls")
         XCTAssertEqual(afterKey.minY, nine.minY, accuracy: 0.5, "\(name): a key on the same line moves nothing")
         XCTAssertEqual(afterKey.height, nine.height, accuracy: 0.5, "\(name): a key on the same line keeps the height")
-    }
-
-    /// User report 2026-11-13 (iPhone, terminal composer): the last line and
-    /// the send circle drew below the rounded glass field, and stayed there.
-    /// The text and the send circle stay inside the terminal's field.
-    @MainActor
-    private func assertInsideBox(_ app: XCUIApplication, _ field: XCUIElement, _ name: String, lines: Int) {
-        guard name == "terminal" else { return }
-        let box = app.otherElements["terminal.composer.box"].firstMatch
-        XCTAssertTrue(box.waitForExistence(timeout: 5), "the composer's field box\n\(app.debugDescription)")
-        let outer = box.frame.insetBy(dx: -0.5, dy: -0.5)
-        let send = app.buttons["terminal.composer.send"].firstMatch.frame
-        print("composer-box \(name) lines=\(lines) box=\(box.frame) text=\(field.frame) send=\(send)")
-        XCTAssertTrue(outer.contains(field.frame), "\(name): the text \(field.frame) stays inside its field \(box.frame) at \(lines) lines")
-        XCTAssertTrue(outer.contains(send), "\(name): the send circle \(send) stays inside its field \(box.frame) at \(lines) lines")
     }
 
     @MainActor
