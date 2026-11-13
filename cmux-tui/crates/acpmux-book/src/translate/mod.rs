@@ -17,7 +17,6 @@ use std::collections::BTreeMap;
 
 pub const VERSION: u32 = 5;
 pub const MAX_STATE_BYTES: usize = 96 * 1024;
-const MAX_TRANSLATOR_BYTES: usize = 32 * 1024;
 const MAX_QUEUE_ENTRIES: usize = 1024;
 const MAX_KEY_BYTES: usize = 256;
 

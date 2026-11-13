@@ -1068,7 +1068,7 @@ fn queue_cap_counts_the_1025th_entry_without_holding_it() {
     t(&mut state, Harness::V1, mux(1, "user_message", r#"{"text":"first"}"#).as_bytes()).unwrap();
     for n in 0..1025u64 {
         let line = mux(n + 2, "queued", &format!(r#"{{"text":"q-{n}","promptId":"q-{n}"}}"#));
-        super::translate(&mut state, Harness::V1, n + 2, 1, line.as_bytes()).unwrap();
+        translate(&mut state, Harness::V1, n + 2, 1, line.as_bytes()).unwrap();
     }
     assert_eq!(state.queue.len(), 1024);
     assert_eq!(state.counters().queue_overflowed, 1);
