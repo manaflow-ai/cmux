@@ -1044,7 +1044,7 @@ fn queued_entries_are_idempotent_bounded_and_raw() {
     assert!(duplicate.is_empty());
 
     let paused = mux(3, "queue_paused", r#"{"held":["q"]}"#);
-    let paused_ops = super::translate(&mut state, Harness::V1, 701, 1, paused.as_bytes()).unwrap();
+    let paused_ops = translate(&mut state, Harness::V1, 701, 1, paused.as_bytes()).unwrap();
     assert!(paused_ops.iter().any(|op| matches!(
         &op.change,
         Change::Queue(QueueChange::Add(entry)) if entry.held()
