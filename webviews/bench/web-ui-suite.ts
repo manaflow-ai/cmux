@@ -10,8 +10,8 @@
 // before and after each bench (bench/hostLoad.ts) and divides that bench's ms rows by it (1 on a host with a free
 // core, so most runs keep their rows as measured). Each bench's factor is in the report's `benches`.
 //   bun bench/web-ui-suite.ts [--only chat-open,chat-switch] [--out report.json]
-// The browser benches need Playwright's chromium and webkit (playwright install --with-deps --only-shell
-// chromium webkit) and build the pane themselves.
+// The browser benches need Playwright's webkit (playwright install --with-deps webkit) and Chrome
+// (scripts/ci/ensure-system-chrome.sh; bench/browsers.ts launches it) and build the pane themselves.
 /// <reference types="bun" />
 import fs from "node:fs";
 import path from "node:path";
@@ -158,6 +158,15 @@ export const BENCHES: readonly Bench[] = [
 
 export type Failure = { bench: string; why: string; tail: string[] };
 
+/// What a failed bench's `tail` carries (pure): its malformed PERF_ROW lines, the last lines of its own output (a bench
+/// that says why it failed on stdout, as state-growth's FAIL lines do, would otherwise leave the tail empty) and the
+/// last lines of its stderr, each bounded, in that order.
+export function failureTail(stdout: string, stderr: string, bad: readonly string[]): string[] {
+  const said = stdout.split("\n").filter((line) => line.trim() && !line.startsWith(PERF_ROW_MARK));
+  const errors = stderr.split("\n").filter((line) => line.trim());
+  return [...bad.slice(-4), ...said.slice(-8), ...errors.slice(-12)];
+}
+
 /// The rows in a bench's stdout (pure). A malformed PERF_ROW line is a failure of that bench, not a row.
 export function parseRows(stdout: string): { rows: PerfRow[]; bad: string[] } {
   const rows: PerfRow[] = [];
@@ -258,7 +267,7 @@ async function main() {
             ? `${bad.length} malformed PERF_ROW line(s)`
             : null;
     if (why) {
-      const tail = [...bad, ...result.stderr.split("\n").filter(Boolean)].slice(-12);
+      const tail = failureTail(result.stdout, result.stderr, bad);
       failed.push({ bench: bench.name, why, tail });
       console.log(`web-ui-suite: ${bench.name} FAILED (${why})`);
       for (const line of tail) console.log(`  ${bench.name}! ${line}`);
