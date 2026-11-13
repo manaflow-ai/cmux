@@ -1,36 +1,28 @@
-//! Per-session WireGuard media upgrade for `cmux.rd/1`.
-//!
-//! The device-hub Noise link remains the admission and authorization boundary. This
-//! module only adds an ephemeral WireGuard hop inside that already authenticated link:
-//! public keys and fixed `/32` overlay addresses cross reliable rd-link control, while
-//! private keys never leave this process. Setup/readiness failures are reported to
-//! the caller so it can select the signed WebRTC fallback; media never uses bare
-//! rd-link datagrams.
-
+//! Session-scoped WG media inside the authenticated hub rd-link. Only public
+//! keys cross control. Transport fallback needs a peer ACK and delivery barrier;
+//! authentication, consent, revocation and failures after readiness never retry.
+mod runtime;
 use cmux_rd_link::net::NetSender;
-use cmux_wg::{InterfaceAddress, IpNetwork, Priority, WgConfig, WgNet};
+use cmux_rd_proto::app_line::{CarrierFallback, CarrierKind, RetryCarrier, WgFallbackReason};
+use cmux_wg::{InterfaceAddress, IpNetwork, WgConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::io;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::os::fd::{AsRawFd, RawFd};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, SyncSender};
-use std::sync::Arc;
-use std::thread::JoinHandle;
-use std::time::Duration;
-use tokio::io::unix::AsyncFd;
-use tokio::sync::mpsc as tokio_mpsc;
+use std::net::{IpAddr, Ipv4Addr};
+use std::os::fd::RawFd;
+use std::time::{Duration, Instant};
 use x25519_dalek::{PublicKey, StaticSecret};
 use zeroize::Zeroizing;
 
-pub const VERSION: u8 = 1;
-pub const MEDIA_PORT: u16 = 4103;
-pub const READY_TIMEOUT: Duration = Duration::from_millis(900);
+const VERSION: u8 = 1;
+const MEDIA_PORT: u16 = 4103;
 const QUEUE: usize = 256;
-const RD_LINK_MAX: usize = 1152 - cmux_rd_link::SEAL_OVERHEAD;
-// IPv6+UDP inside WireGuard (48) plus a conservative WireGuard data header/tag (32).
-const WG_OUTER_OVERHEAD: usize = 80;
+pub const READY_TIMEOUT: Duration = Duration::from_secs(3);
+pub const RETRY_TIMEOUT: Duration = Duration::from_secs(3);
+const OUTER_MAX: usize = 1152 - cmux_rd_link::SEAL_OVERHEAD;
+// WG adds 32 bytes and pads the inner packet to 16 bytes; the UDP API budgets
+// IPv6+UDP (48 bytes), even with our IPv4 point-to-point addresses.
+const MTU: u16 = (((OUTER_MAX - 32) / 16) * 16) as u16;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Role {
@@ -39,464 +31,411 @@ pub enum Role {
 }
 impl Role {
     fn local(self) -> Ipv4Addr {
-        if matches!(self, Self::Host) {
-            Ipv4Addr::new(10, 253, 0, 1)
-        } else {
-            Ipv4Addr::new(10, 253, 0, 2)
-        }
+        Ipv4Addr::new(10, 253, 0, if self == Self::Host { 1 } else { 2 })
     }
     fn peer(self) -> Ipv4Addr {
-        if matches!(self, Self::Host) {
-            Ipv4Addr::new(10, 253, 0, 2)
-        } else {
-            Ipv4Addr::new(10, 253, 0, 1)
-        }
+        Ipv4Addr::new(10, 253, 0, if self == Self::Host { 2 } else { 1 })
     }
 }
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(tag = "t", rename_all = "snake_case")]
+#[serde(tag = "t", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Control {
-    Offer { version: u8, key: String, address: String, mtu: u16 },
-    Answer { version: u8, key: String, address: String, mtu: u16 },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Failure {
-    Unsupported,
-    Timeout,
-    Malformed,
-    Closed,
-    Overloaded,
+    WgOffer { version: u8, key: String, address: Ipv4Addr, mtu: u16 },
+    WgAnswer { version: u8, key: String, address: Ipv4Addr, mtu: u16 },
+    WgReady,
+    WgFallback { reason: WgFallbackReason },
+    WgFallbackAck { reason: WgFallbackReason },
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum State {
     Negotiating,
     Ready,
-    Failed(Failure),
+    Retrying,
+    Retry(WgFallbackReason),
+    Failed,
 }
 
-pub fn control_json(control: &Control) -> Option<Vec<u8>> {
-    serde_json::to_vec(control).ok()
+/// Pure retry exchange. Each side proposes once and acknowledges the peer's
+/// proposal. A valid peer ACK alone is insufficient: our outgoing ACK must also
+/// have been delivered (rd-link's reliable-control barrier).
+#[derive(Default)]
+struct Retry {
+    requested: Option<WgFallbackReason>,
+    peer: Option<WgFallbackReason>,
+    acknowledged: bool,
+    ack_sent: bool,
+    deadline: Option<Instant>,
 }
-pub fn parse_control(record: &[u8]) -> Option<Control> {
-    serde_json::from_slice(record).ok()
+impl Retry {
+    fn request(&mut self, reason: WgFallbackReason, now: Instant, out: &mut VecDeque<Control>) {
+        if self.requested.is_none() {
+            self.requested = Some(reason);
+            self.deadline = Some(now + RETRY_TIMEOUT);
+            out.push_back(Control::WgFallback { reason });
+        }
+    }
+    fn receive(&mut self, record: &Control, now: Instant, out: &mut VecDeque<Control>) {
+        match *record {
+            Control::WgFallback { reason } => {
+                if self.peer.is_none() {
+                    self.peer = Some(reason);
+                    self.request(reason, now, out);
+                    out.push_back(Control::WgFallbackAck { reason });
+                    self.ack_sent = true;
+                }
+            }
+            Control::WgFallbackAck { reason } if self.requested == Some(reason) => {
+                self.acknowledged = true
+            }
+            _ => {}
+        }
+    }
+    fn expired(&self, now: Instant) -> bool {
+        self.deadline.is_some_and(|deadline| now >= deadline)
+    }
+    fn ready(&self, delivered: bool) -> Option<WgFallbackReason> {
+        (self.acknowledged && self.ack_sent && delivered).then_some(self.requested).flatten()
+    }
 }
 
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-fn unhex32(text: &str) -> Option<[u8; 32]> {
-    if text.len() != 64 {
-        return None;
-    }
-    let mut out = [0; 32];
-    for (i, byte) in out.iter_mut().enumerate() {
-        *byte = u8::from_str_radix(text.get(i * 2..i * 2 + 2)?, 16).ok()?;
-    }
-    Some(out)
-}
-fn mtu() -> u16 {
-    u16::try_from(RD_LINK_MAX.saturating_sub(WG_OUTER_OVERHEAD).max(576)).unwrap_or(u16::MAX)
-}
-fn keypair() -> (Zeroizing<[u8; 32]>, [u8; 32]) {
-    let mut bytes = [0u8; 32];
-    if getrandom::fill(&mut bytes).is_err() {
-        return (Zeroizing::new(bytes), [0; 32]);
-    }
-    let secret = StaticSecret::from(bytes);
-    let public = PublicKey::from(&secret).to_bytes();
-    (Zeroizing::new(secret.to_bytes()), public)
-}
-
-/// Negotiation over the existing authenticated rd-link control channel.
 pub struct Negotiation {
     role: Role,
     private: Zeroizing<[u8; 32]>,
     public: [u8; 32],
-    offered: bool,
-    peer: Option<([u8; 32], Ipv4Addr, u16)>,
-    answered: bool,
-    started: bool,
-    started_at: std::time::Instant,
-    session: Option<WgSession>,
+    peer: Option<([u8; 32], u16)>,
+    started: Option<Instant>,
+    session: Option<runtime::Session>,
+    pending: VecDeque<Vec<u8>>,
+    outgoing: VecDeque<Control>,
+    ready_sent: bool,
+    peer_ready: bool,
+    committed: bool,
+    failed: bool,
+    retry: Retry,
 }
 impl Negotiation {
-    pub fn new(role: Role) -> Self {
-        let (private, public) = keypair();
-        Self {
+    pub fn new(role: Role) -> io::Result<Self> {
+        let mut bytes = Zeroizing::new([0u8; 32]);
+        getrandom::fill(&mut *bytes).map_err(io::Error::other)?;
+        let secret = StaticSecret::from(*bytes);
+        let public = PublicKey::from(&secret).to_bytes();
+        Ok(Self {
             role,
-            private,
+            private: Zeroizing::new(secret.to_bytes()),
             public,
-            offered: false,
             peer: None,
-            answered: false,
-            started: false,
-            started_at: std::time::Instant::now(),
+            started: None,
             session: None,
-        }
-    }
-    pub fn offer(&mut self) -> Option<Vec<u8>> {
-        if self.offered {
-            return None;
-        }
-        self.offered = true;
-        control_json(&Control::Offer {
-            version: VERSION,
-            key: hex(&self.public),
-            address: self.role.local().to_string(),
-            mtu: mtu(),
+            pending: VecDeque::new(),
+            outgoing: VecDeque::new(),
+            ready_sent: false,
+            peer_ready: false,
+            committed: false,
+            failed: false,
+            retry: Retry::default(),
         })
     }
-    pub fn is_ready(&self) -> bool {
-        self.session.as_ref().is_some_and(WgSession::is_ready)
-    }
-    /// Whether the peer has negotiated WG and packets should be offered to the
-    /// overlay while its handshake completes. A failed session returns false,
-    /// allowing the caller to select the signed WebRTC retry before media starts.
-    pub fn active(&self) -> bool {
-        self.peer.is_some() && !matches!(self.state(), State::Failed(_))
-    }
-    pub fn state(&self) -> State {
-        if let Some(session) = &self.session {
-            return session.state();
+    pub fn begin(&mut self, now: Instant) {
+        if self.started.is_none() {
+            self.started = Some(now);
+            self.outgoing.push_back(Control::WgOffer {
+                version: VERSION,
+                key: crate::serve::hex(&self.public),
+                address: self.role.local(),
+                mtu: MTU,
+            });
         }
-        if self.started_at.elapsed() >= READY_TIMEOUT {
-            State::Failed(Failure::Timeout)
+    }
+    pub fn accept(&mut self, record: &[u8], now: Instant) -> bool {
+        let parsed = serde_json::from_slice::<Control>(record);
+        let control = match parsed {
+            Ok(control) => control,
+            Err(_) => {
+                let ours = serde_json::from_slice::<serde_json::Value>(record)
+                    .ok()
+                    .and_then(|v| v.get("t").and_then(|t| t.as_str()).map(|t| t.starts_with("wg_")))
+                    .unwrap_or(false);
+                if ours {
+                    // Unknown/authorization retry reasons are not transport failures.
+                    let tag = serde_json::from_slice::<serde_json::Value>(record)
+                        .ok()
+                        .and_then(|v| v.get("t").and_then(|v| v.as_str()).map(str::to_owned));
+                    if matches!(tag.as_deref(), Some("wg_offer" | "wg_answer")) {
+                        self.fail(WgFallbackReason::Malformed, now);
+                    } else {
+                        self.failed = true;
+                    }
+                }
+                return ours;
+            }
+        };
+        if self.started.is_none() || self.failed {
+            return true;
+        }
+        if self.committed {
+            if matches!(control, Control::WgFallback { .. } | Control::WgFallbackAck { .. }) {
+                self.failed = true;
+            }
+            return true;
+        }
+        match control {
+            Control::WgFallback { .. } | Control::WgFallbackAck { .. } => {
+                self.retry.receive(&control, now, &mut self.outgoing)
+            }
+            Control::WgReady => {
+                if self.peer.is_some() {
+                    self.peer_ready = true;
+                }
+            }
+            Control::WgOffer { version, key, address, mtu }
+            | Control::WgAnswer { version, key, address, mtu } => {
+                if self.retry.requested.is_some() {
+                    return true;
+                }
+                if version != VERSION {
+                    self.fail(WgFallbackReason::Unsupported, now);
+                    return true;
+                }
+                let Some(key) = crate::serve::unhex32(&key)
+                    .filter(|key| *key != [0; 32] && *key != self.public)
+                else {
+                    self.fail(WgFallbackReason::Malformed, now);
+                    return true;
+                };
+                if address != self.role.peer() || mtu < 576 {
+                    self.fail(WgFallbackReason::Malformed, now);
+                    return true;
+                }
+                if let Some(previous) = self.peer {
+                    if previous != (key, mtu.min(MTU)) {
+                        self.fail(WgFallbackReason::Malformed, now);
+                    }
+                    return true;
+                }
+                self.peer = Some((key, mtu.min(MTU)));
+                self.outgoing.push_back(Control::WgAnswer {
+                    version: VERSION,
+                    key: crate::serve::hex(&self.public),
+                    address: self.role.local(),
+                    mtu: mtu.min(MTU),
+                });
+            }
+        }
+        true
+    }
+    fn fail(&mut self, reason: WgFallbackReason, now: Instant) {
+        if self.committed {
+            self.failed = true;
+        } else {
+            self.retry.request(reason, now, &mut self.outgoing);
+        }
+    }
+    pub fn tick(&mut self, sender: &NetSender, now: Instant) {
+        if self.failed {
+            return;
+        }
+        if self.retry.requested.is_none() && self.session.is_none() {
+            if let Some((peer_public_key, mtu)) = self.peer {
+                let config = WgConfig {
+                    private_key: self.private.clone(),
+                    addresses: vec![InterfaceAddress {
+                        address: IpAddr::V4(self.role.local()),
+                        prefix: 32,
+                    }],
+                    mtu,
+                    peer_public_key,
+                    preshared_key: None,
+                    allowed_ips: vec![IpNetwork::V4(self.role.peer().into())],
+                    endpoint: None,
+                    persistent_keepalive: None,
+                    peer_addresses: vec![IpAddr::V4(self.role.peer())],
+                    ultra: None,
+                };
+                match runtime::Session::start(config, sender.clone(), self.role.peer()) {
+                    Ok(session) => {
+                        for packet in self.pending.drain(..) {
+                            session.inject(packet);
+                        }
+                        self.session = Some(session);
+                    }
+                    Err(_) => self.fail(WgFallbackReason::Overloaded, now),
+                }
+            }
+        }
+        if self.retry.requested.is_none() {
+            if self.session.as_ref().is_some_and(runtime::Session::failed) {
+                self.fail(WgFallbackReason::Closed, now);
+            } else if self.session.as_ref().is_some_and(runtime::Session::ready) && !self.ready_sent
+            {
+                self.ready_sent = true;
+                self.outgoing.push_back(Control::WgReady);
+            }
+            if !self.committed
+                && self.started.is_some_and(|start| now.duration_since(start) >= READY_TIMEOUT)
+                && !(self.ready_sent && self.peer_ready)
+            {
+                self.fail(
+                    if self.peer.is_some() {
+                        WgFallbackReason::Timeout
+                    } else {
+                        WgFallbackReason::Unsupported
+                    },
+                    now,
+                );
+            }
+        }
+        if self.retry.expired(now) {
+            self.failed = true;
+        }
+        while let Some(record) = self.outgoing.pop_front() {
+            match serde_json::to_vec(&record) {
+                Ok(bytes) => sender.send_control(bytes),
+                Err(_) => self.failed = true,
+            }
+        }
+    }
+    pub fn state(&self, delivered: bool) -> State {
+        if self.failed {
+            return State::Failed;
+        }
+        if let Some(reason) = self.retry.ready(delivered) {
+            return State::Retry(reason);
+        }
+        if self.retry.requested.is_some() {
+            return State::Retrying;
+        }
+        if self.ready_sent
+            && self.peer_ready
+            && self.session.as_ref().is_some_and(runtime::Session::ready)
+        {
+            State::Ready
         } else {
             State::Negotiating
         }
     }
-    pub fn accept(&mut self, record: &[u8], sender: &NetSender) -> bool {
-        let Some(control) = parse_control(record) else { return false };
-        let (version, key, address, peer_mtu) = match control {
-            Control::Offer { version, key, address, mtu } => {
-                if self.peer.is_some() {
-                    return true;
-                }
-                let Some(key) = unhex32(&key) else { return true };
-                let Ok(address) = address.parse::<Ipv4Addr>() else { return true };
-                (version, key, address, mtu)
-            }
-            Control::Answer { version, key, address, mtu } => {
-                if self.peer.is_some() {
-                    return true;
-                }
-                let Some(key) = unhex32(&key) else { return true };
-                let Ok(address) = address.parse::<Ipv4Addr>() else {
-                    return true;
-                };
-                (version, key, address, mtu)
-            }
-        };
-        if version != VERSION || address != self.role.peer() || peer_mtu < 576 {
-            return true;
-        }
-        self.peer = Some((key, address, peer_mtu));
-        if let Some(bytes) = control_json(&Control::Answer {
-            version: VERSION,
-            key: hex(&self.public),
-            address: self.role.local().to_string(),
-            mtu: mtu().min(peer_mtu),
-        }) {
-            sender.send_control(bytes);
-        }
-        self.answered = true;
-        true
+    pub fn commit(&mut self) {
+        self.committed = true;
     }
-    pub fn start_if_negotiated(&mut self, sender: &NetSender) {
-        if self.started || !self.answered {
+    pub fn invalidate(&mut self) {
+        self.failed = true;
+    }
+    pub fn ack_sent(&self) -> bool {
+        self.retry.ack_sent
+    }
+    pub fn fd(&self) -> Option<RawFd> {
+        self.session.as_ref().map(runtime::Session::fd)
+    }
+    pub fn max_datagram(&self) -> usize {
+        usize::from(self.peer.map_or(MTU, |(_, mtu)| mtu)) - 48
+    }
+    pub fn inject(&mut self, payload: Vec<u8>) {
+        if self.retry.requested.is_some() || self.failed || payload.len() > OUTER_MAX {
             return;
         }
-        let Some((peer_key, peer_addr, peer_mtu)) = self.peer else { return };
-        self.started = true;
-        let local = self.role.local();
-        let Ok(allowed_ip) = "10.253.0.0/30".parse() else {
-            return;
-        };
-        let config = WgConfig {
-            private_key: self.private.clone(),
-            addresses: vec![InterfaceAddress { address: IpAddr::V4(local), prefix: 32 }],
-            mtu: mtu().min(peer_mtu),
-            peer_public_key: peer_key,
-            preshared_key: None,
-            allowed_ips: vec![IpNetwork::V4(allowed_ip)],
-            endpoint: None,
-            persistent_keepalive: Some(3),
-            peer_addresses: vec![IpAddr::V4(peer_addr)],
-            ultra: None,
-        };
-        self.session = WgSession::start(config, sender.clone(), local, peer_addr);
-    }
-    pub fn inject(&self, datagram: Vec<u8>) {
         if let Some(session) = &self.session {
-            session.inject(datagram);
+            session.inject(payload);
+        } else if self.pending.len() < 32 {
+            self.pending.push_back(payload);
         }
     }
-    pub fn send(&self, datagram: Vec<u8>) -> bool {
-        self.session.as_ref().is_some_and(|session| session.send(datagram))
+    pub fn send(&self, payload: &[u8]) -> io::Result<()> {
+        if self.state(false) != State::Ready {
+            return Err(io::Error::new(io::ErrorKind::NotConnected, "WG media is not ready"));
+        }
+        self.session
+            .as_ref()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "WG missing"))?
+            .send(payload)
     }
     pub fn receive(&self, out: &mut Vec<Vec<u8>>) {
         if let Some(session) = &self.session {
-            session.receive(out);
+            session.drain(out);
         }
     }
 }
-
-struct WakeFd(RawFd);
-impl AsRawFd for WakeFd {
-    fn as_raw_fd(&self) -> RawFd {
-        self.0
-    }
-}
-impl Drop for WakeFd {
-    fn drop(&mut self) {
-        // SAFETY: this descriptor is created by `pipe` in this module and owned here.
-        unsafe {
-            libc::close(self.0);
-        }
-    }
-}
-
-struct RdUnderlay {
-    sender: NetSender,
-    input: Receiver<Vec<u8>>,
-    wake: AsyncFd<WakeFd>,
-    pending: VecDeque<Vec<u8>>,
-}
-impl RdUnderlay {
-    fn new(sender: NetSender, input: Receiver<Vec<u8>>, read: RawFd) -> io::Result<Self> {
-        Ok(Self { sender, input, wake: AsyncFd::new(WakeFd(read))?, pending: VecDeque::new() })
-    }
-    fn refill(&mut self) {
-        while let Ok(packet) = self.input.try_recv() {
-            self.pending.push_back(packet);
-        }
-    }
-}
-impl cmux_wg::Underlay for RdUnderlay {
-    fn send(&mut self, datagram: &[u8]) {
-        self.sender.send_datagram(datagram.to_vec());
-    }
-    fn has_peer(&self) -> bool {
-        true
-    }
-    fn poll_recv(
-        &mut self,
-        cx: &mut std::task::Context<'_>,
-        buffer: &mut [u8],
-    ) -> std::task::Poll<io::Result<cmux_wg::Received>> {
-        self.refill();
-        if let Some(packet) = self.pending.pop_front() {
-            let len = packet.len().min(buffer.len());
-            buffer[..len].copy_from_slice(&packet[..len]);
-            return std::task::Poll::Ready(Ok(cmux_wg::Received {
-                len,
-                origin: cmux_wg::Origin { path: cmux_wg::PathId(0), addr: None },
-            }));
-        }
-        let mut ready = match self.wake.poll_read_ready(cx) {
-            std::task::Poll::Ready(Ok(guard)) => guard,
-            std::task::Poll::Ready(Err(error)) => return std::task::Poll::Ready(Err(error)),
-            std::task::Poll::Pending => return std::task::Poll::Pending,
-        };
-        let fd = self.wake.get_ref().as_raw_fd();
-        match ready.try_io(|_| {
-            let mut byte = [0u8; 1];
-            // SAFETY: `fd` is the read end of our nonblocking wake pipe.
-            let result = unsafe { libc::read(fd, byte.as_mut_ptr().cast(), 1) };
-            if result == 1 {
-                Ok(())
-            } else if result < 0 {
-                Err(io::Error::last_os_error())
-            } else {
-                Err(io::Error::new(io::ErrorKind::UnexpectedEof, "rd-link wake pipe closed"))
-            }
-        }) {
-            Ok(Ok(())) => {
-                self.refill();
-                if self.pending.is_empty() {
-                    std::task::Poll::Pending
-                } else {
-                    self.poll_recv(cx, buffer)
-                }
-            }
-            Ok(Err(_)) | Err(_) => std::task::Poll::Pending,
-        }
-    }
-}
-
-enum Command {
-    Send(Vec<u8>),
-    Stop,
-}
-pub struct WgSession {
-    commands: tokio_mpsc::Sender<Command>,
-    inbound: SyncSender<Vec<u8>>,
-    output: Receiver<Vec<u8>>,
-    wake_write: RawFd,
-    ready: Arc<AtomicBool>,
-    failed: Arc<AtomicBool>,
-    join: Option<JoinHandle<()>>,
-}
-impl WgSession {
-    fn start(
-        config: WgConfig,
-        sender: NetSender,
-        _local: Ipv4Addr,
-        peer: Ipv4Addr,
-    ) -> Option<Self> {
-        let (input_tx, input_rx) = mpsc::sync_channel(QUEUE);
-        let (output_tx, output_rx) = mpsc::sync_channel(QUEUE);
-        let (command_tx, mut command_rx) = tokio_mpsc::channel(QUEUE);
-        let (ready_tx, ready_rx) = mpsc::sync_channel(1);
-        let (read, write) = pipe().ok()?;
-        let ready = Arc::new(AtomicBool::new(false));
-        let failed = Arc::new(AtomicBool::new(false));
-        let ready_flag = Arc::clone(&ready);
-        let failed_flag = Arc::clone(&failed);
-        let join = std::thread::Builder::new().name("cmux-rd-wg".into()).spawn(move || {
-            let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
-                Ok(runtime) => runtime,
-                Err(_) => { failed_flag.store(true, Ordering::Release); return; }
-            };
-            runtime.block_on(async move {
-                let underlay = match RdUnderlay::new(sender, input_rx, read) {
-                    Ok(underlay) => underlay,
-                    Err(_) => { failed_flag.store(true, Ordering::Release); return; }
-                };
-                let net = match WgNet::start_with_underlay(config, underlay) {
-                    Ok(net) => net,
-                    Err(_) => { failed_flag.store(true, Ordering::Release); return; }
-                };
-                let mut socket = match net.bind_datagram(MEDIA_PORT).await {
-                    Ok(socket) => socket,
-                    Err(_) => { failed_flag.store(true, Ordering::Release); return; }
-                };
-                let _ = ready_tx.send(());
-                if net.wait_for_handshake(READY_TIMEOUT).await.is_err() { failed_flag.store(true, Ordering::Release); return; }
-                ready_flag.store(true, Ordering::Release);
-                let target = SocketAddr::new(IpAddr::V4(peer), MEDIA_PORT);
-                loop {
-                    tokio::select! {
-                        command = command_rx.recv() => match command {
-                            Some(Command::Send(payload)) => { let _ = socket.send_to(&payload, target, Priority::Media).await; }
-                            _ => break,
-                        },
-                        datagram = socket.recv_from() => {
-                            let Some((payload, _source)) = datagram else { break };
-                            let _ = output_tx.try_send(payload);
-                        }
-                    }
-                }
-                net.shutdown().await;
-            });
-        }).ok()?;
-        if ready_rx.recv_timeout(Duration::from_millis(250)).is_err() {
-            failed.store(true, Ordering::Release);
-        }
-        Some(Self {
-            commands: command_tx,
-            inbound: input_tx,
-            output: output_rx,
-            wake_write: write,
-            ready,
-            failed,
-            join: Some(join),
-        })
-    }
-    fn is_ready(&self) -> bool {
-        self.ready.load(Ordering::Acquire) && !self.failed.load(Ordering::Acquire)
-    }
-    fn state(&self) -> State {
-        if self.is_ready() {
-            State::Ready
-        } else if self.failed.load(Ordering::Acquire) {
-            State::Failed(Failure::Timeout)
-        } else {
-            State::Negotiating
-        }
-    }
-    fn send(&self, payload: Vec<u8>) -> bool {
-        self.is_ready() && self.commands.try_send(Command::Send(payload)).is_ok()
-    }
-    fn inject(&self, payload: Vec<u8>) {
-        if self.inbound.try_send(payload).is_ok() {
-            let _ = write_wake(self.wake_write);
-        }
-    }
-    fn receive(&self, out: &mut Vec<Vec<u8>>) {
-        while let Ok(payload) = self.output.try_recv() {
-            out.push(payload);
-        }
-    }
-}
-impl Drop for WgSession {
-    fn drop(&mut self) {
-        let _ = self.commands.try_send(Command::Stop);
-        unsafe {
-            libc::close(self.wake_write);
-        }
-        if let Some(join) = self.join.take() {
-            let _ = join.join();
-        }
-    }
-}
-fn pipe() -> io::Result<(RawFd, RawFd)> {
-    let mut fds = [0; 2];
-    if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
-        return Err(io::Error::last_os_error());
-    }
-    for fd in fds {
-        unsafe {
-            libc::fcntl(fd, libc::F_SETFL, libc::fcntl(fd, libc::F_GETFL) | libc::O_NONBLOCK);
-        }
-    }
-    Ok((fds[0], fds[1]))
-}
-fn write_wake(fd: RawFd) -> io::Result<()> {
-    let byte = [1u8];
-    let result = unsafe { libc::write(fd, byte.as_ptr().cast(), 1) };
-    if result == 1 || (result < 0 && io::Error::last_os_error().kind() == io::ErrorKind::WouldBlock)
-    {
-        Ok(())
-    } else {
-        Err(io::Error::last_os_error())
-    }
+pub fn fallback(reason: WgFallbackReason) -> CarrierFallback {
+    CarrierFallback { carrier: CarrierKind::RdWg, reason, retry: RetryCarrier::WebRtc }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
-    fn control_round_trip_exposes_public_key_only() {
-        let mut negotiation = Negotiation::new(Role::Host);
-        let offer = negotiation.offer().expect("first offer");
-        let text = std::str::from_utf8(&offer).expect("json");
-        assert!(text.contains("\"key\""));
-        assert!(!text.contains("private"));
-        assert!(parse_control(&offer).is_some());
-        assert!(negotiation.offer().is_none(), "an offer is sent once per session");
-        assert!(parse_control(br#"{"t":"offer","version":1}"#).is_none());
+    fn retry_needs_matching_peer_ack_and_delivery() {
+        let now = Instant::now();
+        let mut a = Retry::default();
+        let mut b = Retry::default();
+        let mut a_out = VecDeque::new();
+        let mut b_out = VecDeque::new();
+        a.receive(&Control::WgFallbackAck { reason: WgFallbackReason::Timeout }, now, &mut a_out);
+        assert!(a.ready(true).is_none());
+        a.request(WgFallbackReason::Timeout, now, &mut a_out);
+        let proposal = a_out.pop_front().unwrap();
+        b.receive(&proposal, now, &mut b_out);
+        b.receive(&proposal, now, &mut b_out);
+        assert_eq!(b_out.len(), 2);
+        assert!(a.ready(true).is_none());
+        assert!(b.ready(true).is_none());
+        while let Some(record) = b_out.pop_front() {
+            a.receive(&record, now, &mut a_out);
+        }
+        assert!(a.ready(false).is_none());
+        assert_eq!(a.ready(true), Some(WgFallbackReason::Timeout));
+        while let Some(record) = a_out.pop_front() {
+            b.receive(&record, now, &mut b_out);
+        }
+        assert_eq!(b.ready(true), Some(WgFallbackReason::Timeout));
     }
-
     #[test]
-    fn roles_use_fixed_point_to_point_addresses_and_bounded_mtu() {
-        let mut host = Negotiation::new(Role::Host);
-        let mut viewer = Negotiation::new(Role::Viewer);
-        let host_offer = parse_control(&host.offer().expect("host offer")).expect("host offer");
-        let viewer_offer =
-            parse_control(&viewer.offer().expect("viewer offer")).expect("viewer offer");
-        let Control::Offer { address: host_address, mtu: host_mtu, .. } = host_offer else {
-            panic!()
-        };
-        let Control::Offer { address: viewer_address, mtu: viewer_mtu, .. } = viewer_offer else {
-            panic!()
-        };
-        assert_eq!(host_address, "10.253.0.1");
-        assert_eq!(viewer_address, "10.253.0.2");
-        assert!(host_mtu >= 576 && host_mtu <= 1152);
-        assert_eq!(host_mtu, viewer_mtu);
+    fn no_retry_after_ready_or_for_authorization_reasons() {
+        let mut n = Negotiation::new(Role::Host).unwrap();
+        let now = Instant::now();
+        n.begin(now);
+        n.commit();
+        assert!(n.accept(br#"{"t":"wg_fallback","reason":"timeout"}"#, now));
+        assert_eq!(n.state(true), State::Failed);
+        for reason in ["revoked", "consent_denied", "peer_mismatch"] {
+            assert!(serde_json::from_value::<Control>(
+                serde_json::json!({"t":"wg_fallback","reason":reason})
+            )
+            .is_err());
+        }
+    }
+    #[test]
+    fn missing_ack_expires_and_wrong_ack_never_authorizes_retry() {
+        let now = Instant::now();
+        let mut retry = Retry::default();
+        let mut out = VecDeque::new();
+        retry.request(WgFallbackReason::Timeout, now, &mut out);
+        retry.receive(
+            &Control::WgFallbackAck { reason: WgFallbackReason::Unsupported },
+            now,
+            &mut out,
+        );
+        assert!(retry.ready(true).is_none());
+        assert!(!retry.expired(now + RETRY_TIMEOUT - Duration::from_millis(1)));
+        assert!(retry.expired(now + RETRY_TIMEOUT));
+    }
+    #[test]
+    fn invalid_retry_reason_fails_closed_before_ready() {
+        for reason in ["revoked", "consent_denied", "peer_mismatch"] {
+            let mut n = Negotiation::new(Role::Host).unwrap();
+            let now = Instant::now();
+            n.begin(now);
+            let record = serde_json::json!({"t":"wg_fallback","reason":reason}).to_string();
+            assert!(n.accept(record.as_bytes(), now));
+            assert_eq!(n.state(true), State::Failed);
+        }
+    }
+    #[test]
+    fn key_and_address_offer_is_public_only() {
+        let mut host = Negotiation::new(Role::Host).unwrap();
+        host.begin(Instant::now());
+        host.begin(Instant::now());
+        assert_eq!(host.outgoing.len(), 1);
+        let text = serde_json::to_string(&host.outgoing[0]).unwrap();
+        assert!(text.contains("10.253.0.1"));
+        assert!(!text.contains(&crate::serve::hex(&*host.private)));
+        assert!(usize::from(MTU) + 32 <= OUTER_MAX);
     }
 }

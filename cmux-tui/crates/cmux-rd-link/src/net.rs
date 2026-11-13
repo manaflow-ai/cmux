@@ -165,6 +165,7 @@ enum Command {
     Datagram(Vec<u8>),
     Control(Vec<u8>),
     NetworkChange,
+    ControlBarrier(mpsc::Sender<()>),
     Close,
 }
 
@@ -176,6 +177,7 @@ pub struct Net {
     event_wake: Pipe,
     thread: Option<thread::JoinHandle<()>>,
     local_addr: SocketAddr,
+    media: mpsc::SyncSender<Vec<u8>>,
 }
 
 /// A send-only handle for a running link. The owner remains the sole reader of
@@ -184,11 +186,15 @@ pub struct Net {
 pub struct NetSender {
     commands: mpsc::Sender<Command>,
     command_wake: Arc<Pipe>,
+    media: mpsc::SyncSender<Vec<u8>>,
 }
 
 impl NetSender {
     pub fn send_datagram(&self, datagram: Vec<u8>) {
-        self.command(Command::Datagram(datagram));
+        // Best-effort UDP: keep the overlay from building an unbounded outer queue.
+        if self.media.try_send(datagram).is_ok() {
+            self.command_wake.wake();
+        }
     }
     pub fn send_control(&self, record: Vec<u8>) {
         self.command(Command::Control(record));
@@ -294,9 +300,12 @@ impl Net {
         endpoint.set_local_networks(cmux_transport::local_networks());
         let (command_tx, command_rx) = mpsc::channel();
         let (event_tx, event_rx) = mpsc::channel();
+        let (media_tx, media_rx) = mpsc::sync_channel(256);
         let command_wake = Arc::new(Pipe::new().map_err(|e| LinkError::Io(e.to_string()))?);
         let event_wake = Pipe::new().map_err(|e| LinkError::Io(e.to_string()))?;
         let mut driver = Driver {
+            media: media_rx,
+            barriers: Vec::new(),
             socket,
             endpoint,
             commands: command_rx,
@@ -353,6 +362,7 @@ impl Net {
             event_wake,
             thread: Some(thread),
             local_addr,
+            media: media_tx,
         })
     }
 
@@ -408,7 +418,19 @@ impl Net {
     }
 
     pub fn sender(&self) -> NetSender {
-        NetSender { commands: self.commands.clone(), command_wake: Arc::clone(&self.command_wake) }
+        NetSender {
+            commands: self.commands.clone(),
+            command_wake: Arc::clone(&self.command_wake),
+            media: self.media.clone(),
+        }
+    }
+
+    /// Completes once the peer has acknowledged all reliable controls queued
+    /// before this call. Closing/failure drops the receiver without success.
+    pub fn control_barrier(&self) -> mpsc::Receiver<()> {
+        let (tx, rx) = mpsc::channel();
+        self.command(Command::ControlBarrier(tx));
+        rx
     }
 
     /// The machine's network changed (interface, address, wake from sleep).
@@ -463,6 +485,8 @@ struct StunQuery {
 }
 
 struct Driver {
+    media: mpsc::Receiver<Vec<u8>>,
+    barriers: Vec<mpsc::Sender<()>>,
     socket: UdpSocket,
     endpoint: Endpoint,
     commands: mpsc::Receiver<Command>,
@@ -707,6 +731,11 @@ impl Driver {
             self.stun_tick(now);
             self.turn_tick(now);
             self.flush(now)?;
+            if self.endpoint.link().controls_acknowledged() {
+                for barrier in self.barriers.drain(..) {
+                    let _ = barrier.send(());
+                }
+            }
             let mut fds = [
                 libc::pollfd { fd: self.socket.as_raw_fd(), events: libc::POLLIN, revents: 0 },
                 libc::pollfd { fd: self.command_fd, events: libc::POLLIN, revents: 0 },
@@ -735,6 +764,7 @@ impl Driver {
                         }
                     }
                     Command::Control(r) => self.endpoint.send_control(r, now)?,
+                    Command::ControlBarrier(reply) => self.barriers.push(reply),
                     Command::NetworkChange => {
                         self.endpoint.set_local_networks(cmux_transport::local_networks());
                         self.endpoint.on_network_change();
@@ -751,6 +781,14 @@ impl Driver {
                             }
                         }
                         return Ok(());
+                    }
+                }
+            }
+            for _ in 0..256 {
+                let Ok(datagram) = self.media.try_recv() else { break };
+                if self.endpoint.link().is_established() {
+                    for transmit in self.endpoint.send_datagram(&datagram)? {
+                        self.send(transmit.route, &transmit.packet, now);
                     }
                 }
             }

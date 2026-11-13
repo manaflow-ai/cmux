@@ -375,6 +375,13 @@ impl Link {
         self.seal(inner::DATAGRAM, datagram)
     }
 
+    /// Whether every queued control record has been acknowledged by the peer.
+    pub fn controls_acknowledged(&self) -> bool {
+        self.is_established()
+            && self.pending_control.is_empty()
+            && self.control_out.next_deadline_us().is_none()
+    }
+
     /// Queues one control record: delivered once and in order. Records queued
     /// before the handshake finished go out when it does.
     pub fn send_control(&mut self, record: Vec<u8>, now_us: u64) -> Result<(), LinkError> {

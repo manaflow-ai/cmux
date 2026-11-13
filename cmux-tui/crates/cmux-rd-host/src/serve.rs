@@ -38,7 +38,6 @@ use std::time::{Duration, Instant};
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 /// Datagram size inside the link: the rd shard size minus the seal overhead fits one
 /// 1280-byte IPv6 minimum MTU path with headroom for a relay's framing.
-const MAX_DATAGRAM: usize = 1152 - cmux_rd_link::SEAL_OVERHEAD;
 
 #[derive(Deserialize)]
 struct Viewer {
@@ -137,6 +136,7 @@ impl ServeCarrier {
     fn pump_app(&mut self) -> Result<(), String> {
         for later in self.app.read()? {
             if later.stop {
+                self.link.invalidate();
                 return Err("stopped by the host".into());
             }
             if let Some(c) = later.candidate.as_deref().and_then(Candidate::from_wire) {
@@ -237,15 +237,19 @@ pub fn run(opts: &Opts) -> Res<()> {
         );
     }
     let mut carrier = ServeCarrier {
-        link: LinkCarrier::new(net, crate::wg_carrier::Role::Host),
+        link: LinkCarrier::new(net, crate::wg_carrier::Role::Host)?,
         app: AppLines { buf: Vec::new() },
     };
     let reason = match serve_session(opts, &setup, view_only, &mut carrier) {
         Ok(reason) => reason,
         Err(e) => format!("failed: {e}"),
     };
-    let _ = carrier.send_control(&Control::Ended { reason: reason.clone() });
-    say(AppLine { ended: Some(reason), ..AppLine::default() });
+    if let Some(fallback) = carrier.link.take_fallback() {
+        say(AppLine { fallback: Some(fallback), ..AppLine::default() });
+    } else {
+        let _ = carrier.send_control(&Control::Ended { reason: reason.clone() });
+        say(AppLine { ended: Some(reason), ..AppLine::default() });
+    }
     // Dropping the carrier closes the link (the viewer sees the close at once).
     drop(carrier);
     Ok(())
@@ -264,12 +268,12 @@ fn serve_session(
     // Lines that came in the same read as the setup sit in stdin's buffer, where a wait on the
     // descriptor never sees them.
     carrier.pump_app()?;
-    while hello.is_none() || start.is_none() {
+    while hello.is_none() || start.is_none() || !carrier.link.media_ready() {
         let left = CONNECT_TIMEOUT.saturating_sub(started.elapsed());
         if left.is_zero() {
             return Ok("the viewer did not connect within 30 s".into());
         }
-        crate::fdwait::wait_readable(&carrier.fds(), Some(left.as_nanos() as u64))?;
+        crate::fdwait::wait_readable(&carrier.fds(), Some(left.as_nanos().min(25_000_000) as u64))?;
         carrier.pump_app().map_err(|e| e.to_string())?;
         for event in carrier.link.events() {
             match event {
@@ -286,6 +290,9 @@ fn serve_session(
                     match serde_json::from_slice::<Control>(&record) {
                         Ok(h @ Control::Hello { .. }) => hello = Some(h),
                         Ok(s @ Control::Start { .. }) => start = Some(s),
+                        Ok(Control::Stop | Control::Ended { .. } | Control::Refused { .. }) => {
+                            return Ok("viewer stopped or refused the session".into())
+                        }
                         _ => {}
                     }
                 }
@@ -304,6 +311,9 @@ fn serve_session(
             }
         }
         carrier.report_paths();
+        if carrier.link.retry_ready() {
+            return Ok("carrier retry acknowledged".into());
+        }
     }
     let (Some(Control::Hello { service, caps, .. }), Some(Control::Start { key, mode })) =
         (hello, start)
@@ -378,14 +388,15 @@ fn serve_session(
             .map_or(2, |rtt| cmux_rd_engine::frames_in_flight_for(rtt, max_fps))
             .max(2),
     };
-    let mut media = MediaSession::open(&cfg, MAX_DATAGRAM, &negotiated.caps, sink)?;
+    let max_datagram = carrier.link.max_datagram();
+    let mut media = MediaSession::open(&cfg, max_datagram, &negotiated.caps, sink)?;
     let (width, height) = media.size();
     carrier.send_control(&Control::Welcome {
         encoder: media.encoder_name(),
         width,
         height,
-        max_datagram: MAX_DATAGRAM,
-        carrier: "link".into(),
+        max_datagram,
+        carrier: "rd_wg".into(),
         service: negotiated.service.clone(),
         caps: negotiated.caps.clone(),
     })?;

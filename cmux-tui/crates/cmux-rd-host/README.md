@@ -27,6 +27,34 @@ marker app (`scripts/mac-marker`, build with `swiftc -O`) on a test Mac; `cmux-r
 from another Mac then measures latency (`--snapshot FILE.ppm` keeps the newest decoded frame).
 Build on a fleet Mac: `cargo build --release --no-default-features --features bench`.
 
+## Approved Mac-to-Mac WG media
+
+`serve` and `connect` keep the signed hub session's Noise link for admission,
+reliable control, candidate routing and revocation. A fresh ephemeral cmux-wg
+session carries media inside its authenticated datagrams; no private WG key is
+signaled. `connected` is emitted only after both sides report WG readiness.
+The media MTU accounts for WG padding and the inner IP/UDP header. Both the
+outer media queue and per-session queues are bounded.
+
+Before readiness, an unsupported or failed WG negotiation proposes a typed
+WebRTC retry. Both sides acknowledge the proposal, and each waits until its
+outgoing acknowledgement has been delivered before emitting a fallback app
+line. Missing acknowledgements expire after three seconds and end the session.
+Old peers without this exchange therefore fail closed; they never receive bare
+rd-link media. Stop, consent/revocation, peer authentication failure, and failures
+after readiness never permit a retry. The app consumes this decision on the
+original approved ticket (the schema/FFI integration is a prerequisite).
+
+This layering preserves existing authorization without a new hub trust model,
+but adds WG encryption and an inner IP/UDP header to rd-link. The existing
+`cmux-remote` shared WG hub `datagram.bind` API is a separate carrier endpoint;
+Mac Screen's current signed setup does not carry its socket/configuration.
+Real-Mac comparison numbers are required before claiming a latency/fps benefit
+or closing #42196. This implementation alone is not performance evidence.
+
+Focused transport checks (on managed CI):
+`cargo test --manifest-path cmux-tui/crates/cmux-rd-host/Cargo.toml --features link wg_`.
+
 ## Build
 
 This crate is its own Cargo workspace (excluded from the cmux-tui workspace) because it

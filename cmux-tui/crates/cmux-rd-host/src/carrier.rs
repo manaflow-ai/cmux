@@ -118,7 +118,11 @@ impl<S: Read + Write + AsRawFd> Carrier for SocketCarrier<'_, S> {
 #[cfg(feature = "link")]
 pub struct LinkCarrier {
     pub net: cmux_rd_link::net::Net,
-    pub wg: crate::wg_carrier::Negotiation,
+    wg: crate::wg_carrier::Negotiation,
+    barrier: Option<std::sync::mpsc::Receiver<()>>,
+    delivered: bool,
+    fallback: Option<cmux_rd_proto::app_line::CarrierFallback>,
+    terminal_emitted: bool,
     outer_established: bool,
     connected_emitted: bool,
     /// Path changes for the caller (the pane's path badge, the congestion controller).
@@ -130,7 +134,9 @@ pub struct LinkCarrier {
 #[cfg(feature = "link")]
 impl Carrier for LinkCarrier {
     fn fds(&self) -> Vec<RawFd> {
-        vec![self.net.event_fd()]
+        let mut fds = vec![self.net.event_fd()];
+        fds.extend(self.wg.fd());
+        fds
     }
 
     fn receive(&mut self, out: &mut Vec<Incoming>) -> Result<(), String> {
@@ -169,13 +175,7 @@ impl Carrier for LinkCarrier {
     }
 
     fn send_datagram(&mut self, datagram: &[u8]) -> io::Result<()> {
-        if !self.wg.send(datagram.to_vec()) {
-            return Err(io::Error::new(
-                io::ErrorKind::NotConnected,
-                "rd/1 WG media carrier is not ready",
-            ));
-        }
-        Ok(())
+        self.wg.send(datagram)
     }
 
     fn send_control(&mut self, control: &Control) -> io::Result<()> {
@@ -187,59 +187,110 @@ impl Carrier for LinkCarrier {
 
 #[cfg(feature = "link")]
 impl LinkCarrier {
-    pub fn new(net: cmux_rd_link::net::Net, role: crate::wg_carrier::Role) -> Self {
-        let sender = net.sender();
-        let mut wg = crate::wg_carrier::Negotiation::new(role);
-        if let Some(offer) = wg.offer() {
-            sender.send_control(offer);
-        }
-        Self {
+    pub fn new(net: cmux_rd_link::net::Net, role: crate::wg_carrier::Role) -> io::Result<Self> {
+        Ok(Self {
             net,
-            wg,
+            wg: crate::wg_carrier::Negotiation::new(role)?,
+            barrier: None,
+            delivered: false,
+            fallback: None,
+            terminal_emitted: false,
             outer_established: false,
             connected_emitted: false,
             paths: Vec::new(),
             rtt_us: None,
-        }
+        })
     }
 
-    /// Drain link events, consuming only the private WG negotiation records and
-    /// replacing encrypted WG datagrams with decrypted media datagrams.
+    pub fn media_ready(&self) -> bool {
+        self.connected_emitted && self.wg.state(false) == crate::wg_carrier::State::Ready
+    }
+    pub fn max_datagram(&self) -> usize {
+        self.wg.max_datagram()
+    }
+    pub fn retry_ready(&self) -> bool {
+        self.fallback.is_some()
+    }
+    pub fn take_fallback(&mut self) -> Option<cmux_rd_proto::app_line::CarrierFallback> {
+        self.fallback.take()
+    }
+    pub fn invalidate(&mut self) {
+        self.wg.invalidate();
+        self.fallback = None;
+    }
+
+    /// Owns both event streams; WG ciphertext can never leak to the media decoder.
     pub fn events(&mut self) -> Vec<cmux_rd_link::net::NetEvent> {
+        use crate::wg_carrier::State;
+        use cmux_rd_link::net::NetEvent;
         use cmux_rd_link::{EndpointEvent, Event};
+        let now = std::time::Instant::now();
         let sender = self.net.sender();
         let mut events = Vec::new();
         for event in self.net.events() {
             match event {
-                cmux_rd_link::net::NetEvent::Endpoint(EndpointEvent::Link(Event::Control(
-                    record,
-                ))) if self.wg.accept(&record, &sender) => {}
-                cmux_rd_link::net::NetEvent::Endpoint(EndpointEvent::Link(Event::Datagram(
-                    datagram,
-                ))) => {
-                    if self.wg.active() {
-                        self.wg.inject(datagram);
+                NetEvent::Endpoint(EndpointEvent::Link(Event::Established)) => {
+                    self.outer_established = true;
+                    self.wg.begin(now);
+                }
+                NetEvent::Endpoint(EndpointEvent::Link(Event::Control(record))) => {
+                    if !self.wg.accept(&record, now) {
+                        // A terminal control can never coexist with a transport retry.
+                        if matches!(
+                            serde_json::from_slice::<Control>(&record),
+                            Ok(Control::Stop | Control::Ended { .. } | Control::Refused { .. })
+                        ) {
+                            self.invalidate();
+                        }
+                        events
+                            .push(NetEvent::Endpoint(EndpointEvent::Link(Event::Control(record))));
                     }
                 }
-                cmux_rd_link::net::NetEvent::Endpoint(EndpointEvent::Link(Event::Established)) => {
-                    self.outer_established = true;
+                NetEvent::Endpoint(EndpointEvent::Link(Event::Datagram(datagram))) => {
+                    self.wg.inject(datagram)
+                }
+                closed @ (NetEvent::Endpoint(EndpointEvent::Link(Event::Closed))
+                | NetEvent::Failed(_)) => {
+                    self.invalidate();
+                    self.terminal_emitted = true;
+                    events.push(closed);
                 }
                 other => events.push(other),
             }
         }
-        self.wg.start_if_negotiated(&sender);
+        self.wg.tick(&sender, now);
+        if self.wg.ack_sent() && self.barrier.is_none() {
+            self.barrier = Some(self.net.control_barrier());
+        }
+        if let Some(barrier) = &self.barrier {
+            if matches!(barrier.try_recv(), Ok(())) {
+                self.delivered = true;
+            }
+        }
+        let state = self.wg.state(self.delivered);
         let mut decrypted = Vec::new();
         self.wg.receive(&mut decrypted);
-        for datagram in decrypted {
-            events.push(cmux_rd_link::net::NetEvent::Endpoint(EndpointEvent::Link(
-                Event::Datagram(datagram),
-            )));
-        }
-        if self.outer_established && self.wg.is_ready() && !self.connected_emitted {
-            self.connected_emitted = true;
-            events.push(cmux_rd_link::net::NetEvent::Endpoint(EndpointEvent::Link(
-                Event::Established,
-            )));
+        match state {
+            State::Ready => {
+                if self.outer_established && !self.connected_emitted {
+                    self.connected_emitted = true;
+                    self.wg.commit();
+                    events.push(NetEvent::Endpoint(EndpointEvent::Link(Event::Established)));
+                }
+                events.extend(
+                    decrypted
+                        .into_iter()
+                        .map(|d| NetEvent::Endpoint(EndpointEvent::Link(Event::Datagram(d)))),
+                );
+            }
+            State::Retry(reason) => self.fallback = Some(crate::wg_carrier::fallback(reason)),
+            State::Failed if !self.terminal_emitted => {
+                self.terminal_emitted = true;
+                events.push(NetEvent::Failed(
+                    "WG carrier failed or fallback was not acknowledged".into(),
+                ));
+            }
+            _ => {}
         }
         events
     }
@@ -270,4 +321,128 @@ pub fn turn_servers(setups: &[TurnSetup]) -> Vec<cmux_rd_link::net::TurnServer> 
             })
         })
         .collect()
+}
+
+#[cfg(all(test, feature = "link"))]
+mod wg_transport_tests {
+    use super::*;
+    use crate::wg_carrier::Role;
+    use cmux_rd_link::net::{Candidate, CandidateKind, Net, NetConfig, NetEvent};
+    use cmux_rd_link::{EndpointEvent, Event, KeyPair};
+    use std::time::{Duration, Instant};
+
+    fn pair() -> (LinkCarrier, LinkCarrier) {
+        pair_with_identity(false)
+    }
+
+    fn pair_with_identity(wrong_peer: bool) -> (LinkCarrier, LinkCarrier) {
+        let host = KeyPair::generate().unwrap();
+        let viewer = KeyPair::generate().unwrap();
+        let host_public = host.public;
+        let viewer_public = viewer.public;
+        let make = |role, local, expected_remote| {
+            Net::start(NetConfig {
+                role,
+                local,
+                expected_remote,
+                session: b"wg-carrier-pair".to_vec(),
+                stun: vec![],
+                bind: "127.0.0.1:0".parse().unwrap(),
+                turn: vec![],
+                relay_only: false,
+            })
+            .unwrap()
+        };
+        let a = make(cmux_rd_link::Role::Responder, host, viewer_public);
+        let b = make(
+            cmux_rd_link::Role::Initiator,
+            viewer,
+            if wrong_peer { [0x77; 32] } else { host_public },
+        );
+        a.add_remote_candidate(Candidate { kind: CandidateKind::Host, addr: b.local_addr() });
+        b.add_remote_candidate(Candidate { kind: CandidateKind::Host, addr: a.local_addr() });
+        (LinkCarrier::new(a, Role::Host).unwrap(), LinkCarrier::new(b, Role::Viewer).unwrap())
+    }
+    fn step(a: &mut LinkCarrier, b: &mut LinkCarrier) -> (Vec<NetEvent>, Vec<NetEvent>) {
+        let mut fds = a.fds();
+        fds.extend(b.fds());
+        crate::fdwait::wait_readable(&fds, Some(10_000_000)).unwrap();
+        (a.events(), b.events())
+    }
+    #[test]
+    fn wg_transport_round_trip_max_media_and_async_wake() {
+        let (mut a, mut b) = pair();
+        let deadline = Instant::now() + Duration::from_secs(8);
+        assert!(a.send_datagram(b"pre-ready").is_err());
+        while !a.media_ready() || !b.media_ready() {
+            let (ae, be) = step(&mut a, &mut b);
+            assert!(
+                !ae.iter().chain(&be).any(|e| matches!(e, NetEvent::Failed(_))),
+                "{ae:?} {be:?}"
+            );
+            assert!(!a.retry_ready() && !b.retry_ready());
+            assert!(Instant::now() < deadline, "WG readiness timed out");
+        }
+        let payload = vec![0x5a; a.max_datagram()];
+        a.send_datagram(&payload).unwrap();
+        b.send_datagram(b"pointer-and-key").unwrap();
+        let (mut got_host, mut got_viewer) = (false, false);
+        while !got_host || !got_viewer {
+            let (ae, be) = step(&mut a, &mut b);
+            for event in ae {
+                if let NetEvent::Endpoint(EndpointEvent::Link(Event::Datagram(d))) = event {
+                    assert_eq!(d, b"pointer-and-key");
+                    got_host = true;
+                }
+            }
+            for event in be {
+                if let NetEvent::Endpoint(EndpointEvent::Link(Event::Datagram(d))) = event {
+                    assert_eq!(d, payload);
+                    got_viewer = true;
+                }
+            }
+            assert!(Instant::now() < deadline, "WG media/wakeup timed out");
+        }
+        assert!(a.send_datagram(&vec![0; a.max_datagram() + 1]).is_err());
+        let start = Instant::now();
+        drop(a);
+        drop(b);
+        assert!(start.elapsed() < Duration::from_secs(1));
+    }
+    #[test]
+    fn wg_transport_unsupported_agrees_before_retry() {
+        let (mut a, mut b) = pair();
+        // This record is queued before either side begins its WG negotiation.
+        a.net.send_control(
+            br#"{"t":"wg_offer","version":255,"key":"00","address":"10.253.0.1","mtu":1088}"#
+                .to_vec(),
+        );
+        let deadline = Instant::now() + Duration::from_secs(8);
+        while !a.retry_ready() || !b.retry_ready() {
+            let (ae, be) = step(&mut a, &mut b);
+            assert!(!a.media_ready() && !b.media_ready());
+            assert!(
+                !ae.iter().chain(&be).any(|e| matches!(e, NetEvent::Failed(_))),
+                "{ae:?} {be:?}"
+            );
+            assert!(Instant::now() < deadline);
+        }
+        assert!(a.take_fallback().is_some());
+        assert!(b.take_fallback().is_some());
+        assert!(a.send_datagram(b"no media on retry").is_err());
+    }
+    #[test]
+    fn wg_transport_noise_peer_mismatch_never_retries() {
+        let (mut a, mut b) = pair_with_identity(true);
+        let deadline = Instant::now() + Duration::from_secs(8);
+        loop {
+            let (ae, be) = step(&mut a, &mut b);
+            assert!(!a.retry_ready() && !b.retry_ready());
+            assert!(!a.media_ready() && !b.media_ready());
+            if ae.iter().chain(&be).any(|e| matches!(e, NetEvent::Failed(_))) {
+                break;
+            }
+            assert!(Instant::now() < deadline, "wrong peer did not fail closed");
+        }
+    }
 }

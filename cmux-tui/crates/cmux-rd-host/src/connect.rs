@@ -15,7 +15,7 @@
 //!
 //! One pane connects to the socket; a second connection is refused.
 
-use crate::carrier::LinkCarrier;
+use crate::carrier::{Carrier, LinkCarrier};
 use crate::fdwait::wait_readable;
 use crate::wire::{write_frame, FrameReader, FRAME_CONTROL, FRAME_DATAGRAM};
 use crate::Res;
@@ -106,7 +106,7 @@ pub fn run() -> Res<()> {
     for c in answer.candidates.iter().filter_map(|c| Candidate::from_wire(c)) {
         net.add_remote_candidate(c);
     }
-    let mut link = LinkCarrier::new(net, crate::wg_carrier::Role::Viewer);
+    let mut link = LinkCarrier::new(net, crate::wg_carrier::Role::Viewer)?;
     say(AppLine { listening: true, ..AppLine::default() });
     // SAFETY: fcntl on our own stdin, after the blocking answer read.
     unsafe {
@@ -118,7 +118,11 @@ pub fn run() -> Res<()> {
     }
     let reason = bridge(&mut link, &listener).unwrap_or_else(|e| format!("failed: {e}"));
     let _ = std::fs::remove_file(&answer.socket);
-    say(AppLine { ended: Some(reason), ..AppLine::default() });
+    if let Some(fallback) = link.take_fallback() {
+        say(AppLine { fallback: Some(fallback), ..AppLine::default() });
+    } else {
+        say(AppLine { ended: Some(reason), ..AppLine::default() });
+    }
     drop(link);
     Ok(())
 }
@@ -152,16 +156,18 @@ fn bridge(link: &mut LinkCarrier, listener: &UnixListener) -> Res<String> {
     // descriptor never sees them: the first pass reads them before waiting.
     let mut first = true;
     loop {
-        let mut fds = vec![link.net.event_fd(), libc::STDIN_FILENO];
+        let mut fds = link.fds();
+        fds.push(libc::STDIN_FILENO);
         match &pane {
             Some(stream) => fds.push(stream.as_raw_fd()),
             None => fds.push(listener.as_raw_fd()),
         }
         if !std::mem::take(&mut first) {
-            wait_readable(&fds, Some(1_000_000_000))?;
+            wait_readable(&fds, Some(if link.media_ready() { 1_000_000_000 } else { 25_000_000 }))?;
         }
         for later in app_lines(&mut app)? {
             if later.stop {
+                link.invalidate();
                 return Ok("stopped by the viewer".into());
             }
             if let Some(c) = later.candidate.as_deref().and_then(Candidate::from_wire) {
@@ -189,7 +195,9 @@ fn bridge(link: &mut LinkCarrier, listener: &UnixListener) -> Res<String> {
                     match ty {
                         FRAME_CONTROL => link.net.send_control(payload),
                         FRAME_DATAGRAM => {
-                            let _ = link.wg.send(payload);
+                            if link.media_ready() {
+                                link.send_datagram(&payload)?;
+                            }
                         }
                         _ => {}
                     }
@@ -229,6 +237,9 @@ fn bridge(link: &mut LinkCarrier, listener: &UnixListener) -> Res<String> {
                 NetEvent::Failed(reason) => return Ok(format!("link failed: {reason}")),
                 _ => {}
             }
+        }
+        if link.retry_ready() {
+            return Ok("carrier retry acknowledged".into());
         }
     }
 }
