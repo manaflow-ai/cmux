@@ -630,6 +630,7 @@ public final class LiveCoordinator {
     }
 
     @ObservationIgnored private var chiefSocketsTask: Task<Void, Never>?
+    @ObservationIgnored private var chiefSocketsToken: UUID?
 
     /// A service socket the coordinator does not own changed (the device hub's, from the shell):
     /// see ``ConnectivityIncidentReporter/serviceSocket(_:id:connected:newDial:reason:dropReason:)``.
@@ -642,7 +643,7 @@ public final class LiveCoordinator {
     /// (one stream, read on the main actor), as surface `chief_cloud`.
     private func watchChiefSockets() {
         let (stream, continuation) = AsyncStream.makeStream(of: (String, ChiefCloudSocketSignals.Signal).self)
-        ChiefCloudSocketSignals.observe { socket, signal in continuation.yield((socket, signal)) }
+        chiefSocketsToken = ChiefCloudSocketSignals.shared.observe { socket, signal in continuation.yield((socket, signal)) }
         chiefSocketsTask = Task { [weak self] in
             for await (socket, signal) in stream {
                 guard let self else { return }
@@ -1010,7 +1011,8 @@ public final class LiveCoordinator {
         transcriptCache = nil
         keptSessionIDs = [:]
         ChiefSources.shared.stop()
-        ChiefCloudSocketSignals.shared.observe(nil)
+        if let chiefSocketsToken { ChiefCloudSocketSignals.shared.stopObserving(chiefSocketsToken) }
+        chiefSocketsToken = nil
         chiefSocketsTask?.cancel()
         chiefSocketsTask = nil
         incidents.stop()
