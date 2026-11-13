@@ -186,23 +186,34 @@ final class AppReviewGateUITests: XCTestCase {
         XCTAssertTrue(field.waitForExistence(timeout: 20), "Chief must open with a message box; on screen: \(onScreen(app))")
         capture("chief-01-open", app)
         guard field.exists else { return }
+        // A message is judged by itself, never by a count of cells: the
+        // transcript is a collection view, whose cells are only the rows on
+        // screen, and the keyboard that comes up for the draft takes half of
+        // that screen, so the count can fall while a message is added.
         let messages = app.cells.matching(NSPredicate(format: "identifier BEGINSWITH %@", "conversation.message."))
-        // The seeded history settles before the count is read.
+        // The seeded history settles before the send.
         _ = messages.firstMatch.waitForExistence(timeout: 10)
-        let before = messages.count
+        let draft = "App Review check: hello"
         field.tap()
-        field.typeText("App Review check: hello")
+        field.typeText(draft)
         let send = app.buttons["conversation.composer.send"]
         XCTAssertTrue(send.waitForExistence(timeout: 5), "Chief must have a Send button")
         XCTAssertTrue(send.isEnabled, "Send must be enabled with a draft")
         send.tap()
         capture("chief-02-sent", app)
-        let sent = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in messages.count >= before + 1 }, object: nil)
-        XCTAssertEqual(XCTWaiter.wait(for: [sent], timeout: 10), .completed, "the sent message must show; on screen: \(onScreen(app))")
-        // The mock Chief reads, types, then replies within about 4 s.
-        let replied = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in messages.count >= before + 2 }, object: nil)
+        let mine = messages.matching(NSPredicate(format: "label CONTAINS %@", draft)).firstMatch
+        XCTAssertTrue(mine.waitForExistence(timeout: 10),
+                      "the sent message must show; app alert: \(app.alerts.firstMatch.exists ? app.alerts.firstMatch.label : "none"); transcript: \(transcript(messages)); on screen: \(onScreen(app))")
+        // The mock Chief reads, types, then replies within about 4 s: a
+        // message from Chief below the one sent.
+        let fromChief = messages.matching(NSPredicate(format: "label BEGINSWITH %@", "Chief"))
+        let replied = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            guard mine.exists else { return false }
+            let sentBottom = mine.frame.maxY
+            return fromChief.allElementsBoundByIndex.contains { $0.exists && $0.frame.minY >= sentBottom - 1 }
+        }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [replied], timeout: 20), .completed,
-                       "Chief's reply must show after a send (mock Chief); on screen: \(onScreen(app))")
+                       "Chief's reply must show after a send (mock Chief); transcript: \(transcript(messages)); on screen: \(onScreen(app))")
         capture("chief-03-reply", app)
         gateNote("chief-live-reply-unjudged", "the reply came from the mock Chief; a live Chief reply needs the reviewer's live account")
     }
@@ -239,7 +250,7 @@ final class AppReviewGateUITests: XCTestCase {
         var dead = walkControls(screen: "settings", reach: settings, skip: destructive)
         dead += walkControls(screen: "settings-bottom", reach: {
             let app = settings()
-            for _ in 0..<6 { app.swipeUp(velocity: .fast) }
+            for _ in 0..<6 { self.surface(app).swipeUp(velocity: .fast) }
             return app
         }, skip: destructive)
         dead += walkControls(screen: "settings-account", reach: {
@@ -271,7 +282,7 @@ final class AppReviewGateUITests: XCTestCase {
         if cancel.exists {
             cancel.tap()
         } else {
-            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1)).tap()
+            surface(app).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1)).tap()
         }
         XCTAssertTrue(ask.waitForNonExistence(timeout: 5), "the deletion dialog must close on Cancel")
         XCTAssertTrue(delete.exists, "cancelling must leave the account in place")
@@ -361,9 +372,9 @@ final class AppReviewGateUITests: XCTestCase {
         if device.localizedCaseInsensitiveContains("Duo") {
             gateNote("fold-unjudged", "XCUITest cannot fold the simulator; fold and unfold were not walked on \(device)")
         }
-        if UIDevice.current.userInterfaceIdiom == .pad {
+        if isIPad {
             gateNote("ipad-multitasking-unjudged",
-                     "XCUITest cannot drive Split View or Stage Manager; the iPhone app was judged full screen on iPad")
+                     "XCUITest cannot drive Split View or Stage Manager; the iPhone app was judged in its default compatibility window on iPad")
         }
     }
 
@@ -538,6 +549,14 @@ final class AppReviewGateUITests: XCTestCase {
         for (key, value) in environment {
             app.launchEnvironment[key] = value
         }
+        // A link the walk tapped hands off to Safari. On iPad Safari then
+        // stays in front of the relaunched iPhone app, so the next steps
+        // judge Safari's page, and every runner kill on iPad (runs
+        // 43002601165 and 43050303670, "Test crashed with signal kill")
+        // came at the first launch after such a handoff. Each launch starts
+        // with Safari closed.
+        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
+        if safari.state != .notRunning { safari.terminate() }
         app.launch()
         if signedIn && setupComplete {
             // The first mock run may still ask for a team.
@@ -568,6 +587,17 @@ final class AppReviewGateUITests: XCTestCase {
                 return String(line[range.lowerBound...].prefix(60))
             }
         return "state \(app.state.rawValue), alerts \(alerts), elements \(lines.prefix(14).joined(separator: " | "))"
+    }
+
+    /// The transcript's message rows on screen, top to bottom: id and the
+    /// start of the spoken label.
+    @MainActor
+    private func transcript(_ messages: XCUIElementQuery) -> String {
+        messages.allElementsBoundByIndex
+            .filter(\.exists)
+            .sorted { $0.frame.minY < $1.frame.minY }
+            .map { "\($0.identifier.replacingOccurrences(of: "conversation.message.", with: "")): \($0.label.prefix(40))" }
+            .joined(separator: " | ")
     }
 
     @MainActor
@@ -606,22 +636,63 @@ final class AppReviewGateUITests: XCTestCase {
         print("GATE-NOTE \(name): \(message)")
     }
 
+    /// What gestures and coordinate taps go to: the app's window, not the
+    /// app element. On iPad the iPhone app runs in a compatibility window
+    /// that does not start at the screen's corner (run 43002601165: the
+    /// window was (234, 0, 635, 1376) in portrait), but the app element's
+    /// frame is the app's own (0, 0, 390, 844), so `app.swipeUp()` pressed
+    /// at (195, 522) in screen points, on the wallpaper left of the window,
+    /// and nothing scrolled. The window's frame is in screen points like
+    /// every other element's.
+    @MainActor
+    private func surface(_ app: XCUIApplication) -> XCUIElement {
+        let window = app.windows.firstMatch
+        return window.exists ? window : app
+    }
+
+    /// The iPad simulator. The test runner is an iPhone app too, so in
+    /// compatibility mode `UIDevice.userInterfaceIdiom` says phone on iPad.
+    private var isIPad: Bool {
+        let environment = ProcessInfo.processInfo.environment
+        return (environment["SIMULATOR_MODEL_IDENTIFIER"] ?? "").hasPrefix("iPad")
+            || (environment["SIMULATOR_DEVICE_NAME"] ?? "").hasPrefix("iPad")
+    }
+
+    /// Scrolls until the element is on screen or the content stops moving
+    /// (its end). A fixed swipe count measured "reachable" by screen size:
+    /// on iPad the iPhone app shows 390 x 844 points, fewer rows per swipe
+    /// than a Pro Max, and 12 slow swipes at the largest text size ended in
+    /// the Developer section above Sign out (run 43050303670).
     @MainActor
     private func scrollTo(_ element: XCUIElement, in app: XCUIApplication) {
-        for _ in 0..<12 where !(element.exists && element.isHittable) {
-            app.swipeUp(velocity: .slow)
+        var last = ""
+        for _ in 0..<40 where !(element.exists && element.isHittable) {
+            surface(app).swipeUp(velocity: .slow)
+            let now = app.debugDescription.replacingOccurrences(of: #"0x[0-9a-fA-F]+"#, with: "", options: .regularExpression)
+            if now == last { break }
+            last = now
         }
     }
 
     @MainActor
     private func assertNothingOffscreen(_ app: XCUIApplication, step: String) {
-        let window = app.windows.firstMatch.frame
+        let appWindow = app.windows.firstMatch
+        let window = appWindow.frame
         guard !window.isEmpty else { return }
-        let buttons = app.buttons
+        // The system keyboard (its keys, shortcut bar and predictions) is not
+        // the app's: iOS draws it in its own window, across the whole screen.
+        // On iPad the iPhone app's compatibility window is narrower than the
+        // screen, so every key would read as "outside the window" (2026-11-11,
+        // run 43002601165: tab, Return, shift, assistantUndo on iPad only).
+        // Only controls in the app's own window are judged, and any that sit
+        // inside a keyboard's frame are the keyboard's.
+        let keyboards = app.keyboards.allElementsBoundByIndex.map(\.frame).filter { !$0.isEmpty }
+        let buttons = appWindow.buttons
         for index in 0..<min(buttons.count, 40) {
             let button = buttons.element(boundBy: index)
             guard button.exists, button.isHittable else { continue }
             let frame = button.frame
+            if keyboards.contains(where: { $0.contains(CGPoint(x: frame.midX, y: frame.midY)) }) { continue }
             // A row of a scrolling list may run past the bottom edge; a
             // control cut off at the sides is a layout glitch.
             XCTAssertTrue(
@@ -633,8 +704,10 @@ final class AppReviewGateUITests: XCTestCase {
 
     @MainActor
     private func capture(_ name: String, _ app: XCUIApplication) {
-        let shot = XCTAttachment(screenshot: app.screenshot())
-        shot.name = "gate-\(UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone")-\(name)"
+        // The whole screen: on iPad the app's own screenshot is cropped to the
+        // phone-sized frame at the screen's corner, not to its window.
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        shot.name = "gate-\(isIPad ? "ipad" : "iphone")-\(name)"
         shot.lifetime = .keepAlways
         add(shot)
     }

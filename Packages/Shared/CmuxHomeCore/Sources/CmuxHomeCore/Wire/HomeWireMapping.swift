@@ -60,13 +60,8 @@ struct HomeWireMapping: Sendable {
             }
             return .text("question")
         case "widget":
-            // An agent's widget (chat-widgets-DESIGN.md): its props stay JSON text for the app.
-            guard let app = json["app"].string, let fallback = json["fallback"].string, !fallback.isEmpty else {
-                return .text(json["fallback"].string ?? json["url"].string ?? "")
-            }
-            let props = json["props"].object != nil ? String(decoding: json["props"].data, as: UTF8.self) : "{}"
-            return .widget(ChatWidget(app: app, widget: json["widget"].string ?? "cmux.chat.widget/1", propsJSON: props,
-                                      fallback: fallback, url: json["url"].string))
+            // Chat widgets are gone; a message an older build stored with one shows its fallback text.
+            return .text(json["fallback"].string ?? json["url"].string ?? "")
         default:
             // A part type this build does not know: its link when it has one, else its type.
             if let url = json["url"].string, !url.isEmpty { return .text(url) }
@@ -235,9 +230,9 @@ struct HomeWireMapping: Sendable {
             var fields = (try? JSONEncoder().encode(link)).flatMap(HomeWireJSON.parse)?.object ?? [:]
             fields["type"] = "link_preview"
             return .object(fields)
-        case .approval, .location, .question, .widget:
+        case .approval, .location, .question:
             // The owners take no approval or location parts from a person, and
-            // a person never sends a question or a widget (agents post them).
+            // a person never sends a question (agents post them).
             return ["type": "text", "text": .string(part.plainText)]
         }
     }

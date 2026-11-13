@@ -72,6 +72,8 @@ NOT_MERGE_GATES = {
                                                  "no fallback run posts error with the no-verdict marker (exit 3)",
     ("cmux-next.yml", "generated-verdict"): "its own no-verdict line (base_red_excuse GENERATED_NO_VERDICT)",
     ("cmux-next.yml", "release-compile-fast-admission"): "push-only promotion step, after the merge",
+    ("ios-review-gate.yml", "report"): "advisory on push and pull_request (its ADVISORY env); it blocks only the App "
+                                       "Store dispatch, after the merge",
     ("cmux-vm.yml", "image-roll-settle"): "an image roll's settle, not a merge gate",
     ("nightly.yml", "prepare-nightly-variant"): "nightly, not a merge gate",
     ("nightly.yml", "publish-nightly"): "nightly, not a merge gate",
@@ -246,6 +248,7 @@ WEB_SCOPE = {"result": "success", "outputs": {name: "true" for name in (
     "db", "diff_sidecar", "instant", "production_build", "react_apps", "typecheck", "unit_tests")}}
 # For every rule job: the step's env with one needed job abandoned and another failed. The failure wins: exit 1.
 MIXED = {
+    ("ios-reliability-matrix.yml", "report", "Matrix table"): {"PROTOCOL_RESULT": "abandoned", "IOS_RESULT": "failure"},
     ("rust-workspaces.yml", "summary", "Every planned workspace passed"): {"PLAN": "abandoned", "WORKSPACES": "failure"},
     ("ios-e2e.yml", "ios-e2e-status", "Aggregate"): {
         "IS_FORK": "false", "RUN_E2E": "", "RUN_CLIENTS": "", "BACKEND_TAG": "", "ROUTE_RESULT": "abandoned",
@@ -316,6 +319,18 @@ class Summaries(unittest.TestCase):
                     done = run_bash(body, env)
                     self.assertEqual(done.returncode, code, done.stdout + done.stderr)
                     self.assertEqual("::error::no verdict: " in done.stdout, code == 3, done.stdout)
+
+    def test_ios_reliability_matrix(self):
+        """Nothing judged is no verdict before any log is read; a red stays red with its table; a skip passes."""
+        body = step("ios-reliability-matrix.yml", "report", "Matrix table")["run"]
+        for protocol, ios, code in (("abandoned", "success", 3), ("success", "cancelled", 3), ("", "", 3),
+                                    ("failure", "abandoned", 1), ("success", "failure", 1)):
+            with self.subTest(protocol=protocol, ios=ios), tempfile.TemporaryDirectory() as tmp:
+                done = subprocess.run(["bash", "-e", "-c", body], cwd=tmp, capture_output=True, text=True,
+                                      env={**os.environ, "GITHUB_STEP_SUMMARY": str(Path(tmp) / "s"),
+                                           "PROTOCOL_RESULT": protocol, "IOS_RESULT": ios})
+                self.assertEqual(done.returncode, code, done.stdout + done.stderr)
+                self.assertEqual("::error::no verdict: " in done.stdout, code == 3)
 
     def test_rust_workspaces(self):
         body = step("rust-workspaces.yml", "summary", "Every planned workspace passed")["run"]
@@ -418,6 +433,32 @@ class Superseded(unittest.TestCase):
                             self.assertIn(first, body, "call superseded_push only beside its verbatim copy")
                             self.assertIn(nv.SUPERSEDED_RULE, body, "the copy drifted from needs_verdict.SUPERSEDED_RULE")
         self.assertEqual(carrying, set(SUPERSEDED_STEPS))
+
+    def test_every_step_reading_a_push_queue_result_carries_the_rule(self):
+        """The lint: a summary step that reads `needs.<job>.result` of a job a newer push can replace while it waits
+        (needs_verdict.push_queue_jobs) carries SUPERSEDED_RULE, so a new summary cannot turn the replacement into a
+        base red. Each such step is also in SUPERSEDED_STEPS, whose rows run it."""
+        readers = set()
+        for path in sorted(WORKFLOWS.glob("*.yml")):
+            jobs = yaml.safe_load(path.read_text(encoding="utf-8")).get("jobs") or {}
+            for job_id, name, read, carries in nv.push_queue_readers(jobs):
+                readers.add((path.name, job_id, name))
+                with self.subTest(workflow=path.name, job=job_id, step=name):
+                    self.assertTrue(carries, f"reads the result of push-queue job(s) {sorted(read)}, which a newer push "
+                                             "replaces while it waits: copy needs_verdict.SUPERSEDED_RULE into the step "
+                                             "and call superseded_push for a cancelled result")
+        self.assertEqual(readers, set(SUPERSEDED_STEPS), "give each push-queue reader a SUPERSEDED_STEPS row")
+
+    def test_the_lint_finds_a_new_reader(self):
+        jobs = {"build": {"concurrency": {"group": "${{ github.event_name == 'push' && format('q-{0}', github.ref) }}",
+                                          "cancel-in-progress": False}},
+                "pr-only": {"concurrency": {"group": "${{ format('q-push-{0}', github.ref) }}", "cancel-in-progress": True}},
+                "gate": {"steps": [{"name": "judge", "env": {"R": "${{ needs.build.result }}"}, "run": "exit 0"},
+                                   {"name": "other", "env": {"R": "${{ needs.pr-only.result }}"}, "run": "exit 0"},
+                                   {"name": "kept", "env": {"R": "${{ needs.build.result }}"}, "run": nv.SUPERSEDED_RULE}]}}
+        self.assertEqual(nv.push_queue_jobs(jobs), {"build"})
+        self.assertEqual([(job, name, carries) for job, name, _, carries in nv.push_queue_readers(jobs)],
+                         [("gate", "judge", False), ("gate", "kept", True)])
 
     def test_a_cancel_by_a_newer_push_is_no_red_and_anything_else_stays_no_verdict(self):
         push = {"GITHUB_EVENT_NAME": "push", "GITHUB_SHA": OLD, "GITHUB_REF": "refs/heads/feat-cmux-next",

@@ -32,12 +32,10 @@
 //! Shutdown ends every entry; a crashed daemon's entries are ended by the
 //! next daemon before it adopts hosts (`sweep_pool_hosts`).
 //!
-//! Known gap (recorded, not for now): over a socket, a `session/new` is
-//! never cancelled. Requests run as spawned tasks and `$/cancel_request`
-//! is accepted but does nothing, so a client that gives up on a create
-//! still gets the session made. `ClaimGuard` covers the in-process case
-//! (a dropped `new_session` future puts its claimed entry back); a real
-//! cancel would need the server to abort the request task.
+//! Cancel: over a socket, a client's `$/cancel_request` drops the request's
+//! task (`server/in_flight.rs`, `request_cancel.rs`), so a `session/new` it
+//! gives up on is dropped like an in-process one: `ClaimGuard` puts its
+//! claimed entry back, and an agent request it waited on is cancelled there.
 
 use super::*;
 use crate::agent::Attached;
@@ -1115,7 +1113,7 @@ impl Hub {
             )
             .await;
             if ended {
-                let _ = std::fs::remove_file(&b.path);
+                let _ = crate::home_fs::remove_file(&b.path);
             }
         }
     }

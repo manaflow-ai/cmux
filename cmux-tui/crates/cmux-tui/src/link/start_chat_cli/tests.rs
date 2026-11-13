@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 
 use super::ledger::{LIMIT, Ledger, Send, WORKSPACE_LIMIT};
 use super::pick::{self, Candidate, Destination};
-use super::trust::trusted_at;
+use super::trust::{level_at, trusted_at};
 use super::{
     Ensure, Flags, Keys, Lease, StartCopy, ensure_answer, github_repo, import, made_no_machine,
     origin_url, percent_segment, pin, plan, plan_with, remote_name, setup_state, too_broad,
@@ -107,6 +107,58 @@ fn a_tab_retry_keeps_its_target_pane_on_the_pinned_machine() {
     assert_eq!(answer["target_pane"], "pane_durable");
     assert_eq!(pin(&path, &key, ACCOUNT, "vm-b", None)["ok"], true);
     assert_eq!(plan(&path, &retry)["target_pane"], Value::Null);
+}
+
+/// Codex review F1 on #40957: a start that can't go on deletes the machine made for it only when
+/// it is still that start's alone. A second chat from the same workspace that planned onto the
+/// machine first keeps it; one that plans after the strand never finds it.
+#[test]
+fn a_stranded_start_deletes_its_machine_only_when_no_other_send_took_it() {
+    let scratch = scratch();
+    let path = ledger_in(scratch.path());
+    let on = |key: &str| {
+        json!({"key": key, "account": ACCOUNT, "workspace": "ws-1", "user": ME, "loaded": true,
+            "machines": [{"id": "vm-new", "title": "cloud-chats", "created_by": ME, "status": "running"}]})
+        .to_string()
+    };
+    // The first start made vm-new and pinned it; a second chat of ws-1 planned onto it while the first copied.
+    let (first, second) = (key(), key());
+    assert_eq!(pin(&path, &first, ACCOUNT, "vm-new", Some("ws-1"))["ok"], true);
+    assert_eq!(plan(&path, &on(&second))["machine"], "vm-new");
+    // The first start fails for good: the machine is the second chat's too, so it is released, not deleted.
+    assert_eq!(
+        super::strand(&path, &first, ACCOUNT, "vm-new"),
+        json!({"ok": true, "delete": false})
+    );
+    assert_eq!(plan(&path, &on(&key()))["machine"], "vm-new", "the workspace keeps its machine");
+    // The second fails for good too, after the third planned onto it: still shared.
+    let third = key();
+    assert_eq!(plan(&path, &on(&third))["machine"], "vm-new");
+    assert_eq!(super::strand(&path, &second, ACCOUNT, "vm-new")["delete"], false);
+
+    // Alone on its machine: the strand deletes it, and the workspace's next send never finds it.
+    let lone = scratch_ledger();
+    let mine = key();
+    assert_eq!(pin(&lone.1, &mine, ACCOUNT, "vm-new", Some("ws-1"))["ok"], true);
+    assert_eq!(
+        super::strand(&lone.1, &mine, ACCOUNT, "vm-new"),
+        json!({"ok": true, "delete": true})
+    );
+    assert_eq!(
+        plan(&lone.1, &on(&key()))["machine"],
+        Value::Null,
+        "a later send makes a new machine"
+    );
+    // A strand of a send whose pin is already gone deletes nothing another send holds.
+    let other = key();
+    assert_eq!(pin(&lone.1, &other, ACCOUNT, "vm-kept", None)["ok"], true);
+    assert_eq!(super::strand(&lone.1, &key(), ACCOUNT, "vm-kept")["delete"], false);
+}
+
+fn scratch_ledger() -> (tempfile::TempDir, PathBuf) {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    (dir, path)
 }
 
 fn send(key: &str) -> Send {
@@ -649,6 +701,49 @@ fn a_copy_answers_whether_this_macs_acpmux_trusts_the_chats_folder() {
     let failed = StartCopy { key: key(), ..copy }
         .run(&ledger, &|_: &Path, _: &Path, _: &str| Err(("sync_failed".into(), "no".into())));
     assert!(failed.get("source_trusted").is_none(), "a failed copy answers no trust: {failed}");
+}
+
+/// Live journey (2026-11-10): `cmux chat --on vm:new --from-folder` from a folder this Mac had never
+/// trusted leased a machine, copied the folder, and only then was refused "… is not a trusted folder on
+/// chat-…. Trust it on that machine". The copy is trusted there only when this Mac trusts the folder, so
+/// `trust` reads this Mac's answer before any machine is taken: the App refuses the start here, with the fix
+/// on this Mac. Unreadable trust answers `trust_unreadable`, never a level the App would refuse on.
+#[test]
+fn trust_reads_this_macs_level_before_any_machine() {
+    let dir = scratch();
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    let project = root.join("paint");
+    std::fs::create_dir_all(&project).unwrap();
+    let record = root.join("trust.json");
+    let paths = acpmux::trust::Paths {
+        claude_json: root.join("claude.json"),
+        codex_config: root.join("codex.toml"),
+        record: record.clone(),
+        agent_home: None,
+        cmux_worktrees: None,
+        peer_scratch: None,
+    };
+    let folder = project.to_string_lossy().into_owned();
+    let unknown = level_at(&paths, &folder);
+    assert_eq!(unknown["ok"], json!(true), "{unknown}");
+    assert_eq!(unknown["level"], json!("unknown"), "{unknown}");
+    assert_eq!(unknown["folder"], json!(folder));
+    std::fs::write(&record, json!({ (folder.clone()): "trusted" }).to_string()).unwrap();
+    assert_eq!(level_at(&paths, &folder)["level"], json!("trusted"));
+    std::fs::write(&record, json!({ (folder.clone()): "untrusted" }).to_string()).unwrap();
+    assert_eq!(level_at(&paths, &folder)["level"], json!("untrusted"));
+    std::fs::write(&record, "not json").unwrap();
+    let unreadable = level_at(&paths, &folder);
+    assert_eq!(unreadable["ok"], json!(false), "{unreadable}");
+    assert_eq!(unreadable["error_code"], json!("trust_unreadable"));
+
+    // Usage: an absolute folder and an absolute acpmux home, each once.
+    let flags = |args: &[&str]| {
+        Flags::parse(&args.iter().map(|s| s.to_string()).collect::<Vec<_>>()).unwrap()
+    };
+    assert!(super::trust::cli(&flags(&["--folder", "paint", "--acpmux-home", "/h"])).is_none());
+    assert!(super::trust::cli(&flags(&["--folder", "/w/paint", "--acpmux-home", "h"])).is_none());
+    assert!(super::trust::cli(&flags(&["--folder", "/w/paint"])).is_none());
 }
 
 #[test]

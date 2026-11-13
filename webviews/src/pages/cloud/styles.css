@@ -360,7 +360,7 @@ select {
 .cloud-button,
 .cloud-link-button {
   white-space: nowrap;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   cursor: default;
 }
 

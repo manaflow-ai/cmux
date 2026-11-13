@@ -12,6 +12,7 @@
 // hands: each frame is given its time, and the copy's clock is read after each frame's callbacks, which
 // is the value that frame paints.
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import { settleReact } from "./support/domTeardown";
 import { JSDOM, VirtualConsole } from "jsdom";
 
 const dom = new JSDOM("<!doctype html><div id=host></div>", {
@@ -29,7 +30,8 @@ const replacements: Record<string, unknown> = {
 };
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
     else delete scope[key];
@@ -111,10 +113,15 @@ function fold(times: readonly number[]): number[] {
 afterEach(() => settleTrayExit());
 
 describe("the hat's leaving copy folds one time", () => {
-  // The WebKit trace of job 130376583220: frames at +16 and +32, a 65 ms gap, three steady frames, then
-  // a 61 ms gap while the fold's clock is at 75 ms of its 180 ms.
+  // The frame times of the WebKit trace of job 130376583220: frames at +16 and +32, a 65 ms gap, three
+  // steady frames, then a 61 ms gap. In that run the old hold put the clock at one frame in after the
+  // first gap, so the second gap came with the clock at 75 ms of the 180 ms and the hold moved it back.
+  // With the hold that never moves back, the first gap holds the clock at 32.67 ms (one frame past the
+  // 16 ms the page last painted), so the frame at +155 shows 90.67 ms: past the first half, the frame
+  // loop has stopped, and the second gap is not held at all.
   const TRACE = [16, 32, 97, 116, 136, 155, 216, 234, 254];
-  // The same, with the second gap one frame sooner.
+  // The same, with the second gap one frame sooner: the clock is at 71.67 ms, still in the first half,
+  // so this one does hold a second time, forward, to 88.33 ms.
   const SOONER = [16, 32, 97, 116, 136, 196, 214, 232];
 
   for (const [name, times] of [
@@ -136,6 +143,20 @@ describe("the hat's leaving copy folds one time", () => {
     expect(shown[1]!, "the frame before the stall").toBeCloseTo(16, 6);
     expect(shown[2]!, "the frame after the stall").toBeGreaterThanOrEqual(shown[1]!);
     expect(shown[2]!, "the frame after the stall").toBeLessThanOrEqual(shown[1]! + FRAME_MS + 0.001);
+  });
+
+  test("a gap past the first half is not held; one before it is held one frame on", () => {
+    // The trace: at +155 the fold is past its first half, so the 61 ms gap after it plays in full.
+    const trace = fold(TRACE);
+    expect(trace[5]!, "the trace's frame at +155 is past the first half").toBeGreaterThanOrEqual(LEAVE_MS / 2);
+    expect(trace[6]! - trace[5]!, "the trace's second gap is not held").toBeCloseTo(TRACE[6]! - TRACE[5]!, 6);
+    // One frame sooner the fold is still in its first half: the frame after the gap is one frame on.
+    const sooner = fold(SOONER);
+    expect(sooner[4]!, "the frame before the sooner gap is in the first half").toBeLessThan(LEAVE_MS / 2);
+    expect(sooner[5]!, "the frame after the sooner gap goes on").toBeGreaterThan(sooner[4]!);
+    expect(sooner[5]!, "the frame after the sooner gap is at most one frame on").toBeLessThanOrEqual(
+      sooner[4]! + FRAME_MS + 0.001,
+    );
   });
 
   test("a fold with no late frame keeps the page's clock", () => {
