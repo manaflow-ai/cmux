@@ -500,12 +500,15 @@ extern "C" fn did_output(
             .map(|display| arrived.saturating_sub(mach_age_us(display as u64)));
         let frame = (!buffer.is_null()).then(|| PixelBuffer(Retained::retain(buffer.cast_const())));
         #[cfg(feature = "bench")]
-        let (counter, nonce) = sink
-            .marker
-            .and_then(|marker| {
-                frame.as_ref().and_then(|pixels| pixels.marker_nonce(marker.origin, marker.cell))
-            })
-            .map_or((None, None), |(counter, nonce)| (Some(counter), Some(nonce)));
+        let counter = sink.marker.and_then(|marker| {
+            frame.as_ref().and_then(|pixels| pixels.marker(marker.origin, marker.cell))
+        });
+        let nonce = sink.marker.and_then(|marker| {
+            frame
+                .as_ref()
+                .and_then(|pixels| pixels.marker_nonce(marker.origin, marker.cell))
+                .map(|(_, nonce)| nonce)
+        });
         {
             let mut shared = sink.shared.lock().unwrap_or_else(|p| p.into_inner());
             #[cfg(feature = "bench")]

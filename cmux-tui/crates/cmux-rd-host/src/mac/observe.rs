@@ -273,8 +273,9 @@ fn run_passive(opts: &Opts) -> Res<()> {
         super::capture::MarkerConfig { origin, cell, expected_nonce },
     )?;
     let (width, height) = capture.size();
+    let marker_rows = if expected_nonce.is_some() { 9 } else { 1 };
     let fits = origin.0.checked_add(cell * 20).is_some_and(|x| x <= width as usize)
-        && origin.1.checked_add(cell * 9).is_some_and(|y| y <= height as usize);
+        && origin.1.checked_add(cell * marker_rows).is_some_and(|y| y <= height as usize);
     if !fits {
         return Err("marker lies outside capture dimensions".into());
     }
@@ -285,7 +286,7 @@ fn run_passive(opts: &Opts) -> Res<()> {
             bounds.y + y as f64 * bounds.height / height as f64,
         )
     };
-    let points: Vec<_> = (0..9)
+    let points: Vec<_> = (0..marker_rows)
         .flat_map(|row| {
             (0..20).map(move |i| {
                 point(origin.0 + i * cell + cell / 2, origin.1 + row * cell + cell / 2)
