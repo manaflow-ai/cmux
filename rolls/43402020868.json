@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43402020868",
+  "recorded_at": "2026-11-13T09:33:34Z",
+  "reason": "cmux-tui a7e61136aadd changes the image's cmux-tui (pinned 0dcc1c642373)",
+  "dry_run": false,
+  "cmux_tui": "a7e61136aadd4e27e94e0d549ab7ac4cea969a8c",
+  "fixes": [
+    {
+      "sha": "a7e61136aadd4e27e94e0d549ab7ac4cea969a8c",
+      "mergedAt": "2026-11-13T01:08:04-08:00",
+      "subject": "acpmux: Resume on a stopped sub-session continues it in the same chat, from its row, card and Session Info (#42385)"
+    },
+    {
+      "sha": "281b8aac4da34a4349d170b9960959f00a80db50",
+      "mergedAt": "2026-11-13T00:55:22-08:00",
+      "subject": "acpmux: the time breakdown seed checks its copy against the log, keeps a turn's backfill, and never saves into a recreated chat (review of #42481) (#42497)"
+    },
+    {
+      "sha": "6e88ae63aff107954ff2e7a09462b1d2831ab4f1",
+      "mergedAt": "2026-11-13T00:53:44-08:00",
+      "subject": "Toasts: Don't Show Again on notices, show longer, readable Liquid Glass, live toast tuning"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-13T09:33:34Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
