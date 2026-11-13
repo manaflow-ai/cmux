@@ -105,9 +105,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let socketPath = makeSocketPath("vm-label")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vm-label-home-\(UUID().uuidString)", isDirectory: true)
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
+            try? FileManager.default.removeItem(at: home)
         }
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
             if line.hasPrefix("auth ") { return "OK" }
@@ -135,6 +138,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             ])
         }
         var environment = ProcessInfo.processInfo.environment
+        environment["HOME"] = home.path
+        environment["CFFIXED_USER_HOME"] = home.path
+        environment["XDG_CONFIG_HOME"] = home.appendingPathComponent(".config").path
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
