@@ -395,8 +395,8 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
         // A step judged is one frame's: the settle curve (cubic-bezier(0.16, 1, 0.3, 1), 180 ms)
         // covers about half the way in its first 17 ms and 70% by 30 ms, so a first frame drawn two
         // frames after the click on a busy runner, or a frame the runner dropped, spans more than
-        // one frame of the curve and says nothing of the glide (`steps` judges it).
-        // The watch saw the click: it has reads from the click on (it starts a frame or two before).
+        // one frame of the curve and says nothing of the glide: `steps` leaves such a step out.
+        // The watch saw the click: it has reads from the click on.
         expect(frames.filter((frame) => Number.isFinite(frame.since)).length).toBeGreaterThan(0);
         // Three new places or more strictly between where it was and where it settles: the glide,
         // not a jump. Fewer with reads that ran late is no measure: it says so and judges nothing.
