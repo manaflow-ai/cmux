@@ -11,15 +11,14 @@ public import Foundation
 /// This is storage and serving only; the shape is the page's, kept opaque.
 ///
 /// Kept as the chat tails are, beside them (``AgentPaneTailCache``): a disk of its own,
-/// `agent-chat-snapshots` next to `agent-chat-tails`, at most ``chats`` files of ``bytes`` each,
+/// `agent-chat-snapshots` next to `agent-chat-tails`, files of at most ``bytes`` each within the
+/// disk's byte budget (``AgentPaneTailDisk/totalBytes``), so a small chat keeps its copy too,
 /// saved and read off the main thread, owned by the app's state files so a quit awaits the saves.
 /// Sign-out clears it with the tails; a chat the page forgets (purged, an attach that failed) is
 /// forgotten here too; an incognito chat's page is never kept (``AgentPageProvider``).
 /// The app has one, the chat tails' (``AgentPaneTailCache/snapshots``), whose lifecycle it shares.
 @MainActor
 public final class AgentPaneChatSnapshots {
-    /// Chats whose copy is kept, as many as their tails.
-    public nonisolated static let chats = AgentPaneTailCache.chats
     /// Most bytes one copy may take as UTF-8 JSON: four times the page's own 256 KiB bound
     /// (chatSnapshot/shared.ts), for the reason ``AgentPaneTailCache/bytes`` gives.
     public nonisolated static let bytes = 1024 * 1024
@@ -38,7 +37,7 @@ public final class AgentPaneChatSnapshots {
             guard let anchors = AgentPaneScrollAnchors.shared else { return nil }
             let disk = anchors.file.map { file in
                 anchors.files.tails(in: file.deletingLastPathComponent().appending(path: "agent-chat-snapshots")) {
-                    AgentPaneTailDisk(directory: $0, files: Self.chats, bytes: Self.bytes, qos: .userInitiated, accepts: { AgentPaneChatSnapshots.holds($0) })
+                    AgentPaneTailDisk(directory: $0, bytes: Self.bytes, qos: .userInitiated, accepts: { AgentPaneChatSnapshots.holds($0) })
                 }
             }
             configuredDisk = .some(disk)
