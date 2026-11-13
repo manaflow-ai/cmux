@@ -47,7 +47,7 @@ describe("model catalog tables", () => {
       await tx`create temp table catalog_overrides (like public.catalog_overrides including defaults) on commit drop`;
       for (const author of ["seed", "curator"]) {
         await tx`insert into catalog_overrides (kind, harness_id, value, author)
-          values ('harness', 'gemini', ${JSON.stringify(original)}::jsonb, ${author})`;
+          values ('harness', 'gemini', ${tx.json(original)}, ${author})`;
       }
       await tx.unsafe(migration);
       const first = await tx`select author, value from catalog_overrides order by author`;
