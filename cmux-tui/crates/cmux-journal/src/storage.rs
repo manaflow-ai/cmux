@@ -278,3 +278,7 @@ fn sync_directory(dir: &Path) -> io::Result<()> {
 fn sync_directory(_dir: &Path) -> io::Result<()> {
     Ok(())
 }
+
+#[cfg(all(test, unix))]
+#[path = "storage_lock_tests.rs"]
+mod lock_tests;
