@@ -1580,6 +1580,9 @@ Only when the signed-in account's connectivity audience is the team (`Connectivi
   same reachability check gates it. At most one per Mac per 30 minutes.
 - Not reported: a Mac presence calls offline, a link no longer used, a slow connect that succeeds, time in
   the background or without a network, sign-out.
+- A Mac that goes offline in the middle of an incident (or while drops are being counted) gets 60 s to come
+  back (a host restarting): back and connected, the incident resolves; still offline, it ends as
+  `mac_offline` at the moment the Mac left. Drops counted before the blink still count.
 
 Each incident is reported `open`, then exactly once more: `resolved` (the Mac reconnected, or the link
 stayed up 10 minutes) or `ended` with `endReason` (`app_backgrounded`, `network_lost`, `mac_offline`,
@@ -1619,7 +1622,7 @@ as `app_relaunched`, at the time it was last seen.
   per reporter) before answering, and keeps an ordered outbox of Slack calls sent after the answer. A start
   posts one message; its end edits that message and replies in its thread. A resend of a state already seen
   is a no-op. The same reporter's next incident for the same Mac (either kind) within 30 minutes goes in the
-  first one's thread as an "Again:" reply.
+  first one's thread as its own "Again:" reply, which its end edits in place.
 - An incident whose end never comes (the app was closed for good or removed) is closed after 3 hours: its
   message is edited to say no end arrived from the phone. An end that comes later still edits it.
 - Slack calls that fail for a reason that can pass (network, `ratelimited`, a 5xx) are retried by alarm

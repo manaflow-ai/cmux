@@ -247,10 +247,14 @@ export const normalizeMeta = (meta: Partial<DeskMeta> | undefined): DeskMeta => 
 /** Held-back incidents of the last hour on a route, not yet told. */
 const heldInHour = (desk: DeskState, route: "team" | "test", now: number) => desk.meta.held[route].filter((h) => now - h.at < 3_600_000)
 
-/** One Slack call the desk wants made, in order. `incident` names the message it posts, edits or replies to. */
+/**
+ * One Slack call the desk wants made, in order. `incident` names the message it posts, edits or replies to.
+ * A post with `thread` is that incident's own message inside another incident's thread (an "Again:"
+ * reply); an update with `thread` falls back to a reply there when the incident's own message is unknown.
+ */
 export type SlackAction =
-  | { kind: "post"; incident: string; route: "team" | "test"; text: string }
-  | { kind: "update"; incident: string; text: string }
+  | { kind: "post"; incident: string; route: "team" | "test"; text: string; thread?: string }
+  | { kind: "update"; incident: string; text: string; thread?: string }
   | { kind: "reply"; incident: string; text: string }
 
 export interface DeskOutcome {
@@ -317,9 +321,9 @@ export const applyReport = (desk: DeskState, report: IncidentReport, reporter: R
     known.updatedAt = now
     if (known.queued) {
       const end = endLine(report)
-      // A thread child only replies in its parent's thread; a top message is edited and gets the reply.
+      // A thread child's own reply is edited to its end; a top message is edited and gets a reply.
       const actions: Array<SlackAction> = known.parent
-        ? [{ kind: "reply", incident: known.parent, text: `${headline(known, report)}\n${end}` }]
+        ? [{ kind: "update", incident: known.id, text: `Again: ${render(known, report, desk, now)}\n${end}`, thread: known.parent }]
         : [
             { kind: "update", incident: known.id, text: render(known, report, desk, now) },
             { kind: "reply", incident: known.id, text: end }
@@ -389,7 +393,7 @@ const postNew = (desk: DeskState, incident: Incident, report: IncidentReport, no
   if (parent) {
     incident.parent = parent.id
     parent.updatedAt = now
-    return { accepted: true, actions: [{ kind: "reply", incident: parent.id, text: `Again: ${text}` }] }
+    return { accepted: true, actions: [{ kind: "post", incident: incident.id, route, text: `Again: ${text}`, thread: parent.id }] }
   }
   return { accepted: true, actions: [{ kind: "post", incident: incident.id, route, text }] }
 }
@@ -426,7 +430,7 @@ export const expireStale = (desk: DeskState, now: number): { actions: Array<Slac
       durationMs: now - Date.parse(incident.report.startedAt)
     }
     const end = `No end arrived from the phone within ${duration(OPEN_EXPIRY_MS)} (the app was closed or removed); this incident is closed.`
-    if (incident.parent) actions.push({ kind: "reply", incident: incident.parent, text: `${headline(incident, closed)}\n${end}` })
+    if (incident.parent) actions.push({ kind: "update", incident: incident.id, text: `Again: ${render(incident, closed, desk, now)}\n${end}`, thread: incident.parent })
     else actions.push({ kind: "update", incident: incident.id, text: render(incident, closed, desk, now) }, { kind: "reply", incident: incident.id, text: end })
   }
   return { actions, changed }
@@ -730,6 +734,7 @@ export class ConnectivityAlertDesk extends DurableObject<Env> {
     call: SlackCall
   ): Promise<{ ok: boolean; error?: string; posted?: { channel: string; ts: string } }> {
     if (!incident) return { ok: true }
+    const threadOf = async (id: string | undefined) => (id ? (await this.ctx.storage.get<Incident>(`inc:${id}`))?.slack : undefined)
     switch (action.kind) {
       case "post": {
         const channel = action.route === "team" ? config?.teamChannel : config?.testChannel
@@ -737,12 +742,17 @@ export class ConnectivityAlertDesk extends DurableObject<Env> {
           console.log(JSON.stringify({ msg: "connectivity alert has no channel", route: action.route }))
           return { ok: true }
         }
-        const r = await call("chat.postMessage", { channel, text: action.text, unfurl_links: false, unfurl_media: false })
-        return r.ok && r.ts ? { ok: true, posted: { channel: r.channel ?? channel, ts: r.ts } } : { ok: r.ok, ...(r.error ? { error: r.error } : {}) }
+        const parent = await threadOf(action.thread)
+        // A thread whose first message was never posted (dropped): this one stands on its own.
+        const where = parent ? { channel: parent.channel, thread_ts: parent.ts } : { channel }
+        const r = await call("chat.postMessage", { ...where, text: action.text, unfurl_links: false, unfurl_media: false })
+        return r.ok && r.ts ? { ok: true, posted: { channel: r.channel ?? where.channel, ts: r.ts } } : { ok: r.ok, ...(r.error ? { error: r.error } : {}) }
       }
       case "update": {
-        if (!incident.slack) return { ok: true }
-        return call("chat.update", { channel: incident.slack.channel, ts: incident.slack.ts, text: action.text })
+        if (incident.slack) return call("chat.update", { channel: incident.slack.channel, ts: incident.slack.ts, text: action.text })
+        const parent = await threadOf(action.thread)
+        if (!parent) return { ok: true }
+        return call("chat.postMessage", { channel: parent.channel, thread_ts: parent.ts, text: action.text, unfurl_links: false })
       }
       case "reply": {
         if (!incident.slack) return { ok: true }

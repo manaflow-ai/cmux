@@ -29,6 +29,10 @@ public struct ConnectivityIncidentDetector: Sendable {
         public var unstableCooldown: TimeInterval = 1800
         /// After a check found the phone offline, how long before checking again.
         public var recheckAfter: TimeInterval = 15
+        /// How long a Mac may drop offline in the middle of an incident (its host restarting, a
+        /// presence blip) before the incident ends as "the Mac went offline": coming back within it
+        /// keeps the incident (and the drops counted so far), and connecting resolves it.
+        public var macOfflineGrace: TimeInterval = 60
 
         public init() {}
     }
@@ -114,6 +118,8 @@ public struct ConnectivityIncidentDetector: Sendable {
         var lastDrop: Date?
         var unstable: Incident?
         var lastUnstable: Date?
+        /// When the Mac went offline while something was open or counted (see `macOfflineGrace`).
+        var offlineSince: Date?
 
         enum Check: Sendable, Equatable {
             case none
@@ -188,6 +194,7 @@ public struct ConnectivityIncidentDetector: Sendable {
         var out: [Output] = []
         switch state {
         case .trying(let transport, let reason, let newDial):
+            track.offlineSince = nil
             track.transport = transport
             if let reason { track.lastError = reason }
             if !wasTrying {
@@ -198,6 +205,7 @@ public struct ConnectivityIncidentDetector: Sendable {
             }
             if newDial { track.attempts += 1 }
         case .connected(let transport):
+            track.offlineSince = nil
             track.transport = transport
             if let open = track.unreachable {
                 var resolved = open.with(.resolved, at: date)
@@ -210,18 +218,17 @@ public struct ConnectivityIncidentDetector: Sendable {
             track.attempts = 0
             track.lastError = nil
             if case .phoneOffline = track.check { track.check = .none }
+        case .notWanted(.macOffline) where track.unreachable != nil || track.unstable != nil || !track.drops.isEmpty:
+            // A Mac that drops offline in the middle of trouble (its host restarting) gets the grace
+            // period to come back; `evaluate` ends the incident if it does not.
+            track.downSince = nil
+            track.check = .none
+            if track.offlineSince == nil { track.offlineSince = date }
         case .notWanted(let why):
             track.downSince = nil
             track.check = .none
-            if let open = track.unreachable {
-                out.append(.report(open.with(.ended, at: date, endReason: why)))
-                track.unreachable = nil
-            }
-            if let open = track.unstable {
-                out.append(.report(open.with(.ended, at: date, endReason: why)))
-                track.unstable = nil
-            }
-            track.drops = []
+            track.offlineSince = nil
+            out += Self.end(&track, why, at: date)
         }
         macs[macID] = track
         return out + evaluate(macID, at: date)
@@ -280,9 +287,32 @@ public struct ConnectivityIncidentDetector: Sendable {
 
     // MARK: Rules
 
+    /// Ends what is open on `track` with `why` at `date`, and forgets its drops.
+    private static func end(_ track: inout Track, _ why: Incident.EndReason, at date: Date) -> [Output] {
+        var out: [Output] = []
+        if let open = track.unreachable {
+            var ended = open.with(.ended, at: date, endReason: why)
+            ended.attempts = track.attempts
+            out.append(.report(ended))
+            track.unreachable = nil
+        }
+        if let open = track.unstable {
+            out.append(.report(open.with(.ended, at: date, endReason: why)))
+            track.unstable = nil
+        }
+        track.drops = []
+        track.attempts = 0
+        return out
+    }
+
     private mutating func evaluate(_ macID: String, at date: Date) -> [Output] {
         guard var track = macs[macID] else { return [] }
         var out: [Output] = []
+        // Offline past the grace period: the incident ended when the Mac left.
+        if let since = track.offlineSince, date.timeIntervalSince(since) >= rules.macOfflineGrace {
+            track.offlineSince = nil
+            out += Self.end(&track, .macOffline, at: since)
+        }
         track.drops.removeAll { date.timeIntervalSince($0) > rules.dropWindow }
         if let open = track.unstable, let last = track.lastDrop ?? Optional(open.startedAt),
            date.timeIntervalSince(last) >= rules.stableAfter, case .connected = track.state {
@@ -343,6 +373,7 @@ public struct ConnectivityIncidentDetector: Sendable {
             track.check = .none
             track.drops = []
             track.attempts = 0
+            track.offlineSince = nil
             macs[id] = track
         }
         return out

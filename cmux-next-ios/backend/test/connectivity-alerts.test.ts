@@ -188,13 +188,14 @@ describe("the desk", () => {
     // Back in the app a minute later, still unreachable: a reply, not a new message (it counts against the hour).
     const again = report({}, T0 + 90_000)
     const out = applyReport(desk, again, tina, TEAM, AWAKE(T0 + 90_000), T0 + 90_000)
-    expect(out.actions).toEqual([{ kind: "reply", incident: first.id, text: expect.stringContaining("Again: :red_circle:") }])
+    expect(out.actions).toEqual([{ kind: "post", incident: again.id, route: "team", thread: first.id, text: expect.stringContaining("Again: :red_circle:") }])
+    // Its end edits its own reply in the thread.
     const end = applyReport(desk, report({ id: again.id, state: "resolved", durationMs: 70_000 }, T0 + 130_000), tina, TEAM, { liveness: null }, T0 + 130_000)
-    expect(end.actions).toEqual([{ kind: "reply", incident: first.id, text: expect.stringContaining("Resolved: reconnected after 1m 10s.") }])
+    expect(end.actions).toEqual([{ kind: "update", incident: again.id, thread: first.id, text: expect.stringContaining("Resolved: reconnected after 1m 10s.") }])
     expect(desk.meta.posted).toHaveLength(2)
     // The same Mac's link then keeps dropping (the other kind): still its thread, never a second message.
     const unstable = applyReport(desk, report({ kind: "link_unstable", drops: 3 }, T0 + 135_000), tina, TEAM, AWAKE(T0 + 135_000), T0 + 135_000)
-    expect(unstable.actions).toEqual([{ kind: "reply", incident: first.id, text: expect.stringContaining("keeps dropping") }])
+    expect(unstable.actions).toEqual([{ kind: "post", incident: expect.any(String), route: "team", thread: first.id, text: expect.stringContaining("keeps dropping") }])
     // Another Mac, or 30 minutes later: a message of its own.
     expect(applyReport(desk, report({ mac: { id: "m-other-1", name: "Air" } }, T0 + 140_000), tina, TEAM, AWAKE(T0 + 140_000), T0 + 140_000).actions[0]).toMatchObject({ kind: "post" })
     expect(applyReport(desk, report({}, T0 + 2_000_000), tina, TEAM, AWAKE(T0 + 2_000_000), T0 + 2_000_000).actions[0]).toMatchObject({ kind: "post" })
@@ -498,6 +499,28 @@ describe("POST /v1/diagnostics/connectivity-incidents", () => {
     expect(calls.map((c) => c.method)).toEqual(["chat.postMessage", "chat.postMessage", "chat.update", "chat.postMessage"])
     expect(String(calls[2]!.body.text)).toContain("never reconnected (the phone lost its network)")
     expect((await runInDurableObject(desk(), (d: ConnectivityAlertDesk) => d.snapshot())).outbox).toEqual([])
+    mac.sock.ws.close()
+  })
+
+  it("posts the next outage as a reply in the first message's thread, and edits that reply at its end", async () => {
+    const tok = await token("tom")
+    const mac = await awakeMac("tom", tok)
+    const first = body({ mac: { id: mac.id, name: "Studio" } })
+    await call("POST", PATH, tok, first)
+    await call("POST", PATH, tok, { ...first, state: "ended", endReason: "app_backgrounded", durationMs: 40_000 })
+    await settled()
+    const again = body({ mac: { id: mac.id, name: "Studio" } })
+    await call("POST", PATH, tok, again)
+    await settled()
+    await call("POST", PATH, tok, { ...again, state: "resolved", durationMs: 50_000, observedAt: new Date().toISOString() })
+    await settled()
+    const top = calls[0]!
+    expect(calls.map((c) => c.method)).toEqual(["chat.postMessage", "chat.update", "chat.postMessage", "chat.postMessage", "chat.update"])
+    const reply = calls[3]!
+    expect(reply.body).toMatchObject({ channel: "CTEAM", thread_ts: "1001.0001", text: expect.stringContaining("Again:") })
+    expect(String(top.body.text)).toContain("can't reach")
+    // The reply itself (ts 1004.0001: the fake answers every call with the next ts) is edited to its end.
+    expect(calls[4]!.body).toMatchObject({ channel: "CTEAM", ts: "1004.0001", text: expect.stringContaining("Resolved: reconnected after 50s.") })
     mac.sock.ws.close()
   })
 

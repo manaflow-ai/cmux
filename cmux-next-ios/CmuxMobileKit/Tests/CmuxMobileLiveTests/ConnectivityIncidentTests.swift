@@ -200,8 +200,7 @@ import Testing
     }
 
     @Test(arguments: [
-        (Detector.LinkState.notWanted(.macOffline), Detector.Incident.EndReason.macOffline),
-        (.notWanted(.linkClosed), .linkClosed),
+        (Detector.LinkState.notWanted(.linkClosed), Detector.Incident.EndReason.linkClosed),
         (.notWanted(.signedOut), .signedOut),
     ])
     func anOpenIncidentEndsOnceWithWhy(state: Detector.LinkState, reason: Detector.Incident.EndReason) throws {
@@ -214,6 +213,55 @@ import Testing
         #expect(end.first?.id == open.id)
         let afterEnd = reports(d.link(macID: "m1", name: "Studio", .connected(transport: "wireguard"), at: at(80)))
         #expect(afterEnd.isEmpty)
+    }
+
+    @Test func aMacThatStaysOfflinePastTheGraceEndsTheIncidentWhenItLeft() throws {
+        var d = detector()
+        let opened = reports(unreachable(&d, to: 60))
+        let open = try #require(opened.first)
+        let leaving = d.link(macID: "m1", name: "Studio", .notWanted(.macOffline), at: at(70))
+        #expect(reports(leaving).isEmpty)
+        let inGrace = reports(d.tick(at: at(125)))
+        #expect(inGrace.isEmpty)
+        let ended = reports(d.tick(at: at(130)))
+        #expect(ended.map(\.state) == [.ended])
+        #expect(ended.first?.endReason == .macOffline)
+        #expect(ended.first?.id == open.id)
+        #expect(ended.first?.observedAt == at(70))
+        let afterEnd = reports(d.link(macID: "m1", name: "Studio", .connected(transport: "wireguard"), at: at(140)))
+        #expect(afterEnd.isEmpty)
+    }
+
+    @Test func aHostThatRestartsWithinTheGraceResolvesTheIncident() throws {
+        var d = detector()
+        let opened = reports(unreachable(&d, to: 60))
+        let open = try #require(opened.first)
+        // The host restarts: presence offline for 9 s, then it is dialed and answers.
+        _ = d.link(macID: "m1", name: "Studio", .notWanted(.macOffline), at: at(70))
+        _ = d.link(macID: "m1", name: "Studio", Self.trying, at: at(79))
+        let resolved = reports(d.link(macID: "m1", name: "Studio", .connected(transport: "wireguard"), at: at(82)))
+        #expect(resolved.map(\.state) == [.resolved])
+        #expect(resolved.first?.id == open.id)
+        let later = reports(d.tick(at: at(200)))
+        #expect(later.isEmpty)
+    }
+
+    @Test func dropsSurviveTheMacBlinkingOfflineAndAddUpToAnUnstableLink() throws {
+        var d = detector()
+        _ = connected(&d, at: 20)
+        // Each time the host dies the link drops and presence blinks offline; it comes back in seconds.
+        var outputs: [Detector.Output] = []
+        for at0 in [60.0, 100.0, 140.0] {
+            outputs += d.dropped(macID: "m1", reason: "the link closed", at: at(at0))
+            outputs += d.link(macID: "m1", name: "Studio", .notWanted(.macOffline), at: at(at0))
+            outputs += d.link(macID: "m1", name: "Studio", Self.trying, at: at(at0 + 3))
+            outputs += connected(&d, at: at0 + 4)
+        }
+        let id = try #require(checkID(outputs))
+        let checked = reports(d.reachability(macID: "m1", checkID: id, internet: true, service: true, at: at(145)))
+        let open = try #require(checked.first)
+        #expect(open.kind == .linkUnstable)
+        #expect(open.drops == 3)
     }
 
     @Test func goingToTheBackgroundOrLosingTheNetworkEndsOpenIncidents() throws {
@@ -468,7 +516,8 @@ import Testing
         // The app is killed while the Mac is still unreachable; the next launch sends the start, then
         // its end as "app relaunched".
         let second = reporter(team: true, sent: sent, now: now, file: file)
-        await settle { sent.all.count == 2 }
+        // The send lands before the outbox drops it: wait for both.
+        await settle { sent.all.count == 2 && second.pending.isEmpty }
         #expect(sent.all.map(\.0.state) == [.open, .ended])
         #expect(sent.all.last?.0.endReason == .appRelaunched)
         #expect(second.pending.isEmpty)
