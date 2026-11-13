@@ -465,6 +465,14 @@ impl HostConfig {
 mod tests {
     use super::*;
 
+    /// The machine id the Mac app computes too (CmuxNextMobile `MobileHostDeviceIdentity.machineTag`):
+    /// both sides must agree on this vector.
+    #[test]
+    fn machine_id_matches_the_mac_apps_vector() {
+        let uuid: [u8; 16] = std::array::from_fn(|i| i as u8);
+        assert_eq!(machine_id("owner-a", &uuid), "932b2e0a89479d962ad858b73cf4db9a");
+    }
+
     /// The Mac app's `ChiefHome.sessionName` for the same home.
     #[test]
     fn chief_session_matches_the_mac_app() {

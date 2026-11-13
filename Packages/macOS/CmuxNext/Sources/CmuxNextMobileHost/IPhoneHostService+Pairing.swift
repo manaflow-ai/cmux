@@ -289,8 +289,8 @@ extension IPhoneHostService {
         let list = pairedStore.current ?? MobileHostPairedDevices(userID: "")
         // At once: the next hostd start or restart gets this list, never an older one.
         supervisor.setNewestDevices(list)
-        guard let directory = dependencies?.stateDirectory,
-              let macDevice = try? MobileHostDeviceIdentity(directory: directory).deviceID() else { return }
+        guard let directory = dependencies?.stateDirectory, let owner = account?.userID,
+              let macDevice = try? MobileHostDeviceIdentity(directory: directory, owner: owner).deviceID() else { return }
         approverSync?.update(list.approversParams(macDevice: macDevice))
         pushListedPhones()
     }

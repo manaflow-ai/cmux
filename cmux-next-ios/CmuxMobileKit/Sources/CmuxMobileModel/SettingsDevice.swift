@@ -44,7 +44,7 @@ public enum SettingsDeviceRows {
     /// The Mac rows. With a device service (`hasService`), the service's list
     /// with live presence from `liveMacs` laid over it, or nil while it has not
     /// loaded. Without one, every Mac the phone knows (`liveMacs`, each once).
-    /// `teamOf`: each live Mac's team (the fallback's rows carry it for ``otherBuilds(_:)``).
+    /// `teamOf`: each live Mac's team (the fallback's rows carry it).
     public static func macs(service: [SettingsDevice]?, hasService: Bool, liveMacs: [MacDevice],
                             teamOf: [String: String]? = nil) -> [SettingsDevice]? {
         guard hasService else {
@@ -64,19 +64,6 @@ public enum SettingsDeviceRows {
             next.lastSeenAt = mac.lastSeenAt ?? device.lastSeenAt
             next.machineID = device.machineID ?? mac.machineID
             return next
-        }
-    }
-
-    /// The Mac rows that are another cmux build on a computer whose most
-    /// recently active build Workspaces lists (``MacRoster``, per team, as
-    /// each team's Workspaces groups them): Settings still lists them, so each
-    /// can be removed, and says what they are. Every row is the caller's own.
-    public static func otherBuilds(_ macs: [SettingsDevice]) -> Set<String> {
-        Dictionary(grouping: macs, by: { $0.teamID ?? "" }).values.reduce(into: Set<String>()) { hidden, team in
-            let devices = team.map {
-                MacDevice(id: $0.id, name: $0.name, isOnline: $0.online == true, lastSeenAt: $0.lastSeenAt, machineID: $0.machineID)
-            }
-            hidden.formUnion(MacRoster(devices).hiddenIDs)
         }
     }
 

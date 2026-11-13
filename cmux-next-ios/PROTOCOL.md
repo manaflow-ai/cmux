@@ -71,22 +71,39 @@ approval keys are unchanged, so a Mac keeps its approvals: it stores keys, not s
   per account and keeps them across sign-out (`verify/persistence.md`).
 - Machine id (added 2026-10-21): each cmux build on a Mac is its own device
   (its own id in its own Application Support folder, its own identity key and
-  paired phones), so a Mac running a nightly and a dev build, or one that kept
-  a deleted build's record, is on the account more than once. A Mac registers
-  `machineId`, the same for every build on that computer: HMAC-SHA256 under
-  the key `cmux-mobile machine-id v1` of `<owner sub> NUL <16-byte host UUID>`
+  paired phones), so a Mac running Stable and NIGHTLY, or a dev build, is on the
+  account more than once. A Mac registers `machineId`, the same for every build
+  of one account on that computer: HMAC-SHA256 under the key
+  `cmux-mobile machine-id v1` of `<owner sub> NUL <16-byte host UUID>`
   (`gethostuuid`, the IOPlatformUUID), first 16 bytes in lowercase hex. The
   hardware id never leaves the Mac, and two accounts on one Mac get unrelated
-  ids. The phone lists one Mac per (owner, machine id), by its most recently
-  active build. The other builds stay in Settings → Devices, marked "Another
-  cmux build on this Mac"; one links only while something names it (a Feed
-  answer or notification of that build) and closes after the idle window. A name is never an
-  identity: Macs that share a name stay separate (with the name tag), and a
-  Mac with no `machineId` (an older host) is never folded into another.
-  Builds stay separate devices on purpose: one shared device id would make
+  ids. Builds stay separate devices on purpose: one shared device id would make
   two running builds replace each other's signaling socket (4000 `replaced`),
   and would make a debug build hold the identity key phones pin for the
   release build.
+- Every build is its own Mac on the phone (changed 2026-11-12; from 2026-10-21
+  the phone listed one Mac per (owner, machine id) and marked the rest "Another
+  cmux build on this Mac"). The phone lists, links and removes each build on
+  its own. Each build names itself apart: the Mac registers `name` as the
+  computer's name for the Stable lane (`com.cmuxterm.app`, cmux NEXT Stable
+  `com.cmuxterm.app.nightly.cmux-next-stable`) and `<computer name> (<lane>)`
+  for any other build (`NIGHTLY`, `DEV <tag>`, `RC`, `STAGING <tag>`;
+  CmuxNextCompat `BuildIdentity.instanceLabel`). The phone names itself the
+  same way: the App Store build by the phone's name, every other build with its
+  label (`INTERNAL`, `BETA`, `PROD`, `DEV`, `DEMO`; Info.plist
+  `CmuxMobileInstanceLabel`). A name is never an identity: Macs that share a
+  name stay separate (with the name tag).
+- A Mac's device id is per account (changed 2026-11-12): each account signed in
+  to one build keeps its own id (`<state>/device-id.<owner sub>`) and its own
+  paired-phone list, so account B never registers the id account A owns (which
+  the service refuses with `403 not_owner`). An older build's single
+  `device-id` is adopted by the account its paired list names. If registration
+  still answers `not_owner`, hostd emits `{"type":"device_not_owned"}` and exits
+  with status 79; the app forgets that account's id and starts hostd with a new
+  one (at most twice per launch). Each id records the machine id it was made on
+  (`device-id.<owner sub>.machine`): a state folder that Migration Assistant or
+  a restore copied to another Mac carries the old Mac's value, so the new Mac
+  makes its own id instead of registering as the old one.
 
 ## HTTP (base: production `https://mobile-api.cmux.dev`, dev `https://cmux-mobile-api-dev.debussy.workers.dev`)
 

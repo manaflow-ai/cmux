@@ -650,22 +650,16 @@ public final class LiveCoordinator {
         applyLinks()
     }
 
-    /// The Macs the phone focuses and the screens list: the owner's own, one
-    /// build per computer (``MacRoster``).
+    /// The Macs the phone focuses and the screens list: the owner's own, each
+    /// build as its own Mac (``MacRoster``).
     private func listedMacs(_ team: Team) -> [MacDevice] {
         MacRoster(team.macs.filter { !othersMacs.contains($0.id) }).visible
     }
 
-    /// The Macs this phone may link: the listed ones, and another build on a
-    /// listed Mac while something names it (a Feed answer or a notification of
-    /// that build, `touch`, or a link it still holds until idle), so an ask
-    /// from that build is still answered on it.
-    /// A Mac whose pairing code is held is one too, while the code is.
+    /// The Macs this phone may link: every listed one (each build is listed as its
+    /// own Mac); ``MacLinkPolicy`` picks which of them hold a link.
     private func dialableMacs(_ team: Team) -> [MacDevice] {
-        let own = team.macs.filter { !othersMacs.contains($0.id) }
-        let listed = Set(MacRoster(own).visible.map(\.id))
-        let invited = pairing?.invites.pending()?.mac
-        return own.filter { listed.contains($0.id) || lastShown[$0.id] != nil || $0.id == invited }
+        listedMacs(team)
     }
 
     /// The focused Mac changed: the last one stays linked while it is recent
@@ -686,9 +680,7 @@ public final class LiveCoordinator {
         guard let team = store.activeTeam, registeredTeamID == team.id else { return }
         let macs = dialable ?? dialableMacs(team)
         let now = ContinuousClock.now
-        // nil (Workspaces, the Feed): every listed Mac. Another build of a listed Mac is
-        // never "shown" by that: it keeps its link only for the idle window after
-        // something named it (`touch`), then closes.
+        // nil (Workspaces, the Feed): every listed Mac.
         let showing = showingMacs ?? Set(listedMacs(team).map(\.id))
         for id in showing { lastShown[id] = now }
         // A live link that presence briefly calls offline (a signaling reset) ranks as online:

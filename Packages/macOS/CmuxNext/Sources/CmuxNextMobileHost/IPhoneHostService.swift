@@ -211,6 +211,12 @@ public final class IPhoneHostService {
     @ObservationIgnored private var daemonBackoff = Backoff(initial: .seconds(1), maximum: .seconds(30))
     /// The account and team those refusals were counted for: another one starts from zero.
     @ObservationIgnored private var identityRefusalsKey: String?
+    /// Device ids renewed in this launch because the service said another account owns them, by
+    /// account: a fresh UUID is never anyone's, so more than ``deviceIDRenewalLimit`` means something
+    /// else is wrong, and the host stops with that phase instead of renewing forever. Turning
+    /// connections off and on starts the count again.
+    @ObservationIgnored private var deviceIDRenewals: [String: Int] = [:]
+    static let deviceIDRenewalLimit = 2
     /// Refused reads in a row after which a DEV build uses the file store, as before (about a minute of
     /// tries): a rebuilt or re-signed DEV app may never read the item an earlier signature made. A
     /// Release build (nightly, stable) is always signed the same way, so a refusal there is a locked
@@ -262,6 +268,7 @@ public final class IPhoneHostService {
                     sessionExposureRevision &+= 1
                 }
                 if next.phase == .removed, before.phase != .removed { self.recordRemoval() }
+                if next.phase == .deviceIDTaken, before.phase != .deviceIDTaken { self.renewDeviceID() }
                 // The list follows what hostd reports: online, and each phone that comes or goes.
                 if next.phase == .online, before.phase != .online || before.phones.map(\.sessionID) != next.phones.map(\.sessionID) {
                     self.refreshPhones()
@@ -429,13 +436,34 @@ public final class IPhoneHostService {
         removed = true
         setKeepAwake(false)
         pairTokens.revoke()
-        guard let dependencies, let key = running else { return }
+        guard let dependencies, let key = running, let owner = Self.owner(of: key) else { return }
         do {
             try MobileHostRemovalMarker(directory: dependencies.stateDirectory)
-                .record(account: key, identity: MobileHostDeviceIdentity(directory: dependencies.stateDirectory))
+                .record(account: key, identity: MobileHostDeviceIdentity(directory: dependencies.stateDirectory, owner: owner))
         } catch {
             logger.error("could not record the removal: \(String(describing: error), privacy: .public)")
         }
+    }
+
+    /// The service refused this account's device id (another account registered it, say an id an
+    /// older build kept for whoever signed in first): forget it and start hostd with a new one.
+    private func renewDeviceID() {
+        guard let dependencies, let key = running, let owner = Self.owner(of: key) else { return }
+        let renewals = deviceIDRenewals[owner, default: 0]
+        guard renewals < Self.deviceIDRenewalLimit else {
+            logger.error("iPhone host: the service keeps refusing this Mac's device id; stopped")
+            return
+        }
+        deviceIDRenewals[owner] = renewals + 1
+        logger.notice("iPhone host: another account owns this Mac's device id; registering a new one")
+        MobileHostDeviceIdentity(directory: dependencies.stateDirectory, owner: owner).forget()
+        running = nil
+        reconcile()
+    }
+
+    /// The account (Stack user id) of a running key (`<user> NUL <team>`).
+    static func owner(of key: String) -> String? {
+        key.split(separator: "\u{0}", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init).flatMap { $0.isEmpty ? nil : $0 }
     }
 
     /// The person allowed iPhone connections again after a removal (Settings > Mobile >
@@ -461,6 +489,7 @@ public final class IPhoneHostService {
         }
         // Turning the setting on again is the person allowing connections again.
         if allowed, removed { clearRemoval() }
+        if allowed { deviceIDRenewals = [:] }
         // A pairing code shown before the switch went off pairs nothing afterwards.
         if !allowed { pairTokens.revoke() }
         self.allowed = allowed
@@ -609,7 +638,8 @@ public final class IPhoneHostService {
                 return
             }
             do {
-                let deviceID = try MobileHostDeviceIdentity(directory: dependencies.stateDirectory).deviceID()
+                // This account's own id: another account signed in to this build has its own.
+                let deviceID = try MobileHostDeviceIdentity(directory: dependencies.stateDirectory, owner: want.userID).deviceID()
                 // The key phones pin for this Mac (Keychain; created on first use), read off the
                 // main actor: a Keychain call must never hold launch (a re-signed rig app's access
                 // prompt did, and the watchdog killed it).

@@ -346,6 +346,10 @@ pub enum Event {
     /// 4002 `removed`). hostd exits after this line and must not be restarted until
     /// the person allows iPhone connections again (a new device id then).
     Removed,
+    /// The service refused this Mac's device id: another account registered it
+    /// (`POST /v1/devices` answered `403 not_owner`). hostd exits (status 79); the app
+    /// makes a new id for the signed-in account and starts hostd again.
+    DeviceNotOwned,
     /// A phone's link is up.
     PhoneUp {
         session_id: String,
@@ -840,6 +844,7 @@ mod tests {
             r#"{"type":"pair_request","phone_device_id":"p","name":"n","identity_key":"04","approval_key":"04","pair_token":"AbC-dEf_0123456789"}"#
         );
         assert_eq!(serde_json::to_string(&Event::Removed).unwrap(), r#"{"type":"removed"}"#);
+        assert_eq!(serde_json::to_string(&Event::DeviceNotOwned).unwrap(), r#"{"type":"device_not_owned"}"#);
         assert_eq!(
             serde_json::to_string(&Event::NeedBrowser {
                 request: 1,

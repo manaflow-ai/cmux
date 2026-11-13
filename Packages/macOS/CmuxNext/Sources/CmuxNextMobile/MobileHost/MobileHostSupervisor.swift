@@ -93,6 +93,9 @@ public actor MobileHostSupervisor {
     /// hostd's exit status after the owner removed this Mac (`host.rs` `EXIT_REMOVED`).
     static let exitRemoved: Int32 = 78
     static let removedReason = "removed"
+    /// hostd's exit status after the service refused this Mac's device id (`host.rs` `EXIT_NOT_OWNED`).
+    static let exitDeviceIDTaken: Int32 = 79
+    static let deviceIDTakenReason = "device-id-taken"
 
     /// A run up this long (seconds) resets the backoff.
     static let healthyRun: TimeInterval = 60
@@ -321,6 +324,13 @@ public actor MobileHostSupervisor {
                 publish { $0.reset(to: .removed) }
                 return
             }
+            // Another account owns the device id hostd registered: restarting with it would be
+            // refused again. The iPhone host renews the id and starts a new hostd.
+            if state.phase == .deviceIDTaken || reason == Self.deviceIDTakenReason {
+                logger.notice("another account owns this Mac's device id; cmux-mobile-host waits for a new one")
+                publish { $0.reset(to: .deviceIDTaken) }
+                return
+            }
             if Self.resetsBackoff(started: started, online: onlineSince, ended: now()) { backoff.reset() }
             logger.notice("cmux-mobile-host ended (\(reason, privacy: .public)); restarting after backoff")
             publish { $0.reset(to: .waiting(reason)) }
@@ -361,6 +371,7 @@ public actor MobileHostSupervisor {
             return "stopped"
         }
         if status == Self.exitRemoved { return Self.removedReason }
+        if status == Self.exitDeviceIDTaken { return Self.deviceIDTakenReason }
         return "cmux-mobile-host exited with status \(status ?? -1)"
     }
 

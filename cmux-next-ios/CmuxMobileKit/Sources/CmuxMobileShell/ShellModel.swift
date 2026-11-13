@@ -775,7 +775,7 @@ extension ShellModel {
         let configuration = ScreenSharingService.Configuration(
             baseURL: ScreenSharingService.hubURL(isDebug: isDebug, environment: ProcessInfo.processInfo.environment),
             bundleIdentifier: Bundle.main.bundleIdentifier ?? "dev.cmux.mobile",
-            deviceName: UIDevice.current.name,
+            deviceName: DeviceInstanceName(device: UIDevice.current.name, bundle: .main).value,
             tokens: DeviceHubAccountToken { try await auth.accessToken() }
         )
         let service = ScreenSharingService(configuration: configuration)

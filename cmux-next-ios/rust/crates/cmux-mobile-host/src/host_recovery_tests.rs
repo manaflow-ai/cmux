@@ -173,7 +173,8 @@ async fn wake_recovery_performance() {
 }
 
 /// A device id another account registered first (an id an older build kept for whoever signed in
-/// first): the service refuses it every time, so hostd must stop instead of retrying forever.
+/// first): the service refuses it every time, so hostd stops with `DeviceNotOwned` (exit 79) instead
+/// of retrying forever, and the app registers a new id for this account.
 #[tokio::test]
 async fn a_device_id_another_account_registered_stops_hostd() {
     let backend = FakeSignaling::start(FakeOptions::default()).await;
@@ -191,13 +192,14 @@ async fn a_device_id_another_account_registered_stops_hostd() {
         .unwrap();
     let dir = tempfile::tempdir().unwrap();
     let (_changes, receiver) = watch::channel(0);
-    tokio::time::timeout(
+    let stopped = tokio::time::timeout(
         Duration::from_secs(10),
         run_with_changes(rig_config(backend.base_url.clone(), dir.path()), receiver),
     )
     .await
     .expect("hostd stops instead of retrying the refused id")
     .unwrap();
+    assert_eq!(stopped, Stopped::DeviceNotOwned);
 }
 
 /// The same id registered by its own account again is accepted (a relaunch, a sign-in again).

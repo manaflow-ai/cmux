@@ -18,6 +18,9 @@ public struct MobileHostState: Sendable, Equatable {
         /// The owner removed this Mac from the account's devices: hostd stopped and stays
         /// stopped until the person allows iPhone connections again.
         case removed
+        /// The service refused this Mac's device id: another account registered it (`403 not_owner`).
+        /// hostd stopped; the iPhone host forgets that id for this account and starts with a new one.
+        case deviceIDTaken
     }
 
     public var phase: Phase = .off
@@ -56,6 +59,9 @@ public struct MobileHostState: Sendable, Equatable {
             phones = []
             sessionExposureAvailable = false
             sessionExposureKnown = false
+        case .deviceIDTaken:
+            phase = .deviceIDTaken
+            phones = []
         case .needToken, .needAcpmux, .needCloudLinks, .pairRequest, .unpaired, .needBrowser, .browserStop, .needSurface, .surfaceStop:
             break
         case let .sessionExposureState(available, configured, sessions, blockedSessions):

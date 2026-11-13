@@ -240,9 +240,14 @@ public struct MobileHostPairedDevices: Sendable, Equatable, Codable {
     }
 }
 
-/// ``MobileHostPairedDevices`` in `<directory>/paired-devices.json`, mode 0600, sealed by its
-/// digest in `seal` (``MobileHostPairingSealStore``). The iPhone host owns one per state directory, so
+/// Every account's ``MobileHostPairedDevices`` in `<directory>/paired-devices.json`, mode 0600, sealed
+/// by its digest in `seal` (``MobileHostPairingSealStore``). The iPhone host owns one per state directory, so
 /// its reads, saves and this run's record of the list in force are those of one file.
+///
+/// Each account signed in to this build keeps its own list (`{"accounts": [...]}`): saving one account's
+/// list keeps the others as they were, so signing in as B never touches the phones A allowed, and A finds
+/// them again after signing back in. A file from before per-account lists holds one account's list.
+/// The seal covers the whole file: when it does not match, no account's list counts (fail closed).
 public final class MobileHostPairedDevicesFile: Sendable {
     public static let fileName = "paired-devices.json"
     public let file: URL
@@ -441,9 +446,36 @@ public final class MobileHostPairedDevicesFile: Sendable {
     /// The stored list of `userID` as the file says, without its seal: never trusted, only consulted to
     /// decide what a run whose seal is refused must write (``MobileHostPairedStore``).
     func unsealed(userID: String) -> MobileHostPairedDevices? {
-        guard let data = try? Data(contentsOf: file),
-              let stored = try? JSONDecoder().decode(MobileHostPairedDevices.self, from: data), stored.userID == userID else { return nil }
-        return stored
+        guard let data = try? Data(contentsOf: file) else { return nil }
+        return Self.accounts(in: data)?.first { $0.userID == userID }
+    }
+
+    /// What the file stores: one list per account.
+    private struct Stored: Codable {
+        var accounts: [MobileHostPairedDevices]
+    }
+
+    /// The lists in a file's bytes, one per account; a file from before per-account lists is one
+    /// account's list. Nil when the bytes are neither.
+    static func accounts(in data: Data) -> [MobileHostPairedDevices]? {
+        let decoder = JSONDecoder()
+        if let stored = try? decoder.decode(Stored.self, from: data) { return stored.accounts }
+        if let one = try? decoder.decode(MobileHostPairedDevices.self, from: data) { return [one] }
+        return nil
+    }
+
+    /// The accounts a stored file names (unsealed: only to pick which account an older build's
+    /// device id belonged to, ``MobileHostDeviceIdentity``). Nil when the bytes are not a list.
+    public static func storedUserIDs(in data: Data) -> Set<String>? {
+        accounts(in: data).map { Set($0.map(\.userID)) }
+    }
+
+    /// The stored lists when the file is the one this app saved last (its seal matches and it is the
+    /// list in force in this run), else none: a save keeps only lists that still count.
+    private func trustedAccounts() -> [MobileHostPairedDevices] {
+        guard let data = try? Data(contentsOf: file), case .digest(let sealed) = seal.read(),
+              sealed == MobileHostPairingSeal.digest(data), inForce.withLock({ $0.map { $0 == sealed } ?? true }) else { return [] }
+        return Self.accounts(in: data) ?? []
     }
 
     /// ``load(userID:)``, or nil when a stored list exists and the Keychain refused to read its seal:
@@ -458,17 +490,19 @@ public final class MobileHostPairedDevicesFile: Sendable {
             Self.logger.error("iPhone pairing: paired-devices.json is not the list this app saved; no phone is trusted until it pairs again")
             return MobileHostPairedDevices(userID: userID)
         }
-        guard let stored = try? JSONDecoder().decode(MobileHostPairedDevices.self, from: data),
-              stored.userID == userID else { return MobileHostPairedDevices(userID: userID) }
-        return stored
+        return Self.accounts(in: data)?.first { $0.userID == userID } ?? MobileHostPairedDevices(userID: userID)
     }
 
     public func save(_ devices: MobileHostPairedDevices) throws {
         try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
+        // The other accounts' lists stay as they are, when they still count; this account's replaces its own.
+        var accounts = trustedAccounts().filter { $0.userID != devices.userID }
+        accounts.append(devices)
+        accounts = accounts.filter { !$0.devices.isEmpty || !$0.denied.isEmpty }.sorted { $0.userID < $1.userID }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .prettyPrinted]
-        let data = try encoder.encode(devices)
+        let data = try encoder.encode(Stored(accounts: accounts))
         let digest = MobileHostPairingSeal.digest(data)
         // From here on only this list counts in this run, whatever the Keychain does below.
         inForce.withLock { $0 = digest }
