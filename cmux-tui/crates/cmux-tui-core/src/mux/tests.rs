@@ -45,6 +45,7 @@ mod history_agent_fold;
 mod input_queue_backstop;
 mod journal_lane_full;
 mod journal_roster;
+mod journal_vacuum_backlog;
 mod kitty_budget;
 mod kitty_reservation;
 mod layout_apply_focus;

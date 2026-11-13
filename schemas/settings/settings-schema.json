@@ -47378,7 +47378,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "expanded",
+      "default" : "off",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.agentChat",
@@ -99648,7 +99648,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 5,
+      "default" : 3,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.agentChat",
