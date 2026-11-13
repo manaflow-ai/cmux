@@ -27706,6 +27706,37 @@
     },
     {
       "args" : [
+
+      ],
+      "cli" : "guiOnly",
+      "cli_name" : "action toasts-show-hidden",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "toasts.showHidden",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.notifications",
+        "order" : 108,
+        "title" : "Notifications",
+        "title_key" : "category.notifications",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show Hidden Toasts Again",
+      "title_key" : "action.toasts.showHidden",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
         {
           "kind" : "string",
           "name" : "item",
@@ -39039,6 +39070,37 @@
       "palette_suggested" : null,
       "title" : "Hide Host Pressure Warning",
       "title_key" : "action.hostPressure.hideWarning",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "devOnly",
+      "cli_name" : "action debug-toast-tuning",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "debug.toastTuning",
+      "main_menu" : null,
+      "mcp" : "devOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Toast Tuning",
+      "title_key" : "action.debug.toastTuning",
       "title_table" : "ActionCatalog"
     },
     {
