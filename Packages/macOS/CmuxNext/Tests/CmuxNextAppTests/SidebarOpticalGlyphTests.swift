@@ -22,6 +22,8 @@ import Testing
         let k = frame.width / 16
         #expect(abs(14 * k - 16) <= 0.25)
         #expect(abs(frame.minY + 8 * k - 12) <= 0.25, "the ink centers on the row")
+        // A narrow mark centers in the square instead of starting on its edge (#42431): its middle is the square's.
+        #expect(abs(frame.minX + 8 * k - 8) <= 0.25, "the pin's ink centers at \(frame.minX + 8 * k), the square's middle 8")
     }
 
     @Test func emptyInkDrawsNothing() {
