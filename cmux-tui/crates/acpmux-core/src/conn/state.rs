@@ -74,6 +74,7 @@ pub struct FrameLease {
     sid: Option<String>,
     pub(super) control: Option<Arc<SubscriptionControl>>,
     cursor: Cursor,
+    exact: bool,
     pub(super) bytes: Vec<u8>,
     notice: bool,
     outside: usize,
@@ -237,12 +238,16 @@ impl ConnectionState {
             return Offer::Dropped { sid: sid.to_owned(), cursor };
         }
         sub.sent = sub.sent.saturating_add(bytes as u64);
-        sub.taken = cursor;
+        let exact = matches!(frame.kind, FrameKind::Window | FrameKind::Delta);
+        if exact {
+            sub.taken = cursor;
+        }
         self.queued_bytes += bytes;
         self.queue.push_back(Queued::Data(FrameLease {
             sid: Some(sid.to_owned()),
             control: Some(control.clone()),
             cursor,
+            exact,
             bytes: frame.encode(),
             notice: false,
             outside: 0,
@@ -273,6 +278,7 @@ impl ConnectionState {
             sid: None,
             control: None,
             cursor: Cursor(0),
+            exact: false,
             bytes: frame.encode(),
             notice: false,
             outside: 0,
@@ -301,6 +307,7 @@ impl ConnectionState {
                     sid: Some(sid),
                     control: Some(control),
                     cursor: cursor.unwrap_or_default(),
+                    exact: false,
                     bytes: frame.encode(),
                     notice: true,
                     outside: held,
@@ -314,11 +321,14 @@ impl ConnectionState {
             self.outside = self.outside.saturating_sub(lease.outside);
         } else {
             self.queued_bytes = self.queued_bytes.saturating_sub(lease.bytes.len());
-            if let Some(control) = &lease.control {
+            if lease.exact
+                && let Some(control) = &lease.control
+            {
                 control.written.store(lease.cursor.0, Ordering::Release);
                 control.known.store(true, Ordering::Release);
             }
-            if let Some(sid) = &lease.sid
+            if lease.exact
+                && let Some(sid) = &lease.sid
                 && let Some(sub) = self.subscriptions.get_mut(sid)
                 && lease.control.as_ref().is_some_and(|c| Arc::ptr_eq(c, &sub.control))
             {

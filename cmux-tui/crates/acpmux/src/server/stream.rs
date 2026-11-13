@@ -86,6 +86,8 @@ impl<R: AsyncRead + Unpin> Upgrade<R> {
         mut writer: W,
         v2: &acpmux_core::life::V2,
     ) -> Result<(), acpmux_core::conn::ConnError> {
+        // The v1 connection has ended, but its upgraded client is still here.
+        let _client = crate::daemon::unused_exit::client();
         let reply = Message::ok(
             self.id,
             json!({

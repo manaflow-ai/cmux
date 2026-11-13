@@ -58,7 +58,7 @@ pub trait OfferSink: Send + Sync {
 /// A source owns its delivery tasks and the order of its frames. `subscribe`
 /// queues its first frame through the handle before returning. `NotFed` consumes
 /// the offered frame: the source retains only its last taken cursor until resume.
-pub type CloseFuture<'a> = std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>>;
+pub type CloseFuture<'a> = std::pin::Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
 
 pub trait Source: Send + Sync + 'static {
     fn subscribe(
@@ -170,10 +170,8 @@ async fn run_connection<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     state: Arc<std::sync::Mutex<ConnectionState>>,
 ) -> Result<(), ConnError> {
     let wake = state.lock().map_err(|_| poisoned())?.wake.clone();
-    let hello = Frame::json(
-        FrameKind::Hello,
-        &HelloReply { daemon_id: daemon_id.into(), limits: Limits::default() },
-    )?;
+    let hello =
+        Frame::json(FrameKind::Hello, &HelloReply { daemon_id, limits: Limits::default() })?;
     state.lock().map_err(|_| poisoned())?.offer_reply(hello)?;
     let mut decoder = crate::wire::FrameDecoder::default();
     let mut buffer = [0_u8; 16 * 1024];

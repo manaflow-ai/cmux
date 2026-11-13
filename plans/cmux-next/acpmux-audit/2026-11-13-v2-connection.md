@@ -15,3 +15,11 @@ Unix streams, a continuously consuming reference reader, process peak RSS,
 sequence/row equality, retained bytes, and 1-versus-256 offer timing. The chat
 stopped-reader row remains unmeasured until its source exists. No passing release
 measurement is claimed by this notice.
+
+Raw JSON extension fields must be deserialized directly from their struct fields.
+Serde's buffered internally tagged enum representation cannot preserve a
+`RawValue`; the shared delta decoder reads the fields directly before choosing
+the operation. The detector is the raw-extension delta round-trip regression,
+which compares the original JSON bytes, plus live list delivery through the
+connection. Linux run 43376789216 exposed this class; the next run's regression
+passed after the decoder changed.

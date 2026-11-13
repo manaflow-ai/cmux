@@ -674,8 +674,7 @@ mod tests {
                 _ = std::future::ready(()) => {}
             }
             let next = writer.apply(summary("a", 17001)).unwrap();
-            let item =
-                tokio::time::timeout(std::time::Duration::from_secs(1), receiving).await.unwrap();
+            let item = tokio::time::timeout(Duration::from_secs(1), receiving).await.unwrap();
             assert!(matches!(item, Some(ListItem::Summary(event)) if event.seq == next.seq));
         }
         drop(subscription);
@@ -886,7 +885,7 @@ mod tests {
         }
         let batch = hub.updates.take_batch();
         assert_eq!(batch.len(), 1);
-        match &batch[0].1 {
+        match &batch.first().unwrap().1 {
             PendingUpdate::Summary(summary) => assert_eq!(summary.last_activity, 10_999),
             PendingUpdate::Gone => panic!("summary slot was replaced by a removal"),
         }

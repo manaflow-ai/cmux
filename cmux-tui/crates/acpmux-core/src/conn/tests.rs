@@ -89,13 +89,14 @@ async fn receive(reader: &mut (impl AsyncRead + Unpin)) -> Frame {
 async fn send(writer: &mut (impl AsyncWrite + Unpin), request: serde_json::Value) {
     writer.write_all(&Frame::json(FrameKind::Request, &request).unwrap().encode()).await.unwrap();
 }
-fn list_pair() -> (
+type ListPair = (
     DuplexStream,
     tokio::task::JoinHandle<Result<(), ConnError>>,
     Arc<Hub>,
     crate::hub::HubWriter,
     Arc<HubSource>,
-) {
+);
+fn list_pair() -> ListPair {
     let (hub, writer) = Hub::new(SummaryIndex::new());
     let hub = Arc::new(hub);
     let source = Arc::new(HubSource::new(hub.clone()));
@@ -693,4 +694,84 @@ async fn the_source_decides_editions_and_may_resume_with_a_window() {
     drop(client);
     task.await.unwrap().unwrap();
     assert!(source.sink.lock().unwrap().is_none());
+}
+
+#[test]
+fn not_ready_keeps_the_subscription_without_establishing_a_cursor() {
+    for initial in [None, Some(Cursor(7))] {
+        let mut state = ConnectionState::new(1024);
+        state.subscribe_at("s", initial).unwrap();
+        let not_ready = Frame::json(
+            FrameKind::Error,
+            &json!({
+                "method":"sub", "sid":"s", "code":"not_ready"
+            }),
+        )
+        .unwrap();
+        assert_eq!(state.offer("s", not_ready, Cursor(99)), Offer::Taken);
+        let lease = state.take().unwrap();
+        state.written(&lease);
+        assert_eq!(state.subscription_count(), 1);
+        assert_eq!(state.subscriptions.get("s").unwrap().taken, initial.unwrap_or_default());
+        // Until a window or delta is written, dropped still names the original
+        // cursor, or no cursor for an anchor subscription.
+        assert!(matches!(state.offer("s", frame(1024), Cursor(100)), Offer::Dropped { .. }));
+        let notice = state.take().unwrap();
+        let dropped: crate::wire::Dropped =
+            Frame::from_encoded(&notice.bytes).unwrap().decode_json().unwrap();
+        assert_eq!(dropped.cursor, initial);
+    }
+}
+
+#[derive(Default)]
+struct DeferredSource(std::sync::Mutex<Option<Arc<dyn OfferSink>>>);
+impl Source for DeferredSource {
+    fn subscribe(
+        &self,
+        sub: &Sub,
+        _person: Option<&[u8]>,
+        sink: Arc<dyn OfferSink>,
+    ) -> Result<(), ConnError> {
+        let not_ready = Frame::json(
+            FrameKind::Error,
+            &json!({
+                "method":"sub", "sid":sub.sid, "code":"not_ready"
+            }),
+        )?;
+        assert_eq!(sink.offer(&sub.sid, not_ready, sub.cursor.unwrap_or_default()), Offer::Taken);
+        *self.0.lock().unwrap() = Some(sink);
+        Ok(())
+    }
+    fn resume(&self, _: &str, _: Cursor) {}
+    fn end(&self, _: &str) {
+        self.0.lock().unwrap().take();
+    }
+}
+
+#[tokio::test]
+async fn not_ready_then_window_uses_the_same_subscription_until_unsub() {
+    let source = Arc::new(DeferredSource::default());
+    let driver = source.clone();
+    let (mut client, server) = tokio::io::duplex(4096);
+    let (rd, wr) = tokio::io::split(server);
+    let task = tokio::spawn(async move { run(rd, wr, driver, "test", &["chat".into()]).await });
+    hello(&mut client).await;
+    send(&mut client, json!({"method":"sub","params":{"sid":"s","stream":"chat:x"}})).await;
+    let reply = receive(&mut client).await;
+    assert_eq!(reply.kind, FrameKind::Error);
+    assert_eq!(
+        reply.decode_json::<serde_json::Value>().unwrap().get("code"),
+        Some(&json!("not_ready"))
+    );
+    let sink = source.0.lock().unwrap().clone().unwrap();
+    let (window, cursor) = EditionSource::default().window("s");
+    assert_eq!(sink.offer("s", window, cursor), Offer::Taken);
+    assert_eq!(receive(&mut client).await.kind, FrameKind::Window);
+    send(&mut client, json!({"method":"unsub","params":{"sid":"s"}})).await;
+    // A following reply is a barrier proving unsub was handled.
+    send(&mut client, json!({"method":"credit","params":{"sid":"s","consumed":0}})).await;
+    assert_eq!(receive(&mut client).await.kind, FrameKind::Error);
+    assert!(source.0.lock().unwrap().is_none());
+    drop(client);
+    task.await.unwrap().unwrap();
 }
