@@ -1397,6 +1397,17 @@ class FeedAlarm1113Tests(unittest.TestCase):
                          "Error: HTTP status code: 403. A required agreement is missing or has expired.")
         self.assertEqual(watch.status_line([b"2026-11-13T22:37:00Z HTTP 500 from x\n", b"##[error]boom\n"]), "HTTP 500 from x")
         self.assertEqual(watch.status_line(["no status here", "##[error]x"]), "")
+        self.assertEqual(watch.status_line(["##[error]build failed", "HTTP 200 cleanup"]), "")
+
+    def test_an_unreadable_failed_run_never_holds_the_stage_back(self):
+        now = dt.datetime(2026, 11, 13, 9, 0, tzinfo=dt.timezone.utc)
+        pushes = [run_at(1, dt.datetime(2026, 11, 13, 5, 10, tzinfo=dt.timezone.utc), conclusion="success")]
+
+        def jobs_of(run):
+            raise urllib.error.HTTPError("u", 502, "Bad Gateway", {}, None)
+        stage = watch.assess(now, FEED_1113, pushes, self.nightly(now), jobs_of, [], [], 0.5)
+        self.assertTrue(stage.stale)
+        self.assertIn("its jobs were unreadable", stage.reason)
 
     def test_job_log_follows_the_redirect_without_the_token(self):
         seen = []

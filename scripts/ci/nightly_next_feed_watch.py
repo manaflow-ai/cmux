@@ -220,8 +220,13 @@ def assess(now: dt.datetime, newest: dt.datetime, pushes: list[dict], nightly: l
         finished = [run for run in nightly if run.get("status") == "completed" and run.get("conclusion") in ("success", "failure", "timed_out")]
         failed = [run for run in finished if run.get("conclusion") in ("failure", "timed_out")]
         if failed:
+            try:
+                steps = failed_steps(jobs_of(failed[0]))
+            except (*TRANSPORT, KeyError, TypeError) as error:  # a diagnostic read never holds the alarm back
+                steps = "its jobs were unreadable"
+                print(f"::warning::could not read the jobs of {failed[0].get('html_url')}: {error!r}")
             reason += (f" {len(failed)} of the {len(finished)} nightly-next runs finished since the feed's newest item failed; "
-                       f"the newest failure, {failed[0]['html_url']}: {failed_steps(jobs_of(failed[0]))}.")
+                       f"the newest failure, {failed[0]['html_url']}: {steps}.")
     elif latest and latest.get("conclusion") == "success":
         reason = f"nightly-next run {latest['html_url']} on {latest['head_sha'][:12]} passed but did not publish (debounced or skipped publication)."
     elif latest:
@@ -265,7 +270,7 @@ def status_line(lines) -> str:
     """The last HTTP-status line before the job log's first `##[error]`: the failing step's own words.
 
     A passing step can print one too (on 2026-11-13 a signing-account check logged "HTTP 403" and went on),
-    so the line kept is the newest one when the first error lands; the notary's "Error: HTTP status code: 403.
+    so the line kept is the newest one when the first error lands, and nothing after it; the notary's "Error: HTTP status code: 403.
     A required agreement is missing or has expired." came right before it."""
     found = ""
     for count, raw in enumerate(lines):
@@ -273,8 +278,7 @@ def status_line(lines) -> str:
             break
         line = LOG_STAMP.sub("", raw.decode("utf-8", "replace") if isinstance(raw, bytes) else raw).strip()
         if line.startswith("##[error]"):
-            if found:
-                return found
+            return found  # the first failure's own line, or none: a later step's status is not its cause
         elif HTTP_STATUS_LINE.search(line):
             found = line[:300]
     return found
