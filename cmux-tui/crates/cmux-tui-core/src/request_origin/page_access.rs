@@ -118,6 +118,7 @@ const fn access(operation: Op) -> Access {
         | Op::DiffCommentsList
         | Op::DiffCommentsSave
         | Op::DiffCommentsDelete
+        | Op::DiffCommentsSend
         | Op::SessionJournalHookPut
         // It tells whether a path exists and is a folder (cx-9aps).
         | Op::WorkspaceAgentStartGet
@@ -267,6 +268,7 @@ const fn access(operation: Op) -> Access {
         | Op::SettingsSet
         | Op::SettingsReset
         | Op::SettingsResetAll
+        | Op::SettingsEdit
         | Op::KeybindingsGet
         | Op::KeybindingsSet
         | Op::KeybindingsRemove

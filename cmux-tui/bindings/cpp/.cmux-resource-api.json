@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "fa581a4c0918bd93ce32e98dc49fd542ebf573eceba87715994beea64c4f8509",
+  "catalog_sha256": "12f2cd254e9e98777ef14dfd5afd566db44f74218a52410953ee649c783b8cd2",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -341,6 +341,9 @@
       "class": "read"
     },
     "diff.comments.save": {
+      "class": "mutation"
+    },
+    "diff.comments.send": {
       "class": "mutation"
     },
     "frontend_projection.get": {
@@ -725,6 +728,9 @@
       "class": "mutation"
     },
     "session.window.title.set": {
+      "class": "mutation"
+    },
+    "settings.edit": {
       "class": "mutation"
     },
     "settings.get": {

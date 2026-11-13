@@ -7,6 +7,10 @@ license.workspace = true
 publish.workspace = true
 description = "The v2 agent service core: published summaries and bounded stream frames"
 
+[features]
+default = []
+allocation-metrics = []
+
 [lints]
 workspace = true
 
