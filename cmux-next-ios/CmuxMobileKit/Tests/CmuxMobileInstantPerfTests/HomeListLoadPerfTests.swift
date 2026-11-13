@@ -57,40 +57,48 @@ extension InstantPerfTests {
     @MainActor
     @Suite("Instant list perf: Home under load", .serialized)
     struct HomeListLoadPerfTests {
-        static func window(_ size: InstantPerfSize) async throws -> [Double] {
+        /// One timed first screen of `size`: its window's reply parsed and the list it draws built.
+        static func firstScreen(_ size: InstantPerfSize) throws -> Duration {
             let wire = HomeInboxFixture.firstWindowWire(size)
-            return try await InstantPerfReport.sample {
-                var list: MacHomeList?
-                let elapsed = try ContinuousClock().measure { list = MacHomeList(try MacHomeReply(line: wire).rows) }
-                #expect((list?.pinned.count ?? 0) + (list?.rows.count ?? 0) == min(HomeInboxFixture.rowCount(size), MacHomeRows.firstWindow))
-                return elapsed
-            }
+            var list: MacHomeList?
+            let elapsed = try ContinuousClock().measure { list = MacHomeList(try MacHomeReply(line: wire).rows) }
+            #expect((list?.pinned.count ?? 0) + (list?.rows.count ?? 0) == min(HomeInboxFixture.rowCount(size), MacHomeRows.firstWindow))
+            return elapsed
+        }
+
+        static func window(_ size: InstantPerfSize) async throws -> [Double] {
+            try await InstantPerfReport.sample { try firstScreen(size) }
         }
 
         /// Background parses: every core but the one the first screen paints on.
         static var loaders: Int { max(1, ProcessInfo.processInfo.activeProcessorCount - 1) }
 
-        /// The `size` window while every other core parses the whole god list at `priority`.
-        static func loaded(_ size: InstantPerfSize, _ priority: TaskPriority) async throws -> (runs: [Double], parsed: Int) {
+        /// Small and god windows, timed in turns while every other core parses the whole god list
+        /// at `priority`: each round times both under the load as it is that moment, so a load that
+        /// swells or eases (a host's other work, the parses' allocator churn) moves both alike and
+        /// the ratio reads the list's size alone. Timing all of small under one load and then all of
+        /// god under a second one let the two loads differ: the simulator read 1.86x and 1.90x (cmux#42294).
+        static func loaded(_ priority: TaskPriority) async throws -> (small: [Double], god: [Double], parsed: Int) {
             let load = BackgroundParseLoad(wire: HomeInboxFixture.wire(.god), count: Self.loaders,
                                            priority: priority)
             // Let the load reach every core before the clock starts.
             try await Task.sleep(for: .milliseconds(50)) // test: lets the background load start before timing
-            let runs = try await window(size)
-            return (runs, await load.stop())
+            let runs = try await InstantPerfReport.sampleInTurns(runs: InstantPerfReport.loadedRuns,
+                                                                 { try firstScreen(.small) },
+                                                                 { try firstScreen(.god) })
+            return (runs.a, runs.b, await load.stop())
         }
 
         @Test("home_list_first_screen_under_load")
         func firstScreenUnderLoad() async throws {
             let quietGod = try await Self.window(.god)
-            let smallLoaded = try await Self.loaded(.small, MacHomeReply.wholeListPriority)
-            let atFeedPriority = try await Self.loaded(.god, MacHomeReply.wholeListPriority)
-            let atOldPriority = try await Self.loaded(.god, .userInitiated)
+            let atFeedPriority = try await Self.loaded(MacHomeReply.wholeListPriority)
+            let atOldPriority = try await Self.loaded(.userInitiated)
             InstantPerfReport.record(
-                "home_list_first_screen_under_load", target: 16, small: smallLoaded.runs, god: atFeedPriority.runs,
-                note: String(format: "small: the 20-row window, god: the 20-of-5,000 window, each while %ld cores parse the whole god list (%ld B) at the feed's priority (%ld lists parsed during small, %ld during god). The same god window with no load: %.2f ms; at .userInitiated (the feed before): %.2f ms",
-                             Self.loaders, HomeInboxFixture.wire(.god).count, smallLoaded.parsed, atFeedPriority.parsed,
-                             InstantPerfReport.median(quietGod), InstantPerfReport.median(atOldPriority.runs)))
+                "home_list_first_screen_under_load", target: 16, small: atFeedPriority.small, god: atFeedPriority.god,
+                note: String(format: "small: the 20-row window, god: the 20-of-5,000 window, timed in turns (%ld each) while %ld cores parse the whole god list (%ld B) at the feed's priority (%ld lists parsed meanwhile). The same god window with no load: %.2f ms; at .userInitiated (the feed before): %.2f ms",
+                             atFeedPriority.god.count, Self.loaders, HomeInboxFixture.wire(.god).count, atFeedPriority.parsed,
+                             InstantPerfReport.median(quietGod), InstantPerfReport.median(atOldPriority.god)))
         }
     }
 }

@@ -95,6 +95,33 @@ enum InstantPerfReport {
         return out
     }
 
+    /// Runs per size for a metric timed under a background load, whose samples scatter more than
+    /// a quiet one's (a simulator's god window ran 3.9 to 7.1 ms in one job): three times
+    /// `defaultRuns`, so the median is not one round's luck. Each run is a few milliseconds.
+    static var loadedRuns: Int { defaultRuns * 3 }
+
+    /// One warm-up of each, then `runs` rounds that time `a` and `b` back to back, the first of
+    /// the pair alternating (a b, b a, ...) so neither always runs on the other's leftovers. Both
+    /// sizes see the same moments of a shared load, which separate sampling cannot promise.
+    @MainActor
+    static func sampleInTurns(runs: Int = defaultRuns, _ a: () async throws -> Duration,
+                              _ b: () async throws -> Duration) async rethrows -> (a: [Double], b: [Double]) {
+        _ = try await a()
+        _ = try await b()
+        var outA: [Double] = []
+        var outB: [Double] = []
+        for round in 0..<max(runs, 1) {
+            if round.isMultiple(of: 2) {
+                outA.append(ms(try await a()))
+                outB.append(ms(try await b()))
+            } else {
+                outB.append(ms(try await b()))
+                outA.append(ms(try await a()))
+            }
+        }
+        return (outA, outB)
+    }
+
     /// Reports the metric, then asserts its budget and ratio (known-red ones under `withKnownIssue`).
     static func record(_ metric: String, target: Double, small: [Double], god: [Double],
                        knownRed: Set<InstantPerfCheck> = [], why: String = "", note: String = "",
