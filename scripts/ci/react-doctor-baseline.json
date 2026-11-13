@@ -170,6 +170,7 @@
    "src/agent-session/acpmux/VirtualTranscript.tsx::react-doctor/effect-needs-cleanup": 3,
    "src/agent-session/acpmux/VirtualTranscript.tsx::react-doctor/no-ref-current-in-render": 57,
    "src/agent-session/acpmux/VirtualTranscript.tsx::react-hooks-js/immutability": 28,
+   "src/agent-session/acpmux/VirtualTranscript.tsx::react-hooks-js/preserve-manual-memoization": 1,
    "src/agent-session/acpmux/VirtualTranscript.tsx::react-hooks-js/purity": 7,
    "src/agent-session/acpmux/VirtualTranscript.tsx::react-hooks-js/refs": 227,
    "src/agent-session/acpmux/VirtualTranscript.tsx::react-hooks-js/todo": 13,

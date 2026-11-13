@@ -33,7 +33,7 @@ extension CloudHandlers {
             // activation, so a loaded store is current: no request. One that has
             // not loaded yet takes the same refresh the sidebar's does.
             // One loaded for another team than the signed-in one is not loaded.
-            if cloud.isSignedIn, !cloud.hasLoadedCurrentMachines { await cloud.refresh() }
+            if cloud.isSignedIn, !cloud.hasLoadedCurrentMachines { await cloud.refresh() } else if cloud.isSignedIn { await cloud.refresh(ifOlderThan: .seconds(30)) }
             return machineListFields(context, loaded: cloud.hasLoadedCurrentMachines)
         }
     }
@@ -75,7 +75,7 @@ extension CloudHandlers {
         // client sends), else for the person alone.
         let list: [String: Any] = ["loaded": loaded, "team": cloud.auth.teamID != nil, "signedIn": cloud.isSignedIn,
                                    "machines": machines, "creating": creating]
-        return CloudHandlerRules().fields("cloud_handler_machine_list", ["list": list]).merging(["account": listAccount(cloud.isSignedIn, cloud.auth.user?.id, cloud.auth.teamID)]) { $1 }
+        return CloudHandlerRules().fields("cloud_handler_machine_list", ["list": list]).merging(["account": listAccount(cloud.isSignedIn, cloud.auth.user?.id, cloud.auth.teamID), "listed_at_ms": cloud.hasCurrentList(within: .seconds(30)) ? .int(Int(Date().timeIntervalSince1970 * 1000) - 30_000) : .null]) { $1 } // read no earlier than this (a script's list is read again past 30 s)
     }
     static func listAccount(_ signedIn: Bool, _ user: String?, _ team: String?) -> ActionResultValue { .object(["signed_in": .bool(signedIn), "user_id": user.map(ActionResultValue.string) ?? .null, "team_id": team.map(ActionResultValue.string) ?? .null]) }
 }
