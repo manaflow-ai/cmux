@@ -180,6 +180,9 @@ export type FollowChase = {
   /// the same clock, and moves at most what is left of ARRIVAL_FRAME_LINES (`alongsideMove`). Kept
   /// until replaced; animations that ended move nothing.
   alongside(animations: ReadonlySet<Animation> | undefined): void;
+  /// The time (ms, the frame clock) its next frame step counts from, while one is due: what rides the
+  /// thread on a Web Animation of its own (tailGlide.ts) takes its first frame from the same time.
+  since(): number | undefined;
 };
 
 /// The send motion's length (ms, `--agent-motion-send`), at the host's `scale` when it sets none.
@@ -497,6 +500,7 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
   return {
     arm,
     outstanding: () => x,
+    since: () => (frame === undefined ? undefined : last),
     stop,
     hold(following) {
       cancelRecheck();

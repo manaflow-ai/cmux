@@ -211,6 +211,7 @@ export function defineMotionRecorder() {
         `oa=${plays(over)}`,
         `ta=${plays(thread)}`,
         `sh=${scroller.scrollHeight}`,
+        `gp=${thread.dataset.glidePasses ?? "-"}`,
         `rows=${[...thread.querySelectorAll<HTMLElement>(":scope > .acpmux-row[data-row-id]")]
           .slice(-6)
           .map((row) => `${(row.dataset.rowId ?? "").slice(0, 14)}:${getComputedStyle(row).translate}:${plays(row)}`)

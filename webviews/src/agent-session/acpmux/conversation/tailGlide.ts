@@ -47,6 +47,7 @@
 // without the glides).
 import { MOTION_MS, MOTION_SETTLE, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
 import { cssTimeMs, foldMs } from "./fold";
+import { MAX_FRAME_STEP_MS } from "../threadMinimap/scrollMotion";
 import { ARRIVAL_EASE, arrivalStepMs } from "./followChase";
 import type { PinCarry } from "./pinnedLiveLine";
 import { LIVE_THINKING } from "./turns";
@@ -119,6 +120,8 @@ export type TailGlide = {
   /// runs no row reads: transcript-fold-anchor.test.tsx).
   /// `pinned`: a row drawn against the chase itself (pinnedLiveLine.ts): it never glides. `carry`: the
   /// line let go this pass, drawn `y` back from the thread's offset: its glide starts from there.
+  /// `since`: the time the follow chase's next frame step counts from (`FollowChase.since`), when
+  /// one is due: this pass's glides are as far into their curve in that frame as the chase's step.
   place(
     thread: HTMLElement | null,
     glide: boolean,
@@ -126,6 +129,7 @@ export type TailGlide = {
     track?: boolean,
     pinned?: string,
     carry?: PinCarry,
+    since?: number,
   ): void;
   /// Ends what plays, the rows drawn at their places, and forgets where they were.
   stop(): void;
@@ -179,6 +183,9 @@ export function createTailGlide(): TailGlide {
     Animation,
     { row: HTMLElement; timed: KeyframeAnimationOptions; over: { glide?: Animation; by: number }[] }
   >();
+  /// Each glide's curve: where it starts (px) and its timing.
+  type Curve = { start: number; timed: KeyframeAnimationOptions };
+  const curves = new WeakMap<Animation, Curve>();
   const live = (animation: Animation) => animation.playState !== "idle" && animation.playState !== "finished";
   const keep = (row: HTMLElement, animation: Animation) => {
     playing.add(animation);
@@ -259,12 +266,42 @@ export function createTailGlide(): TailGlide {
     animation.addEventListener("cancel", done, { once: true });
     return animation;
   };
-  /// Starts `animation` at `at`, the time the follow chase integrates this pass's move from
-  /// (`followChase.ts`, `shift`). Left to start by itself, a Web Animation starts in the next painted
-  /// frame, where the chase is already one step on: a row that rides both (the live line under a row
-  /// that arrives) rose by that step and came back, and came to rest a frame after the rows above it.
-  const onPassClock = (animation: Animation, at: CSSNumberish | null | undefined) => {
-    if (typeof at === "number") animation.startTime = at;
+  /// Puts one pass's glides and clips on the follow chase's clock. Left to start by itself, a Web
+  /// Animation is at its start in the next painted frame, where the chase is already one step on: a
+  /// row that rides both (the live line under a row that arrives) rose by that step and came back, and
+  /// came to rest a frame after the rows above it. In that frame each is set as far into its curve as
+  /// the chase's step is into its own: the frame's time less `since`, bounded as the chase bounds it
+  /// (a time read between frames is an estimate, and can lie after the frame). With no chase step due
+  /// the glides start by themselves. `waiting`: each animation that takes the clock in the next frame,
+  /// with its `since` (a glide a later pass starts again before that frame hands its place on).
+  const waiting = new Map<Animation, number>();
+  let asked = false;
+  const onChaseClock = (thread: HTMLElement, fresh: Animation[], since: number | undefined) => {
+    if (since === undefined || !fresh.length) return;
+    const view = thread.ownerDocument.defaultView;
+    if (!view) return;
+    for (const animation of fresh) waiting.set(animation, since);
+    if (asked) return;
+    asked = true;
+    view.requestAnimationFrame((now) => {
+      asked = false;
+      for (const [animation, from] of waiting)
+        if (live(animation)) animation.currentTime = Math.min(MAX_FRAME_STEP_MS, Math.max(0, now - from));
+      waiting.clear();
+    });
+  };
+  // VEHICLE, never merges: what each pass did, for the motion contract's trace (the last 4 passes).
+  let passes = 0;
+  const notePass = (thread: HTMLElement, text: string) => {
+    // A unit test's thread is a plain object with no data attributes.
+    if (!("dataset" in thread)) return;
+    passes += 1;
+    const at = thread.ownerDocument.timeline?.currentTime;
+    const entry = `${passes}@${typeof at === "number" ? at.toFixed(1) : "?"}/${performance.now().toFixed(1)}:${text}`;
+    thread.dataset.glidePasses = [
+      ...(thread.dataset.glidePasses ?? "").split("|").filter(Boolean).slice(-3),
+      entry,
+    ].join("|");
   };
   const stop = () => {
     for (const animation of playing) animation.cancel();
@@ -295,7 +332,7 @@ export function createTailGlide(): TailGlide {
         if (box.bottom <= view.top || box.top >= view.bottom) cancelOn(row);
       }
     },
-    place(thread, glide, anchor, track = true, pinned, carry) {
+    place(thread, glide, anchor, track = true, pinned, carry, since) {
       // A row the virtualizer unmounted mid-glide: its glide ends with it, and the clips it guarded
       // on the row above with it, so that row never stays clipped over nothing until the glide's
       // time runs out (its last lines hidden). O(playing).
@@ -310,15 +347,22 @@ export function createTailGlide(): TailGlide {
       const before = last;
       const now = tops(thread);
       last = now;
-      if (!before || !glide || anchor === undefined) return;
+      if (!before || !glide || anchor === undefined) {
+        notePass(thread, "skip"); // VEHICLE, never merges.
+        return;
+      }
       const from = before.get(anchor);
       const to = now.get(anchor);
-      if (!from || !to) return;
+      if (!from || !to) {
+        notePass(thread, "skip-anchor"); // VEHICLE, never merges.
+        return;
+      }
       const look = tailGlideLook(thread);
       if (look === "jump") return;
       // The rows from the anchor on (what lies above the view's top never shows), each with how far
       // this pass moved it against the anchor.
-      type Part = { row: HTMLElement; top: number; bottom: number; moved: number; start: number };
+      /// `own`: this pass moved the row itself (against the anchor, or let go of its pin).
+      type Part = { row: HTMLElement; top: number; bottom: number; moved: number; start: number; own: boolean };
       const parts: Part[] = [];
       let moves = false;
       let below = false;
@@ -333,12 +377,41 @@ export function createTailGlide(): TailGlide {
         // The line let go this pass starts where it was held: back by the thread's offset too.
         const held = carry && !carry.used && carry.id === id ? carry.y : 0;
         if (held) moves = true;
-        parts.push({ row, top, bottom: row.offsetTop + row.offsetHeight, moved, start: -moved - held });
+        parts.push({
+          row,
+          top,
+          bottom: row.offsetTop + row.offsetHeight,
+          moved,
+          start: -moved - held,
+          own: moved !== 0 || held !== 0,
+        });
       }
-      if (!moves) return;
       // A row still gliding starts from where it is drawn: the glide's own part of its translate, read
       // with and without it (a CSS entrance on the row plays on under it), in two style reads for all.
       const gliding = parts.filter((part) => onRow.has(part.row));
+      // A row still gliding that this pass did not move keeps its curve and its clock: started again
+      // from where it is drawn, it would play a new curve from there while the thread it rides plays on.
+      // `due`: it still waits for its first frame on the chase's clock, from that time.
+      const kept = new Map<HTMLElement, Curve & { at: CSSNumberish | null; due: number | undefined }>();
+      for (const part of gliding) {
+        if (part.own) continue;
+        const current = onRow.get(part.row)?.find((animation) => curves.has(animation) && live(animation));
+        const curve = current && curves.get(current);
+        if (current && curve) kept.set(part.row, { ...curve, at: current.currentTime, due: waiting.get(current) });
+      }
+      // VEHICLE, never merges.
+      notePass(
+        thread,
+        `${moves ? "moves" : "none"};since=${since === undefined ? "-" : since.toFixed(1)};own=${
+          parts
+            .filter((part) => part.own)
+            .map((part) => `${(part.row.dataset.rowId ?? "").slice(0, 14)}:${part.moved}:${part.start}`)
+            .join(",") || "-"
+        };gliding=${gliding.map((part) => (part.row.dataset.rowId ?? "").slice(0, 14)).join(",") || "-"};kept=${
+          [...kept.keys()].map((row) => (row.dataset.rowId ?? "").slice(0, 14)).join(",") || "-"
+        }`,
+      );
+      if (!moves) return;
       if (gliding.length) {
         const drawn = gliding.map((part) => drawnY(part.row));
         for (const part of gliding) cancelOn(part.row);
@@ -351,16 +424,20 @@ export function createTailGlide(): TailGlide {
       );
       if (!(ms > 0)) return;
       if (carry && parts.some((part) => part.row.dataset.rowId === carry.id)) carry.used = true;
-      // `backwards`: a frame the engine times before `at` (an estimated frame time, between frames)
-      // draws the start, never the row at rest.
-      const timed = { duration: ms, easing, fill: "backwards" as const };
-      const at = thread.ownerDocument.timeline?.currentTime;
+      const timed = { duration: ms, easing };
+      /// This pass's new glides and clips: they take the chase's clock in their first frame.
+      const fresh: Animation[] = [];
       /// This pass's glide on each row: the clips over a row guard the glide it plays now.
       const slides = new Map<HTMLElement, Animation>();
       for (const part of parts)
         if (Math.abs(part.start) >= MIN_MOVE_PX) {
-          const slide = part.row.animate([{ translate: `0 ${part.start}px` }, { translate: "0 0" }], timed);
-          onPassClock(slide, at);
+          const old = kept.get(part.row);
+          const curve: Curve = old ? { start: old.start, timed: old.timed } : { start: part.start, timed };
+          const slide = part.row.animate([{ translate: `0 ${curve.start}px` }, { translate: "0 0" }], curve.timed);
+          if (!old) fresh.push(slide);
+          else if (old.due !== undefined) onChaseClock(thread, [slide], old.due);
+          else if (old.at !== null) slide.currentTime = old.at;
+          curves.set(slide, curve);
           glideOn(part.row, slide);
           slides.set(part.row, slide);
         }
@@ -378,7 +455,8 @@ export function createTailGlide(): TailGlide {
       for (const [id, { row }] of now) {
         if (id === anchor) break;
         const bottom = row.offsetTop + row.offsetHeight;
-        if (bottom > reach && row.offsetHeight > 0) above.push({ row, top: row.offsetTop, bottom, moved: 0, start: 0 });
+        if (bottom > reach && row.offsetHeight > 0)
+          above.push({ row, top: row.offsetTop, bottom, moved: 0, start: 0, own: false });
       }
       const laid = [...above, ...parts].filter((part) => part.bottom > part.top).sort((a, b) => a.top - b.top);
       for (let index = 0; index < laid.length; index++) {
@@ -388,8 +466,9 @@ export function createTailGlide(): TailGlide {
           const by = upper.start - lower.start - (lower.top - upper.bottom);
           if (by >= MIN_MOVE_PX) over.push({ glide: slides.get(lower.row), by });
         }
-        if (over.length) onPassClock(clipOn(upper.row, over, timed), at);
+        if (over.length) fresh.push(clipOn(upper.row, over, timed));
       }
+      onChaseClock(thread, fresh, since);
     },
   };
 }

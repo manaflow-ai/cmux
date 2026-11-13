@@ -4586,6 +4586,7 @@ function TranscriptView({
       chasing && followingRef.current,
       pinLive ? LIVE_THINKING : undefined,
       carry,
+      followChase.current?.since(),
     );
     refreshPinned(thread.current);
     finishCarry(thread.current, carry, (px) => {
