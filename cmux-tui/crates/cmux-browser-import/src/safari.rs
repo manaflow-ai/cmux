@@ -3,10 +3,10 @@
 
 use crate::json;
 use crate::model::{Bookmark, HistoryEntry, ReadError, SearchEngine};
-use crate::sqlite::{self, Snapshot};
+use crate::place::Place;
+use crate::sqlite;
 use crate::{search, time, url};
 use plist::{Dictionary, Value};
-use std::path::Path;
 
 /// `Bookmarks.plist` (binary or XML): nested `WebBookmarkTypeList` folders and
 /// `WebBookmarkTypeLeaf` bookmarks. The Favorites bar, the Bookmarks menu and the Reading List
@@ -72,8 +72,8 @@ fn folder_name(title: &str) -> &str {
 
 /// `History.db` (`history_items` and `history_visits`, visit times in seconds since 2001),
 /// newest first; each item's title is its newest visit's.
-pub fn history(file: &Path, limit: i64) -> Result<Vec<HistoryEntry>, ReadError> {
-    let database = Snapshot::copying(file)?;
+pub fn history<'a>(file: impl Into<Place<'a>>, limit: i64) -> Result<Vec<HistoryEntry>, ReadError> {
+    let database = file.into().database()?;
     let sql = format!(
         "SELECT i.url, (SELECT v2.title FROM history_visits v2 WHERE v2.history_item = i.id \
                         ORDER BY v2.visit_time DESC LIMIT 1), \

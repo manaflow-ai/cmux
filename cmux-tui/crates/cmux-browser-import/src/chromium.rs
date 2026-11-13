@@ -7,11 +7,12 @@
 use crate::json::{self, Object};
 use crate::model::{Bookmark, Extension, HistoryEntry, ReadError, SearchEngine, Tab};
 use crate::pickle::{self, Pickle};
-use crate::sqlite::{self, Snapshot};
+use crate::place::Place;
+use crate::sqlite;
 use crate::{search, time, url};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 // MARK: Bookmarks
 
@@ -63,8 +64,8 @@ fn walk_bookmarks(node: &Object, path: &[String], result: &mut Vec<Bookmark>) {
 // MARK: History
 
 /// A `History` database (`urls`: url, title, visit_count, last_visit_time), newest first.
-pub fn history(file: &Path, limit: i64) -> Result<Vec<HistoryEntry>, ReadError> {
-    let database = Snapshot::copying(file)?;
+pub fn history<'a>(file: impl Into<Place<'a>>, limit: i64) -> Result<Vec<HistoryEntry>, ReadError> {
+    let database = file.into().database()?;
     let sql = format!(
         "SELECT url, title, visit_count, last_visit_time FROM urls \
          WHERE hidden = 0 AND visit_count > 0 AND {} ORDER BY last_visit_time DESC LIMIT {}",
@@ -100,9 +101,10 @@ const WINDOW_CLOSED: u8 = 17;
 
 /// The newest `Session_*` file in a profile's `Sessions` folder (by the number after
 /// `Session_`; a name without one counts as 0).
-pub fn latest_session_file(sessions: &Path) -> Option<PathBuf> {
+pub fn latest_session_file<'a>(sessions: impl Into<Place<'a>>) -> Option<PathBuf> {
+    let sessions = sessions.into();
     let mut best: Option<(i64, String)> = None;
-    for name in directory_names(sessions) {
+    for name in sessions.names() {
         let Some(number) = name.strip_prefix("Session_") else { continue };
         let number = number.parse::<i64>().unwrap_or(0);
         // The first of equal numbers stays (`max(by:)`).
@@ -110,14 +112,15 @@ pub fn latest_session_file(sessions: &Path) -> Option<PathBuf> {
             best = Some((number, name));
         }
     }
-    best.map(|(_, name)| sessions.join(name))
+    best.map(|(_, name)| sessions.join(&name).path())
 }
 
 /// The profile's session file: the newest `Sessions/Session_*`, else `Current Session`.
-pub fn session_file(profile: &Path) -> Option<PathBuf> {
-    latest_session_file(&profile.join("Sessions")).or_else(|| {
+pub fn session_file<'a>(profile: impl Into<Place<'a>>) -> Option<PathBuf> {
+    let profile = profile.into();
+    latest_session_file(profile.join("Sessions")).or_else(|| {
         let legacy = profile.join("Current Session");
-        legacy.exists().then_some(legacy)
+        legacy.exists().then(|| legacy.path())
     })
 }
 
@@ -232,8 +235,9 @@ fn apply(
 /// `default_search_provider_data.template_url_data` (an engine the person set), else the
 /// `keywords` row of `Web Data` whose `sync_guid` is `default_search_provider.guid`. None when
 /// the profile keeps the browser's own default.
-pub fn search_engine(profile: &Path) -> Option<SearchEngine> {
-    let data = std::fs::read(profile.join("Preferences")).ok()?;
+pub fn search_engine<'a>(profile: impl Into<Place<'a>>) -> Option<SearchEngine> {
+    let profile = profile.into();
+    let data = profile.join("Preferences").read().ok()?;
     let root = json::object_or_none(&data)?;
     if let Some(template) = json::object(
         json::object(root.get("default_search_provider_data"))
@@ -249,7 +253,7 @@ pub fn search_engine(profile: &Path) -> Option<SearchEngine> {
     let guid = json::non_empty(
         json::object(root.get("default_search_provider")).and_then(|p| p.get("guid")),
     )?;
-    let database = Snapshot::copying(&profile.join("Web Data")).ok()?;
+    let database = profile.join("Web Data").database().ok()?;
     let quoted = guid.replace('\'', "''");
     let mut found = None;
     let _ = database.query(
@@ -293,9 +297,9 @@ const BUILT_INS: [&str; 8] = [
 /// EXTERNAL_PREF_DOWNLOAD (6). EXTERNAL_POLICY_DOWNLOAD (7) is policy, left out.
 const STORE_LOCATIONS: [i64; 2] = [1, 6];
 
-struct Manifest {
+struct Manifest<'a> {
     json: Object,
-    folder: PathBuf,
+    folder: Place<'a>,
 }
 
 /// The Chrome Web Store extensions of a profile, by name. Sources, merged per id:
@@ -303,11 +307,11 @@ struct Manifest {
 /// under `Extensions/<id>/<version>/manifest.json` (the name resolving `__MSG_x__` through
 /// `_locales/<default_locale>/messages.json`). Component, policy, default-installed, unpacked
 /// extensions and themes are left out: they cannot be reinstalled from the store.
-pub fn extensions(profile: &Path) -> Vec<Extension> {
+pub fn extensions<'a>(profile: impl Into<Place<'a>>) -> Vec<Extension> {
+    let profile = profile.into();
     let mut settings: BTreeMap<String, Object> = BTreeMap::new();
     for name in ["Preferences", "Secure Preferences"] {
-        let Some(root) =
-            std::fs::read(profile.join(name)).ok().and_then(|d| json::object_or_none(&d))
+        let Some(root) = profile.join(name).read().ok().and_then(|d| json::object_or_none(&d))
         else {
             continue;
         };
@@ -326,7 +330,7 @@ pub fn extensions(profile: &Path) -> Vec<Extension> {
     }
     let installed = profile.join("Extensions");
     let mut ids: Vec<String> = settings.keys().cloned().collect();
-    ids.extend(directory_names(&installed));
+    ids.extend(installed.names());
     ids.sort();
     ids.dedup();
     let empty = Object::new();
@@ -378,19 +382,19 @@ pub fn extensions(profile: &Path) -> Vec<Extension> {
 }
 
 /// The manifest in the highest version folder that has a readable one.
-fn latest_manifest(extension_folder: &Path) -> Option<Manifest> {
-    let mut versions = directory_names(extension_folder);
+fn latest_manifest<'a>(extension_folder: &Place<'a>) -> Option<Manifest<'a>> {
+    let mut versions = extension_folder.names();
     versions.sort_by(|a, b| numeric_compare(b, a));
     versions.into_iter().find_map(|version| {
-        let folder = extension_folder.join(version);
-        let data = std::fs::read(folder.join("manifest.json")).ok()?;
+        let folder = extension_folder.join(&version);
+        let data = folder.join("manifest.json").read().ok()?;
         Some(Manifest { json: json::object_or_none(&data)?, folder })
     })
 }
 
 /// The extension's name: the manifest's (else the preferences' copy), `__MSG_key__` looked up
 /// case-insensitively in the default locale's messages, then `en`, then `en_US`.
-fn display_name(manifest: Option<&Manifest>, pref_manifest: Option<&Object>) -> Option<String> {
+fn display_name(manifest: Option<&Manifest<'_>>, pref_manifest: Option<&Object>) -> Option<String> {
     let raw = manifest
         .and_then(|m| m.json.get("name"))
         .or_else(|| pref_manifest.and_then(|p| p.get("name")));
@@ -405,7 +409,7 @@ fn display_name(manifest: Option<&Manifest>, pref_manifest: Option<&Object>) -> 
     let default_locale = json::string(manifest.json.get("default_locale"));
     for locale in default_locale.into_iter().chain(["en", "en_US"]) {
         let file = manifest.folder.join("_locales").join(locale).join("messages.json");
-        let Some(messages) = std::fs::read(file).ok().and_then(|d| json::object_or_none(&d)) else {
+        let Some(messages) = file.read().ok().and_then(|d| json::object_or_none(&d)) else {
             continue;
         };
         // Message keys are case-insensitive.
@@ -449,16 +453,4 @@ fn numeric_compare(a: &str, b: &str) -> Ordering {
             }
         }
     }
-}
-
-/// The names in a directory (`contentsOfDirectory`), none when it cannot be listed.
-pub(crate) fn directory_names(directory: &Path) -> Vec<String> {
-    std::fs::read_dir(directory)
-        .map(|entries| {
-            entries
-                .filter_map(Result::ok)
-                .filter_map(|entry| entry.file_name().into_string().ok())
-                .collect()
-        })
-        .unwrap_or_default()
 }

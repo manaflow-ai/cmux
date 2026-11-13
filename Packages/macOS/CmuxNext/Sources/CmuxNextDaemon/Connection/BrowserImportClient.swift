@@ -3,7 +3,8 @@ public import Foundation
 /// The browser import's reads on the daemon (`browser_import.read`, the `cmux-browser-import`
 /// crate): another browser's bookmarks, history, open tabs, search engine and extensions. Only the
 /// verified app connection may send it; the daemon refuses a folder macOS protects, and the app
-/// names a private copy instead (`ProtectedProfileCopy`).
+/// sends the files a read opens there into an upload the daemon holds in memory
+/// (`ProtectedProfileUpload`).
 public struct BrowserImportClient: Sendable {
     public static let capability = DaemonCapability.browserImport.rawValue
     public let connection: DaemonConnection

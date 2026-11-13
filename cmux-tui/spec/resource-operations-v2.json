@@ -14820,7 +14820,7 @@
             "kind": "primitive",
             "name": "string"
           },
-          "description": "read, notBookmarks, open, query, copy, syntax or shape."
+          "description": "read, notBookmarks, open, query, copy, syntax, shape or tooLarge."
         },
         "message": {
           "required": true,
@@ -18092,10 +18092,12 @@
                 "safari.search_engine",
                 "exported_history.looks_like",
                 "exported_history.parse",
-                "search_engine.setting"
+                "search_engine.setting",
+                "upload.append",
+                "upload.drop"
               ]
             },
-            "description": "The reader to run (the cmux-browser-import crate's ops::OPS)."
+            "description": "The reader to run (the cmux-browser-import crate's ops::OPS), or upload.append / upload.drop (ops::UPLOAD_OPS), which hold and forget the bytes of files the app read from a folder macOS protects."
           },
           "path": {
             "required": false,
@@ -18105,7 +18107,7 @@
               "min_length": 1,
               "max_length": 4096
             },
-            "description": "The absolute path of the file the reader reads (bookmarks, history database, session file, exported history)."
+            "description": "The absolute path of the file the reader reads (bookmarks, history database, session file, exported history); with upload, the file's name in the upload."
           },
           "base64": {
             "required": false,
@@ -18113,7 +18115,7 @@
               "kind": "primitive",
               "name": "base64"
             },
-            "description": "The file's bytes instead of path, for the readers of a file's bytes."
+            "description": "The file's bytes instead of path, for the readers of a file's bytes; for upload.append, the next chunk of the file name names."
           },
           "profile": {
             "required": false,
@@ -18123,7 +18125,7 @@
               "min_length": 1,
               "max_length": 4096
             },
-            "description": "The absolute path of the profile folder (session_file, search_engine, extensions)."
+            "description": "The absolute path of the profile folder (session_file, search_engine, extensions); with upload, a folder in it (. is its top)."
           },
           "sessions": {
             "required": false,
@@ -18133,7 +18135,27 @@
               "min_length": 1,
               "max_length": 4096
             },
-            "description": "The absolute path of a Chromium profile's Sessions folder (latest_session_file)."
+            "description": "The absolute path of a Chromium profile's Sessions folder (latest_session_file); with upload, the folder's name in it."
+          },
+          "upload": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            },
+            "description": "An upload the app chose the id of (letters, digits and -): the files it sent from a folder macOS protects, held in the daemon's memory only. The reader reads its names instead of paths."
+          },
+          "name": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            },
+            "description": "The relative name of the file upload.append adds to (Sessions/Session_1, History.db-wal)."
           },
           "profileDirectory": {
             "required": false,
@@ -18197,8 +18219,9 @@
         "extra": false,
         "constraints": [
           "Only origin user (the verified cmux app connection, gate A2) may send it: it makes the daemon read another browser's files by path. Any other origin is refused with origin.forbidden.",
-          "A path that is not absolute, has a .. component, or lies under the daemon's home's Library/Safari, Library/SafariTechnologyPreview, Library/Containers or Library/Group Containers (as written or with links resolved) is refused with validation.invalid: the app stages a private copy of what it reads there.",
-          "Every database is read from a private copy; no source file is written."
+          "A path that is not absolute, has a .. component, or lies under the daemon's home's Library/Safari, Library/SafariTechnologyPreview, Library/Containers or Library/Group Containers (as written or with links resolved) is refused with validation.invalid: the app reads what a reader needs there itself and sends the bytes into an upload.",
+          "Every database on disk is read from a private copy; no source file is written. An upload is held in memory and never written to disk: a database in it is opened in memory with its WAL's committed frames applied.",
+          "An upload holds at most 256 MiB, all uploads together 512 MiB; an append past either drops the upload and answers {error: {kind: tooLarge}}. An upload idle for 5 minutes is dropped, and a read of a dropped one answers {error: {kind: read}}. A name in an upload that is absolute or climbs with .. is refused with validation.invalid."
         ]
       },
       "result": {

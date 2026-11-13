@@ -22,10 +22,17 @@ app's Full Disk Access. It refuses every path under its home's
 `Library/Safari`, `Library/SafariTechnologyPreview`, `Library/Containers` and
 `Library/Group Containers` (`ops::PROTECTED`, as written and with links
 resolved, any case), and any relative path or `..`. For a source there
-(Safari, an app-container profile such as Aloha's), the app copies the files a
-read opens into a private folder (`ProtectedProfileCopy`, a fixed list pinned
-by `ProtectedProfileCopyTests`) and names the copy. So an agent without Full
-Disk Access can never read a protected profile by asking the daemon.
+(Safari, an app-container profile such as Aloha's), the app reads the files a
+read opens (`ProtectedProfileUpload`, a fixed list pinned by
+`ProtectedProfileUploadTests`) and sends their bytes, in 2 MiB chunks, into an
+upload the daemon holds in memory (`upload.append`, `upload::Uploads`); the
+read names the upload, and the app drops it after (`upload.drop`). Nothing of a
+protected folder is ever written to disk, where any process of the same user
+could read it: a database is opened in memory with its WAL replayed
+(`sqlite::Snapshot::from_memory`). An upload holds at most 256 MiB (512 MiB for
+all of them) and is refused with `tooLarge` past it; one idle for 5 minutes is
+dropped. So an agent without Full Disk Access can never read a protected
+profile by asking the daemon, and no copy of one is left for it to find.
 
 ## Parsers: ported
 

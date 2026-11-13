@@ -82,10 +82,7 @@ fn chromium_history_is_newest_first_and_importable_only() {
     assert_eq!(entries[1].title.as_deref(), Some("Old"));
     assert_eq!(chromium::history(&file, 1).unwrap().len(), 1);
     assert_eq!(chromium::history(&file, -3).unwrap().len(), 0);
-    assert!(matches!(
-        chromium::history(&folder.path().join("missing"), 1),
-        Err(ReadError::Copy(_))
-    ));
+    assert!(matches!(chromium::history(folder.path().join("missing"), 1), Err(ReadError::Copy(_))));
 }
 
 /// A pickle of int32 fields and strings, 4-byte aligned, with its size header.

@@ -12,7 +12,7 @@ workspace = true
 
 [dependencies]
 # Each source database is read from a private copy (src/sqlite.rs), like cmux-cookie-sync.
-rusqlite.workspace = true
+rusqlite = { workspace = true, features = ["serialize"] }
 serde_json.workspace = true
 # Safari's Bookmarks.plist (binary or XML). No serde: the reader walks plist::Value.
 plist = { version = "1.10", default-features = false }

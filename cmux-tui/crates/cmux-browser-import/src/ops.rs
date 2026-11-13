@@ -5,8 +5,17 @@
 //! app already holds: an archive entry, Safari's `Bookmarks.plist`). A `limit` defaults to
 //! [`crate::exported::DEFAULT_HISTORY_LIMIT`].
 //!
-//! A path under a folder macOS protects ([`PROTECTED`]: Safari's, the app containers') is refused:
-//! the app stages a private copy of what it reads there, so the daemon never opens such a folder.
+//! A path under a folder macOS protects ([`PROTECTED`]: Safari's, the app containers') is refused,
+//! so the daemon never opens such a folder. The app reads what a reader needs there itself and
+//! sends the bytes, in chunks, into an upload held in the daemon's memory ([`crate::upload`]): no
+//! copy is ever written to disk, where any process of the same user could read it. A request
+//! with `upload` reads that upload's files: its `path`, `profile` and `sessions` are names in it
+//! (`.` is its top folder), and a file a reader answers is named the same way.
+//!
+//! | op | fields | result |
+//! | --- | --- | --- |
+//! | `upload.append` | upload (an id the app chose), name, base64 | null, or a `tooLarge` error |
+//! | `upload.drop` | upload | null |
 //!
 //! | reader | fields | result |
 //! | --- | --- | --- |
@@ -31,10 +40,13 @@
 //! | `search_engine.setting` | engine, builtIn ({id: template}) | {engine, search?, suggest?} |
 
 use crate::model::{self, Bookmark, Extension, HistoryEntry, ReadError, SearchEngine, Tab};
+use crate::place::{Files, Place};
+use crate::upload::{self, Uploads};
 use crate::{arc, chromium, exported, firefox, safari, search};
 use base64::Engine as _;
 use serde_json::{Map, Value, json};
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum OpError {
@@ -77,14 +89,29 @@ fn field<'a>(request: &'a Value, key: &str) -> Result<&'a str, OpError> {
     request.get(key).and_then(Value::as_str).ok_or(OpError::Invalid)
 }
 
-/// The absolute path in `key`, refused under a [`PROTECTED`] folder of `home`.
-fn path(request: &Value, key: &str, home: Option<&Path>) -> Result<PathBuf, OpError> {
-    let path = PathBuf::from(field(request, key)?);
-    let climbs = path.components().any(|part| part == std::path::Component::ParentDir);
-    if !path.is_absolute() || climbs || home.is_some_and(|home| protected(&path, home)) {
-        return Err(OpError::Refused);
+/// Where a request's names point: absolute paths on disk, refused under a [`PROTECTED`] folder
+/// of `home`; or, with `files`, names in an upload.
+#[derive(Clone, Copy)]
+struct Source<'a> {
+    home: Option<&'a Path>,
+    files: Option<&'a Files>,
+}
+
+impl<'a> Source<'a> {
+    /// The place `key` names.
+    fn place(self, request: &Value, key: &str) -> Result<Place<'a>, OpError> {
+        let name = field(request, key)?;
+        if let Some(files) = self.files {
+            let key = Files::key(name).ok_or(OpError::Refused)?;
+            return Ok(Place::Memory { files, key });
+        }
+        let path = PathBuf::from(name);
+        let climbs = path.components().any(|part| part == std::path::Component::ParentDir);
+        if !path.is_absolute() || climbs || self.home.is_some_and(|home| protected(&path, home)) {
+            return Err(OpError::Refused);
+        }
+        Ok(Place::Disk(path))
     }
-    Ok(path)
 }
 
 fn limit(request: &Value) -> Result<i64, OpError> {
@@ -94,17 +121,17 @@ fn limit(request: &Value) -> Result<i64, OpError> {
     }
 }
 
+fn decode(request: &Value) -> Result<Vec<u8>, OpError> {
+    let encoded = field(request, "base64")?;
+    base64::engine::general_purpose::STANDARD.decode(encoded).map_err(|_| OpError::Invalid)
+}
+
 /// The bytes a request names: `base64`, else the file at `path`.
-fn bytes(request: &Value, home: Option<&Path>) -> Result<Result<Vec<u8>, ReadError>, OpError> {
-    if let Some(encoded) = request.get("base64") {
-        let encoded = encoded.as_str().ok_or(OpError::Invalid)?;
-        return base64::engine::general_purpose::STANDARD
-            .decode(encoded)
-            .map(Ok)
-            .map_err(|_| OpError::Invalid);
+fn bytes(request: &Value, source: Source<'_>) -> Result<Result<Vec<u8>, ReadError>, OpError> {
+    if request.get("base64").is_some() {
+        return decode(request).map(Ok);
     }
-    let file = path(request, "path", home)?;
-    Ok(std::fs::read(file).map_err(|e| ReadError::Read(e.to_string())))
+    Ok(source.place(request, "path")?.read())
 }
 
 fn answer(result: Result<Value, ReadError>) -> Value {
@@ -134,56 +161,90 @@ fn file(found: Option<PathBuf>) -> Value {
     json!({ "ok": found.map(|p| p.to_string_lossy().into_owned()) })
 }
 
-/// Runs `op` on `request` (a JSON object). `home` is the reading process's home, whose
-/// [`PROTECTED`] folders are refused; `None` refuses none.
+/// Runs `op` on `request` (a JSON object) with the daemon's uploads ([`upload::SHARED`]).
+/// `home` is the reading process's home, whose [`PROTECTED`] folders are refused; `None`
+/// refuses none.
 pub fn call(op: &str, request: &Value, home: Option<&Path>) -> Result<Value, OpError> {
+    call_with(op, request, home, &upload::SHARED, Instant::now())
+}
+
+/// [`call`] with `uploads` at `now`.
+pub fn call_with(
+    op: &str,
+    request: &Value,
+    home: Option<&Path>,
+    uploads: &Uploads,
+    now: Instant,
+) -> Result<Value, OpError> {
+    uploads.prune(now);
+    let id = match request.get("upload") {
+        None => None,
+        Some(id) => Some(id.as_str().filter(|id| upload::valid_id(id)).ok_or(OpError::Invalid)?),
+    };
+    match op {
+        "upload.append" => {
+            let id = id.ok_or(OpError::Invalid)?;
+            let key = Files::key(field(request, "name")?)
+                .filter(|key| !key.is_empty())
+                .ok_or(OpError::Refused)?;
+            let reply = uploads.append(id, key, &decode(request)?, now).map(|()| Value::Null);
+            return Ok(answer(reply));
+        }
+        "upload.drop" => {
+            uploads.drop_upload(id.ok_or(OpError::Invalid)?);
+            return Ok(json!({ "ok": null }));
+        }
+        _ if !OPS.contains(&op) => return Err(OpError::Unknown),
+        _ => {}
+    }
+    let Some(id) = id else { return read(op, request, Source { home, files: None }) };
+    match uploads.files(id, now) {
+        Ok(files) => read(op, request, Source { home, files: Some(&files) }),
+        Err(error) => Ok(answer(Err(error))),
+    }
+}
+
+fn read(op: &str, request: &Value, source: Source<'_>) -> Result<Value, OpError> {
+    let path = |key: &str| source.place(request, key);
     let reply = match op {
         "chromium.bookmarks" => {
-            bookmarks(bytes(request, home)?.and_then(|d| chromium::bookmarks(&d)))
+            bookmarks(bytes(request, source)?.and_then(|d| chromium::bookmarks(&d)))
         }
-        "chromium.history" => {
-            history(chromium::history(&path(request, "path", home)?, limit(request)?))
-        }
-        "chromium.session_file" => file(chromium::session_file(&path(request, "profile", home)?)),
-        "chromium.latest_session_file" => {
-            file(chromium::latest_session_file(&path(request, "sessions", home)?))
-        }
-        "chromium.session" => match bytes(request, home)? {
+        "chromium.history" => history(chromium::history(path("path")?, limit(request)?)),
+        "chromium.session_file" => file(chromium::session_file(path("profile")?)),
+        "chromium.latest_session_file" => file(chromium::latest_session_file(path("sessions")?)),
+        "chromium.session" => match bytes(request, source)? {
             Ok(data) => tabs(&chromium::session(&data)),
             Err(error) => answer(Err(error)),
         },
-        "chromium.search_engine" => {
-            engine(chromium::search_engine(&path(request, "profile", home)?))
-        }
+        "chromium.search_engine" => engine(chromium::search_engine(path("profile")?)),
         "chromium.extensions" => {
-            let items = chromium::extensions(&path(request, "profile", home)?);
+            let items = chromium::extensions(path("profile")?);
             json!({ "ok": model::list(&items, Extension::to_json) })
         }
         "arc.bookmarks" => {
             let profile = field(request, "profileDirectory")?;
-            bookmarks(bytes(request, home)?.and_then(|d| arc::bookmarks(&d, profile)))
+            bookmarks(bytes(request, source)?.and_then(|d| arc::bookmarks(&d, profile)))
         }
-        "firefox.bookmarks" => bookmarks(firefox::bookmarks(&path(request, "path", home)?)),
-        "firefox.history" => {
-            history(firefox::history(&path(request, "path", home)?, limit(request)?))
-        }
-        "firefox.session_file" => file(firefox::session_file(&path(request, "profile", home)?)),
-        "firefox.session" => match bytes(request, home)? {
+        "firefox.bookmarks" => bookmarks(firefox::bookmarks(path("path")?)),
+        "firefox.history" => history(firefox::history(path("path")?, limit(request)?)),
+        "firefox.session_file" => file(firefox::session_file(path("profile")?)),
+        "firefox.session" => match bytes(request, source)? {
             Ok(data) => tabs(&firefox::session(&data)),
             Err(error) => answer(Err(error)),
         },
-        "firefox.search_engine" => engine(firefox::search_engine(&path(request, "profile", home)?)),
-        "safari.bookmarks" => bookmarks(bytes(request, home)?.and_then(|d| safari::bookmarks(&d))),
-        "safari.history" => {
-            history(safari::history(&path(request, "path", home)?, limit(request)?))
+        "firefox.search_engine" => engine(firefox::search_engine(path("profile")?)),
+        "safari.bookmarks" => {
+            bookmarks(bytes(request, source)?.and_then(|d| safari::bookmarks(&d)))
         }
+        "safari.history" => history(safari::history(path("path")?, limit(request)?)),
         "safari.search_engine" => engine(safari::search_engine(request.get("services"))),
         "exported_history.looks_like" => {
             json!({ "ok": exported::looks_like_history(field(request, "head")?) })
         }
         "exported_history.parse" => {
             let limit = limit(request)?;
-            match bytes(request, home)? {
+            match bytes(request, source)? {
                 Ok(data) => json!({ "ok": exported::parse(&data, limit).map(|h| json!({
                     "format": h.format.name(),
                     "entries": model::list(&h.entries, HistoryEntry::to_json),
@@ -213,7 +274,10 @@ pub fn call(op: &str, request: &Value, home: Option<&Path>) -> Result<Value, OpE
     Ok(reply)
 }
 
-/// The reader names: `browser_import.read`'s `reader` values.
+/// The upload ops: `browser_import.read`'s other `reader` values.
+pub const UPLOAD_OPS: [&str; 2] = ["upload.append", "upload.drop"];
+
+/// The reader names: `browser_import.read`'s `reader` values besides [`UPLOAD_OPS`].
 pub const OPS: [&str; 19] = [
     "chromium.bookmarks",
     "chromium.history",

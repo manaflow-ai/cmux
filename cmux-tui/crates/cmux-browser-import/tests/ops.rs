@@ -65,6 +65,35 @@ fn protected_folders_are_refused_as_written_and_through_a_link() {
     assert!(reply["error"]["kind"].is_string(), "{reply}");
 }
 
+/// A sibling whose name only starts with a protected folder's is not under it: the match is by
+/// whole path parts (`Path::starts_with`), as the app's `ProtectedProfileCopy.isProtected` (which
+/// appends `/` to both sides) has it.
+#[test]
+fn a_sibling_of_a_protected_folder_is_not_refused() {
+    let home = tempfile::tempdir().unwrap();
+    for sibling in [
+        "Library/SafariTechnologyPreviewNot",
+        "Library/SafariX",
+        "Library/Safari X",
+        "Library/ContainersX",
+        "Library/Group ContainersX",
+        "Library/Safari.backup",
+    ] {
+        let folder = home.path().join(sibling);
+        std::fs::create_dir_all(&folder).unwrap();
+        let file = folder.join("History.db");
+        assert!(!protected(&file, home.path()), "{sibling}");
+        let reply =
+            call("safari.history", &json!({"path": file.to_string_lossy()}), Some(home.path()))
+                .unwrap();
+        assert!(reply["error"]["kind"].is_string(), "{sibling} is read, not refused: {reply}");
+    }
+    for inside in ["Library/SafariTechnologyPreview/History.db", "Library/Safari/x/History.db"] {
+        assert!(protected(&home.path().join(inside), home.path()), "{inside}");
+    }
+    assert!(protected(&home.path().join("Library/Safari"), home.path()), "the folder itself");
+}
+
 #[test]
 fn every_op_answers_on_an_empty_profile() {
     let profile = tempfile::tempdir().unwrap();

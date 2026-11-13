@@ -4,10 +4,11 @@
 
 use crate::json::{self, Object};
 use crate::model::{Bookmark, HistoryEntry, ReadError, SearchEngine, Tab};
-use crate::sqlite::{self, Snapshot};
+use crate::place::Place;
+use crate::sqlite;
 use crate::{lz4, search, time, url};
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 const ROOT_GUID: &str = "root________";
 const TAGS_GUID: &str = "tags________";
@@ -31,8 +32,8 @@ struct Folder {
 
 /// Bookmarks (`moz_bookmarks` joined to `moz_places`, folder titles from the parent chain), in
 /// parent then position order. Entries under the tags root are tag assignments, left out.
-pub fn bookmarks(file: &Path) -> Result<Vec<Bookmark>, ReadError> {
-    let database = Snapshot::copying(file)?;
+pub fn bookmarks<'a>(file: impl Into<Place<'a>>) -> Result<Vec<Bookmark>, ReadError> {
+    let database = file.into().database()?;
     let mut folders: HashMap<i64, Folder> = HashMap::new();
     database.query("SELECT id, title, parent, guid FROM moz_bookmarks WHERE type = 2", |row| {
         folders.insert(
@@ -83,8 +84,8 @@ pub fn bookmarks(file: &Path) -> Result<Vec<Bookmark>, ReadError> {
 }
 
 /// History (`moz_places` with visits), newest first.
-pub fn history(file: &Path, limit: i64) -> Result<Vec<HistoryEntry>, ReadError> {
-    let database = Snapshot::copying(file)?;
+pub fn history<'a>(file: impl Into<Place<'a>>, limit: i64) -> Result<Vec<HistoryEntry>, ReadError> {
+    let database = file.into().database()?;
     let sql = format!(
         "SELECT url, title, visit_count, last_visit_date FROM moz_places \
          WHERE hidden = 0 AND visit_count > 0 AND last_visit_date IS NOT NULL AND {} \
@@ -110,7 +111,8 @@ pub fn history(file: &Path, limit: i64) -> Result<Vec<HistoryEntry>, ReadError> 
 
 /// The session store a profile has: `recovery.jsonlz4`, else `sessionstore.jsonlz4`, else
 /// `previous.jsonlz4`.
-pub fn session_file(profile: &Path) -> Option<PathBuf> {
+pub fn session_file<'a>(profile: impl Into<Place<'a>>) -> Option<PathBuf> {
+    let profile = profile.into();
     [
         "sessionstore-backups/recovery.jsonlz4",
         "sessionstore.jsonlz4",
@@ -118,7 +120,8 @@ pub fn session_file(profile: &Path) -> Option<PathBuf> {
     ]
     .iter()
     .map(|name| profile.join(name))
-    .find(|path| path.exists())
+    .find(Place::exists)
+    .map(|place| place.path())
 }
 
 /// The open tabs of a session store (mozLz4 JSON, `windows[].tabs[].entries[]`, `index`
@@ -157,8 +160,8 @@ pub fn session(data: &[u8]) -> Vec<Tab> {
 }
 
 /// A profile's default search engine from `search.json.mozlz4`.
-pub fn search_engine(profile: &Path) -> Option<SearchEngine> {
-    let data = std::fs::read(profile.join("search.json.mozlz4")).ok()?;
+pub fn search_engine<'a>(profile: impl Into<Place<'a>>) -> Option<SearchEngine> {
+    let data = profile.into().join("search.json.mozlz4").read().ok()?;
     search_engine_json(&lz4::decompress(&data)?)
 }
 

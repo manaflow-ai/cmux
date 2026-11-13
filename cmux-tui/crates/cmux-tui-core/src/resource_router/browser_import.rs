@@ -7,8 +7,10 @@
 //! Only the verified app connection sends it (`request_origin::USER_ONLY_OPERATIONS`): it opens a
 //! file by path. A path under a folder macOS protects in the daemon's home (Safari's, an app
 //! container's: `cmux_browser_import::ops::PROTECTED`) is refused, so the daemon never opens one;
-//! the app stages a private copy of what it reads there and names the copy. It is stateless:
-//! nothing is kept between calls, and every database is read from a private copy.
+//! the app reads what a reader needs there and sends the bytes into an upload held in the
+//! daemon's memory only (`upload.append`, `upload.drop`: `cmux_browser_import::upload`), which a
+//! read names. Nothing else is kept between calls; every database on disk is read from a private
+//! copy, and one in an upload is opened in memory.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -61,7 +63,7 @@ pub(crate) fn read(
             None,
             format!(
                 "{reader}: the path is not absolute, climbs with .., or is under a folder macOS \
-                 protects (the app stages a copy of what it reads there)"
+                 protects (the app sends what it reads there into an upload)"
             ),
         ),
     })
@@ -136,5 +138,23 @@ mod tests {
             Some(home.path()),
         );
         assert!(refused.is_err());
+    }
+
+    #[test]
+    fn a_protected_file_is_read_from_an_upload_in_memory() {
+        let upload = format!("core-{}", std::process::id());
+        let append = json!({"reader": "upload.append", "upload": upload, "name": "Bookmarks", "base64": "e30="});
+        assert_eq!(read(fields(append), None).expect("append"), json!({"ok": null}));
+        let request =
+            json!({"reader": "chromium.bookmarks", "upload": upload, "path": "Bookmarks"});
+        let reply = read(fields(request.clone()), None).expect("read");
+        assert_eq!(reply["error"]["kind"], "notBookmarks", "the upload's bytes were read: {reply}");
+        let drop = json!({"reader": "upload.drop", "upload": upload});
+        assert_eq!(read(fields(drop), None).expect("drop"), json!({"ok": null}));
+        let gone = read(fields(request), None).expect("read");
+        assert_eq!(gone["error"]["kind"], "read", "{gone}");
+        let climbs =
+            json!({"reader": "chromium.bookmarks", "upload": upload, "path": "../Bookmarks"});
+        assert!(read(fields(climbs), None).is_err());
     }
 }

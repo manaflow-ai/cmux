@@ -14,11 +14,14 @@
 //! - [`safari`]: `Bookmarks.plist`, `History.db` and the Search setting;
 //! - [`exported`]: history a browser exports as JSON (Safari, Google Takeout);
 //! - [`search`]: a search engine's template cleanup, host and built-in mapping;
-//! - [`sqlite`]: the private, read-only copy every database is read from;
+//! - [`sqlite`]: the private, read-only copy every database on disk is read from, and the
+//!   in-memory open (WAL replayed) of one the app sent;
+//! - [`place`] and [`upload`]: a file on disk or in the bytes the app sent from a folder macOS
+//!   protects, held in memory and never written to disk;
 //! - [`ops`]: the readers `browser_import.read` names, and the folders it refuses ([`ops::protected`]).
 //!
-//! The app keeps what must stay native: the folder grants, every Keychain read and the private
-//! copy it stages of a folder macOS protects (Safari's, an app container's).
+//! The app keeps what must stay native: the folder grants, every Keychain read and reading the
+//! bytes of a folder macOS protects (Safari's, an app container's), which it sends in memory.
 //! Nothing here fetches a Keychain item or writes a source file. Results carry dates as seconds
 //! since 2001-01-01 (Foundation's `Date` encoding) and URLs as the source's text, so the app
 //! decodes them with its own `Codable` types and `URL(string:)`.
@@ -32,10 +35,12 @@ pub mod lz4;
 pub mod model;
 pub mod ops;
 pub mod pickle;
+pub mod place;
 pub mod safari;
 pub mod search;
 pub mod sqlite;
 pub mod time;
+pub mod upload;
 pub mod url;
 
 pub use model::{Bookmark, Extension, HistoryEntry, ReadError, SearchEngine, Tab};

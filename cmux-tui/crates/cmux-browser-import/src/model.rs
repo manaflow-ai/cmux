@@ -69,6 +69,8 @@ pub enum ReadError {
     Open(String),
     /// A statement failed (`Failure.query`).
     Query(String),
+    /// The files the app sent are over the daemon's cap (`upload::MAX_UPLOAD_BYTES`).
+    TooLarge(String),
 }
 
 impl ReadError {
@@ -80,6 +82,7 @@ impl ReadError {
             ReadError::Copy(_) => "copy",
             ReadError::Open(_) => "open",
             ReadError::Query(_) => "query",
+            ReadError::TooLarge(_) => "tooLarge",
         }
     }
 
@@ -89,7 +92,8 @@ impl ReadError {
             | ReadError::Syntax(m)
             | ReadError::Copy(m)
             | ReadError::Open(m)
-            | ReadError::Query(m) => m,
+            | ReadError::Query(m)
+            | ReadError::TooLarge(m) => m,
             ReadError::Shape(what) => what,
         }
     }

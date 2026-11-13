@@ -2,14 +2,15 @@ public import Foundation
 
 /// Reads another browser's data through the daemon's `browser_import.read` (the
 /// `cmux-browser-import` crate holds every reader). The app's transport is
-/// `BrowserImportClient.read` on the local daemon; a folder macOS protects is
-/// read from a private copy (``ProtectedProfileCopy``). Each read runs off the
-/// caller's actor.
+/// `BrowserImportClient.read` on the local daemon; the files a read opens in a
+/// folder macOS protects are sent into an upload the daemon holds in memory
+/// (``ProtectedProfileUpload``). Each read runs off the caller's actor.
 public struct BrowserDataReader: Sendable {
     /// Sends one request's fields as JSON and answers the reply as JSON.
     public typealias Transport = @Sendable (Data) async throws -> Data
 
-    /// A source file that did not read (`kind`: read, open, query, copy, syntax, notBookmarks...).
+    /// A source file that did not read (`kind`: read, open, query, copy, syntax, notBookmarks,
+    /// tooLarge: the files sent from a protected folder are over the daemon's cap...).
     public struct Failure: Error, Sendable, Equatable, Decodable, CustomStringConvertible {
         public var kind: String
         public var message: String
@@ -43,10 +44,10 @@ public struct BrowserDataReader: Sendable {
     }
 
     let transport: Transport
-    private let copies: ProtectedProfileCopy
+    private let protected: ProtectedProfileUpload
 
-    public init(copies: ProtectedProfileCopy = ProtectedProfileCopy(), transport: @escaping Transport) {
-        self.copies = copies
+    public init(protected: ProtectedProfileUpload = ProtectedProfileUpload(), transport: @escaping Transport) {
+        self.protected = protected
         self.transport = transport
     }
 
@@ -59,7 +60,7 @@ public struct BrowserDataReader: Sendable {
         case .safari: reader = "safari.history"
         case .webkit, .other: return []
         }
-        return try await copies.file(file) { try await list(Request(reader: reader, path: $0.path, limit: limit)) }
+        return try await protected.file(file, over: transport) { try await list(Request(reader: reader, $0, limit: limit)) }
     }
 
     /// One profile's bookmarks, with the reader its registry row names (engine family, not
@@ -91,9 +92,9 @@ public struct BrowserDataReader: Sendable {
         case .firefox: readers = ("firefox.session_file", "firefox.session")
         case .safari, .webkit, .other: return []
         }
-        return try await copies.profile(profile.path) { folder in
-            guard let file = try await call(Request(reader: readers.file, profile: folder.path), as: String.self) else { return [] }
-            return try await list(Request(reader: readers.tabs, path: file))
+        return try await protected.profile(profile.path, over: transport) { folder in
+            guard let file = try await call(Request(reader: readers.file, profile: folder), as: String.self) else { return [] }
+            return try await list(Request(reader: readers.tabs, .init(path: file, upload: folder.upload)))
         }
     }
 
@@ -102,7 +103,7 @@ public struct BrowserDataReader: Sendable {
         switch profile.browser.family {
         case .chromium, .firefox:
             let reader = profile.browser.family == .chromium ? "chromium.search_engine" : "firefox.search_engine"
-            return try await copies.profile(profile.path) { try await call(Request(reader: reader, profile: $0.path), as: ImportedSearchEngine.self) }
+            return try await protected.profile(profile.path, over: transport) { try await call(Request(reader: reader, profile: $0), as: ImportedSearchEngine.self) }
         case .safari:
             return try await call(Request(reader: "safari.search_engine", services: Self.safariServices()), as: ImportedSearchEngine.self)
         case .webkit, .other:
@@ -113,7 +114,7 @@ public struct BrowserDataReader: Sendable {
     /// A Chromium profile's Web Store extensions.
     @concurrent public func extensions(_ profile: BrowserSourceProfile) async throws -> [ImportedExtension] {
         guard profile.browser.family == .chromium else { return [] }
-        return try await copies.profile(profile.path) { try await list(Request(reader: "chromium.extensions", profile: $0.path)) }
+        return try await protected.profile(profile.path, over: transport) { try await list(Request(reader: "chromium.extensions", profile: $0)) }
     }
 
     /// The `browser.searchEngine` setting for `engine`: the built-in engine (`builtIn`: id to
@@ -195,6 +196,8 @@ public struct BrowserDataReader: Sendable {
         var services: SafariServices?
         var engine: ImportedSearchEngine?
         var builtIn: [String: String]?
+        /// The upload `path` and `profile` name a file or folder in (``ProtectedProfileUpload``).
+        var upload: String?
     }
 
     private struct Reply<Value: Decodable>: Decodable {
@@ -209,7 +212,9 @@ public struct BrowserDataReader: Sendable {
     }
 
     private func read<Item: Decodable>(_ reader: String, _ file: URL, profileDirectory: String? = nil) async throws -> [Item] {
-        try await copies.file(file) { try await list(Request(reader: reader, path: $0.path, profileDirectory: profileDirectory)) }
+        try await protected.file(file, over: transport) {
+            try await list(Request(reader: reader, path: $0.path, profileDirectory: profileDirectory, upload: $0.upload))
+        }
     }
 
     private func list<Item: Decodable>(_ request: Request) async throws -> [Item] {
@@ -220,5 +225,17 @@ public struct BrowserDataReader: Sendable {
         let reply = try JSONDecoder().decode(Reply<Value>.self, from: try await transport(try JSONEncoder().encode(request)))
         if let error = reply.error { throw error }
         return reply.ok
+    }
+}
+
+extension BrowserDataReader.Request {
+    /// A read of the file `file` names (a path, or a name in an upload).
+    init(reader: String, _ file: ProtectedProfileUpload.Source, limit: Int? = nil) {
+        self.init(reader: reader, path: file.path, limit: limit, upload: file.upload)
+    }
+
+    /// A read of the folder `profile` names (a path, or `.` in an upload).
+    init(reader: String, profile: ProtectedProfileUpload.Source) {
+        self.init(reader: reader, profile: profile.path, upload: profile.upload)
     }
 }
