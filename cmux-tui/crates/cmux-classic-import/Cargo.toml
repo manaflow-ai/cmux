@@ -11,6 +11,7 @@ description = "The one-time move from classic cmux: reads classic's saved sessio
 workspace = true
 
 [dependencies]
+cmux-file-lock.workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true }
 

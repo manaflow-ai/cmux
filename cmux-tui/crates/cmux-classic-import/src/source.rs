@@ -281,34 +281,21 @@ impl RunningProbe {
     /// not held; a free lock is taken shared for an instant and let go.
     #[cfg(unix)]
     pub fn is_lock_held(path: &Path) -> bool {
-        use std::os::unix::ffi::OsStrExt;
-        let Ok(text) = std::ffi::CString::new(path.as_os_str().as_bytes()) else { return false };
-        // SAFETY: `text` is a valid C string; the descriptor is closed below.
-        let fd = unsafe {
-            libc::open(
-                text.as_ptr(),
-                libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK,
-            )
+        use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+        let Ok(file) = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .open(path)
+        else {
+            return false;
         };
-        if fd < 0 {
+        // SAFETY: getuid has no preconditions.
+        let me = unsafe { libc::getuid() };
+        if !file.metadata().is_ok_and(|info| info.uid() == me) {
             return false;
         }
-        // SAFETY: `fd` is open, `info` is a zeroed stat buffer, and every
-        // call below only reads it or changes its lock.
-        let held = unsafe {
-            let mut info: libc::stat = std::mem::zeroed();
-            if libc::fstat(fd, &mut info) != 0 || info.st_uid != libc::getuid() {
-                false
-            } else if libc::flock(fd, libc::LOCK_SH | libc::LOCK_NB) == 0 {
-                libc::flock(fd, libc::LOCK_UN);
-                false
-            } else {
-                std::io::Error::last_os_error().raw_os_error() == Some(libc::EWOULDBLOCK)
-            }
-        };
-        // SAFETY: `fd` was opened above and is closed once.
-        unsafe { libc::close(fd) };
-        held
+        cmux_file_lock::FileLock::held_elsewhere(&file, cmux_file_lock::Kind::Shared)
+            .unwrap_or(false)
     }
 
     /// Never held where there is no `flock`.
@@ -426,22 +413,20 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_held_socket_lock_says_classic_is_open() {
-        use std::os::unix::io::AsRawFd;
         let root = tempfile::tempdir().unwrap();
         let lock = write(root.path(), "cmux.sock.lock", None);
         assert!(!RunningProbe::is_lock_held(&lock));
         assert!(!RunningProbe::is_lock_held(&root.path().join("missing.lock")));
-        let holder = File::open(&lock).unwrap();
-        // SAFETY: the descriptor is open for the call.
-        assert_eq!(unsafe { libc::flock(holder.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+        let holder = cmux_file_lock::FileLock::try_take(
+            File::open(&lock).unwrap(),
+            cmux_file_lock::Kind::Exclusive,
+        )
+        .unwrap();
         assert!(RunningProbe::is_lock_held(&lock));
         let link = root.path().join("link.lock");
         std::os::unix::fs::symlink(&lock, &link).unwrap();
         assert!(!RunningProbe::is_lock_held(&link));
-        // Unlock before the close: a process another test starts may still hold a copy of the
-        // descriptor, and with it the lock.
-        // SAFETY: the descriptor is open for the call.
-        assert_eq!(unsafe { libc::flock(holder.as_raw_fd(), libc::LOCK_UN) }, 0);
+        // FileLock unlocks before it closes, so a process another test starts keeps no lock.
         drop(holder);
         assert!(!RunningProbe::is_lock_held(&lock));
     }

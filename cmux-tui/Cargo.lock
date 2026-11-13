@@ -1214,6 +1214,7 @@ dependencies = [
 name = "cmux-classic-import"
 version = "0.1.0"
 dependencies = [
+ "cmux-file-lock",
  "libc",
  "serde",
  "serde_json",
