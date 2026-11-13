@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43529510682",
+  "recorded_at": "2026-11-13T23:53:31Z",
+  "reason": "cmux-tui bb91fea3c013 changes the image's cmux-tui (pinned 8f7fbadb720a)",
+  "dry_run": false,
+  "cmux_tui": "bb91fea3c0134c11700c5baa6d6104dad896aded",
+  "fixes": [
+    {
+      "sha": "bb91fea3c0134c11700c5baa6d6104dad896aded",
+      "mergedAt": "2026-11-13T15:20:48-08:00",
+      "subject": "cmux-tui: a terminal has its class from its first connection, by its host's seat (#42679)"
+    },
+    {
+      "sha": "494e3617cae4938d7f32846ceb6f67ab9bc4d33c",
+      "mergedAt": "2026-11-13T15:20:20-08:00",
+      "subject": "cmux-tui: the daemon reads a work tree's files through real folders only (#42604)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T23:53:31Z",
+    "snapshot_id": "sh-cd9ddf1279354dd3b1fd1ef77175e4c4",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43529510682): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "e3fecfebe2ef6b10bef4a1ee4f7693510223066e",
+    "image": "cloud-native-auto-bb91fea3-43529510682-1",
+    "revision": "ci-43529510682-1",
+    "at": "2026-11-13T23:53:31Z"
+  },
+  "rolled_back": false
+}
