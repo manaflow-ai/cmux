@@ -322,3 +322,21 @@ refusal is a stored known failure (`operation.failed`, `extra.terminal_retained:
   `--machine`). Only an older daemon's refusal of the unknown parameter (`validation.invalid`,
   before the request is keyed) makes it send the plain close; any other failure leaves the
   terminal to the reaper. The CLI does not call `identify` for this.
+
+## Notice to PL-daemon: terminal children say TERM_PROGRAM=cmux (2026-11-12)
+
+User ask: `echo $TERM_PROGRAM` in a cmux terminal said `ghostty`; make it say `cmux`.
+
+- `cmux_pty::UNSET_IN_TERMINAL_CHILDREN` is gone. `cmux_pty::TERMINAL_IDENTITY`
+  (`TERM_PROGRAM=cmux`, `TERM_PROGRAM_VERSION=<workspace version>`) and
+  `PtyCommand::terminal_identity()` replace it. Every terminal child path sets it after the
+  launch's own env: `surface/construct.rs`, `surface/holder_spawn.rs` (spelled-out map),
+  `terminal_host_runtime.rs` (Unix and Windows), `cmux-remote` `workspace/process.rs`.
+  `shell_integration::keys_to_unset_in_child` now returns only the incognito markers.
+- `cmux-pty` takes the workspace version (was 0.1.0), so the version is cmux's.
+- `TERM`, `COLORTERM=truecolor`, `GHOSTTY_RESOURCES_DIR` and the XTVERSION reply are unchanged.
+- cmux#22585 still holds: the `claude`/`codex` wrappers (`cmux-tui/src/agent_terminal_identity.rs`)
+  start those agents with `TERM_PROGRAM=ghostty` and no version.
+- Cloud: `cmux-host::daemon_spec` and `cmux-devbox-boot` start the session daemon with
+  `TERM_PROGRAM=cmux` and no version; cmux-host no longer reads `/etc/cmux/ghostty-version`.
+- A new terminal-child path must call `terminal_identity()` (or insert `TERMINAL_IDENTITY`).

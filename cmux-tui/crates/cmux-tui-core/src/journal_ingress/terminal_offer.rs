@@ -178,6 +178,41 @@ impl JournalIngressSender {
     }
 }
 
+/// The reason of the marker that a record the writer dropped for good leaves (the store rejected
+/// it every time, and nobody waited on it).
+const COMMIT_FAILED_REASON: &str = "journal_commit_failed";
+
+impl super::JournalIngressState {
+    /// The writer dropped `event` for good. A terminal record leaves an owed marker for its
+    /// terminal generation, offered ahead of that terminal's next record or checkpoint, and the
+    /// terminal is returned so that its next checkpoint states it again from memory. An owed
+    /// marker already there covers it. Other events (barriers) have no row to state again.
+    pub(super) fn owe_gap_for_dropped(
+        &self,
+        event: &JournalIngressEvent,
+    ) -> Option<Arc<TerminalPublicId>> {
+        let stream = match event {
+            JournalIngressEvent::TerminalResize { terminal_id, generation, .. }
+            | JournalIngressEvent::TerminalOutputGap { terminal_id, generation, .. } => {
+                (terminal_id.clone(), generation.clone())
+            }
+            #[cfg(test)]
+            JournalIngressEvent::TerminalOutput { terminal_id, generation, .. } => {
+                (terminal_id.clone(), generation.clone())
+            }
+            _ => return None,
+        };
+        let terminal = stream.0.clone();
+        self.owed_terminal_gaps
+            .lock()
+            .recover_poison()
+            .0
+            .entry(stream)
+            .or_insert(COMMIT_FAILED_REASON);
+        Some(terminal)
+    }
+}
+
 fn gap_marker(stream: &TerminalStream, reason: &'static str) -> JournalIngressEvent {
     JournalIngressEvent::TerminalOutputGap {
         terminal_id: stream.0.clone(),

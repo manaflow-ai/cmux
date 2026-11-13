@@ -774,6 +774,18 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   emulation prevention). The phone keeps a lane frame only when it carries
   its own channel's tag, strips the SEI before decoding, and starts at its
   first keyframe; it never learns when the lane switched tabs otherwise.
+- `appearance` (`appearance-v1`, 2026-11-12): the Mac's theme and wallpaper, so the
+  phone's chrome takes the colors the Mac's chrome derives from and shows the picture
+  behind the Mac's sidebar. One JSON frame now and on every change, nothing before the
+  Mac app sent its first one: `{"theme": {"background", "foreground", "palette": [8 or
+  16 "#rrggbb"], "selection_background"?, "selection_foreground"?, "cursor"?, "accent",
+  "accent_color"?, "background_opacity"}, "wallpaper": {"id", "bytes", "tint_opacity"} |
+  null}`. `id` is the SHA-256 of the picture (hex), the phone's cache key. The phone
+  derives every chrome color itself (`ThemeTokens.derive`, the Mac's own code) and keeps
+  the last frame, so it paints the same palette at launch and offline.
+- `appearance-wallpaper` (`appearance-v1`): `{"id"}` streams that picture's bytes (a JPEG
+  or PNG, at most 8 MB), then `eof`; `stale` when the Mac shows another one now,
+  `not_found` when it shows none. Machines need the View grant for both.
 - `echo`: test service.
 - `version` (link protocol 2, added 2026-10-14): one data frame
   `{"hostd": "<version>", "link": 2}`, then `eof`. A host that refuses it
@@ -1023,20 +1035,18 @@ Mechanisms, phone first, then the Mac:
   file importer). Losing that sends `release-surface-size {surface}` on the
   attach channel after a 1 s debounce (`TerminalSizeClaimDebounce`), so a
   quick switch away and back sends nothing and never resizes the Mac twice.
-  The app entering the background (or the lock screen) keeps the claim
-  (2026-11-12, Leo: "surely this calculation of sort is doable on the phone
-  itself? it projection of text"): an app switch, a lock and unlock or a
-  link blip never moves the Mac's PTY, so the phone never redraws twice.
-  The phone releases only after 5 min in the background; a suspended app
-  cannot, so the Mac's size lease (45 s after the last refresh) is what
-  gives the Mac's pane its own size back. When the claim lapsed while the
-  app was away, the page as it was when the app left stays on screen until
+  The app entering the background (or the lock screen) releases at once,
+  with no debounce, before iOS suspends it (2026-11-12, Leo: "if I do
+  completely switch away, I want to be gone. I want to leave it. And if I
+  come back, I don't want to see the stretched out version"), so the Mac's
+  pane gets its own size back. Coming back (`willEnterForeground`) claims
+  at once, and the page as it was when the app left stays on screen until
   the reclaim's mirror reset is replayed, so the Mac's wider grid is never
-  painted. Coming back claims at once:
+  painted. The claim:
   `resize-surface` with the last measured grid. While released, layout passes
   are remembered and not sent, and a reattach attaches without a size.
 - **Reclaim hold (phone, `TerminalReclaimHold`).** Any release (a page left
-  for another tab, the grid or a sheet, or a background claim that lapsed)
+  for another tab, the grid or a sheet, or the app going to the background)
   makes the Mac replay its own grid to the hidden page, and the claim makes it
   replay the phone's again. The page draws neither round trip: while it is released, a
   grid other than its claimed one, and every byte after it, is held. When the
@@ -1087,9 +1097,9 @@ release and the daemon's size lease.
 | Page menu open longer than 1 s | page not interactive → release; claimed again on close | 1 s + RTT |
 | Files and Links, photo picker or file importer over the page | covered → release | 1 s + RTT |
 | A sheet the page does not own (Connected Devices) | still claims (the terminal shows behind it) | n/a |
-| App to the background, screen locked | claim kept; a suspended phone stops refreshing, the lease ends | 45 s (back sooner: no change at all) |
+| App to the background, screen locked | `didEnterBackground` → release at once, inside a short background task; coming back holds the page from before until the reclaim's replay | one round trip |
 | Force quit, killed by iOS while foreground | no release; lease ends (or keepalive + hold, capped by the lease) | 45 s |
-| Killed by iOS in the background | no release; lease ends | 45 s |
+| Killed by iOS in the background | already released on entering it | one round trip |
 | Link drop: network loss, roaming | keepalive closes the socket; hold capped by the lease | 45 s (a reattach inside it keeps the phone's grid) |
 | Transport switch | link redialled; hold; reattach finds the grid | no change if it reattaches within 30 s; else 45 s |
 | Mac host (hostd) restarts: SIGTERM | hostd releases before exit | 0.7 s |

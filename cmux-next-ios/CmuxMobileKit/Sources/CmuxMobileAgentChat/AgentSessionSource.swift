@@ -264,6 +264,9 @@ public protocol AgentSessionSource: AnyObject {
     /// The bytes of an attachment a recorded prompt names but this phone does not hold (an
     /// image another device or an earlier launch sent), or nil when the source can't read it.
     func attachmentData(_ attachment: AgentAttachment) async -> Data?
+    /// The whole record of a tool call output the Mac sent cut (``ACPToolOutputCut``), as the
+    /// update it made, or nil when the source can't read it (the person opens it again to retry).
+    func fullToolOutput(_ cut: ACPToolOutputCut) async -> ACPToolCallUpdate?
     /// The source reads the chat's history before its first records arrive (a chat that exists
     /// on the Mac): the chat opens on a loading state until ``AgentSessionEvent/historyLoading(_:)``
     /// says it caught up, instead of the empty new-chat screen. Sources that hold the whole
@@ -299,6 +302,7 @@ public protocol AgentSessionSource: AnyObject {
 
 extension AgentSessionSource {
     public func attachmentData(_ attachment: AgentAttachment) async -> Data? { nil }
+    public func fullToolOutput(_ cut: ACPToolOutputCut) async -> ACPToolCallUpdate? { nil }
     public func loadEarlierHistory() {}
     public var loadsHistory: Bool { false }
 }

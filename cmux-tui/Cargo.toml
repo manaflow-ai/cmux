@@ -17,6 +17,8 @@ workspace = true
 resolver = "2"
 members = [
     "crates/acpmux",
+    "crates/acpmux-core",
+    "crates/acpmux-client",
     "crates/cmux-tailnet",
     "crates/acpmux-build-id",
     "crates/acpmux-book",
@@ -113,6 +115,7 @@ members = [
     "crates/cmux-daemon-launch-core",
     "crates/cmux-health-core",
     "crates/cmux-cookie-sync",
+    "crates/cmux-browser-import",
     "crates/cmux-terminal-prediction",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
@@ -135,6 +138,8 @@ members = [
 ]
 default-members = [
     "crates/acpmux",
+    "crates/acpmux-core",
+    "crates/acpmux-client",
     "crates/acpmux-build-id",
     "crates/acpmux-book",
     "crates/cmux-coderouter",
@@ -216,6 +221,7 @@ default-members = [
     "crates/cmux-daemon-launch-core",
     "crates/cmux-health-core",
     "crates/cmux-cookie-sync",
+    "crates/cmux-browser-import",
     "crates/cmux-terminal-prediction",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
@@ -283,6 +289,7 @@ cmux-git = { path = "crates/cmux-git" }
 cmux-file-lock = { path = "crates/cmux-file-lock" }
 cmux-worktree-care = { path = "crates/cmux-worktree-care" }
 cmux-conductor-import = { path = "crates/cmux-conductor-import" }
+cmux-browser-import = { path = "crates/cmux-browser-import" }
 cmux-classic-import = { path = "crates/cmux-classic-import" }
 cmux-feed-core = { path = "crates/cmux-feed-core" }
 cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
@@ -309,6 +316,7 @@ cmux-palette-ranker = { path = "crates/cmux-palette-ranker" }
 cmux-action-catalog = { path = "crates/cmux-action-catalog" }
 cmux-host-budget = { path = "crates/cmux-host-budget" }
 cmux-usage-patterns = { path = "crates/cmux-usage-patterns" }
+cmux-command-class = { path = "crates/cmux-command-class" }
 cmux-vault-egress = { path = "crates/cmux-vault-egress" }
 cmux-url-input = { path = "crates/cmux-url-input" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
