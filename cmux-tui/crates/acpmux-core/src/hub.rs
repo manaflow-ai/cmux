@@ -333,8 +333,6 @@ impl Hub {
         }
         validate_window(sub)?;
         let cursor = sub.cursor.map_or(0, |cursor| cursor.0);
-        let subscriber = Arc::new(Subscriber::new(0));
-        self.subscribers.lock().map_err(|_| HubError::WriterGone)?.push(subscriber.clone());
         let index = self.snapshot();
         let resume_cursor = if sub.cursor.is_some() && cursor <= index.seq() {
             let history = self.history.lock().map_err(|_| HubError::WriterGone)?;
@@ -346,7 +344,10 @@ impl Hub {
         } else {
             index.seq()
         };
+        // Build and validate the initial frame before publishing the subscriber. A
+        // serialization or lock failure must not leave a ghost subscriber behind.
         let frame = self.window_frame_at_cursor(sub, &index, resume_cursor)?;
+        let subscriber = Arc::new(Subscriber::new(0));
         if let Ok(mut state) = subscriber.state.lock() {
             if sub.cursor.is_some() {
                 let history = self.history.lock().map_err(|_| HubError::WriterGone)?;
@@ -368,6 +369,7 @@ impl Hub {
                 state.cursor = index.seq();
             }
         }
+        self.subscribers.lock().map_err(|_| HubError::WriterGone)?.push(subscriber.clone());
         Ok(ListSubscription {
             window: frame,
             receiver: ListReceiver { subscriber, subscribers: self.subscribers.clone() },
@@ -433,6 +435,8 @@ impl Hub {
             rows: selected,
             has_before,
             has_after,
+            edition: 0,
+            origins: Vec::new(),
         };
         Frame::json(FrameKind::Window, &window).map_err(HubError::from)
     }
