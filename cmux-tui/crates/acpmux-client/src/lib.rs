@@ -6,53 +6,77 @@ use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use std::collections::{HashMap, VecDeque};
 use wire::{
-    Anchor, Cursor, DeltaOp, Frame, FrameError, FrameKind, Hello, Limits, Page, Request, Sub,
-    Window,
+    Anchor, Cursor, DeltaOp, Frame, FrameError, FrameKind, Hello, Limits, Page, PageResult,
+    Request, Sub, Window,
 };
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Change<T> {
     Window(Window<T>),
-    Page(PageChange<T>),
-    Summary { sid: String, seq: u64, summary: T, replay: bool },
-    Gone { sid: String, seq: u64, chat_id: String, why: Option<String>, replay: bool },
-    Origin { sid: String, seq: u64, origin: wire::Origin, replay: bool },
-    Queue { sid: String, seq: u64, bytes: u64, replay: bool },
-    ResumeEnd { sid: String, cursor: Cursor },
-    Unconfirmed { sid: String },
-    Dropped { sid: String, cursor: Option<Cursor>, new_sid: Option<String> },
-    Error { method: String, sid: Option<String>, id: Option<String>, code: String },
+    Page(PageResult<T>),
+    Summary {
+        sid: String,
+        seq: u64,
+        summary: T,
+        replay: bool,
+    },
+    Gone {
+        sid: String,
+        seq: u64,
+        origin: String,
+        chat_id: String,
+        why: Option<String>,
+        replay: bool,
+    },
+    Origin {
+        sid: String,
+        seq: u64,
+        origin: wire::Origin,
+        replay: bool,
+    },
+    Queue {
+        sid: String,
+        seq: u64,
+        bytes: u64,
+        replay: bool,
+    },
+    ResumeEnd {
+        sid: String,
+        cursor: Cursor,
+    },
+    Unconfirmed {
+        sid: String,
+    },
+    Dropped {
+        sid: String,
+        cursor: Option<Cursor>,
+        new_sid: Option<String>,
+    },
+    Error {
+        method: String,
+        sid: Option<String>,
+        id: Option<String>,
+        code: String,
+    },
     Fallback(Vec<u8>),
-}
-
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PageChange<T> {
-    pub sid: String,
-    #[serde(alias = "data")]
-    pub rows: Vec<T>,
-    #[serde(default)]
-    pub has_before: bool,
-    #[serde(default)]
-    pub has_after: bool,
-    #[serde(default)]
-    pub cursor: Option<Cursor>,
 }
 
 #[derive(Clone, Debug)]
 struct SubState {
+    initial: Sub,
     request: Sub,
     cursor: Cursor,
     edition: u32,
     consumed: u64,
     credited: u64,
     replaying: bool,
+    window_taken: bool,
 }
 
 #[derive(Clone, Debug, Default)]
 struct PageState {
     request: Option<Page>,
-    changed_keys: std::collections::HashSet<String>,
+    changed_keys: std::collections::HashSet<(String, String)>,
     removed_origins: std::collections::HashSet<String>,
 }
 
@@ -80,6 +104,18 @@ pub struct Client<T = acpmux_book::index::Summary> {
     next_id: u64,
     next_sid: u64,
     direct_v2: bool,
+    upgrade_id: Option<Value>,
+    skips: SkipCounters,
+}
+
+/// Counts protocol values this client intentionally skips while preserving the
+/// stream cursor. These counters are diagnostic, never flow control.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct SkipCounters {
+    pub unknown_kind: u64,
+    pub unknown_op: u64,
+    pub missing_seq: u64,
+    pub unheld_sid: u64,
 }
 
 struct QueuedChange<T> {
@@ -108,6 +144,8 @@ where
             next_id: 1,
             next_sid: 1,
             direct_v2: false,
+            upgrade_id: None,
+            skips: SkipCounters::default(),
         }
     }
 
@@ -123,6 +161,7 @@ where
         if self.phase == Phase::Upgrade {
             let id = self.next_id;
             self.next_id += 1;
+            self.upgrade_id = Some(Value::from(id));
             let request = serde_json::json!({"jsonrpc":"2.0","id":id,"method":"_acpmux/v2","params":{"protocol":2,"surfaces":self.surfaces}});
             self.send.push_back(format!("{request}\n").into_bytes());
         }
@@ -137,10 +176,15 @@ where
         self.frame_total = None;
         self.line.clear();
         for sub in self.subscriptions.values_mut() {
-            sub.request.cursor = Some(sub.cursor);
-            sub.request.edition = Some(sub.edition);
-            sub.request.anchor = None;
-            sub.replaying = true;
+            if sub.window_taken {
+                sub.request.cursor = Some(sub.cursor);
+                sub.request.edition = Some(sub.edition);
+                sub.request.anchor = None;
+                sub.replaying = true;
+            } else {
+                sub.request = sub.initial.clone();
+                sub.replaying = sub.request.cursor.is_some();
+            }
             sub.consumed = 0;
             sub.credited = 0;
         }
@@ -154,6 +198,12 @@ where
     }
     pub fn is_fallback(&self) -> bool {
         self.phase == Phase::Fallback
+    }
+    pub fn is_closed(&self) -> bool {
+        self.phase == Phase::Closed
+    }
+    pub fn skip_counters(&self) -> SkipCounters {
+        self.skips
     }
     pub fn take_send(&mut self) -> Option<Vec<u8>> {
         self.send.pop_front()
@@ -197,11 +247,20 @@ where
                 self.protocol_error("upgrade line too large");
                 return bytes.len();
             }
-            let value: Value = serde_json::from_slice(&reply).unwrap_or(Value::Null);
-            if value.pointer("/error/code").and_then(Value::as_i64) == Some(-32601) {
+            let Ok(value) = serde_json::from_slice::<Value>(&reply) else {
+                self.protocol_error("malformed upgrade reply");
+                return bytes.len();
+            };
+            if value.get("error").is_some() {
                 self.phase = Phase::Fallback;
                 let rest = bytes.get(end.saturating_add(1)..).unwrap_or_default().to_vec();
                 self.push_change(Change::Fallback(rest), None, 0, false);
+                return bytes.len();
+            }
+            let valid = value.get("id") == self.upgrade_id.as_ref()
+                && value.pointer("/result/upgrade").and_then(Value::as_bool) == Some(true);
+            if !valid {
+                self.protocol_error("invalid upgrade reply");
                 return bytes.len();
             }
             self.phase = Phase::Hello;
@@ -289,12 +348,14 @@ where
         self.subscriptions.insert(
             sid.clone(),
             SubState {
+                initial: sub.clone(),
                 request: sub.clone(),
                 cursor,
                 edition,
                 consumed: 0,
                 credited: 0,
                 replaying: sub.cursor.is_some(),
+                window_taken: false,
             },
         );
         if self.phase == Phase::Ready {
@@ -375,6 +436,7 @@ where
                 };
                 let sid = window.sid.clone();
                 if !self.subscriptions.contains_key(&sid) {
+                    self.skips.unheld_sid = self.skips.unheld_sid.saturating_add(1);
                     self.charge_frame_now(None, frame_bytes);
                     return;
                 }
@@ -384,6 +446,7 @@ where
                     sub.cursor = Cursor(window.cursor);
                     sub.edition = window.edition;
                     sub.replaying = false;
+                    sub.window_taken = true;
                 }
                 self.push_change(Change::Window(window), Some(sid.clone()), frame_bytes, true);
                 if replaying {
@@ -391,12 +454,13 @@ where
                 }
             }
             FrameKind::Page => {
-                let Ok(mut page) = frame.decode_json::<PageChange<T>>() else {
+                let Ok(mut page) = frame.decode_json::<PageResult<T>>() else {
                     self.protocol_error("malformed page");
                     return;
                 };
                 let sid = page.sid.clone();
                 if !self.subscriptions.contains_key(&sid) {
+                    self.skips.unheld_sid = self.skips.unheld_sid.saturating_add(1);
                     self.charge_frame_now(None, frame_bytes);
                     return;
                 }
@@ -408,13 +472,13 @@ where
                         .or_else(|| value.get("sessionId"))
                         .and_then(Value::as_str)
                         .map(str::to_owned);
-                    if let Some(key) = key.as_deref()
-                        && state.changed_keys.contains(key)
+                    let origin = value.get("origin").and_then(Value::as_str).unwrap_or("local");
+                    if let Some(key) = key
+                        && state.changed_keys.contains(&(origin.to_owned(), key.to_owned()))
                     {
                         return false;
                     }
-                    let origin = value.get("origin").and_then(Value::as_str);
-                    !origin.is_some_and(|origin| state.removed_origins.contains(origin))
+                    !state.removed_origins.contains(origin)
                 });
                 self.push_change(Change::Page(page), Some(sid), frame_bytes, true);
             }
@@ -438,6 +502,9 @@ where
                     return;
                 };
                 let sid = value.get("sid").and_then(Value::as_str).map(str::to_owned);
+                if sid.as_deref().is_some_and(|sid| !self.subscriptions.contains_key(sid)) {
+                    self.skips.unheld_sid = self.skips.unheld_sid.saturating_add(1);
+                }
                 let method =
                     value.get("method").and_then(Value::as_str).unwrap_or("unknown").to_owned();
                 let code = value.get("code").and_then(Value::as_str).unwrap_or("error").to_owned();
@@ -456,7 +523,10 @@ where
                     true,
                 );
             }
-            FrameKind::Unknown(kind) => self.skip_unknown(kind, &frame, frame_bytes),
+            FrameKind::Unknown(kind) => {
+                self.skips.unknown_kind = self.skips.unknown_kind.saturating_add(1);
+                self.skip_unknown(kind, &frame, frame_bytes)
+            }
             _ => self.skip_unknown(0, &frame, frame_bytes),
         }
     }
@@ -485,6 +555,9 @@ where
             return;
         };
         let sid = value.get("sid").and_then(Value::as_str);
+        if sid.is_some_and(|sid| !self.subscriptions.contains_key(sid)) {
+            self.skips.unheld_sid = self.skips.unheld_sid.saturating_add(1);
+        }
         if let (Some(sid), Some(seq)) = (sid, value.get("seq").and_then(Value::as_u64)) {
             self.advance(sid, seq);
             if self.subscriptions.contains_key(sid) {
@@ -498,6 +571,7 @@ where
     fn accept_delta_value(&mut self, value: Value, frame_bytes: u64) {
         let sid = value.get("sid").and_then(Value::as_str).unwrap_or_default().to_owned();
         if !self.subscriptions.contains_key(&sid) {
+            self.skips.unheld_sid = self.skips.unheld_sid.saturating_add(1);
             self.charge_frame_now(None, frame_bytes);
             return;
         }
@@ -517,7 +591,10 @@ where
         let mut charged = false;
         let mut emitted = false;
         for raw in ops {
-            let Some(seq) = raw.get("seq").and_then(Value::as_u64) else { continue };
+            let Some(seq) = raw.get("seq").and_then(Value::as_u64) else {
+                self.skips.missing_seq = self.skips.missing_seq.saturating_add(1);
+                continue;
+            };
             match serde_json::from_value::<DeltaOp<T>>(raw.clone()) {
                 Ok(DeltaOp::Summary { seq, summary }) => {
                     self.advance(&sid, seq);
@@ -532,16 +609,16 @@ where
                         charge,
                     );
                 }
-                Ok(DeltaOp::Gone { seq, chat_id }) => {
+                Ok(DeltaOp::Gone { seq, origin, chat_id }) => {
                     self.advance(&sid, seq);
                     let charge = !charged;
                     charged = true;
                     emitted = true;
                     if let Some(page) = self.pages.get_mut(&sid) {
-                        page.changed_keys.insert(chat_id.clone());
+                        page.changed_keys.insert((origin.clone(), chat_id.clone()));
                     }
                     self.push_change(
-                        Change::Gone { sid: sid.clone(), seq, chat_id, why: None, replay },
+                        Change::Gone { sid: sid.clone(), seq, origin, chat_id, why: None, replay },
                         Some(sid.clone()),
                         frame_bytes,
                         charge,
@@ -577,11 +654,13 @@ where
                     );
                 }
                 Err(_) => {
+                    self.skips.unknown_op = self.skips.unknown_op.saturating_add(1);
                     self.advance(&sid, seq);
                     if let Some(page) = self.pages.get_mut(&sid)
                         && let Some(chat_id) = raw.get("chatId").and_then(Value::as_str)
                     {
-                        page.changed_keys.insert(chat_id.to_owned());
+                        let origin = raw.get("origin").and_then(Value::as_str).unwrap_or("local");
+                        page.changed_keys.insert((origin.to_owned(), chat_id.to_owned()));
                     }
                 }
             }
@@ -608,6 +687,7 @@ where
 
     fn accept_dropped(&mut self, drop: wire::Dropped, frame_bytes: u64) {
         let Some(mut sub) = self.subscriptions.remove(&drop.sid) else {
+            self.skips.unheld_sid = self.skips.unheld_sid.saturating_add(1);
             self.charge_frame_now(None, frame_bytes);
             return;
         };
@@ -627,6 +707,13 @@ where
         }
         sub.cursor = cursor.unwrap_or_default();
         sub.replaying = cursor.is_some();
+        sub.initial.sid = new_sid.clone();
+        sub.initial.cursor = cursor;
+        sub.initial.edition = cursor.map(|_| sub.edition);
+        if cursor.is_some() {
+            sub.initial.anchor = None;
+        }
+        sub.window_taken = false;
         sub.consumed = 0;
         sub.credited = 0;
         self.subscriptions.insert(new_sid.clone(), sub.clone());
@@ -647,7 +734,8 @@ where
         if let Some(key) =
             value.get("chatId").or_else(|| value.get("sessionId")).and_then(Value::as_str)
         {
-            page.changed_keys.insert(key.to_owned());
+            let origin = value.get("origin").and_then(Value::as_str).unwrap_or("local");
+            page.changed_keys.insert((origin.to_owned(), key.to_owned()));
         }
     }
 }
@@ -656,12 +744,21 @@ where
 pub mod tokio_driver {
     use super::*;
     use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+
+    /// The transport is returned when the protocol hands control to a v1
+    /// caller or closes. `bytes` are unread bytes already held by the driver.
+    pub enum DriveExit<R, W> {
+        Fallback { reader: R, writer: W, bytes: Vec<u8> },
+        Closed { reader: R, writer: W, bytes: Vec<u8> },
+        Eof { reader: R, writer: W, bytes: Vec<u8> },
+    }
+
     pub async fn drive<T, R, W>(
         mut client: Client<T>,
         mut reader: R,
         mut writer: W,
         tx: tokio::sync::mpsc::Sender<Change<T>>,
-    ) -> std::io::Result<()>
+    ) -> std::io::Result<DriveExit<R, W>>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
         R: AsyncRead + Unpin,
@@ -675,15 +772,22 @@ pub mod tokio_driver {
                 writer.write_all(&bytes).await?;
             }
             if let Some(change) = client.next_change() {
+                if let Change::Fallback(bytes) = change {
+                    return Ok(DriveExit::Fallback { reader, writer, bytes });
+                }
+                let closed = client.is_closed();
                 if tx.send(change).await.is_err() {
-                    return Ok(());
+                    return Ok(DriveExit::Closed { reader, writer, bytes: pending });
+                }
+                if closed {
+                    return Ok(DriveExit::Closed { reader, writer, bytes: pending });
                 }
                 continue;
             }
             if pending.is_empty() {
                 let n = reader.read(&mut buf).await?;
                 if n == 0 {
-                    return Ok(());
+                    return Ok(DriveExit::Eof { reader, writer, bytes: pending });
                 }
                 pending.extend_from_slice(buf.get(..n).unwrap_or_default());
             }

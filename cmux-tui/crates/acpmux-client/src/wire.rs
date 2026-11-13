@@ -425,14 +425,16 @@ pub struct Window<T> {
     pub after_key: Option<ListKey>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct PageResult<T> {
     pub sid: String,
     pub rows: Vec<T>,
     pub has_before: bool,
     pub has_after: bool,
+    #[serde(default)]
     pub before_key: Option<ListKey>,
+    #[serde(default)]
     pub after_key: Option<ListKey>,
 }
 
