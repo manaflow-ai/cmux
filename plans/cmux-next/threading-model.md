@@ -173,7 +173,11 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   live preview's `computer-use-preview` channel from cmux Remote, user-interactive: it blocks only on that
   socket's reads, parses the framed messages and builds each H.264 frame's sample, and hands them to the
   main queue in order; at most one per shown preview, about 30 frames a second, and the preview's close
-  shuts the socket, which ends it; ComputerUsePreviewStream),
+  shuts the socket, which ends it; ComputerUsePreviewStream), `cmux-cu-preview-control` (the same
+  preview's lines to cmux Remote: its request, `L <side>` size changes and `K` keyframe asks,
+  user-interactive, serial, so they keep their order: its small socket writes block only it; a few
+  lines per preview, K at most every 300 ms, and it skips every write once the reader cleared the
+  socket; ComputerUsePreviewStream),
   `cmux.remote-view.mock-host`, `cmux.next.mobile.unix-lane`, `com.cmuxterm.mobile.paired-devices` (the iPhone
   host's paired-phone list and its Keychain seal, utility, serial: its file and Keychain calls block this queue,
   never main; one item per save, read or withdrawal, each from a person's action or an account change, so no back-pressure;

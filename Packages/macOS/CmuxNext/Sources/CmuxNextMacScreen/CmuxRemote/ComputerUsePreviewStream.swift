@@ -36,8 +36,11 @@ public final class ComputerUsePreviewStream {
     /// The video, decoded on the GPU.
     public let displayLayer: AVSampleBufferDisplayLayer
     private let session: String
-    private let longSide: Int
     private let onEvent: @MainActor (Event) -> Void
+    /// The picture's long side asked for now (the request, then `L` lines).
+    private let side: OSAllocatedUnfairLock<Int>
+    /// Every line the app writes on the channel goes through this queue, in order, off the main thread.
+    private let control = DispatchQueue(label: "cmux-cu-preview-control", qos: .userInteractive)
     /// The channel's socket (the reader thread closes it when it ends) and whether ``stop()`` ran.
     private let state = OSAllocatedUnfairLock(initialState: (socket: Int32(-1), closed: false))
     /// Frames handed to the main queue and not enqueued yet (the reader drops frames past
@@ -61,16 +64,16 @@ public final class ComputerUsePreviewStream {
     ///   - onEvent: Statuses, stills and the close, in the order the channel sent them; none after ``stop()``.
     public init(session: String, longSide: Int, onEvent: @escaping @MainActor (Event) -> Void) {
         self.session = session
-        self.longSide = longSide
+        side = OSAllocatedUnfairLock(initialState: longSide)
         self.onEvent = onEvent
         displayLayer = AVSampleBufferDisplayLayer()
         displayLayer.videoGravity = .resizeAspect
     }
 
-    /// Opens the channel through `remote` and starts the reader thread, which sends the request and
-    /// reads until the channel closes; an error closes the stream at once.
+    /// Opens the channel through `remote`, sends the request (on the control queue) and starts the
+    /// reader thread, which reads until the channel closes; an error closes the stream at once.
     public func start(remote: CmuxRemoteService) {
-        let session = session, longSide = longSide, state = state
+        let session = session, state = state, side = side, control = control
         // task-owner: opens this stream's channel; the reader thread then owns it until it ends.
         Task { [weak self] in
             do {
@@ -84,20 +87,20 @@ public final class ComputerUsePreviewStream {
                     close(socket)
                     return
                 }
-                let deliver = self.deliverer(), pending = self.pending
+                // The request line goes first: queued in this main-actor turn, before any `L` a later
+                // turn queues, on the one queue every app line is written from.
+                control.async {
+                    let line = try? JSONSerialization.data(withJSONObject: ["session": session, "long_side": side.withLock { $0 }])
+                    if let line { _ = RemoteSocket.writeAll(socket, line + Data([0x0A])) }
+                }
+                let deliver = self.deliverer(), pending = self.pending, ask = self.askKeyframe
                 let reader = Thread {
-                    // The request line, then the stream, all off the main actor.
-                    if let request = try? JSONSerialization.data(withJSONObject: ["session": session, "long_side": longSide]),
-                       RemoteSocket.writeAll(socket, request + Data([0x0A])) {
-                        Self.read(socket, backlog: { pending.withLock { $0 } }, askKeyframe: {
-                            _ = RemoteSocket.writeAll(socket, PreviewChannelLine.keyframeRequest)
-                        }, deliver)
-                    } else {
-                        deliver(.event(.closed))
-                    }
-                    // Only this thread closes the socket, after its last read: `stop` only shuts it
-                    // down, so the descriptor number is never reused under a read still in flight.
+                    Self.read(socket, backlog: { pending.withLock { $0 } }, askKeyframe: ask, deliver)
+                    // Only this thread closes the socket, after its last read and after the control
+                    // queue's writes (none starts once the socket is cleared): `stop` only shuts it
+                    // down, so the descriptor number is never reused under a read or write in flight.
                     state.withLock { $0.socket = -1 }
+                    control.sync {}
                     close(socket)
                 }
                 reader.name = "cmux-cu-preview-read"
@@ -107,6 +110,42 @@ public final class ComputerUsePreviewStream {
                 previewLogger.notice("Computer Use preview: no channel: \(String(describing: error), privacy: .public)")
                 self?.receive(.event(.closed))
             }
+        }
+    }
+
+    /// Asks cmux Remote for another picture size (`L <side>`): the expanded view's, or the card's at
+    /// its new size. The stream keeps running; its next frames come at the new size.
+    public func request(longSide: Int) {
+        let changed = side.withLock { side -> Bool in
+            guard side != longSide else { return false }
+            side = longSide
+            return true
+        }
+        if changed { send(Data("L \(longSide)\n".utf8)) }
+    }
+
+    /// The `K` line for the reader thread: at most one per 300 ms (cmux Remote throttles too).
+    private var askKeyframe: @Sendable () -> Void {
+        let lastAsk = OSAllocatedUnfairLock<ContinuousClock.Instant?>(initialState: nil), control = control, state = state
+        return {
+            let now = ContinuousClock.now
+            let due = lastAsk.withLock { last -> Bool in
+                if let last, now - last < .milliseconds(300) { return false }
+                last = now
+                return true
+            }
+            if due { Self.write(PreviewChannelLine.keyframeRequest, on: control, state: state) }
+        }
+    }
+
+    /// Writes one app line on the control queue, to the channel's socket while it is open.
+    private func send(_ line: Data) { Self.write(line, on: control, state: state) }
+
+    private nonisolated static func write(_ line: Data, on control: DispatchQueue,
+                                          state: OSAllocatedUnfairLock<(socket: Int32, closed: Bool)>) {
+        control.async {
+            let socket = state.withLock { $0.closed ? -1 : $0.socket }
+            if socket >= 0 { _ = RemoteSocket.writeAll(socket, line) }
         }
     }
 

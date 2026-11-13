@@ -103,6 +103,16 @@ import VideoToolbox
         #expect(tall == CGSize(width: 430, height: 860))
     }
 
+    /// The picture size asked of cmux Remote: the expanded view's is the wire's largest; the card's
+    /// twice its pixel long side, 512 to 800.
+    @Test func theStreamSizeFollowsThePresentation() {
+        #expect(ComputerUsePreviewPresenter.streamLongSide(expanded: true, cardPoints: 200, backingScale: 2) == 1600)
+        #expect(ComputerUsePreviewPresenter.streamLongSide(expanded: false, cardPoints: 200, backingScale: 2) == 800)
+        #expect(ComputerUsePreviewPresenter.streamLongSide(expanded: false, cardPoints: 160, backingScale: 2) == 640)
+        #expect(ComputerUsePreviewPresenter.streamLongSide(expanded: false, cardPoints: 120, backingScale: 1) == 512)
+        #expect(ComputerUsePreviewPresenter.streamLongSide(expanded: false, cardPoints: 400, backingScale: 2) == 800)
+    }
+
     // MARK: The wire
 
     @Test func statusesParseAndAnUnknownStateIsSkipped() {

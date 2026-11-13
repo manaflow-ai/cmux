@@ -47,10 +47,14 @@ public final class ComputerUsePreviewPresenter {
         /// `streaming` or `still` again (the channel stays open; cmux Remote looks every 500 ms).
         var blocked = false
     }
-    /// The picture's long side asked of cmux Remote: the wire's largest, for the expanded view too,
-    /// so expanding moves the same stream's layer and never reopens it (no blank frame between). A
-    /// window smaller than this streams at its own size; the card's layer scales it down.
-    private static let streamLongSide = 1600
+    /// The picture's long side asked of cmux Remote: the expanded view's is the wire's largest; the
+    /// card's is twice its own long side in pixels, 512 to 800. A change goes to the running stream
+    /// as an `L` line (same channel, same layer), so expanding never reopens it or flashes empty.
+    static func streamLongSide(expanded: Bool, cardPoints: CGFloat, backingScale: CGFloat) -> Int {
+        if expanded { return 1600 }
+        let pixels = Int((cardPoints * max(1, backingScale)).rounded())
+        return min(max(pixels * 2, 512), 800)
+    }
     /// The wait before the channel opens again after it closed: 1 s, doubling to 30 s while cmux
     /// Remote keeps refusing (an older host, or no worker), back to 1 s once a picture comes.
     private var retryDelay: Duration = .seconds(1)
@@ -183,11 +187,15 @@ public final class ComputerUsePreviewPresenter {
         // The stream runs while the preview is up, a blocked one too (cmux Remote sends nothing but
         // its status, and says when the window may show again); a hidden preview (a chip) streams
         // nothing.
+        let side = Self.streamLongSide(expanded: presentation == .expanded, cardPoints: longSide,
+                                       backingScale: current.overlay.window?.backingScaleFactor ?? 2)
         if presentation == .hidden {
             current.stream?.stop()
             current.stream = nil
-        } else if current.stream == nil, !retrying {
-            current.stream = openStream(for: pick.session, longSide: Self.streamLongSide, overlay: current.overlay)
+        } else if let stream = current.stream {
+            stream.request(longSide: side)
+        } else if !retrying {
+            current.stream = openStream(for: pick.session, longSide: side, overlay: current.overlay)
         }
         shown = current
         followEscape(escapeCloses(current))
@@ -299,18 +307,19 @@ public final class ComputerUsePreviewPresenter {
     /// Whether Escape may close `shown`'s view: it is expanded, and on screen (not hidden because its
     /// window is private).
     private func escapeCloses(_ shown: Shown) -> Bool {
-        presentation(for: shown.surface) == .expanded && !shown.blocked && !shown.overlay.isHidden
+        presentation(for: shown.surface) == .expanded && !shown.blocked && shown.overlay.window != nil
+            && !shown.overlay.isHiddenOrHasHiddenAncestor
     }
 
-    /// Escape closes the expanded view only while the pointer is over its picture. Anywhere else it
-    /// goes on to the surface: in the agent's own terminal Escape interrupts Claude Code or Codex,
-    /// and a preview must never swallow that. A click anywhere closes the expanded view too.
+    /// Escape closes the expanded view wherever the pointer is, as ChatGPT's does, while that view
+    /// is on screen in the key window: it covers the surface then, so the person means the view.
+    /// Whenever it is not on screen (collapsed, hidden, blocked, another window), Escape goes on to
+    /// the surface: in the agent's own terminal it interrupts Claude Code or Codex.
     private func followEscape(_ on: Bool) {
         if on, escapeMonitor == nil {
             escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 guard event.keyCode == 53, let self, let current = self.shown, let window = current.overlay.window,
-                      event.window === window, self.escapeCloses(current),
-                      current.overlay.expandedPictureContains(windowPoint: window.mouseLocationOutsideOfEventStream) else { return event }
+                      event.window === window, window.isKeyWindow, self.escapeCloses(current) else { return event }
                 self.handle(.collapse)
                 return nil
             }
