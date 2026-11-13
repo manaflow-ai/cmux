@@ -5,11 +5,11 @@
 //! in the working tree and untracked files no ignore rule hides. Each is
 //! folded into its first path component; a component with more below it is a
 //! directory, and so is a lone component that is a real folder on disk (a
-//! submodule). A symlink is never one, also when git still lists tracked
-//! paths below its name. Directories come first, then names
-//! case-insensitively.
+//! submodule). A symlink is never one: a path below a link is no candidate,
+//! so a link has no path below it here and stays a leaf. Directories come
+//! first, then names case-insensitively.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde_json::{Value, json};
@@ -34,14 +34,12 @@ pub(super) fn list(
         .map_or(DEFAULT_LIMIT, |limit| usize::try_from(limit).unwrap_or(MAX_LIMIT))
         .clamp(1, MAX_LIMIT);
     let listed = folder(repository, directory, OPERATION)?;
-    let (paths, cut) = candidates(repository, directory, OPERATION)?;
+    let (paths, cut) = candidates(repository, directory, &listed, OPERATION)?;
     // A symlink is a leaf, as git records it: following one could list a folder
     // outside the repository. Only a real folder (a submodule) is a directory.
     let mut folders = Folders::of(repository, &listed);
     // name -> is a directory
     let mut children: BTreeMap<&str, bool> = BTreeMap::new();
-    // The names with listed paths below them that are a link in the work tree.
-    let mut links: HashSet<&str> = HashSet::new();
     for path in &paths {
         let (name, nested) = match path.split_once('/') {
             Some((name, _)) => (name, true),
@@ -51,17 +49,10 @@ pub(super) fn list(
             continue;
         }
         let directory = children.entry(name).or_insert(false);
-        if *directory || links.contains(name) {
-            continue;
-        }
-        match (nested, folders.kind(name)) {
-            // A link stays a leaf when git still lists tracked paths below its name.
-            (true, Some(Kind::Link)) => {
-                links.insert(name);
-            }
-            // Paths below the name: a folder, also one that is not on disk.
-            (true, _) | (false, Some(Kind::Folder)) => *directory = true,
-            (false, _) => {}
+        // Paths below the name: a folder, and no link (no candidate is below a
+        // link). A lone name is a directory only when it is a real folder.
+        if !*directory && (nested || folders.kind(name) == Some(Kind::Folder)) {
+            *directory = true;
         }
     }
     let total = children.len();

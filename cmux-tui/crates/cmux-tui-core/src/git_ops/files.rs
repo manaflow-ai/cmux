@@ -3,6 +3,7 @@
 //!
 //! Candidates are the files git knows in the folder: tracked files that are
 //! still in the working tree, and untracked files that no ignore rule hides.
+//! A path below a link is not in the working tree and is no candidate.
 //! The query matches as a case-insensitive subsequence of the path; the score
 //! prefers matches in the file name, at word starts and in runs, and shorter
 //! paths. `root` is the repository's top level, as in every git op; result
@@ -60,7 +61,7 @@ pub(super) fn search(
     if query.is_empty() {
         return Ok(reply);
     }
-    let (candidates, mut cut) = candidates(repository, directory, OPERATION)?;
+    let (candidates, mut cut) = candidates(repository, directory, &search_root, OPERATION)?;
     let mut scorer = Scorer::new(&query, MAX_SCORED_CELLS);
     let mut ranked = Vec::new();
     for path in &candidates {
@@ -83,7 +84,8 @@ pub(super) fn search(
             .then_with(|| left.path.cmp(right.path))
     });
     // A submodule is listed as one path, but it is a folder: never a result.
-    // A path below a link is not in the work tree: never a result either.
+    // A path below a link is no candidate; a folder that became a link after
+    // that look is found here, and a path below it is never a result either.
     let mut folders = Folders::of(repository, &search_root);
     let results: Vec<Value> = ranked
         .iter()
@@ -134,15 +136,42 @@ pub(super) struct Folders {
     tree: Option<Tree>,
     /// The listed folder, from the work tree's top folder.
     below: PathBuf,
+    /// The folder of the last path that [`Self::below_a_link`] looked at,
+    /// and its answer.
+    last: Option<(String, bool)>,
 }
 
 impl Folders {
     /// For the paths that git lists under `listed`, the result of [`folder`].
     pub(super) fn of(repository: &Repository, listed: &str) -> Self {
-        match Path::new(listed).strip_prefix(&repository.root) {
-            Ok(below) => Self { tree: Tree::open(&repository.root), below: below.to_path_buf() },
-            Err(_) => Self { tree: None, below: PathBuf::new() },
+        let (tree, below) = match Path::new(listed).strip_prefix(&repository.root) {
+            Ok(below) => (Tree::open(&repository.root), below.to_path_buf()),
+            Err(_) => (None, PathBuf::new()),
+        };
+        Self { tree, below, last: None }
+    }
+
+    /// True when a folder above `path`, relative to the listed folder, is a
+    /// link: the path is not in the work tree. The listed folder is one of
+    /// these folders, and so is each folder between it and the work tree's
+    /// top folder. The paths of one folder follow each other in a listing,
+    /// so the last answer serves them.
+    fn below_a_link(&mut self, path: &str) -> bool {
+        let folder = path.rsplit_once('/').map_or("", |(folder, _)| folder);
+        if folder.is_empty() && self.below.as_os_str().is_empty() {
+            // A name in the work tree's top folder has no folder above it.
+            return false;
         }
+        let known = self.last.as_ref().filter(|(last, _)| last.as_str() == folder);
+        if let Some((_, answer)) = known {
+            return *answer;
+        }
+        let answer = match self.tree.as_mut() {
+            Some(tree) => matches!(tree.entry(&self.below.join(path)), Err(NoEntry::Link)),
+            None => false,
+        };
+        self.last = Some((folder.to_owned(), answer));
+        answer
     }
 
     /// What `path`, relative to the listed folder, is in the work tree.
@@ -165,10 +194,15 @@ impl Folders {
 }
 
 /// The files under `directory`, relative to it and sorted, and whether the
-/// listing was cut.
+/// listing was cut. `under` is the result of [`folder`] for `directory`.
+///
+/// git looks at a tracked path by its name, so it lists a path below a link
+/// when the link's target has that name. Such a path is not in the work tree
+/// and is no candidate, whatever is behind the link.
 pub(super) fn candidates(
     repository: &Repository,
     directory: &Path,
+    under: &str,
     operation: &'static str,
 ) -> Result<(Vec<String>, bool), ResourceError> {
     // Run in the folder itself, so paths are relative to it and only files
@@ -187,9 +221,11 @@ pub(super) fn candidates(
     }
     let deleted = run(&["ls-files", "-z", "--deleted", "--", "."])?;
     let deleted: HashSet<String> = parse::file_list(&deleted.stdout).into_iter().collect();
+    let mut folders = Folders::of(repository, under);
     let mut files: Vec<String> = parse::file_list(&bytes)
         .into_iter()
         .filter(|path| !deleted.contains(path) && !path.contains('\u{FFFD}'))
+        .filter(|path| !folders.below_a_link(path))
         .collect();
     files.sort_unstable();
     files.dedup();
@@ -362,4 +398,38 @@ fn utf16_offsets(path: &str, matches: &[usize]) -> Vec<usize> {
         offset += character.len_utf16();
     }
     offsets
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use std::fs;
+
+    use super::*;
+
+    /// A work tree with the file `below.txt` in the folder `real`, and the
+    /// link `dir` to that folder.
+    fn tree_with_a_link() -> PathBuf {
+        let mut bytes = [0_u8; 6];
+        getrandom::fill(&mut bytes).unwrap();
+        let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+        let root = std::env::temp_dir().join(format!("cmux-files-second-look-{hex}"));
+        fs::create_dir_all(root.join("real")).unwrap();
+        fs::write(root.join("real/below.txt"), "below").unwrap();
+        std::os::unix::fs::symlink("real", root.join("dir")).unwrap();
+        root
+    }
+
+    /// The second look of a search, with no candidate filter before it: the
+    /// state of a folder that became a link after the look at the candidates.
+    #[test]
+    fn the_second_look_of_a_search_gives_no_path_below_a_link() {
+        let root = tree_with_a_link();
+        let mut folders = Folders { tree: Tree::open(&root), below: PathBuf::new(), last: None };
+        assert!(folders.tree.is_some(), "the work tree opens");
+        assert!(folders.file("real/below.txt"), "a file below a real folder");
+        assert!(!folders.file("dir/below.txt"), "a path below a link");
+        assert!(folders.file("dir"), "the link itself is a leaf");
+        assert!(!folders.file("real"), "a real folder is no file");
+        fs::remove_dir_all(root).unwrap();
+    }
 }
