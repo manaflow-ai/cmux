@@ -69,8 +69,9 @@ final class HomeFirstRunView: NSView {
 
     /// What the last measure pass measured the parts from: the column's width, the panel's height (what fits), the scale
     /// and everything the panel shows. A layout with the same values keeps every part's size and only centres the column
-    /// (a pane resize above `maxWidth` + 48 pt: one layout a frame in a key resize of the Home). Compared, never
-    /// invalidated by hand: a part its owner changes directly (`starters`, `switchCard`) is in it too.
+    /// (a pane resize above `maxWidth` + 48 pt: one layout a frame in a key resize of the Home). Compared, so a part
+    /// its owner changes directly (`starters`) is in it too; `setShortcuts` clears it, because the card's `apply`
+    /// changes what shows with the same keys.
     private struct Measured: Equatable {
         var column, height, scale: CGFloat
         var intro, memoryOffer: String?
@@ -292,6 +293,7 @@ final class HomeFirstRunView: NSView {
         self.terminal.shortcut = terminal
         self.agent.shortcut = agent
         switchCard.apply(switching)
+        measured = nil // `apply` shows a card with keys again, also with the same keys: the fit pass decides
         needsLayout = true
     }
 
@@ -326,14 +328,15 @@ final class HomeFirstRunView: NSView {
         }
     }
 
-    override func layout() {
+    override func layout() { // perf-hot: 1ms motion-frame (each frame of a key resize of the Home)
         super.layout()
         guard !isHidden else { return }
         let width = max(0, min(Self.maxWidth * scale, bounds.width - 48 * scale))
         let inputs = Measured(column: width, height: bounds.height, scale: scale, intro: introText, memoryOffer: memoryOffer,
                               prompts: starters.prompts, startersLook: starters.look, switching: switchCard.keys, agents: agents)
         if inputs == measured {
-            // Only the pane's width changed around a column that keeps its own: the column moves, no part is measured.
+            // Nothing the parts are measured from changed (a pane width change around a column that keeps its
+            // own, or a layout request with no change): the column moves, no part is measured.
             let x = (bounds.width - width) / 2
             if stack.frame.minX != x { stack.setFrameOrigin(CGPoint(x: x, y: stack.frame.minY)) }
             return
