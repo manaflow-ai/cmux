@@ -2682,10 +2682,16 @@ function TranscriptView({
   const seenSends = useRef(sends);
   /// Prompt identities captured on the send's first snapshot. Kept separately from enteringRows:
   /// a burst can exceed the live-entry threshold, while its thinking row still belongs to the send.
-  const sentPromptIds = useRef(new Set<string>());
+  const [sentPromptIds, setSentPromptIds] = useState(() => new Set<string>());
   /// Sends are counted before the async client registers its optimistic prompt. Keep a bounded number
   /// of sends waiting for that prompt to arrive so a later thinking row still gets the send marker.
-  const pendingSentPrompts = useRef(0);
+  /// This is render-phase state, alongside `sendsAt`, so the counter does not add a mutable ref read
+  /// to the render path (React Doctor's no-ref-current-in-render rule).
+  const [pendingSentPromptCount, setPendingSentPromptCount] = useState(0);
+  /// The last committed row snapshot used to distinguish an async prompt registration from history
+  /// already in the tail. State keeps this render comparison out of the ref-backed placement cache.
+  const [sendRowsSnapshot, setSendRowsSnapshot] = useState(() => ({ current: rows, previous: rows }));
+  if (sendRowsSnapshot.current !== rows) setSendRowsSnapshot({ current: rows, previous: sendRowsSnapshot.current });
   /// A prompt was sent before the chat opened (while its tail still fits): it opens at the latest
   /// message, not at the reader's old place.
   const sentBeforeOpen = useRef(false);
@@ -2822,17 +2828,23 @@ function TranscriptView({
   }, [noteQueue]);
   const previousLayout = useRef<PlacedLayout | null>(null);
   const previousRows = useRef<readonly AcpmuxRow[]>(rows);
+  let sentPromptIdsForRender = sentPromptIds;
   if (sessionChanged) {
-    sentPromptIds.current.clear();
-    pendingSentPrompts.current = 0;
+    if (sentPromptIds.size !== 0) {
+      sentPromptIdsForRender = new Set();
+      setSentPromptIds(sentPromptIdsForRender);
+    }
+    if (pendingSentPromptCount !== 0) setPendingSentPromptCount(0);
   } else {
+    let pending = pendingSentPromptCount;
+    let promptIds = sentPromptIds;
     const observedSends = sendsAt;
     if (sends > observedSends) {
-      pendingSentPrompts.current = Math.min(SENT_PROMPT_ID_LIMIT, pendingSentPrompts.current + sends - observedSends);
+      pending = Math.min(SENT_PROMPT_ID_LIMIT, pending + sends - observedSends);
     } else if (sends < observedSends) {
-      pendingSentPrompts.current = 0;
+      pending = 0;
     }
-    const previous = previousRows.current;
+    const previous = sendRowsSnapshot.previous;
     const first = Math.max(0, previous.length - ARRIVAL_TAIL);
     const last = Math.min(rows.length, previous.length + ARRIVAL_TAIL);
     const indexes = new Set<number>();
@@ -2840,11 +2852,15 @@ function TranscriptView({
     for (let index = Math.max(0, rows.length - ARRIVAL_TAIL); index < rows.length; index += 1) indexes.add(index);
     for (const index of indexes) {
       const row = rows[index];
-      if (pendingSentPrompts.current > 0 && row?.kind === "user" && !isLineRow(row) && row.id !== previous[index]?.id) {
-        rememberSentPromptId(sentPromptIds.current, row.id);
-        pendingSentPrompts.current -= 1;
+      if (pending > 0 && row?.kind === "user" && !isLineRow(row) && row.id !== previous[index]?.id) {
+        if (promptIds === sentPromptIds) promptIds = new Set(sentPromptIds);
+        rememberSentPromptId(promptIds, row.id);
+        pending -= 1;
       }
     }
+    sentPromptIdsForRender = promptIds;
+    if (promptIds !== sentPromptIds) setSentPromptIds(promptIds);
+    if (pending !== pendingSentPromptCount) setPendingSentPromptCount(pending);
   }
   const previousViewport = useRef({ height, width, dockSpace, dockCard });
   /// The room kept under the last row (`room` below) as of the last placement pass.
@@ -3844,7 +3860,7 @@ function TranscriptView({
       didOpenAtLatest.current = false;
       // Another chat's count (the subagent view takes none) is not a send in this one.
       seenSends.current = sends;
-      sentPromptIds.current.clear();
+      setSentPromptIds((current) => (current.size === 0 ? current : new Set()));
       sentBeforeOpen.current = false;
       sendRiseUntil.current = Number.NEGATIVE_INFINITY;
       sendClockUntil.current = Number.NEGATIVE_INFINITY;
@@ -6204,7 +6220,7 @@ function TranscriptView({
                         observer={observer}
                         queueDrawn={queueDrawn}
                         sendThinking={
-                          row.kind === THINKING && row.verbKey !== undefined && sentPromptIds.current.has(row.verbKey)
+                          row.kind === THINKING && row.verbKey !== undefined && sentPromptIdsForRender.has(row.verbKey)
                         }
                         // A session switch is a load, not a live arrival. The reset effect runs after
                         // this render, so gate it here as well to avoid a reused row id animating once.
