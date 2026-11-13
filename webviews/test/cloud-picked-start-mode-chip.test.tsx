@@ -12,6 +12,8 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { settleReact } from "./support/domTeardown";
+import { until } from "./support/until";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -89,7 +91,8 @@ afterEach(async () => {
   delete (dom.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions;
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   dom.window.close();
   for (const key of added) delete scope[key];
   for (const [key, had, value] of saved) {
@@ -198,7 +201,11 @@ test("with Cloud picked, the menu offers only the modes a Cloud start can run in
     button!.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, button: 0 }));
     button!.click();
   });
-  await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+  // The menu's rows, not a turn of the event loop: wait until the menu drew them.
+  await until(
+    () => dom.window.document.querySelectorAll("[role=menuitemradio]").length > 0,
+    () => act(async () => {}),
+  );
   const rows = [...dom.window.document.querySelectorAll("[role=menuitemradio]")].map((row) => row.textContent ?? "");
   expect(rows.some((row) => row.includes("Manual"))).toBe(true);
   expect(rows.some((row) => row.includes("Bypass permissions"))).toBe(true);
@@ -228,7 +235,11 @@ test("with Cloud picked and such a harness, the menu offers Claude's Cloud modes
     button!.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, button: 0 }));
     button!.click();
   });
-  await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+  // The menu's rows, not a turn of the event loop: wait until the menu drew them.
+  await until(
+    () => dom.window.document.querySelectorAll("[role=menuitemradio]").length > 0,
+    () => act(async () => {}),
+  );
   const rows = [...dom.window.document.querySelectorAll("[role=menuitemradio]")].map((row) => row.textContent ?? "");
   expect(rows.some((row) => row.includes("Manual"))).toBe(true);
   expect(rows.some((row) => row.includes("Bypass permissions"))).toBe(true);

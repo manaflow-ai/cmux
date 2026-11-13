@@ -18,6 +18,7 @@ import { composerAttachmentsState } from "./composerAttachmentsState";
 import { cloudSignedInForDebug } from "./cloudMachines";
 import { chipProbe } from "./chipProbe";
 import type { SeedSnapshotFields } from "./waitingSteersFixture";
+import type { PasteProbeOptions } from "./pasteProbe";
 
 // `window.cmuxAcpmuxDebug`, called by the DEBUG `debug.agent_pane` socket
 // method. The first measurement call turns on measurement (acpmuxPerf.enabled);
@@ -86,6 +87,8 @@ export type AcpmuxDebug = {
   loadRun(options?: LoadRunOptions): Promise<Record<string, unknown>>;
   /** Scrolls it while a tool call runs and another chat changes, and counts row renders (loadDebug.ts). */
   loadTick(options?: LoadTickOptions): Promise<Record<string, unknown>>;
+  /** Pastes a Retina screenshot into the composer and times each step until its chip shows (pasteProbe.ts). */
+  pasteProbe(options?: PasteProbeOptions): Promise<Record<string, unknown>>;
 };
 
 const NO_AUTOMATION = { error: "the page has no automation host" };
@@ -438,6 +441,10 @@ export function createAcpmuxDebug(
       return layoutWatch(options);
     },
 
+    async pasteProbe(options = {}) {
+      const { pasteProbe } = await import("./pasteProbe");
+      return pasteProbe(options);
+    },
     async idleProbe(options = {}) {
       const { idleProbe } = await import("./idleProbe");
       return idleProbe(options);

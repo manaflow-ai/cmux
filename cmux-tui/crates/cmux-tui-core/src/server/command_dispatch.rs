@@ -290,6 +290,9 @@ fn dispatch_command(
             cmd_panes::apply_layout(mux, actor, workspace, name, layout, cols, rows)
         }
         Command::Send(params) => cmd_terminal_io::send(mux, client, writer, params),
+        Command::CancelCreatingInput { terminal_id } => {
+            creating_input::cancel(mux, client, &terminal_id)
+        }
         Command::ReadScreen { surface } => cmd_terminal_io::read_screen(mux, surface),
         Command::ClearHistory { surface, fallback_key } => {
             cmd_terminal_io::clear_history(mux, surface, fallback_key)
@@ -439,6 +442,8 @@ fn dispatch_command(
             env,
             keep,
             detached,
+            create_workspace,
+            workspace_name,
             mutation,
         } => cmd_terminals::create_terminal(
             mux,
@@ -457,6 +462,7 @@ fn dispatch_command(
             env,
             keep,
             detached,
+            create_workspace.then_some(workspace_name),
             mutation,
         ),
         Command::NewScreen(params) => cmd_screens::new_screen(mux, client, params),

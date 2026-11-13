@@ -208,8 +208,13 @@ await requireBrowserLane("composer-smooth-grow.test.ts", async () => {
     return sorted[Math.floor(sorted.length / 2)]!;
   };
 
+  // Past two lines of the prompt at 1100 px in either look: Codex's (the default since #42247) holds
+  // two lines' room at rest (composerLook.css --acpmux-codex-editor-min), so a wrap to a second line
+  // no longer grows it; the third line does.
   const WRAP =
-    "the client waits a little longer before each retry and adds random jitter so a crowd of clients does not retry in step with the others";
+    "the client waits a little longer before each retry and adds random jitter so a crowd of clients does not retry in step with the others; " +
+    "it gives up after five tries, keeps the last error for the log, and tells the person what failed and when it will try again, " +
+    "so a flaky network never looks like a hang";
 
   // Skipped until https://github.com/manaflow-ai/cmux/issues/40187: under the pinned Inter face the
   // composer's growth moves the transcript's top row, and the roving tab stop that follows it redraws

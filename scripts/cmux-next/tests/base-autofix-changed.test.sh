@@ -11,7 +11,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's ba
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 script="$here/../base-autofix-changed.sh"
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+git_fixture_trap_exit 'rm -rf "$tmp"'
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
@@ -59,19 +59,23 @@ changed "$a" > "$tmp/out" 2>"$tmp/err" || fail "an older since was not read: $(c
 changed "" > /dev/null 2>&1 && fail "an empty since did not fail"
 changed 0123456789abcdef0123456789abcdef01234567 > /dev/null 2>&1 && fail "an unknown since did not fail"
 
-# 4. A re-pin of CCmuxAppFFI (pin-app-ffi-on-base.sh changes only its url and checksum in Package.swift)
-#    is an input of the action exports, which are written from the pinned Rust catalog: the diff names
-#    the pseudo path the actions area matches. d0745a8d re-pinned 4 Rust actions in, no run made the
-#    exports again, and action-surfaces.json kept 1447 of 1451 rows. Another Package.swift change is
-#    not a re-pin, and the actions area stays off for it.
+# 4. A re-pin of CCmuxAppFFI (pin-app-ffi-on-base.sh changes only app-ffi-pin.json and the checksum line
+#    of Package.swift's loader block) is an input of the action exports, which are written from the
+#    pinned Rust catalog: the diff names the pseudo path the actions area matches. d0745a8d re-pinned 4
+#    Rust actions in, no run made the exports again, and action-surfaces.json kept 1447 of 1451 rows.
+#    Another Package.swift change is not a re-pin, and the actions area stays off for it.
 manifest=Packages/macOS/CmuxNext/Package.swift
+pin_file=Packages/macOS/CmuxNext/app-ffi-pin.json
 write_manifest() { # <release> [target]
   mkdir -p "$tmp/lane/$(dirname "$manifest")"
+  printf '{"url": "https://example.invalid/cmux-app-ffi-%s/CCmuxAppFFI.xcframework.zip", "checksum": "%s%s"}\n' \
+    "$1" "$1" "$1" > "$tmp/lane/$pin_file"
   cat > "$tmp/lane/$manifest" <<SWIFT
+// app-ffi-pin-checksum: $1$1
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://example.invalid/cmux-app-ffi-$1/CCmuxAppFFI.xcframework.zip",
-    checksum: "$1$1"
+    url: appFFIPin.url,
+    checksum: appFFIPin.checksum
 )
 let targets = ["${2:-CmuxNextActions}"]
 SWIFT
@@ -93,6 +97,7 @@ grep -qx "$manifest#CCmuxAppFFI" "$tmp/out" || fail "a re-pin does not name the 
 write_manifest bbbb CmuxNextOther; p3="$(pinned "a target, same pin")"
 changed "$p2" > "$tmp/out" 2>"$tmp/err" || fail "a Package.swift change was not read: $(cat "$tmp/err")"
 grep -qx "$manifest" "$tmp/out" || fail "the Package.swift change is not named: $(cat "$tmp/out")"
+grep -qx "$pin_file" "$tmp/out" && fail "a Package.swift change that keeps the pin names the pin file: $(cat "$tmp/out")"
 grep -q '#CCmuxAppFFI' "$tmp/out" && fail "a Package.swift change that keeps the pin names the pin: $(cat "$tmp/out")"
 [[ "$(bash "$here/../autofix-areas.sh" < "$tmp/out" | sed -n 's/^actions=//p')" == false ]] \
   || fail "a Package.swift change that keeps the pin starts the Mac action exports"

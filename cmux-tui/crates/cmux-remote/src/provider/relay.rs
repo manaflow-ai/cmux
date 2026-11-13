@@ -15,7 +15,7 @@ use cmux_remote_protocol::{
     CircuitId, LaneToken, MAX_RELAY_BATCH_BYTES, REMOTE_PROTOCOL_VERSION, RelayControl, RelayRole,
 };
 use futures_util::stream::{SplitSink, SplitStream};
-use futures_util::{SinkExt, StreamExt};
+use futures_util::{Sink, SinkExt, StreamExt};
 use http::StatusCode;
 use http::header::{AUTHORIZATION, HeaderValue};
 use tokio::io::AsyncReadExt;
@@ -27,7 +27,9 @@ use tokio::time::Instant;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::{Error as WebSocketError, Message};
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async_with_config};
+use tokio_tungstenite::{
+    Connector, MaybeTlsStream, WebSocketStream, connect_async_tls_with_config,
+};
 use url::Url;
 use zeroize::{Zeroize, Zeroizing};
 
@@ -481,6 +483,53 @@ fn is_credential_source_error(error: &ProviderError) -> bool {
     matches!(error, ProviderError::Transport(message) if message.starts_with(CREDENTIAL_SOURCE_ERROR_PREFIX))
 }
 
+/// The TLS trust a relay's `wss` and `relay+do` connections use. The default
+/// trusts the platform's roots (and `SSL_CERT_FILE`/`SSL_CERT_DIR`), as every
+/// relay connection did before; [`RelayTls::with_root_certificates`] trusts
+/// only the given roots, so a caller (a test's own CA) needs no process-wide
+/// environment.
+#[derive(Clone, Default)]
+pub struct RelayTls {
+    client_config: Option<Arc<rustls::ClientConfig>>,
+}
+
+impl RelayTls {
+    /// Trust exactly these DER-encoded root certificates.
+    pub fn with_root_certificates<I, C>(certificates: I) -> Result<Self, ProviderError>
+    where
+        I: IntoIterator<Item = C>,
+        C: Into<Vec<u8>>,
+    {
+        let mut roots = rustls::RootCertStore::empty();
+        for certificate in certificates {
+            roots.add(rustls::pki_types::CertificateDer::from(certificate.into())).map_err(
+                |error| ProviderError::Configuration(format!("invalid relay TLS root: {error}")),
+            )?;
+        }
+        let config = rustls::ClientConfig::builder_with_provider(Arc::new(
+            rustls::crypto::ring::default_provider(),
+        ))
+        .with_safe_default_protocol_versions()
+        .map_err(|error| ProviderError::Configuration(format!("relay TLS: {error}")))?
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+        Ok(Self { client_config: Some(Arc::new(config)) })
+    }
+
+    fn connector(&self) -> Option<Connector> {
+        self.client_config.clone().map(Connector::Rustls)
+    }
+}
+
+impl fmt::Debug for RelayTls {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("RelayTls")
+            .field("custom_roots", &self.client_config.is_some())
+            .finish()
+    }
+}
+
 #[derive(Clone)]
 pub struct RelayClientConfig {
     pub slot: String,
@@ -522,6 +571,7 @@ impl fmt::Debug for RelayClientConfig {
 pub struct RelayProvider {
     config: RelayClientConfig,
     credentials: RelayCredentialSource,
+    tls: RelayTls,
     /// When set, a lane's allocation waits until this instant instead of
     /// `control_timeout`: a Connect the relay parks until the daemon
     /// registers then follows its caller's one deadline.
@@ -544,7 +594,7 @@ impl RelayProvider {
     ) -> Result<Self, ProviderError> {
         config.ticket.zeroize();
         config.validate_common()?;
-        Ok(Self { config, credentials, allocation_deadline: None })
+        Ok(Self { config, credentials, tls: RelayTls::default(), allocation_deadline: None })
     }
 
     /// Wait for each lane's allocation until `deadline` rather than for
@@ -555,6 +605,12 @@ impl RelayProvider {
     /// step, keeps `control_timeout`.
     pub fn with_allocation_deadline(mut self, deadline: Instant) -> Self {
         self.allocation_deadline = Some(deadline);
+        self
+    }
+
+    /// Connect with this TLS trust instead of the platform's roots.
+    pub fn with_tls(mut self, tls: RelayTls) -> Self {
+        self.tls = tls;
         self
     }
 }
@@ -588,7 +644,7 @@ impl TransportProvider for RelayProvider {
         let framing = RelayCircuitFraming::for_route(&route);
         let endpoint =
             relay_websocket_url(&request.endpoint, &self.config.slot, RelayRole::Client)?;
-        let control = connect_provider_control(&endpoint, &self.credentials).await?;
+        let control = connect_provider_control(&endpoint, &self.credentials, &self.tls).await?;
         Ok(Arc::new(RelayLinkGroup {
             description: route.clone(),
             evidence: CarrierEvidence::Relay {
@@ -599,6 +655,7 @@ impl TransportProvider for RelayProvider {
             framing,
             config: self.config.clone(),
             credentials: self.credentials.clone(),
+            tls: self.tls.clone(),
             allocation_deadline: self.allocation_deadline,
             control: Mutex::new(Some(control)),
             closed: AtomicBool::new(false),
@@ -614,6 +671,7 @@ struct RelayLinkGroup {
     framing: RelayCircuitFraming,
     config: RelayClientConfig,
     credentials: RelayCredentialSource,
+    tls: RelayTls,
     allocation_deadline: Option<Instant>,
     // An allocation temporarily takes ownership of the control socket. If the
     // allocation future is cancelled, the socket is dropped while this slot
@@ -820,11 +878,13 @@ fn decode_relay_batch(encoded: Bytes, maximum: usize) -> Result<VecDeque<Bytes>,
     Ok(frames)
 }
 
-async fn run_batched_relay_sender(
-    mut socket: RelayCircuitSink,
+async fn run_batched_relay_sender<S>(
+    mut socket: S,
     mut commands: mpsc::Receiver<RelayCircuitCommand>,
     terminal: watch::Sender<Option<LinkError>>,
-) {
+) where
+    S: Sink<Message, Error = WebSocketError> + Unpin,
+{
     let mut deferred = None;
     let mut last_send_finished: Option<Instant> = None;
     let mut burst_sends = 0_usize;
@@ -1094,7 +1154,9 @@ impl LinkGroup for RelayLinkGroup {
             }
             let mut control = match stored_control.take() {
                 Some(control) => control,
-                None => connect_provider_control(&self.endpoint, &self.credentials).await?,
+                None => {
+                    connect_provider_control(&self.endpoint, &self.credentials, &self.tls).await?
+                }
             };
             match request_allocation(
                 &mut control,
@@ -1125,7 +1187,7 @@ impl LinkGroup for RelayLinkGroup {
                         ));
                     }
                     let mut replacement =
-                        connect_provider_control(&self.endpoint, &self.credentials)
+                        connect_provider_control(&self.endpoint, &self.credentials, &self.tls)
                             .await
                             .map_err(|error| relay_reconnect_error(&control_error, error))?;
                     match request_allocation(
@@ -1162,6 +1224,7 @@ impl LinkGroup for RelayLinkGroup {
             allocation.1,
             self.config.maximum_frame_bytes,
             self.config.control_timeout,
+            &self.tls,
         )
         .await
     }
@@ -1279,6 +1342,7 @@ async fn join_circuit(
     ticket: String,
     maximum_frame_bytes: usize,
     timeout: Duration,
+    tls: &RelayTls,
 ) -> Result<Box<dyn FrameLink>, ProviderError> {
     let circuit_endpoint = relay_circuit_url(endpoint, &circuit)?;
     // The circuit starts with JSON Join/Ready messages before it becomes a
@@ -1288,7 +1352,8 @@ async fn join_circuit(
     // in RelayCircuitLink after the circuit is ready.
     let websocket_message_limit = framing.websocket_message_limit(maximum_frame_bytes);
     let mut socket =
-        connect_relay_socket(&circuit_endpoint, Some(&ticket), websocket_message_limit).await?;
+        connect_relay_socket(&circuit_endpoint, Some(&ticket), websocket_message_limit, tls)
+            .await?;
     send_control(
         &mut socket,
         &RelayControl::Join {
@@ -1424,10 +1489,33 @@ pub async fn register_relay_daemon(
     register_relay_daemon_with_credentials(daemon, config, credentials).await
 }
 
+/// [`register_relay_daemon`] with this TLS trust instead of the platform's roots.
+pub async fn register_relay_daemon_with_tls(
+    daemon: Arc<dyn RelayIncoming>,
+    mut config: RelayDaemonConfig,
+    tls: RelayTls,
+) -> Result<RelayDaemonRegistration, ProviderError> {
+    if let Err(error) = config.validate_common() {
+        config.ticket.zeroize();
+        return Err(error);
+    }
+    let credentials = RelayCredentialSource::static_ticket(std::mem::take(&mut config.ticket))?;
+    register_with_credentials_and_tls(daemon, config, credentials, tls).await
+}
+
 pub async fn register_relay_daemon_with_credentials(
+    daemon: Arc<dyn RelayIncoming>,
+    config: RelayDaemonConfig,
+    credentials: RelayCredentialSource,
+) -> Result<RelayDaemonRegistration, ProviderError> {
+    register_with_credentials_and_tls(daemon, config, credentials, RelayTls::default()).await
+}
+
+async fn register_with_credentials_and_tls(
     daemon: Arc<dyn RelayIncoming>,
     mut config: RelayDaemonConfig,
     credentials: RelayCredentialSource,
+    tls: RelayTls,
 ) -> Result<RelayDaemonRegistration, ProviderError> {
     config.ticket.zeroize();
     config.validate_common()?;
@@ -1441,6 +1529,7 @@ pub async fn register_relay_daemon_with_credentials(
         config,
         framing,
         credentials,
+        tls,
         shutdown_rx,
         Some(ready_tx),
         None,
@@ -1482,6 +1571,7 @@ pub fn spawn_relay_daemon_registration(
         config,
         framing,
         credentials,
+        RelayTls::default(),
         shutdown_rx,
         None,
         Some(format!("{log_label}: relay registration on {route}")),
@@ -1489,11 +1579,13 @@ pub fn spawn_relay_daemon_registration(
     Ok(RelayDaemonRegistration { shutdown: shutdown_tx, task: Some(task) })
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_registration_loop(
     daemon: Arc<dyn RelayIncoming>,
     config: RelayDaemonConfig,
     framing: RelayCircuitFraming,
     credentials: RelayCredentialSource,
+    tls: RelayTls,
     mut shutdown: watch::Receiver<bool>,
     mut first_ready: Option<oneshot::Sender<Result<(), ProviderError>>>,
     log: Option<String>,
@@ -1513,6 +1605,7 @@ async fn run_registration_loop(
             &config,
             framing,
             &credentials,
+            &tls,
             &mut shutdown,
             &mut first_ready,
             &mut attempt,
@@ -1690,12 +1783,13 @@ async fn run_registration_once(
     config: &RelayDaemonConfig,
     framing: RelayCircuitFraming,
     credentials: &RelayCredentialSource,
+    tls: &RelayTls,
     shutdown: &mut watch::Receiver<bool>,
     first_ready: &mut Option<oneshot::Sender<Result<(), ProviderError>>>,
     attempt: &mut Attempt,
     log: &RegisterLog,
 ) -> Result<(), ProviderError> {
-    let authentication = authenticate_daemon_control(config, credentials);
+    let authentication = authenticate_daemon_control(config, credentials, tls);
     tokio::pin!(authentication);
     let (mut socket, lease_seconds) = tokio::select! {
         result = &mut authentication => result?,
@@ -1764,6 +1858,7 @@ async fn run_registration_once(
                         let slot = config.slot.clone();
                         let maximum = config.maximum_frame_bytes;
                         let timeout = config.control_timeout;
+                        let tls = tls.clone();
                         let task_circuit = circuit.clone();
                         incoming_tasks.try_spawn(circuit, async move {
                             if let Ok(link) = join_circuit(
@@ -1777,6 +1872,7 @@ async fn run_registration_once(
                                 join_ticket,
                                 maximum,
                                 timeout,
+                                &tls,
                             ).await {
                                 daemon.incoming(link).await;
                             }
@@ -1857,6 +1953,7 @@ impl IncomingCircuitTasks {
 async fn authenticate_daemon_control(
     config: &RelayDaemonConfig,
     credentials: &RelayCredentialSource,
+    tls: &RelayTls,
 ) -> Result<(RelaySocket, u32), ProviderError> {
     let mut retried_authentication = false;
     loop {
@@ -1865,6 +1962,7 @@ async fn authenticate_daemon_control(
             &config.endpoint,
             Some(&credential),
             MAX_RELAY_CONTROL_MESSAGE_BYTES,
+            tls,
         )
         .await
         {
@@ -1913,6 +2011,7 @@ async fn authenticate_daemon_control(
 async fn connect_provider_control(
     endpoint: &Url,
     credentials: &RelayCredentialSource,
+    tls: &RelayTls,
 ) -> Result<RelaySocket, ProviderError> {
     let mut retried_authentication = false;
     loop {
@@ -1921,6 +2020,7 @@ async fn connect_provider_control(
             endpoint,
             Some(&credential),
             MAX_RELAY_CONTROL_MESSAGE_BYTES,
+            tls,
         )
         .await
         {
@@ -1953,10 +2053,11 @@ async fn connect_relay_socket(
     endpoint: &Url,
     authorization: Option<&str>,
     maximum_message_bytes: usize,
+    tls: &RelayTls,
 ) -> Result<RelaySocket, ProviderError> {
     let credential =
         authorization.map(|ticket| RelayCredential::parse(ticket.to_owned())).transpose()?;
-    connect_relay_socket_once(endpoint, credential.as_ref(), maximum_message_bytes)
+    connect_relay_socket_once(endpoint, credential.as_ref(), maximum_message_bytes, tls)
         .await
         .map_err(RelaySocketConnectError::into_provider_error)
 }
@@ -1965,6 +2066,7 @@ async fn connect_relay_socket_once(
     endpoint: &Url,
     authorization: Option<&RelayCredential>,
     maximum_message_bytes: usize,
+    tls: &RelayTls,
 ) -> Result<RelaySocket, RelaySocketConnectError> {
     let mut request = endpoint.as_str().into_client_request().map_err(|_| {
         RelaySocketConnectError::Provider(ProviderError::Transport(
@@ -1980,7 +2082,7 @@ async fn connect_relay_socket_once(
         .max_frame_size(Some(maximum_message_bytes));
     let opened = tokio::time::timeout(
         RELAY_CONNECT_TIMEOUT,
-        connect_async_with_config(request, Some(config), true),
+        connect_async_tls_with_config(request, Some(config), true, tls.connector()),
     )
     .await
     .map_err(|_| {
