@@ -100,7 +100,7 @@ struct WorkspaceSpawner {
         })
         guard browser != nil || (spawn.showsBeforeDaemon(local: daemon.isLocal) && services.agentTabs.showsWorkspaceAtOnce(on: daemon)) else { return nil }
         let room = services.machines.local.store.profile(spawn.profile ?? profile)
-        let cwd = spawn.startFolder(roomFolder: room?.defaults?.cwd, local: daemon.isLocal, daemonDefault: daemon.defaultCwd)
+        let cwd = spawn.startFolder(roomFolder: room?.defaults?.cwd, local: daemon.isLocal, daemonDefault: NewTerminalStart.defaultFolder(on: daemon))
         // Claimed at the press (`start`): the intent's reconcile selects it in this window in this turn, and the window swaps to it in this turn's
         // frame, before its commit (not in the key's handler: SWITCH STALL 6, nor a hop later: SWITCH STALL 4); its slot is placed once the daemon has it.
         NewWorkspacePlacements.expect(key.rawValue, in: windowID, slot: spawn.slot, byDefault: rule, then: spawn.onListed, windows: windows)
@@ -160,7 +160,7 @@ struct WorkspaceSpawner {
         }
         // Local terminals get the app's environment; a Cloud terminal only
         // the caller's keys. Both get the placement keys hooks read.
-        let start = spawn.terminalStart(app: daemon.isLocal ? await services.environment.terminalEnvironmentProvider(prefersGhosttyTerm: { [weak services] in services?.settings?.snapshot.terminalTerm == .xtermGhostty })() : [:], room: room?.defaults, local: daemon.isLocal, daemonDefault: daemon.defaultCwd,
+        let start = spawn.terminalStart(app: daemon.isLocal ? await services.environment.terminalEnvironmentProvider(prefersGhosttyTerm: { [weak services] in services?.settings?.snapshot.terminalTerm == .xtermGhostty })() : [:], room: room?.defaults, local: daemon.isLocal, daemonDefault: NewTerminalStart.defaultFolder(on: daemon),
                                         workspace: key, terminal: terminal, sendsEnv: daemon.supports(DaemonCapability.terminalEnv.rawValue), reaps: daemon.supports(DaemonCapability.terminalReap.rawValue))
         let repair: EmptyWorkspaceRepair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
         BenchSpans.mark("cmdN.create.sending")

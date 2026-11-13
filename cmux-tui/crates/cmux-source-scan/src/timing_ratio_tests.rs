@@ -2,12 +2,12 @@
 //! tools/agent-guards/test_rust_timing_ratio.py (hq#9512) and the review of hq#9478, each run on
 //! a cmux-shaped checkout as the CLI scans one. F4 (no scan is not a clean scan) is below.
 
-use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::*;
 use crate::nextest::{FileTests, Profiles, eval_filter, parse_filter};
+use crate::rows::{Unmatched, unmatched};
 
 const ROWS: &str = include_str!("timing_ratio_rows.txt");
 const PRELUDE: &str = "use std::time::{Duration, Instant};\n\nfn helper() -> Duration {\n    let t = Instant::now();\n    t.elapsed()\n}\n";
@@ -123,27 +123,33 @@ fn judge_row(row: &Row) -> Option<String> {
     }
     let lines: Vec<String> = scan.found.iter().map(ToString::to_string).collect();
     let shown = lines.join("\n");
-    match row.verdict.as_str() {
-        "flagged" => {
-            let Some(hit) = lines.iter().find(|l| l.contains(&row.what)) else {
-                return Some(format!("no finding names `{}`:\n{shown}", row.what));
-            };
-            // Exactly what the row names: one more finding fails it as a missing one does.
-            if lines.len() != 1 {
-                return Some(format!("found more than `{}`:\n{shown}", row.what));
-            }
-            (row.kind != "-" && !hit.contains(&row.kind))
-                .then(|| format!("want kind {}, got {hit}", row.kind))
-        }
-        "clean" => (!lines.is_empty()).then(|| format!("flagged wrongly:\n{shown}")),
+    // Each finding the row names takes one finding of the scan, and none is left over: a second
+    // copy of a named one fails the row as a missing one does (#42341 F1).
+    let left = match row.verdict.as_str() {
+        "flagged" => unmatched(std::slice::from_ref(&row.what), &scan.found, |what, f| {
+            let line = f.to_string();
+            line.contains(what.as_str()) && (row.kind == "-" || line.contains(&row.kind))
+        }),
+        "clean" => unmatched(&[], &scan.found, |_: &String, _| false),
         "tests" => {
-            let want: BTreeSet<&str> =
-                row.what.split(',').filter(|n| !n.is_empty() && *n != "-").collect();
-            let got: BTreeSet<&str> = scan.found.iter().map(|f| f.test.as_str()).collect();
-            (got != want).then(|| format!("want {want:?}, got {got:?}:\n{shown}"))
+            let want: Vec<String> = row
+                .what
+                .split(',')
+                .filter(|n| !n.is_empty() && *n != "-")
+                .map(str::to_string)
+                .collect();
+            return left_over(&unmatched(&want, &scan.found, |n, f| f.test == *n), &shown);
         }
-        other => Some(format!("no such verdict: {other}")),
-    }
+        other => return Some(format!("no such verdict: {other}")),
+    };
+    left_over(&left, &shown)
+}
+
+fn left_over(left: &Unmatched<'_, '_, String, Finding>, shown: &str) -> Option<String> {
+    (!left.is_empty()).then(|| {
+        let extra: Vec<String> = left.extra.iter().map(ToString::to_string).collect();
+        format!("named but not found {:?}; found but not named {extra:?}:\n{shown}", left.missing)
+    })
 }
 
 #[test]
@@ -183,6 +189,26 @@ fn a_flagged_row_fails_on_a_finding_it_does_not_name() {
     assert!(
         why.as_deref().is_some_and(|w| w.contains("busy < idle * 4")),
         "busy < idle * 4 went unnamed: {why:?}"
+    );
+}
+
+/// #42341 review F1: a `tests` row names each finding by its test, counting duplicates, so a
+/// test with a second finding fails a row that names it once.
+#[test]
+fn a_tests_row_fails_on_a_second_finding_in_a_test_it_names() {
+    let row = Row {
+        verdict: "tests".to_string(),
+        what: "two_bounds".to_string(),
+        kind: "-".to_string(),
+        title: "a fixture".to_string(),
+        rust: "#[test]\nfn two_bounds() {\n    let p95 = helper();\n    assert!(p95 < BUDGET_MS); assert!(p95 < OTHER_MS);\n}\n".to_string(),
+        bare: false,
+        nextest: None,
+    };
+    let why = judge_row(&row);
+    assert!(
+        why.as_deref().is_some_and(|w| w.contains("p95 < OTHER_MS")),
+        "the second bound went unnamed: {why:?}"
     );
 }
 
@@ -226,6 +252,21 @@ fn a_nextest_config_that_does_not_parse_is_an_error() {
     assert!(scan(&co.0, &[]).is_err());
 }
 
+// Review of cmux#41523, F2: an override whose `/regex/` does not compile read as matching no
+// test, so the test it meant to run alone was judged as running beside others (or the reverse
+// through `not`); the scan must fail as it does on a filter that does not parse.
+#[test]
+fn a_nextest_filter_with_a_bad_regex_is_an_error() {
+    let co = Checkout::demo(
+        PRELUDE,
+        Some(
+            "[[profile.default.overrides]]\nfilter = 'test(/timing(/)'\nthreads-required = 'num-test-threads'\n",
+        ),
+    );
+    let error = scan(&co.0, &[]).expect_err("a bad regex is no clean scan");
+    assert!(error.contains("is no regex"), "{error}");
+}
+
 // The filterset reader on its own: three-valued, nextest's default matchers.
 
 #[test]
@@ -250,6 +291,9 @@ fn filtersets_match_as_nextest_reads_them() {
     assert_eq!(eval("all() + none()"), Some(true));
     assert!(parse_filter("test(=a) |").is_err());
     assert!(parse_filter("test(a").is_err());
+    // Review of cmux#41523, F2: a regex that does not compile was a filter that matched nothing.
+    assert!(parse_filter("test(/(unclosed/)").is_err(), "a bad regex is an error");
+    assert!(parse_filter("not binary_id(/[/) | test(=a)").is_err());
 }
 
 fn eval_filter_text(text: &str, t: &TestId) -> Option<bool> {
@@ -301,7 +345,7 @@ fn wrapped_known_miss(wrap: impl Fn(&str) -> String) -> String {
 
 #[test]
 fn spread_bounds_reads_the_bodies_of_wrapper_macros() {
-    let cases: [(&str, String, &str); 5] = [
+    let cases: [(&str, String, &str); 10] = [
         (
             "dbg!({ .. })",
             wrapped_known_miss(|b| format!("    dbg!({{\n{b}    }});\n")),
@@ -326,6 +370,36 @@ fn spread_bounds_reads_the_bodies_of_wrapper_macros() {
             "dbg!(g50) as the bounded side",
             wrapped_known_miss(|b| b.replace("assert!(g50 < 500.0", "assert!(dbg!(g50) < 500.0")),
             "dbg!(g50) < 500.0",
+        ),
+        // Review of cmux#41581, F1: a spread binding whose initializer wraps the call.
+        (
+            "let (..) = dbg!(spread(..))",
+            wrapped_known_miss(|b| b.replace("= spread(&mut gate)", "= dbg!(spread(&mut gate))")),
+            "g50 < 500.0",
+        ),
+        (
+            "let (..) = (spread(..))",
+            wrapped_known_miss(|b| b.replace("= spread(&mut gate)", "= (spread(&mut gate))")),
+            "g50 < 500.0",
+        ),
+        (
+            "let (..) = *&spread(..).clone()",
+            wrapped_known_miss(|b| {
+                b.replace("= spread(&mut gate)", "= *&spread(&mut gate).clone()")
+            }),
+            "g50 < 500.0",
+        ),
+        (
+            "let (..) = dbg!((spread(..)).to_owned())",
+            wrapped_known_miss(|b| {
+                b.replace("= spread(&mut gate)", "= dbg!((spread(&mut gate)).to_owned())")
+            }),
+            "g50 < 500.0",
+        ),
+        (
+            "let (..): (f64, f64, f64) = spread(..)",
+            wrapped_known_miss(|b| b.replace("gmax) = spread", "gmax): (f64, f64, f64) = spread")),
+            "g50 < 500.0",
         ),
     ];
     let mut failed = Vec::new();

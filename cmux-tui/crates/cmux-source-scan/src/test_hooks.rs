@@ -1440,7 +1440,31 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    /// Whether `ty` is a `Mutex<()>`, std's or tokio's (through the file's aliases).
+    /// `idents` with its first segment replaced by the path a `use` gives it, again and again
+    /// (`use std::sync as s; use s::Mutex as Lock;`), until no `use` names its head. Each head is
+    /// read where the path is: a block's `use` before the file's ([`Resolver::named`]), and a
+    /// definition there stops it; the next head is read where that `use` is written.
+    fn used_path(&self, idents: &[String]) -> Vec<String> {
+        let mut path = idents.to_vec();
+        let mut at = self.at.clone();
+        let mut seen: Vec<(String, Vec<String>)> = Vec::new();
+        while let Some(head) = path.first().cloned()
+            && !seen.iter().any(|(h, s)| *h == head && *s == at)
+            && let Some(Named::Use(full, uses)) = self.within(&at).named(&head)
+        {
+            seen.push((head, at.clone()));
+            if let Some((_, scope)) = uses.last() {
+                at.clone_from(scope);
+            }
+            let mut next: Vec<String> = full.split("::").map(str::to_string).collect();
+            next.extend(path.drain(1..));
+            path = next;
+        }
+        path
+    }
+
+    /// Whether `ty` is a `Mutex<()>`, std's or tokio's (through the file's aliases and its
+    /// `use` names, renames included: `use std::sync::Mutex as Lock` makes `Lock<()>` one).
     fn is_serializer(&self, ty: &Type, depth: usize) -> bool {
         let Type::Path(p) = ty else {
             return false;
@@ -1449,23 +1473,21 @@ impl<'a> Resolver<'a> {
             return false;
         }
         let idents: Vec<String> = p.path.segments.iter().map(|s| s.ident.to_string()).collect();
-        let shape = match idents.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
-            [name] if *name != "Mutex" => {
-                return match self.named(name) {
-                    Some(Named::Def(Def { params, body: Body::Alias(inner), scope }))
-                        if params.is_empty() =>
-                    {
-                        self.within(scope).is_serializer(inner, depth + 1)
-                    }
-                    _ => false,
-                };
-            }
-            ["Mutex"] => match self.named("Mutex") {
-                Some(Named::Use(full, _)) => {
-                    matches!(full, "std::sync::Mutex" | "tokio::sync::Mutex")
+        if let [name] = idents.as_slice()
+            && let Some(Named::Def(def)) = self.named(name)
+        {
+            return match def {
+                Def { params, body: Body::Alias(inner), scope } if params.is_empty() => {
+                    self.within(scope).is_serializer(inner, depth + 1)
                 }
-                Some(Named::Def(_)) | None => true,
-            },
+                _ => false,
+            };
+        }
+        let shape = match self.used_path(&idents).iter().map(String::as_str).collect::<Vec<_>>()[..]
+        {
+            // A bare `Mutex` no `use` here names is taken as std's (the prelude has none, so it
+            // is an import from another file or a glob).
+            ["Mutex"] => true,
             ["std" | "tokio", "sync", "Mutex"] => true,
             _ => false,
         };
