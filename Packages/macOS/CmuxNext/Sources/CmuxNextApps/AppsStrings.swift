@@ -73,7 +73,6 @@ nonisolated enum AppsStrings {
     static var noneInstalled: String { t("store.empty.noneInstalled", "No apps installed") }
     static var selectApp: String { t("store.empty.select", "Select an app") }
     static func unknownApp(_ id: String) -> String { String(format: t("apps.client.unknownApp", "No app %@"), id) }
-    static var unavailableHelp: String { t("apps.store.disconnected.help", "Nothing can change until then.") }
 
     private static var notConnected: String { t("apps.store.disconnected.notConnected", "This machine isn't connected") }
 
