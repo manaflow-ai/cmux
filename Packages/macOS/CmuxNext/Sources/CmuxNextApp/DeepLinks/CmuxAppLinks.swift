@@ -24,7 +24,7 @@ enum CmuxAppLinks {
             return services.registry.perform(action, invocation: ActionInvocation(origin: .user))
         }
         if let agent = openAgentWeb(url, services: services, click: click) { return agent }
-        // A pull request link clicked in an agent chat: the native GitHub page, not github.com.
+        // A pull request link clicked in an agent chat: the native GitHub page when `browser.openPullRequestsInGitHubPage` is on.
         if !click.otherTarget, !click.background, let tab = click.source, services.agentTabs.isAgentTab(tab),
            let pane = services.linkOpener.source(tab: tab), let opened = WebPageTab.openGitHub(url, from: pane, services: services) { return opened }
         guard let link = link(for: url, linkScheme: services.linkScheme, chiefHost: services.agentTabs.chiefHost),

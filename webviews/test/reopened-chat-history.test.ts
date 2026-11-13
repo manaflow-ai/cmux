@@ -41,9 +41,10 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
   const CHAT = "0190a000-0000-7000-8000-0000000000e1";
   const START = Date.UTC(2026, 9, 21, 9, 0, 0);
   /// The caps acpmux applies to an open and to each older page (direct.ts OPEN_PAGE_BYTES,
-  /// OLDER_PAGE_BYTES).
+  /// OLDER_PAGE_BYTES), and to the prompt index the rail reads (PROMPT_INDEX_BYTES).
   const OPEN_BYTES = 128 * 1024;
-  const OLDER_BYTES = 256 * 1024;
+  const OLDER_BYTES = 1024 * 1024;
+  const INDEX_BYTES = 256 * 1024;
   /// The most room the last message may leave above the composer once the chat has settled. The
   /// transcript's own bottom rhythm is a row gap plus the dock's padding; a blank band is many
   /// times that.
@@ -127,6 +128,35 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
       ...Array.from({ length: 14 }, (_, at) => turn(at + 1)).flat(),
       ...Array.from({ length: 10 }, (_, at) => bigPaste(`q-${at + 1}`, 300)),
       ...Array.from({ length: 2 }, (_, at) => turn(at + 15)).flat(),
+    ]),
+    // The user, 2026-11-03 ("the whole chat transcript didn't load, it just loaded my last message"):
+    // one first turn thousands of records long, its work split into background turns, then one short
+    // question. The open page starts inside the last reply, under that reply's prompt, and the only
+    // turn older than it is thousands of records and many pages back.
+    longFirstTurn: history([
+      ["mux", "user_message", { text: "Lane report 1: finish the pull request.", promptId: "p-1" }],
+      ["mux", "turn_started", {}],
+      ["in", "agent_message_chunk", say("Answer 1. On it.")],
+      ["mux", "turn_result", { stopReason: "end_turn" }],
+      ...Array.from(
+        { length: 40 },
+        (_, run) =>
+          [
+            ["mux", "background_turn", { id: `bg-${run}`, state: "started", trigger: "system" }],
+            ...Array.from({ length: 60 }, (_, at) => [
+              "in",
+              "agent_message_chunk",
+              say(`run ${run} part ${at} ${"x".repeat(1000)} `),
+            ]),
+            ["mux", "background_turn", { id: `bg-${run}`, state: "ended", reason: "result", trigger: "system" }],
+          ] as Step[],
+      ).flat(),
+      ["mux", "stopped", { code: 1, hibernated: true }],
+      ["mux", "resumed", { level: "exact", wake: true }],
+      ["mux", "user_message", { text: "where is my pr", promptId: "p-2" }],
+      ["mux", "turn_started", {}],
+      ...Array.from({ length: 600 }, (_, at) => ["in", "agent_message_chunk", say(`word${at} `)] as Step),
+      ["mux", "turn_result", { stopReason: "end_turn" }],
     ]),
     // No oversized record: a plain long chat, well past the open's cap in total.
     longText: history(
@@ -216,6 +246,7 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
       () => `the pane kept asking acpmux: ${inFlight} in flight, last answer ${answeredAt}`,
     );
 
+  let stallAbovePrompt = 0;
   let olderReads = 0;
   /// The byte caps the pane asked for, which is the whole of what bounds a page: acpmux caps one
   /// only when the client says to (`max_bytes`, paging.rs). A pane that stopped asking would be
@@ -289,6 +320,15 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
         message(ws, raw) {
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
           if (message.id === undefined) return;
+          // Reads above the last prompt never answer, as a slow walk of a long turn does not yet.
+          const asks = message.params ?? {};
+          if (
+            stallAbovePrompt &&
+            message.method === "_acpmux/events" &&
+            asks.kinds?.includes("transcript") &&
+            Number(asks.beforeSeq) <= stallAbovePrompt
+          )
+            return;
           inFlight += 1;
           // A loaded runner answers no faster than this; CMUX_REOPEN_TEST_LATENCY_MS makes a slow
           // one on purpose, to show that what is measured below does not depend on the speed of
@@ -482,6 +522,18 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
     return page;
   };
 
+  test("a reply cut by the open page is whole before the long turn above it is read", async () => {
+    stallAbovePrompt = CHATS.longFirstTurn.find((record) => record.msg.promptId === "p-2")!.seq;
+    try {
+      const page = await openChat("longFirstTurn");
+      // Past the open page's 400 records, so only an older page can bring it.
+      await page.getByText("word0 ", { exact: false }).first().waitFor({ state: "attached", timeout: 25_000 });
+      await page.close();
+    } finally {
+      stallAbovePrompt = 0;
+    }
+  });
+
   for (const name of Object.keys(CHATS) as ChatName[]) {
     test(`a reopened ${name} chat shows its history under the composer, with no blank band`, async () => {
       const page = await openChat(name);
@@ -497,7 +549,7 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
       console.log(`reopened-chat-history ${name}: top ${JSON.stringify(reached)}, older reads ${olderReads}`);
 
       // What bounded the pages above was the pane's own asking, as it is with acpmux.
-      expect([...asked].sort((a, b) => a - b)).toEqual([OPEN_BYTES, OLDER_BYTES]);
+      expect([...asked].sort((a, b) => a - b)).toEqual([OPEN_BYTES, INDEX_BYTES, OLDER_BYTES]);
       // The transcript holds rows of its own, not an empty frame. This counts the rows mounted in
       // the virtualized list, so it cannot tell a whole chat from its last messages — Leo's "only
       // the last messages" is what `reachedFirstTurn` below answers.

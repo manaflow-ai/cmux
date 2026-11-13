@@ -131,6 +131,8 @@ import {
   devboxJournalResetCommand,
   devboxParkDaemonCommand,
   devboxSettleBeforeSnapshotCommand,
+  devboxClaudeTeamOnboardingCheckCommand,
+  devboxWorkUserCmuxConfigDirCommand,
   DEVBOX_MACHINE_HEALTH_PARKED_COMMAND,
   devboxPrepareTemplateTerminalCommand,
   devboxSnapshotClockCommand,
@@ -540,6 +542,10 @@ try {
   // Keep the guest daemon alive across logout and image resume. This writes
   // the same canonical user unit as `acpmux host setup`, then enables it once
   // the binary and its state home are present.
+  // The work user's ~/.config/cmux exists before the daemon starts, so no later
+  // step makes a folder on the way to its harness sources: that reloads the
+  // catalog, whose model probe starts Claude (devboxWorkUserCmuxConfigDirCommand).
+  await step("cmux-config-dir", devboxWorkUserCmuxConfigDirCommand());
   await step("acpmux-service", cmuxTuiServiceInstallCommand());
   await step(
     "cmux-tui-pin",
@@ -592,8 +598,8 @@ try {
     devboxTeamKindDefaultCommand(),
   );
 
-  // The Ghostty generation panes announce as TERM_PROGRAM_VERSION (the
-  // supervisor exports it next to TERM_PROGRAM=ghostty; see cmux-devbox-boot).
+  // The Ghostty .deb pin, recorded for the acpmux daemon launch
+  // (acpmuxPersonKey.ts); terminal panes carry cmux's own version.
   await step(
     "ghostty-version",
     `mkdir -p /etc/cmux && printf '%s\n' ${devboxGhosttyVersion()} > /etc/cmux/ghostty-version && cat /etc/cmux/ghostty-version`,
@@ -747,7 +753,9 @@ try {
   // bake pass's files are gone, so a clone runs no pass until its re-arm.
   await step("machine-health-parked", DEVBOX_MACHINE_HEALTH_PARKED_COMMAND);
   // Last guest step before the snapshot; see devboxSettleBeforeSnapshotCommand.
-  await step("settle-before-snapshot", devboxSettleBeforeSnapshotCommand());
+  // The seeded Claude team configs are still the seed after the settle: nothing
+  // started Claude on them during the bake (devboxClaudeTeamOnboardingCheckCommand).
+  await step("settle-before-snapshot", `${devboxSettleBeforeSnapshotCommand()} && ${devboxClaudeTeamOnboardingCheckCommand()}`);
 } catch (error) {
   console.error(`bake failed: ${String(error)}`);
   await deleteBuilder();

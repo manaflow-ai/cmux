@@ -128,6 +128,19 @@ pub(crate) use pane_browser::{PANE_BROWSER_URL_FIELD, TabSplit};
 /// it and focus the new pane.
 pub(crate) const PANE_SPLIT_FOCUS_FIELD: &str = "focus";
 
+/// `pane.split`'s `fit` field (`--fit` on the CLI): make the new pane a column
+/// that shares the window. On a screen whose columns fit the window, the new
+/// column takes an equal share and the others are scaled to fill the rest
+/// (`Screen::fit_strip_after_insert`), so nothing scrolls sideways; on a screen
+/// that already scrolls it opens at [`FIT_SCROLLING_COLUMN_WIDTH`]. Exclusive
+/// with `viewport_width`, which keeps meaning exactly that width.
+pub(crate) const PANE_SPLIT_FIT_FIELD: &str = "fit";
+
+/// The width a `fit` column opens at on a screen that already scrolls (its
+/// columns are wider than the window together): half the viewport, the width
+/// agents asked for before `fit` existed.
+pub(crate) const FIT_SCROLLING_COLUMN_WIDTH: f32 = 0.5;
+
 /// `workspace.create`'s `focus` field: whether the new workspace becomes the
 /// focused one. The resource router sends `false` when a caller omits it.
 pub(crate) const WORKSPACE_CREATE_FOCUS_FIELD: &str = "focus";
@@ -162,6 +175,8 @@ struct PaneAddOptions<'a> {
     size: Option<(u16, u16)>,
     ratio: Option<f32>,
     viewport_width: Option<f32>,
+    /// A new column that shares the window ([`PANE_SPLIT_FIT_FIELD`]).
+    fit: bool,
     /// `new-row` (`rows-v1`): the new row's height in permille.
     row_height: Option<u16>,
     /// Whether the new pane takes the screen's focus. The user's own splits

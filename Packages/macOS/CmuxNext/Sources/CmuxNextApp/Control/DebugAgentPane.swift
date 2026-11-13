@@ -14,7 +14,7 @@ import WebKit
 /// one). Never changes app or window focus; `open_menu` moves focus inside
 /// the page to the menu's button, as a click does.
 ///
-/// `action`: `seed_rows` (`count`, default 5000; `fixture: "worked-turn"`
+/// `action`: `seed_rows` (`count`, default 5000; `fixture: "link"`/`"github-link"`, linkFixture.ts; `"worked-turn"`
 /// seeds a turn that edits three files instead, for the changes view, and `"short"` one-line
 /// turns answered "ok N", for the thread minimap's density, and `"incoming"` received agent
 /// messages, for the received-message card, and `"shared"` a shared chat, for chat multiplayer's
@@ -64,7 +64,7 @@ enum DebugAgentPane {
         "select_session": "selectSession", "answer_permission": "answerPermission", "open_changes": "openChanges",
         "set_model": "setModel", "models": "models", "stream": "stream", "pick_folder": "pickFolder",
         "compose_send": "composeSend", "run_mode": "runMode", "toast": "toast",
-        "load_seed": "loadSeed", "load_run": "loadRun", "layout_watch": "layoutWatch", "idle_probe": "idleProbe",
+        "load_seed": "loadSeed", "load_run": "loadRun", "layout_watch": "layoutWatch", "idle_probe": "idleProbe", "paste_probe": "pasteProbe",
     ]
 
     /// The chat verbs drive the chat as a person does, so each records a user gesture first: the

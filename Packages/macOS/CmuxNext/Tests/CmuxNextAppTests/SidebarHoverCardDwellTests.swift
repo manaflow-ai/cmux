@@ -170,12 +170,14 @@ import CmuxNextWakeupsTestSupport
         #expect(coordinator.machine.shownTarget != nil, "no card after the set delay")
     }
 
-    /// Lawrence 2026-10-19: "there's a slight delay from when I mouse over the card for our own
-    /// workspace and then leave it before it disappears. We need it to instantly disappear with
-    /// fade opacity when I mouse out." The card touches its row; the pointer moving from the row
-    /// onto it keeps it, and leaving the row and the card starts the fade at once: no grace timer
-    /// first, and the card is clear within the fade.
-    @Test func leavingTheRowAndTheCardFadesTheCardOutAtOnce() async throws {
+    /// Leo 2026-11-07 (#39684): "this is one of the more important hover previews because it's how
+    /// we navigate into the thing ... So I don't want it to disappear as quickly as other ones
+    /// would." The card touches its row; the pointer moving from the row onto it keeps it, and
+    /// leaving the row and the card keeps it for the leave grace, then it fades out and is clear
+    /// within the fade. (This takes back Lawrence 2026-10-19, "We need it to instantly disappear
+    /// with fade opacity when I mouse out", which stays as Debug Settings
+    /// `sidebar.hoverCards.workspaceLeave` = Hides at once.)
+    @Test func leavingTheRowAndTheCardFadesTheCardOutAfterTheLeaveGrace() async throws {
         let clock = ManualClock()
         let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
         defer { Self.tearDown(list, window, coordinator) }
@@ -192,13 +194,16 @@ import CmuxNextWakeupsTestSupport
         coordinator.pointerMoved(to: CGPoint(x: card.minX + 4, y: card.maxY - 4))
         #expect(coordinator.isShowing(shown.id), "moving from the row onto its card hid it")
 
-        // Off the card to the right, away from the sidebar: the fade starts on this move.
+        // Off the card to the right, away from the sidebar: the card lingers on this move, and
+        // the fade starts when its leave grace ends.
         coordinator.pointerMoved(to: CGPoint(x: card.maxX + 60, y: card.midY))
-        #expect(coordinator.machine.shownTarget == nil, "the card waited (\(coordinator.machine.phase)) after the pointer left it")
-        #expect(!panel.isShowingCard, "the fade did not start on the move off the card")
+        #expect(coordinator.isShowing(shown.id), "the card went (\(coordinator.machine.phase)) on the move off it, with no leave grace")
+        try await WorkspaceHoverCardScrollTests.waitOutLeaveGrace(coordinator, clock)
+        #expect(coordinator.machine.shownTarget == nil, "the card stayed (\(coordinator.machine.phase)) past its leave grace")
+        #expect(!panel.isShowingCard, "the fade did not start when the leave grace ended")
         try await Self.expectClearWithinTheFade(panel)
 
-        // Again, leaving the row itself (not onto the card): the same at once. First the reshow
+        // Again, leaving the row itself (not onto the card): the same grace. First the reshow
         // window ends (a return within it shows the card at once, with no dwell timer): its timer
         // must be asleep before the clock moves past it, and its deadline must land.
         try await clock.waitForSleeper()
@@ -211,7 +216,9 @@ import CmuxNextWakeupsTestSupport
         try await Self.settle(until: { coordinator.machine.shownTarget != nil })
         try #require(coordinator.machine.shownTarget != nil, "the second rest showed no card")
         list.updateHover(list.convert(NSPoint(x: list.bounds.midX, y: list.bounds.maxY + 40), to: nil))
-        #expect(coordinator.machine.shownTarget == nil, "the card waited (\(coordinator.machine.phase)) after the pointer left the sidebar")
+        #expect(coordinator.isShowing(shown.id), "the card went (\(coordinator.machine.phase)) as the pointer left the sidebar, with no leave grace")
+        try await WorkspaceHoverCardScrollTests.waitOutLeaveGrace(coordinator, clock)
+        #expect(coordinator.machine.shownTarget == nil, "the card stayed (\(coordinator.machine.phase)) past its leave grace")
         try await Self.expectClearWithinTheFade(panel)
     }
 

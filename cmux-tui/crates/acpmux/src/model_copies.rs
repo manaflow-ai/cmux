@@ -185,13 +185,23 @@ fn copy_of(path: &Path, max_edge: u32, max_bytes: usize) -> Option<(Vec<u8>, u32
     None
 }
 
-/// Writes `bytes` to `path` whole or not at all (a temporary name, then a rename). A copy that
-/// cannot be saved is made again next time.
+/// Writes `bytes` to `path` whole or not at all (a temporary name, owner-only, then a rename).
+/// A copy that cannot be saved is made again next time. Under the held home it goes through
+/// that folder (`home_fs`): a home replaced after the check never gets the copy (#41372 review
+/// F5).
 fn save(path: &Path, bytes: &[u8]) {
+    if crate::config::refuse_lost_home(path).is_err() {
+        return;
+    }
     let tmp = path.with_extension(format!("tmp-{}", uuid::Uuid::now_v7()));
-    let wrote = std::fs::File::create(&tmp).and_then(|mut f| f.write_all(bytes));
-    if wrote.is_err() || std::fs::rename(&tmp, path).is_err() {
-        let _ = std::fs::remove_file(&tmp);
+    let wrote = crate::home_fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&tmp)
+        .and_then(|mut f| f.write_all(bytes));
+    if wrote.is_err() || crate::home_fs::rename(&tmp, path).is_err() {
+        let _ = crate::home_fs::remove_file(&tmp);
     }
 }
 
@@ -402,5 +412,27 @@ mod tests {
         let (_, w, h) = downscale(std::io::Cursor::new(halves(640, 480)), 1568).unwrap();
         assert_eq!((w, h), (640, 480));
         assert!(downscale(std::io::Cursor::new(b"not a png".to_vec()), 1568).is_none());
+    }
+
+    /// A model-sized copy saved beside its upload (#41372 review F5): held past its home check
+    /// and the home replaced, the copy lands in the held home and the new one gets nothing.
+    #[cfg(unix)]
+    #[test]
+    fn a_model_copy_save_held_past_its_check() {
+        use crate::lost_home_race_tests::{forced, isolated, nothing};
+        isolated(
+            module_path!(),
+            "a_model_copy_save_held_past_its_check",
+            |home| {
+                let dir =
+                    home.join("uploads").join("chat-a").join(uuid::Uuid::now_v7().to_string());
+                std::fs::create_dir_all(&dir).unwrap();
+                let saved = dir.join(".model-1568.png");
+                let kept = saved.strip_prefix(home).unwrap().to_string_lossy().into_owned();
+                let target = saved.clone();
+                forced(home, target, nothing, Some(&kept), move || save(&saved, b"png bytes"));
+            },
+            |_, _| {},
+        );
     }
 }

@@ -189,7 +189,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // take as long as it needs to page a large transcript, while EOF
             // still fails the request promptly.
             let id = resolve_id(&client, &session).await?;
-            let replies = last_replies(&client, &id, count).await?;
+            let replies = crate::cli::slow_notice::noted(
+                "the last replies",
+                last_replies(&client, &id, count),
+            )
+            .await?;
             if json_out {
                 print_json(&json!({"sessionId": id, "replies": replies}));
             } else {
@@ -206,7 +210,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let client = connect(true).await?;
             let v = client.whole_list(method::MUX_SESSIONS, json!({})).await?;
             let mut out = Vec::new();
-            for s in v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default() {
+            let sessions = v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
+            // Other sessions' messages a chat's Claude Code holds (`hub/native_messaging.rs`).
+            let held = held_messages(&sessions);
+            for s in sessions {
                 if s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) == 0 {
                     continue;
                 }
@@ -239,8 +246,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 }
             }
             if json_out {
-                print_json(&json!({"pending": out}));
-            } else if out.is_empty() {
+                print_json(&json!({"pending": out, "heldMessages": held}));
+            } else if out.is_empty() && held.is_empty() {
                 println!("no pending permissions");
             } else {
                 for p in &out {
@@ -252,6 +259,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         g("kind"),
                         g("answer")
                     );
+                }
+                for h in &held {
+                    println!("{}", held_message_line(h));
                 }
             }
             Ok(())
@@ -694,6 +704,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             stall,
             prompt_id,
             from,
+            sender_token_file,
             status,
             supersede,
             class,
@@ -742,6 +753,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             prompt_id.from_harness =
                 crate::cli::sender::harness_of_this_process().map(str::to_owned);
             prompt_id.cli_host = crate::cli::sender::person_host(prompt_id.from_agent.is_some());
+            // This host's sender token, which proves a named sender is one the owner set up
+            // (`sender_token.rs`). Read before connecting, so a missing file fails the send at once.
+            prompt_id.sender_token =
+                crate::sender_token::of_this_send(sender_token_file.as_deref())?;
             let superseding = supersede.is_some();
             prompt_id.supersede = supersede;
             let classed = class.is_some();
@@ -1118,7 +1133,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         Command::Info { session, fields } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;
-            let v = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
+            let v = crate::cli::slow_notice::noted(
+                "the session's details",
+                client.request(method::MUX_INFO, json!({"sessionId": id})),
+            )
+            .await?;
             if let Some(fields) = fields {
                 return super::fanout::print_info_fields(&v, &fields, json_out);
             }
@@ -1458,6 +1477,42 @@ fn new_requires_tty(
     stdout_terminal: bool,
 ) -> bool {
     !json_out && new_without_prompt_requires_tty(no_prompt, detach, stdin_terminal, stdout_terminal)
+}
+
+/// The messages each listed session's Claude Code holds (`heldMessages` of its row), as
+/// `pending` lists them: each with its session's name and id, and what the person can do.
+fn held_messages(sessions: &[Value]) -> Vec<Value> {
+    let mut out = Vec::new();
+    for s in sessions {
+        let name = s.get("name").cloned().unwrap_or(Value::Null);
+        let id = s.get("sessionId").cloned().unwrap_or(Value::Null);
+        for h in s.get("heldMessages").and_then(Value::as_array).into_iter().flatten() {
+            let mut row = h.clone();
+            row.set("session", name.clone());
+            row.set("sessionId", id.clone());
+            row.set("answer", json!(HELD_ANSWER));
+            out.push(row);
+        }
+    }
+    out
+}
+
+/// What the person can do about a message Claude Code holds: Claude Code gives a host no way to
+/// release it, so it waits for that chat's approval or expires.
+const HELD_ANSWER: &str = "Claude Code holds it for approval (it expires); acpmux cannot release it. Have the sender send it again with acpmux send";
+
+/// One `pending` line for a held message.
+fn held_message_line(h: &Value) -> String {
+    let g = |k: &str| h.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
+    let from = Some(g("fromName")).filter(|n| !n.is_empty()).unwrap_or_else(|| g("from"));
+    let from = if from.is_empty() { "another session".to_owned() } else { from };
+    let cause = g("cause");
+    let cause = if cause.is_empty() { String::new() } else { format!(" ({cause})") };
+    format!(
+        "{:<24} message from {from} held by Claude Code{cause}  answer: {}",
+        g("session"),
+        g("answer")
+    )
 }
 
 /// Parse the compact durations accepted by `ls --since` (`30m`, `24h`, `7d`, or combinations).

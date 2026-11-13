@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "7a7b3e8bc2a6eb6d12e276c8073c3200a6b8d9a9bfd1b0403217c18c6323aee8",
+  "catalog_sha256": "410246dc1512a7f8bdc9b80623cdbc7b6e26bdcaaa2478f97cfdba9928760443",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -175,7 +175,13 @@
     "closed.reopen": {
       "class": "mutation"
     },
+    "cloud.machine.chat_access": {
+      "class": "read"
+    },
     "cloud.machine.io": {
+      "class": "mutation"
+    },
+    "cloud.machine.share_chat": {
       "class": "mutation"
     },
     "cloud.owner.acpmux_keyed_start": {
@@ -335,6 +341,9 @@
       "class": "read"
     },
     "diff.comments.save": {
+      "class": "mutation"
+    },
+    "diff.comments.send": {
       "class": "mutation"
     },
     "frontend_projection.get": {
@@ -719,6 +728,9 @@
       "class": "mutation"
     },
     "session.window.title.set": {
+      "class": "mutation"
+    },
+    "settings.edit": {
       "class": "mutation"
     },
     "settings.get": {

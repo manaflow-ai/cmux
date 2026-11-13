@@ -21,6 +21,7 @@ import argparse, glob, http.server, json, os, plistlib, subprocess, sys, tempfil
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -201,7 +202,7 @@ try:
     end("quit")
     launch()
     after = downloads()
-    print("note: rows after relaunch", [(d.get("filename"), d.get("status")) for d in after], flush=True)
+    safe_print("note: rows after relaunch", [(d.get("filename"), d.get("status")) for d in after], flush=True)
     for name, before in kept.items():
         found = next((d for d in after if d.get("filename") == name), None)
         check(found is not None and found.get("status") == "finished"

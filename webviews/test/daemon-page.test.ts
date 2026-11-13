@@ -4,7 +4,14 @@
 // 1.2 MB page where acpmux sends 128 KiB. A page bounded by bytes also folds a command's cumulative output
 // updates to its newest (store/superseded.rs), as acpmux does.
 import { describe, expect, test } from "bun:test";
-import { DEFAULT_PAGE_BYTES, MAX_PAGE_BYTES, newestPage, recordBytes } from "../bench/daemonPage";
+import {
+  DEFAULT_PAGE_BYTES,
+  MAX_PAGE_BYTES,
+  MAX_RECORD_BYTES,
+  newestPage,
+  pageBytes,
+  recordBytes,
+} from "../bench/daemonPage";
 import { godChat } from "../bench/godFixture";
 import { toRecord } from "../bench/replayLogs";
 
@@ -64,6 +71,40 @@ describe("stand-in daemon paging", () => {
     // Read with no byte bound, every record goes out, and the log itself is never changed.
     expect(newestPage(events).page).toHaveLength(8);
     expect(JSON.stringify(events)).toBe(before);
+  });
+
+  test("maxBytes null, or not a whole number, is acpmux's 1 MiB page; only a named non-null one folds", () => {
+    expect(pageBytes(null)).toBe(DEFAULT_PAGE_BYTES);
+    expect(pageBytes(undefined)).toBe(DEFAULT_PAGE_BYTES);
+    expect(pageBytes(1.5)).toBe(DEFAULT_PAGE_BYTES);
+    expect(pageBytes(-1)).toBe(DEFAULT_PAGE_BYTES);
+    expect(pageBytes("4096")).toBe(DEFAULT_PAGE_BYTES);
+    expect(pageBytes(0)).toBe(0);
+    const output = (text: string) => [{ type: "content", content: { type: "text", text } }];
+    const steps = [1, 2, 3].map((n) => ({
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "c",
+        status: "in_progress",
+        content: output("x".repeat(n)),
+      },
+    }));
+    const events = steps.map((step, index) => toRecord("s", index + 1, index, step as Parameters<typeof toRecord>[3]));
+    // Null reads like no ask: every record of a 1 MiB page, nothing folded (a null that read as 0 held one).
+    expect(newestPage(events, { maxBytes: null }).page.map((event) => event.seq)).toEqual([1, 2, 3]);
+  });
+
+  test("a record no message can carry goes as a stub with its seq and kind", () => {
+    const big = { seq: 2, at: 2, dir: "in", kind: "agent_message_chunk", msg: { text: "x".repeat(MAX_RECORD_BYTES) } };
+    const events = [{ seq: 1, at: 1, dir: "in", kind: "agent_message_chunk", msg: { text: "a" } }, big];
+    const { page } = newestPage(events, { maxBytes: MAX_PAGE_BYTES });
+    expect(page.map((event) => event.seq)).toEqual([1, 2]);
+    expect(page[1] as unknown).toEqual({
+      ...big,
+      msg: { _meta: { acpmux: { omitted: { bytes: recordBytes(big), reason: "too_large" } } } },
+    });
+    // The log keeps the record whole.
+    expect(events[1]!.msg.text.length).toBe(MAX_RECORD_BYTES);
   });
 
   test("the god session's open page is cut to the pane's 128 KiB ask", () => {

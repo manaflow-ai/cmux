@@ -61,6 +61,12 @@ import Foundation
     /// An order change inside a pane, or of the workspaces, noted by its
     /// writer (`noteTabOrderChanged`).
     private var tabOrderChanged = false
+    /// An order-free digest of which panes there are, each in which screen of which workspace (XOR of one hash per
+    /// indexed pane). A record indexed again as it was leaves it as it was, and no tab changes it: it moves only
+    /// when a pane came, went or sits in another screen or workspace. A snapshot that applies a workspace again
+    /// notes a tab order change each time (`tabOrderChanged`); this digest does not move for it.
+    private var paneMembership = 0
+    private var takenPaneMembership = 0
 
     private enum Keys {
         case workspace(handle: WorkspaceHandle, key: WorkspaceKey?, id: String, resource: ResourceID?)
@@ -76,6 +82,8 @@ import Foundation
         var children: Set<ObjectIdentifier> = []
         /// A tab's or a pane's share of `tabMembership` (0 for other records).
         var membership = 0
+        /// A pane's share of `paneMembership` (0 for other records).
+        var paneMembership = 0
     }
 
     private var entries: [ObjectIdentifier: Entry] = [:]
@@ -115,8 +123,10 @@ import Foundation
         let keyedBefore: [ResourceID: WorkspaceModel] = workspacesByResource
         let keyWaits = workspaceKeyWaits
         let keysBefore: [WorkspaceKey: WorkspaceModel] = workspacesByKey
+        let takenPanes = takenPaneMembership
         self = StoreIndex() // its own new cells, which no wait reads: the inserts below touch none of `waits`
         indexedRecords = counted
+        takenPaneMembership = takenPanes // the same panes indexed again are no pane list change
         for workspace in workspaces { insert(workspace) }
         workspaceResourceWaits = waits
         // Only an id whose workspace changed (came, went, or another record) wakes its waits.
@@ -136,6 +146,24 @@ import Foundation
     mutating func takeTabListChange() -> Bool {
         defer { (takenMembership, tabOrderChanged) = (tabMembership, false) }
         return tabOrderChanged || tabMembership != takenMembership
+    }
+
+    /// Whether the panes (which there are, each in which screen of which workspace) changed since the last call;
+    /// resets it.
+    mutating func takePaneListChange() -> Bool {
+        defer { takenPaneMembership = paneMembership }
+        return paneMembership != takenPaneMembership
+    }
+
+    /// With the screen and the workspace: a pane that leaves one workspace and comes to another in one publish
+    /// (alone, or with its screen) keeps its id and its handle, and the two records must not cancel in the XOR.
+    private static func paneMembership(_ pane: PaneModel, screen: ScreenID?, workspace: String?) -> Int {
+        var hasher = Hasher()
+        hasher.combine(pane.id)
+        hasher.combine(pane.handle)
+        hasher.combine(screen)
+        hasher.combine(workspace)
+        return hasher.finalize()
     }
 
     /// By the pane's handle, not its record: an overlay that makes the same
@@ -192,6 +220,7 @@ import Foundation
     private mutating func remove(id: ObjectIdentifier) {
         guard let entry = entries.removeValue(forKey: id) else { return }
         tabMembership ^= entry.membership
+        paneMembership ^= entry.paneMembership
         for child in entry.children { remove(id: child) }
         if let parent = entry.parent { entries[parent]?.children.remove(id) }
         unkey(entry.keys, entry.record)
@@ -207,6 +236,9 @@ import Foundation
         } else if let pane = record as? PaneModel {
             entry.membership = Self.membership(pane)
             tabMembership ^= entry.membership
+            let screen = parent as? ScreenModel
+            entry.paneMembership = Self.paneMembership(pane, screen: screen?.handle, workspace: screen.flatMap(workspace(holding:))?.id)
+            paneMembership ^= entry.paneMembership
         }
         entries[id] = entry
         if let parentID { entries[parentID]?.children.insert(id) }

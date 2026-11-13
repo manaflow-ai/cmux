@@ -108,8 +108,9 @@ public final class SidebarView: NSView {
             needsLayout = true
         }
     }
-    /// App health's dot and line on the footer line after the avatar (design/app-health.md); it shows and
-    /// hides itself and asks for a layout. It never fades with the footer.
+    /// App health's dot and line (design/app-health.md), over the sidebar just above the footer row, never in
+    /// its flow (``SidebarFooterBand/placeHealthIndicator(above:)``); it shows and hides itself and asks for a
+    /// layout. It never fades with the footer.
     public var healthIndicator: NSView? {
         didSet {
             oldValue?.removeFromSuperview()
@@ -382,7 +383,7 @@ public final class SidebarView: NSView {
     /// The list follows the visible clip (`SidebarListView.fitToClip`).
     private func syncListSize() { list.fitToClip() }
 
-    override public func layout() {
+    override public func layout() { // perf-hot: 1ms window-resize-step
         super.layout()
         let b = bounds
         // Tokens are read here, never cached, so density changes apply live.
@@ -411,7 +412,7 @@ public final class SidebarView: NSView {
         // `sidebar.showNewWorkspaceChooser` (off by default, Lawrence 2026-10-30: "by default i dont want to have
         // workspace titlebar dropdowns at all"): without it the + stands alone and its right-click menu holds the chooser.
         let showsChevron = design.sidebarSections.showNewWorkspaceChooser && pairMinX >= x
-        newWorkspaceOptionsButton.isHidden = !showsChevron
+        SidebarHiddenState.apply(!showsChevron, to: newWorkspaceOptionsButton)
         // The + alone centers on the trailing column, the rows' status marks' and footer Search's one x (Leo
         // 2026-11-07: "the top of the sidebar with the subsequent elements below (workspaces and their notification
         // symbols, then the search icon)"); with its chooser segment the pair keeps the row's trailing inset.
@@ -425,7 +426,7 @@ public final class SidebarView: NSView {
             accessory.frame = Self.titlebarAccessoryFrame(fitting: accessory.fittingSize, x: x,
                                                           room: titlebarButtonsMinX - Metrics.space2 - x,
                                                           button: button, buttonY: buttonY, rowMidY: rowMidY)
-            accessory.isHidden = accessory.frame.isEmpty
+            SidebarHiddenState.apply(accessory.frame.isEmpty, to: accessory)
         }
         // The frames above are the row at rest; the band's edge on screen may hold it further right.
         titlebarRowShift = 0
@@ -443,16 +444,20 @@ public final class SidebarView: NSView {
         let spaceCount = model.profiles.count
         let showsProfiles = ProfileBarLogic.isVisible(profileCount: spaceCount) && (spacesPosition == .bottom || spaceCount > 1)
             && design.sidebarSections.showSpaces && !noFade
-        profileBar.isHidden = !showsProfiles
-        footerRegion.isHidden = noFade
-        searchButton.isHidden = noFade
-        liveModeBadge?.isHidden = noFade
+        SidebarHiddenState.apply(!showsProfiles, to: profileBar)
+        SidebarHiddenState.apply(noFade, to: footerRegion)
+        SidebarHiddenState.apply(noFade, to: searchButton)
+        if let liveModeBadge { SidebarHiddenState.apply(noFade, to: liveModeBadge) }
         for fade in [edgeFade, aboveFade, belowFade] { fade.fades = !noFade }
         // R109: the dots under the titlebar row, or in the footer.
         let spacesHeight: CGFloat = spacesPosition == .top && showsProfiles ? SidebarStyle.footerHeight : 0
         // Amendment 3: at the bottom the dots share the footer band's row
         // (after the profile control), so the dots row takes no height of
         // its own unless the band is empty.
+        // What the footer's space switcher shows changed (`render` sets `bandsDirty` for the spaces, the current space,
+        // the sidebar's metrics, the switcher's own tokens and the app sections): a layout for a new size only does not
+        // make the switcher again (a window resize step).
+        let spacesChanged = bandsDirty
         if bandsDirty || bandsSize != b.size {
             (bandsDirty, bandsSize) = (false, b.size)
             updateBands()
@@ -480,7 +485,10 @@ public final class SidebarView: NSView {
         cardSlot.place(above: footer.frame.minY, top: listTop, width: b.width, slotHeight: slotHeight, in: self)
         footerCards?.frame = NSRect(x: 0, y: footer.frame.minY - updateHeight - cardsHeight, width: b.width, height: cardsHeight)
         footerBand.layoutFooter(visibleSlots)
-        footerBand.placeSpaces(top: y, height: spacesHeight)
+        footerBand.placeSpaces(top: y, height: spacesHeight, modelChanged: spacesChanged)
+        // App health's line over the sidebar, above the footer row and its cards: placed after the row, from
+        // nothing in it.
+        footerBand.placeHealthIndicator(above: footer.frame.minY - updateHeight - cardsHeight)
         edgeFade.frame = listFrame
         clipBandsUnderTrafficLights()
         layoutEditBar(over: listFrame)
