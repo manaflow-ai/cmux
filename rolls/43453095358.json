@@ -1,0 +1,55 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43453095358",
+  "recorded_at": "2026-11-13T15:36:38Z",
+  "reason": "cmux-tui 0025343df236 changes the image's cmux-tui (pinned 5e1f7278b3d8)",
+  "dry_run": false,
+  "cmux_tui": "0025343df23630634312a179cd956128e606c193",
+  "fixes": [
+    {
+      "sha": "0025343df23630634312a179cd956128e606c193",
+      "mergedAt": "2026-11-13T09:04:06-06:00",
+      "subject": "cmux-tui-core: a pepper or machine-id load unlocks its lock on every return"
+    },
+    {
+      "sha": "8cd509d5eaae98de0f1d2a8265faf9b708bc421e",
+      "mergedAt": "2026-11-13T09:04:06-06:00",
+      "subject": "cmux-tui-core tests: a failed pepper or machine-id load leaves its lock free while a forked child keeps its descriptor (red)"
+    },
+    {
+      "sha": "d42351fa3447369457bc705cd7b4ca3c53b3a9a5",
+      "mergedAt": "2026-11-13T09:04:06-06:00",
+      "subject": "cmux-tui-core: the pepper and machine-id loaders move to workspace_registry/identity_load.rs"
+    },
+    {
+      "sha": "545087300550516af89cda34541f814f969bc0fe",
+      "mergedAt": "2026-11-13T06:53:43-08:00",
+      "subject": "acpmux tests: a drop's std root must be the crate, and method-local imports count (#42111 review) (#42125)"
+    },
+    {
+      "sha": "53a7cedcc3a4b30e04e41ea2188a11d76eee0117",
+      "mergedAt": "2026-11-13T08:44:50-06:00",
+      "subject": "acpmux-core: History::is_empty has the cfg of its one user, so macOS clippy is clean"
+    },
+    {
+      "sha": "bb5f90e873b82eb8d0256e5ecb867f1806204aaf",
+      "mergedAt": "2026-11-13T06:42:34-08:00",
+      "subject": "Runs: cmux run --sandboxed checks its task with the daemon's own task_fits (#42585)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-13T15:36:38Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
