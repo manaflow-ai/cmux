@@ -2471,6 +2471,45 @@ def test_cmux_tui_preflight_seeds_canonical_key_before_docs_skip():
     assert '--version v2-legacy "$SOURCE_COMMIT"' in inspect
 
 
+def test_feat_tip_rebuilds_missing_commit_manifest_and_cdn_gate_is_final():
+    artifacts = workflow("cmux-tui-artifacts.yml")
+    preflight = workflow_job(artifacts, "tree-preflight")
+    assert "commit_manifest_ready=false" in preflight
+    assert "cmux-tui/$SHA/manifest.json?preflight=$RUN_ID-commit" in preflight
+    assert '"$commit_manifest_ready" != true' in preflight
+    detector = workflow_job(artifacts, "verify-cdn-publication")
+    assert "needs: [tree-preflight, publish, publish-tree]" in detector
+    assert "always()" in detector
+    assert "verify_cmux_tui_publication.py" in detector
+    script = (ROOT / "scripts/ci/verify_cmux_tui_publication.py").read_text()
+    assert "https://files.cmux.com/cmux-tui/{sha}/manifest.json" in script
+    assert "https://files.cmux.com/cmux-tui/tree/{tree_key}/source.json" in script
+
+
+def test_cdn_publication_check_retries_and_validates_both_documents():
+    import verify_cmux_tui_publication as checker
+
+    sha = "a" * 40
+    key = "b" * 40
+    responses = {
+        f"https://files.cmux.com/cmux-tui/{sha}/manifest.json": [
+            OSError("CDN propagation"),
+            json.dumps({"commit": sha, "sourceCommit": sha}).encode(),
+        ],
+        f"https://files.cmux.com/cmux-tui/tree/{key}/source.json": [
+            json.dumps({"key": key, "sourceCommit": sha}).encode(),
+        ],
+    }
+
+    def fetch(url: str) -> bytes:
+        value = responses[url].pop(0)
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+    assert checker.verify_publication(sha, key, fetch=fetch, attempts=2, delay_seconds=0) == list(responses)
+
+
 # Keep this the last statement of the file: unittest.main() ends the process, so a
 # test defined after it never runs in `python3 tests/test_tui_publish_workflow_security.py`.
 if __name__ == "__main__":
