@@ -172,3 +172,35 @@ fn an_unreadable_cold_comparison_does_not_defer_its_replacement() {
     let (reopened, _) = Hub::open(dir.path(), 101, || 7).unwrap();
     assert_eq!(reopened.snapshot().get("damaged").unwrap().title, "restored from the owning chat");
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn byte_history_resumes_recent_changes_and_windows_after_eviction() {
+    let (hub, mut writer) = Hub::new(SummaryIndex::new());
+    for activity in 1..=6000 {
+        let mut row = closed("one");
+        row.origin = "remote".into();
+        row.last_activity = activity;
+        writer.apply(row).unwrap();
+    }
+    writer.remove("remote", "one").unwrap();
+    let seq = hub.snapshot().seq();
+    let mut request = Sub::new("recent", "list").from_cursor(seq - 2);
+    request.edition = Some(hub.snapshot().edition());
+    let recent = hub.subscribe(&request).unwrap();
+    let window: Window<Summary> = recent.window.decode_json().unwrap();
+    assert_eq!(window.cursor, seq - 2);
+    // The queue coalesces the summary and gone for the same composite key.
+    match recent.receiver.recv().await.unwrap() {
+        ListItem::Gone { seq: got, origin, chat_id } => {
+            assert_eq!(got, seq);
+            assert_eq!(origin, "remote");
+            assert_eq!(chat_id, "one");
+        }
+        other => panic!("expected removal, got {other:?}"),
+    }
+    request.cursor = Some(0.into());
+    let expired = hub.subscribe(&request).unwrap();
+    let window: Window<Summary> = expired.window.decode_json().unwrap();
+    assert_eq!(window.cursor, seq);
+    assert_no_delta(&expired);
+}
