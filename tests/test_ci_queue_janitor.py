@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import collections
 import datetime as dt
 import base64
 import email.message
@@ -803,14 +804,14 @@ class WorkflowShapeTests(unittest.TestCase):
         # but with the whole workflow in the group they still arrived there and cancelled the real sweep
         # that was waiting: on 2026-10-30 they were 238 of the janitor's last 400 runs, crons were
         # cancelled within seconds of being queued, and after 17:57Z no snapshot was written until the
-        # 18:14 cron (the pool snapshot was 50 minutes old). Such a run gets a group of its own now.
+        # 18:14 cron (the pool snapshot was 50 minutes old). Such a run gets a group apart from the sweeps,
+        # one shared by every no-op run, so after the 2026-11-11 stall they collapse to one waiting run.
         workflow = yaml.safe_load(self.text)
         no_sweep = ("github.event_name == 'workflow_run' && "
                     "github.event.workflow_run.pull_requests[0].base.ref == 'feat-cmux-next'")
         self.assertEqual(workflow["jobs"]["sweep"]["if"], "${{ !(" + no_sweep + ") }}")
         self.assertEqual(workflow["concurrency"], {
-            "group": "${{ (" + no_sweep + ") && format('ci-queue-janitor-noop-{0}', github.run_id) "
-                     "|| 'ci-queue-janitor' }}",
+            "group": "${{ (" + no_sweep + ") && 'ci-queue-janitor-noop' || 'ci-queue-janitor' }}",
             "cancel-in-progress": False,
         })
 
@@ -1245,6 +1246,112 @@ class OrphanPlanTests(unittest.TestCase):
         self.assertEqual(janitor.orphan_branches(orphans, NOW), ["exp/x", "pr-branch", "reviewed"])
         protected = self.orphans(1, event="push", branch="feat-cmux-next", path=".github/workflows/cmux-next.yml")
         self.assertEqual(janitor.orphan_branches(protected, NOW), [])
+
+
+class SupersededQueuedTests(unittest.TestCase):
+    """A pull request run GitHub left `queued` with no job is cancelled once its pull request moved on.
+
+    After the 2026-11-11 20:17Z-21:38Z stall, 684 runs created during it were still queued at 22:52Z with
+    no job listed; 195 were short pull request checks. Before this they waited a day (GHOST_QUEUED_RUN_AGE).
+    """
+
+    def candidates(self, *runs, jobs=None):
+        return janitor.find_superseded_queued(list(runs), jobs or {}, now=NOW)
+
+    def test_a_stuck_run_whose_pull_request_moved_on_is_cancelled(self):
+        run = make_run(status="queued", age=45, sha="old", prs=(7,), branch="topic")
+        found = self.candidates(run)
+        self.assertEqual([o.run["id"] for o in found], [run["id"]])
+        decisions = orphan_plan(found, {"topic": [make_pr(7, head="new")]})
+        self.assertEqual([d.action for d in decisions], ["cancel"])
+        self.assertIn("superseded", decisions[0].orphan.evidence)
+
+    def test_a_stuck_run_at_the_open_head_is_left_alone(self):
+        run = make_run(status="queued", age=45, sha="aaa", prs=(7,), branch="topic")
+        self.assertEqual(orphan_plan(self.candidates(run), {"topic": [make_pr(7, head="aaa")]}), [])
+
+    def test_a_pull_request_target_check_is_judged_by_its_pull_request_too(self):
+        # risk-tier.yml and most short checks run on pull_request_target; the feed shows their head branch and sha.
+        run = make_run(status="queued", age=45, sha="old", event="pull_request_target", branch="topic",
+                       path=".github/workflows/risk-tier.yml")
+        decisions = orphan_plan(self.candidates(run), {"topic": [make_pr(7, head="new")]})
+        self.assertEqual([d.action for d in decisions], ["cancel"])
+        self.assertEqual(orphan_plan(self.candidates(run), {"topic": [make_pr(7, head="old")]}), [])
+
+    def test_the_pull_request_lookup_is_bounded(self):
+        runs = [make_run(status="queued", age=45 + i, sha="old", prs=(i,), branch=f"b{i:03d}")
+                for i in range(janitor.SUPERSEDED_QUEUED_BRANCHES + 10)]
+        branches = janitor.orphan_branches(self.candidates(*runs), NOW)
+        self.assertEqual(len(branches), janitor.SUPERSEDED_QUEUED_BRANCHES)
+        self.assertIn(f"b{janitor.SUPERSEDED_QUEUED_BRANCHES + 9:03d}", branches, "oldest first")
+
+    def test_a_closed_pull_requests_stuck_run_is_cancelled(self):
+        run = make_run(status="queued", age=45, sha="aaa", prs=(7,), branch="topic")
+        decisions = orphan_plan(self.candidates(run), {"topic": [make_pr(7, head="aaa", state="CLOSED")]})
+        self.assertEqual([d.action for d in decisions], ["cancel"])
+
+    def test_young_started_and_non_pull_request_runs_are_not_candidates(self):
+        young = make_run(status="queued", age=10, prs=(7,))
+        started = make_run(status="queued", age=45, prs=(7,))
+        running = make_run(status="in_progress", age=45, prs=(7,))
+        push = make_run(status="queued", age=45, event="push")
+        schedule = make_run(status="queued", age=45, event="schedule", branch="main")
+        jobs = {started["id"]: [linux_job(status="in_progress")]}
+        self.assertEqual(self.candidates(young, started, running, push, schedule, jobs=jobs), [])
+
+    def test_unassigned_jobs_alone_still_count_as_nothing_started(self):
+        run = make_run(status="queued", age=45, sha="old", prs=(7,), branch="topic")
+        found = self.candidates(run, jobs={run["id"]: [orphan_job(age=40)]})
+        self.assertEqual(len(found), 1)
+
+    def test_unread_or_opted_out_pull_requests_are_left_alone(self):
+        run = make_run(status="queued", age=45, sha="old", prs=(7,), branch="topic")
+        found = self.candidates(run)
+        self.assertEqual(orphan_plan(found, {}), [])
+        labelled = {"topic": [make_pr(7, head="new", labels=(janitor.JANITOR_OPT_OUT_LABEL,))]}
+        self.assertEqual(orphan_plan(found, labelled), [])
+
+    def test_its_own_cap_leaves_lost_assignments_their_cap(self):
+        runs = [make_run(status="queued", age=45 + i, sha="old", prs=(7,), branch="topic")
+                for i in range(janitor.SUPERSEDED_QUEUED_MAX_CANCELS + 2)]
+        decisions = orphan_plan(self.candidates(*runs), {"topic": [make_pr(7, head="new")]}, max_cancels=0)
+        actions = collections.Counter(d.action for d in decisions)
+        self.assertEqual(actions["cancel"], janitor.SUPERSEDED_QUEUED_MAX_CANCELS)
+        self.assertEqual(actions["skip"], 2)
+
+    def test_only_the_newest_stuck_cron_or_maintenance_run_is_kept(self):
+        # 2026-11-11: 18 queue-janitor runs stayed queued with no job after the stall.
+        path = ".github/workflows/ci-queue-janitor.yml"
+        older = [make_run(status="queued", age=150 - i, event="workflow_run", branch="main", path=path)
+                 for i in range(3)]
+        newest = make_run(status="queued", age=40, event="workflow_run", branch="main", path=path)
+        found = self.candidates(*older, newest)
+        self.assertEqual(sorted(o.run["id"] for o in found), sorted(r["id"] for r in older))
+        decisions = orphan_plan(found, {})
+        self.assertEqual([d.action for d in decisions], ["cancel"] * 3)
+
+    def test_delivery_and_per_source_run_workflows_are_never_collapsed(self):
+        for path, event in ((".github/workflows/nightly.yml", "schedule"),
+                            (".github/workflows/nightly-next-tick.yml", "workflow_run"),
+                            (".github/workflows/ios-testflight.yml", "schedule"),
+                            (".github/workflows/release.yml", "schedule"),
+                            (".github/workflows/ci-owned-pool-rescue.yml", "workflow_run"),
+                            (".github/workflows/ci-hosted-queue-rescue.yml", "workflow_run")):
+            with self.subTest(path=path):
+                runs = [make_run(status="queued", age=150 - i, event=event, branch="main", path=path)
+                        for i in range(3)]
+                self.assertEqual(self.candidates(*runs), [])
+
+    def test_a_scheduled_owned_pool_sweep_is_collapsed(self):
+        path = ".github/workflows/ci-owned-pool-rescue.yml"
+        runs = [make_run(status="queued", age=150 - i, event="schedule", branch="main", path=path)
+                for i in range(2)]
+        self.assertEqual([o.run["id"] for o in self.candidates(*runs)], [runs[0]["id"]])
+
+    def test_a_run_already_an_orphan_is_not_counted_twice(self):
+        run = make_run(status="queued", age=60 * 30, sha="old", prs=(7,), branch="topic")
+        orphans = find([run], {})
+        self.assertEqual(janitor.find_superseded_queued([run], {}, now=NOW, orphans=orphans), [])
 
 
 class FakeGitHub(janitor.GitHub):

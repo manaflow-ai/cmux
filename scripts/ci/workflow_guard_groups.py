@@ -151,8 +151,13 @@ PATH_OWNERS = {
     # The delivery workflow list: test_nightly_delivery_concurrency.py (release-notary) and
     # queue_janitor.py (ci) both import it.
     "scripts/ci/delivery_workflows.py": frozenset(("ci", "release-notary")),
-    # The shared-group check test_nightly_delivery_concurrency.py (release-notary) imports.
-    "scripts/ci/delivery_concurrency.py": frozenset(("release-notary",)),
+    # The shared-group check test_nightly_delivery_concurrency.py (release-notary) and
+    # cron_concurrency.py (test_ci_cron_concurrency.py, ci) import.
+    "scripts/ci/delivery_concurrency.py": frozenset(("ci", "release-notary")),
+    # The cron/delivery concurrency rule test_ci_cron_concurrency.py (ci) imports; the backlog replay
+    # reads it too.
+    "scripts/ci/cron_concurrency.py": frozenset(("ci",)),
+    "scripts/ci/backlog_drain_replay.py": frozenset(("ci",)),
     # test_ci_starved_labels.py (ci) loads it by path; queue_janitor.py imports it.
     "scripts/ci/starved_labels.py": frozenset(("ci",)),
     "scripts/ci/required_status_checks.py": frozenset(("ci",)),
