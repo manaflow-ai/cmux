@@ -25,13 +25,29 @@ done
 [[ "$SAMPLES" =~ ^[1-9][0-9]*$ ]] || exit 2
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
+[[ "$OUT" != *'$'* && "$OUT" = /* ]] || { echo "invalid artifact output path: $OUT" >&2; exit 2; }
 [[ ! -e "$OUT/requested-source-pins.txt" ]] || {
   echo "Use a fresh artifact directory; existing receipt: $OUT/requested-source-pins.txt" >&2; exit 2;
 }
 # Never mistake cmux-ci's wrapper snapshot SHA for the requested source SHA.
 git rev-parse HEAD 'HEAD^{tree}' > "$OUT/wrapper-snapshot.txt"
 printf '%s\n' "$BASELINE" "$CANDIDATE" > "$OUT/requested-source-pins.txt"
-trap 'rc=$?; printf "%s\n" "$rc" > "$OUT/exit-code.txt"' EXIT
+on_exit() {
+  rc=$?
+  printf "%s\n" "$rc" > "$OUT/exit-code.txt"
+  if [[ -s "$OUT/summary.json" ]]; then
+    echo "shared React runtime proof summary:"
+    cat "$OUT/summary.json"
+  fi
+  if (( rc != 0 )); then
+    for log in "$OUT"/baseline/build.log "$OUT"/candidate/build.log "$OUT/browser.log"; do
+      [[ -f "$log" ]] || continue
+      echo "--- tail $log ---"
+      tail -n 30 "$log"
+    done
+  fi
+}
+trap on_exit EXIT
 WORK="$(mktemp -d /tmp/cmux-shared-runtime-sources.XXXXXX)"
 printf '%s\n' "$WORK" > "$OUT/source-directory.txt"
 # Preserve owned source/build trees for diagnosis; no broad cleanup of fleet paths.
