@@ -2,7 +2,7 @@
 // sends the whole order, Add a Connection sends a pasted key once and keeps it nowhere after, a member
 // reads the organization's policy without switches to change it, and a ChatGPT sign-in waits with Cancel.
 import { afterAll, afterEach, expect, test } from "bun:test";
-import { mockModels } from "./mockModels";
+import { mockModels, runMockModels } from "./mockModels";
 import type { ModelsState } from "./ops";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
@@ -48,31 +48,19 @@ test("with nothing connected, the card says so and offers Add a Connection", asy
 
 test("Move Down sends the whole new order, and the rows follow", async () => {
   const rendered = await render(mockModels.macLogins);
-  expect(connectionIds(rendered)).toEqual([
-    "codex-login",
-    "claude-login",
-    "chatgpt-plan-1",
-    "claude-token-1",
-    "key-openrouter",
-  ]);
+  expect(connectionIds(rendered)).toEqual(["codex-login", "claude-login", "chatgpt", "claude-token", "openrouter-key"]);
   await click(card(rendered).querySelector('[data-menu="connection-codex-login"]')!);
   const down = document.querySelector<HTMLElement>('[role="menuitem"][data-value="moveDown"]')!;
   await click(down);
   expect(rendered.provider.modelRuns).toEqual([
-    { action: "order", ids: ["claude-login", "codex-login", "chatgpt-plan-1", "claude-token-1", "key-openrouter"] },
+    { action: "order", ids: ["claude-login", "codex-login", "chatgpt", "claude-token", "openrouter-key"] },
   ]);
-  expect(connectionIds(rendered)).toEqual([
-    "claude-login",
-    "codex-login",
-    "chatgpt-plan-1",
-    "claude-token-1",
-    "key-openrouter",
-  ]);
+  expect(connectionIds(rendered)).toEqual(["claude-login", "codex-login", "chatgpt", "claude-token", "openrouter-key"]);
 });
 
 test("a ChatGPT plan row says so and links to its usage page", async () => {
   const rendered = await render(mockModels.macLogins);
-  const row = card(rendered).querySelector<HTMLElement>('[data-connection="chatgpt-plan-1"]')!;
+  const row = card(rendered).querySelector<HTMLElement>('[data-connection="chatgpt"]')!;
   expect(row.querySelector("[data-chatgpt-plan]")?.textContent).toContain("Using ChatGPT plan");
   expect(row.querySelector("a")?.getAttribute("href")).toBe("https://chatgpt.com/settings/usage");
   expect(row.textContent).toContain("Authenticated as alex@work.example.com");
@@ -94,7 +82,7 @@ test("adding an API key sends it once and keeps it nowhere after", async () => {
     { action: "addKey", provider: "anthropic", key: "sk-ant-secret-0123456789", label: "Work" },
   ]);
   expect(sheet()).toBeNull();
-  expect(connectionIds(rendered)).toEqual(["key-anthropic-1"]);
+  expect(connectionIds(rendered)).toEqual(["anthropic-key"]);
   expect(document.body.innerHTML).not.toContain("sk-ant-secret");
   expect(JSON.stringify(rendered.store.getSnapshot().models)).not.toContain("sk-ant-secret");
 });
@@ -159,7 +147,7 @@ test("Mac logins that Cloud threads cannot use say This Mac only", async () => {
   const local = [...card(rendered).querySelectorAll<HTMLElement>("[data-connection]")]
     .filter((row) => row.querySelector("[data-connection-local]"))
     .map((row) => row.dataset.connection);
-  expect(local).toEqual(["codex-login", "claude-login"]);
+  expect(local).toEqual(["codex-login", "claude-login", "openrouter-key"]);
   expect(card(rendered).querySelector('[data-connection="codex-login"] [data-connection-local]')?.textContent).toBe(
     "This Mac only",
   );
@@ -184,7 +172,28 @@ test("Claude Code opens a terminal for setup-token, then adds the pasted token o
     token: "sk-ant-oat01-secret0123456789",
   });
   expect(sheet()).toBeNull();
-  expect(connectionIds(rendered)).toEqual(["claude-token-1"]);
+  expect(connectionIds(rendered)).toEqual(["claude-token"]);
   expect(document.body.innerHTML).not.toContain("sk-ant-oat01-secret");
   expect(JSON.stringify(rendered.store.getSnapshot().models)).not.toContain("sk-ant-oat01-secret");
+});
+
+test("the mock refuses what acpmux refuses and names new routes as acpmux does", () => {
+  const state = structuredClone(mockModels.macLogins);
+  expect(() => runMockModels(state, { action: "remove", id: "codex-login" })).toThrow("the CLI's own login");
+  expect(() => runMockModels(state, { action: "remove", id: "claude-login" })).toThrow("the CLI's own login");
+  expect(() => runMockModels(state, { action: "enable", id: "nope", on: true })).toThrow("unknown connection");
+  const keyed = runMockModels(state, { action: "addKey", provider: "openrouter", key: "sk-or-1" });
+  expect(keyed.personal.connections.at(-1)).toMatchObject({
+    id: "openrouter-key-2",
+    families: ["claude", "codex"],
+    servesCloud: false,
+  });
+  const tokened = runMockModels(state, { action: "addClaudeToken", token: "sk-ant-oat01-x" });
+  expect(tokened.personal.connections.at(-1)).toMatchObject({ id: "claude-token-2", label: "Claude Code token" });
+  const anthropic = runMockModels(mockModels.empty, { action: "addKey", provider: "anthropic", key: "k" });
+  expect(anthropic.personal.connections[0]).toMatchObject({
+    id: "anthropic-key",
+    label: "Anthropic API key",
+    servesCloud: true,
+  });
 });
