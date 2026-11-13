@@ -214,6 +214,12 @@ impl Expiries {
         }
     }
 
+    fn retry_stalled(&mut self, id: &str, now: u64) {
+        // A config writer is temporary, not a disabled deadline. Retry on the
+        // next clock tick without an immediately-due timer spinning on the lock.
+        self.set_stalled(id, Some(now.saturating_add(1_000)));
+    }
+
     fn has_due(&self, now: u64) -> bool {
         self.ordered.first().is_some_and(|(at, _)| *at <= now)
             || self.stalled_ordered.first().is_some_and(|(at, _)| *at <= now)
@@ -283,17 +289,21 @@ fn session_by_id(v1: &Hub, id: &str) -> Option<Arc<Session>> {
     v1.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned()
 }
 
-fn stalled_deadline(v1: &Hub, session: &Session, live: bool) -> Option<u64> {
+fn stalled_deadline(
+    v1: &Hub,
+    session: &Session,
+    live: bool,
+) -> Result<Option<u64>, tokio::sync::TryLockError> {
     if !live {
-        return None;
+        return Ok(None);
     }
-    let after = v1.config.try_read().ok().and_then(|config| config.stalled_turn());
-    session.turn().and_then(|turn| {
+    let after = v1.config.try_read()?.stalled_turn();
+    Ok(session.turn().and_then(|turn| {
         after.map(|after| {
             let heard = session.last_model_at.load(Ordering::Relaxed);
             turn.started_at.max(heard).saturating_add(after)
         })
-    })
+    }))
 }
 
 fn submit_id(v1: &Hub, v2: &V2, expiries: &mut Expiries, id: &str) {
@@ -307,7 +317,10 @@ fn submit_id(v1: &Hub, v2: &V2, expiries: &mut Expiries, id: &str) {
     expiries.set(id, session.read_meta(|meta| super::views::next_tag_expiry(meta, now)));
     match summary_from_session(v1, &session) {
         Ok(summary) => {
-            expiries.set_stalled(id, stalled_deadline(v1, &session, summary.is_live()));
+            match stalled_deadline(v1, &session, summary.is_live()) {
+                Ok(deadline) => expiries.set_stalled(id, deadline),
+                Err(_) => expiries.retry_stalled(id, now),
+            }
             if let Err(error) = v2.hub.submit(summary) {
                 tracing::warn!(session_id = id, %error, "v2 list tee rejected a summary");
             }
@@ -415,7 +428,10 @@ pub(crate) fn start_v2_tee(
                 };
                 let live =
                     session.read_meta(|meta| meta.status != crate::store::SessionStatus::Closed);
-                let current = stalled_deadline(&v1, &session, live);
+                let Ok(current) = stalled_deadline(&v1, &session, live) else {
+                    expiries.retry_stalled(&id, now);
+                    continue;
+                };
                 if current == Some(scheduled) {
                     state.mark(&id);
                 } else {
@@ -445,7 +461,10 @@ pub(crate) fn start_v2_tee(
                     };
                     let live = session
                         .read_meta(|meta| meta.status != crate::store::SessionStatus::Closed);
-                    let current = stalled_deadline(&v1, &session, live);
+                    let Ok(current) = stalled_deadline(&v1, &session, live) else {
+                        // Keep the fired turn tracked for the next tick.
+                        continue;
+                    };
                     if current != Some(fired) {
                         expiries.clear_fired(fired, &id);
                         expiries.set_stalled(&id, current);

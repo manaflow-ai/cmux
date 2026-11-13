@@ -384,12 +384,14 @@ async fn quiet_live_turn_crossing_marks_without_another_record() {
     assert!(crossing.summary.same_content(&summary_from_session(&v1, &session).unwrap()));
     assert!(subscription.receiver.try_next().is_none(), "the crossing emits one summary");
 
-    // A second unmarked chunk after the first crossing must be observed from
-    // the fired-turn set and get its own later crossing, without a chunk mark.
+    // Config contention must not drop fired-turn tracking. Once released,
+    // this unmarked chunk still gets a later crossing without a row mark.
+    let config_guard = v1.config.write().await;
     v1.append(&session, "in", "agent_message_chunk", serde_json::json!({"delta": "y"}));
     session.last_model_at.store(crate::store::now_ms(), Ordering::Relaxed);
     tokio::time::sleep(std::time::Duration::from_millis(1_600)).await;
     assert!(subscription.receiver.try_next().is_none(), "the fired crossing must be rescheduled");
+    drop(config_guard);
     let second =
         tokio::time::timeout(std::time::Duration::from_secs(2), next(&subscription.receiver))
             .await
