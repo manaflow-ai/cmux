@@ -213,7 +213,7 @@ struct SidebarUniformRowSpacingTests {
         init() {
             let pinned = LayoutSection(id: SidebarLayoutDocument.pinnedSectionID, showsTitle: false, region: .top, look: .builtIn,
                                        items: SidebarUniformRowSpacingTests.pins.enumerated().map { index, id in
-                                           LayoutItem(id: id, ref: .workspace("pinned-\(index)"))
+                                           LayoutItem(id: id, ref: .workspace("pinned-\(index)"), label: "Pinned \(index)")
                                        })
             model = SidebarModel(sections: [SidebarUniformRowSpacingTests.pinnedBlock(), SidebarUniformRowSpacingTests.machine()],
                                  activeWorkspaceID: nil)
@@ -282,7 +282,8 @@ struct SidebarUniformRowSpacingTests {
         let h = Harness()
         defer { h.window.close() }
         let pinned = try h.pinnedRow(Self.pins[0])
-        // The harness's pins answer no workspace: a missing workspace keeps its pin (#38061).
+        // The harness's pins answer no workspace: a missing workspace keeps its pin (#38061), drawn under its stored
+        // name (one with no name draws nothing, #42372).
         let ink = try #require(pinned.pinInkFrame, "the pinned workspace row draws no pin")
         let pin = h.list.convert(ink, from: pinned)
         let pinnedFrame = h.inList(pinned)
