@@ -125,6 +125,23 @@ impl Daemon {
     }
 }
 
+/// The daemon's open descriptors and its own limit of them, read from `/proc`
+/// (Linux only; a count for the report, no assertion).
+fn descriptors(daemon: &Daemon) -> String {
+    let pid = daemon.child.id();
+    let open = fs::read_dir(format!("/proc/{pid}/fd")).map(Iterator::count);
+    let limit = fs::read_to_string(format!("/proc/{pid}/limits")).ok().and_then(|limits| {
+        limits
+            .lines()
+            .find(|line| line.starts_with("Max open files"))
+            .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
+    });
+    match (open, limit) {
+        (Ok(open), Some(limit)) => format!("{open} open descriptors; {limit}"),
+        _ => "descriptors not counted on this system".to_string(),
+    }
+}
+
 impl Drop for Daemon {
     fn drop(&mut self) {
         for pid in self.host_pids() {
@@ -551,6 +568,7 @@ fn start_burst_of_170_agents_gets_each_place_each_other_agent_and_each_report() 
     let began = Instant::now();
     let daemon = Daemon::start("burst");
     let mut control = Control::open(&daemon.socket);
+    eprintln!("agent start burst: the daemon with no terminal: {}", descriptors(&daemon));
     let first_gate = Gate::new(&daemon.dir, "go-first");
     let gate = Gate::new(&daemon.dir, "go");
     control.start_agent_terminal(&daemon.dir, 0, &first_gate);
@@ -574,6 +592,11 @@ fn start_burst_of_170_agents_gets_each_place_each_other_agent_and_each_report() 
         began.elapsed().as_millis(),
         before.limit
     );
+    eprintln!(
+        "agent start burst: the daemon with {} terminals: {}",
+        AGENTS + 1,
+        descriptors(&daemon)
+    );
 
     gate.open();
     let opened = Instant::now();
@@ -583,6 +606,7 @@ fn start_burst_of_170_agents_gets_each_place_each_other_agent_and_each_report() 
     let ended = marks(&daemon.dir, "done", 1..=AGENTS);
     let burst_ms = opened.elapsed().as_millis();
     let after = control.connections();
+    eprintln!("agent start burst: the daemon after the burst: {}", descriptors(&daemon));
     eprintln!(
         "agent start burst: {ended} of {AGENTS} starts ended (all: {all_ended}) in {burst_ms} \
          ms; connections accepted {}, refused {}, peak {} of {}",
