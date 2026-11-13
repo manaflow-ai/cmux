@@ -5339,6 +5339,10 @@ def ws_check_branches(repo: str, base: str, sha: str, github) -> list[str]:
     return list(dict.fromkeys([*heads[:1], base]))
 
 
+# (repo, head) -> the branches a mirror refresh fetches HEAD by (ws_check_branches), named by ws_check_tested_tree.
+WS_CHECK_BRANCHES: dict[tuple[str, str], Callable[[], list[str]]] = {}
+
+
 @once_per_judgement("git squash tree", key=lambda repo, head, tip, branches=None: (repo, head, tip))
 def ws_check_squash_tree(repo: str, head: str, tip: str, branches: Callable[[], list[str]] | None = None) -> str:
     """The tree a merge-tested ws-check run of HEAD must have tested for HEAD to land on base tip TIP: HEAD merged with
@@ -5377,7 +5381,8 @@ def ws_check_squash_tree(repo: str, head: str, tip: str, branches: Callable[[], 
                 if run("fetch", "-q", "--no-tags", "--filter=blob:none", "origin", commit).returncode or \
                         run("cat-file", "-e", f"{commit}^{{commit}}").returncode:
                     # The mirror is refreshed first (MIRROR_REFRESH_SECONDS), and refused only if that fails too.
-                    fetch, why = mirror_refresh(repo, mirror or where, branches() if branches else [])
+                    named = branches or WS_CHECK_BRANCHES.get((repo, head))
+                    fetch, why = mirror_refresh(repo, mirror or where, named() if named else [])
                     if run("cat-file", "-e", f"{commit}^{{commit}}").returncode:
                         raise Refused(f"git cannot read {repo} commit {commit[:12]}: it is not in this host's mirror "
                                       f"or cache, and `{fetch}` did not bring it ({why or 'it ran clean'}); run "
@@ -5430,7 +5435,8 @@ def ws_check_tested_tree(repo: str, base: str, sha: str, snapshot: dict, tip: st
                       f"{base}")
     if not HEX40.fullmatch(tip or ""):
         raise Refused(f"{where}: {base} has no tip to merge {sha[:12]} with")
-    want = ws_check_squash_tree(repo, sha, tip, lambda: ws_check_branches(repo, base, sha, github))
+    WS_CHECK_BRANCHES[(repo, sha)] = lambda: ws_check_branches(repo, base, sha, github)
+    want = ws_check_squash_tree(repo, sha, tip)
     if tested != want:
         raise Refused(f"{where} tested tree {tested[:12]}, not {sha[:12]} merged with {base}'s tip {tip[:12]} "
                       f"({want[:12]}): it tested another base or head. Run ws-check again at this head")
