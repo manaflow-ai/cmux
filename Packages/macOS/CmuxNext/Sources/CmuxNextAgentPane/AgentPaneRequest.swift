@@ -324,9 +324,6 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case dictationHandoff
     /// `dictation.sources`: the dictation apps this Mac has, for the mic's menu.
     case dictationSources
-    /// `dictation.watchMicrophone {on}`: a composer of the page has the keyboard (or none has any
-    /// more); while one has, the host says when another app holds the microphone (`micActivity`).
-    case watchMicrophone(Bool)
     /// `externalAccess.openSettings {kind}`: open the local Privacy & Security destination after a real click.
     case externalAccessOpenSettings(AgentPaneExternalAccessKind)
     /// `dictation.recording.upload {path}`: send a long recording the host gave the page to the
