@@ -79,11 +79,22 @@ impl Store for Counting {
 }
 
 fn open(root: &Path) -> (Arc<Hub>, Arc<AtomicU64>) {
+    open_with(root, false)
+}
+
+/// `deferred`: a daemon's start, whose chat logs (and their catch-up past the saved meta) are
+/// read after it answers, so a `waitLogs:false` open can come first.
+fn open_with(root: &Path, deferred: bool) -> (Arc<Hub>, Arc<AtomicU64>) {
     let mut cfg = Config::default();
     cfg.store.mode = StoreMode::Local;
     let visited = Arc::new(AtomicU64::new(0));
     let inner = crate::store::open(&cfg.store, root).unwrap();
-    let hub = Hub::new(cfg, Box::new(Counting { inner, visited: visited.clone() }));
+    let store = Box::new(Counting { inner, visited: visited.clone() });
+    let hub = if deferred {
+        Hub::new_deferred(cfg, store, crate::mailbox::Mailbox::memory())
+    } else {
+        Hub::new(cfg, store)
+    };
     (hub, visited)
 }
 
@@ -118,16 +129,29 @@ fn turn(n: u64) -> [EventRecord; 4] {
     ]
 }
 
+fn meta(id: &str, last_seq: u64) -> SessionMeta {
+    serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": id, "name": "long", "harness": "claude",
+        "cwd": "/tmp", "status": "closed", "createdAt": 1, "updatedAt": 2,
+        "lastSeq": last_seq, "eventCount": last_seq,
+    }))
+    .unwrap()
+}
+
+/// Saves the chat's meta with `last_seq`, as a stop leaves it.
+fn save_meta(root: &Path, id: &str, last_seq: u64) {
+    let mut cfg = Config::default();
+    cfg.store.mode = StoreMode::Local;
+    let store = crate::store::open(&cfg.store, root).unwrap();
+    store.save(&meta(id, last_seq)).unwrap();
+    store.flush().unwrap();
+}
+
 fn write_chat(root: &Path, id: &str) {
     let mut cfg = Config::default();
     cfg.store.mode = StoreMode::Local;
     let store = crate::store::open(&cfg.store, root).unwrap();
-    let meta = json!({
-        "schema": crate::store::META_SCHEMA, "id": id, "name": "long", "harness": "claude",
-        "cwd": "/tmp", "status": "closed", "createdAt": 1, "updatedAt": 2,
-        "lastSeq": TURNS * 4, "eventCount": TURNS * 4,
-    });
-    store.save(&serde_json::from_value(meta).unwrap()).unwrap();
+    store.save(&meta(id, TURNS * 4)).unwrap();
     for n in 0..TURNS {
         for record in turn(n) {
             store.append(id, &record).unwrap();
@@ -204,5 +228,91 @@ async fn an_open_of_a_chat_with_no_saved_fold_reads_no_record() {
     assert_eq!(visited.load(Ordering::SeqCst) - after_load, 0, "an open read the journal");
     assert!(!session.time_breakdown.lock().unwrap().initialized);
     assert!(!session.time_breakdown.lock().unwrap().seeding);
+    hub.shutdown_all().await;
+}
+
+/// A copy saved ahead of the chat's saved meta is still this log's. The append seam saves the
+/// copy before it counts the record in the meta, and the meta is saved less often, so a hard stop
+/// leaves the meta behind the copy; an open (`waitLogs:false`) that comes before the log's
+/// catch-up restores the copy anyway (review of #42481, F1).
+#[tokio::test]
+async fn an_open_before_the_catch_up_restores_a_copy_ahead_of_the_saved_meta() {
+    let root = Root(std::env::temp_dir().join(format!("acpmux-tb-ahead-{}", uuid::Uuid::now_v7())));
+    write_chat(&root.0, "long");
+    let (hub, _) = open(&root.0);
+    let session = hub.resolve("long").unwrap();
+    hub.seed_time_breakdown(&session, true);
+    assert!(root.0.join("sessions/long").join(time_breakdown::FILE).exists());
+    hub.store.flush().unwrap();
+    hub.shutdown_all().await;
+    drop(hub);
+    // The meta as a hard stop leaves it: two turns behind the log and the copy.
+    save_meta(&root.0, "long", TURNS * 4 - 8);
+
+    // A daemon's start, and an open before its log pass reaches the chat.
+    let (hub, visited) = open_with(&root.0, true);
+    let session = hub.resolve("long").unwrap();
+    assert_eq!(session.meta().last_seq, TURNS * 4 - 8, "the log was caught up first");
+    let before = visited.load(Ordering::SeqCst);
+    hub.seed_time_breakdown(&session, false);
+    let read = visited.load(Ordering::SeqCst) - before;
+    assert!(session.time_breakdown.lock().unwrap().initialized, "the copy was not used");
+    assert!(read <= 100, "the open visited {read} records");
+    let at = 1_000_000 + TURNS * 10_000;
+    assert_eq!(breakdown(&session, at), whole_fold(TURNS, at));
+    hub.shutdown_all().await;
+}
+
+/// A copy past the log's own end is not this log's, even when the saved meta reaches it (a
+/// journal that lost its unsynced tail, another chat's copy): it is checked against the log,
+/// not the meta, and the chat's one fold replaces it.
+#[tokio::test]
+async fn a_copy_past_the_logs_own_end_is_not_used() {
+    let root = Root(std::env::temp_dir().join(format!("acpmux-tb-past-{}", uuid::Uuid::now_v7())));
+    write_chat(&root.0, "long");
+    let mut longer = time_breakdown::State::default();
+    for n in 0..TURNS + 5 {
+        for record in turn(n) {
+            longer.record(&record);
+        }
+    }
+    let (bytes, _) = longer.save().unwrap();
+    std::fs::write(root.0.join("sessions/long").join(time_breakdown::FILE), bytes).unwrap();
+    save_meta(&root.0, "long", (TURNS + 5) * 4);
+
+    let (hub, _) = open(&root.0);
+    let session = hub.resolve("long").unwrap();
+    hub.seed_time_breakdown(&session, false);
+    assert!(!session.time_breakdown.lock().unwrap().initialized, "a copy past the log was used");
+    hub.seed_time_breakdown(&session, true);
+    assert!(session.time_breakdown.lock().unwrap().initialized);
+    let at = 1_000_000 + TURNS * 10_000;
+    assert_eq!(breakdown(&session, at), whole_fold(TURNS, at));
+    hub.shutdown_all().await;
+}
+
+/// A turn that ends while an open's seed runs is not lost. The turn's backfill finds the seed
+/// running and starts none; the seed, which restores no copy, runs it before it lets go, so the
+/// chat gets its breakdown without waiting for another turn (review of #42481, F2).
+#[tokio::test]
+async fn a_turn_ending_during_an_open_seed_still_gets_its_backfill() {
+    let root = Root(std::env::temp_dir().join(format!("acpmux-tb-lost-{}", uuid::Uuid::now_v7())));
+    write_chat(&root.0, "long");
+    let (hub, _) = open(&root.0);
+    let session = hub.resolve("long").unwrap();
+    // An open's seed is running: the chat has no copy, so it will fold nothing.
+    session.time_breakdown.lock().unwrap().seeding = true;
+    for record in turn(TURNS) {
+        hub.append_at(&session, &record.dir, &record.kind, record.msg, None, Some(record.at));
+    }
+    // The open's seed ends.
+    hub.seed_time_breakdown(&session, false);
+    let state = session.time_breakdown.lock().unwrap();
+    assert!(state.initialized, "the turn's backfill was dropped");
+    assert!(!state.seeding);
+    drop(state);
+    let at = 1_000_000 + (TURNS + 1) * 10_000;
+    assert_eq!(breakdown(&session, at), whole_fold(TURNS + 1, at));
+    assert!(root.0.join("sessions/long").join(time_breakdown::FILE).exists());
     hub.shutdown_all().await;
 }
