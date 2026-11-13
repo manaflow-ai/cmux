@@ -230,10 +230,10 @@ grid follows the remaining views. A disconnect by another participant
 (`detach-client`, a view detach, `detach-attached-view`) ends the hold at once.
 This is the daemon applying the engine's decision late, not an engine rule, so
 the fixtures do not change. A phone that opted into the size lease
-(`size-lease-v1`, cmux-tui/spec/commands.md "release-surface-size") refreshes
-its size every 15 s while its terminal is on screen; a size not refreshed for
-45 s is released, and a dropped phone's hold ends when its lease would have
-ended, so a phone that can no longer say anything never pins a Mac's grid for
+(`size-lease-v2`, cmux-tui/spec/commands.md "release-surface-size") refreshes
+its size every 2 s while its terminal is on screen; a size not refreshed for
+8 s is released (`size-lease-v1`: every 15 s, 45 s), and a dropped phone's
+hold ends when its lease would have ended, so a phone that can no longer say anything never pins a Mac's grid for
 longer than its lease. The phone releases its size itself
 (`release-surface-size`) when the terminal leaves the screen, and
 cmux-mobile-host releases it for a phone channel that closes on purpose, a

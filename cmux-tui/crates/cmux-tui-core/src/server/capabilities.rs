@@ -283,6 +283,7 @@ pub(super) fn advertised_capabilities(
         SHARED_SIZING_CAPABILITY,
         SIZING_VIEW_DETACH_CAPABILITY,
         SIZE_LEASE_CAPABILITY,
+        SIZE_LEASE_V2_CAPABILITY,
         crate::mux::host_policy::HOST_SIZE_POLICY_CAPABILITY,
         HOST_GRID_VIEW_CAPABILITY,
         OPEN_DEVICE_KINDS_CAPABILITY,

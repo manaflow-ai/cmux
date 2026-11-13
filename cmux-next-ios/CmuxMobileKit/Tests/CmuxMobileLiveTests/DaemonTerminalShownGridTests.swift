@@ -121,6 +121,36 @@ import Testing
         #expect(commands(daemon, "release-surface-size").first?["surface"] as? Int == 7)
     }
 
+    @Test func theChannelListsTheShortLeaseAndRefreshesOnItsInterval() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.shortSizeLease = true
+        let session = session(daemon)
+        defer { session.stop() }
+        session.sizeLeaseRefresh = .seconds(60)
+        session.shortLeaseRefresh = .milliseconds(40)
+        session.start { _ in }
+        session.resize(columns: 54, rows: 42)
+        try await waitUntil { commands(daemon, "resize-surface").count >= 3 }
+        let info = try #require(commands(daemon, "set-client-info").first)
+        let capabilities = info["capabilities"] as? [String] ?? []
+        #expect(capabilities.contains("size-lease-v2"))
+        #expect(capabilities.contains("size-lease-v1"), "an older daemon still gets the 45 s lease")
+        #expect(commands(daemon, "resize-surface").allSatisfy { $0["cols"] as? Int == 54 && $0["rows"] as? Int == 42 })
+    }
+
+    @Test func aLeaseRefreshDoesNotWaitBehindAnUnansweredRequest() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.shortSizeLease = true
+        daemon.unansweredResizes = true
+        let session = session(daemon)
+        defer { session.stop() }
+        session.shortLeaseRefresh = .milliseconds(40)
+        session.start { _ in }
+        session.resize(columns: 54, rows: 42)
+        // The first resize is never answered; the refreshes still go out.
+        try await waitUntil { commands(daemon, "resize-surface").count >= 3 }
+    }
+
     private func waitUntil(attempts: Int = 300, _ condition: @MainActor () -> Bool) async throws {
         for _ in 0..<attempts where !condition() {
             try await Task.sleep(for: .milliseconds(10))
