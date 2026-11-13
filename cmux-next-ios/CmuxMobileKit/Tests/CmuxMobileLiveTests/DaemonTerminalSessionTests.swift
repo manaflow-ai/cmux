@@ -42,6 +42,11 @@ final class FakeTerminalDaemon: @unchecked Sendable {
     var afterAttach: String? = "\u{1B}[?1049hTUI"
     /// `send` is recorded but never answered (its reply lost on the way).
     var unansweredSends = false
+    /// `resize-surface` is recorded but never answered (its reply stuck
+    /// behind the terminal's output on a slow link).
+    var unansweredResizes = false
+    /// `identify` advertises size-lease-v2 (the 8 s lease).
+    var shortSizeLease = false
     /// `identify` advertises attach-replay-history-rows-v1: an attach with
     /// `replay_history_rows` gets a replay of the screen and that many of
     /// the newest of `historyRows` rows, and `history_rows_omitted`.
@@ -68,8 +73,11 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         switch cmd {
         case "send" where lock.withLock({ unansweredSends }):
             return []
-        case "identify" where initialSize || sizeLease || sharedSizing || tailReplay:
+        case "resize-surface" where lock.withLock({ unansweredResizes }):
+            return []
+        case "identify" where initialSize || sizeLease || shortSizeLease || sharedSizing || tailReplay:
             return [reply(["capabilities": (initialSize ? ["attach-initial-size"] : []) + (sizeLease ? ["size-lease-v1"] : [])
+                    + (shortSizeLease ? ["size-lease-v2"] : [])
                     + (sharedSizing ? ["shared-sizing-v1", "host-size-policy-v1"] : [])
                     + (tailReplay ? ["attach-replay-history-rows-v1"] : [])])]
         case "attach-surface" where object["replay_history_rows"] != nil && lock.withLock({ laneRefusesHistoryRows }):
