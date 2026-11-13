@@ -73,7 +73,8 @@ enum PaletteSourcesBridge {
         let profiles = BrowserProfileTargetSource(services: services, next: windows)
         let screens = ScreenTargetSource(services: services, next: profiles)
         let spaces = SpaceAndPaneTargetSource(services: services, next: screens)
-        let sections = SidebarSectionTargetSource(services: services, next: spaces)
+        let sections = SidebarSectionTargetSource(document: { [weak services] in services?.sidebarLayout.document ?? SidebarLayoutDocument(sections: []) },
+            workspacesTitle: SidebarSectionStrings.workspacesSection, untitledTitle: SidebarSectionStrings.untitledSection, next: spaces)
         let groups = TabAndGroupTargetSource(services: services, next: PriorityChatTargetSource(chats: chats, next: sections))
         let sidebarApps = RefreshingPaletteTargetSource(kind: .sidebarItem,
             actions: Set(services.registry.descriptors.filter { $0.paletteTargetSource == "sidebarApps" }.map(\.id)),
@@ -127,9 +128,7 @@ enum PaletteSourcesBridge {
     static func capturedTargets(_ services: AppServices) -> [ActionTargetRef] {
         guard let window = services.windows.active else { return [] }
         var refs: [ActionTargetRef] = []
-        if let machine = services.machines.session(window.state.machineID) {
-            refs.append(ActionTargetRef(kind: .machine, id: machine.machineID))
-        }
+        refs.append(ActionTargetRef(kind: .machine, id: window.state.machineID))
         if let pane = window.focusedPane {
             if let selected = pane.stripModel.selectedID {
                 if let group = pane.tab(selected)?.tabGroup { refs.append(ActionTargetRef(kind: .tabGroup, id: group.rawValue)) }

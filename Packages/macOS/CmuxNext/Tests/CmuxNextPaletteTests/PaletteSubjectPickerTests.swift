@@ -58,6 +58,14 @@ struct PaletteSubjectPickerTests {
         #expect(targets.reads == 1, "validate the captured subject against this action's inventory once")
     }
 
+    @Test func capturedMachineOutsideTheActionsInventoryStillAsks() throws {
+        let registry = ActionRegistry.standard(), targets = Targets()
+        registry.bind("cloudOpenDesktop", invoke: { _ in Issue.record("wrong machine ran") })
+        let item = try row("cloudOpenDesktop", registry: registry, targets: targets,
+                           captured: [ActionTargetRef(kind: .machine, id: "local")])
+        guard case .push = item.primary.effect.resolved() else { Issue.record("missing Cloud picker"); return }
+    }
+
     @Test func sharedMachinePickerPrecedesRequiredFilePath() async throws {
         let registry = ActionRegistry.standard(), targets = Targets()
         registry.bind("cloudFileRead", invoke: { _ in })
