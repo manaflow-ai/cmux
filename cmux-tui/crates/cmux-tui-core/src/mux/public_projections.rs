@@ -78,7 +78,7 @@ pub(super) fn restore_public_projections(
                 session_id: hook_state.agent_session_id,
                 sequence: hook_state.applied_sequence,
                 ended: hook_state.ended,
-                observed_at_ms: None,
+                order: hook_state.order,
             },
         );
     }
@@ -99,7 +99,7 @@ pub(super) fn restore_public_projections(
                     session_id: legacy_hook_session_id(&agent.terminal_id, value),
                     sequence: value,
                     ended: ended.is_some(),
-                    observed_at_ms: None,
+                    order: crate::agent_hooks::HookOrderStamp::default(),
                 });
             }
         }
@@ -113,7 +113,7 @@ pub(super) fn restore_public_projections(
                 session_id: legacy_hook_session_id(&agent.terminal_id, 0),
                 sequence: 0,
                 ended: true,
-                observed_at_ms: None,
+                order: crate::agent_hooks::HookOrderStamp::default(),
             });
             continue;
         }
