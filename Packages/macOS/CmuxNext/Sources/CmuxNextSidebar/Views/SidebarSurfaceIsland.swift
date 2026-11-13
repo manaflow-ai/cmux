@@ -1,10 +1,15 @@
 public import AppKit
 
-/// The two update surfaces the What's New design draws in React
-/// (cx-urd.61.2): the staged update's highlights in the card's hover
-/// popover, and the "cmux Updated!" card after an update.
+/// The update surfaces the What's New design draws in React (cx-urd.61.2): the staged
+/// update's highlights in the card's hover popover, the "cmux Updated!" card after an update,
+/// and that card's changes in the same kind of popover beside the sidebar
+/// (``UpdatedCardPreviewMode/beside``).
 public enum SidebarUpdateSurfaceKind: String, Sendable {
     case ready, updated
+    case updatedNotes = "updated-notes"
+
+    /// The surface shows the last update (the Updated card and its popover), not a staged one.
+    public var showsLastUpdate: Bool { self != .ready }
 }
 
 /// One React surface the App mounts in a sidebar host (a page view). The
@@ -189,6 +194,19 @@ extension SidebarViewComponents {
                 "parked": String(updateCardView.highlights?.view.superview === updateCardView.parking),
                 "window": String(updateCardView.window != nil),
                 "hiddenAncestor": String(updateCardView.isHiddenOrHasHiddenAncestor)]
+    }
+
+    /// Proofs (`debug.update_surfaces {action: "hover-updated"}`): puts the pointer on the
+    /// Updated card as a hover would (its x shows; its look's changes open, beside the sidebar or
+    /// in the card) and opens the popover now, without the rest; what shows.
+    public func debugHoverUpdatedCard() -> [String: String] {
+        updatedCardView.setHovered(true)
+        updatedCardView.notes.show(force: true)
+        return ["look": updatedCardView.previewMode.rawValue,
+                "notesShown": String(updatedCardView.notes.isShown),
+                "notesPage": String(updatedCardView.notes.island != nil),
+                "notesHeight": String(Double(updatedCardView.notes.island?.contentHeight ?? -1)),
+                "updatedCard": String(updatedCardView.card != nil)]
     }
 
     /// Proofs (`debug.update_surfaces {action: "state"}`): which update

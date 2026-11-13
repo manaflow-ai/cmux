@@ -148,7 +148,9 @@ final class ClassicUpgradeSimulator {
         services.onboarding.classicMigrationDirectory = mac.migration
         services.onboarding.classicMigrationAtLaunch = true
         services.onboarding.classicStateRoot = mac.state
-        services.onboarding.classicMigrationConfirmation = { _ in true }
+        // Classic's sentinel in `mac.state` is the only sign it runs: never this Mac's own open classic app.
+        services.onboarding.classicLockHeld = { _ in false }
+        services.onboarding.classicMigrationConfirmation = { _ in .accepted }
         if let ssh { services.onboarding.classicSSH = ssh }
         else { services.onboarding.classicSSH = { destination in DaemonService(machineID: "ssh:\(destination)") } }
         services.onboarding.classicChatPlan = { _, _ in nil }
@@ -258,7 +260,7 @@ final class ClassicUpgradeSimulator {
     /// A later launch's run on the same tree (what a relaunch restores).
     func relaunch() async throws -> ClassicMigrationOutcome {
         let outcome = try await AppOnboardingServices(owner: services.onboarding)
-            .migrateClassic(.automatic) { _ in true }
+            .migrateClassic(.automatic) { _ in .accepted }
         lastOutcome = outcome
         return outcome
     }
@@ -266,7 +268,7 @@ final class ClassicUpgradeSimulator {
     /// Import Workspaces from Classic cmux.
     func manualImport() async throws -> ClassicMigrationOutcome {
         let outcome = try await AppOnboardingServices(owner: services.onboarding)
-            .migrateClassic(.manual) { _ in true }
+            .migrateClassic(.manual) { _ in .accepted }
         lastOutcome = outcome
         return outcome
     }

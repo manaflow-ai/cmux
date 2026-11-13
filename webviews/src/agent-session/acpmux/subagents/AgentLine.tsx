@@ -89,8 +89,9 @@ export function AgentLine({
   status: SubagentStatus;
   /// Its state in words ("Running", "Waiting", "Done").
   state: string;
-  /// How long it has run, or ran (formatDuration); none when unknown.
-  time?: string;
+  /// How long it has run, or ran (formatDuration); none when unknown. A running one is its own ticking
+  /// leaf (Elapsed.tsx), so the clock's second never draws the line.
+  time?: ReactNode;
   /// `agent.session` for a subagent, `terminal` for a background command.
   icon?: string;
   /// The harness of an agent of another family (`codex`), whose mark replaces the icon.

@@ -4,8 +4,8 @@
 //! session per peer), the TCP stack, the pacer and the UDP socket. Callers
 //! talk to it through commands. Nothing here sleeps to synchronize: the loop
 //! wakes on a datagram, a command, a stream write, the earliest WireGuard
-//! timer of any session, the pacer's next departure, or the deadline smoltcp
-//! asks for.
+//! timer of any session, the pacer's next departure, the next path probe,
+//! or the deadline smoltcp asks for.
 
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
@@ -13,7 +13,11 @@ use std::task::Poll;
 
 use boringtun::noise::rate_limiter::RateLimiter;
 use boringtun::noise::{Tunn, TunnResult};
-use cmux_transport::{DatagramClass, classify};
+use cmux_transport::{
+    CANDIDATE_PORT, DatagramClass, LocalNetwork, MAX_CANDIDATES, Probe, ProbeKind, classify,
+    encode_candidates, local_networks, medium_of,
+};
+use ip_network::IpNetwork;
 use tokio::net::UdpSocket;
 use tokio::sync::{Notify, mpsc, oneshot};
 use tokio::task::JoinHandle;
@@ -22,9 +26,11 @@ use tokio::time::Instant;
 use crate::config::InterfaceAddress;
 use crate::error::WgError;
 use crate::mesh::{MeshCommand, WgMeshConfig, WgPeer};
+use crate::mesh_paths::MeshPaths;
 use crate::mesh_peers::PeerTable;
 use crate::mesh_route::{Outbound, PeerRoute};
 use crate::pacing::Pacer;
+use crate::probing;
 use crate::stream::WgStream;
 use crate::tcp_stack::TcpStack;
 use crate::underlay::{SocketPath, Underlay, is_transient};
@@ -40,6 +46,104 @@ const RECEIVE_BATCH: usize = 64;
 /// initiators for a cookie (WireGuard's under-load rule). Each costs a
 /// Diffie-Hellman to learn the initiator's key.
 pub(crate) const HANDSHAKES_PER_SECOND: u64 = 100;
+/// How long this machine's interface table is trusted before it is read
+/// again for the next advertisement.
+const LOCAL_REFRESH: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// This machine's interfaces: the medium of each peer address, and the
+/// addresses this side advertises to its peers.
+pub(crate) struct LocalView {
+    socket: SocketAddr,
+    pub(crate) networks: Vec<LocalNetwork>,
+    pub(crate) candidates: Vec<SocketAddr>,
+    read_at: Instant,
+}
+
+impl LocalView {
+    fn read(socket: SocketAddr, now: Instant) -> Self {
+        let networks = local_networks();
+        let candidates = local_candidates(socket, &networks);
+        Self { socket, networks, candidates, read_at: now }
+    }
+
+    /// Read the interfaces again once [`LOCAL_REFRESH`] has passed. True
+    /// when the table changed, so held paths' media must be read again.
+    fn refresh(&mut self, now: Instant) -> bool {
+        if now < self.read_at + LOCAL_REFRESH {
+            return false;
+        }
+        let before = std::mem::take(&mut self.networks);
+        *self = Self::read(self.socket, now);
+        self.networks != before
+    }
+}
+
+/// Whether an address can be another machine's path to this one: never
+/// loopback, link-local, multicast or unspecified.
+pub(crate) fn advertisable(ip: IpAddr) -> bool {
+    let link_local = match ip {
+        IpAddr::V4(v4) => v4.is_link_local(),
+        IpAddr::V6(v6) => v6.is_unicast_link_local(),
+    };
+    !(ip.is_loopback() || ip.is_unspecified() || ip.is_multicast() || link_local)
+}
+
+/// The addresses a peer may reach this socket at: every advertisable
+/// interface address of a family the socket speaks, best medium first, on
+/// the socket's port. A socket bound to one address advertises nothing: its
+/// peers were told where it is.
+fn local_candidates(socket: SocketAddr, networks: &[LocalNetwork]) -> Vec<SocketAddr> {
+    if !socket.ip().is_unspecified() || socket.port() == 0 {
+        return Vec::new();
+    }
+    let mut addresses: Vec<IpAddr> = networks
+        .iter()
+        .map(|network| network.address)
+        .filter(|ip| advertisable(*ip) && (socket.is_ipv6() || ip.is_ipv4()))
+        .collect();
+    addresses.sort_by_key(|ip| medium_of(*ip, networks));
+    addresses.dedup();
+    addresses
+        .into_iter()
+        .take(MAX_CANDIDATES)
+        .map(|ip| SocketAddr::new(ip, socket.port()))
+        .collect()
+}
+
+/// Send one datagram of a peer's session where [`MeshPaths`] says: a
+/// handshake initiation also goes to every address the caller named while
+/// the peer has answered no probe, so a session can start on any of them.
+fn deliver(paths: &mut MeshPaths, out: &mut Outbound, now: Instant, datagram: &[u8]) {
+    if classify(datagram) == DatagramClass::WireGuardInitiation {
+        paths.send_initiation(now, |target| out.send_to(target, datagram));
+    } else {
+        paths.send(now, |target| out.send_to(target, datagram));
+    }
+}
+
+/// The overlay addresses probes and candidate lists travel between: this
+/// side's address and, in the same family, the peer's first single-address
+/// allowed network (a cmux endpoint's `/128` or `/32`). A peer that owns
+/// only wider ranges (a gateway into a network) gets neither. The receiver
+/// intercepts both by port before routing.
+fn probe_route(addresses: &[InterfaceAddress], allowed: &[IpNetwork]) -> Option<(IpAddr, IpAddr)> {
+    allowed.iter().find_map(|network| {
+        let remote = network.network_address();
+        let host = if remote.is_ipv4() { 32 } else { 128 };
+        if network.netmask() != host {
+            return None;
+        }
+        let local = addresses.iter().find(|entry| entry.address.is_ipv4() == remote.is_ipv4())?;
+        Some((local.address, remote))
+    })
+}
+
+fn earliest(a: Option<Instant>, b: Option<Instant>) -> Option<Instant> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (a, b) => a.or(b),
+    }
+}
 
 pub(crate) fn spawn(
     config: WgMeshConfig,
@@ -64,6 +168,9 @@ pub(crate) struct MeshDriver {
     /// burst into a socket buffer loses segments.
     pub(crate) pacer: Pacer,
     pace_deadline: Option<Instant>,
+    /// When some peer's paths next need a probe or an advertisement.
+    probe_deadline: Option<Instant>,
+    pub(crate) local: LocalView,
     /// Set by [`MeshCommand::Close`]: the driver stops once every connection delivered what
     /// its owner wrote, or at this deadline.
     closing: Option<Instant>,
@@ -99,6 +206,8 @@ impl MeshDriver {
             gate,
             pacer: Pacer::default(),
             pace_deadline: None,
+            probe_deadline: None,
+            local: LocalView::read(local, Instant::now()),
             closing: None,
             commands,
             wake,
@@ -111,7 +220,13 @@ impl MeshDriver {
         let mut datagram = vec![0u8; BUFFER_BYTES];
         loop {
             let stack_deadline = self.stack.poll_delay();
-            let next_tick = self.table.next_tick().into_iter().chain(self.pace_deadline).min();
+            let next_tick = self
+                .table
+                .next_tick()
+                .into_iter()
+                .chain(self.pace_deadline)
+                .chain(self.probe_deadline)
+                .min();
             let backlogged = self.out.udp.backlogged();
             let udp = &mut self.out.udp;
             let io = std::future::poll_fn(|cx| {
@@ -155,6 +270,7 @@ impl MeshDriver {
             }
             self.out.udp.flush();
             self.service();
+            self.probe_deadline = self.run_probes();
             self.out.udp.flush();
             if let Some(deadline) = self.closing
                 && (self.stack.delivered() || Instant::now() >= deadline)
@@ -225,7 +341,7 @@ impl MeshDriver {
             return;
         };
         let Some(peer) = self.table.get_mut(&key) else { return };
-        if peer.route.is_none() {
+        if !peer.paths.has_target() {
             return;
         }
         if peer.tunn.time_since_last_handshake().is_none() {
@@ -237,9 +353,74 @@ impl MeshDriver {
             if classify(datagram) == DatagramClass::WireGuardInitiation {
                 peer.initiated = Some(now);
             }
-            self.out.send(peer.route, datagram);
+            let out = &mut self.out;
+            deliver(&mut peer.paths, out, now, datagram);
             peer.schedule.on_activity(now);
         }
+    }
+
+    /// Probe the paths of every peer whose session carries traffic and has
+    /// more than one path, and advertise this side's addresses on each such
+    /// session. Returns when this is next due. An idle session probes and
+    /// advertises nothing.
+    fn run_probes(&mut self) -> Option<Instant> {
+        let now = Instant::now();
+        let mut next = None;
+        let mut networks_changed = false;
+        for peer in self.table.peers_mut() {
+            if !peer.schedule.is_active(now) || peer.tunn.time_since_last_handshake().is_none() {
+                continue;
+            }
+            let Some((local, remote)) = probe_route(&self.addresses, &peer.allowed_ips) else {
+                continue;
+            };
+            let (advertise, again) = peer.advertise_due(now);
+            if advertise {
+                networks_changed |= self.local.refresh(now);
+            }
+            if advertise && !self.local.candidates.is_empty() {
+                let list = encode_candidates(&self.local.candidates);
+                let packet = crate::udp::packet(
+                    SocketAddr::new(local, CANDIDATE_PORT),
+                    SocketAddr::new(remote, CANDIDATE_PORT),
+                    &list,
+                );
+                if let TunnResult::WriteToNetwork(datagram) =
+                    peer.tunn.encapsulate(&packet, &mut self.scratch)
+                {
+                    let out = &mut self.out;
+                    peer.paths.send(now, |target| out.send_to(target, datagram));
+                }
+            }
+            next = earliest(next, Some(again));
+            // One path has nothing to choose between, and a peer that is
+            // not a cmux endpoint (a relay shim) never sees a probe.
+            if peer.paths.path_count() < 2 {
+                continue;
+            }
+            let due = peer.paths.poll(now);
+            for (path, id) in due.pings {
+                let Some(target) = peer.paths.address_of(path) else { continue };
+                let probe = Probe { kind: ProbeKind::Ping, id, path };
+                let packet = probing::encode(local, remote, &probe);
+                if let TunnResult::WriteToNetwork(datagram) =
+                    peer.tunn.encapsulate(&packet, &mut self.scratch)
+                {
+                    self.out.send_to(target, datagram);
+                }
+            }
+            next = earliest(next, due.next);
+        }
+        if networks_changed {
+            // An interface came or went (a Thunderbolt cable plugged in):
+            // paths learned before it are ranked on the new table, and the
+            // ones whose medium changed are probed at once.
+            for peer in self.table.peers_mut() {
+                peer.paths.reclassify(&self.local.networks, now);
+            }
+            next = Some(now);
+        }
+        next
     }
 
     /// Run each session's boringtun timers that are due.
@@ -254,7 +435,8 @@ impl MeshDriver {
                 // A handshake retry keeps the timers running until boringtun
                 // gives up; a keepalive alone does not.
                 let retry = classify(packet) == DatagramClass::WireGuardInitiation;
-                self.out.send(peer.route, packet);
+                let out = &mut self.out;
+                deliver(&mut peer.paths, out, now, packet);
                 if retry {
                     peer.initiated = Some(now);
                     peer.schedule.on_activity(now);
@@ -262,12 +444,13 @@ impl MeshDriver {
             }
             // A dial waiting on the handshake gets an initiation every
             // HANDSHAKE_RESEND, not only boringtun's every 5 s or more.
-            if peer.route.is_some()
+            if peer.paths.has_target()
                 && peer.resend_due(now)
                 && let TunnResult::WriteToNetwork(packet) =
                     peer.tunn.format_handshake_initiation(&mut self.scratch, true)
             {
-                self.out.send(peer.route, packet);
+                let out = &mut self.out;
+                deliver(&mut peer.paths, out, now, packet);
                 peer.initiated = Some(now);
                 peer.schedule.on_activity(now);
             }
@@ -286,6 +469,9 @@ impl MeshDriver {
                 }
                 let _ = reply.send(removed);
             }
+            MeshCommand::PeerPaths { public_key, reply } => {
+                let _ = reply.send(self.table.get_mut(&public_key).map(|peer| peer.paths.views()));
+            }
             MeshCommand::Connect { remote, reply } => self.begin_connect(remote, reply),
             MeshCommand::Listen { port, reply } => {
                 let _ = reply.send(self.stack.begin_listen(port));
@@ -298,17 +484,18 @@ impl MeshDriver {
         self.table.check(&peer)?;
         let key = peer.public_key;
         let now = Instant::now();
-        let entry = self.table.insert(peer, now);
+        let entry = self.table.insert(peer, &self.local.networks, now);
         // A replaced peer's connections stay only where it still routes.
         let allowed = entry.allowed_ips.clone();
         // Start the session now when the peer's address is known, so a peer
         // that only answers learns this side's route without waiting for
         // traffic.
-        if entry.route.is_some()
+        if entry.paths.has_target()
             && let TunnResult::WriteToNetwork(packet) =
                 entry.tunn.format_handshake_initiation(&mut self.scratch, false)
         {
-            self.out.send(entry.route, packet);
+            let out = &mut self.out;
+            deliver(&mut entry.paths, out, now, packet);
             entry.initiated = Some(now);
             entry.schedule.on_activity(now);
         }

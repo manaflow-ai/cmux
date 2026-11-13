@@ -1,7 +1,8 @@
 /// Why the app supervisor cannot be reached.
 public nonisolated enum AppsUnavailableReason: Sendable, Hashable {
-    /// The daemon runs but lacks the `apps-v1` capability.
-    case needsNewerDaemon
+    /// The daemon runs but serves no `apps-v1`: it has no `cmux-app-host` beside it (cmux-tui
+    /// advertises the capability only when that binary exists). No update or restart adds it.
+    case noAppHost
     /// The daemon is not connected (starting, restarting, gone).
     case notConnected
     /// The daemon is not connected, with its real cause from the daemon
@@ -18,7 +19,7 @@ public nonisolated enum AppsUnavailableReason: Sendable, Hashable {
     public var daemonUnreachable: Bool {
         switch self {
         case .notConnected, .notReady: true
-        case .needsNewerDaemon, .turnedOff: false
+        case .noAppHost, .turnedOff: false
         }
     }
 }

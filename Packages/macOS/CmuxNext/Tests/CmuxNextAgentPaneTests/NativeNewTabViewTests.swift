@@ -1,11 +1,12 @@
 import AppKit
 @testable import CmuxNextAgentPane
+import CmuxNextTestSupport
 import Testing
 
 /// The native New Tab page is AppKit (plans/cmux-next/no-swiftui-DESIGN.md): its field exists before
 /// any layout, typing in it changes the rows in the same turn, Up and Down move the highlight, Return
 /// and a click run a row, and the switch sets the kind.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct NativeNewTabViewTests {
     private struct Calls {
         var submits: [(String, AgentPaneTabKind)] = []
@@ -87,8 +88,15 @@ struct NativeNewTabViewTests {
     @Test func aShortTitleAndDetailAreNotTruncated() throws {
         let (host, _, _, window) = Self.make()
         defer { window.close() }
-        try Self.enter("toggle", into: host)
-        host.layoutSubtreeIfNeeded()
+        // Typed a letter at a time, as a person does: each row view is laid out with a short title,
+        // then reused for a longer one ("Ask: t", then "Ask: toggle").
+        for end in 1..."toggle".count {
+            try Self.enter(String("toggle".prefix(end)), into: host)
+            host.layoutSubtreeIfNeeded()
+        }
+        let ask = try #require(host.page.rows.first)
+        #expect(ask.titleField.frame.width >= ceil(ask.titleField.attributedStringValue.size().width),
+                "\(ask.titleField.stringValue) drawn in \(ask.titleField.frame.width) pt")
         let row = try #require(host.page.rows.first { $0.content?.title == "Toggle Sidebar" })
         #expect(row.frame.width > 500)
         for label in [row.titleField, row.detailField] {

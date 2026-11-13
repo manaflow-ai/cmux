@@ -260,7 +260,8 @@ def wipe_state(bundle: str):
             if name == bundle_id or name.startswith(bundle_id + "."):
                 path = os.path.join(folder, name)
                 shutil.rmtree(path, ignore_errors=True) if os.path.isdir(path) else os.remove(path)
-    shutil.rmtree(os.path.join(library, "Application Support/cmux/tags", tag), ignore_errors=True)
+    for parent in ("Application Support/cmux-next/tags", "Application Support/cmux/tags"):  # an older build: cmux/tags
+        shutil.rmtree(os.path.join(library, parent, tag), ignore_errors=True)
 
 
 def rpc(sock: str, method: str, params: dict | None = None, timeout: float = 30):

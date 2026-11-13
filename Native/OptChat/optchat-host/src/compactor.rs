@@ -422,6 +422,12 @@ fn job(shared: Arc<Shared>, request: CompactRequest) {
         };
         st.reports.push(Report::NodeStuck { node, class });
     }
+    if stuck {
+        // Its wait is long: other nodes take its model-call slot meanwhile (67 stuck merges
+        // held all 64 for days, and no new message was summarized).
+        st.memory.park(node);
+        drive(&shared, &mut st);
+    }
     shared.changed.notify_all();
     shared.unlock(st);
     if stuck {

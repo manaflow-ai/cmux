@@ -4,6 +4,134 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedCountsResult {
+    pub open_requests: i64,
+    pub unread: i64,
+    pub by_priority: BTreeMap<String, i64>,
+    pub by_poster_kind: BTreeMap<String, i64>,
+    pub revision: String,
+}
+
+wire_errors! {
+    /// The error codes feed.counts declares.
+    FeedCountsError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Read one feed item (its answer once it is answered). An agent reads only the items it posted.
+    FeedGetOp {
+        name: "feed.get",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:FeedDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: FeedGetParams,
+        result: FeedGetResult,
+        error: FeedGetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedGetParams {
+    pub item: FeedItemId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedGetResult {
+    pub item: FeedItem,
+}
+
+wire_errors! {
+    /// The error codes feed.get declares.
+    FeedGetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        SelectorNotFound = "selector.not_found",
+    }
+}
+
+wire_op! {
+    /// The built-in request kinds with JSON Schemas of their prompt and answer; custom kinds x-<publisher>.<name> carry their own answer_schema.
+    FeedKindsOp {
+        name: "feed.kinds",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:FeedDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: FeedKindsParams,
+        result: FeedKindsResult,
+        error: FeedKindsError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedKindsParams {}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedKindsResultKindsItem {
+    pub kind: String,
+    pub priority: FeedPriority,
+    pub needs_mac: bool,
+    pub docs: String,
+    pub prompt_schema: Value,
+    pub answer_schema: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedKindsResult {
+    pub kinds: Vec<FeedKindsResultKindsItem>,
+}
+
+wire_errors! {
+    /// The error codes feed.kinds declares.
+    FeedKindsError {
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// List feed items in the owner's order (one order for every client), optionally grouped. An agent sees only the items it posted.
+    FeedListOp {
+        name: "feed.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:FeedDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: FeedListParams,
+        result: FeedListResult,
+        error: FeedListError,
+    }
+}
+
+wire_enum! {
+    FeedListParamsState {
+        Open = "open",
+        Closed = "closed",
+        All = "all",
+    }
+}
+
+wire_enum! {
+    FeedListParamsType {
+        Notice = "notice",
+        Request = "request",
+    }
+}
+
+wire_enum! {
+    FeedListParamsOrder {
+        Urgent = "urgent",
+        Recent = "recent",
+    }
+}
+
 wire_enum! {
     FeedListParamsGroupBy {
         Thread = "thread",
@@ -772,130 +900,4 @@ pub struct FirewallListResultRulesItem {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FirewallListResult {
     pub rules: Vec<FirewallListResultRulesItem>,
-}
-
-wire_errors! {
-    /// The error codes firewall.list declares.
-    FirewallListError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Comment on a GitHub issue or pull request as the cmux GitHub App installation.
-    GithubIssueCommentOp {
-        name: "github.issue.comment",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConnectionDO",
-        risk: "send-external",
-        principals: [Session, Install],
-        params: GithubIssueCommentParams,
-        result: Value,
-        error: GithubIssueCommentError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct GithubIssueCommentParams {
-    pub connection: ConnectionId,
-    pub repo: String,
-    pub issue: i64,
-    pub body: String,
-}
-
-wire_errors! {
-    /// The error codes github.issue.comment declares.
-    GithubIssueCommentError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        IntegrationUnavailable = "integration.unavailable",
-        MutationIndeterminate = "mutation.indeterminate",
-        PolicyDenied = "policy.denied",
-        ProviderError = "provider.error",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Make a group link: whoever signs in and opens it joins with role (default member, at most your own; admin only from the owner) for expires_in_hours (default 168) and max_uses joins (default 20). Only this answer carries the secret (in link's fragment). It closes when revoked, used up, or when you leave, are removed or lose the role it grants. At most 50 open links per group.
-    GrantCreateOp {
-        name: "grant.create",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "mutate-shared",
-        principals: [Session, Install],
-        params: GrantCreateParams,
-        result: GrantCreateResult,
-        error: GrantCreateError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct GrantCreateParams {
-    pub conversation: ConversationId,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub role: Option<HomeGrantableRole>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub expires_in_hours: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_uses: Option<i64>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct GrantCreateResult {
-    pub rev: i64,
-    pub change: Value,
-    pub grant_id: String,
-    pub code: String,
-    pub secret: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub link: Option<String>,
-}
-
-wire_errors! {
-    /// The error codes grant.create declares.
-    GrantCreateError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        HomeNotConfigured = "home.not_configured",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidInvite = "invalid_invite",
-        InvalidRole = "invalid_role",
-        InviteLimit = "invite_limit",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        ReadOnly = "read_only",
-        UnknownConversation = "unknown_conversation",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Close a group link at once: its maker, or an admin or the owner above the maker. Open links are in the conversation head's grants.
-    GrantRevokeOp {
-        name: "grant.revoke",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "mutate-shared",
-        principals: [Session, Install],
-        params: GrantRevokeParams,
-        result: HomeConversationCommit,
-        error: GrantRevokeError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct GrantRevokeParams {
-    pub conversation: ConversationId,
-    pub grant_id: String,
 }

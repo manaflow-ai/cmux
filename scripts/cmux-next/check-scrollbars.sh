@@ -60,6 +60,10 @@ ALLOWED_RULES = {
     # overflow. Hidden the same way as the rail list; the gallery's comparison frame draws the old thumb.
     "webviews/src/agent-session/acpmux/session-info/sessionInfo.css": {"custom": "Session Info body scrollbar hidden"},
     "webviews/src/agent-session/acpmux/session-info/SessionInfo.gallery.tsx": {"custom": "gallery comparison frame with the old thumb"},
+    # The updated card's preview list shows the card scroller's thumb while more rows than fit,
+    # in place of the edge fade that dimmed its last row; it colours the thumb only, with the
+    # shared `--cmux-scroller-thumb` token.
+    "webviews/src/pages/changelog/updateSurfaces.css": {"custom": "updated card list shows the shared thumb"},
     # `overflow: "scroll"` here is the @pierre/diffs option for unwrapped code rows, not CSS; the
     # rows' scroller follows the host through PIERRE_DIFFS_SCROLLER_CSS.
     # EditDiffHunks and HighlightedCode load after the first frame (#19974); EditDiff and CodeBlock

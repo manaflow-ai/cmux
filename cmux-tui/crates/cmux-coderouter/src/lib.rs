@@ -27,7 +27,7 @@ use tokio::{
 use tower_http::limit::RequestBodyLimitLayer;
 
 mod admin_socket;
-pub use admin_socket::{MAX_SOCKET_PATH_BYTES, admin_socket_path};
+pub use admin_socket::admin_socket_path;
 pub mod free_tier;
 use free_tier::FreeTier;
 use zeroize::Zeroize;

@@ -151,3 +151,31 @@ fn agent(id: &str) -> Participant {
         person: None,
     }
 }
+
+// Chat widgets are gone (user, Nov 9: "remove widgets completely"): a
+// `widget` part is a type this build does not know, and nobody can post one.
+
+fn send_parts(host: &mut Host, actor: &str, key: &str, parts: Vec<Part>) -> Result<Commit, Reject> {
+    let op = Op::MessageSend {
+        client_msg_id: key.to_string(),
+        parts,
+        reply_to: None,
+        answers: Vec::new(),
+        answers_pending: Vec::new(),
+        thread_root: None,
+    };
+    host.run(actor, key, op)
+}
+
+#[test]
+fn a_widget_part_is_unknown_and_refused() {
+    let raw = json!({
+        "type": "widget", "app": "cmux/pr-card", "widget": "cmux.chat.widget/1",
+        "props": {"repo": "manaflow-ai/cmux", "number": 38629},
+        "fallback": "PR #38629: Model picker finds any model"
+    });
+    let part: Part = serde_json::from_value(raw.clone()).unwrap();
+    assert_eq!(part, Part::Unknown(raw));
+    let mut host = Host::new();
+    assert_eq!(send_parts(&mut host, MUX, "w1", vec![part]).unwrap_err(), Reject::InvalidParts);
+}

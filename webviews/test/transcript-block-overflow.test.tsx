@@ -6,14 +6,15 @@
 // Now: a prose file (md, txt) wraps with a hanging indent by default and code stays on one line,
 // with a fade at the right edge while more of it lies past it. Each block's header has Wrap lines
 // beside Copy, remembered per kind of block (prose, code, output). A block longer than eight lines
-// shows its first eight under a fade, with "Show all N lines". The same holds for a command's Shell
-// block and a call's output.
+// scrolls in an eight-line box, with no Show all row (Leo 2026-11-12: "this is a really useless show
+// all 9 lines"). The same holds for a command's Shell block and a call's output.
 import { afterAll, afterEach, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -75,16 +76,18 @@ afterEach(() => {
   window.localStorage.clear();
 });
 
-afterAll(() => {
+afterAll(async () => {
   for (const key of added) delete scope[key];
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 async function render(node: React.ReactNode) {
   const { createRoot } = await import("react-dom/client");
+  // Each mount starts from no reader choices: a call's open state is kept by its id past an unmount
+  // (transcriptDisclosureModel.ts useRowDisclosure), and these fixtures reuse their call ids.
+  const { resetTranscriptDisclosure } =
+    await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
+  resetTranscriptDisclosure();
   root = createRoot(host);
   await act(async () => root!.render(node));
 }
@@ -176,15 +179,11 @@ test("the wrap choice holds for every block of its kind and is remembered", asyn
   expect(wrapOf(card("e.ts"))?.getAttribute("aria-pressed")).toBe("true");
 });
 
-test("a diff longer than eight lines shows its first lines under a fade, with Show all N lines", async () => {
+test("a diff longer than eight lines scrolls in its box, with no Show all row", async () => {
   await renderDiffs(await newFile("/w/notes.md", lines(21)), await newFile("/w/short.ts", lines(5)));
   const long = card("notes.md");
   expect(long.querySelector(".cv-edit-diff__body")?.getAttribute("data-preview")).toBe("cut");
-  const more = byText("Show all 21 lines", long);
-  expect(more?.getAttribute("aria-expanded")).toBe("false");
-  await click(more);
-  expect(long.querySelector(".cv-edit-diff__body")?.getAttribute("data-preview")).toBe("all");
-  expect(byText("Show less", long)?.getAttribute("aria-expanded")).toBe("true");
+  expect(buttons(long).some((node) => node.textContent?.startsWith("Show "))).toBe(false);
   // Five lines show whole, with nothing to open.
   const short = card("short.ts");
   expect(short.querySelector(".cv-edit-diff__body")?.hasAttribute("data-preview")).toBe(false);
@@ -204,7 +203,7 @@ async function openRow(kind: string, output: string, command?: string) {
   await click(host.querySelector("button.cv-tool"));
 }
 
-test("a Shell block caps its output at eight scrolling lines and opens it aligned, each line on its own row", async () => {
+test("a Shell block caps its output at eight scrolling lines and wraps its long lines down, each line its own block", async () => {
   await openRow(
     "execute",
     lines(30, (index) => `case ${index + 1} ${"ok ".repeat(40)}`),
@@ -213,66 +212,84 @@ test("a Shell block caps its output at eight scrolling lines and opens it aligne
   const shell = host.querySelector(".cv-shell")!;
   const body = shell.querySelector(".cv-shell__body")!;
   expect(body.getAttribute("data-preview")).toBe("cut");
-  // The thirty lines of output; the command is a block of its own.
-  const more = byText("Show all 30 lines", shell);
-  expect(Boolean(more)).toBe(true);
-  // Output opens aligned (blockWrap.ts): each line its own block, kept on one row, the body
-  // scrolling sideways for what runs past. Wrap lines folds the long rows back under their start.
+  // The thirty lines scroll in the box; no row under it offers to show them.
+  expect(buttons(shell).some((node) => node.textContent?.startsWith("Show "))).toBe(false);
+  // Output that is not a table wraps down (blockWrap.ts `outputWraps`; Leo, 2026-11-11: "it goes
+  // down instead of to the right"): each line its own block, a long one hanging under its start.
+  // Wrap lines keeps the long rows whole, the body scrolling sideways for what runs past.
   const wrap = wrapOf(shell);
   expect(Boolean(wrap?.closest(".cv-shell__label"))).toBe(true);
-  expect(wrap?.getAttribute("aria-pressed")).toBe("false");
-  expect(body.getAttribute("data-wrap")).toBe("false");
+  expect(wrap?.getAttribute("aria-pressed")).toBe("true");
+  expect(body.getAttribute("data-wrap")).toBe("true");
   expect(shell.querySelectorAll(".cv-shell__output .cv-line").length).toBe(30);
   // Copy and Find still read the output's exact text.
   expect(shell.querySelector(".cv-shell__output")?.textContent).toBe(
     lines(30, (index) => `case ${index + 1} ${"ok ".repeat(40)}`).replace(/\n$/, ""),
   );
-  await click(more);
-  expect(body.getAttribute("data-preview")).toBe("all");
   await click(wrap);
-  expect(body.getAttribute("data-wrap")).toBe("true");
+  expect(body.getAttribute("data-wrap")).toBe("false");
 });
 
-test("a long output's preview counts all its lines, not only the end it shows, and opens all of it", async () => {
+test("a Shell block's table keeps each row whole, its columns aligned", async () => {
+  const ps = [
+    "  PID TTY           TIME CMD",
+    ...Array.from(
+      { length: 4 },
+      (_, index) => ` ${4821 + index} ttys00${index}    0:00.1${index} ${"node vite ".repeat(12)}`,
+    ),
+  ].join("\n");
+  await openRow("execute", ps, "ps");
+  const body = host.querySelector(".cv-shell .cv-shell__body")!;
+  expect(body.getAttribute("data-wrap")).toBe("false");
+});
+
+test("a long output scrolls through its last 400 lines, and Show all output draws all of it", async () => {
   await openRow("execute", lines(1000), "seq 1000");
   const shell = host.querySelector(".cv-shell")!;
-  // All thousand lines, though only the last 400 are drawn until opened.
-  expect(Boolean(byText("Show all 400 lines", shell))).toBe(false);
-  expect(Boolean(byText("Show all output", shell))).toBe(false);
-  await click(byText("Show all 1000 lines", shell));
+  expect(shell.querySelector(".cv-shell__output")?.textContent?.startsWith("line 601\n")).toBe(true);
+  await click(byText("Show all output", shell));
   expect(shell.querySelector(".cv-shell__output")?.textContent).toBe(lines(1000).replace(/\n$/, ""));
-  expect(Boolean(byText("Show all output", shell))).toBe(false);
-  // Show less closes it up to the preview of its end again.
+  // Show less closes it up to its end again, still scrolling in its box.
   await click(byText("Show less", shell));
   expect(shell.querySelector(".cv-shell__body")?.getAttribute("data-preview")).toBe("cut");
   expect(shell.querySelector(".cv-shell__output")?.textContent?.startsWith("line 601\n")).toBe(true);
 });
 
-test("an output opened while short stays open as it streams past the tail", async () => {
+test("a live output opened with Show all output mounts every line, not the 400-line window", async () => {
+  const { ToolRow } = await import("../src/agent-session/acpmux/conversation/ToolRow");
+  const running = (output: string) =>
+    ({
+      kind: "activity",
+      text: "Ran",
+      tool: { id: "live-call", kind: "execute", title: "Tool", status: "in_progress", command: "seq 500", output },
+    }) as never;
+  await render(<ToolRow item={running(lines(500))} />);
+  await click(host.querySelector("button.cv-tool"));
+  const shell = host.querySelector(".cv-shell")!;
+  await click(byText("Show all output", shell));
+  expect(shell.querySelector(".cv-shell__output")?.textContent).toBe(lines(500).replace(/\n$/, ""));
+});
+
+test("an output that streams past the tail draws its end, with Show all output for the rest", async () => {
   const { ToolRow } = await import("../src/agent-session/acpmux/conversation/ToolRow");
   await render(<ToolRow item={call("execute", lines(20), "bun test")} />);
   await click(host.querySelector("button.cv-tool"));
-  await click(byText("Show all 20 lines"));
   // The stream goes on past the 400 lines a closed output draws the end of.
   await act(async () => root!.render(<ToolRow item={call("execute", lines(1000), "bun test")} />));
   const shell = host.querySelector(".cv-shell")!;
-  expect(shell.querySelector(".cv-shell__output")?.textContent).toBe(lines(1000).replace(/\n$/, ""));
-  expect(Boolean(byText("Show less", shell))).toBe(true);
-  // Show less closes it up to the end of the output.
-  await click(byText("Show less", shell));
   expect(shell.querySelector(".cv-shell__output")?.textContent?.startsWith("line 601\n")).toBe(true);
-  expect(Boolean(byText("Show all 1000 lines", shell))).toBe(true);
+  expect(Boolean(byText("Show all output", shell))).toBe(true);
 });
 
-test("Find does not count the preview's Show all and Show less, nor Show all output", async () => {
-  await openRow("execute", lines(30), "bun test");
+test("Find does not count Show all output and Show less", async () => {
+  await openRow("execute", lines(1000), "seq 1000");
   const shell = host.querySelector(".cv-shell")!;
-  const more = byText("Show all 30 lines", shell);
+  const more = byText("Show all output", shell);
   expect(more?.hasAttribute("data-find-skip")).toBe(true);
   await click(more);
   expect(byText("Show less", shell)?.hasAttribute("data-find-skip")).toBe(true);
   act(() => root?.unmount());
-  // A tail cut in one long line: too few lines for a preview, so Show all output stands alone.
+  // A tail cut in one long line.
   await openRow("execute", "x".repeat(50_000), "yes x");
   expect(byText("Show all output")?.hasAttribute("data-find-skip")).toBe(true);
 });
@@ -313,9 +330,10 @@ test("a diff Find reveals through its row opens past the cut too", async () => {
 test("a call's output has Wrap lines and the same preview", async () => {
   await openRow("other", lines(12));
   const card = host.querySelector(".cv-tool-output-card")!;
-  expect(wrapOf(card)?.getAttribute("aria-pressed")).toBe("false");
+  // Plain lines are not a table, so they wrap down (blockWrap.ts `outputWraps`).
+  expect(wrapOf(card)?.getAttribute("aria-pressed")).toBe("true");
   expect(card.querySelector(".cv-tool-output")?.getAttribute("data-preview")).toBe("cut");
-  expect(Boolean(byText("Show all 12 lines", card))).toBe(true);
+  expect(buttons(card).some((node) => node.textContent?.startsWith("Show "))).toBe(false);
 });
 
 test("a box wider than its content area marks its right edge until scrolled to the end, inside shadow roots too", async () => {
