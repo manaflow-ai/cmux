@@ -121,10 +121,19 @@ pub struct Store {
     dir: PathBuf,
 }
 
-/// Held for the length of one mutation.
+/// Held for the length of one mutation. The drop unlocks before the file
+/// closes: a child another thread started meanwhile keeps a copy of the open
+/// file until it execs or exits, and a close alone would leave the lock held
+/// in that copy.
 #[derive(Debug)]
 pub struct Lock {
     _file: File,
+}
+
+impl Drop for Lock {
+    fn drop(&mut self) {
+        let _ = fs4::FileExt::unlock(&self._file);
+    }
 }
 
 impl Store {
