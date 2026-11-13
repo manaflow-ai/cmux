@@ -1,0 +1,24 @@
+# Demo terminal theme for PR #42693's paired capture ("Aubergine Neon"). Demo branch only.
+theme =
+background = #2b0b3f
+foreground = #f9e79f
+cursor-color = #ff2e97
+selection-background = #00e5c7
+selection-foreground = #1a0626
+palette = 0=#3d1458
+palette = 1=#ff3864
+palette = 2=#2de2a6
+palette = 3=#ffd319
+palette = 4=#36c2ff
+palette = 5=#ff61d8
+palette = 6=#00f0e0
+palette = 7=#f2e6ff
+palette = 8=#7a4fa0
+palette = 9=#ff7a9c
+palette = 10=#7dffcf
+palette = 11=#ffe873
+palette = 12=#8fdcff
+palette = 13=#ffa3ec
+palette = 14=#7afff5
+palette = 15=#ffffff
+faint-opacity = 0.35
