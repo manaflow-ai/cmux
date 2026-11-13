@@ -55,7 +55,12 @@ public struct Metrics {
     public static var tabStripHeight: CGFloat {
         guard let padding = DesignSettings.shared.paneChrome.cornerPadding else {
             let strip = MetricTunables.tabStripHeight
-            return strip.explicitValue != nil ? strip.value : strip.value + max(0, tabHeight - MetricTunables.tabHeight.value)
+            // A strip the person set (Debug Settings, `appearance.metrics.tabStripHeight`) keeps its height.
+            if strip.tunable.override != nil || strip.key.flatMap({ DesignSettings.shared.overrides[$0] }) != nil { return strip.value }
+            // The density's own strip (Compact 26, Default 36) grows when the sidebar's density or text size makes the
+            // row taller than the density's, so a row-tall tab is never clipped.
+            if strip.explicitValue != nil { return strip.value + max(0, tabHeight - densityRowHeight) }
+            return strip.value + max(0, tabHeight - MetricTunables.tabHeight.value)
         }
         return tabHeight + 2 * scale(padding) + stripTopOutset
     }
@@ -413,11 +418,13 @@ public struct Typography {
 
     /// Tab titles, sidebar rows, palette results.
     public static var body: NSFont { system(.default, size: size(12, 13), weight: .regular) }
-    /// Tab titles use the density's body size less one point, times the user's text scale.
+    /// Tab titles: the density's body size less one point (13 pt at Default's 14 pt body), times the user's text
+    /// scale. Never under Chrome's 12 pt (Lawrence 2026-11-07, #39418), so the compact densities keep 12 pt titles
+    /// (Lawrence 2026-11-13: "pls change compact density back to how it was originally").
     /// `appearance.metrics.tabFontSize` overrides that size, times the interface scale when enabled.
     public static var tabTitle: NSFont {
         guard let points = DesignSettings.shared.overrides[.tabFontSize] else {
-            return system(.default, size: (Metrics.tokens.bodySize - 1) * scale, weight: .regular)
+            return system(.default, size: max(12, Metrics.tokens.bodySize - 1) * scale, weight: .regular)
         }
         return system(.default, size: Metrics.scale(points), weight: .regular)
     }

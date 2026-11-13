@@ -2516,8 +2516,9 @@ impl Hub {
             }
             let link_lost = child.host_record().is_some() && !child.is_alive().await;
             child.kill().await;
-            // A host whose link was lost cannot take a Terminate frame.
-            if link_lost {
+            // A host whose link was lost cannot take a Terminate frame; one whose link stopped
+            // reading did not take it within the grace (`host_unended`).
+            if link_lost || child.host_unended() {
                 self.end_unadopted_host(session).await;
             }
         } else {
@@ -2641,6 +2642,14 @@ impl Hub {
         self.cancel_pending_permissions(session);
         if let Some(child) = slot.take() {
             child.kill().await;
+            // A host that never took the terminate still runs its agent: it is ended by its
+            // nonce, within a bound too, and what waited on the agent is answered (no exit is
+            // read for it). Under the child lock, so no new agent starts beside it.
+            if child.host_unended() {
+                tracing::warn!(session = %session.id, "its agent's host did not end it in time; the host is ended");
+                child.fail_pending().await;
+                self.end_unadopted_host(session).await;
+            }
         }
         session.detaching.store(false, Ordering::SeqCst);
         drop(slot);

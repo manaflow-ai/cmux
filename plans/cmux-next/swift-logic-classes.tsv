@@ -6761,9 +6761,6 @@ CmuxNextDesign	extension	CALayer	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/
 CmuxNextDesign	struct	SystemScrollers	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/SystemScrollers.swift	from struct SystemScrollers:17: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	extension	Metrics	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/TabCornerRadius.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	class	ChromeLabel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/ChromeLabel.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
-CmuxNextDesign	extension	ChromeLabel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/ChromeLabel.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
-CmuxNextDesign	extension	NSTextField	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/ChromeLabel.swift	from class ChromeLabel:23: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
-CmuxNextDesign	protocol	ShownText	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/ChromeLabel.swift	from class ChromeLabel:23: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	struct	LabelDefaults	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/ChromeLabel.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	enum	GlyphMask	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/GlyphMask.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	struct	LabelParityProbe	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/LabelParityProbe.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
@@ -6771,6 +6768,9 @@ CmuxNextDesign	class	LabelSelectionView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/S
 CmuxNextDesign	enum	LabelText	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/LabelText.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	class	MarqueeLabel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/MarqueeLabel.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	extension	NSTextView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/NSTextView+UndoableReplace.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
+CmuxNextDesign	extension	ChromeLabel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/ShownText.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
+CmuxNextDesign	extension	NSTextField	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/ShownText.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
+CmuxNextDesign	protocol	ShownText	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/ShownText.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	extension	TextWeightProbe	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/TextWeightProbe.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	struct	TextWeightProbe	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/TextWeightProbe.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	class	TitleFade	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Text/TitleFade.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
@@ -7925,6 +7925,7 @@ CmuxNextHome	struct	HomeStarterStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/So
 CmuxNextHome	enum	HomeStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeStrings.swift	AppKit/SwiftUI view or platform code
 CmuxNextHomeModel	struct	HomeSwitchKeys	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/NativeTranscript/HomeSwitchKeys.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	enum	HomeThemePalette	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeThemePalette.swift	AppKit/SwiftUI view or platform code
+CmuxNextHome	class	HomeUnavailableLabel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeUnavailableLabel.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	class	HomeVoiceDictation	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeVoiceDictation.swift	from class HomeVoiceDictation:28: AppKit/SwiftUI view or platform code
 CmuxNextHome	extension	DictationSession	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeVoiceDictation.swift	from protocol HomeDictationEngine:12: AppKit/SwiftUI view or platform code
 CmuxNextHome	protocol	HomeDictationEngine	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeVoiceDictation.swift	from protocol HomeDictationEngine:12: AppKit/SwiftUI view or platform code

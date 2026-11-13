@@ -578,7 +578,7 @@ impl SummaryIndex {
                 self.live_ordered.insert(SortKey::of(&row), row);
             }
             if let Some(row) = self.by_id.get(&key) {
-                self.kin.insert(row);
+                self.kin.insert_arc(row);
                 self.folders =
                     Self::refresh_folders(&self.folders, &self.kin, &self.by_id, None, Some(row));
             }
@@ -705,6 +705,7 @@ impl SummaryIndex {
         for key in &keys {
             if let Some(old) = next.by_id.remove(key) {
                 next.ordered.remove(&SortKey::of(&old));
+                next.live_ordered.remove(&SortKey::of(&old));
                 next.kin.remove(&old);
                 next.folders =
                     Self::refresh_folders(&next.folders, &next.kin, &next.by_id, Some(&old), None);
@@ -728,6 +729,7 @@ impl SummaryIndex {
         let mut next = self.clone();
         if let Some(old) = next.by_id.remove(key) {
             next.ordered.remove(&SortKey::of(&old));
+            next.live_ordered.remove(&SortKey::of(&old));
             next.kin.remove(&old);
             next.folders =
                 Self::refresh_folders(&next.folders, &next.kin, &next.by_id, Some(&old), None);
@@ -841,7 +843,7 @@ impl SummaryIndex {
         if row.is_live() {
             next.live_ordered.insert(SortKey::of(&row), row.clone());
         }
-        next.kin = next.kin.replace(old.as_deref(), Some(&row));
+        next.kin = next.kin.replace_arc(old.as_ref(), Some(&row));
         next.folders = Self::refresh_folders(
             &next.folders,
             &next.kin,
@@ -908,7 +910,7 @@ impl SummaryIndex {
         }
         let mut next =
             Self { seq: self.seq.max(seq), by_id, ordered, live_ordered, shadowed, ..self.clone() };
-        next.kin = self.kin.replace(old.as_deref(), Some(&summary));
+        next.kin = self.kin.replace_arc(old.as_ref(), Some(&summary));
         next.folders = Self::refresh_folders(
             &self.folders,
             &next.kin,
@@ -1437,6 +1439,53 @@ mod tests {
         seen.sort();
         backwards.sort();
         assert_eq!(seen, backwards);
+    }
+
+    #[test]
+    fn live_pages_drop_removed_origin_rows_before_the_origin_returns() {
+        fn live_keys(index: &SummaryIndex) -> Vec<RowKey> {
+            index
+                .read_live_page(None, ReadSide::After, false, 100, snapshot::PAGE_BYTES, None)
+                .unwrap()
+                .rows
+                .iter()
+                .map(|row| row.key())
+                .collect()
+        }
+
+        fn filtered_keys(index: &SummaryIndex) -> Vec<RowKey> {
+            index.iter().filter(|row| row.is_live()).map(|row| row.key()).collect()
+        }
+
+        let mut index = SummaryIndex::new();
+        for (seq, (origin, id, activity)) in
+            [("peer", "peer-live-a", 30), ("peer", "peer-live-b", 20), ("local", "local-live", 10)]
+                .into_iter()
+                .enumerate()
+        {
+            let mut row = summary(id, activity, "{}");
+            row.origin = origin.to_owned();
+            index = index.apply(seq as u64 + 1, row);
+        }
+        assert_eq!(live_keys(&index), filtered_keys(&index));
+
+        index = index.apply_origin(10, origin_record("peer".into(), 10, OriginState::Removed));
+        loop {
+            let (next, removed) = index.remove_origin_batch(10, "peer", 256);
+            index = next;
+            if removed == 0 {
+                break;
+            }
+        }
+        assert_eq!(live_keys(&index), filtered_keys(&index));
+        assert!(!live_keys(&index).iter().any(|key| key.origin.as_ref() == "peer"));
+
+        index = index.apply_origin(11, origin_record("peer".into(), 11, OriginState::Connected));
+        let mut returned = summary("peer-live-returned", 40, "{}");
+        returned.origin = "peer".to_owned();
+        index = index.apply(12, returned);
+        assert_eq!(live_keys(&index), filtered_keys(&index));
+        assert_eq!(live_keys(&index).iter().filter(|key| key.origin.as_ref() == "peer").count(), 1);
     }
 
     #[test]
