@@ -434,7 +434,10 @@ fn a_late_copy_completion_cannot_finish_a_newer_warm_attempt() {
     assert_ne!(generation, second["copy"]["generation"]);
     call(json!({"account": "user_a", "installed": MACHINE, "generation": generation}), 1_000_300);
     assert!(copy_in_flight(dir.path(), MACHINE, 1_000_400));
-    assert_eq!(receipt(dir.path(), "user_a", MACHINE, "claude", 1_000_400)["installed"], false);
+    assert_eq!(
+        receipt_scoped(dir.path(), "user_a", MACHINE, "claude", Some(&scope()), 1_000_400)["installed"],
+        false
+    );
 }
 
 #[test]

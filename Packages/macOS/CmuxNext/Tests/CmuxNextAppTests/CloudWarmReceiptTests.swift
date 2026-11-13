@@ -6,7 +6,7 @@ import Testing
 /// A completed warm stands in for the guest reads, including when it completes during start.
 @MainActor @Suite(.timeLimit(.minutes(1)))
 struct CloudWarmReceiptTests {
-    @Test func receiptAfterRegistrationAndCopySkipsTheMachineReads() async throws {
+    @Test func receiptIsReadAfterRegistrationAndCopy() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -27,23 +27,17 @@ struct CloudWarmReceiptTests {
         let registration = claims.register(machine) { await gate.wait(); return true }
         let start = Task { @MainActor in
             var decision = CloudHarnessLoginDecision(dogfood: true, setting: nil, harness: "claude", signedIn: true)
-            var machineReads = 0
             let ready = await decision.takeWarmReceipt(cli: binary, machine: machine, userID: "user_a", ask: .init(), claims: claims) {
                 #expect(FileManager.default.fileExists(atPath: marker.path))
                 return .init(platform: platform, team: "team_a", install: "inst_a", credential: "digest")
             }
-            if !ready {
-                decision.callerOwns = true
-                try await decision.readMachine(exec: { _ in "vm-kind:owner\n" }, pause: {}, login: { (nil, false) })
-                machineReads += 1
-            }
-            #expect(ready && machineReads == 0 && decision.outcome == CloudHarnessLoginDecision.warmReceipt)
+            #expect(ready && decision.outcome == CloudHarnessLoginDecision.warmReceipt)
             #expect(decision.guestStdout == nil && decision.machineProbe == nil)
         }
         #expect(!FileManager.default.fileExists(atPath: marker.path))
         gate.open()
         #expect(await registration.value)
-        try await start.value
+        await start.value
     }
 
     @Test func unknownFallbackCredentialsNeverBecomeKnownAbsence() async throws {
