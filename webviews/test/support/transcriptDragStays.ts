@@ -68,6 +68,9 @@ type DragRun = {
   /** The longest time between two width steps, ms. The transcript reads steps as one live resize
    *  while they come inside 120 ms of each other; a slower run did not drive a drag. */
   gap: number;
+  /** The frames read while the rows sat in flow (0 on a transcript that places each frame's rows).
+   *  Printed, never checked: what a person sees is the same claim on both. */
+  flowed: number;
 };
 
 /// Runs in the page. Sets the pane `from` wide and waits for rest, then gives it one new width each
@@ -132,6 +135,7 @@ async function dragInPage({ from, to, steps, toEnd, track }: DragArgs): Promise<
   let failed: unknown;
   let gap = 0;
   let stepped = 0;
+  let flowed = 0;
   await new Promise<void>((done) => {
     let index = 0;
     const tick = () => {
@@ -149,6 +153,7 @@ async function dragInPage({ from, to, steps, toEnd, track }: DragArgs): Promise<
       channel.port1.onmessage = () => {
         try {
           frames.push(shot());
+          if (document.querySelector(".acpmux-thread--flow")) flowed += 1;
         } catch (error) {
           failed = error;
         }
@@ -173,6 +178,7 @@ async function dragInPage({ from, to, steps, toEnd, track }: DragArgs): Promise<
     extentAfter: extent(),
     tracked,
     gap: round(gap),
+    flowed,
   };
 }
 
@@ -243,6 +249,7 @@ export async function dragStays({ file, shape, engine, engineName, configFile }:
       `${file}: ${name} ${JSON.stringify({
         view: run.view,
         gapMs: run.gap,
+        flowFrames: run.flowed,
         extent: [run.extentBefore, run.extentAfter],
         rows: [tall(run, run.before), tall(run, run.after)],
         before: run.before,
@@ -288,6 +295,8 @@ export async function dragStays({ file, shape, engine, engineName, configFile }:
     // Ten turns, and a view as high as halfway between their height wide and their height narrow.
     const ROWS = 30;
     let height = 0;
+    /// Where the first row rests in a view that holds the whole chat (read by `sized`).
+    let fitTop = 0;
     const sized = async () => {
       if (height > 0) return height;
       const page = await open(6000, ROWS, WIDE);
@@ -309,6 +318,7 @@ export async function dragStays({ file, shape, engine, engineName, configFile }:
       // The space above the first row, the rows at halfway between the two widths, and what the page
       // shows around the transcript (the window's height less the view's).
       height = Math.round(wide.top + (wide.rows + narrow.rows) / 2) + (6000 - wide.view);
+      fitTop = wide.top;
       console.log(`${file}: sized ${JSON.stringify({ wide, narrow, window: height })}`);
       return height;
     };
@@ -329,6 +339,11 @@ export async function dragStays({ file, shape, engine, engineName, configFile }:
       );
       expect(seen.blank, "px of empty band above the first row in a frame").toBeLessThanOrEqual(JUMP_PX);
       expect(Math.abs(settle(run).foot), "px the latest row jumps when the width holds").toBeLessThanOrEqual(JUMP_PX);
+      // A view left at the chat's top for good has no jump either: the latest row must be in it.
+      expect(
+        run.after.foot,
+        "px from the latest row's bottom to the view's once the width holds",
+      ).toBeGreaterThanOrEqual(0);
     });
 
     test("a chat that starts fitting as its pane widens goes to its top, with no band and no jump", async () => {
@@ -348,6 +363,11 @@ export async function dragStays({ file, shape, engine, engineName, configFile }:
       );
       expect(seen.blank, "px of empty band above the first row in a frame").toBeLessThanOrEqual(JUMP_PX);
       expect(Math.abs(settle(run).top), "px the first row jumps when the width holds").toBeLessThanOrEqual(JUMP_PX);
+      // A band that stays for good has no jump either: the first row must rest where a chat that fits has it.
+      expect(
+        Math.abs(run.after.top - fitTop),
+        "px the first row is from its place in a chat that fits once the width holds",
+      ).toBeLessThanOrEqual(STILL_PX);
     });
   }
 
