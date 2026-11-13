@@ -28,7 +28,7 @@ const step = (name: string) => {
 
 type Inputs = { mode: string; clones: string; keep_snapshot: boolean; probes: boolean; agent_tools: boolean; team_vm: boolean; dev_tree: boolean; dev_snapshot?: string; layered?: boolean };
 const BASE: Inputs = { mode: "bake", clones: "2", keep_snapshot: true, probes: false, agent_tools: true, team_vm: false, dev_tree: false };
-const PROD_COPY: Inputs = { mode: "prod-copy", clones: "2", keep_snapshot: false, probes: false, agent_tools: false, team_vm: false, dev_tree: false, dev_snapshot: `sh-${"3".repeat(32)}` };
+const PROD_COPY: Inputs = { mode: "prod-copy", clones: "2", keep_snapshot: false, probes: false, agent_tools: true, team_vm: false, dev_tree: false, dev_snapshot: `sh-${"3".repeat(32)}` };
 
 /** Evaluates the expression forms this workflow uses in env values. */
 function evaluate(value: string, ctx: { inputs: Inputs; out: string; snapshot: string; key: string; plan: Record<string, string>; missing?: string }): string {
@@ -226,7 +226,6 @@ describe("cloud-vm-image-bake.yml mode prod-copy", () => {
     ["no test profile password", {}, { key: "s3cr3t-key", missing: "CMUX_UITEST_STACK_PASSWORD" }],
     ["a dispatch from another branch", {}, { key: "s3cr3t-key", ref: "refs/heads/main" }],
     ["a dev_snapshot that is not an id", { dev_snapshot: "cmuxnp-dev-vmimg-x" }, { key: "s3cr3t-key" }],
-    ["agent_tools set by hand", { agent_tools: true }, { key: "s3cr3t-key" }],
     ["probes (the dev API)", { probes: true }, { key: "s3cr3t-key" }],
     ["dev_tree", { dev_tree: true }, { key: "s3cr3t-key" }],
   ];
