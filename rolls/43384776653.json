@@ -1,0 +1,60 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43384776653",
+  "recorded_at": "2026-11-13T07:20:13Z",
+  "reason": "cmux-tui b05fe598f1cd changes the image's cmux-tui (pinned d33b7e7101f7)",
+  "dry_run": false,
+  "cmux_tui": "b05fe598f1cd18b973ded6c54cef51a1042dbd76",
+  "fixes": [
+    {
+      "sha": "b05fe598f1cd18b973ded6c54cef51a1042dbd76",
+      "mergedAt": "2026-11-13T00:54:54-06:00",
+      "subject": "cmux-worktree-care: the pass, memo and merge-tree locks unlock before they close"
+    },
+    {
+      "sha": "190e9fa67264e7ca2e16cbc736c2b490b0287418",
+      "mergedAt": "2026-11-13T00:54:54-06:00",
+      "subject": "cmux-worktree-care tests: the pass, memo and merge-tree locks are free while a forked child keeps their descriptors (red)"
+    },
+    {
+      "sha": "0461b61f2489798c32e768b71540a9b08a99817d",
+      "mergedAt": "2026-11-13T00:52:57-06:00",
+      "subject": "fix(cmux-tui): a status exit during a session shutdown is a host loss; its tab stays"
+    },
+    {
+      "sha": "83a33d7e53c96fdde1d871e1123d724884fef74b",
+      "mergedAt": "2026-11-13T00:52:56-06:00",
+      "subject": "test(cmux-tui): red: a shell that ends with a status during a restart closes its tab"
+    },
+    {
+      "sha": "dc3a709536c6d01de2ce9e5cece321aacc19049d",
+      "mergedAt": "2026-11-13T00:45:46-06:00",
+      "subject": "cmux-tui-core: five lock looks and holds unlock before they close"
+    },
+    {
+      "sha": "093a3cac0c5e89caa7e0641e0b02a224be89d3d8",
+      "mergedAt": "2026-11-13T00:45:46-06:00",
+      "subject": "cmux-tui-core tests: five lock looks and holds leave no lock while a forked child keeps their descriptors (red)"
+    },
+    {
+      "sha": "faadefc3554a39c413382009caab80440dceaaae",
+      "mergedAt": "2026-11-12T22:45:14-08:00",
+      "subject": "acpmux: every reader's outbound queue is bounded in bytes; a refused event is not broadcast (rework stage 3) (#41873)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-13T07:20:13Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
