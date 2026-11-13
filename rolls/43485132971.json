@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43485132971",
+  "recorded_at": "2026-11-13T18:52:01Z",
+  "reason": "cmux-tui b32812893a83 changes the image's cmux-tui (pinned 1d18046714e0)",
+  "dry_run": false,
+  "cmux_tui": "b32812893a83d35423a85fbf8220199614d307c7",
+  "fixes": [
+    {
+      "sha": "b32812893a83d35423a85fbf8220199614d307c7",
+      "mergedAt": "2026-11-13T18:15:22Z",
+      "subject": "acpmux: a cut proof stays cut once its copy goes; rebuilds read kept records (#42561)"
+    },
+    {
+      "sha": "93d73d7b4a19194c45364cc2dcb043e4d19deedf",
+      "mergedAt": "2026-11-13T10:05:38-08:00",
+      "subject": "Agent service v2: kin and folder tables (5e) (#42609)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T18:52:01Z",
+    "snapshot_id": "sh-10eb99a2244544aa98946bc96274ef37",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43485132971): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "161192705da45b2d5b2c28648fbdd07ad403520b",
+    "image": "cloud-native-auto-b3281289-43485132971-1",
+    "revision": "ci-43485132971-1",
+    "at": "2026-11-13T18:52:01Z"
+  },
+  "rolled_back": false
+}
