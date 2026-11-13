@@ -317,3 +317,45 @@ async fn a_turn_ending_during_an_open_seed_still_gets_its_backfill() {
     assert!(root.0.join("sessions/long").join(time_breakdown::FILE).exists());
     hub.shutdown_all().await;
 }
+
+/// A seed whose chat is purged and recreated under the same id while it folds never writes its
+/// fold into the new chat's folder. The seed and the append seam resolve the copy's path by the
+/// chat's id and write it after they let go of the append lock; a purge and a recreate in between
+/// put the old chat's totals beside the new chat's log, which a restart then restores once the
+/// new log passes the old copy's `seq` (review of #42481, F3). Here the old seed's last step, its
+/// save, runs after the purge and the recreate, as it does when they land during its fold.
+#[tokio::test]
+async fn a_seed_of_a_chat_purged_and_recreated_meanwhile_saves_nothing_into_the_new_folder() {
+    let root = Root(std::env::temp_dir().join(format!("acpmux-tb-purge-{}", uuid::Uuid::now_v7())));
+    write_chat(&root.0, "long");
+    let (hub, _) = open(&root.0);
+    let old = hub.resolve("long").unwrap();
+    // The seed's fold of the old chat's log, done before the purge.
+    let mut fold = time_breakdown::State::default();
+    hub.store
+        .scan(&old.id, 0, &mut |record| {
+            fold.record(&record);
+            true
+        })
+        .unwrap();
+    let (bytes, seq) = fold.save().unwrap();
+
+    // The chat is purged and a new one takes its id, with a log of its own.
+    hub.kill(&old, true).await.unwrap();
+    let fresh = hub.make_session(meta("long", 0));
+    hub.store.save(&meta("long", 0)).unwrap();
+    hub.sessions.lock().unwrap().insert("long".into(), fresh.clone());
+    // No `turn_result`: its backfill would save the new chat's own fold here.
+    for record in turn(0).into_iter().take(3) {
+        hub.append_at(&fresh, &record.dir, &record.kind, record.msg, None, Some(record.at));
+    }
+    let folder = hub.store.session_path("long").unwrap();
+
+    // The old seed saves its fold.
+    hub.write_time_breakdown(&old, &folder.join(time_breakdown::FILE), &bytes, seq);
+    assert!(
+        !folder.join(time_breakdown::FILE).exists(),
+        "the purged chat's fold was saved into the new chat's folder"
+    );
+    hub.shutdown_all().await;
+}
