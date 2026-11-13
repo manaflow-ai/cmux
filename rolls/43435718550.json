@@ -1,0 +1,137 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43435718550",
+  "recorded_at": "2026-11-13T13:49:20Z",
+  "reason": "cmux-tui e1080435dd2e changes the image's cmux-tui (pinned ea0e6a903162)",
+  "dry_run": false,
+  "cmux_tui": "e1080435dd2e7adee6d6aef71f054209dfe781a7",
+  "fixes": [
+    {
+      "sha": "e1080435dd2e7adee6d6aef71f054209dfe781a7",
+      "mergedAt": "2026-11-13T05:19:47-08:00",
+      "subject": "fix(screen-share): keep host session alive for reattach (#42550)"
+    },
+    {
+      "sha": "44918dba02f9b2467c1da5d18a2b585227bcc844",
+      "mergedAt": "2026-11-13T07:18:46-06:00",
+      "subject": "cmux-journal: a dropped journal writer lock unlocks before it closes"
+    },
+    {
+      "sha": "6ba9e28bcd3a73417fe3907a65f3197b50db8d25",
+      "mergedAt": "2026-11-13T07:18:46-06:00",
+      "subject": "cmux-journal tests: a dropped journal writer lock is free while a child keeps its descriptor (red)"
+    },
+    {
+      "sha": "679c89c37fbdff1694c4ff52d2df58965a26d31e",
+      "mergedAt": "2026-11-13T07:18:46-06:00",
+      "subject": "cmux-tui-platform: a collection look unlocks a terminal-host copy's in-use lock before it closes"
+    },
+    {
+      "sha": "3c8f43a4a46135ebcc25daeac6c2fad5c3dc9fd3",
+      "mergedAt": "2026-11-13T07:18:46-06:00",
+      "subject": "cmux-tui-platform tests: a collection look leaves a terminal-host copy's in-use lock free while a child keeps its descriptor (red)"
+    },
+    {
+      "sha": "f72776cdd607ea70ca896e0fbf9f483ce0521f40",
+      "mergedAt": "2026-11-13T07:18:46-06:00",
+      "subject": "cmux-remote: the secrets request lock, the machine config lock and the download cache lock unlock before they close"
+    },
+    {
+      "sha": "e492aa0227acc3e4364c9f3c94699bac89dc4aea",
+      "mergedAt": "2026-11-13T07:18:46-06:00",
+      "subject": "cmux-remote tests: the secrets request lock, the machine config lock and the download cache lock are free while a child keeps their descriptors (red)"
+    },
+    {
+      "sha": "a4c4b8a4d8d454a40a4d3f5b929e80305dff366c",
+      "mergedAt": "2026-11-13T07:18:45-06:00",
+      "subject": "cmux-customize: a dropped store lock unlocks before it closes"
+    },
+    {
+      "sha": "591b5fb167da2c249598edd9bad45da8872dfb2c",
+      "mergedAt": "2026-11-13T07:18:45-06:00",
+      "subject": "cmux-customize tests: a dropped store lock is free while a child keeps its descriptor (red)"
+    },
+    {
+      "sha": "729326c0c32f0e7c995e307672a709f6037ff359",
+      "mergedAt": "2026-11-13T07:18:45-06:00",
+      "subject": "cmux-config: a dropped config lock unlocks before it closes"
+    },
+    {
+      "sha": "47b6b9861a8a1c94ade393e4bfdbc6cb2c019826",
+      "mergedAt": "2026-11-13T07:18:45-06:00",
+      "subject": "cmux-config tests: a dropped config lock is free while a child keeps its descriptor (red)"
+    },
+    {
+      "sha": "fbbb2057149ff0390fe99b2404791bf223bc8dac",
+      "mergedAt": "2026-11-13T07:18:45-06:00",
+      "subject": "cmux-tui-core: the server start lock, a count look and the worktree port lock unlock before they close"
+    },
+    {
+      "sha": "2524f07078e09307cad69666b17e2fc07c428c75",
+      "mergedAt": "2026-11-13T07:18:45-06:00",
+      "subject": "cmux-tui-core tests: the server start lock, a count look and the worktree port lock are free while a forked child keeps their descriptors (red)"
+    },
+    {
+      "sha": "3aeec4bcba350eda31b823d27f53d2a0cb3537a9",
+      "mergedAt": "2026-11-13T07:18:45-06:00",
+      "subject": "cmux-automations: a dropped runner lock unlocks before it closes"
+    },
+    {
+      "sha": "311ca7e5e9ad41cd4e1e4ad2cbb5f018e5c25262",
+      "mergedAt": "2026-11-13T07:18:45-06:00",
+      "subject": "cmux-automations tests: a dropped runner lock is free while a forked child keeps its descriptor (red)"
+    },
+    {
+      "sha": "bb9bbfa1dba15838292ec418c938e470567afaa4",
+      "mergedAt": "2026-11-13T07:18:45-06:00",
+      "subject": "cmux-tui: a hook queue's lock and drain lock unlock before they close"
+    },
+    {
+      "sha": "063897cb6710c67a6c59fcce0eaa32ad51683c9c",
+      "mergedAt": "2026-11-13T07:18:44-06:00",
+      "subject": "cmux-tui tests: a hook queue's lock and drain lock are free while a forked child keeps their descriptors (red)"
+    },
+    {
+      "sha": "ab212e4b86e13b59f4bb32ba0b43498c81535f8d",
+      "mergedAt": "2026-11-13T07:18:44-06:00",
+      "subject": "acpmux: the config, display, endpoint, workflow record and bg task wait locks unlock before they close"
+    },
+    {
+      "sha": "c2657f2a4d5d6df8f90e5dd4889edeee34bfa76d",
+      "mergedAt": "2026-11-13T07:18:44-06:00",
+      "subject": "acpmux tests: the config, display, endpoint, workflow record and bg task wait locks are free while a forked child keeps their descriptors (red)"
+    },
+    {
+      "sha": "0e63308fae6b9b868c24338bcb2605e5540d8b94",
+      "mergedAt": "2026-11-13T05:17:48-08:00",
+      "subject": "acpmux v2: stabilize PR4 stopped-reader gate (#42579)"
+    },
+    {
+      "sha": "33b63d6ff7cb536e6f34d2d7e26e561aacf58fe2",
+      "mergedAt": "2026-11-13T05:01:29-08:00",
+      "subject": "cmux-next diff comments: complete agent round trip (#42328)"
+    },
+    {
+      "sha": "2fd6c1c43af898732d43c6edf3d8fa35941dd2db",
+      "mergedAt": "2026-11-13T04:59:59-08:00",
+      "subject": "#39022 F1 F2: cleanup takes gone only from a fresh list, says abandoned, and a cancel ends the whole start (#42477)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T13:49:20Z",
+    "snapshot_id": "sh-69295c23bc6e4c5ea0b6bd976c1920cd",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43435718550): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "e5384e72ca71fdfd06cad1a01031d57acb3b6a4d",
+    "image": "cloud-native-auto-e1080435-43435718550-1",
+    "revision": "ci-43435718550-1",
+    "at": "2026-11-13T13:49:20Z"
+  },
+  "rolled_back": false
+}
