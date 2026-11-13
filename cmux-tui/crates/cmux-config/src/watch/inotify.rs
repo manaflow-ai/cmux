@@ -11,11 +11,13 @@
 //! removed or renamed, and each watched name that exists has a watch of its
 //! own (of the file, not of its directory): a regular file for a close after
 //! a write and a metadata change, as on macOS (`kqueue.rs`); a folder, a
-//! socket or another kind for a metadata change of itself. A write, a close
-//! or a mode change of any other entry queues nothing: another program's
-//! busy log beside a watched file (Codex appends to ~/.codex several times a
-//! second) does not wake the daemon. IN_MODIFY is left out: a writer that
-//! keeps the file open is seen when it closes it.
+//! socket or another kind for a metadata change of itself. A write or a
+//! close of any other entry queues nothing: another program's busy log
+//! beside a watched file (Codex appends to ~/.codex several times a second)
+//! does not wake the daemon. A metadata change of another entry queues
+//! nothing either, but for an entry of a watched name that is a folder: the
+//! kernel reports that to the folder's own watch. IN_MODIFY is left out: a
+//! writer that keeps the file open is seen when it closes it.
 //!
 //! A name that may exist and got no watch of its own (inotify refuses a file
 //! or a folder the process may not read, a folder that may not be searched
@@ -343,9 +345,36 @@ impl Watches {
                 }
             }
         }
+        let Pass { mut armed, asked } = pass;
+        // In the pass a watch's mask only grew (`arm`). Now take away what
+        // only an earlier pass asked of a watch (the wide mask of a name that
+        // had no watch of its own): one replace with all that this pass
+        // asked, so no bit that a path of this pass needs is gone at any
+        // time.
+        let before: HashMap<c_int, u32> = self.by_dir.values().copied().collect();
+        let mut seen = BTreeSet::new();
+        let mut masks: HashMap<c_int, u32> = HashMap::new();
+        for (path, (wd, _)) in &armed {
+            let wd = *wd;
+            if !seen.insert(wd) {
+                continue;
+            }
+            let Some((wanted, _)) = asked.get(&wd) else { continue };
+            let wanted = *wanted;
+            let had = before.get(&wd).copied().unwrap_or(wanted);
+            let wider = had & !wanted != 0;
+            // A watch that stays wider is recorded so: the next pass tries
+            // again.
+            let mask = if wider && !self.narrow(path, wd, &asked) { had | wanted } else { wanted };
+            masks.insert(wd, mask);
+        }
+        for slot in armed.values_mut() {
+            if let Some(mask) = masks.get(&slot.0) {
+                slot.1 = *mask;
+            }
+        }
         // Then drop the watches no longer wanted (only after the new ones
         // are in place, so a file is never left without a watch).
-        let Pass { armed, asked } = pass;
         let kept: BTreeSet<c_int> = armed.values().map(|(wd, _)| *wd).collect();
         let dropped: BTreeSet<c_int> = std::mem::replace(&mut self.by_dir, armed)
             .into_values()
@@ -363,9 +392,45 @@ impl Watches {
         }
     }
 
+    /// Sets the mask of watch `wd` (armed at `path` in this pass) to what
+    /// this pass asked of it; false when the watch keeps a wider mask.
+    fn narrow(
+        &self,
+        path: &Path,
+        wd: c_int,
+        asked: &HashMap<c_int, (u32, BTreeSet<OsString>)>,
+    ) -> bool {
+        let Some((wanted, _)) = asked.get(&wd) else { return false };
+        match self.add_watch(path, *wanted) {
+            Ok(now) if now == wd => true,
+            Ok(now) => {
+                // `path` got another inode since `arm`: its entry event
+                // rearms. Until then that inode keeps what this pass asked of
+                // it, or has no watch when this pass asked nothing of it.
+                match asked.get(&now) {
+                    Some((other, _)) => {
+                        let _ = self.add_watch(path, *other | IN_MASK_ADD);
+                    }
+                    None => {
+                        inotify_rm_watch(self.file.as_raw_fd(), now);
+                    }
+                }
+                false
+            }
+            Err(_) => false,
+        }
+    }
+
     /// Watches `path` for `mask` and counts its events that carry one of
     /// `names`, together with what this pass already asked of the same inode
     /// (the kernel has one mask, and `names` has one set, for a watch).
+    ///
+    /// The mask is only added to the one the inode's watch has (IN_MASK_ADD).
+    /// A replace would take away, for a time, what another path of this pass
+    /// asks of the watch, or what the pass before asked and this pass asks
+    /// again later (a watched folder name that is also the nearest ancestor
+    /// of a missing folder): an event in that time would be lost. `rearm`
+    /// takes away what no path of this pass asked, at its end.
     fn arm(
         &mut self,
         path: &Path,
@@ -373,18 +438,12 @@ impl Watches {
         names: &BTreeSet<OsString>,
         pass: &mut Pass,
     ) -> io::Result<c_int> {
-        // First only add to the mask the inode's watch has: a replace would
-        // take away, for a time, what another path of this pass asked of it.
-        let added = self.add_watch(path, mask | IN_MASK_ADD)?;
+        let wd = self.add_watch(path, mask | IN_MASK_ADD)?;
         let (mut mask, mut names) = (mask, names.clone());
-        if let Some((asked, counted)) = pass.asked.get(&added) {
+        if let Some((asked, counted)) = pass.asked.get(&wd) {
             mask |= asked;
             names.extend(counted.iter().cloned());
         }
-        // Then exactly what this pass asked of it so far: what only an
-        // earlier pass asked (the wide mask of a name that had no watch) goes.
-        // When this fails the watch keeps the wider mask.
-        let wd = self.add_watch(path, mask).unwrap_or(added);
         self.names.insert(wd, names.clone());
         pass.asked.insert(wd, (mask, names));
         pass.armed.insert(path.to_path_buf(), (wd, mask));
