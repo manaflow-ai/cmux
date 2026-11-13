@@ -968,14 +968,24 @@ def fill(cmd: list[str], tree: Path) -> list[str]:
 
 
 def escaped(tree: Path, rel: str, index: int, rule: str) -> bool:
+    """Whether ast-grep's match of RULE at line INDEX (0-based) of REL carries a reviewed escape (ESCAPES) on that
+    line or in the comment block above it. A match it cannot place, a path outside TREE or a line outside the file,
+    escapes nothing: the finding stands (#41851 review: lines[index] was read before INDEX was checked, so a negative
+    one read the file's last line, one past the end crashed the comment walk, and `../x` read outside the tree)."""
     pattern = ESCAPES.get(rule)
     if pattern is None:
         return False
+    root = tree.resolve()
+    path = (root / rel).resolve()
+    if not path.is_relative_to(root) or path == root:
+        return False
     try:
-        lines = (tree / rel).read_text(encoding="utf-8", errors="replace").split("\n")
+        lines = path.read_text(encoding="utf-8", errors="replace").split("\n")
     except OSError:
         return False
-    if index < len(lines) and pattern.search(lines[index]):
+    if not 0 <= index < len(lines):
+        return False
+    if pattern.search(lines[index]):
         return True
     j = index - 1
     while j >= 0 and COMMENT_LINE.match(lines[j]):
@@ -1125,6 +1135,19 @@ def rustup_missing(stderr: bytes) -> bool:
         RUSTUP_HINT.fullmatch(line) for line in lines[1:])
 
 
+def resolve_rustfmt(env: dict[str, str], cwd: Path) -> Path | None:
+    """The rustfmt the layer runs: the first file named rustfmt, executable or not, in a folder of ENV's PATH, each
+    folder read from CWD (the folder rustfmt runs in) as the shell reads it there, an empty one being CWD itself; None
+    when there is none. rustfmt() runs exactly this file, so "is it there" and "what runs" are one lookup (#41945
+    review: the probe read PATH=. and an empty entry from the gate's own folder while rustfmt ran in cmux-tui/), and
+    a test that mocks the run mocks this too, with no real install."""
+    for folder in env.get("PATH", os.defpath).split(os.pathsep):
+        candidate = (cwd / folder) / "rustfmt"  # an absolute folder replaces CWD; "" and "." are CWD
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def rustfmt(repo: Path, config: Path, tree: Path, rust: list[str]) -> str:
     """One finding per changed cmux-tui Rust file that rustfmt would change: `<path>: not rustfmt-clean ...`.
 
@@ -1137,11 +1160,13 @@ def rustfmt(repo: Path, config: Path, tree: Path, rust: list[str]) -> str:
     if not present or not config.is_file():
         return ""
     env = {**os.environ, "RUSTUP_AUTO_INSTALL": "0"}
-    # No rustfmt (and no rustup proxy) on PATH: not available here, which warns. Asked of PATH itself: a launch that
-    # raises FileNotFoundError can also be a rustfmt that is there with a missing `#!` interpreter (#41927 review).
-    # Any file named rustfmt counts, executable or not: one that will not start is no verdict, below.
-    if not any((Path(folder) / "rustfmt").is_file() for folder in env.get("PATH", os.defpath).split(os.pathsep)
-               if folder):
+    # No rustfmt (and no rustup proxy) on PATH: not available here, which warns. Asked of PATH itself, from the folder
+    # rustfmt runs in: a launch that raises FileNotFoundError can also be a rustfmt that is there with a missing `#!`
+    # interpreter (#41927 review). Any file named rustfmt counts, executable or not: one that will not start is no
+    # verdict, below. The file found is the one run, by its path (#41945 review).
+    scope = repo / RUST_SCOPE
+    binary = resolve_rustfmt(env, scope)
+    if binary is None:
         log("prepush-gate: WARNING: no rustfmt on PATH; Rust formatting NOT checked")
         return ""
     findings = []
@@ -1149,10 +1174,10 @@ def rustfmt(repo: Path, config: Path, tree: Path, rust: list[str]) -> str:
         edition = rustfmt_edition(repo, tree, path)
         if edition is None:
             continue  # outside the cmux-tui workspace's `cargo fmt --all`: not this layer's to judge
-        args = ["rustfmt", "--edition", edition, "--config-path", str(config), "--emit", "stdout"]
+        args = [str(binary), "--edition", edition, "--config-path", str(config), "--emit", "stdout"]
         source = (tree / path).read_bytes()
         try:
-            done = subprocess.run(args, cwd=repo / RUST_SCOPE, input=source, env=env, capture_output=True, timeout=60)
+            done = subprocess.run(args, cwd=scope, input=source, env=env, capture_output=True, timeout=60)
         except subprocess.TimeoutExpired:
             # It started and did not finish: no verdict on the file, not a pass (no rustfmt at all, below, warns).
             return f"rustfmt gave no verdict: timed out after 60s on {path}"
@@ -1480,14 +1505,55 @@ def blob_at(repo: Path, rev: str, path: str) -> bytes | None:
     return result.stdout if result.returncode == 0 else None
 
 
-def check_script(repo: Path, head: str, path: str, trusted_scripts: Path | None) -> bytes | None:
+def tree_mode(repo: Path, rev: str, path: str) -> str | None:
+    """The Git tree mode for PATH at REV, or None when the path is absent."""
+    result = subprocess.run(["git", "-C", str(repo), "ls-tree", "-z", rev, "--", path], capture_output=True)
+    if result.returncode != 0:
+        return None
+    for entry in result.stdout.split(b"\0"):
+        if not entry:
+            continue
+        header, name = entry.split(b"\t", 1)
+        if name.decode(errors="surrogateescape") == path:
+            return header.split(b" ", 1)[0].decode("ascii")
+    return None
+
+
+def non_regular_inputs(repo: Path, rev: str, *paths: str) -> list[str]:
+    """Required check inputs present at REV that are directories, symlinks or other non-regular tree entries."""
+    return [path for path in paths if (mode := tree_mode(repo, rev, path)) is not None and not mode.startswith("100")]
+
+
+def deleted_inputs(repo: Path, base: str, head: str, *paths: str) -> list[str]:
+    """Each of PATHS (a file a check reads, a declaration it judges against, or the check itself) that BASE has and
+    HEAD does not. "HEAD has no such file, so the check does not apply" holds only for a branch older than the file:
+    BASE lacks it too. A push that deletes it is not older than the check, and skipping the check for it would let a
+    push turn a check off by deleting what the check reads (review F1 on #40894: deleting
+    .github/single-host-fallbacks.json passed undeclared runs-on variables). Every such exemption asks this first."""
+    return [path for path in paths if blob_at(repo, head, path) is None and blob_at(repo, base, path) is not None]
+
+
+def deleted_input_refusals(check: str, paths: list[str]) -> list[str]:
+    """The refusal for a push that deletes PATHS, which CHECK reads (deleted_inputs). Never subtracted as old debt."""
+    return [NoVerdict(f"prepush-gate: {check}: the push deletes {path}, which this check reads, so the check cannot "
+                      f"judge the pushed head and the push is refused (only a branch whose base lacks it too is "
+                      f"exempt); restore it, or land its removal with the check's own change") for path in paths]
+
+
+def check_script(repo: Path, head: str, path: str, trusted_scripts: Path | None, base: str | None = None) -> bytes | None:
     """The check script at PATH to run for a push to HEAD: the installed reviewed copy on a hook run (TRUSTED_SCRIPTS),
-    HEAD's own on a manual run; None when HEAD is older than the check. A hook run never falls back to the pushed head's
-    copy (the hook never runs code a push controls): an install that lacks a check HEAD has refuses the push."""
+    HEAD's own on a manual run; None when HEAD is older than the check (BASE, when given, lacks it too). A hook run
+    never falls back to the pushed head's copy (the hook never runs code a push controls): an install that lacks a
+    check HEAD has refuses the push. A push that deletes the check (BASE has it, HEAD not: deleted_inputs) still runs
+    it: the installed copy on a hook run, BASE's on a manual one."""
+    malformed = non_regular_inputs(repo, head, path)
+    if malformed:
+        raise SystemExit(f"prepush-gate: {path} must be a regular file at the pushed head; refusing the check.")
     at_head = blob_at(repo, head, path)
+    deleted = base is not None and bool(deleted_inputs(repo, base, head, path))
     if trusted_scripts is None:
-        return at_head
-    if at_head is None:
+        return blob_at(repo, base, path) if at_head is None and deleted else at_head
+    if at_head is None and not deleted:
         return None  # a commit older than this check
     installed = trusted_scripts / Path(path).name
     if not installed.is_file():
@@ -1502,9 +1568,13 @@ def reserved_keys(repo: Path, base: str, head: str, trusted_scripts: Path | None
         return result.stdout if result.returncode == 0 else None
 
     # The hook runs the installed reviewed checker (as for the scanners); a manual run, the checkout's.
-    script = check_script(repo, head, RESERVED_SCRIPT, trusted_scripts)
+    script = check_script(repo, head, RESERVED_SCRIPT, trusted_scripts, base)
     if script is None:
         return []  # a commit older than this check
+    # A head without the list or the surfaces reads as no findings below: only a branch older than them may.
+    gone = deleted_inputs(repo, base, head, RESERVED_LIST, RESERVED_SURFACES)
+    if gone:
+        return deleted_input_refusals(RESERVED_CHECK, gone)
     with tempfile.TemporaryDirectory(prefix="cmux-reserved-") as tmp:
         work = Path(tmp)
         (work / "check.py").write_bytes(script)
@@ -1561,6 +1631,25 @@ def unread_findings(code: int, lines: list[str], finding: re.Pattern[str]) -> st
     return None
 
 
+# check-ui-font.py's own summary, the last line of each run: `ui font: ok`, or `ui font: N finding(s). ...` after
+# its findings. Only these are dropped before the findings are read; any other `ui font:` line is output the gate did
+# not parse (#41945 review, F2: `ui font: could not read ...` with exit 0 was dropped and read as a clean run).
+UI_FONT_SUMMARY = re.compile(r"ui font: (?:ok|\d+ finding\(s\)\.(?: .*)?)")
+
+
+# One line of a checker's `--inputs` answer: a repository path, a file (`a/b.json`) or a folder (`a/b/`), in plain
+# path characters with no `.` or `..` part, and with a `/` or a `.` in it. A diagnostic (`could not ...: ...`, a
+# traceback, an absolute or `../` path, a bare word like `error`) is not one.
+INPUT_PATH = re.compile(r"(?=[^/]*[/.])(?!/)(?:(?!\.\.?(?:/|$))[A-Za-z0-9._@+-]+(?:/|$))+")
+
+
+def input_paths(paths: tuple[str, ...]) -> bool:
+    """Whether every one of PATHS is a repository path (INPUT_PATH), so the answer can be a list of what a checker
+    reads. Not whether each is in the head's tree: a checker may name an input the head lacks and report it missing
+    itself (check-ui-font.py: `<pin>: missing`), and a push that adds it changes that path, so it still runs."""
+    return bool(paths) and all(INPUT_PATH.fullmatch(path) for path in paths)
+
+
 def ui_font_finding(inputs: tuple[str, ...]) -> re.Pattern[str]:
     """A check-ui-font.py finding: `<path>: <what>` or `<path>:<line>: <what>`, the path one of its INPUTS."""
     return re.compile(r"(?:%s)[^:\s]*(?::\d+)?: \S.*" % "|".join(re.escape(i) for i in inputs))
@@ -1585,13 +1674,20 @@ def ui_font(repo: Path, base: str, head: str, trusted_scripts: Path | None = Non
     change what it finds, so neither pass runs. Each pass reads every webviews/src and Native/OptChat source
     (4268 files on feat-cmux-next, 2026-11-09): 9.6 s of an 18.8 s gate on a push of one Python file, plus one
     on-demand fetch (5-8 s) per source blob a blob:none clone lacks."""
-    script = check_script(repo, head, UI_FONT_SCRIPT, trusted_scripts)
+    script = check_script(repo, head, UI_FONT_SCRIPT, trusted_scripts, base)
     if script is None:
         return []  # a commit older than this check
     with tempfile.TemporaryDirectory(prefix="cmux-ui-font-") as tmp:
         check = Path(tmp) / "check.py"
         check.write_bytes(script)
         inputs = ui_font_inputs(check)
+        # An exit-0 answer is only the check's inputs when every line is a repository path; a diagnostic there
+        # would be the changed-path set, match no changed file, and skip the check (#41945 review, F1). Then it is
+        # not known what the check reads, and it runs.
+        if inputs is not None and not input_paths(inputs):
+            log(f"prepush-gate: {UI_FONT_SCRIPT} --inputs printed something other than repository paths "
+                f"({' | '.join(inputs)[:200]!r}); running the check")
+            inputs = None
         if inputs is not None:
             names = git(repo, "diff", "--name-only", "--no-renames", "-z", base, head)
             names = names.decode("utf-8", "surrogateescape")
@@ -1602,7 +1698,8 @@ def ui_font(repo: Path, base: str, head: str, trusted_scripts: Path | None = Non
 
         def findings(*args: str) -> tuple[list[str], str | None]:
             code, out = run(["python3", "-I", str(check), "--repo", str(repo), *args], Path(tmp), timeout=600)
-            lines = [line for line in out.splitlines() if line.strip() and not line.startswith("ui font:")]
+            lines = [line for line in out.splitlines()
+                     if line.strip() and not UI_FONT_SUMMARY.fullmatch(line.strip())]
             # Its verdicts exit 0 or 1; anything else, a traceback or a timeout is no verdict, and so is an exit 1 that
             # prints no finding (only its `ui font:` summary), and output that is not its findings (#41888 review).
             # Its INPUTS guard stop is not a finding either; it refuses on its own below.
@@ -1721,7 +1818,7 @@ def cargo_lock_drift(repo: Path, base: str, head: str, trusted_scripts: Path | N
     if not checked_out or dirty:
         log("prepush-gate: Cargo.lock check skipped: the pushed head is not this checkout's clean HEAD")
         return []
-    script = check_script(repo, head, CARGO_LOCKS_SCRIPT, trusted_scripts)
+    script = check_script(repo, head, CARGO_LOCKS_SCRIPT, trusted_scripts, base)
     if script is None:
         return []  # a commit older than the shared check
     with tempfile.TemporaryDirectory(prefix="cmux-cargo-locks-") as tmp:
@@ -2047,6 +2144,7 @@ def pyyaml_install_command(python: str, purelib: str | None = None, stdlib: str 
 
 
 FALLBACKS_STATUSES = ("found", "incomplete")
+FALLBACKS_RESOLVER = "tests/workflow_jobs.py"  # the shared resolve step the checker reads runs-on through
 FALLBACKS_INCOMPLETE = "incomplete"
 
 
@@ -2071,8 +2169,10 @@ def single_host_fallback_problems(repo: Path, base: str, head: str, trusted_scri
     """Each runs-on variable or single-host label HEAD reads with no declared fallback that BASE did not already have.
 
     Runs only when BASE..HEAD changes .github/workflows/ or the declaration. The checker is the installed reviewed copy
-    on a hook run (TRUSTED_SCRIPTS), HEAD's own on a plain run. Only two cases pass unchecked: a HEAD without the
-    declaration (a branch older than it), and a hook install older than the checker (a warning). A checker that runs
+    on a hook run (TRUSTED_SCRIPTS), HEAD's own on a plain run (BASE's when the push deletes it). Only two cases pass
+    unchecked: a branch older than the declaration (BASE and HEAD both lack it), and a hook install older than the
+    checker (a warning). Review F1 on #40894: a HEAD without the declaration was exempt whatever BASE had, so deleting
+    it with a new `runs-on: ${{ vars.X }}` passed; a push that deletes it (deleted_inputs) now refuses. A checker that runs
     and crashes, exits non-zero or prints no JSON list REFUSES the push (Codex on #40799: a null `variables` crashed
     the checker and the layer passed), whatever the cause, a missing PyYAML included.
 
@@ -2085,17 +2185,33 @@ def single_host_fallback_problems(repo: Path, base: str, head: str, trusted_scri
     names = git(repo, "diff", "--name-only", "--no-renames", "-z", base, head, "--", ".github/").decode().split("\0")
     if not any(n == FALLBACKS_DECLARATION or n.startswith(".github/workflows/") for n in names if n):
         return []
+    malformed = non_regular_inputs(repo, head, FALLBACKS_DECLARATION)
+    if malformed:
+        return [NoVerdict(f"prepush-gate: {FALLBACKS_CHECK}: {path} must be a regular file at the pushed head, so the "
+                          "check cannot judge the declaration") for path in malformed]
+    gone = deleted_inputs(repo, base, head, FALLBACKS_DECLARATION)
+    if gone:
+        return deleted_input_refusals(FALLBACKS_CHECK, gone)
     if blob_at(repo, head, FALLBACKS_DECLARATION) is None:
-        return []  # a branch older than the declaration
+        return []  # a branch older than the declaration: its base lacks it too
     if trusted_scripts is None:
-        script = blob_at(repo, head, FALLBACKS_SCRIPT)
+        # A push that deletes the checker or its resolver still runs them (check_script): the base's copy.
+        script = check_script(repo, head, FALLBACKS_SCRIPT, None, base)
+        resolver = check_script(repo, head, FALLBACKS_RESOLVER, None, base)
     else:
         installed = trusted_scripts / Path(FALLBACKS_SCRIPT).name
         script = installed.read_bytes() if installed.is_file() else None
+        beside = trusted_scripts / Path(FALLBACKS_RESOLVER).name
+        resolver = beside.read_bytes() if beside.is_file() else None
     if script is None:
         log(f"prepush-gate: WARNING: no {Path(FALLBACKS_SCRIPT).name} in the hook's checks copy yet, so the single-host "
             "fallback check did not run; `scripts/install-git-hooks.sh` from origin/feat-cmux-next adds it.")
         return []
+    # The checker reads runs-on through the shared resolver beside it. A checker that needs one the install lacks
+    # (an install from before it) refuses with the reinstall command; it never reads the pushed copy.
+    if resolver is None and b"load_workflow_jobs" in script:
+        return [NoVerdict(f"prepush-gate: {STALE_INSTALL} (it has no {Path(FALLBACKS_RESOLVER).name}, which "
+                          f"{Path(FALLBACKS_SCRIPT).name} reads runs-on through).")]
     # The checker runs under this interpreter: the hook's own Python (its python3-path), as every other layer does.
     if not has_pyyaml(sys.executable):
         fix = pyyaml_install_command(sys.executable)
@@ -2103,6 +2219,8 @@ def single_host_fallback_problems(repo: Path, base: str, head: str, trusted_scri
     with tempfile.TemporaryDirectory(prefix="cmux-fallbacks-") as tmp:
         work = Path(tmp)
         (work / "check.py").write_bytes(script)
+        if resolver is not None:
+            (work / Path(FALLBACKS_RESOLVER).name).write_bytes(resolver)
 
         def keyed(rev: str) -> tuple[dict[str, str], list[str]] | str:
             """(the findings at REV by key, the messages of its incomplete ones), or the reason the checker gave no
