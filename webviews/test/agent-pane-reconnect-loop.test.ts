@@ -68,6 +68,33 @@ test("a daemon that drops the pane right after every connect is not asked again 
   const gaps = connectedAt.slice(1).map((at, i) => Math.round(at - connectedAt[i]!));
   if (sockets.length > MOST_CONNECTIONS) console.error(`connections ${sockets.length}, waits between them ${gaps}`);
   expect(sockets.length).toBeLessThanOrEqual(MOST_CONNECTIONS);
-  // Each wait is at least the one before it: the flapping daemon never resets the backoff.
-  for (let i = 1; i < gaps.length; i += 1) expect(gaps[i]!).toBeGreaterThanOrEqual(gaps[i - 1]! * 0.9);
+});
+
+// The pane's fresh handshake after `onLost` (App.tsx) takes its waits from the same rule. Run it
+// for five minutes of a daemon that drops the pane 100 ms after every connect: it is asked about
+// once every 10 s, not four times a second.
+test("the pane's handshakes after a lost client back off while the daemon keeps dropping it", async () => {
+  const { lostRetryDelay, FLAP_RETRY_MAX_MS, RETRY_FIRST_MS } = await import("../src/agent-session/acpmux/hostRetry");
+  let delay = RETRY_FIRST_MS;
+  let now = 0;
+  let connects = 0;
+  while (now < 300_000) {
+    connects += 1;
+    now += 100;
+    const lost = lostRetryDelay(delay, 100);
+    now += lost.wait;
+    delay = lost.next;
+  }
+  expect(delay).toBe(FLAP_RETRY_MAX_MS);
+  expect(connects).toBeLessThanOrEqual(40);
+});
+
+test("a connection that stayed up is reconnected at once when it drops, whatever came before", async () => {
+  const { lostRetryDelay, CONNECTION_STABLE_MS, FLAP_RETRY_MAX_MS, RETRY_FIRST_MS } =
+    await import("../src/agent-session/acpmux/hostRetry");
+  expect(lostRetryDelay(FLAP_RETRY_MAX_MS, CONNECTION_STABLE_MS)).toEqual({
+    wait: RETRY_FIRST_MS,
+    next: RETRY_FIRST_MS * 2,
+  });
+  expect(lostRetryDelay(2_000, CONNECTION_STABLE_MS - 1)).toEqual({ wait: 2_000, next: 4_000 });
 });
