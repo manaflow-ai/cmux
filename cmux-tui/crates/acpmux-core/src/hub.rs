@@ -740,6 +740,10 @@ impl HubWriter {
     }
 
     fn check_source(&mut self, source: &str, origin: &str) -> Result<(), HubError> {
+        if !self.sources.contains_key(origin) && self.sources.len() >= 256 {
+            REFUSED_SOURCE_SUBMITS.fetch_add(1, Ordering::Relaxed);
+            return Err(HubError::OriginLimit);
+        }
         let owner = self.sources.entry(origin.to_owned()).or_insert_with(|| source.to_owned());
         if owner == source {
             return Ok(());

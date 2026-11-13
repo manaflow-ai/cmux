@@ -165,13 +165,16 @@ fn failed_log_append_keeps_latest_summary_and_retries_without_losing_order() {
     // replay must never put the old buffered version over that update.
     writer.retry_log.insert(
         first.key(),
-        IndexRecord {
-            seq: 1,
-            origin: first.origin.clone(),
-            chat_id: first.chat_id.clone(),
-            summary: first,
-            gone: false,
-        },
+        (
+            "local".to_owned(),
+            IndexRecord {
+                seq: 1,
+                origin: first.origin.clone(),
+                chat_id: first.chat_id.clone(),
+                summary: first,
+                gone: false,
+            },
+        ),
     );
     let mut next = Summary::new("a");
     next.last_activity = 20;

@@ -492,11 +492,12 @@ impl SummaryIndex {
         changed: ChangedRows,
     ) -> (Self, ChangedRows) {
         let mut next = self.clone();
+        let snapshot_seq = snapshot.seq();
         next.disk = Some(snapshot);
         next.removed_snapshot_seq = next
             .removed_snapshot_seq
             .iter()
-            .filter(|(_, seq)| snapshot.seq() < **seq)
+            .filter(|(_, seq)| snapshot_seq < **seq)
             .map(|(id, seq)| (id.clone(), *seq))
             .collect();
         let retired_shadow = std::mem::replace(&mut next.shadowed, changed);
@@ -560,7 +561,18 @@ impl SummaryIndex {
         next.origins.insert(id.clone(), record);
         if next.origin(id.as_ref()).is_some_and(|record| record.state == OriginState::Removed) {
             next.removed_origins.insert(id.clone());
-            next.removed_snapshot_seq.insert(id, seq);
+            next.removed_snapshot_seq.insert(id.clone(), seq);
+            let keys: Vec<_> = next
+                .by_id
+                .keys()
+                .filter(|key| key.origin.as_ref() == id.as_ref())
+                .cloned()
+                .collect();
+            for key in keys {
+                if let Some(row) = next.by_id.remove(&key) {
+                    next.ordered.remove(&SortKey::of(&row));
+                }
+            }
         } else {
             next.removed_origins.remove(id.as_ref());
         }
