@@ -1577,7 +1577,7 @@ Only when the signed-in account's connectivity audience is the team (`Connectivi
   `serviceReachable` says whether the cmux service answered.
 - `link_unstable`: three drops of a live link (its stream ended or a probe went unanswered) in five
   minutes, not counting drops in the 10 s after the app came to the front or the network changed. The
-  same reachability check gates it. At most one per Mac per 30 minutes.
+  same reachability check gates it. At most one per Mac per 30 minutes. It is reported only once the link is up again (the Mac is then awake; one that went to sleep never reconnects).
 - Not reported: a Mac presence calls offline, a link no longer used, a slow connect that succeeds, time in
   the background or without a network, sign-out.
 - A Mac that goes offline in the middle of an incident (or while drops are being counted) gets 60 s to come
@@ -1608,8 +1608,11 @@ as `app_relaunched`, at the time it was last seen.
   builds, Debug builds and reports with a developer network simulation on go to the test channel
   (`CONNECTIVITY_ALERT_TEST_CHANNEL`; dropped when unset); real team phones on shipping builds to
   `CONNECTIVITY_ALERT_CHANNEL`.
-- Asks the caller's own hub whether the Mac was awake when the phone saw the incident (`observedAt`, never
-  later than now; `TeamHub.macLiveness`): it sent an application `ping` within 45 s of that moment. The hub
+- For `mac_unreachable`, asks the caller's own hub whether the Mac was awake when the phone saw the incident
+  (`observedAt`, never later than now; `TeamHub.macLiveness`): it sent an application `ping` after the link
+  stopped working (`startedAt`) and within 45 s of that moment. An awake host pings every 15 s through the
+  30 s stretch; one that froze or slept as the link stopped cannot. (`link_unstable` needs no such check:
+  the phone reports it only while its link to the Mac is up.) The hub
   keeps each Mac socket's last ping, and the last one of a socket that closed or was replaced, so a report
   delivered late is judged as it was (a Mac that woke and reconnected since does not count as awake then).
   A Mac that sleeps keeps its socket half open, so presence still says online, but its pings stop: such an

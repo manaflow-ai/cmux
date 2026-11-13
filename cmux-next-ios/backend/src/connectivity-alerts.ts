@@ -276,18 +276,23 @@ export type MacCheck = { readonly liveness: MacLiveness | null }
 export const judgedAt = (report: IncidentReport, now: number): number => Math.min(now, Date.parse(report.observedAt))
 
 /**
- * Whether an incident's start may be posted. The cmux service failing the phone always may (that outage is
- * ours, whatever the Mac does). Otherwise the Mac must have proved it was awake with an application ping
- * within ALIVE_WITHIN_MS of the moment the phone saw the incident (`judgedAt`; the liveness passed in
- * speaks for that moment), so a report the phone delivered late is judged as it was, not as it is. A
- * connect alone is no proof: a Mac's dark wake connects and goes back to sleep, and a stretch of 30 s
- * unreachable leaves an awake host time for at least one ping (every 15 s).
+ * Whether an incident's start may be posted.
+ * - The cmux service failing the phone always may (that outage is ours, whatever the Mac does).
+ * - A link that kept dropping always may: the phone reports it only once its link to the Mac is up again,
+ *   so the Mac is demonstrably awake (a Mac that sleeps never reconnects).
+ * - A Mac the phone could not reach must have sent an application ping after the link stopped working
+ *   (`startedAt`, and within ALIVE_WITHIN_MS of the moment the phone saw it; the liveness passed in speaks
+ *   for that moment, so a late report is judged as it was). An awake host pings every 15 s through the 30 s
+ *   stretch; one that froze or slept as the link stopped cannot, however recently it pinged before. A
+ *   connect alone is no proof: a dark wake connects and goes back to sleep.
  */
 export const startVerdict = (report: IncidentReport, check: MacCheck, now: number): Suppressed | undefined => {
   if (report.serviceReachable === false) return undefined
+  if (report.kind === "link_unstable") return undefined
   const live = check.liveness
   const at = judgedAt(report, now)
-  if (live && live.lastPingAt !== null && live.lastPingAt >= at - ALIVE_WITHIN_MS) return undefined
+  const since = Math.max(Date.parse(report.startedAt), at - ALIVE_WITHIN_MS)
+  if (live && live.lastPingAt !== null && live.lastPingAt >= since) return undefined
   if (!live || !live.connected) return "mac_offline"
   if (!live.pings) return "mac_liveness_unknown"
   return "mac_asleep"

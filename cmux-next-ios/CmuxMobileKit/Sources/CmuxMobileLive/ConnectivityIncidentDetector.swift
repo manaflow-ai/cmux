@@ -268,7 +268,9 @@ public struct ConnectivityIncidentDetector: Sendable {
             track.unreachable = incident
             out.append(.report(incident))
         }
-        if track.unstable == nil, let first = unstableWindowStart(track, at: date) {
+        // A link that kept dropping is reported once it is up again (the Mac is awake then; one that went
+        // to sleep never reconnects). Not up yet: `evaluate` asks again when it is.
+        if track.unstable == nil, case .connected = track.state, let first = unstableWindowStart(track, at: date) {
             let incident = Incident(id: makeID(), kind: .linkUnstable, state: .open, startedAt: first, observedAt: date,
                                     macID: macID, macName: track.name, drops: track.drops.count, lastError: track.lastError,
                                     transport: track.transport, serviceReachable: service, network: networkKind)

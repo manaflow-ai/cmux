@@ -324,6 +324,24 @@ import Testing
         #expect(checkID(cooled) == nil)
     }
 
+    @Test func anUnstableLinkIsReportedOnlyOnceTheLinkIsUpAgain() throws {
+        var d = detector()
+        _ = connected(&d, at: 20)
+        _ = drop(&d, at: 60)
+        _ = drop(&d, at: 100)
+        // The third drop, and the link stays down (the Mac went to sleep).
+        let third = d.dropped(macID: "m1", reason: "probe timed out", at: at(140))
+        _ = d.link(macID: "m1", name: "Studio", .trying(transport: "webrtc", reason: nil, newDial: true), at: at(140))
+        let first = try #require(checkID(third))
+        let whileDown = reports(d.reachability(macID: "m1", checkID: first, internet: true, service: true, at: at(141)))
+        #expect(whileDown.isEmpty)
+        // The link comes back: asked again, and reported.
+        let back = d.link(macID: "m1", name: "Studio", .connected(transport: "webrtc"), at: at(150))
+        let again = try #require(checkID(back))
+        let opened = reports(d.reachability(macID: "m1", checkID: again, internet: true, service: true, at: at(151)))
+        #expect(opened.map(\.kind) == [.linkUnstable])
+    }
+
     @Test func dropsSpreadOverMoreThanFiveMinutesAreNot() {
         var d = detector()
         _ = connected(&d, at: 20)

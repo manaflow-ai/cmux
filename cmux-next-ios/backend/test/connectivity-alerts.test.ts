@@ -112,11 +112,18 @@ describe("the report", () => {
 
 describe("whether the Mac was awake", () => {
   const open = report({}, T0)
-  it("posts only for a Mac that sent an application ping within 45 s", () => {
+  it("posts only for a Mac that pinged after the link stopped working", () => {
+    // `open` started 31 s before the phone saw it.
     expect(startVerdict(open, AWAKE(T0), T0)).toBeUndefined()
-    expect(startVerdict(open, { liveness: { connected: true, lastPingAt: T0 - ALIVE_WITHIN_MS, pings: true } }, T0)).toBeUndefined()
-    // Asleep: the socket is still open (half open) but the pings stopped.
-    expect(startVerdict(open, { liveness: { connected: true, lastPingAt: T0 - ALIVE_WITHIN_MS - 1, pings: true } }, T0)).toBe("mac_asleep")
+    expect(startVerdict(open, { liveness: { connected: true, lastPingAt: T0 - 31_000, pings: true } }, T0)).toBeUndefined()
+    // Froze or slept just as the link stopped: its last ping came before, however recent.
+    expect(startVerdict(open, { liveness: { connected: true, lastPingAt: T0 - 31_001, pings: true } }, T0)).toBe("mac_asleep")
+    // A long stretch: a ping in the last 45 s is required, not just any since the start.
+    const long = report({ startedAt: new Date(T0 - 600_000).toISOString(), durationMs: 600_000 }, T0)
+    expect(startVerdict(long, { liveness: { connected: true, lastPingAt: T0 - ALIVE_WITHIN_MS, pings: true } }, T0)).toBeUndefined()
+    expect(startVerdict(long, { liveness: { connected: true, lastPingAt: T0 - ALIVE_WITHIN_MS - 1, pings: true } }, T0)).toBe("mac_asleep")
+    // A link that kept dropping is reported once the link is up again: the Mac is awake.
+    expect(startVerdict(report({ kind: "link_unstable", drops: 3 }, T0), { liveness: null }, T0)).toBeUndefined()
     // A connect alone proves nothing (a dark wake connects and sleeps again).
     expect(startVerdict(open, { liveness: { connected: true, lastPingAt: null, pings: false } }, T0)).toBe("mac_liveness_unknown")
     expect(startVerdict(open, { liveness: { connected: false, lastPingAt: null, pings: false } }, T0)).toBe("mac_offline")
