@@ -7082,6 +7082,91 @@ class WsCheckSquashTree(unittest.TestCase):
             excuse.ws_check_squash_tree(self.REPO, "7" * 40, self.tip)
 
 
+class WsCheckMirrorRefresh(unittest.TestCase):
+    """A head neither this host's mirror nor the cache has is fetched into the mirror before it is refused: through
+    `lane-gh fetch` (by branch name) on a host with lane-gh and no GitHub token, else git's own fetch. Only when that
+    fails too is it refused, and the refusal names the exact fetch to run. Before, it refused "git cannot read ...
+    commit (not in this host's mirror or cache, and its fetch failed)" until someone ran that fetch by hand."""
+    REPO = WsCheckSquashTree.REPO
+    IDENTITY = WsCheckSquashTree.IDENTITY
+    git = WsCheckSquashTree.git
+    commit = WsCheckSquashTree.commit
+    squashed = WsCheckSquashTree.squashed
+
+    # A stand-in for lane-gh: records its argv, then fills --dir from the fixture origin by branch, as the broker does.
+    FAKE_LANE_GH = """#!/usr/bin/env python3
+import json, os, subprocess, sys
+args = sys.argv[1:]
+with open(os.environ["FAKE_LANE_GH_LOG"], "a", encoding="utf-8") as log:
+    log.write(json.dumps(args) + "\\n")
+if os.environ.get("FAKE_LANE_GH_FAIL"):
+    sys.exit("lane-gh: fetch refused: the broker is down")
+where, branches = args[args.index("--dir") + 1], [args[i + 1] for i, a in enumerate(args) if a == "--branch"]
+subprocess.run(["git", "--git-dir", where, "fetch", "-q", os.environ["FAKE_LANE_GH_ORIGIN"],
+                *(f"+refs/heads/{b}:refs/remotes/origin/{b}" for b in branches)], check=True)
+"""
+
+    def setUp(self):
+        WsCheckSquashTree.setUp(self)
+        self.git("checkout", "-q", "-b", "late", self.old)
+        self.late = self.commit({"tools/a.py": "late\n"}, "pushed after the mirror's last fetch")
+        self.mirror = self.top / "mirrors" / "teamleaderleo" / "leo-workspace.git"
+        git_fixture_env.init_repo(self.mirror, "--bare")
+        self.git("remote", "add", "origin", str(self.work), cwd=self.mirror)
+        self.git("push", "-q", str(self.mirror), "main")
+        bin_dir = self.top / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "lane-gh").write_text(self.FAKE_LANE_GH, encoding="utf-8")
+        (bin_dir / "lane-gh").chmod(0o755)
+        self.log = self.top / "lane-gh.log"
+        missing = str(self.top / "missing.git")
+        for patch in (unittest.mock.patch.dict(os.environ, {
+                          "GH_MIRROR_ROOT": str(self.top / "mirrors"), "FAKE_LANE_GH_LOG": str(self.log),
+                          "FAKE_LANE_GH_ORIGIN": str(self.work),
+                          "PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"}),
+                      unittest.mock.patch.object(excuse, "git_remote", lambda repo: missing),
+                      unittest.mock.patch.object(excuse, "github_token", lambda: None)):
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def fetched(self):
+        return [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()] \
+            if self.log.exists() else []
+
+    def lane_gh_fetch(self):
+        return ["fetch", self.REPO, "--dir", str(self.mirror), "--branch", "late", "--branch", "main"]
+
+    def test_a_head_the_mirror_lacks_is_read_after_the_lane_broker_fetch(self):
+        self.assertEqual(excuse.ws_check_squash_tree(self.REPO, self.late, self.tip, lambda: ["late", "main"]),
+                         self.squashed(self.late, self.tip))
+        self.assertEqual(self.fetched(), [self.lane_gh_fetch()])
+
+    def test_a_failed_refresh_is_refused_naming_the_exact_fetch(self):
+        # No branch named (no pull request found): lane-gh fetches the repo's bases.
+        with unittest.mock.patch.dict(os.environ, {"FAKE_LANE_GH_FAIL": "1"}), \
+                self.assertRaises(excuse.Refused) as caught:
+            excuse.ws_check_squash_tree(self.REPO, self.late, self.tip)
+        said = str(caught.exception)
+        self.assertIn(f"`lane-gh fetch {self.REPO} --dir {self.mirror}` did not bring it", said)
+        self.assertIn("the broker is down", said)
+        self.assertIn("run that fetch, then judge again", said)
+        self.assertEqual(self.fetched(), [["fetch", self.REPO, "--dir", str(self.mirror)]])
+
+    def test_with_a_token_git_fetches_the_branch_into_the_mirror(self):
+        with unittest.mock.patch.object(excuse, "github_token", lambda: "token"):
+            self.assertEqual(excuse.ws_check_squash_tree(self.REPO, self.late, self.tip),
+                             self.squashed(self.late, self.tip))
+        self.assertEqual(self.fetched(), [])  # git's own fetch of the mirror's branches, not the broker
+        self.assertEqual(self.git("rev-parse", "refs/remotes/origin/late", cwd=self.mirror), self.late)
+
+    def test_the_tested_tree_check_fetches_the_pull_request_branch_github_names(self):
+        github = unittest.mock.Mock()
+        github.json.return_value = [{"head": {"sha": self.late, "ref": "late", "repo": {"full_name": self.REPO}}}]
+        excuse.ws_check_tested_tree(self.REPO, "main", self.late,
+                                    {"run": "7", "tree": self.squashed(self.late, self.tip)}, self.tip, github)
+        self.assertEqual(self.fetched(), [self.lane_gh_fetch()])
+
+
 class WsCheckFixedOnBase(unittest.TestCase):
     """2026-11-11: merge_hold refused teamleaderleo/leo-workspace#4199 at e31e643a with "not excused: 'ws-check' is
     green on main e5a6bed1b950, red on e31e643a6b26; not excused 'ws-check' test ...". Its one red,

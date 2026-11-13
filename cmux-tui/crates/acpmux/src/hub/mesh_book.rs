@@ -104,10 +104,11 @@ impl Hub {
                         let mut fields = bare.clone();
                         fields.set("updatedAt", json!(now));
                         let summary = Self::remote_summary(&s.host, fields);
-                        changed.push((s.host.clone(), summary.clone()));
+                        let row = PeerRow::new(&summary);
+                        changed.push((s.host.clone(), summary));
                         Arc::new(RemoteSession {
                             peer: s.host.clone(),
-                            summary,
+                            summary: row,
                             receipt: SessionReceipt::new(&s.host, &s.session_id, None, 0),
                         })
                     }
@@ -118,7 +119,7 @@ impl Hub {
                 .rows
                 .iter()
                 .filter(|(key, _)| !rows.contains_key(*key))
-                .map(|(_, (_, r))| (r.peer.clone(), r.summary.clone()))
+                .map(|(_, (_, r))| (r.peer.clone(), r.summary.value()))
                 .collect();
             // A heartbeat's time alone changes no row: only a machine coming or going does.
             let moved = !book.hosts.keys().eq(hosts.keys());
@@ -171,7 +172,7 @@ impl Hub {
         let book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
         let mut found = book.rows.iter().filter_map(|(qualified, (_, r))| {
             let id = r.receipt.mux_session_id.as_str();
-            let name = r.summary.get("name").and_then(Value::as_str);
+            let name = r.summary.name();
             (key == id || key == qualified || name == Some(key)).then(|| id.to_owned())
         });
         let id = found.next()?;

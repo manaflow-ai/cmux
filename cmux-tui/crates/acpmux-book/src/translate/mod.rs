@@ -15,7 +15,7 @@ use crate::row::{Row, RowKind};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-pub const VERSION: u32 = 5;
+pub const VERSION: u32 = 6;
 pub const MAX_STATE_BYTES: usize = 64 * 1024;
 pub const MAX_TRANSLATOR_BYTES: usize = 32 * 1024;
 const MAX_QUEUE_ENTRIES: usize = 1024;
@@ -216,6 +216,7 @@ pub struct State {
     plan: Option<OwnedRow>,
     compaction: Option<OwnedRow>,
     prompts: BTreeMap<u64, Prompt>,
+    #[serde(skip)]
     queue: BTreeMap<u64, QueueEntry>,
     queue_overflowed: u64,
     settled_prompts: Vec<u64>,
@@ -282,7 +283,7 @@ pub fn translate(
     }
     state.bound_open_rows(&mut out);
     // The queue is counted separately from the translator's 32 KiB budget. The
-    // combined checkpoint remains below MAX_STATE_BYTES (96 KiB).
+    // combined checkpoint is at most 64 KiB, including the queue count.
     Ok(out.ops)
 }
 fn bounded(s: &str) -> Result<(), Error> {

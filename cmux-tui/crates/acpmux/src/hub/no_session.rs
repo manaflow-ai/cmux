@@ -77,7 +77,7 @@ impl Hub {
             let names = map
                 .values()
                 .filter(|r| r.peer == host && !super::peers::remote_closed(r))
-                .filter_map(|r| r.summary.get("name").and_then(Value::as_str))
+                .filter_map(|r| r.summary.name())
                 .map(|n| {
                     n.strip_prefix(host).and_then(|n| n.strip_prefix('/')).unwrap_or(n).to_owned()
                 })

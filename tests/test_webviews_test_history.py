@@ -497,6 +497,97 @@ class Command(unittest.TestCase):
             self.assertEqual(done.stdout, "")
 
 
+def file_runs(*verdicts, file=FILE):
+    """One push a verdict, oldest first, at an hour apart: True green, False a test red, None the file failed whole,
+    "-" the file did not run (another file did)."""
+    out = []
+    for i, verdict in enumerate(verdicts):
+        found = ({"test/other.test.ts": True} if verdict == "-" else {file: False} if verdict is None
+                 else {f"{file} > sends the image": False, f"{file} > ok": True} if verdict is False else {file: True})
+        out = history.record(out, f"{i:040x}", 1_800_000_000 + 3600 * i, found, "k")
+    return out
+
+
+class Stuck(unittest.TestCase):
+    """cmuxterm-hq#10383: react-apps-check was red on every completed feat-cmux-next push run for about 40 hours
+    (78 runs from 2026-11-11 16:59 UTC) and model-picker-scaling on 62 recorded pushes in a row, each excused on
+    every pull request as a base red, until someone read a whole run's failures."""
+
+    def test_a_file_red_on_the_last_n_pushes_is_named_with_its_first_red_and_last_green(self):
+        found = history.stuck(file_runs(True, True, False, False, None, "-", False), streak=4)
+        self.assertEqual([(f["file"], f["reds"]) for f in found], [(FILE, 4)])
+        self.assertEqual(found[0]["first"]["sha"], f"{2:040x}")
+        self.assertEqual(found[0]["green"]["sha"], f"{1:040x}")
+        self.assertEqual(found[0]["tests"], [f"{FILE} > sends the image"])
+
+    def test_a_red_shorter_than_n_or_one_that_went_green_is_not_stuck(self):
+        self.assertEqual(history.stuck(file_runs(True, False, False, False), streak=4), [])
+        self.assertEqual(history.stuck(file_runs(False, False, False, False, True), streak=4), [])
+        # A flake: one green in the stretch ends it.
+        self.assertEqual(history.stuck(file_runs(False, False, True, False, False), streak=4), [])
+        self.assertEqual(history.stuck([], streak=1), [])
+
+    def test_a_red_older_than_the_history_has_no_last_green(self):
+        runs = file_runs(False, False, False)
+        found = history.stuck(runs, streak=3)
+        self.assertIsNone(found[0]["green"])
+        notes, summary = history.stuck_report(found, runs, 3, "o/r")
+        self.assertIn("no green in the 3 pushes recorded", notes[0])
+        self.assertIn("none recorded", summary)
+
+    def test_report_gives_one_error_a_range_with_its_commits_and_a_summary_row_a_file(self):
+        a = file_runs(True, False, False, False)
+        other = "test/b.test.ts"
+        runs = []
+        for i, run in enumerate(a):
+            found = {name: name not in run["red"] for name in (f"{FILE} > sends the image", f"{FILE} > ok")}
+            found[f"{other} > lays out"] = i == 0
+            runs = history.record(runs, run["sha"], run["time"], found, "k")
+        found = history.stuck(runs, streak=3)
+        self.assertEqual([f["file"] for f in found], [FILE, other])
+        notes, summary = history.stuck_report(found, runs, 3, "o/r")
+        self.assertEqual(len(notes), 1)
+        self.assertTrue(notes[0].startswith("::error title=Webview base red for 3 pushes::2 webview test file(s)"))
+        self.assertIn(f"https://github.com/o/r/compare/{0:040x}...{1:040x}", notes[0])
+        self.assertIn(f"Files: {FILE}, {other}", notes[0])
+        self.assertEqual(summary.count("\n| `"), 2)
+        self.assertIn("lays out", summary)
+
+    def test_annotations_stop_at_the_step_limit(self):
+        runs = []
+        names = [f"test/f{i}.test.ts" for i in range(12)]
+        for push in range(14):
+            # File i goes red on push i and stays red: twelve first-red ranges.
+            runs = history.record(runs, f"{push:040x}", 1_800_000_000 + push,
+                                  {f"{n} > t": push < i for i, n in enumerate(names)}, "k")
+        found = history.stuck(runs, streak=2)
+        self.assertEqual(len(found), 12)
+        notes, summary = history.stuck_report(found, runs, 2, "o/r")
+        self.assertEqual(len(notes), history.STUCK_NOTES + 1)
+        self.assertIn("3 more range(s)", notes[-1])
+        self.assertEqual(summary.count("\n| `"), 12)
+
+    def test_the_command_fails_writes_the_summary_and_passes_when_nothing_is_stuck(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            saved, summary = Path(tmp, "history.json"), Path(tmp, "summary.md")
+            saved.write_text(json.dumps({"runs": file_runs(True, False, False)}))
+            run = lambda *extra: subprocess.run([sys.executable, str(SCRIPT), "stuck", str(saved), "--runs", "2",
+                                                 "--repo", "o/r", "--summary", str(summary), *extra],
+                                                capture_output=True, text=True)
+            done = run("--fail")
+            self.assertEqual(done.returncode, 1, done.stderr)
+            self.assertIn("::error title=Webview base red for 2 pushes::", done.stdout)
+            self.assertIn(f"`{FILE}`", summary.read_text())
+            self.assertEqual(run().returncode, 0)
+            saved.write_text(json.dumps({"runs": file_runs(False, False, True)}))
+            done = run("--fail")
+            self.assertEqual(done.returncode, 0, done.stdout)
+            self.assertNotIn("::error", done.stdout)
+            missing = subprocess.run([sys.executable, str(SCRIPT), "stuck", str(Path(tmp, "none.json")), "--fail"],
+                                     capture_output=True, text=True)
+            self.assertEqual(missing.returncode, 0)
+
+
 def artifact_zip(runs) -> bytes:
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w") as archive:
@@ -608,11 +699,17 @@ class Workflow(unittest.TestCase):
         self.assertIn("timeout-minutes: 5", upkeep)
         # The cache the history used to live in was never restored by the next push (2026-11-08).
         self.assertNotIn("actions/cache", upkeep)
-        # Optional upkeep: every step keeps going, so the job never reddens a push.
+        # Optional upkeep: every step keeps going, so a stalled download or save never reddens a push. Only the last
+        # step, which names reds stuck on the base, may turn the job red, and it runs after the history is saved.
         steps = upkeep.split("\n      - name: ")[1:]
         self.assertTrue(steps)
-        for step in steps:
+        self.assertTrue(steps[-1].startswith("Name webview reds stuck on the base"), steps[-1])
+        for step in steps[:-1]:
             self.assertIn("continue-on-error: true", step, step)
+        self.assertNotIn("continue-on-error", steps[-1])
+        self.assertIn("if: ${{ steps.history-record.outcome == 'success' }}", steps[-1])
+        self.assertIn('webviews_test_history.py stuck "$RUNNER_TEMP/webviews-test-history/history.json"', steps[-1])
+        self.assertIn('--summary "$GITHUB_STEP_SUMMARY" --fail', steps[-1])
         shard = self.job("react-apps-check-shard")
         upload = shard[shard.index("      - name: Upload this push's webview results"):]
         upload = upload[:upload.index("\n      - name:", 10)]
