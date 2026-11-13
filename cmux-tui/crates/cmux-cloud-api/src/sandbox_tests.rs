@@ -674,8 +674,7 @@ fn a_cleanup_given_up_says_abandoned_not_pending() {
     let replied = || Outcome::Replied { reply: "hi".into(), machine: Some("m-1".into()) };
     let quiet = Timing { give_up: Duration::from_millis(40), ..quick() };
     let listed = (0..1_000).map(|_| Removal::Later("still listed".into())).collect();
-    let fake = Fake::new(Some(replied()), listed);
-    let engine = Engine::open(None, fake.clone(), quiet);
+    let engine = Engine::open(None, Fake::new(Some(replied()), listed), quiet);
     let id = create(&engine, "k").get("id").and_then(Value::as_str).unwrap().to_owned();
     let snapshot = settled(&engine, &id, "abandoned");
     assert_eq!(snapshot["receipt"]["cleanup"], "abandoned", "{snapshot}");
