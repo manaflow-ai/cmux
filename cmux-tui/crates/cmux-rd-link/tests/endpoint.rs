@@ -142,3 +142,19 @@ fn control_flows_and_the_host_learns_the_viewers_route() {
         vec![Route::Udp(addr("192.168.1.30:4103"))]
     );
 }
+
+#[test]
+fn an_initial_handshake_waits_for_a_candidate_instead_of_being_dropped() {
+    let viewer_key = KeyPair::generate().unwrap();
+    let host_key = KeyPair::generate().unwrap();
+    let mut viewer =
+        Endpoint::new(Role::Initiator, b"startup", &viewer_key, host_key.public, 0).unwrap();
+
+    // The network thread can poll once before the signaling command adds the host candidate.
+    assert!(viewer.poll_transmit(0).unwrap().is_empty(), "there is no route yet");
+    viewer.add_path(Route::Udp(addr(HOST_LAN)), PathKind::DirectLan, 1);
+    assert!(
+        !viewer.poll_transmit(1).unwrap().is_empty(),
+        "the queued first handshake must go as soon as a route exists"
+    );
+}

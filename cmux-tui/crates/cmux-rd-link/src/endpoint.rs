@@ -302,6 +302,13 @@ impl Endpoint {
     /// Packets to send now: link output on the chosen routes, and the probes
     /// that are due, each on its own path.
     pub fn poll_transmit(&mut self, now_us: u64) -> Result<Vec<Transmit>, LinkError> {
+        // Keep handshake/control output queued until signaling has supplied at least one
+        // route.  The initiator starts Noise before the viewer's candidate command reaches the
+        // network thread; draining `Link::out` while `routes()` is empty loses that first packet
+        // and makes startup wait for the 100 ms handshake retry (one avoidable RTT at 50 ms).
+        if self.paths.is_empty() {
+            return Ok(Vec::new());
+        }
         // Probes that timed out are lost.
         let lost: Vec<(u64, PathId)> = self
             .probes
