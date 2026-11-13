@@ -10,6 +10,7 @@ use std::fmt;
 use std::mem::size_of;
 
 pub use acpmux_book::index::ListFilter;
+pub use acpmux_book::index::folders::FolderRow;
 
 /// The inclusive encoded-frame limit from the v2 protocol.
 pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
@@ -238,6 +239,7 @@ impl Sub {
 pub enum ListView {
     All,
     Live,
+    Folders,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -468,6 +470,17 @@ pub enum DeltaOp<T> {
         #[serde(flatten)]
         origin: Origin,
     },
+    #[serde(rename = "folder")]
+    Folder {
+        seq: u64,
+        row: FolderRow,
+    },
+    #[serde(rename = "folderGone")]
+    FolderGone {
+        seq: u64,
+        origin: String,
+        folder: String,
+    },
 }
 
 // Deserialize fields directly from the JSON map. Serde's internally tagged
@@ -488,6 +501,8 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for DeltaOp<T> {
             state: Option<OriginState>,
             since: Option<u64>,
             extra: Option<serde_json::Value>,
+            row: Option<FolderRow>,
+            folder: Option<String>,
         }
         let fields = Fields::<T>::deserialize(deserializer)?;
         match fields.op.as_str() {
@@ -513,7 +528,19 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for DeltaOp<T> {
                     extra: fields.extra,
                 },
             }),
-            other => Err(D::Error::unknown_variant(other, &["summary", "gone", "queue", "origin"])),
+            "folder" => Ok(Self::Folder {
+                seq: fields.seq,
+                row: fields.row.ok_or_else(|| D::Error::missing_field("row"))?,
+            }),
+            "folderGone" => Ok(Self::FolderGone {
+                seq: fields.seq,
+                origin: fields.origin.ok_or_else(|| D::Error::missing_field("origin"))?,
+                folder: fields.folder.ok_or_else(|| D::Error::missing_field("folder"))?,
+            }),
+            other => Err(D::Error::unknown_variant(
+                other,
+                &["summary", "gone", "queue", "origin", "folder", "folderGone"],
+            )),
         }
     }
 }
@@ -788,6 +815,9 @@ mod raw_delta_tests {
 #[cfg(test)]
 mod other_delta_tests {
     use super::*;
+    use acpmux_book::index::RowKey;
+    use acpmux_book::index::folders::FolderRow;
+
     #[test]
     fn every_delta_op_has_one_round_tripping_shape() {
         let ops = vec![
@@ -806,6 +836,34 @@ mod other_delta_tests {
                     extra: None,
                 },
             },
+        ];
+        let frame = delta_frame(&DeltaFrame {
+            sid: "s".into(),
+            replay: Some(ReplayMark::End),
+            ops: ops.clone(),
+        })
+        .unwrap();
+        let decoded: DeltaFrame<serde_json::Value> = frame.decode_json().unwrap();
+        assert_eq!(decoded.ops, ops);
+    }
+
+    #[test]
+    fn folders_view_and_deltas_round_trip() {
+        let row = FolderRow {
+            origin: "local".into(),
+            folder: "/work".into(),
+            newest: RowKey::new("local", "chat-7"),
+            at: 19,
+            count: 3,
+        };
+        let mut request = Sub::new("s", "list");
+        request.view = Some(ListView::Folders);
+        let value = serde_json::to_value(&request).unwrap();
+        assert_eq!(value.get("view"), Some(&serde_json::json!("folders")));
+
+        let ops = vec![
+            DeltaOp::<serde_json::Value>::Folder { seq: 4, row: row.clone() },
+            DeltaOp::FolderGone { seq: 5, origin: "local".into(), folder: "/work".into() },
         ];
         let frame = delta_frame(&DeltaFrame {
             sid: "s".into(),
