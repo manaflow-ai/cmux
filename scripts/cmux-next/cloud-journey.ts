@@ -1873,9 +1873,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // early exception still leaves an attributable real/stub row, replaced after a completed journey.
   const probeOut = argValue("--probe-out", argv);
   const probeName = argValue("--probe", argv) ?? `cloud-chat-replies-${backend.name === "prod" ? "production" : backend.name}`;
-  const probeContext = { backend: backend.name, model: (argValue("--model", argv) === "stub" ||
-    (Boolean(argValue("--gateway", argv)) && (argValue("--gateway-upstream", argv) ?? "stub") === "stub") ? "stub" as const : "real" as const,
-    run_attempt: Number(process.env.GITHUB_RUN_ATTEMPT ?? 1) };
+  const probeModel: "stub" | "real" = argValue("--model", argv) === "stub" ||
+    (Boolean(argValue("--gateway", argv)) && (argValue("--gateway-upstream", argv) ?? "stub") === "stub") ? "stub" : "real";
+  const probeContext = { backend: backend.name, model: probeModel, run_attempt: Number(process.env.GITHUB_RUN_ATTEMPT ?? 1) };
   const probeRun = process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}` : undefined;
   if (probeOut) {
     mkdirSync(path.dirname(probeOut), { recursive: true });
