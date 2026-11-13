@@ -103,15 +103,7 @@ function agentsFor(state: BoardState): AgentFixture[] {
   return AGENTS;
 }
 
-function AgentList({
-  loaded,
-  selected,
-  onSelect,
-}: {
-  loaded: Loaded[];
-  selected: string;
-  onSelect(id: string): void;
-}) {
+function AgentList({ loaded, selected, onSelect }: { loaded: Loaded[]; selected: string; onSelect(id: string): void }) {
   return (
     <nav className="ab-agents" aria-label="Agents">
       {loaded.map(({ agent, board }) => {
@@ -126,7 +118,10 @@ function AgentList({
             aria-current={agent.id === selected ? "true" : undefined}
             onClick={() => onSelect(agent.id)}
           >
-            <span className={`ab-dot${agent.live ? " ab-dot-live" : ""}`} aria-label={agent.live ? "Working" : "Idle"} />
+            <span
+              className={`ab-dot${agent.live ? " ab-dot-live" : ""}`}
+              aria-label={agent.live ? "Working" : "Idle"}
+            />
             <span className="ab-agent-text">
               <span className="ab-agent-name">{board.task?.title ?? agent.name}</span>
               <span className="ab-agent-meta">
@@ -147,7 +142,15 @@ function AgentList({
   );
 }
 
-function BoardHeader({ loaded, needsYou, onNeedsYou }: { loaded: Loaded[]; needsYou: boolean; onNeedsYou(v: boolean): void }) {
+function BoardHeader({
+  loaded,
+  needsYou,
+  onNeedsYou,
+}: {
+  loaded: Loaded[];
+  needsYou: boolean;
+  onNeedsYou(v: boolean): void;
+}) {
   const caps = loaded.reduce((n, l) => n + l.board.capabilities.length, 0);
   const human = loaded.reduce((n, l) => n + l.board.decisions.filter((d) => d.needsHuman).length, 0);
   const all = coverage(loaded.flatMap((l) => l.board.permutations));
@@ -160,7 +163,12 @@ function BoardHeader({ loaded, needsYou, onNeedsYou }: { loaded: Loaded[]; needs
         </p>
       </div>
       <label className="ab-toggle">
-        <input type="checkbox" checked={needsYou} onChange={(e) => onNeedsYou(e.target.checked)} />
+        <input
+          type="checkbox"
+          aria-label="Needs you"
+          checked={needsYou}
+          onChange={(e) => onNeedsYou(e.target.checked)}
+        />
         Needs you{human ? ` (${human})` : ""}
       </label>
     </header>
@@ -226,7 +234,13 @@ function Loading() {
   );
 }
 
-export function AgentBoard({ design = "ledger", state = "live", platform = "mac", needsYou: needsYouProp = false, picker = true }: AgentBoardProps) {
+export function AgentBoard({
+  design = "ledger",
+  state = "live",
+  platform = "mac",
+  needsYou: needsYouProp = false,
+  picker = true,
+}: AgentBoardProps) {
   const [current, setCurrent] = useState<Design>(() => {
     const fromUrl = Number(new URLSearchParams(location.search).get("v"));
     return DESIGNS[fromUrl - 1] ?? design;
@@ -234,7 +248,9 @@ export function AgentBoard({ design = "ledger", state = "live", platform = "mac"
   const [mode, setMode] = useState<BoardState>(state);
   const [replay, setReplay] = useState(0);
   const [needsYou, setNeedsYou] = useState(needsYouProp);
-  const [loaded] = useState<Loaded[]>(() => agentsFor(state).map((agent) => ({ agent, board: foldLedger(agent.ledger) })));
+  const [loaded] = useState<Loaded[]>(() =>
+    agentsFor(state).map((agent) => ({ agent, board: foldLedger(agent.ledger) })),
+  );
   const [selected, setSelected] = useState(loaded[0]?.agent.id ?? "");
   const switchDesign = (next: Design) => {
     setCurrent(next);
@@ -253,8 +269,8 @@ export function AgentBoard({ design = "ledger", state = "live", platform = "mac"
           <p className="ab-eyebrow">Agent Board · On</p>
           <h1 id="ab-empty-title">Waiting for the first ledger</h1>
           <p className="ab-lede">
-            Agent sessions you start from now on keep a ledger. Their work shows here as they finish each step.
-            Sessions that were already running are not tracked.
+            Agent sessions you start from now on keep a ledger. Their work shows here as they finish each step. Sessions
+            that were already running are not tracked.
           </p>
           <ol className="ab-steps">
             <li>Start an agent in any workspace.</li>

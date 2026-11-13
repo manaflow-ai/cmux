@@ -7,13 +7,7 @@ import { DialogButton } from "../../ui/DialogButton";
 export const SKILL_LISTING_TOKENS = 110;
 export const SKILL_BODY_TOKENS = 1200;
 
-export function Onboarding({
-  confirming,
-  onConfirm,
-}: {
-  confirming?: boolean;
-  onConfirm(): void;
-}) {
+export function Onboarding({ confirming, onConfirm }: { confirming?: boolean; onConfirm(): void }) {
   const [open, setOpen] = useState(Boolean(confirming));
   const turnOn = useRef<HTMLButtonElement>(null);
   return (
@@ -23,8 +17,8 @@ export function Onboarding({
         <h1 id="ab-onboard-title">See everything your agents built, with the proof</h1>
         <p className="ab-lede">
           When it is on, each agent keeps a short ledger as it works: what it built, the decisions it made and the
-          options it turned down, every state it built (light and dark, Mac and iPhone, empty, loading, error) and
-          the screenshot, video or test run that proves each one. The board puts every agent's ledger in one place.
+          options it turned down, every state it built (light and dark, Mac and iPhone, empty, loading, error) and the
+          screenshot, video or test run that proves each one. The board puts every agent's ledger in one place.
         </p>
         <ul className="ab-points">
           <li>
@@ -32,12 +26,12 @@ export function Onboarding({
             flags the ones only you should decide.
           </li>
           <li>
-            <strong>Every permutation, checked or not.</strong> Missing and broken states show up instead of hiding
-            in a transcript.
+            <strong>Every permutation, checked or not.</strong> Missing and broken states show up instead of hiding in a
+            transcript.
           </li>
           <li>
-            <strong>Evidence next to the claim.</strong> Screenshots, videos, tests and builds, each with the commit
-            it proves; older ones are marked stale.
+            <strong>Evidence next to the claim.</strong> Screenshots, videos, tests and builds, each with the commit it
+            proves; older ones are marked stale.
           </li>
         </ul>
         <div className="ab-cost" role="note" aria-label="Why Agent Board uses more tokens">

@@ -151,12 +151,12 @@ export function MatrixView({ board, needsYou, onOpen }: ViewProps) {
   return (
     <div className="ab-matrix">
       {human.length > 0 && (
-        <div className="ab-banner" role="status">
+        <output className="ab-banner">
           <strong>
             {human.length} decision{human.length > 1 ? "s" : ""} need{human.length > 1 ? "" : "s"} you:
           </strong>{" "}
           {human.map((d) => d.title).join(", ")}
-        </div>
+        </output>
       )}
       {caps.length === 0 && <p className="ab-muted">Nothing needs you here.</p>}
       {caps.map((cap) => {

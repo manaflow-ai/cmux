@@ -119,7 +119,8 @@ export function foldLedger(text: string): Board {
     if (record.kind === "task") board.task = record;
     else if (record.kind === "capability") board.capabilities.push({ ...record, status: record.status ?? "building" });
     else if (record.kind === "decision") board.decisions.push(record);
-    else if (record.kind === "permutation") board.permutations.push({ ...record, status: record.status ?? "unverified" });
+    else if (record.kind === "permutation")
+      board.permutations.push({ ...record, status: record.status ?? "unverified" });
     else board.evidence.set(record.id, record);
   }
   const at = (id: string) => order.get(id) ?? 0;

@@ -43,7 +43,11 @@ export function StatusMark({ status }: { status: PermutationStatus | "building" 
         : status === "dropped"
           ? "off"
           : "wait";
-  return <span className={`ab-status ab-status-${tone}`} role="img" aria-label={status} />;
+  return (
+    <span className={`ab-status ab-status-${tone}`}>
+      <span className="ab-sr">{status}</span>
+    </span>
+  );
 }
 
 /** A drawn stand-in for a screenshot, tinted by the permutation's theme axis. */
@@ -127,7 +131,11 @@ export function EvidenceViewer({
             ) : (
               <pre className="ab-viewer-log">{evidence.caption}</pre>
             )}
-            {evidence.type === "video" && <span className="ab-play" aria-hidden="true">▶</span>}
+            {evidence.type === "video" && (
+              <span className="ab-play" aria-hidden="true">
+                ▶
+              </span>
+            )}
           </div>
           <dl className="ab-viewer-meta">
             <dt>Type</dt>
