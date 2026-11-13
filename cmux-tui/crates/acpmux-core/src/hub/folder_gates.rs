@@ -40,19 +40,21 @@ fn gate(name: &str, small: u128, god: u128, god_all: u128) {
     }
 }
 
-fn row(id: usize, count: usize) -> Summary {
+fn row(id: usize, count: usize, folders: usize) -> Summary {
     let mut row = Summary::new(format!("chat-{id:04}"));
     row.last_activity = (10_000 + count - id) as u64;
-    row.folder = Some(format!("/folder-{id:04}"));
+    row.folder = Some(format!("/folder-{:04}", id % folders));
     row.extra = RawValue::from_string("{}".into()).unwrap_or_else(|_| RawValue::NULL.to_owned());
     row
 }
 
 fn fixture(count: usize) -> Hub {
     let (hub, mut writer) = Hub::new(SummaryIndex::new());
-    for id in 0..count {
-        assert!(writer.apply(row(id, count)).is_ok(), "apply fixture row {id}");
+    let chats = if count == 5 { 20 } else { 11_000 };
+    for id in 0..chats {
+        assert!(writer.apply(row(id, chats, count)).is_ok(), "apply fixture row {id}");
     }
+    assert_eq!(hub.snapshot().folders().len(), count);
     hub
 }
 
@@ -69,7 +71,7 @@ fn deep_request(count: usize, cursor: usize) -> Page {
     page.view = Some(ListView::Folders);
     page.max_bytes = folder_page_budget();
     page.after = Some(Position::Folder(FolderPosition {
-        at: (10_000 + count - cursor) as u64,
+        at: (10_000 + if count == 5 { 20 } else { 11_000 } - cursor) as u64,
         origin: "local".into(),
         folder: format!("/folder-{cursor:04}"),
     }));

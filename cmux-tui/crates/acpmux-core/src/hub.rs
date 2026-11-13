@@ -21,8 +21,6 @@ use crate::wire::{Frame, FrameError, FrameKind, Origin, Sub};
 mod compaction;
 mod disk;
 #[cfg(test)]
-mod folder_gates;
-#[cfg(test)]
 mod folder_tests;
 mod folders;
 mod history;

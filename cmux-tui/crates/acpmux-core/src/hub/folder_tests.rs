@@ -311,10 +311,10 @@ fn folder_subscriber_copy_matches_hot_rows_after_10k_changes_and_eviction_batche
             }
         }
         let index = hub.snapshot();
-        let mut model = BTreeMap::<FolderKey, (acpmux_book::index::SortKey, RowKey, u32)>::new();
+        let mut model = BTreeMap::<FolderKey, (SortKey, RowKey, u32)>::new();
         for row in index.iter() {
             let key = FolderKey::new(row.origin.as_str(), row.folder.as_ref().unwrap().as_str());
-            let sort = acpmux_book::index::SortKey::of(row);
+            let sort = SortKey::of(row);
             let entry = model.entry(key).or_insert((sort.clone(), row.key(), 0));
             if sort < entry.0 {
                 entry.0 = sort;

@@ -101,7 +101,7 @@ impl Hub {
         let index = self.snapshot();
         let max = request.max_bytes as usize;
         let budget = max.saturating_sub(8192 + request.sid.len());
-        acpmux_book::index::folders::validate_page_bound(MAX_WINDOW_ROWS, budget)
+        acpmux_book::index::folders::Folders::validate_page_bound(MAX_WINDOW_ROWS, budget)
             .map_err(HubError::page_error)?;
         let mut reply = FolderPageResult {
             sid: request.sid.clone(),
