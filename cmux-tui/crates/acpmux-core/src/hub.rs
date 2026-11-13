@@ -648,7 +648,7 @@ impl HubWriter {
         self.persist(&record, &key)?;
         let mut next = self.published.load_full().apply(record.seq, record.summary.clone());
         let summary = Arc::new(record.summary.clone());
-        if remote_closed {
+        if remote_closed && !retain_legacy_closed_history {
             next = next.remove_ephemeral(&key);
         }
         let event = SummaryEvent { seq: record.seq, summary };
