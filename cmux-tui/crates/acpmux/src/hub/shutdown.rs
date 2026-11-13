@@ -142,8 +142,18 @@ impl Hub {
         // Pooled sessions are hidden, never user sessions: they end with the
         // daemon, alongside the sessions below.
         let ((), kept) =
-            tokio::join!(self.stop_pool(), self.shutdown_sessions(preserve_auto_resume));
+            tokio::join!(self.stop_pool(), self.shutdown_sessions(preserve_auto_resume, true));
         self.seal();
+        kept
+    }
+
+    /// The daemon handoff path has an absolute one-second deadline. Its journal already contains
+    /// every acknowledged append, so it seals the store without checkpointing every chat or
+    /// draining the ledger; the next daemon replays those records while it serves local chats.
+    pub(crate) async fn shutdown_for_handoff(&self, preserve_auto_resume: bool) -> usize {
+        let ((), kept) =
+            tokio::join!(self.stop_pool(), self.shutdown_sessions(preserve_auto_resume, false),);
+        self.store.seal();
         kept
     }
 
@@ -159,7 +169,7 @@ impl Hub {
         self.ledger.close(LEDGER_DRAIN);
     }
 
-    async fn shutdown_sessions(&self, preserve_auto_resume: bool) -> usize {
+    async fn shutdown_sessions(&self, preserve_auto_resume: bool, flush: bool) -> usize {
         const LOCK: std::time::Duration = std::time::Duration::from_millis(200);
         // The longest a detach under way takes to end its agent (`Session::detaching`).
         const DETACH: std::time::Duration = crate::agent::KILL_GRACE.saturating_add(LOCK);
@@ -299,7 +309,9 @@ impl Hub {
         for s in &sessions {
             let _ = self.store_deferred(s);
         }
-        self.flush();
+        if flush {
+            self.flush();
+        }
         hosted.len() + unreached
     }
 

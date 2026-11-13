@@ -817,6 +817,20 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if let Some(fd) = opts.ready_fd {
         write_ready(fd, &ready);
     }
+    // Remote ssh handshakes are background work. Give the first local initialize and chat attach
+    // a turn before dialing them; otherwise a god-sized peer fan-out can starve the pane after
+    // the socket is already ready.
+    {
+        let peers = hub.clone();
+        tokio::spawn(async move {
+            tokio::select! {
+                _ = peers.wait_local_ready() => {}
+                _ = tokio::time::sleep(Duration::from_secs(2)) => {}
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            peers.start_saved_peers().await;
+        });
+    }
     // Debug builds only: `ACPMUX_TEST_HOLD_AFTER_READY_MS` holds the daemon right after the ready
     // line, so integration tests can stop it in that window. Bounded; release builds have no seam.
     #[cfg(debug_assertions)]
@@ -1119,9 +1133,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         // detaching or ending hosts. A timeout conservatively keeps their router below.
         let _ = metadata.await;
         if restarting {
-            hub.shutdown_all_with_auto_resume(true).await
+            hub.shutdown_for_handoff(true).await
         } else {
-            hub.shutdown_all().await
+            hub.shutdown_for_handoff(false).await
         }
     })
     .await
@@ -1129,9 +1143,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         Ok(kept) => kept,
         Err(_) => {
             tracing::warn!("agents did not stop within {SHUTDOWN_BUDGET:?}; exiting anyway");
-            hub.flush();
-            // As a shutdown that ends in time (`Hub::shutdown_all`): no write after this one.
-            hub.seal();
+            // The deadline is the handoff contract. A synchronous flush here used to run after
+            // the timeout and serialized every large chat's metadata, so a god-sized restart
+            // still took several seconds despite the bounded shutdown. The shutdown fence and
+            // cancelled owned tasks stop new work; the next daemon replays any unfinished store
+            // writes from its journal.
             usize::MAX
         }
     };

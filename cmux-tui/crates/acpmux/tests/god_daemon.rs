@@ -334,11 +334,11 @@ impl Daemon {
         let mut command =
             daemon_env::command_at(&binary, scratch, daemon_env::Agents::StandIn, &[]);
         command
-            .args(["daemon", "run", "--ready-fd", "1", "--log", "warn"])
+            .args(["daemon", "run", "--log", "warn"])
             .env("ACPMUX_HOME", home)
             .env("ACPMUX_SOCKET", &socket)
             .stdin(Stdio::null())
-            .stdout(Stdio::piped())
+            .stdout(Stdio::null())
             .stderr(Stdio::inherit());
         if let Some(out) = dhat {
             command.env(acpmux::heap_profile::OUT_ENV, out);
@@ -359,17 +359,7 @@ impl Daemon {
             std::thread::sleep(Duration::from_millis(1));
         }
         let socket_connect_us = micros(spawned);
-        let stdout = child.stdout.take().unwrap();
-        for line in BufReader::new(stdout).lines() {
-            if let Ok(v) = serde_json::from_str::<Value>(&line.unwrap())
-                && v["ready"] == true
-            {
-                return Self { child, socket, spawned, socket_connect_us };
-            }
-        }
-        let _ = child.kill();
-        let _ = child.wait();
-        panic!("the daemon exited without a readiness line");
+        Self { child, socket, spawned, socket_connect_us }
     }
 
     /// `VmRSS` and `VmHWM` of the daemon, in bytes.
