@@ -265,6 +265,7 @@ pub struct ListSubscription {
 
 /// The published index and its one-writer input queue.
 pub struct Hub {
+    hydrated: tokio::sync::watch::Receiver<disk::HydrationState>,
     compaction_counters: Arc<compaction::Counters>,
     published: Arc<ArcSwap<SummaryIndex>>,
     updates: Arc<UpdateQueue>,
@@ -280,6 +281,7 @@ pub type SummaryHub = Hub;
 /// [`HubWriter::run`], or synchronously in deterministic unit tests with
 /// [`HubWriter::apply`].
 pub struct HubWriter {
+    hydrated: tokio::sync::watch::Sender<disk::HydrationState>,
     #[cfg(test)]
     turn_measure: disk::TurnMeasure,
     compaction: Option<compaction::Job>,
@@ -306,6 +308,8 @@ pub struct HubWriter {
 pub enum HubError {
     #[error("the summary hub writer is gone")]
     WriterGone,
+    #[error("the summary snapshot could not be hydrated")]
+    HydrationFailed,
     #[error("the list stream must be named `list`, got {0:?}")]
     WrongStream(String),
     #[error("window must be between 1 and {MAX_WINDOW_ROWS} rows")]
@@ -359,6 +363,12 @@ impl Hub {
     }
 
     pub fn with_log(index: SummaryIndex, log: Option<IndexLog>) -> (Self, HubWriter) {
+        let state = if index.disk().is_none() {
+            disk::HydrationState::Ready
+        } else {
+            disk::HydrationState::Loading
+        };
+        let (hydrated_tx, hydrated_rx) = tokio::sync::watch::channel(state);
         let sources = Arc::new(ArcSwap::from_pointee(HashMap::new()));
         let published = Arc::new(ArcSwap::from_pointee(index));
         let updates = Arc::new(UpdateQueue::new());
@@ -370,6 +380,7 @@ impl Hub {
             .oldest_seq
             .store(log.as_ref().map_or(1, IndexLog::oldest_seq), Ordering::Release);
         let hub = Self {
+            hydrated: hydrated_rx,
             compaction_counters: compaction_counters.clone(),
             published: published.clone(),
             updates: updates.clone(),
@@ -377,7 +388,8 @@ impl Hub {
             history: history.clone(),
             sources: sources.clone(),
         };
-        let writer = HubWriter {
+        let mut writer = HubWriter {
+            hydrated: hydrated_tx,
             #[cfg(test)]
             turn_measure: disk::TurnMeasure::default(),
             compaction: None,
@@ -404,7 +416,23 @@ impl Hub {
             sources,
             origins: origins::WriterOrigins::default(),
         };
+        writer.start_hydration();
         (hub, writer)
+    }
+
+    /// The remote tee keeps startup changes as marks until all live snapshot
+    /// rows are hot. No second queue of summaries is needed for startup.
+    pub async fn wait_hydrated(&self) -> Result<(), HubError> {
+        let mut hydrated = self.hydrated.clone();
+        let state = *hydrated
+            .wait_for(|state| *state != disk::HydrationState::Loading)
+            .await
+            .map_err(|_| HubError::WriterGone)?;
+        match state {
+            disk::HydrationState::Ready => Ok(()),
+            disk::HydrationState::Failed => Err(HubError::HydrationFailed),
+            disk::HydrationState::Loading => Err(HubError::WriterGone),
+        }
     }
 
     /// A non-blocking enqueue: actor work never waits on list size. The
@@ -678,7 +706,9 @@ impl HubWriter {
         let current = self.published.load_full();
         // Latest wins even if an earlier version never reached the log.
         self.retry_log.remove(&key);
-        if summary.origin != "local" && !summary.is_live() && !current.contains_row(&key)? {
+        if summary.origin != "local" && !summary.is_live() && current.get_row(&key).is_none() {
+            // The remote tee waits for hot hydration before draining its marks.
+            // Every retained remote row is live and therefore hot (decision 139).
             return Ok(SummaryEvent { seq: current.seq(), summary: Arc::new(summary) });
         }
         let record = acpmux_book::index::IndexRecord {
@@ -695,6 +725,10 @@ impl HubWriter {
                 && !current.is_snapshot_origin_hidden(key.origin.as_ref()) =>
             {
                 if let Some(disk) = current.disk() {
+                    #[cfg(test)]
+                    {
+                        self.turn_measure.apply_snapshot_pieces += 1;
+                    }
                     match disk.read_piece(
                         Some(&SortKey::of(&record.summary)),
                         ReadSide::After,
@@ -830,14 +864,13 @@ impl HubWriter {
 
     /// Disk writes, group syncs and hydration run off runtime workers.
     pub async fn run(mut self) -> Result<(), HubError> {
-        self.start_hydration();
         loop {
             self.finish_compaction(false).await;
             let (pending, closed) = {
                 let pending = self.updates.pending.lock().map_err(|_| HubError::WriterGone)?;
                 (pending.is_empty(), self.updates.closed.load(Ordering::Acquire))
             };
-            if pending && closed && !self.origin_work_pending() {
+            if pending && closed && !self.origin_work_pending() && self.hydration.is_none() {
                 break;
             }
             if pending

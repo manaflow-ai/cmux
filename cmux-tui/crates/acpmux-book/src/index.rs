@@ -445,6 +445,7 @@ impl SummaryIndex {
                     match disk.as_mut().and_then(Iterator::next) {
                         Some(Ok(row)) => {
                             if self.is_shadowed(&row.key())
+                                || !Self::contributes_to_index(&row)
                                 || self.is_origin_removed(row.origin.as_str())
                                 || self.is_snapshot_origin_hidden(row.origin.as_str())
                                 || self.get_row(&row.key()).is_some()
@@ -514,7 +515,8 @@ impl SummaryIndex {
     /// stream, sharing the row and never overwriting a later update or removal.
     pub fn hydrate_compacted(&mut self, row: Arc<Summary>) {
         let key = row.key();
-        if !self.shadowed.contains(&key)
+        if Self::contributes_to_index(&row)
+            && !self.shadowed.contains(&key)
             && !self.by_id.contains_key(&key)
             && !self.is_origin_removed(row.origin.as_str())
             && !self.is_snapshot_origin_hidden(row.origin.as_str())
@@ -587,7 +589,7 @@ impl SummaryIndex {
         next.origins.insert(id.clone(), record.clone());
         if record.state == OriginState::Removed {
             next.leaving.insert(id.clone());
-            next.removed_snapshot_seq.insert(id.clone(), seq);
+            next.removed_snapshot_seq.insert(id, seq);
         }
         next
     }
@@ -658,7 +660,8 @@ impl SummaryIndex {
     }
 
     pub fn hydrate(&self, row: Arc<Summary>, now: u64) -> Self {
-        if self.shadowed.contains(&row.key())
+        if !Self::contributes_to_index(&row)
+            || self.shadowed.contains(&row.key())
             || self.is_origin_removed(row.origin.as_str())
             || self.is_snapshot_origin_hidden(row.origin.as_str())
             || !row.is_hot_at(now)
@@ -694,27 +697,8 @@ impl SummaryIndex {
         self.by_id.get(key).cloned()
     }
 
-    /// Membership lookup covering both the hot overlay and the cold snapshot.
-    /// The snapshot is streamed in bounded pieces so callers never materialize
-    /// the generation while checking a key whose sort position has changed.
-    pub fn contains_row(&self, key: &RowKey) -> io::Result<bool> {
-        if self.is_origin_removed(key.origin.as_ref())
-            || self.is_snapshot_origin_hidden(key.origin.as_ref())
-        {
-            return Ok(false);
-        }
-        if self.get_row(key).is_some() || self.is_shadowed(key) {
-            return Ok(self.get_row(key).is_some());
-        }
-        let Some(disk) = self.disk.as_ref() else { return Ok(false) };
-        for row in disk.rows() {
-            let row = row?;
-            if row.key() == key.clone() {
-                return Ok(!self.is_origin_removed(row.origin.as_str())
-                    && !self.is_snapshot_origin_hidden(row.origin.as_str()));
-            }
-        }
-        Ok(false)
+    pub(crate) fn contributes_to_index(summary: &Summary) -> bool {
+        summary.origin == "local" || summary.is_live()
     }
 
     /// Applies one summary without walking the rest of the index.
@@ -740,7 +724,7 @@ impl SummaryIndex {
     /// sequence and remains in the log/history, but is not retained in the
     /// index.
     pub fn apply_summary(&self, seq: u64, summary: Summary) -> Self {
-        let remote_closed = summary.origin != "local" && !summary.is_live();
+        let remote_closed = !Self::contributes_to_index(&summary);
         let key = summary.key();
         let next = self.apply(seq, summary);
         if remote_closed { next.remove_ephemeral(&key) } else { next }
@@ -757,7 +741,9 @@ impl SummaryIndex {
     /// Returns summaries newest first. The iterator borrows the persistent
     /// snapshot; collecting it is a caller-owned page operation.
     pub fn iter(&self) -> impl Iterator<Item = &Arc<Summary>> {
-        self.ordered.values().filter(|summary| !self.is_origin_removed(&summary.origin))
+        self.ordered.values().filter(|summary| {
+            Self::contributes_to_index(summary) && !self.is_origin_removed(&summary.origin)
+        })
     }
 
     pub fn page(&self, start: usize, limit: usize) -> Vec<Arc<Summary>> {
@@ -779,8 +765,8 @@ impl SummaryIndex {
             .range::<_, SortKey>((lower, Unbounded))
             .take(limit)
             .map(|(key, row)| {
-                let visible = !self.is_origin_removed(&row.origin)
-                    && !self.is_snapshot_origin_hidden(row.origin.as_str());
+                let visible =
+                    Self::contributes_to_index(row) && !self.is_origin_removed(&row.origin);
                 (key.clone(), visible.then(|| row.clone()))
             })
             .collect()
@@ -801,8 +787,8 @@ impl SummaryIndex {
             .rev()
             .take(limit)
             .map(|(key, row)| {
-                let visible = !self.is_origin_removed(&row.origin)
-                    && !self.is_snapshot_origin_hidden(row.origin.as_str());
+                let visible =
+                    Self::contributes_to_index(row) && !self.is_origin_removed(&row.origin);
                 (key.clone(), visible.then(|| row.clone()))
             })
             .collect();
@@ -983,14 +969,7 @@ mod tests {
         let mut last = None;
         for turn in 0..20 {
             let page = index
-                .read_page(
-                    anchor.as_ref(),
-                    ReadSide::After,
-                    false,
-                    50,
-                    super::snapshot::PAGE_BYTES,
-                    None,
-                )
+                .read_page(anchor.as_ref(), ReadSide::After, false, 50, snapshot::PAGE_BYTES, None)
                 .unwrap();
             assert!(page.rows.iter().all(|row| row.origin == "other"));
             seen.extend(page.rows.iter().map(|row| row.chat_id.clone()));
@@ -1016,7 +995,7 @@ mod tests {
                     ReadSide::Before,
                     turn == 0,
                     50,
-                    super::snapshot::PAGE_BYTES,
+                    snapshot::PAGE_BYTES,
                     None,
                 )
                 .unwrap();

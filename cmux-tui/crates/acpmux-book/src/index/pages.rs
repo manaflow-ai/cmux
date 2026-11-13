@@ -73,7 +73,8 @@ impl SummaryIndex {
             disk_after = piece.has_after;
             for row in piece.rows {
                 let key = SortKey::of(&row);
-                let visible = !self.is_shadowed(&row.key())
+                let visible = SummaryIndex::contributes_to_index(&row)
+                    && !self.is_shadowed(&row.key())
                     && !self.is_origin_removed(row.origin.as_str())
                     && !self.is_snapshot_origin_hidden(row.origin.as_str())
                     && self.get_row(&row.key()).is_none();

@@ -525,6 +525,7 @@ fn late_compaction_install_cannot_revive_rows_of_an_earlier_origin_life() {
     assert_eq!(ids(&hub), returned_ids(50));
     let window: Window<Summary> =
         hub.list_window(&Sub::new("late-snapshot", "list")).unwrap().decode_json().unwrap();
+    assert_eq!(window.rows.len(), 50, "a snapshot tombstone must not hide the returned hot rows");
     assert!(window.rows.iter().all(|row| returned_ids(50).contains(&row.chat_id)));
     drop((hub, writer));
     let (hub, _) = Hub::open(directory.path(), 101, || 7).unwrap();
@@ -546,6 +547,7 @@ fn an_unknown_remote_close_does_not_append_when_an_unrelated_snapshot_exists() {
     let mut closed = remote("unknown", 2);
     closed.state = "closed".into();
     writer.apply_from(Source::V1, closed).unwrap();
+    writer.process_batch();
     assert_eq!(hub.snapshot().seq(), seq);
     assert_eq!(writer.log.as_ref().unwrap().offset(), before);
     assert!(subscription.receiver.try_next().is_none());
@@ -570,8 +572,8 @@ fn remote_change_close_reopen_and_purge_have_distinct_ops_including_cold_close()
         let mut closed = remote("row", 2);
         closed.state = "closed".into();
         if cold {
-            // A normal turn hydrates first; apply directly to exercise the
-            // snapshot-only copy before it enters the hot map.
+            // The remote tee waits for the initial hot read before draining marks.
+            writer.process_batch();
             writer.apply_from(Source::V1, closed.clone()).unwrap();
         } else {
             hub.submit(closed.clone()).unwrap();
@@ -609,4 +611,79 @@ fn remote_change_close_reopen_and_purge_have_distinct_ops_including_cold_close()
         assert!(subscription.receiver.try_next().is_none());
         assert!(ids(&hub).is_empty());
     }
+}
+
+#[test]
+fn sixty_thousand_remote_closed_rows_read_no_snapshot_pieces() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut index = SummaryIndex::new();
+    for peer in 0..30 {
+        for n in 0..500 {
+            let mut row = remote(format!("live-{n}"), n + 1);
+            row.origin = format!("peer-{peer}");
+            index = index.apply(index.seq() + 1, row);
+        }
+    }
+    SortedSnapshot::write(directory.path().join("index.snap"), &index).unwrap();
+    let (hub, mut writer) = Hub::open(directory.path(), 101, || 7).unwrap();
+    for _ in 0..60 {
+        writer.process_batch();
+    }
+    assert!(writer.hydration.is_none());
+    assert_eq!(hub.snapshot().len(), 15_000);
+    let seq = hub.snapshot().seq();
+    let bytes = writer.log.as_ref().unwrap().offset();
+    for peer in 0..30 {
+        for n in 0..2_000 {
+            let mut row = remote(format!("closed-{n}"), n + 1);
+            row.origin = format!("peer-{peer}");
+            row.state = "closed".into();
+            writer.apply_from(Source::V1, row).unwrap();
+        }
+    }
+    assert_eq!(writer.turn_measure.apply_snapshot_pieces, 0);
+    assert_eq!(hub.snapshot().seq(), seq);
+    assert_eq!(writer.log.as_ref().unwrap().offset(), bytes);
+    assert_eq!(hub.snapshot().len(), 15_000);
+    assert!(hub.snapshot().iter().all(|row| row.is_live()));
+}
+
+#[tokio::test]
+async fn remote_marks_can_wait_for_bounded_startup_hydration() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut index = SummaryIndex::new();
+    for n in 0..600 {
+        index = index.apply(n + 1, remote(format!("row-{n}"), n + 1));
+    }
+    SortedSnapshot::write(directory.path().join("index.snap"), &index).unwrap();
+    let (hub, mut writer) = Hub::open(directory.path(), 101, || 7).unwrap();
+    let subscription = hub.subscribe(&Sub::new("startup-close", "list")).unwrap();
+    writer.process_batch();
+    assert!(matches!(*hub.hydrated.borrow(), disk::HydrationState::Loading));
+    drive(&mut writer, 3);
+    tokio::time::timeout(std::time::Duration::from_secs(1), hub.wait_hydrated())
+        .await
+        .unwrap()
+        .unwrap();
+    let mut closed = remote("row-0", 1000);
+    closed.state = "closed".into();
+    hub.submit(closed).unwrap();
+    writer.process_batch();
+    assert_eq!(writer.turn_measure.apply_snapshot_pieces, 0);
+    assert!(
+        matches!(subscription.receiver.try_next(), Some(ListItem::Summary(event)) if !event.summary.is_live())
+    );
+    assert!(hub.snapshot().get_row(&RowKey::new("peer", "row-0")).is_none());
+    assert_eq!(hub.snapshot().len(), 599);
+}
+
+#[tokio::test]
+async fn failed_hydration_does_not_release_the_remote_mark_drain() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("index.snap");
+    SortedSnapshot::write(&path, &SummaryIndex::new().apply(1, remote("live", 1))).unwrap();
+    let (hub, mut writer) = Hub::open(directory.path(), 101, || 7).unwrap();
+    std::fs::OpenOptions::new().write(true).open(path).unwrap().set_len(0).unwrap();
+    writer.process_batch();
+    assert!(matches!(hub.wait_hydrated().await, Err(HubError::HydrationFailed)));
 }

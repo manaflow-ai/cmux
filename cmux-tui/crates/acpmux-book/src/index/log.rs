@@ -325,9 +325,6 @@ pub fn replay_log_from(
 fn record_seq(record: &codec::LogRecord) -> u64 {
     match record {
         codec::LogRecord::Row(record) => record.seq,
-        // Origin records carry their sequence in the framing body; the
-        // decoder stores it in `since` only for state, so this is filled by
-        // the reader below.
         codec::LogRecord::Origin(record) => record.seq,
     }
 }

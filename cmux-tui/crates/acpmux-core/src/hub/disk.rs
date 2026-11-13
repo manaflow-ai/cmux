@@ -13,7 +13,15 @@ pub(super) struct TurnMeasure {
     pub sync_ns: u128,
     pub rotate_ns: u128,
     pub maintenance_keys: usize,
+    pub apply_snapshot_pieces: usize,
     pub completed_log_bytes: Option<u64>,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(super) enum HydrationState {
+    Loading,
+    Ready,
+    Failed,
 }
 
 pub(super) struct Hydration {
@@ -48,16 +56,19 @@ impl HubWriter {
         let current = self.published.load_full();
         if !current.disk().is_some_and(|disk| Arc::ptr_eq(disk, &load.snapshot)) {
             self.hydration = None;
+            self.start_hydration();
             return;
         }
         let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |time| time.as_secs());
         let mut next = current.as_ref().clone();
         let mut finished = false;
+        let mut failed = false;
         for _ in 0..256 {
             match load.rows.next() {
                 Some(Ok(row)) => next = next.hydrate(row, now),
                 Some(Err(_)) => {
                     self.log_errors.fetch_add(1, Ordering::Relaxed);
+                    failed = true;
                     finished = true;
                     break;
                 }
@@ -70,6 +81,11 @@ impl HubWriter {
         self.published.store(Arc::new(next));
         if finished {
             self.hydration = None;
+            self.hydrated.send_replace(if failed {
+                HydrationState::Failed
+            } else {
+                HydrationState::Ready
+            });
         }
     }
 

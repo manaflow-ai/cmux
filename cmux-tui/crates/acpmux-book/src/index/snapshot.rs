@@ -261,7 +261,7 @@ impl DiskSnapshot {
                 .map_err(|_| codec::invalid("snapshot origins too large"))?;
             let mut bytes = vec![0; size];
             read_at(&file, &mut bytes, head.origins_offset)?;
-            let mut input = std::io::Cursor::new(bytes.as_slice());
+            let mut input = io::Cursor::new(bytes.as_slice());
             let mut origins = Vec::new();
             let mut ids = std::collections::HashSet::new();
             while (input.position() as usize) < bytes.len() {

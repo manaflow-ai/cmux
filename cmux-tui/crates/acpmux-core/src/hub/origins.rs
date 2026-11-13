@@ -142,11 +142,20 @@ impl HubWriter {
     fn admit_origin(&self, id: &str) -> Result<(), HubError> {
         let index = self.published.load();
         let sources = self.sources.load();
-        if index.origin(id).is_some() || sources.contains_key(id) {
+        if index.origin(id).is_some()
+            || sources.contains_key(id)
+            || self.origins.retry.contains_key(id)
+        {
             return Ok(());
         }
         let count = index.origins().count()
-            + sources.keys().filter(|id| index.origin(id).is_none()).count();
+            + sources.keys().filter(|id| index.origin(id).is_none()).count()
+            + self
+                .origins
+                .retry
+                .keys()
+                .filter(|id| index.origin(id).is_none() && !sources.contains_key(*id))
+                .count();
         if count < MAX_ORIGINS {
             return Ok(());
         }

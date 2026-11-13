@@ -117,7 +117,7 @@ fn take_key(input: &mut &[u8]) -> io::Result<RowKey> {
 }
 
 pub(super) enum LogRecord {
-    Row(IndexRecord),
+    Row(Box<IndexRecord>),
     Origin(OriginRecord),
 }
 
@@ -217,13 +217,13 @@ pub(super) fn decode(mut input: &[u8]) -> io::Result<LogRecord> {
     } else if !input.is_empty() {
         return Err(invalid("gone trailing bytes"));
     }
-    Ok(LogRecord::Row(IndexRecord {
+    Ok(LogRecord::Row(Box::new(IndexRecord {
         seq,
         chat_id: row.chat_id.to_string(),
         origin: row.origin.to_string(),
         summary,
         gone,
-    }))
+    })))
 }
 
 pub(super) fn read_any(reader: &mut impl Read) -> io::Result<Option<(LogRecord, usize)>> {
@@ -252,7 +252,7 @@ pub(super) fn read_any(reader: &mut impl Read) -> io::Result<Option<(LogRecord, 
 
 pub(super) fn read(reader: &mut impl Read) -> io::Result<Option<(IndexRecord, usize)>> {
     match read_any(reader)? {
-        Some((LogRecord::Row(record), len)) => Ok(Some((record, len))),
+        Some((LogRecord::Row(record), len)) => Ok(Some((*record, len))),
         Some((LogRecord::Origin(_), _)) => Err(invalid("origin record in snapshot")),
         None => Ok(None),
     }

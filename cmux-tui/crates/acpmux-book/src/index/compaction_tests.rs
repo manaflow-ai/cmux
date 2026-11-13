@@ -329,6 +329,33 @@ fn compaction_retains_hot_snapshot_rows_before_hydration_finishes() {
 }
 
 #[test]
+fn compaction_drops_remote_closed_rows_left_in_an_older_snapshot() {
+    let dir = tempdir().unwrap();
+    let mut legacy = row("legacy", 1);
+    legacy.origin = "peer".to_owned();
+    legacy.state = "closed".to_owned();
+
+    let mut log = IndexLog::open(dir.path().join("index.log")).unwrap();
+    let record = log.append(legacy.clone()).unwrap();
+    log.sync().unwrap();
+    SortedSnapshot::write_stream_generation(
+        dir.path().join("index.snap"),
+        record.seq,
+        0,
+        None,
+        0,
+        Vec::new(),
+        std::iter::once(Ok(Arc::new(legacy))),
+    )
+    .unwrap();
+
+    let disk = DiskSnapshot::open(dir.path().join("index.snap")).unwrap().unwrap();
+    let captured = Arc::new(SummaryIndex::from_disk(Some(disk), 1));
+    let result = log.rotate(captured.seq()).unwrap().run(captured).unwrap();
+    assert_eq!(result.snapshot.rows().count(), 0);
+}
+
+#[test]
 fn retry_cleans_stages_left_by_a_temporary_cleanup_failure_without_restart() {
     let dir = tempdir().unwrap();
     let mut log = IndexLog::open(dir.path().join("index.log")).unwrap();
