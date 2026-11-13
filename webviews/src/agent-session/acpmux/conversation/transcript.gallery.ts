@@ -314,7 +314,7 @@ const clickHoldsLine = async (ctx: PlayContext, selector: string, expanded: bool
   if (Math.abs(moved) > 1) throw new Error(`the clicked line moved ${moved.toFixed(1)}px`);
 };
 
-/// A turn that wrote one file whole: its Edited card opens to the file's diff (EditedFilesCard.tsx).
+/// A turn that wrote one file whole, used by the raw edit-tool diff fixtures.
 const editedRows = (id: string, path: string, text: string) => [
   user(`Write ${path}`, 3, { id: `${id}-user` }),
   activity(
@@ -329,7 +329,12 @@ const editedRows = (id: string, path: string, text: string) => [
 ];
 
 const openEditedDiff = async (ctx: PlayContext) => {
-  await ctx.click({ selector: ".acpmux-edited-toggle" });
+  // Exercise the edit tool's diff; the summary card opens the native changes pane instead.
+  (ctx.document.defaultView as unknown as { cmuxAcpmuxEditedFiles(value: unknown): void }).cmuxAcpmuxEditedFiles({
+    show: "never",
+  });
+  await ctx.waitFor(() => ctx.document.querySelector("button.cv-tool[data-tool-id]"));
+  await ctx.click({ selector: "button.cv-tool[data-tool-id]" });
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-edit-diff")));
 };
 
@@ -2260,7 +2265,7 @@ export default agentPaneEntry({
     "working-tokens": {
       // Reads the clock on the live line (liveTurnClock.experiment.ts `line`); the shipped `top` puts it over the work.
       experiments: { "live-turn-clock": "line" },
-      note: "A live Claude turn says its tokens so far after its time, on its one live line at the bottom: Thinking 5m 54s · ↓ 12.4K out ↑ 2.1M in. Output comes first, as Anthropic counts a turn, and is only what the model generated (never folded into one total with the context); then all it read (fresh input, cache reads and writes, named on hover). The time and the tokens are in the line's quieter color, in tabular numerals. No blinking dots before it and no Working for over the turn. A harness that does not report each call shows the time alone. Play: the line holds still.",
+      note: "A live Claude turn with reported usage shows Thinking and elapsed time only. Nonzero output and input usage must not add a token count or tooltip. Play: the line holds still.",
       snapshot: chat(
         [
           user(prompt, 5.9),
@@ -2287,7 +2292,7 @@ export default agentPaneEntry({
     "working-tokens-total": {
       // Reads the clock on the live line (liveTurnClock.experiment.ts `line`); the shipped `top` puts it over the work.
       experiments: { "live-turn-clock": "line" },
-      note: "A live turn whose calls named their output but not what they read: the line says the output alone, Thinking 5m 54s · 2.1M out, in the same quieter color.",
+      note: "A live turn with output usage only still shows Thinking and elapsed time, without token counts.",
       snapshot: chat(
         [
           user(prompt, 5.9),
@@ -2299,7 +2304,7 @@ export default agentPaneEntry({
       play: runningLineStill(/^Thinking/, true),
     },
     "worked-tokens": {
-      note: "A finished Claude turn whose result named its tokens: its Worked for line says its time alone, Worked for 1m 18s, as Codex does (Codex parity). The tokens show on the running line only.",
+      note: "A finished Claude turn whose result named its tokens: its Worked for line says its time alone, Worked for 1m 18s, as Codex does (Codex parity). Token counts stay hidden on both running and completed lines.",
       snapshot: chat([
         user(prompt, 5.9),
         activity(
@@ -3638,13 +3643,13 @@ export default agentPaneEntry({
       },
     },
     "edit-long-line-code": {
-      note: "An Edited card's diff for code: long lines stay whole, the right edge fades while more lies past it, a thin sideways scrollbar shows under the lines at rest (trackpad or Shift-wheel scrolls it), and Wrap lines sits beside Copy.",
+      note: "An edit tool's inline diff for code: long lines stay whole, the right edge fades while more lies past it, a thin sideways scrollbar shows under the lines at rest (trackpad or Shift-wheel scrolls it), and Wrap lines sits beside Copy.",
       checks: shellDisclosureChecks,
       snapshot: chat(editedRows("gallery-edit-code", "src/net/retryPolicy.ts", EDIT_LONG_CODE)),
       play: openEditedDiff,
     },
     "edit-long-line-prose": {
-      note: "An Edited card's diff for a Markdown file: long lines wrap, each hanging under its start; it scrolls in an eight-line box whose bottom edge fades, with no Show all row under it.",
+      note: "An edit tool's inline diff for a Markdown file: long lines wrap, each hanging under its start; it scrolls in an eight-line box whose bottom edge fades, with no Show all row under it.",
       checks: shellDisclosureChecks,
       snapshot: chat(editedRows("gallery-edit-prose", "docs/codex-excursions.md", EDIT_LONG_PROSE)),
       play: openEditedDiff,
@@ -3694,7 +3699,7 @@ export default agentPaneEntry({
       },
     },
     "edit-long-line-code-cut": {
-      note: "An Edited card's diff for code past eight lines, lines whole: it scrolls in an eight-line box whose bottom fades, and below the lines the thin sideways scrollbar, shown at rest while the lines run past the right edge.",
+      note: "An edit tool's inline diff for code past eight lines, lines whole: it scrolls in an eight-line box whose bottom fades, and below the lines the thin sideways scrollbar, shown at rest while the lines run past the right edge.",
       checks: shellDisclosureChecks,
       snapshot: chat(editedRows("gallery-edit-code-cut", "src/net/uploadRoutes.ts", EDIT_LONG_CODE_CUT)),
       play: openEditedDiff,
