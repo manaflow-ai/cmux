@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43361468288",
+  "recorded_at": "2026-11-13T03:59:53Z",
+  "reason": "cmux-tui a7c2e958f145 changes the image's cmux-tui (pinned dd4a8e85a4dc)",
+  "dry_run": false,
+  "cmux_tui": "a7c2e958f1452683693bd4e2acedfaba71e5d561",
+  "fixes": [
+    {
+      "sha": "a7c2e958f1452683693bd4e2acedfaba71e5d561",
+      "mergedAt": "2026-11-12T19:26:14-08:00",
+      "subject": "agent service v2 PR 0: fixture and gates (#42101)"
+    },
+    {
+      "sha": "c65df308386c4152838bca4ac49bc5f035d87b39",
+      "mergedAt": "2026-11-13T03:24:03Z",
+      "subject": "acpmux: AttachParams names settled, so the protocol spec and the web types carry it (#42321)"
+    },
+    {
+      "sha": "f56f5903d7c66ce99dbc77df286625028baa5e87",
+      "mergedAt": "2026-11-13T03:23:20Z",
+      "subject": "cmux-usage-patterns: a daemon with Usage Patterns on makes no timed wait while nothing is counted (#42250)"
+    },
+    {
+      "sha": "7194b30df375db122d551b606650af36c19b62f8",
+      "mergedAt": "2026-11-12T19:10:43-08:00",
+      "subject": "acpmux: the store lint follows self::/super:: through aliases and file-backed children (#42026)"
+    },
+    {
+      "sha": "3a8ebdfee96f53e09d2b687659b1c2b40376366a",
+      "mergedAt": "2026-11-12T19:09:19-08:00",
+      "subject": "source-scan: rows assert the complete set; an unparsed file fails the scan (#41567 F1/F2) (#42341)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T03:59:53Z",
+    "snapshot_id": "sh-a1a62aaa645c4ac3a35fd6cf9b88b0b5",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43361468288): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "83fb1f5bbabbc61fe4b74de5d1cbc64c8b2c5196",
+    "image": "cloud-native-auto-a7c2e958-43361468288-1",
+    "revision": "ci-43361468288-1",
+    "at": "2026-11-13T03:59:53Z"
+  },
+  "rolled_back": false
+}
