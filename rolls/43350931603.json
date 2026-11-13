@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43350931603",
+  "recorded_at": "2026-11-13T02:24:04Z",
+  "reason": "cmux-tui 5f74c8090efe changes the image's cmux-tui (pinned 6767357b5316)",
+  "dry_run": false,
+  "cmux_tui": "5f74c8090efed924f6ce59dddbb90f3cd7d7ff58",
+  "fixes": [
+    {
+      "sha": "5f74c8090efed924f6ce59dddbb90f3cd7d7ff58",
+      "mergedAt": "2026-11-12T17:50:51-08:00",
+      "subject": "rd: resize Cloud frames in flight from path RTT (#42193)"
+    },
+    {
+      "sha": "cf29076bc5aecd828d846b30b32fec2d366fdeb9",
+      "mergedAt": "2026-11-12T17:37:04-08:00",
+      "subject": "acpmux tests: a cfg-gated item hides no production check from the held-home lint (#41970 review) (#42139)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T02:24:04Z",
+    "snapshot_id": "sh-31859ccf733f47e1bf49fa4832b97d6e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43350931603): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "c6c0227c0ccec460484732b9e8fc775847dff270",
+    "image": "cloud-native-auto-5f74c809-43350931603-1",
+    "revision": "ci-43350931603-1",
+    "at": "2026-11-13T02:24:04Z"
+  },
+  "rolled_back": false
+}
