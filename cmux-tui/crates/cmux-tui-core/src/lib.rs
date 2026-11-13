@@ -25,6 +25,8 @@ mod browser_host_history;
 mod browser_provider;
 /// Where the daemon finds the first-party app packages (cx-0uo1, cx-e0cs).
 pub mod first_party_dir;
+#[cfg(all(test, unix))]
+mod fork_tests;
 mod lock_rank;
 pub mod remote_host;
 /// The cloud conversations proxy; its own crate, re-exported at the old path.
@@ -200,6 +202,7 @@ pub use mux::{
     MAX_TERMINAL_REAP_GRACE, TerminalReaper, start_idle_terminal_reaper, start_terminal_reaper,
     validate_terminal_reap_grace,
 };
+pub use mux::{JournalFollowerSnapshot, JournalFollowersSnapshot};
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
 pub use program_status::ShownProgramStatus;
 pub use remote_relay_state::{

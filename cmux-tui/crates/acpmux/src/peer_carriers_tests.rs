@@ -15,6 +15,66 @@ fn dead() -> Dial {
     Box::pin(pending())
 }
 
+/// A recovered direct route must get another attempt before the cold-connect
+/// deadline expires, whether the old dial stalled before or during its upgrade.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_direct_redial_has_its_own_deadline_through_the_websocket_upgrade() {
+    use tokio::io::{AsyncBufReadExt, BufReader};
+    for during_upgrade in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("link.sock");
+        let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+        let (entered, stalled) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut stream = BufReader::new(stream);
+            let mut line = String::new();
+            stream.read_line(&mut line).await.unwrap();
+            if during_upgrade {
+                stream
+                    .get_mut()
+                    .write_all(
+                        b"{\"ok\":true,\"path_state\":\"direct\",\"relay_available\":false}\n",
+                    )
+                    .await
+                    .unwrap();
+                loop {
+                    line.clear();
+                    assert!(stream.read_line(&mut line).await.unwrap() > 0);
+                    if line == "\r\n" {
+                        break;
+                    }
+                }
+            }
+            entered.send(()).unwrap();
+            pending::<()>().await;
+            drop(stream);
+        });
+        let (tx, _rx) = mpsc::channel(8);
+        let peer = Peer::new("redial", "ssh://box", Some("token".into()), Some("peer".into()), tx);
+        peer.set_link_host("inst_b".into());
+        peer.set_link_socket(socket);
+        peer.linked_once.store(true, Ordering::SeqCst);
+        let dial = tokio::spawn(async move { peer.open_direct(Via::Link, None).await.map(|_| ()) });
+        stalled.await.unwrap();
+        tokio::time::pause();
+        tokio::time::advance(Duration::from_secs(5)).await;
+        tokio::task::yield_now().await;
+        let finished = dial.is_finished();
+        if !finished {
+            dial.abort();
+        }
+        server.abort();
+        assert!(
+            finished,
+            "direct redial still waits on the 30-second deadline; upgrade={during_upgrade}"
+        );
+        assert!(dial.await.unwrap().unwrap_err().contains("timed out"));
+        tokio::time::resume();
+    }
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_dead_direct_path_delays_ssh_by_the_stagger_only() {
     // The direct path never answers (a dead WireGuard route waits out its whole connect

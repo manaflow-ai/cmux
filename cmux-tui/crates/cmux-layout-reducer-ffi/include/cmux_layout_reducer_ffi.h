@@ -582,6 +582,131 @@ uint32_t cmux_close_selection_slot(CmuxCloseSelection *handle, uint32_t opener, 
                                    const uint32_t *pinned, size_t pinned_count);
 
 /*
+ * The close-selection state of every window's workspaces (cmux-focus-core
+ * close_selection::windows::WindowCloseSelection): the creates a window
+ * waits for, the window of each workspace with an opener relation, the
+ * selection repairs that run, and the opener relations. Rust holds the state
+ * and takes every decision; the caller reports facts and applies the pick.
+ * One handle for the app, used by one thread. Workspace ids and window ids
+ * are the caller's own uint32_t numberings (two separate ones), stable while
+ * cmux_window_close_selection_holds_ids is nonzero; CMUX_FOCUS_NONE is none
+ * and 0 is an id like any other. A null handle holds nothing: every pick is
+ * by position. A null array with a nonzero count, a null struct, or a
+ * workspace or window that is CMUX_FOCUS_NONE where one is needed changes
+ * nothing (a pick: CMUX_FOCUS_NONE).
+ *
+ * Cost: while cmux_window_close_selection_holds_ids is zero, every call is
+ * O(1), allocates nothing and reads no array, except the pick, which is the
+ * positional rule over its arrays. With relations held, a call reads the
+ * workspaces of those relations only, never a window's members (the pick
+ * reads the arrays it is given).
+ */
+typedef struct CmuxWindowCloseSelection CmuxWindowCloseSelection;
+enum {
+    CMUX_WINDOW_CLOSE_RELATION_NONE = 0,  /* the create starts no relation */
+    CMUX_WINDOW_CLOSE_RELATION_QUICK = 1, /* the quick look-up: ends when the window's selection leaves the new workspace */
+    CMUX_WINDOW_CLOSE_RELATION_TASK = 2,  /* lasts as a link tab's: until the person selects an unrelated workspace */
+};
+/* One close: `shown` left the window. `previous`: its members before; `members`: its members now; `order_count` row
+ * orders before the close, most preferred first (the rows as drawn, then the model's), flattened into `orders`
+ * (order i holds order_lengths[i] ids). */
+typedef struct {
+    uint32_t shown;
+    const uint32_t *previous;
+    size_t previous_count;
+    const uint32_t *members;
+    size_t member_count;
+    const uint32_t *orders;
+    const uint32_t *order_lengths;
+    size_t order_count;
+} CmuxWindowClosePick;
+/* One selection repair: the window showed `shown` (CMUX_FOCUS_NONE: nothing) and will show `pick`. `gesture`
+ * nonzero: the caller says a person asked, in this turn, for the selection of a `preferred` workspace. `pressed`
+ * nonzero: the repair runs at the press of a close that hid rows and that can still be cancelled or refused (the
+ * app's InstantClose); zero for a daemon delta, a move, a room change and every other repair. `members`: the
+ * window's members now; `preferred`: the workspaces just moved in. */
+typedef struct {
+    uint32_t shown;
+    uint32_t pick;
+    uint8_t gesture;
+    uint8_t pressed;
+    const uint32_t *members;
+    size_t member_count;
+    const uint32_t *preferred;
+    size_t preferred_count;
+} CmuxWindowCloseRepair;
+/* The answers to cmux_window_close_selection_settle_questions for `window`: workspaces[i] is listed now by window
+ * owners[i] (CMUX_FOCUS_NONE: by none) and claimed[i] is nonzero when it is a create its window waits for;
+ * windows[j] is registered when exists[j] is nonzero. A question with no answer reads as: listed by none, not
+ * claimed, not registered. */
+typedef struct {
+    uint32_t window;
+    const uint32_t *workspaces;
+    const uint32_t *owners;
+    const uint8_t *claimed;
+    size_t workspace_count;
+    const uint32_t *windows;
+    const uint8_t *exists;
+    size_t window_count;
+} CmuxWindowCloseSettle;
+/* the relation a create into a window starts (no handle): CMUX_WINDOW_CLOSE_RELATION_NONE unless the create opens
+ * the New Tab page in a run that is the person's action and may change the view; then TASK when the placement
+ * setting puts the row after the current one, else QUICK. Each fact: nonzero is true. */
+uint8_t cmux_window_close_selection_relation(uint8_t opens_new_tab_page, uint8_t persons_action, uint8_t may_change_view,
+                                             uint8_t after_current);
+CmuxWindowCloseSelection *cmux_window_close_selection_new(void);
+void cmux_window_close_selection_free(CmuxWindowCloseSelection *handle);
+/* nonzero while no opener relation is held (also for a null handle): every pick is by position */
+uint8_t cmux_window_close_selection_is_empty(CmuxWindowCloseSelection *handle);
+/* nonzero while the handle holds any workspace or window id (a create it waits for, a relation, a repair that
+ * runs). While zero: cmux_window_close_selection_shown, _left, _renamed and _settle change nothing and may be left
+ * out, and the caller may forget its numbering. Read it after a call, never inside a repair. */
+uint8_t cmux_window_close_selection_holds_ids(CmuxWindowCloseSelection *handle);
+/* a create of `workspace` into `window` starts `relation` (the result of cmux_window_close_selection_relation; NONE
+ * changes nothing). Call it before the window can show the workspace: it gets its opener when the window shows it. */
+void cmux_window_close_selection_expect(CmuxWindowCloseSelection *handle, uint32_t workspace, uint32_t window, uint8_t relation);
+/* `window` now shows `new_workspace`; it showed `old` (CMUX_FOCUS_NONE: nothing) before. gesture: the code running
+ * at the change is a person's own action (not the CLI, the socket, MCP or a script). Report every selection change
+ * of a window. A change inside a repair is never a gesture, whatever `gesture` says. */
+void cmux_window_close_selection_shown(CmuxWindowCloseSelection *handle, uint32_t new_workspace, uint32_t old, uint32_t window,
+                                       uint8_t gesture);
+/* `workspace` closed or left its window; after the pick for the close */
+void cmux_window_close_selection_left(CmuxWindowCloseSelection *handle, uint32_t workspace);
+/* window `old_window` took the identity `new_window`: its creates and relations follow it */
+void cmux_window_close_selection_renamed(CmuxWindowCloseSelection *handle, uint32_t old_window, uint32_t new_window);
+/* the selection that needs no pick (no handle): the first of `preferred` that is a member, else `current` when it
+ * is a member, else CMUX_FOCUS_NONE: then build the row orders and call cmux_window_close_selection_pick */
+uint32_t cmux_window_close_selection_kept(uint32_t current, const uint32_t *members, size_t member_count,
+                                          const uint32_t *preferred, size_t preferred_count);
+/* the workspace the window shows after close->shown left it: a workspace it opened, one its opener opened, its
+ * opener (also one that is a member and that no order lists), else the next row below as drawn, the row above only
+ * for the last row; `previous` is read as the last order. A close of several workspaces in one gesture (a
+ * multi-selection, Close Others, a group close) is this same call: `members` holds the survivors, so an opener that
+ * closes with it is no candidate. There is no batch flag. A `shown` that is a member stays; CMUX_FOCUS_NONE when
+ * no member is left. Call it before cmux_window_close_selection_left for the closed workspaces. */
+uint32_t cmux_window_close_selection_pick(CmuxWindowCloseSelection *handle, const CmuxWindowClosePick *close);
+/* a selection repair starts: call it when repair->pick differs from repair->shown, select the pick (the window
+ * reports it through cmux_window_close_selection_shown), then call cmux_window_close_selection_repair_end. The
+ * selection is the close's, not a person's, unless `gesture` is set and `pick` is one of `preferred`. With
+ * `pressed` set, a `shown` that is not in `members` (the press hid its row) keeps a QUICK relation through this
+ * repair: the committed close (cmux_window_close_selection_left, or the settle) ends it, and so does the window's
+ * next selection of any workspace but `shown`; a cancelled close shows the row again with its opener. Without
+ * `pressed`, a QUICK relation ends when the selection leaves its workspace. Repairs may nest. A null `repair` or a
+ * null array still starts a repair (with no member and no preferred workspace), so each begin has its end. */
+void cmux_window_close_selection_repair_begin(CmuxWindowCloseSelection *handle, const CmuxWindowCloseRepair *repair);
+void cmux_window_close_selection_repair_end(CmuxWindowCloseSelection *handle);
+/* after the repair of `window`: the facts Rust needs to end the creates and relations of workspaces that closed,
+ * moved, or whose window is gone. Writes up to `capacity` workspace ids to `workspaces` and up to `capacity` window
+ * ids to `windows`, the number of window ids to *window_count, and returns the number of workspace ids. Both zero
+ * (always, while nothing is held: O(1), no allocation, no walk of members): the settle is done, make no second
+ * call. A number above `capacity`: call again with larger arrays. Else answer with cmux_window_close_selection_settle. */
+size_t cmux_window_close_selection_settle_questions(CmuxWindowCloseSelection *handle, uint32_t window, uint32_t *workspaces,
+                                                    uint32_t *windows, size_t capacity, size_t *window_count);
+/* ends what the answers say is gone: a workspace of `window` that no window lists (and that is no waiting create)
+ * or that another window lists, and every workspace of a window that is not registered */
+void cmux_window_close_selection_settle(CmuxWindowCloseSelection *handle, const CmuxWindowCloseSettle *answers);
+
+/*
  * Agent cursor visibility (cmux-focus-core agent_cursor_visibility), typed:
  * one call per agent input event and per frame of pane motion while a target
  * is tracked, no JSON, no handle, no allocation. Ids are the caller's own
