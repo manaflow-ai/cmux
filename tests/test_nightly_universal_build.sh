@@ -232,11 +232,18 @@ if grep -Eq 'current_head_(prebuild|postbuild)|still_current' "$WORKFLOW_FILE"; 
   exit 1
 fi
 
-R2_UPLOAD_LINE="$(grep -nF -- '- name: Upload nightly appcasts to R2' "$WORKFLOW_FILE" | cut -d: -f1 || true)"
-MARKER_LINE="$(grep -nF -- '- name: Record verified nightly publication' "$WORKFLOW_FILE" | cut -d: -f1 || true)"
-TAG_MOVE_LINE="$(grep -nF -- '- name: Move channel release tag to built commit' "$WORKFLOW_FILE" | cut -d: -f1 || true)"
-if [ -z "$R2_UPLOAD_LINE" ] || [ -z "$MARKER_LINE" ] || [ -z "$TAG_MOVE_LINE" ] \
-  || [ "$MARKER_LINE" -le "$R2_UPLOAD_LINE" ] || [ "$TAG_MOVE_LINE" -le "$MARKER_LINE" ]; then
+# Per job: publish-nightly and nightly-next-one (#42267) each record the marker and move the tag, and
+# each only after its own R2 appcast uploads: none follows the marker, and publish-nightly's classic
+# upload (the one a classic run takes) comes before it.
+if ! awk '
+  function end_job() { if (marker && !tag) bad=1 }
+  /^  [a-zA-Z0-9_-]+:$/ { end_job(); job=$1; r2=0; classic=0; marker=0; tag=0; next }
+  /^      - name: Upload nightly(-next)? appcasts to R2$/ { if (marker) bad=1; r2=1 }
+  /^      - name: Upload nightly appcasts to R2$/ { classic=1 }
+  /^      - name: Record verified nightly publication$/ { if (!r2 || (job == "publish-nightly:" && !classic)) bad=1; marker=1; jobs++ }
+  /^      - name: Move channel release tag to built commit$/ { if (!marker) bad=1; tag=1 }
+  END { end_job(); exit !(jobs > 0 && !bad) }
+' "$WORKFLOW_FILE"; then
   echo "FAIL: the nightly publication marker and tag must move only after GitHub and R2 publication succeed"
   exit 1
 fi
@@ -921,6 +928,8 @@ NOT_PUBLISHED="needs.resolve-nightly-cmux-tui-client.outputs.already_published !
 NOT_CONTINUE="needs.decide.outputs.continue_only != 'true'"
 # A nightly-next push that a newer push replaced builds nothing (one build slot, #21917).
 NOT_SUPERSEDED="needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true'"
+# A one-job nightly-next run builds in nightly-next-one, not in the split build jobs (#42267).
+NOT_ONE_JOB="needs.decide.outputs.one_job != 'true'"
 # A build a newer published build is already above spends no notarization (#33109): the macOS
 # signer adds it as one more top-level conjunct, so it only narrows the gate.
 NOT_OVERTAKEN="needs.pick-nightly-sign-runner.outputs.overtaken != 'true'"
@@ -940,12 +949,12 @@ SIGN_FALLBACK="!cancelled() && needs.decide.result == 'success' && needs.build-n
 APP_NEEDS_OK="\"!cancelled() && needs.decide.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success'"
 HELPER_NEEDS_OK="$APP_NEEDS_OK && needs.resolve-nightly-ghostty-cli-helper.result == 'success'"
 PREPARE_NEEDS_OK="\"!cancelled() && needs.decide.result == 'success' && needs.build-nightly-ghostty-cli-helper.result == 'success' && needs.build-nightly-app.result == 'success' && needs.build-nightly-remote-daemon.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success'"
-if [ "$(job_if build-nightly-app)" != "    if: $APP_NEEDS_OK && needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE\"" ] \
-  || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: $HELPER_NEEDS_OK && needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE\"" ] \
+if [ "$(job_if build-nightly-app)" != "    if: $APP_NEEDS_OK && needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE && $NOT_ONE_JOB\"" ] \
+  || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: $HELPER_NEEDS_OK && needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE && $NOT_ONE_JOB\"" ] \
   || [ "$(job_if prepare-nightly-variant-primary)" != "    if: $PREPARE_NEEDS_OK && $BUILD_GATE && $NOT_PREPARED\"" ] \
   || [ "$(job_if build-sign-notarize-nightly)" != "    if: \"$SIGN_FALLBACK && $BUILD_GATE && $NOT_OVERTAKEN\"" ] \
   || [ "$(job_if resolve-nightly-cmux-tui-client)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE" ] \
-  || [ "    if: $APP_NEEDS_OK && needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE\"" != "$(job_if build-nightly-app)" ] \
+  || [ "    if: $APP_NEEDS_OK && needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE && $NOT_ONE_JOB\"" != "$(job_if build-nightly-app)" ] \
   || [ "$(job_if publish-nightly)" != "    if: \"always() && !cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && needs.decide.outputs.no_publish != 'true' && ((needs.build-sign-notarize-nightly.result == 'success' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success' && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success') || needs.republish-nightly-next.result == 'success')\"" ]; then
   echo "FAIL: build_only must be a conjunctive exclusion on the helper, signing, and publication jobs, and must not gate the unsigned app build"
   exit 1

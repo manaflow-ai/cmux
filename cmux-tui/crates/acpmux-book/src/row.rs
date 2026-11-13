@@ -198,6 +198,33 @@ impl Row<'_> {
         Ok(Placement::Blob { bytes })
     }
 
+    /// Encodes a body already stored in `blobs/<rowId>` using only its byte length and
+    /// outline. The actor validates the body while writing it; this method never reads
+    /// `self.body`, loads the blob, or constructs the full-body row as an intermediate.
+    /// The caller chooses inline or blob from the final size, regardless of earlier spills.
+    pub fn encode_blob(
+        &self,
+        bytes: u64,
+        outline: Outline<'_>,
+        out: &mut Vec<u8>,
+    ) -> Result<Placement, RowError> {
+        if self.id == 0 {
+            return Err(RowError::ZeroId);
+        }
+        if !json::is_compact_value(outline.head) {
+            return Err(RowError::Head);
+        }
+        if outline.head.len() > MAX_ROW_TEXT {
+            return Err(RowError::TooLarge { bytes: outline.head.len() });
+        }
+        out.clear();
+        self.write(out, outline.head, Some((bytes, outline.preview)));
+        if out.len() > MAX_ROW_TEXT {
+            return Err(RowError::TooLarge { bytes: out.len() });
+        }
+        Ok(Placement::Blob { bytes })
+    }
+
     fn write(&self, out: &mut Vec<u8>, body: &str, blob: Option<(u64, &str)>) {
         out.extend_from_slice(b"{\"id\":");
         number(out, self.id);

@@ -18,8 +18,13 @@ _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
     "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
-import workflow_jobs
 import sys
+# tests/workflow_jobs.py, imported by name, never loaded by path: scripts/ci imports it by name too, and a load
+# by path makes a second module object for the one file (tests/test_script_module_loads.py). `python3 -I` puts
+# no script folder on sys.path, so this file adds its own folder.
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
 import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
@@ -2464,6 +2469,45 @@ def test_cmux_tui_preflight_seeds_canonical_key_before_docs_skip():
         result = subprocess.run(["bash", "-c", 'key=canonical; legacy_key=legacy; tree_complete() { [[ "$1" == "' + ready + '" ]]; }; ' + selection + 'echo "$tree_ready"'], capture_output=True, text=True, check=True)
         assert result.stdout.strip() == expected
     assert '--version v2-legacy "$SOURCE_COMMIT"' in inspect
+
+
+def test_feat_tip_rebuilds_missing_commit_manifest_and_cdn_gate_is_final():
+    artifacts = workflow("cmux-tui-artifacts.yml")
+    preflight = workflow_job(artifacts, "tree-preflight")
+    assert "commit_manifest_ready=false" in preflight
+    assert "cmux-tui/$SHA/manifest.json?preflight=$RUN_ID-commit" in preflight
+    assert '"$commit_manifest_ready" != true' in preflight
+    detector = workflow_job(artifacts, "verify-cdn-publication")
+    assert "needs: [tree-preflight, publish, publish-tree]" in detector
+    assert "always()" in detector
+    assert "verify_cmux_tui_publication.py" in detector
+    script = (ROOT / "scripts/ci/verify_cmux_tui_publication.py").read_text()
+    assert "https://files.cmux.com/cmux-tui/{sha}/manifest.json" in script
+    assert "https://files.cmux.com/cmux-tui/tree/{tree_key}/source.json" in script
+
+
+def test_cdn_publication_check_retries_and_validates_both_documents():
+    import verify_cmux_tui_publication as checker
+
+    sha = "a" * 40
+    key = "b" * 40
+    responses = {
+        f"https://files.cmux.com/cmux-tui/{sha}/manifest.json": [
+            OSError("CDN propagation"),
+            json.dumps({"commit": sha, "sourceCommit": sha}).encode(),
+        ],
+        f"https://files.cmux.com/cmux-tui/tree/{key}/source.json": [
+            json.dumps({"key": key, "sourceCommit": sha}).encode(),
+        ],
+    }
+
+    def fetch(url: str) -> bytes:
+        value = responses[url].pop(0)
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+    assert checker.verify_publication(sha, key, fetch=fetch, attempts=2, delay_seconds=0) == list(responses)
 
 
 # Keep this the last statement of the file: unittest.main() ends the process, so a

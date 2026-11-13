@@ -367,6 +367,13 @@ pub struct SessionMeta {
     /// its list read race. Cleared when the last client showing it stops.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_return: Option<LastReturn>,
+    /// Each person's seen cursor (`hub/seen.rs` `read_through`): the newest log seq they had on
+    /// screen while they attended the chat, keyed by person id (`_meta.acpmux.author` id,
+    /// [`crate::hub::seen::OWNER_READER`] for the owner). Only `_acpmux/seen` moves it forward; a
+    /// restart, update, reconnect, attach or `_acpmux/view` never does. Rows after it by an agent
+    /// or another person are the person's unseen rows (the pane's Jump up).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub read_through: BTreeMap<String, u64>,
     /// The Claude conversation acpmux started with a fresh id has not
     /// finished a turn, so Claude may never have stored it (a launcher that
     /// died before the prompt reached Claude stores nothing). A respawn (a
@@ -381,6 +388,12 @@ pub struct SessionMeta {
     /// 2026-11-04 a kept Chief session that woke after a restart died at the 90 s deadline again.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub wait_start: bool,
+    /// Its creator purges it right after its work (`_meta.acpmux.throwaway`, the Chief
+    /// compactor's nodes): its prompts'
+    /// `user_message` keeps no long body (`hub/ephemeral.rs`), and a retry or restart never runs
+    /// such a prompt again. Kept on disk with the rest of its meta.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub throwaway: bool,
     /// When (Unix ms) the idle exit hibernated its agent, 0 when no start woke it since
     /// (`hub/idle.rs`): after a restart, opening it wakes it and its wake draws no row, as
     /// before the restart, and the wake's log says how long it slept.
@@ -502,6 +515,12 @@ pub struct SessionMeta {
     /// field) counts from the session's creation. A fork starts with none.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub pull_request_times: BTreeMap<String, u64>,
+    /// The pull requests this session's `gh pr merge` and `gh pr close` calls merged or closed,
+    /// by URL (`hub/pull_requests.rs`), whoever's session opened them: none
+    /// waits on the person any more (`hub/review_queue.rs`). At most
+    /// `pull_requests::MAX_PULL_REQUESTS`, the oldest dropped first. A fork starts with none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub closed_pull_requests: Vec<String>,
     /// The files this session's tool calls read and edited, by repository and path there
     /// (`touched_files.rs`, `hub/touched.rs`): at most `touched_files::MAX_FILES`, the least
     /// recently touched dropped first. A fork starts with none.
@@ -1361,6 +1380,8 @@ mod sync_model;
 
 mod memory;
 pub use memory::MemoryStore;
+#[cfg(test)]
+pub(crate) use memory::{COPY_FORKS, REFUSE_APPENDS};
 
 // ----------------------------------------------------------------- local
 

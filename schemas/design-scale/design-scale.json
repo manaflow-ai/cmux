@@ -33,7 +33,7 @@
     { "name": "2xl", "px": 16, "for": "code blocks (named exception)" }
   ],
   "namedRadii": [
-    { "name": "control", "px": 6 },
+    { "name": "control", "var": "var(--cmux-button-radius, 8px)", "for": "every button: the tab's corner (Metrics.buttonCornerRadius; Lawrence 2026-11-12, buttons round as tabs)" },
     { "name": "popup", "px": 8 },
     { "name": "card", "px": 14, "for": "today's card radius; grid.md moves it to 12 after a gallery comparison" },
     { "name": "composer", "px": 18, "for": "today's composer radius; grid.md moves it to 12 after a gallery comparison" },
