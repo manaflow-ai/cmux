@@ -18,7 +18,7 @@ extension DiffPageProvider {
         }
         let data: Data?
         do {
-            data = try await chat.brief(root)
+            data = try await chat.brief?(root)
         } catch is CancellationError {
             throw CancellationError()
         } catch {

@@ -12,10 +12,10 @@ public struct DiffTabChat: Sendable {
     let deliver: (@Sendable (String, String) async -> Bool)?
     /// The chat's review brief for a repository root (``AcpmuxReviewBrief``) as JSON; nil when
     /// there is no acpmux to ask.
-    let brief: @Sendable (String) async throws -> Data?
+    let brief: (@Sendable (String) async throws -> Data?)?
 
     public init(session: String, deliver: (@Sendable (String, String) async -> Bool)? = nil,
-                brief: @escaping @Sendable (String) async throws -> Data? = { _ in nil }) {
+                brief: (@Sendable (String) async throws -> Data?)? = nil) {
         self.session = session
         self.deliver = deliver
         self.brief = brief

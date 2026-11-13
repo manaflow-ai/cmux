@@ -161,9 +161,9 @@ extension DiffAgentGit: DiffCommentsStoring {
 
     public func sendComments(root: String, acpSession: String, ids: [String], versions: [String: JSONValue],
                              text: String, key: String) async throws(AgentPaneGitFailure) -> JSONValue {
-        var params: [String: JSONValue] = ["root": .string(root), "acp_session": .string(acpSession),
-                                           "ids": .array(ids.map(JSONValue.string)), "text": .string(text)]
-        if !versions.isEmpty { params["versions"] = .object(versions) }
+        let params: [String: JSONValue] = ["root": .string(root), "acp_session": .string(acpSession),
+                                           "ids": .array(ids.map(JSONValue.string)), "text": .string(text),
+                                           "versions": .object(versions)]
         return try await mutate("diff.comments.send", .object(params), key: key)
     }
 

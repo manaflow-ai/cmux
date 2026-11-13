@@ -11,9 +11,8 @@
 //! for the clear. The reservation goes once the ledger holds the result, or
 //! when acpmux refused the prompt (nothing was taken).
 //!
-//! The acpmux prompt id is derived from the operation, this daemon session's
-//! durable public id and the key, so two sessions that use the same key
-//! against one chat never share a prompt id.
+//! The acpmux prompt id is the caller's idempotency key, as required by the
+//! operation contract. Retries therefore address the same acpmux prompt.
 
 use std::collections::HashMap;
 use std::io;
@@ -24,9 +23,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-use super::{
-    Store, acp_session, cleared, fingerprint, ids, io_failed, mutate, prompt, versions,
-};
+use super::{Store, acp_session, cleared, fingerprint, ids, io_failed, mutate, prompt, versions};
 use crate::Mux;
 use crate::git_ops::checkpoint::ledger;
 use crate::git_ops::checkpoint::store::{hex, private_directory, read_json, write_json};
@@ -73,17 +70,18 @@ pub(super) fn send_with(
     if ids.is_empty() {
         return Err(ResourceError::validation_invalid(Some("ids"), "a send names at least one id"));
     }
-    let versions = versions(&request.fields)?;
+    let versions = versions(&request.fields, true)?;
     let key = crate::git_ops::checkpoint::mutation_key(request);
     let fingerprint = fingerprint(request);
     let reservation = reservation_path(store, &key);
+    sweep_reservations(mux, store);
     one_attempt_per_key(&reservation, || {
         // A retry of a send that finished answers as the first did and sends nothing.
         if let Some(replayed) = ledger::prior(mux, &key, OPERATION, &fingerprint)? {
             return Ok(replayed);
         }
         reserve(&reservation, &key, &fingerprint)?;
-        let prompt_id = prompt_id(mux, &key);
+        let prompt_id = prompt_id(&key);
         // Queued behind a running turn, never steered into it, and marked a
         // resend so acpmux answers a prompt id it already took, even from
         // its log, without running it again.
@@ -122,16 +120,27 @@ pub(super) fn send_with(
 
 /// The acpmux prompt id of `key`'s send from this daemon session: stable
 /// across retries and restarts, distinct between sessions.
-pub(super) fn prompt_id(mux: &Mux, key: &str) -> String {
-    let session = mux
-        .workspace_registry
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .session_id()
-        .as_str()
-        .to_owned();
-    let digest = Sha256::digest(format!("{OPERATION}\0{session}\0{key}").as_bytes());
-    format!("dcs_{}", hex(digest.get(..16).unwrap_or_default()))
+pub(super) fn prompt_id(key: &str) -> String {
+    key.to_owned()
+}
+
+/// Removes reservations whose mutation was committed before the process lost
+/// the chance to release the file. Unsettled and malformed reservations stay
+/// so they continue to bind their original idempotency key.
+fn sweep_reservations(mux: &Arc<Mux>, store: &Store) {
+    let directory = store.directory.join(RESERVATIONS);
+    let Ok(entries) = std::fs::read_dir(directory) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(reservation) = read_json::<Reservation>(&path).ok().flatten() else { continue };
+        if ledger::prior(mux, &reservation.key, OPERATION, &reservation.fingerprint)
+            .ok()
+            .flatten()
+            .is_some()
+        {
+            let _ = std::fs::remove_file(path);
+        }
+    }
 }
 
 fn reservation_path(store: &Store, key: &str) -> PathBuf {
@@ -193,4 +202,3 @@ fn one_attempt_per_key<T>(reservation: &Path, body: impl FnOnce() -> T) -> T {
 fn failed(reason: &str, message: String) -> ResourceError {
     ResourceError::operation_failed(OPERATION, reason, json!({"message": message}))
 }
-

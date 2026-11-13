@@ -8,8 +8,8 @@
 //! the page's prompt, and the agent answers it; the comment still at its
 //! read version is cleared, the edited one stays. The same send again under
 //! its key replays the first answer and the chat still has one such turn. A
-//! second daemon session sending another review to the same chat under the
-//! same key delivers its own turn. A send to a session acpmux does not run is
+//! second daemon session sending another review to the same chat under a
+//! distinct key delivers its own turn. A send to a session acpmux does not run is
 //! refused and keeps the comments.
 #![cfg(unix)]
 
@@ -28,6 +28,7 @@ mod diff_comments_journey {
 
     const ROOT: &str = "/work/app";
     const SEND_KEY: &str = "diff-comments-journey-send";
+    const OTHER_SEND_KEY: &str = "diff-comments-journey-send-other";
 
     /// The page's submission block for one comment (`commentSubmissionText`
     /// in webviews/src/comments/format.ts): the file and line, the quoted
@@ -201,11 +202,11 @@ mod diff_comments_journey {
             let events = acpmux.events(&session);
             (!turn_prompt_ids(&events).is_empty()).then_some(events)
         });
-        // The prompt id is the daemon's, derived from its session and the key, never the key.
+        // The prompt id is the operation's idempotency key, so acpmux retries it exactly once.
         let prompt_ids = turn_prompt_ids(&events);
         assert_eq!(prompt_ids.len(), 1, "{events:?}");
         let prompt_id = prompt_ids[0].clone();
-        assert!(prompt_id.starts_with("dcs_") && prompt_id != SEND_KEY, "{prompt_id}");
+        assert_eq!(prompt_id, SEND_KEY);
         assert_eq!(count(&events, "user_message", USER_TEXT, &text), 1, "{events:?}");
         let answer = format!("echo: {text}");
         assert_eq!(count(&events, "agent_message_chunk", AGENT_TEXT, &answer), 1, "{events:?}");
@@ -227,12 +228,14 @@ mod diff_comments_journey {
         acpmux.call("session/prompt", resend);
         let events = acpmux.events(&session);
         assert_eq!(count(&events, "user_message", USER_TEXT, &text), 1, "{events:?}");
-        assert_eq!(turn_prompt_ids(&events), [prompt_id.as_str()], "the review's turns: {events:?}");
+        assert_eq!(
+            turn_prompt_ids(&events),
+            [prompt_id.as_str()],
+            "the review's turns: {events:?}"
+        );
 
         // Another daemon session on this machine, with its own comments,
-        // sends another review to the same chat under the same key: its
-        // prompt id is its own, so acpmux runs it rather than answering it
-        // as a duplicate, and its comments clear only because it arrived.
+        // sends another review to the same chat under a distinct key.
         let other = Machine {
             dir: mac.dir.clone(),
             socket: mac.dir.join("other.sock"),
@@ -251,21 +254,31 @@ mod diff_comments_journey {
         let other_blocks: Vec<&str> =
             other_read.iter().map(|comment| comment["submissionText"].as_str().unwrap()).collect();
         let other_text = prompt_text(&other_blocks);
+        let other_versions: serde_json::Map<String, Value> = other_read
+            .iter()
+            .map(|comment| {
+                (comment["id"].as_str().unwrap().to_owned(), comment["updatedAt"].clone())
+            })
+            .collect();
         assert_ne!(other_text, text);
         let other_send = json!({
             "root": ROOT,
             "acp_session": session,
             "text": other_text,
             "ids": [theirs_id],
+            "versions": other_versions,
         });
-        let other_sent = other_client.ok("diff.comments.send", other_send, SEND_KEY);
+        let other_sent = other_client.ok("diff.comments.send", other_send, OTHER_SEND_KEY);
         assert_eq!(other_sent["value"], json!({"sent": 1, "cleared": [theirs_id]}), "{other_sent}");
         let events = wait_until(30, "the agent's answer to the other session's review", || {
             let events = acpmux.events(&session);
             (turn_prompt_ids(&events).len() == 2).then_some(events)
         });
         let prompt_ids = turn_prompt_ids(&events);
-        assert_ne!(prompt_ids[1], prompt_id, "each session's prompt id is its own: {events:?}");
+        assert_eq!(
+            prompt_ids[1], OTHER_SEND_KEY,
+            "the second key is the second prompt id: {events:?}"
+        );
         assert_eq!(count(&events, "user_message", USER_TEXT, &other_text), 1, "{events:?}");
         assert_eq!(count(&events, "user_message", USER_TEXT, &text), 1, "{events:?}");
         assert!(other_client.list().is_empty());
@@ -279,6 +292,7 @@ mod diff_comments_journey {
             "acp_session": "fake-session-not-running",
             "text": "Review comment on src/main.rs line 10 (new version):\n\nhandle it here\n",
             "ids": [second_id],
+            "versions": {},
         });
         let refused = client.request("diff.comments.send", elsewhere, Some("send-nowhere"));
         assert_eq!(refused["ok"], false, "{refused}");

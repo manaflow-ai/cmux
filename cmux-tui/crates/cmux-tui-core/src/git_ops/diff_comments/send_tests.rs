@@ -1,6 +1,6 @@
 //! `diff.comments.send` against a real session ledger, with the acpmux
 //! hand-over replaced: a key is bound to its first request before the
-//! prompt leaves, and the prompt id is the session's own.
+//! prompt leaves, and the prompt id is the caller's idempotency key.
 
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 use serde_json::{Value, json};
 
-use super::send::{prompt_id, send_with};
-use super::{File, Store};
+use super::send::{prompt_id, reservation_path, reserve, send_with, sweep_reservations};
+use super::{File, Store, fingerprint};
 use crate::mux::agent_message_pump::Handover;
 use crate::resource_router::{ParsedResourceRequest, parse_resource_request};
 use crate::{Mux, SurfaceOptions};
@@ -31,8 +31,7 @@ impl Drop for Session {
 
 fn session(name: &str) -> Session {
     let stamp = super::now_ms();
-    let directory =
-        std::env::temp_dir().join(format!("dcs-{name}-{}-{stamp}", std::process::id()));
+    let directory = std::env::temp_dir().join(format!("dcs-{name}-{}-{stamp}", std::process::id()));
     let mux =
         Mux::open_persistent(format!("dcs-{name}"), SurfaceOptions::default(), &directory).unwrap();
     let store = Store::open(&mux, "diff.comments.send").unwrap();
@@ -57,6 +56,7 @@ fn request(text: &str, key: &str) -> ParsedResourceRequest {
             "acp_session": "fake-session-1",
             "text": text,
             "ids": ["a", "b"],
+            "versions": {},
         },
         "idempotency_key": key,
     });
@@ -128,13 +128,36 @@ fn a_refused_send_frees_its_key() {
 }
 
 #[test]
-fn prompt_ids_are_stable_per_session_and_distinct_between_sessions() {
+fn prompt_ids_are_raw_and_stable_across_sessions() {
     let first = session("first");
     let second = session("second");
-    let id = prompt_id(&first.mux, KEY);
-    assert!(id.starts_with("dcs_") && id.len() == 36, "{id}");
-    assert_eq!(prompt_id(&first.mux, KEY), id);
-    assert_ne!(prompt_id(&first.mux, "other-key"), id);
-    assert_ne!(prompt_id(&second.mux, KEY), id, "the same key in another session");
-    assert_ne!(id, KEY, "never the caller's raw key");
+    let id = prompt_id(KEY);
+    assert_eq!(id, KEY);
+    assert_eq!(prompt_id(KEY), id);
+    assert_ne!(prompt_id("other-key"), id);
+    assert_eq!(prompt_id(KEY), prompt_id(KEY), "the same key across daemon sessions");
+    drop((first, second));
+}
+
+#[test]
+fn reservation_sweep_removes_committed_and_keeps_unsettled_files() {
+    let session = session("sweep");
+    let handed = RefCell::new(Vec::new());
+    let request = request("Review A", KEY);
+    send(&session, &request, Handover::Delivered, &handed).unwrap();
+
+    let committed_path = reservation_path(&session.store, KEY);
+    reserve(&committed_path, KEY, &fingerprint(&request)).unwrap();
+    let unsettled_key = "unsettled-key";
+    let unsettled_request = request("Review B", unsettled_key);
+    let unsettled_path = reservation_path(&session.store, unsettled_key);
+    reserve(&unsettled_path, unsettled_key, &fingerprint(&unsettled_request)).unwrap();
+    let malformed_path = session.store.directory.join("sends/malformed.json");
+    std::fs::write(&malformed_path, b"not json").unwrap();
+
+    sweep_reservations(&session.mux, &session.store);
+
+    assert!(!committed_path.exists(), "a committed reservation is stale");
+    assert!(unsettled_path.exists(), "an unsettled send stays bound");
+    assert!(malformed_path.exists(), "malformed state is left for diagnosis");
 }

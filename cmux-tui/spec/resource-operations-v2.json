@@ -25788,7 +25788,7 @@
             "description": "The ids of the comments the prompt carries, 1 to 500; they are removed once the agent's session takes it."
           },
           "versions": {
-            "required": false,
+            "required": true,
             "type": {
               "kind": "map",
               "values": {
@@ -25796,7 +25796,7 @@
                 "name": "string"
               }
             },
-            "description": "Optional: each id's updatedAt as the caller last read it, at most 500. A sent comment whose updatedAt differs (edited since) is kept."
+            "description": "Each id's updatedAt as the caller last read it, at most 500 (an empty object is allowed). A sent comment whose updatedAt differs (edited since) is kept."
           }
         },
         "extra": false

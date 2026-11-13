@@ -89,7 +89,7 @@ impl crate::mux::Mux {
         };
         // Only a session acpmux runs, by its exact id, takes the prompt.
         let known = link.call("_acpmux/info", info_params(session), INFO_TIMEOUT);
-        if !known.is_ok_and(|info| info.get("sessionId").and_then(Value::as_str) == Some(session)) {
+        if !known.is_ok_and(|info| local_session_info(&info, session)) {
             link.close();
             return Handover::Unreachable;
         }
@@ -164,9 +164,7 @@ impl crate::mux::Mux {
             Ok(Withdrawn::NoSession) => {
                 let info = link.call("_acpmux/info", info_params(session), INFO_TIMEOUT);
                 match info {
-                    Ok(info) if info.get("sessionId").and_then(Value::as_str) == Some(session) => {
-                        Ok(Withdrawn::NotFound)
-                    }
+                    Ok(info) if local_session_info(&info, session) => Ok(Withdrawn::NotFound),
                     // acpmux names another session, or its own lookup
                     // (`Hub::resolve`) knows none here or on a peer.
                     Ok(_) => Ok(Withdrawn::NoSession),
@@ -209,6 +207,27 @@ impl crate::mux::Mux {
                 LinkError::Closed | LinkError::Timeout | LinkError::Busy | LinkError::BadList(_),
             ) => Err(WithdrawError::Unavailable),
         }
+    }
+}
+
+/// `_acpmux/info` can resolve a session mirrored from a peer. A prompt sent
+/// through this daemon must only target a session owned by this machine.
+fn local_session_info(info: &Value, session: &str) -> bool {
+    info.get("sessionId").and_then(Value::as_str) == Some(session)
+        && info.get("peer").is_none_or(Value::is_null)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::local_session_info;
+    use serde_json::json;
+
+    #[test]
+    fn peer_session_info_is_not_local() {
+        assert!(local_session_info(&json!({"sessionId": "chat"}), "chat"));
+        assert!(local_session_info(&json!({"sessionId": "chat", "peer": null}), "chat"));
+        assert!(!local_session_info(&json!({"sessionId": "chat", "peer": "other"}), "chat"));
+        assert!(!local_session_info(&json!({"sessionId": "other"}), "chat"));
     }
 }
 

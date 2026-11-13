@@ -87,7 +87,7 @@ pub(super) fn dispatch(
         }
         ResourceOperation::DiffCommentsDelete => {
             let ids = ids(&request.fields)?;
-            let versions = versions(&request.fields)?;
+            let versions = versions(&request.fields, false)?;
             mutate(mux, &store, request, root, |file, _| Ok(delete(file, &ids, &versions)))
         }
         ResourceOperation::DiffCommentsSend => send::send(mux, &store, request, root),
@@ -279,16 +279,20 @@ fn prompt(fields: &Map<String, Value>) -> Result<&str, ResourceError> {
     Ok(text)
 }
 
-/// `versions`: optional, each id's `updatedAt` as the caller last read it.
-fn versions(fields: &Map<String, Value>) -> Result<Map<String, Value>, ResourceError> {
+/// `versions`: each id's `updatedAt` as the caller last read it. Delete may
+/// omit it; send must provide an object, including an empty one.
+pub(super) fn versions(
+    fields: &Map<String, Value>,
+    required: bool,
+) -> Result<Map<String, Value>, ResourceError> {
     match fields.get("versions") {
-        None | Some(Value::Null) => Ok(Map::new()),
+        None | Some(Value::Null) if !required => Ok(Map::new()),
         Some(Value::Object(versions))
             if versions.len() <= MAX_DELETE_IDS && versions.values().all(Value::is_string) =>
         {
             Ok(versions.clone())
         }
-        Some(_) => Err(ResourceError::validation_invalid(
+        None | Some(_) => Err(ResourceError::validation_invalid(
             Some("versions"),
             format!("versions maps at most {MAX_DELETE_IDS} ids to updatedAt strings"),
         )),
