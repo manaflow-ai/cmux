@@ -390,8 +390,10 @@ await requireBrowserLane("agent-pane-turn-end-motion.test.ts", async () => {
             // What fades is the row, or a message's presentation inside it (its entrance).
             const face = row.querySelector<HTMLElement>(".acpmux-row__message-presentation") ?? row;
             if (w.__frames > 2 && w.__step !== "before" && inside && drawnOpacity(face) > 0.95) {
-              step.pops.push(label(row));
-              note(`pop ${label(row)}`);
+              const style = getComputedStyle(row);
+              const detail = `${label(row)} id=${row.dataset.rowId ?? "?"} class=${row.className} hold=${row.hasAttribute("data-entrance-held")} anim=${style.animationName}/${style.animationDuration} opacity=${drawnOpacity(face).toFixed(2)}`;
+              step.pops.push(detail);
+              note(`pop ${detail}`);
             }
             seen.set(row, { top: rect.top, dir: 0, travel: 0 });
             continue;
@@ -502,7 +504,7 @@ await requireBrowserLane("agent-pane-turn-end-motion.test.ts", async () => {
         // arriving under the history) still moves more than two lines in a frame.
         expect(report.steps.reply?.reversals ?? 0).toBeLessThanOrEqual(3);
         const popped = ["received", "next"].flatMap((name) => report.steps[name]?.pops ?? []);
-        expect(popped).toEqual([]);
+        expect(popped, JSON.stringify(report)).toEqual([]);
         const gaps = Object.entries(report.steps).flatMap(([name, step]) =>
           step.stopGaps ? [[name, step.stopGaps]] : [],
         );
