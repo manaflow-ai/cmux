@@ -44,7 +44,7 @@ struct CloudSeedRefusalTests {
 
     @Test func aSeedThatIsNotRefusedCopiesOnce() async throws {
         var asked: [CloudMoveCLI.SeedRefusal] = []
-        let seeded = try await CloudSeedRefusal.copying(machine: "m", in: { nil }, declined: { Declined(reason: $0) }) { refusal in
+        let seeded = try await CloudSeedRefusal.copying(machine: "m", diskMb: nil, declined: { Declined(reason: $0) }) { refusal in
             asked.append(refusal)
             return (CloudMoveCLI.Answer(ok: true), "seeded")
         }
