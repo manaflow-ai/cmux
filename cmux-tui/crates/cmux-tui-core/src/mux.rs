@@ -3,10 +3,13 @@
 
 mod agent_last_sessions;
 mod idle_close;
+mod journal_retention;
 mod public_projections;
 mod resource_content;
 mod resource_topology;
 mod terminal_directory;
+#[cfg(all(test, unix))]
+mod terminal_event_lock_order_tests;
 mod terminal_last_command;
 mod terminal_reap;
 
@@ -15,8 +18,8 @@ pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_te
 pub(crate) use resource_content::ResourceEffectProjection;
 pub(crate) use resource_topology::SCREEN_CREATE_FOCUS_FIELD;
 pub use terminal_reap::{
-    DEFAULT_TERMINAL_REAP_GRACE, MAX_TERMINAL_REAP_GRACE, TerminalReaper, start_terminal_reaper,
-    validate_terminal_reap_grace,
+    DEFAULT_TERMINAL_REAP_GRACE, HeldTerminalReaper, MAX_TERMINAL_REAP_GRACE, TerminalReaper,
+    prepare_terminal_reaper, start_terminal_reaper, validate_terminal_reap_grace,
 };
 
 use public_projections::{RestoredPublicProjections, restore_public_projections};
@@ -272,6 +275,18 @@ type WorkspaceRenameHook = Arc<dyn Fn(&WorkspacePublicId) + Send + Sync>;
 type WorkspaceDeltaBeforeEmitHook = Arc<dyn Fn(u64) + Send + Sync>;
 #[cfg(test)]
 type TerminalReservationHook = Arc<dyn Fn(&str) + Send + Sync>;
+#[cfg(test)]
+type TerminalEventPublishHook = Arc<dyn Fn(TerminalEventPublication, SurfaceId) + Send + Sync>;
+
+/// The terminal event a [`TerminalEventPublishHook`] observes.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TerminalEventPublication {
+    Title,
+    Bell,
+    /// `SurfaceOutput`; for a local terminal only the frame producer sends it.
+    Output,
+}
 type RestoredViewport = (std::collections::BTreeMap<SplitId, f32>, Option<f32>, Vec<LayoutColumn>);
 
 const TERMINAL_DIMENSION_MAX: u16 = 10_000;
@@ -305,6 +320,21 @@ const KITTY_IMAGE_BUDGET_OWNER_LIMIT: usize = {
     let placement_limit = KITTY_PLACEMENT_PROCESS_BUDGET_COUNT / KITTY_OBJECT_OWNERS_PER_SURFACE;
     if image_limit < placement_limit { image_limit as usize } else { placement_limit as usize }
 };
+
+/// Debug builds hold a terminal-host reconnect checkpoint while
+/// `CMUX_TUI_TEST_HOLD_RECONNECT_CHECKPOINT` names a FIFO: opening it waits
+/// for the test to open the other end, and the read ends when the test closes
+/// it. A held capture stands for a slow one (a long scrollback on a busy
+/// machine) without a timing race.
+#[cfg(debug_assertions)]
+fn hold_reconnect_checkpoint_for_test(origin: &str) {
+    if origin != "terminal_host_reconnect" {
+        return;
+    }
+    if let Some(path) = std::env::var_os("CMUX_TUI_TEST_HOLD_RECONNECT_CHECKPOINT") {
+        let _ = std::fs::read(path);
+    }
+}
 
 fn cell_pixel_retry_delay(attempts: u8) -> Duration {
     let multiplier = 1_u32.checked_shl(u32::from(attempts.saturating_sub(1))).unwrap_or(u32::MAX);
@@ -1404,6 +1434,10 @@ struct HookFence {
     session_id: String,
     sequence: u64,
     ended: bool,
+    /// The latest hook stamp among the applied events of `session_id`
+    /// ([`crate::agent_hooks::HookOrderStamp`]). It is stored with the hook
+    /// state, so the order holds across a session restart.
+    order: crate::agent_hooks::HookOrderStamp,
 }
 
 enum DirectHookTransition {
@@ -1464,6 +1498,7 @@ impl HookFence {
                     agent_session_id: session_id.to_owned(),
                     applied_sequence: self.sequence,
                     ended: false,
+                    order: crate::agent_hooks::HookOrderStamp::default(),
                 },
             ));
         }
@@ -1623,13 +1658,37 @@ pub struct TerminalCloseResult {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TerminalCloseGuard {
     None,
-    /// The terminal has no tab placement (the unplaced-terminal reaper).
-    Unplaced,
+    /// The terminal has no tab placement, no client holds an attach stream
+    /// on it, and the daemon is not in a shutdown handoff (the
+    /// unplaced-terminal reaper). The close checks these once it holds its
+    /// locks, so an attach or a handoff that lands before then keeps the
+    /// terminal (feat `UnplacedNotKeptAndDetached`).
+    UnplacedAndDetached,
+}
+
+impl TerminalCloseGuard {
+    /// The close needs the terminal without a placement.
+    pub(crate) fn requires_unplaced(self) -> bool {
+        !matches!(self, Self::None)
+    }
+
+    /// The close needs no attach stream on the terminal and no daemon
+    /// shutdown handoff in progress (the reaper's guard gates both checks).
+    pub(crate) fn requires_detached(self) -> bool {
+        matches!(self, Self::UnplacedAndDetached)
+    }
 }
 
 /// The close guard did not hold, so nothing changed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct TerminalCloseGuardFailed;
+pub(crate) enum TerminalCloseGuardFailed {
+    /// The terminal has a placement.
+    Placed,
+    /// A client holds an attach stream on the terminal.
+    Attached,
+    /// The daemon is in a shutdown handoff: the next owner gets the terminal.
+    HandingOff,
+}
 
 impl fmt::Display for TerminalCloseGuardFailed {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -2636,6 +2695,10 @@ pub struct Mux {
     resource_close_after_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     resource_close_cleanup: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Runs when a terminal title or bell publication starts, before it
+    /// resolves placements under `state`.
+    #[cfg(test)]
+    terminal_event_publish_hook: Mutex<Option<TerminalEventPublishHook>>,
     browser_providers: Arc<BrowserProviderRegistry>,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     active_render_attachments: Arc<AtomicUsize>,
@@ -2701,6 +2764,9 @@ pub struct Mux {
     /// per-terminal reporting would emit N warnings for one underlying
     /// condition. Cleared when a reconnect checkpoint succeeds again.
     reconnect_checkpoint_skip_reported: AtomicBool,
+    /// Coalesced journal checkpoints after terminal-host reconnects; see
+    /// mux/journal_retention.rs.
+    journal_retention: journal_retention::JournalRetention,
     /// Frontend-owned sink for diagnostics emitted by background core work.
     /// `OnceLock` keeps the callback immutable after startup and avoids a
     /// mutex on the reconnect hot path. Startup can adopt a hosted surface
@@ -2736,8 +2802,8 @@ pub struct Mux {
     idle_close_waker: Mutex<Option<std::sync::mpsc::Sender<idle_close::ReaperMessage>>>,
     /// The unplaced-terminal reap grace in milliseconds (`terminal_reap.rs`).
     terminal_reap_grace_ms: AtomicU64,
-    /// The running unplaced-terminal reaper's event receiver; `Some` while it
-    /// runs (`terminal-reaper-active-v1`).
+    /// The unplaced-terminal reaper's event receiver; `Some` while its thread
+    /// runs, held or released (`terminal-reaper-active-v1`).
     terminal_reaper_events: Mutex<Option<MuxEventReceiver>>,
     #[cfg(unix)]
     pub(crate) image_pastes: crate::image_paste::ImagePasteStore,
@@ -3066,6 +3132,8 @@ impl Mux {
             resource_close_after_commit: Mutex::new(None),
             #[cfg(test)]
             resource_close_cleanup: Mutex::new(None),
+            #[cfg(test)]
+            terminal_event_publish_hook: Mutex::new(None),
             browser_providers: Arc::new(BrowserProviderRegistry::default()),
             browser_runtime: Mutex::new(None),
             active_render_attachments: Arc::new(AtomicUsize::new(0)),
@@ -3123,6 +3191,7 @@ impl Mux {
             journal_event_epoch: Mutex::new(0),
             journal_event_changed: Condvar::new(),
             reconnect_checkpoint_skip_reported: AtomicBool::new(false),
+            journal_retention: Default::default(),
             diagnostic_reporter: OnceLock::new(),
             pending_diagnostic: Mutex::new(None),
             #[cfg(test)]
@@ -6013,6 +6082,11 @@ impl Mux {
         });
     }
 
+    /// See [`crate::journal_ingress::JournalIngressSender::terminal_lane_can_resume`].
+    pub(crate) fn terminal_journal_lane_can_resume(&self) -> bool {
+        self.journal_ingress.terminal_lane_can_resume()
+    }
+
     pub(crate) fn try_journal_terminal_output(
         &self,
         terminal_id: Arc<TerminalPublicId>,
@@ -6051,18 +6125,6 @@ impl Mux {
         }
     }
 
-    pub(crate) fn wait_for_terminal_journal_space_until(
-        &self,
-        observed: u64,
-        deadline: Instant,
-    ) -> Result<(), String> {
-        self.journal_ingress.wait_for_queue_space_until(observed, deadline)
-    }
-
-    pub(crate) fn terminal_journal_durable_deadline(&self) -> Instant {
-        self.journal_ingress.durable_deadline()
-    }
-
     pub(crate) fn flush_terminal_journal(&self) -> anyhow::Result<()> {
         self.journal_ingress.flush_terminal()
     }
@@ -6087,6 +6149,15 @@ impl Mux {
         release: Receiver<()>,
     ) {
         self.journal_ingress.install_nonretryable_failure_hook_for_test(entered, release);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_journal_writer_pacing_for_test(
+        &self,
+        entered: SyncSender<()>,
+        step: Receiver<()>,
+    ) {
+        self.journal_ingress.install_writer_pacing_for_test(entered, step);
     }
 
     pub(crate) fn terminal_journal_enabled(&self) -> bool {
@@ -6117,7 +6188,11 @@ impl Mux {
         })
     }
 
-    pub(crate) fn journal_terminal_resize(
+    /// Queues an accepted geometry change in the terminal lane without
+    /// waiting. `false` when the lane is full and the change was not
+    /// journaled; a writer that failed permanently counts as journaled, since
+    /// nothing will record it.
+    pub(crate) fn try_journal_terminal_resize(
         &self,
         terminal_id: Arc<TerminalPublicId>,
         generation: Arc<str>,
@@ -6125,16 +6200,21 @@ impl Mux {
         rows: u16,
         cell_width: u16,
         cell_height: u16,
-    ) {
-        self.journal_ingress.send(crate::journal_ingress::JournalIngressEvent::TerminalResize {
-            terminal_id,
-            generation,
-            occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
-            cols,
-            rows,
-            cell_width,
-            cell_height,
-        });
+    ) -> bool {
+        !matches!(
+            self.journal_ingress.try_send(
+                crate::journal_ingress::JournalIngressEvent::TerminalResize {
+                    terminal_id,
+                    generation,
+                    occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
+                    cols,
+                    rows,
+                    cell_width,
+                    cell_height,
+                },
+            ),
+            Err(crate::journal_ingress::JournalIngressTrySendError::Full { .. })
+        )
     }
 
     pub(crate) fn try_journal_terminal_output_gap(
@@ -6151,25 +6231,6 @@ impl Mux {
                 reason,
             },
         )
-    }
-
-    pub(crate) fn try_journal_terminal_output_gap_until(
-        &self,
-        terminal_id: Arc<TerminalPublicId>,
-        generation: Arc<str>,
-        reason: &'static str,
-        deadline: Instant,
-    ) -> anyhow::Result<()> {
-        let event = crate::journal_ingress::JournalIngressEvent::TerminalOutputGap {
-            terminal_id,
-            generation,
-            occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
-            reason,
-        };
-        if Instant::now() >= deadline {
-            return self.journal_ingress.try_send_terminal_gap(event);
-        }
-        self.journal_ingress.send_durable_until(event, deadline)
     }
 
     pub(crate) fn commit_session_journal_events<F>(
@@ -6607,6 +6668,19 @@ impl Mux {
         ) else {
             return Ok(());
         };
+        // One agent's hooks run one after another, but each sends on its own
+        // connection and each connection has its own thread, so the journal
+        // can take them out of order. The hook's start time orders what the
+        // agent did; the journal sequence orders transport.
+        let stamp = crate::agent_hooks::HookOrderStamp::of(&ingress.payload);
+        let last_order = previous_fence
+            .as_ref()
+            .filter(|fence| fence.session_id == agent_session_id)
+            .map(|fence| &fence.order);
+        if crate::agent_hooks::hook_event_is_reordered(&ingress.kind, &stamp, last_order) {
+            return Ok(());
+        }
+        let order = stamp.applied_over(last_order);
         // Attention-worthy transitions become durable notifications before
         // the agent report commits. The notification key is derived from the
         // journal sequence, so a retry after a crash between the two commits
@@ -6634,6 +6708,7 @@ impl Mux {
             agent_session_id: agent_session_id.clone(),
             applied_sequence: sequence,
             ended: state == AgentState::Done,
+            order: order.clone(),
         };
         self.report_agent_with_sequence_lock(
             surface,
@@ -6648,7 +6723,12 @@ impl Mux {
         )?;
         fences.insert(
             terminal_id.clone(),
-            HookFence { session_id: agent_session_id, sequence, ended: state == AgentState::Done },
+            HookFence {
+                order,
+                session_id: agent_session_id,
+                sequence,
+                ended: state == AgentState::Done,
+            },
         );
         // Projection ordering is complete. Do not carry the fence guard into
         // cleanup or any retry/reentrant path.
@@ -7104,6 +7184,8 @@ impl Mux {
         origin: &str,
         idempotency_key: &str,
     ) -> anyhow::Result<crate::workspace_registry::JournalCheckpointCommit> {
+        #[cfg(debug_assertions)]
+        hold_reconnect_checkpoint_for_test(origin);
         let mut last_error = None;
         for attempt in 0..crate::journal_checkpoint::MAX_CHECKPOINT_CAPTURE_ATTEMPTS {
             if let Some(commit) = self
@@ -7606,6 +7688,8 @@ impl Mux {
     }
 
     pub(crate) fn emit_terminal_output(&self, runtime_id: SurfaceId) {
+        #[cfg(test)]
+        self.run_terminal_event_publish_hook(TerminalEventPublication::Output, runtime_id);
         for placement in self.terminal_event_placements(runtime_id) {
             self.emit(MuxEvent::SurfaceOutput(placement));
         }
@@ -7639,12 +7723,16 @@ impl Mux {
     }
 
     pub(crate) fn emit_terminal_title(&self, surface: SurfaceId, title: Arc<str>) {
+        #[cfg(test)]
+        self.run_terminal_event_publish_hook(TerminalEventPublication::Title, surface);
         for placement in self.terminal_event_placements(surface) {
             self.emit(MuxEvent::TitleChanged { surface: placement, title: title.clone() });
         }
     }
 
     pub(crate) fn emit_terminal_bell(&self, surface: SurfaceId) {
+        #[cfg(test)]
+        self.run_terminal_event_publish_hook(TerminalEventPublication::Bell, surface);
         for placement in self.terminal_event_placements(surface) {
             self.emit(MuxEvent::Bell(placement));
         }
@@ -10193,6 +10281,20 @@ impl Mux {
     }
 
     #[cfg(test)]
+    fn set_terminal_event_publish_hook(&self, hook: Option<TerminalEventPublishHook>) {
+        *self.terminal_event_publish_hook.lock().unwrap_or_else(PoisonError::into_inner) = hook;
+    }
+
+    #[cfg(test)]
+    fn run_terminal_event_publish_hook(&self, kind: TerminalEventPublication, surface: SurfaceId) {
+        let hook =
+            self.terminal_event_publish_hook.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        if let Some(hook) = hook {
+            hook(kind, surface);
+        }
+    }
+
+    #[cfg(test)]
     fn set_client_resize_before_apply(&self, hook: Option<Arc<dyn Fn() + Send + Sync>>) {
         *self.client_resize_before_apply.lock().unwrap() = hook;
     }
@@ -10731,16 +10833,30 @@ impl Mux {
         }
         let (commit, terminal_incarnation, public_id, notify_public_id) = {
             let mut registry = self.workspace_registry.lock().unwrap();
-            if guard == TerminalCloseGuard::Unplaced {
-                let placed = {
+            if guard.requires_unplaced() {
+                let (placed, attached, handing_off) = {
                     let state = self.state.lock().unwrap();
-                    state.surfaces.values().any(|surface| {
+                    let hosts = |surface: &Arc<Surface>| {
                         self.resource_terminal_host_identity(surface)
                             .is_some_and(|identity| identity.terminal_id == terminal_id)
-                    })
+                    };
+                    let placed = state.surfaces.values().any(&hosts);
+                    let attached = guard.requires_detached()
+                        && state.terminal_catalog.values().any(|runtime| {
+                            hosts(runtime) && self.terminal_view_attached(runtime.id)
+                        });
+                    let handing_off =
+                        guard.requires_detached() && self.daemon_handoff_in_progress();
+                    (placed, attached, handing_off)
                 };
                 if placed {
-                    return Err(TerminalCloseGuardFailed.into());
+                    return Err(TerminalCloseGuardFailed::Placed.into());
+                }
+                if attached {
+                    return Err(TerminalCloseGuardFailed::Attached.into());
+                }
+                if handing_off {
+                    return Err(TerminalCloseGuardFailed::HandingOff.into());
                 }
             }
             let public_id = registry.terminal_resource_id(terminal_id)?;
@@ -11903,6 +12019,7 @@ impl Mux {
                     session_id: direct_state.agent_session_id.clone(),
                     sequence: direct_state.applied_sequence,
                     ended: false,
+                    order: direct_state.order.clone(),
                 },
             );
         }
@@ -20659,32 +20776,6 @@ mod tests {
     }
 
     #[test]
-    fn journal_review_gap_after_deadline_queues_best_effort_marker() {
-        let root = std::env::temp_dir().join(format!(
-            "cmux-journal-gap-expired-deadline-{}",
-            crate::workspace_registry::new_uuid_v4()
-        ));
-        let mux = open_persistent_test_mux("gap-expired-deadline", &root);
-        let terminal_id = Arc::new(TerminalPublicId::parse(format!("term_{:032x}", 44)).unwrap());
-
-        mux.try_journal_terminal_output_gap_until(
-            terminal_id,
-            Arc::from("gap-expired-generation"),
-            "journal_output_deadline_expired",
-            Instant::now() - Duration::from_millis(1),
-        )
-        .unwrap();
-        mux.flush_terminal_journal().unwrap();
-
-        assert!(mux.session_journal_after(0, 1024).unwrap().records.iter().any(|record| {
-            record.kind == "terminal.output.gap"
-                && record.payload["reason"] == "journal_output_deadline_expired"
-        }));
-        drop(mux);
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
     fn journal_maintenance_continues_sealing_a_subthreshold_tail() {
         let root = std::env::temp_dir().join(format!(
             "cmux-journal-maintenance-tail-{}",
@@ -25820,6 +25911,329 @@ mod tests {
         mux.apply_agent_hook_record(&newer, 2).unwrap();
         mux.apply_agent_hook_record(&older, 1).unwrap();
         assert_eq!(hook_projected_agent(&mux, &terminal_id).unwrap().state, AgentState::Blocked);
+    }
+
+    #[test]
+    fn hook_order_events_journaled_out_of_send_order_keep_the_last_sent_state() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = mux.with_state(|state| {
+            match state.resource_indexes.content_ids.get(&surface.id).unwrap() {
+                ContentPublicId::Terminal(id) => id.clone(),
+                ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
+            }
+        });
+        // What the hook saw, and when: the hook stamps its machine's
+        // monotonic clock at its start, and one agent's hooks run one after
+        // another.
+        let ingress = |event: &str, ms: u64| clocked_hook(&terminal_id, event, "boot-a", ms, ms);
+        // The hooks sent SessionStart, UserPromptSubmit, then Stop, each on
+        // its own connection. Each connection has its own daemon thread, so
+        // the journal took the prompt after the Stop.
+        mux.apply_agent_hook_record(&ingress("SessionStart", 1_000), 1).unwrap();
+        mux.apply_agent_hook_record(&ingress("Stop", 3_000), 2).unwrap();
+        mux.apply_agent_hook_record(&ingress("UserPromptSubmit", 2_000), 3).unwrap();
+        assert_eq!(hook_projected_agent(&mux, &terminal_id).unwrap().state, AgentState::Idle);
+        // The next prompt the hooks send still applies.
+        mux.apply_agent_hook_record(&ingress("UserPromptSubmit", 4_000), 4).unwrap();
+        assert_eq!(hook_projected_agent(&mux, &terminal_id).unwrap().state, AgentState::Working);
+    }
+
+    /// A Claude hook event for `terminal_id` in session `order-1`, stamped
+    /// as if its hook started at `observed_at_ms`.
+    fn ordered_hook(
+        terminal_id: &TerminalPublicId,
+        event: &str,
+        observed_at_ms: u64,
+    ) -> crate::JournalIngress {
+        let mut ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            event,
+            Some(&terminal_id.to_string()),
+            serde_json::json!({"session_id": "order-1"}),
+        )
+        .unwrap();
+        crate::agent_hooks::stamp_agent_hook_observed_at(&mut ingress, observed_at_ms);
+        ingress
+    }
+
+    #[test]
+    fn hook_order_the_roster_follows_the_last_sent_event_too() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-hook-order-roster-{}", crate::workspace_registry::new_uuid_v4()));
+        let mux = open_persistent_test_mux("hook-order-roster", &root);
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+        // The journal takes the prompt after the Stop (two daemon threads).
+        append_clocked(
+            &mux,
+            &terminal_id,
+            &[
+                ("SessionStart", 1_000, 1_000),
+                ("Stop", 3_000, 3_000),
+                ("UserPromptSubmit", 2_000, 2_000),
+            ],
+        );
+        assert_eq!(hook_projected_agent(&mux, &terminal_id).unwrap().state, AgentState::Idle);
+        // What the sidebar, tab badges and attention jump read.
+        let listed = mux.list_agents(None, None);
+        let row = listed.iter().find(|record| record.terminal_id == terminal_id);
+        assert_eq!(row.map(|record| record.state), Some(AgentState::Idle), "{listed:?}");
+        mux.shutdown();
+        drop(mux);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn hook_order_a_blocking_or_lifecycle_event_is_never_skipped() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+        let hook = |event: &str, ms: u64| clocked_hook(&terminal_id, event, "boot-a", ms, ms);
+        mux.apply_agent_hook_record(&hook("SessionStart", 1_000), 1).unwrap();
+        mux.apply_agent_hook_record(&hook("Stop", 3_000), 2).unwrap();
+        // A dialog (parallel subagents of one session) must show.
+        mux.apply_agent_hook_record(&hook("PermissionRequest", 2_000), 3).unwrap();
+        assert_eq!(hook_projected_agent(&mux, &terminal_id).unwrap().state, AgentState::Blocked);
+        // The session's end always applies.
+        mux.apply_agent_hook_record(&hook("SessionEnd", 2_500), 4).unwrap();
+        assert!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].ended);
+    }
+
+    /// A Claude hook event of session `order-1`, stamped as the hook stamps
+    /// it: the monotonic clock of its machine (`boot_id`, `monotonic_ns`)
+    /// and the wall clock (`observed_at_ms`).
+    fn clocked_hook(
+        terminal_id: &TerminalPublicId,
+        event: &str,
+        boot_id: &str,
+        monotonic_ms: u64,
+        observed_at_ms: u64,
+    ) -> crate::JournalIngress {
+        let mut ingress = ordered_hook(terminal_id, event, observed_at_ms);
+        ingress.payload["normalized"]["boot_id"] = serde_json::json!(boot_id);
+        ingress.payload["normalized"]["monotonic_ns"] =
+            serde_json::json!((monotonic_ms * 1_000_000).to_string());
+        ingress
+    }
+
+    /// Appends `events` (event, monotonic ms, wall ms; boot `boot-a`) through
+    /// the real ingress, in this journal order.
+    fn append_clocked(mux: &Arc<Mux>, terminal_id: &TerminalPublicId, events: &[(&str, u64, u64)]) {
+        for (event, monotonic_ms, observed_at_ms) in events {
+            let key = format!("hook-seq-{}", crate::workspace_registry::new_uuid_v4());
+            mux.append_journal_ingress(
+                &clocked_hook(terminal_id, event, "boot-a", *monotonic_ms, *observed_at_ms),
+                "t",
+                &key,
+            )
+            .unwrap();
+        }
+    }
+
+    /// The agent state in the agent rows and in the roster (sidebar, tab
+    /// badges, attention jump); both must agree.
+    fn assert_hook_seq_state(mux: &Arc<Mux>, terminal_id: &TerminalPublicId, expected: AgentState) {
+        assert_eq!(
+            hook_projected_agent(mux, terminal_id).map(|record| record.state),
+            Some(expected),
+            "agent rows"
+        );
+        let listed = mux.list_agents(None, None);
+        let row = listed.iter().find(|record| &record.terminal_id == terminal_id);
+        assert_eq!(row.map(|record| record.state), Some(expected), "roster: {listed:?}");
+    }
+
+    fn hook_seq_test_mux(name: &str) -> (Arc<Mux>, TerminalPublicId, std::path::PathBuf) {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-hook-seq-{name}-{}", crate::workspace_registry::new_uuid_v4()));
+        let mux = open_persistent_test_mux("hook-seq", &root);
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+        (mux, terminal_id, root)
+    }
+
+    #[test]
+    fn hook_seq_a_late_tool_failure_does_not_override_a_newer_state() {
+        let (mux, terminal_id, root) = hook_seq_test_mux("late-error");
+        // A tool failed (PostToolUseFailure, an error event), then the turn
+        // ended; the journal took the failure last.
+        append_clocked(
+            &mux,
+            &terminal_id,
+            &[
+                ("SessionStart", 1_000, 1_000),
+                ("Stop", 3_000, 3_000),
+                ("PostToolUseFailure", 2_000, 2_000),
+            ],
+        );
+        assert_hook_seq_state(&mux, &terminal_id, AgentState::Idle);
+        mux.shutdown();
+        drop(mux);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn hook_seq_the_monotonic_clock_orders_past_a_wall_clock_step() {
+        let (mux, terminal_id, root) = hook_seq_test_mux("clock-step");
+        // In send order, but the wall clock stepped back 3 s before the Stop.
+        append_clocked(
+            &mux,
+            &terminal_id,
+            &[
+                ("SessionStart", 1_000, 100_000),
+                ("UserPromptSubmit", 2_000, 100_000),
+                ("Stop", 3_000, 97_000),
+            ],
+        );
+        assert_hook_seq_state(&mux, &terminal_id, AgentState::Idle);
+        mux.shutdown();
+        drop(mux);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn hook_seq_a_reorder_longer_than_five_seconds_is_still_skipped() {
+        let (mux, terminal_id, root) = hook_seq_test_mux("long-reorder");
+        // The prompt's hook stalled 18 s; the journal took it after the Stop.
+        append_clocked(
+            &mux,
+            &terminal_id,
+            &[
+                ("SessionStart", 1_000, 1_000),
+                ("Stop", 20_000, 20_000),
+                ("UserPromptSubmit", 2_000, 2_000),
+            ],
+        );
+        assert_hook_seq_state(&mux, &terminal_id, AgentState::Idle);
+        mux.shutdown();
+        drop(mux);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Whether the agent rows' fence for `terminal_id`, as `mux` holds it,
+    /// skips `ingress` as journaled out of send order.
+    fn hook_seq_fence_skips(
+        mux: &Arc<Mux>,
+        terminal_id: &TerminalPublicId,
+        ingress: &crate::JournalIngress,
+    ) -> bool {
+        let fences = mux.agent_hook_fences.lock().unwrap();
+        let fence = fences.get(terminal_id).filter(|fence| fence.session_id == "order-1");
+        crate::agent_hooks::hook_event_is_reordered(
+            &ingress.kind,
+            &crate::agent_hooks::HookOrderStamp::of(&ingress.payload),
+            fence.map(|fence| &fence.order),
+        )
+    }
+
+    #[test]
+    fn hook_seq_the_order_survives_a_session_restart() {
+        let (mux, terminal_id, root) = hook_seq_test_mux("restart");
+        append_clocked(
+            &mux,
+            &terminal_id,
+            &[("SessionStart", 1_000, 1_000), ("Stop", 3_000, 3_000)],
+        );
+        mux.shutdown();
+        drop(mux);
+        let reopened = open_persistent_test_mux("hook-seq", &root);
+        // The prompt the hooks sent before the Stop arrives after the restart.
+        // The test terminal is not live after the reopen, so the agent rows
+        // hold the event until it is; the fence they restored must skip it.
+        let late = clocked_hook(&terminal_id, "UserPromptSubmit", "boot-a", 2_000, 2_000);
+        assert!(
+            hook_seq_fence_skips(&reopened, &terminal_id, &late),
+            "the agent rows' restored fence lost the session's order"
+        );
+        // The roster folds the journal, so it keeps the order too.
+        let key = format!("hook-seq-{}", crate::workspace_registry::new_uuid_v4());
+        reopened.append_journal_ingress(&late, "t", &key).unwrap();
+        let entries = reopened.agent_roster.lock().unwrap().roster.entries.clone();
+        assert_eq!(
+            entries.get(terminal_id.as_str()).map(|entry| entry.state.as_str()),
+            Some("idle"),
+            "roster"
+        );
+        reopened.shutdown();
+        drop(reopened);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn hook_seq_a_resume_after_a_reboot_starts_a_new_order() {
+        let (mux, terminal_id, root) = hook_seq_test_mux("reboot");
+        append_clocked(
+            &mux,
+            &terminal_id,
+            &[("SessionStart", 50_000, 1_000), ("Stop", 90_000, 41_000)],
+        );
+        // `claude --resume` after a reboot keeps the session id; the new
+        // boot's monotonic clock starts again near zero, and here the wall
+        // clock is also 0.5 s behind (it was set back at the boot). Both
+        // clocks are smaller; the new boot id still applies the event.
+        let key = format!("hook-seq-{}", crate::workspace_registry::new_uuid_v4());
+        mux.append_journal_ingress(
+            &clocked_hook(&terminal_id, "UserPromptSubmit", "boot-b", 2_000, 40_500),
+            "t",
+            &key,
+        )
+        .unwrap();
+        assert_hook_seq_state(&mux, &terminal_id, AgentState::Working);
+        mux.shutdown();
+        drop(mux);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn hook_seq_equal_monotonic_stamps_apply_in_arrival_order() {
+        let (mux, terminal_id, root) = hook_seq_test_mux("tie");
+        // Two hooks read the same monotonic value: neither is a reorder, so
+        // the journal order decides and the later one sets the state.
+        append_clocked(
+            &mux,
+            &terminal_id,
+            &[
+                ("SessionStart", 1_000, 1_000),
+                ("Stop", 3_000, 3_000),
+                ("UserPromptSubmit", 3_000, 3_000),
+            ],
+        );
+        assert_hook_seq_state(&mux, &terminal_id, AgentState::Working);
+        append_clocked(&mux, &terminal_id, &[("Stop", 3_000, 3_000)]);
+        assert_hook_seq_state(&mux, &terminal_id, AgentState::Idle);
+        mux.shutdown();
+        drop(mux);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn hook_seq_an_event_with_no_boot_id_applies_in_arrival_order() {
+        let (mux, terminal_id, root) = hook_seq_test_mux("no-boot-id");
+        append_clocked(
+            &mux,
+            &terminal_id,
+            &[("SessionStart", 1_000, 1_000), ("Stop", 3_000, 3_000)],
+        );
+        // An older hook helper stamps only the wall clock (no boot id). Its
+        // event applies in journal order, even with an earlier wall clock.
+        let append_wall_only = |event: &str, observed_at_ms: u64| {
+            let key = format!("hook-seq-{}", crate::workspace_registry::new_uuid_v4());
+            mux.append_journal_ingress(
+                &ordered_hook(&terminal_id, event, observed_at_ms),
+                "t",
+                &key,
+            )
+            .unwrap();
+        };
+        append_wall_only("UserPromptSubmit", 2_000);
+        assert_hook_seq_state(&mux, &terminal_id, AgentState::Working);
+        // Two events of the older helper: journal order too.
+        append_wall_only("Stop", 1_500);
+        assert_hook_seq_state(&mux, &terminal_id, AgentState::Idle);
+        mux.shutdown();
+        drop(mux);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
