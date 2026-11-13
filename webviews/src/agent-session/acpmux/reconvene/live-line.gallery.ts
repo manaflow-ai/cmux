@@ -11,7 +11,7 @@
 // word alone), cursor/live/transcript-reasoning-expanded (the model's thinking as its own "Thought 2s"
 // disclosure above the reply).
 // Every variant draws the same turn twice: mid-thinking (`<arm>`) and mid-command (`<arm>-command`).
-import { minutesAgo } from "../../../gallery/clock";
+import { FRESH_REPLY_MINUTES, minutesAgo } from "../../../gallery/clock";
 import { activity, assistant, chat, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import { agentPaneEntry, type AgentPaneVariant } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
@@ -50,17 +50,35 @@ const midCommand = () => chat([...earlier, prompt, activity([thinking(), tests],
 /// just replied!"): the reply streaming (`writing`), the reply in and the turn not ended yet
 /// (`replied`, "Thinking" with no clock), and the turn ended (`ended`, the reply's buttons).
 const answer = "Only network errors and 5xx answers retry now; a 404 throws at once.";
-const afterReply = (stage: "writing" | "replied" | "ended") =>
+const afterReply = (stage: "writing" | "replied" | "silent" | "ended") =>
   stage === "ended"
     ? chat([...earlier, prompt, assistant(answer, 0.2), summary(0.1, { status: "completed", durationMs: 24_000 })])
-    : chat([...earlier, prompt, assistant(answer, stage === "writing" ? 0 : 0.2)], { isWorking: true });
-const replyVariant = (stage: "writing" | "replied" | "ended", note: string): AgentPaneVariant => ({
+    : chat(
+        [
+          ...earlier,
+          prompt,
+          // Writing: just now. Replied: past WRITING_MS, inside SILENT_MS. Silent: past SILENT_MS
+          // (thinkingModel.ts), nothing heard since.
+          assistant(answer, stage === "writing" ? 0 : stage === "replied" ? FRESH_REPLY_MINUTES : 0.2),
+        ],
+        { isWorking: true },
+      );
+const replyVariant = (stage: "writing" | "replied" | "silent" | "ended", note: string): AgentPaneVariant => ({
   note,
   snapshot: afterReply(stage),
   play: async (ctx) => {
     if (stage !== "ended") await lineDrawn(ctx);
     if (stage === "replied" && ctx.document.querySelector(".acpmux-scroll .cv-worked--live .cv-worked__time"))
       throw new Error("the line still ticks the turn's clock under a finished reply");
+    if (stage === "silent") {
+      // Leo, 2026-11-12: "the whatever ms gets stuck and becomes false really quickly": a reply
+      // followed by silence never stays "Thinking"; it reads "Waiting" with the time since it last heard.
+      await ctx.waitFor(() =>
+        /^Waiting/.test(ctx.document.querySelector(".acpmux-scroll .cv-worked--live .cv-thinking")?.textContent ?? ""),
+      );
+      if (ctx.document.querySelector(".acpmux-scroll .cv-worked--live .cv-thinking.is-shimmer"))
+        throw new Error("a silent line still shimmers as if work went on");
+    }
   },
 });
 
@@ -216,6 +234,10 @@ export default agentPaneEntry({
     "after-reply": replyVariant(
       "replied",
       'The reply is in and the turn has not ended yet: "Thinking" alone, no clock or token count ticking under the reply.',
+    ),
+    "after-reply-silent": replyVariant(
+      "silent",
+      'The reply is in and nothing has arrived for 10 s: "Waiting 12s", calm, the time since the turn last heard anything, never a "Thinking" that goes stale.',
     ),
     "after-reply-ended": replyVariant("ended", "The turn ended: the live line gives way to the reply's buttons."),
   },
