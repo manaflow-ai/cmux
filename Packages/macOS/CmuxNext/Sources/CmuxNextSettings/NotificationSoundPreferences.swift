@@ -1,3 +1,5 @@
+import Foundation
+
 /// `notifications.sounds` in cmux.json: per-event sounds, master volume, when sounds play, the
 /// burst cooldown, and the levels a workspace, a group or an agent kind can override.
 ///
@@ -8,6 +10,8 @@
 ///     "volume": 0.8,
 ///     "when": "unlessViewed",
 ///     "cooldownSeconds": 1.5,
+///     "maxSeconds": 4,
+///     "lengths": {"Long Chime": "2.5", "~/Sounds/fanfare.m4a": "0"},
 ///     "events": {"needsInput": "Ping", "error": "Basso"},
 ///     "groups": {"Agents & routing": {"sound": "Submarine", "volume": 0.5}},
 ///     "workspaces": {"ws_1": "none"},
@@ -22,6 +26,12 @@ public nonisolated struct NotificationSoundPreferences: Hashable, Sendable {
     /// After a sound, quieter or equal events wait this long before the next one plays, so many
     /// agents finishing together sound once. 0 turns it off.
     public var cooldownSeconds: Double = Self.cooldownDefault
+    /// The longest a sound cmux plays itself lasts, in seconds; a shorter file ends on its own. 0 plays
+    /// every file to its end (`notifications.sounds.maxSeconds`).
+    public var maxSeconds: Double = Self.maxLengthDefault
+    /// How long one sound plays, in seconds, by its sound name or file path (`notifications.sounds.lengths`).
+    /// It wins over ``maxSeconds``; 0 plays that file to its end.
+    public var lengths: [String: Double] = [:]
     /// The global sound of one event; nil keeps `notifications.sound` (or its source's sound).
     public var events: [NotificationSoundEvent: String] = [:]
     /// Group rules by group id or name.
@@ -32,6 +42,15 @@ public nonisolated struct NotificationSoundPreferences: Hashable, Sendable {
     public var agents: [String: NotificationSoundRule] = [:]
 
     public init() {}
+
+    /// How long `sound` plays before cmux stops it, in seconds; nil plays the file to its end. The
+    /// sound's own entry in ``lengths`` wins (by name or path, then by file name without its
+    /// extension), then ``maxSeconds``. A file shorter than the length ends on its own.
+    public func length(for sound: String) -> Double? {
+        let file = ((sound as NSString).lastPathComponent as NSString).deletingPathExtension
+        if let own = lengths[sound] ?? lengths[file] { return own > 0 ? own : nil }
+        return maxSeconds > 0 ? maxSeconds : nil
+    }
 
     /// The levels that apply to `scope`, most specific first: the agent kind, the workspace, then
     /// each group from the innermost out.

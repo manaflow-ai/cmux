@@ -201940,6 +201940,534 @@
         }
       }
     },
+    "settings.notifications.sounds.maxLength": {
+      "comment": "Settings > Notifications > Sounds > Longest Sound: row title",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أطول صوت"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Najduži zvuk"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Længste lyd"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Längster Ton"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Longest Sound"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sonido más largo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Son le plus long"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suono più lungo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "最長のサウンド"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សំឡេងវែងបំផុត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "최대 소리 길이"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lengste lyd"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Najdłuższy dźwięk"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Som mais longo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Самый длинный звук"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เสียงที่ยาวที่สุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En uzun ses"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Найдовший звук"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Âm thanh dài nhất"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "最长声音"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "最長聲音"
+          }
+        }
+      }
+    },
+    "settings.notifications.sounds.maxLength.help": {
+      "comment": "Settings > Notifications > Sounds > Longest Sound: help text",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يتوقف الصوت الذي يشغّله cmux بنفسه بعد هذه المدة، وينتهي الملف الأقصر من تلقاء نفسه. القيمة 0 تشغّل كل ملف حتى نهايته."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zvuk koji cmux sam pušta prestaje nakon ovog vremena; kraća datoteka završava sama. 0 pušta svaku datoteku do kraja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En lyd, som cmux selv afspiller, stopper efter så lang tid; en kortere fil slutter af sig selv. 0 afspiller hver fil til ende."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein Ton, den cmux selbst abspielt, endet nach dieser Dauer; eine kürzere Datei endet von selbst. 0 spielt jede Datei bis zum Ende."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A sound cmux plays itself stops after this long; a shorter file ends on its own. 0 plays every file to its end."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un sonido que cmux reproduce por sí mismo se detiene tras este tiempo; un archivo más corto termina solo. 0 reproduce cada archivo hasta el final."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un son que cmux joue lui-même s’arrête après cette durée ; un fichier plus court se termine seul. 0 joue chaque fichier jusqu’au bout."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un suono che cmux riproduce da sé si ferma dopo questo tempo; un file più breve termina da solo. 0 riproduce ogni file fino alla fine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux が自分で再生するサウンドはこの長さで止まります。これより短いファイルはそのまま最後まで鳴ります。0 にするとすべてのファイルを最後まで再生します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សំឡេងដែល cmux ចាក់ដោយខ្លួនឯង នឹងឈប់បន្ទាប់ពីរយៈពេលនេះ ឯកសារខ្លីជាងនេះបញ្ចប់ដោយខ្លួនឯង។ 0 ចាក់ឯកសារនីមួយៗរហូតដល់ចប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 직접 재생하는 소리는 이 시간이 지나면 멈춥니다. 더 짧은 파일은 그대로 끝까지 재생됩니다. 0이면 모든 파일을 끝까지 재생합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En lyd som cmux spiller selv, stopper etter så lang tid; en kortere fil slutter av seg selv. 0 spiller hver fil til slutten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dźwięk odtwarzany przez cmux zatrzymuje się po tym czasie; krótszy plik kończy się sam. 0 odtwarza każdy plik do końca."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um som que o cmux toca sozinho para depois desse tempo; um arquivo mais curto termina sozinho. 0 toca cada arquivo até o fim."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Звук, который cmux воспроизводит сам, останавливается через это время; более короткий файл заканчивается сам. 0 воспроизводит каждый файл до конца."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เสียงที่ cmux เล่นเองจะหยุดหลังจากเวลานี้ ไฟล์ที่สั้นกว่าจะจบเอง 0 จะเล่นทุกไฟล์จนจบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux'un kendisi çaldığı bir ses bu süreden sonra durur; daha kısa bir dosya kendiliğinden biter. 0 her dosyayı sonuna kadar çalar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Звук, який cmux відтворює сам, зупиняється через цей час; коротший файл закінчується сам. 0 відтворює кожен файл до кінця."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Âm thanh do cmux tự phát sẽ dừng sau khoảng thời gian này; tệp ngắn hơn tự kết thúc. 0 phát mọi tệp đến hết."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 自行播放的声音在此时长后停止；更短的文件会自然结束。0 表示每个文件都播放到结尾。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 自行播放的聲音在此時長後停止；較短的檔案會自然結束。0 表示每個檔案都播放到結尾。"
+          }
+        }
+      }
+    },
+    "settings.notifications.sounds.lengths": {
+      "comment": "Settings > Notifications > Sounds > Sound Lengths: row title",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أطوال الأصوات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dužine zvukova"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lydlængder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tonlängen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sound Lengths"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Duración de los sonidos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Durées des sons"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Durata dei suoni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サウンドごとの長さ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រយៈពេលសំឡេង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "소리별 길이"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lydlengder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Długości dźwięków"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Duração dos sons"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Длительность звуков"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ความยาวของเสียง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ses uzunlukları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Тривалість звуків"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Độ dài âm thanh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "声音时长"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聲音時長"
+          }
+        }
+      }
+    },
+    "settings.notifications.sounds.lengths.help": {
+      "comment": "Settings > Notifications > Sounds > Sound Lengths: help text. Keep the JSON example \"Chime\": \"2.5\" and the \"0\" literal unchanged.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مدة تشغيل كل صوت بالثواني، حسب اسم الصوت أو مسار الملف، مثل \"Chime\": \"2.5\". تتقدّم على «أطول صوت»، والقيمة \"0\" تشغّل ذلك الملف حتى نهايته."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koliko dugo svaki zvuk svira, u sekundama, po nazivu zvuka ili putanji datoteke, npr. \"Chime\": \"2.5\". Ima prednost nad Najdužim zvukom; \"0\" pušta tu datoteku do kraja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvor længe hver lyd afspilles, i sekunder, efter lydnavn eller filsti, fx \"Chime\": \"2.5\". Den går forud for Længste lyd; \"0\" afspiller filen til ende."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wie lange jeder Ton spielt, in Sekunden, nach Tonname oder Dateipfad, etwa \"Chime\": \"2.5\". Hat Vorrang vor „Längster Ton“; \"0\" spielt diese Datei bis zum Ende."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How long each sound plays, in seconds, by sound name or file path, such as \"Chime\": \"2.5\". It wins over Longest Sound; \"0\" plays that file to its end."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuánto suena cada sonido, en segundos, por nombre de sonido o ruta de archivo, como \"Chime\": \"2.5\". Tiene prioridad sobre Sonido más largo; \"0\" reproduce ese archivo hasta el final."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Durée de chaque son, en secondes, par nom de son ou chemin de fichier, par exemple \"Chime\": \"2.5\". Prime sur Son le plus long ; \"0\" joue ce fichier jusqu’au bout."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quanto dura ogni suono, in secondi, per nome del suono o percorso del file, ad esempio \"Chime\": \"2.5\". Ha la precedenza su Suono più lungo; \"0\" riproduce quel file fino alla fine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "各サウンドの再生時間（秒）。サウンド名またはファイルパスごとに指定します（例: \"Chime\": \"2.5\"）。「最長のサウンド」より優先されます。\"0\" にするとそのファイルを最後まで再生します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រយៈពេលដែលសំឡេងនីមួយៗចាក់ គិតជាវិនាទី តាមឈ្មោះសំឡេង ឬផ្លូវឯកសារ ដូចជា \"Chime\": \"2.5\"។ វាមានអាទិភាពលើ សំឡេងវែងបំផុត; \"0\" ចាក់ឯកសារនោះរហូតដល់ចប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "소리별 재생 시간(초)을 소리 이름이나 파일 경로로 지정합니다. 예: \"Chime\": \"2.5\". 최대 소리 길이보다 우선하며, \"0\"이면 그 파일을 끝까지 재생합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvor lenge hver lyd spilles, i sekunder, etter lydnavn eller filbane, for eksempel \"Chime\": \"2.5\". Den går foran Lengste lyd; \"0\" spiller filen til slutten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jak długo gra każdy dźwięk, w sekundach, według nazwy dźwięku lub ścieżki pliku, np. \"Chime\": \"2.5\". Ma pierwszeństwo przed Najdłuższym dźwiękiem; \"0\" odtwarza ten plik do końca."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Por quanto tempo cada som toca, em segundos, por nome do som ou caminho do arquivo, como \"Chime\": \"2.5\". Tem prioridade sobre Som mais longo; \"0\" toca esse arquivo até o fim."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сколько звучит каждый звук, в секундах, по имени звука или пути к файлу, например \"Chime\": \"2.5\". Имеет приоритет над «Самым длинным звуком»; \"0\" воспроизводит файл до конца."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ระยะเวลาที่แต่ละเสียงเล่น เป็นวินาที ตามชื่อเสียงหรือพาธไฟล์ เช่น \"Chime\": \"2.5\" มีผลเหนือ เสียงที่ยาวที่สุด และ \"0\" จะเล่นไฟล์นั้นจนจบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Her sesin kaç saniye çaldığı, ses adına veya dosya yoluna göre, örneğin \"Chime\": \"2.5\". En uzun sesin önüne geçer; \"0\" o dosyayı sonuna kadar çalar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скільки звучить кожен звук, у секундах, за назвою звуку або шляхом до файлу, наприклад \"Chime\": \"2.5\". Має перевагу над «Найдовшим звуком»; \"0\" відтворює файл до кінця."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thời lượng phát mỗi âm thanh, tính bằng giây, theo tên âm thanh hoặc đường dẫn tệp, ví dụ \"Chime\": \"2.5\". Ưu tiên hơn Âm thanh dài nhất; \"0\" phát tệp đó đến hết."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "每个声音播放多长时间（秒），按声音名称或文件路径设置，例如 \"Chime\": \"2.5\"。优先于“最长声音”；\"0\" 表示该文件播放到结尾。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "每個聲音播放多久（秒），依聲音名稱或檔案路徑設定，例如 \"Chime\": \"2.5\"。優先於「最長聲音」；\"0\" 表示該檔案播放到結尾。"
+          }
+        }
+      }
+    },
     "settings.notifications.sounds.workspaces": {
       "comment": "Settings > Notifications > Sounds: per-workspace sound rules (hidden row; searchable name)",
       "extractionState": "manual",
