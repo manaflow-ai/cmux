@@ -2603,6 +2603,16 @@ def test_trusted_base_router_copy_applies_the_registry_lane_rule() -> None:
                 sys.modules["test_execution_registry"] = saved_registry
 
 
+def test_helper_a_toml_or_yaml_comment_names_runs_nothing() -> None:
+    # A Cargo.toml note about the release strip named its script (#42338).
+    for relative in ("server/Cargo.toml", "config/settings.yml"):
+        assert helper_areas({relative: "# scripts/ci/helper.py strips this later\nname = 1\n"}) == areas(), relative
+        why: list[str] = []
+        head = _helper_repo({**ROUTED_TREE, relative: 'run = "scripts/ci/helper.py"\n'})
+        assert module.ci_helper_areas("scripts/ci/helper.py", head, GUARD_ONLY_REFERENCES, why=why) is None, relative
+        assert why == [f"{relative} names helper"], why
+
+
 def test_helper_nothing_names_is_unknown_and_fails_open() -> None:
     tree = {k: v for k, v in ROUTED_TREE.items() if not k.startswith("tests/")}
     why: list[str] = []
