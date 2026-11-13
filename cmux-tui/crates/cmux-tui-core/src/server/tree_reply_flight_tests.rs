@@ -1,4 +1,5 @@
 use super::*;
+use serde_json::json;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, sync_channel};
 use std::time::Duration;
@@ -176,4 +177,63 @@ fn a_build_that_panics_leaves_its_waiters_a_build_of_their_own() {
     release.send(()).unwrap();
     assert!(panicking.join().unwrap(), "the build panicked");
     assert_eq!(waiter.join().unwrap(), Value::from("rebuilt"));
+}
+
+/// Eight text readers and one value reader arrive while build 1 runs. They share build 2, its
+/// text is written one time, and the text is freed when the last of them drops it: the flight
+/// keeps nothing, and one build's text is the only one, whatever the number of readers.
+#[test]
+fn the_readers_of_one_build_share_one_text_that_the_last_reader_frees() {
+    let flight = Arc::new(TreeReplyFlight::default());
+    let builds = Arc::new(AtomicU64::new(0));
+    let writes = Arc::new(AtomicU64::new(0));
+    let (started, running) = sync_channel(1);
+    let (release, gate) = sync_channel(1);
+    let first = {
+        let flight = flight.clone();
+        let build = gated_build(&builds, started, gate);
+        std::thread::spawn(move || flight.read(build).unwrap())
+    };
+    running.recv_timeout(Duration::from_secs(10)).unwrap();
+
+    let build = |builds: &Arc<AtomicU64>| {
+        let builds = builds.clone();
+        move || Ok(json!({"build": builds.fetch_add(1, Ordering::SeqCst) + 1}))
+    };
+    let texts = (0..8)
+        .map(|_| {
+            let flight = flight.clone();
+            let build = build(&builds);
+            let writes = writes.clone();
+            std::thread::spawn(move || {
+                flight
+                    .read_text(build, |tree| {
+                        writes.fetch_add(1, Ordering::SeqCst);
+                        TreeText::of(tree)
+                    })
+                    .unwrap()
+            })
+        })
+        .collect::<Vec<_>>();
+    let value = {
+        let flight = flight.clone();
+        let build = build(&builds);
+        std::thread::spawn(move || flight.read(build).unwrap())
+    };
+    wait_until("the nine readers wait", || waiting(&flight) == 9);
+    release.send(()).unwrap();
+    assert_eq!(first.join().unwrap(), Value::from(1));
+
+    let texts = texts.into_iter().map(|text| text.join().unwrap()).collect::<Vec<_>>();
+    assert_eq!(value.join().unwrap(), json!({"build": 2}));
+    assert_eq!(builds.load(Ordering::SeqCst), 2, "nine readers cost one build");
+    assert_eq!(writes.load(Ordering::SeqCst), 1, "eight text readers wrote its text one time");
+    assert!(texts.iter().all(|text| Arc::ptr_eq(text, &texts[0])), "they share that text");
+    let mut reply = Vec::new();
+    texts[0].write_reply(&mut reply, None, None).unwrap();
+    assert_eq!(reply, br#"{"data":{"build":2},"ok":true}"#);
+    assert!(flight.state.lock().unwrap().shared.is_none(), "the flight keeps nothing");
+    let text = Arc::downgrade(&texts[0]);
+    drop(texts);
+    assert!(text.upgrade().is_none(), "the last reader frees the text");
 }

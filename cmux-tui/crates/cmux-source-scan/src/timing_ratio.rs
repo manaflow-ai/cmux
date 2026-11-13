@@ -29,7 +29,7 @@
 //! follow (a parameter, a match binding) is read by its words: `latency`, `busy`, `*_ms` are
 //! timings, `p95`, `median` percentiles, `budget`, `limit`, `timeout` and SCREAMING_CASE bounds.
 //!
-//! Skipped: `#[ignore]`, `start_paused` (tokio's paused clock), a `// not wall-clock: <why>`
+//! Skipped: `#[ignore]`, `start_paused = true` (tokio's paused clock), a `// not wall-clock: <why>`
 //! comment on the line above the assert, and a test nextest runs alone or not at all
 //! ([`crate::nextest`]).
 //!
@@ -47,7 +47,9 @@ use syn::visit::{self, Visit};
 use syn::{Attribute, BinOp, Block, Expr, ExprBinary, Member, Pat, ReturnType, Type, UnOp};
 
 use crate::nextest::{FileTests, Layout, TestId};
-use crate::source::{has_ident, lenient_exprs, rel_path, rust_files, snippet, visit_macro_body};
+use crate::source::{
+    has_ident, lenient_exprs, read_source, rel_path, rust_files, snippet, visit_macro_body,
+};
 
 const NOT_WALL_CLOCK: &str = "not wall-clock:";
 const ASSERT_MACROS: [&str; 9] = [
@@ -139,8 +141,9 @@ pub struct Scan {
 }
 
 /// Every finding under `roots` (files or directories; default `checkout`/cmux-tui/crates), paths
-/// from `checkout`. Err for a missing checkout or scan root, a root with no `.rs` file, or a
-/// nextest.toml that does not parse: no scan is not a clean scan.
+/// from `checkout`. Err for a missing checkout or scan root, a root with no `.rs` file, a
+/// nextest.toml that does not parse, or a directory, source file, Cargo.toml or nextest config
+/// it could not read (named): no scan is not a clean scan.
 pub fn scan(checkout: &Path, roots: &[PathBuf]) -> Result<Scan, String> {
     scan_with(checkout, roots, scan_text)
 }
@@ -163,16 +166,14 @@ pub fn scan_with(checkout: &Path, roots: &[PathBuf], judge: Judge) -> Result<Sca
         let Ok(root) = root.canonicalize() else {
             return Err(format!("{}: scan root does not exist", root.display()));
         };
-        let files = rust_files(&root);
+        let files = rust_files(&root).map_err(|e| e.to_string())?;
         if files.is_empty() {
             return Err(format!("{}: scan root holds no .rs file", root.display()));
         }
         for path in files {
             out.files += 1;
-            let Ok(text) = std::fs::read_to_string(&path) else {
-                continue;
-            };
-            let tests = layout.file_tests(&path, &checkout);
+            let text = read_source(&path).map_err(|e| e.to_string())?;
+            let tests = layout.file_tests(&path, &checkout).map_err(|e| e.to_string())?;
             if matches!(tests, FileTests::NotRun) {
                 continue;
             }
@@ -240,13 +241,16 @@ pub fn scan_text(
 /// A shape the check is known to miss: `site` is `PATH TEST COMPARISON` (the path from the
 /// checkout, the test, the comparison [`spread_bounds`] names), `row` a file of that shape. [`scan_text`] finds nothing
 /// in `row` and [`spread_bounds`] finds it there; acpmux's `source_scan_smoke` holds both, and
-/// holds [`spread_bounds`] over cmux-tui/crates to exactly these sites, so a fix that catches the
-/// shape, or a new instance of it, fails there until this list changes with it.
+/// holds [`spread_bounds`] over cmux-tui/crates to exactly the sites with `in_tree`, so a fix that
+/// catches the shape, or a new instance of it, fails there until this list changes with it.
+/// `in_tree` is false once `site` is no default-run instance (its test went to a group nextest
+/// runs alone, or away): the row still guards the shape.
 #[derive(Debug, Clone, Copy)]
 pub struct KnownMiss {
     pub site: &'static str,
     pub why: &'static str,
     pub row: &'static str,
+    pub in_tree: bool,
 }
 
 pub const KNOWN_MISSES: &[KnownMiss] = &[KnownMiss {
@@ -255,6 +259,9 @@ pub const KNOWN_MISSES: &[KnownMiss] = &[KnownMiss {
     why: "milliseconds parsed from a JSON log (`hook[\"ms\"].as_f64()`), then a median taken by a \
           local fn that sorts them: no clock is read, and `g50` is no percentile word",
     row: include_str!("timing_ratio_known_miss_start_mode.txt"),
+    // Not in the tree since cmux-tui/.config/nextest.toml put the test in the timing-alone group:
+    // the check skips a test nextest runs alone, so the site is no miss there any more.
+    in_tree: false,
 }];
 
 const SPREAD_KIND: &str = "spread bound";
@@ -477,7 +484,8 @@ fn is_screaming(name: &str) -> bool {
 
 fn is_pct_word(w: &str) -> bool {
     PCT_WORDS.contains(&w)
-        || (w.len() >= 3 && w.starts_with('p') && w[1..].chars().all(|c| c.is_ascii_digit()))
+        || (w.len() >= 3
+            && w.strip_prefix('p').is_some_and(|d| d.chars().all(|c| c.is_ascii_digit())))
 }
 
 fn names_pct(name: &str) -> bool {
@@ -497,7 +505,7 @@ fn name_kind(name: &str) -> Kind {
         return Kind::of(Base::Pct);
     }
     let unit = ws.len() > 1 && ws.last().is_some_and(|w| UNIT_WORDS.contains(&w.as_str()));
-    let bare_unit = ws.len() == 1 && ["us", "ms", "ns"].contains(&ws[0].as_str());
+    let bare_unit = matches!(ws.as_slice(), [w] if ["us", "ms", "ns"].contains(&w.as_str()));
     if ws.iter().any(|w| TIMING_WORDS.contains(&w.as_str())) || unit || bare_unit {
         return Kind::of(Base::Timing);
     }
@@ -590,7 +598,7 @@ fn path_segs(p: &syn::ExprPath) -> Vec<String> {
 fn single_ident(e: &Expr) -> Option<String> {
     match e {
         Expr::Path(p) if p.qself.is_none() && p.path.segments.len() == 1 => {
-            Some(p.path.segments[0].ident.to_string())
+            p.path.segments.first().map(|s| s.ident.to_string())
         }
         _ => None,
     }
@@ -763,7 +771,7 @@ impl Scope<'_> {
             _ => Vec::new(),
         };
         let last = segs.last().map_or("", String::as_str);
-        let parent = segs.len().checked_sub(2).map(|i| segs[i].as_str());
+        let parent = segs.len().checked_sub(2).and_then(|i| segs.get(i)).map(String::as_str);
         let measured: Vec<&Kind> =
             args.iter().filter(|a| a.measured() || a.base == Base::Ratio).collect();
         let all_const = !args.is_empty() && args.iter().all(|a| a.base == Base::Const);
@@ -1015,7 +1023,7 @@ fn reads_clock(tokens: TokenStream) -> bool {
             return false;
         };
         match name.as_str() {
-            "elapsed" => k > 0 && flat[k - 1] == Flat::Punct('.'),
+            "elapsed" => k.checked_sub(1).and_then(|j| flat.get(j)) == Some(&Flat::Punct('.')),
             "Instant" | "SystemTime" => {
                 flat.get(k + 1) == Some(&Flat::Punct(':'))
                     && flat.get(k + 2) == Some(&Flat::Punct(':'))
@@ -1044,6 +1052,21 @@ struct Items {
     clock_fns: HashMap<String, Option<Vec<bool>>>,
     /// Local fns that sort and return a tuple of floats ([`spread_bounds`]).
     spread_fns: HashSet<String>,
+}
+
+/// Whether an attribute's tokens set `start_paused = true` (tokio's paused clock), at any depth.
+/// `start_paused = false` runs on the wall clock (#41523 F3).
+fn starts_paused(tokens: TokenStream) -> bool {
+    let trees: Vec<TokenTree> = tokens.into_iter().collect();
+    trees.iter().enumerate().any(|(i, tree)| match tree {
+        TokenTree::Group(group) => starts_paused(group.stream()),
+        TokenTree::Ident(ident) if ident == "start_paused" => matches!(
+            (trees.get(i + 1), trees.get(i + 2)),
+            (Some(TokenTree::Punct(eq)), Some(TokenTree::Ident(value)))
+                if eq.as_char() == '=' && value == "true"
+        ),
+        _ => false,
+    })
 }
 
 fn macro_name(mac: &syn::Macro) -> String {
@@ -1085,8 +1108,8 @@ impl Items {
         let is_test =
             paths.iter().any(|p| p.last().is_some_and(|last| TEST_ATTRS.contains(&last.as_str())));
         if is_test {
-            let ignored = paths.iter().any(|p| p.len() == 1 && p[0] == "ignore");
-            let paused = attrs.iter().any(|a| has_ident(a.meta.to_token_stream(), "start_paused"));
+            let ignored = paths.iter().any(|p| matches!(p.as_slice(), [only] if only == "ignore"));
+            let paused = attrs.iter().any(|a| starts_paused(a.meta.to_token_stream()));
             if !ignored && !paused {
                 self.tests.push(TestFn {
                     name: sig.ident.to_string(),

@@ -677,7 +677,7 @@ fn replace(path: &Path, entries: &[Value]) -> std::io::Result<()> {
     private_dir_of(path)?;
     let tmp = path.with_extension("jsonl.tmp");
     // A leftover (or planted) tmp goes first: removing a link never touches what it names.
-    match std::fs::remove_file(&tmp) {
+    match crate::home_fs::remove_file(&tmp) {
         Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e),
         _ => {}
     }
@@ -687,7 +687,7 @@ fn replace(path: &Path, entries: &[Value]) -> std::io::Result<()> {
         file.write_all(b"\n")?;
     }
     file.sync_all()?;
-    std::fs::rename(&tmp, path)?;
+    crate::home_fs::rename(&tmp, path)?;
     if let Some(dir) = path.parent()
         && let Ok(d) = std::fs::File::open(dir)
     {

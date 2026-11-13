@@ -2,7 +2,7 @@ mod events_page;
 use super::*;
 use crate::JournalIngress;
 use crate::resource::{NotificationPublicId, TerminalPublicId};
-pub(crate) use events_page::query_resource_events_after;
+pub(crate) use events_page::{query_resource_event_changes_at, query_resource_events_after};
 use serde_json::json;
 mod patch_apply;
 mod terminal_live;
@@ -649,6 +649,12 @@ impl WorkspaceRegistry {
         tx.commit()?;
         Ok(())
     }
+    /// Retry rows this thread cleared in a commit of their own (test seam).
+    #[cfg(test)]
+    pub(crate) fn agent_hook_clears_own_commit_for_test() -> usize {
+        AGENT_HOOK_CLEARS_OWN_COMMIT.with(Cell::get)
+    }
+
     pub(crate) fn stage_agent_hook_pending(
         transaction: &Transaction<'_>,
         producer_id: &str,
@@ -775,14 +781,9 @@ impl WorkspaceRegistry {
         origin: &str,
         idempotency_key: &str,
     ) -> anyhow::Result<()> {
-        self.connection
-            .get()
-            .prepare_cached(
-                "DELETE FROM resource_agent_hook_pending
-             WHERE producer_id = ?1 AND origin = ?2 AND idempotency_key = ?3",
-            )?
-            .execute(params![producer_id, origin, idempotency_key])?;
-        Ok(())
+        #[cfg(test)]
+        AGENT_HOOK_CLEARS_OWN_COMMIT.with(|count| count.set(count.get() + 1));
+        clear_agent_hook_pending_on(&self.connection.get(), producer_id, origin, idempotency_key)
     }
 
     fn record_agent_hook_pending_failure(
@@ -4687,15 +4688,36 @@ fn validate_touched_pane(transaction: &Transaction<'_>, pane_id: &str) -> anyhow
     Ok(())
 }
 
-/// Tabs [`validate_touched_tab`] checked in this test process (nextest runs each test alone): a commit's
-/// validation must be O(changed), never O(tabs in the pane).
+/// Tabs [`validate_touched_tab`] checked, by registry database file (test only): a commit's validation must be
+/// O(changed), never O(tabs in the pane). One count per database, so a test reads only its own registry's commits:
+/// one process-wide count also took the tabs of every test that ran beside it (`cargo test` runs them in threads
+/// of one process) and failed under a full run.
 #[cfg(test)]
-pub(crate) static TABS_VALIDATED: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(0);
+static TABS_VALIDATED: std::sync::Mutex<std::collections::BTreeMap<String, u64>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+/// The tabs [`validate_touched_tab`] checked so far in commits on `connection`'s database (test only).
+#[cfg(test)]
+pub(crate) fn tabs_validated(connection: &Connection) -> u64 {
+    let key = connection.path().unwrap_or_default();
+    TABS_VALIDATED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(key)
+        .copied()
+        .unwrap_or_default()
+}
 
 fn validate_touched_tab(transaction: &Transaction<'_>, tab_id: &str) -> anyhow::Result<()> {
     #[cfg(test)]
-    TABS_VALIDATED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    {
+        let key = transaction.path().unwrap_or_default().to_owned();
+        *TABS_VALIDATED
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .entry(key)
+            .or_default() += 1;
+    }
     let stored = transaction
         .query_row(
             "SELECT pane_id, content_kind, content_id, deleted_revision
@@ -5279,5 +5301,27 @@ fn ensure_no_foreign_key_violations(transaction: &Transaction<'_>) -> anyhow::Re
             "resource topology foreign-key violation: table={table} rowid={rowid} parent={parent:?} index={index}"
         );
     }
+    Ok(())
+}
+
+#[cfg(test)]
+thread_local! {
+    static AGENT_HOOK_CLEARS_OWN_COMMIT: Cell<usize> = const { Cell::new(0) };
+}
+
+/// Delete a projected hook's retry row on `connection` (its own commit, or a
+/// statement of the caller's transaction: the journal writer's batch).
+pub(crate) fn clear_agent_hook_pending_on(
+    connection: &Connection,
+    producer_id: &str,
+    origin: &str,
+    idempotency_key: &str,
+) -> anyhow::Result<()> {
+    connection
+        .prepare_cached(
+            "DELETE FROM resource_agent_hook_pending
+             WHERE producer_id = ?1 AND origin = ?2 AND idempotency_key = ?3",
+        )?
+        .execute(params![producer_id, origin, idempotency_key])?;
     Ok(())
 }

@@ -527,6 +527,10 @@ export function ComposerQueue({
   const watched = useRef<{ list: HTMLElement; observer: ResizeObserver; rows: ResizeObserver }>(undefined);
   const fitReadyFrame = useRef<number | undefined>(undefined);
   const wasOpen = useRef(unfolded);
+  // The prompts the list drew last: a prompt that arrives or leaves (a send behind the turn, acpmux
+  // taking the next one) changes the list's height in that frame, never eased (composerStates.css
+  // [data-rows-changed]); the reader's own fold, edit and keyboard toggles keep the move token.
+  const drawnIds = useRef<string>(undefined);
   useLayoutEffect(() => {
     const current = list.current;
     // A hold belongs to the list the pointer was on: once that list leaves (the queue emptied) no
@@ -543,7 +547,19 @@ export function ComposerQueue({
       const opening = unfolded && !wasOpen.current;
       if (opening) current.scrollTop = 0;
       const firstFit = !current.hasAttribute("data-fit-ready");
-      fit(current);
+      const ids = [...current.querySelectorAll<HTMLElement>(":scope > .acpmux-queued")]
+        .map((row) => row.dataset.promptId)
+        .join("\n");
+      const rowsChanged = drawnIds.current !== undefined && drawnIds.current !== ids && unfolded === wasOpen.current;
+      drawnIds.current = ids;
+      if (rowsChanged) {
+        // Fit with the transition off, and have the browser take the height (a style read) before it
+        // comes back, as `release` does.
+        current.setAttribute("data-rows-changed", "");
+        fit(current);
+        void current.ownerDocument.defaultView?.getComputedStyle(current).maxHeight;
+        current.removeAttribute("data-rows-changed");
+      } else fit(current);
       if (firstFit) {
         fitReadyFrame.current = requestFitFrame(current.ownerDocument, () => {
           fitReadyFrame.current = undefined;

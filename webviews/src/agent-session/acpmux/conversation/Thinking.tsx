@@ -15,9 +15,8 @@
 // mostly just meant the yellow circle thing. I thought that was cute").
 import { type RefObject, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
-import { usePaneLanguage, useT } from "../i18n";
+import { useT } from "../i18n";
 import { agentStartLook } from "./agentStart.experiment";
-import { liveLineTokens } from "./liveLineTokens.experiment";
 import { compactingLine } from "./compactingLine.experiment";
 import { liveLineTimes } from "./liveLineTimes.experiment";
 import { oneRowPerCall } from "./oneRowPerCall.experiment";
@@ -31,8 +30,6 @@ import { thinkingIndicatorSlot, type ThinkingIndicatorProps } from "../../../slo
 import { DefaultThinkingIndicator } from "../../../slots/thinkingIndicator/DefaultThinkingIndicator";
 import { formatDuration, spanDuration } from "./turns";
 import { WAITING_LABEL, type WaitingOn, WaitingOnContext } from "./waitingOn";
-import { TurnTokens } from "./TurnTokens";
-import { compactTokens, hasTokens, tokenDetail } from "./turnTokensModel";
 import { usePageNow as useTicking } from "../../../ui/pageClock";
 import { WorkingCountsContext, workingParts } from "./workingForModel";
 import { motionAllowed } from "../subagents/trayMotionModel";
@@ -126,6 +123,28 @@ function useRoll(key: string | undefined, label: string, lead: Roll["lead"], tai
   return roll;
 }
 
+/// The old words roll out as they were drawn (review of cmux#41078): cut at the width the words had
+/// (ellipsis and all), their time and counts from where they sat, never the full words running their
+/// tail on past it. The width as last committed, one read of the line's own box a commit, set on the
+/// roll's copies in the commit that makes them, before paint; refs only in the effect.
+function useRollOutWidth(line: RefObject<HTMLDivElement | null>, turns: number) {
+  const drawn = useRef<{ turns: number; width?: number }>({ turns });
+  useLayoutEffect(() => {
+    const node = line.current;
+    if (!node) return;
+    const last = drawn.current;
+    if (turns !== last.turns && last.width !== undefined) {
+      const px = `${last.width}px`;
+      const words = node.querySelector<HTMLElement>(":scope .cv-roll-out");
+      const tail = node.querySelector<HTMLElement>(":scope .cv-roll-out__tail");
+      if (words) words.style.width = px;
+      if (tail) tail.style.left = px;
+    }
+    const width = node.querySelector<HTMLElement>("output.cv-thinking")?.getBoundingClientRect().width;
+    drawn.current = { turns, width: width && width > 0 ? width : undefined };
+  });
+}
+
 /// The line's counts glide to where their words leave them (Leo, 2026-11-11: "the animation system
 /// is so borked and unintegrated"): a count that moves sideways while the line does not roll (its
 /// time grows a digit, its words change width under one key) slides from where it was drawn on the
@@ -178,13 +197,11 @@ function arriveMs(node: Element): number {
 
 /// `doing`, `doingAt`, `doingShell`, `draft`, `untimed`, `quietKey`: the Codex-style live line at the
 /// bottom of a running turn (conversation/turns.ts `codexLiveTurn`), the turn's one live block, which
-/// each step replaces in place: "Thinking 18s" (the turn's time, and its tokens when the harness
-/// reports them), the call in flight ("Running bun test 13s", or what it says it does, "Run the
+/// each step replaces in place: "Thinking 18s" (the turn's time), the call in flight ("Running bun test 13s", or what it says it does, "Run the
 /// web tests 13s"), the latest finished step until the next starts (`done`, "Ran grep … 15s"), or
 /// "Writing a command 9s" while the agent still writes the command (`draft`). With no call it names
 /// what the turn does instead: "Waiting on 2 subagents", "Writing", else "Thinking" (`liveState`).
-/// One clock and one token count for all of them, the turn's, so the line just keeps going: "Using
-/// repo: repo grep 3m 2s · 47.4K tokens", as Claude Code desktop's live line reads, with no mark
+/// One turn clock follows every phase: "Using repo: repo grep 3m 2s", with no token count or mark
 /// before it: the shimmer is its only working sign (Leo, 2026-11-03: "we don't want the claude
 /// symbol ellipsis thing btw we just keep the shimmer ONLY"). Past the turn's first step
 /// (`turnTotal`) that clock follows a finished step's own time after a dot ("2s · 4m"), so a long
@@ -333,14 +350,21 @@ export function Thinking({
   retry?: AcpmuxTurnRetry;
 } = {}) {
   const t = useT();
-  const language = usePaneLanguage();
   const waiting = useContext(WaitingOnContext);
   const [answered, settled] = useAnswered(waiting);
   const [asked, grown] = useAsked(waiting);
   const startLook = starting && !waiting ? experimentArm(agentStartLook) : "thinking";
+  // A reply that paused only a moment is still being written; one silent for longer is the agent
+  // thinking before its next step, which reads "Thinking" (Leo, 2026-11-03).
+  const stillWriting = !useQuiet(liveState === "writing" ? quietKey : undefined, WRITING_MS, quietAt, now);
+  // Once the reply has stopped, nothing the agent does is timed until its next step: the line says
+  // "Thinking" with no clock or token count, which until the turn's end ticked on under the reply as if
+  // the agent still worked (Leo, 2026-11-12: "the thinking timer is overstaying its welome after you
+  // just replied!"). The next call, thought or reply brings the turn's clock back.
+  const replied = liveState === "writing" && !stillWriting;
   // The turn's time, from the prompt, whatever the line names: it keeps counting across steps and
   // never starts again at a call (Leo, 2026-11-01: "it should just keep going").
-  const from = untimed ? undefined : since;
+  const from = untimed || replied ? undefined : since;
   const timed = !waiting && from !== undefined;
   const time = useTicking(timed, now);
   const statusVerbConfig = useStatusVerbConfig();
@@ -349,9 +373,6 @@ export function Thinking({
     () => thinkingVerbs ?? statusVerbLabels(t, statusVerbConfig),
     [t, statusVerbConfig, thinkingVerbs],
   );
-  // A reply that paused only a moment is still being written; one silent for longer is the agent
-  // thinking before its next step, which reads "Thinking" (Leo, 2026-11-03).
-  const stillWriting = !useQuiet(liveState === "writing" ? quietKey : undefined, WRITING_MS, quietAt, now);
   const sendName = useSubsessionInfo(sendSession)?.name ?? sendTo;
   const waitsOnAgents = liveState === "subagents" && liveAgents > 0;
   const writing = liveState === "writing" && stillWriting;
@@ -437,43 +458,27 @@ export function Thinking({
         ? (own ?? turnTime)
         : undefined
     : (own ?? turnTime);
-  // The turn's generated output tokens so far (WorkingFor.tsx), on the line while it times the turn; and, with the
-  // running tray off, the work still going in the background, each count opening what it counts
-  // (App.tsx counts nothing while the tray lists it).
+  // Background-work counts remain available when the running tray is off.
   const counts = useContext(WorkingCountsContext);
-  const tokens = counts?.tokens;
-  // A send's line names who it goes to and for how long; the turn's token counts there are noise
-  // (Leo, 2026-11-02, on "Sending message to … 3m 56s · ↓1.4K out ↑819.5K in" among the message
-  // rows: "i also think this is quite weird looking").
-  const sending = doing !== undefined && sendName !== undefined;
-  const showTokens = Boolean(tokens) && timed && !sending && !compacting;
-  // One count, as Claude Code's live line says it ("47.4K tokens"): the turn's output, with the
-  // split on hover (liveLineTokens.experiment.ts). Never "↓ out ↑ in" in the line's words (the
-  // coordinator, relaying Leo's capture of "Thinking 7m 34s · ↓ 4.5K out ↑ 1.4M in").
-  const oneCount = experimentArm(liveLineTokens) === "total";
   // The label already names the subagents it waits on: no second count of them.
   const parts = (counts && !waiting ? workingParts(t, counts) : []).filter(
     (part) => !(liveState === "subagents" && part.key === "agents"),
   );
   // What follows the words, as text: their time, the turn's clock and counts, for the old line's copy
   // to roll out with them (`useRoll`).
-  const tokenText =
-    showTokens && tokens
-      ? oneCount
-        ? t("turn.working.tokens", { n: tokens, tokens: compactTokens(language, tokens) })
-        : compactTokens(language, tokens)
-      : undefined;
   const tail = [
     elapsed,
     own && !waiting && timesLook !== "hover" ? turnClock : undefined,
-    tokenText,
     ...parts.map((part) => part.label),
   ]
     .filter(Boolean)
     .join(" · ");
   const roll = useRoll(away ? undefined : decorative ? "" : sameCall ? `\u0000${call}` : label, label, lead, tail);
   const lineRef = useRef<HTMLDivElement>(null);
+  useRollOutWidth(lineRef, roll.turns);
   useCountGlide(lineRef, roll.turns);
+  // The question card already asks for an answer above the composer.
+  if (waiting === "question") return null;
   // A model the harness cannot reach: said calmly in the line's own box, so nothing moves when it
   // starts or ends (Leo, 2026-11-03). What the chat waits on the person for still comes first.
   if (retry && !waiting) {
@@ -547,7 +552,18 @@ export function Thinking({
               inert
               data-lead={roll.out.lead?.lead}
               data-text={roll.out.lead ? roll.out.lead.rest : roll.out.label}
+              // Marks a copy whose time and counts roll out beside it (`cv-roll-out__tail`).
               data-tail={roll.out.tail ? `\u2002${roll.out.tail}` : undefined}
+            />
+          )}
+          {roll.out?.tail && (
+            // The old line's time and counts, from where they sat after its words (their drawn width).
+            <span
+              key={`tail-${roll.turns}`}
+              className="cv-roll-out__tail"
+              aria-hidden="true"
+              inert
+              data-tail={`\u2002${roll.out.tail}`}
             />
           )}
           <output
@@ -582,23 +598,6 @@ export function Thinking({
             ·
           </span>
           <span className="cv-worked__time">{turnClock}</span>
-        </span>
-      )}
-      {showTokens && (
-        <span className="cv-worked__count">
-          <span className="cv-worked__sep" aria-hidden="true">
-            ·
-          </span>
-          {oneCount && tokens ? (
-            <span
-              className="cv-worked__tokens"
-              title={hasTokens(counts?.split) ? tokenDetail(t, language, counts.split) : undefined}
-            >
-              {t("turn.working.tokens", { n: tokens, tokens: compactTokens(language, tokens) })}
-            </span>
-          ) : (
-            <TurnTokens total={tokens} split={counts?.split} />
-          )}
         </span>
       )}
       {parts.map((part) => (

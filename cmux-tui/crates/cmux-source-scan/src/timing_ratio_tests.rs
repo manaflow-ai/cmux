@@ -128,6 +128,10 @@ fn judge_row(row: &Row) -> Option<String> {
             let Some(hit) = lines.iter().find(|l| l.contains(&row.what)) else {
                 return Some(format!("no finding names `{}`:\n{shown}", row.what));
             };
+            // Exactly what the row names: one more finding fails it as a missing one does.
+            if lines.len() != 1 {
+                return Some(format!("found more than `{}`:\n{shown}", row.what));
+            }
             (row.kind != "-" && !hit.contains(&row.kind))
                 .then(|| format!("want kind {}, got {hit}", row.kind))
         }
@@ -159,6 +163,26 @@ fn every_row_is_judged_as_it_says() {
         failed.len(),
         rows.len(),
         failed.join("\n")
+    );
+}
+
+/// #41567 review F1: a `flagged` row names the finding its source holds, so one more finding
+/// fails it.
+#[test]
+fn a_flagged_row_fails_on_a_finding_it_does_not_name() {
+    let row = Row {
+        verdict: "flagged".to_string(),
+        what: "p95 < BUDGET_MS".to_string(),
+        kind: "percentile bound".to_string(),
+        title: "a fixture".to_string(),
+        rust: "#[test]\nfn two_bounds() {\n    let p95 = helper();\n    assert!(p95 < BUDGET_MS);\n    let (busy, idle) = (helper(), helper());\n    assert!(busy < idle * 4);\n}\n".to_string(),
+        bare: false,
+        nextest: None,
+    };
+    let why = judge_row(&row);
+    assert!(
+        why.as_deref().is_some_and(|w| w.contains("busy < idle * 4")),
+        "busy < idle * 4 went unnamed: {why:?}"
     );
 }
 
@@ -266,7 +290,7 @@ fn a_file_names_its_tests_by_crate_layout() {
     let root = co.0.canonicalize().expect("exists");
     let mut layout = Layout::default();
     let id = |layout: &mut Layout, rel: &str| -> Option<TestId> {
-        match layout.file_tests(&root.join(rel), &root) {
+        match layout.file_tests(&root.join(rel), &root).expect("the checkout reads") {
             FileTests::NotRun => None,
             tests => Some(tests.id(&["m".to_string()], "f")),
         }

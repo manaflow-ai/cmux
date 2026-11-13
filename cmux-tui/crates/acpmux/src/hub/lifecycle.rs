@@ -353,7 +353,7 @@ impl Hub {
             }
             meta.name = match name {
                 Some(n) => {
-                    if sessions.values().any(|s| s.meta().name == n) {
+                    if sessions.values().any(|s| s.read_meta(|m| m.name == n)) {
                         return Err(RpcError::invalid_params(format!(
                             "session name {n:?} is taken"
                         )));
@@ -366,7 +366,7 @@ impl Hub {
                 // A pooled harness was started under its name: keep it.
                 None => match self
                     .pool_claimed_name(&id)
-                    .filter(|n| !sessions.values().any(|s| s.meta().name == *n))
+                    .filter(|n| !sessions.values().any(|s| s.read_meta(|m| m.name == *n)))
                 {
                     Some(n) => n,
                     None => unique_name_among(&sessions, agent),
@@ -412,6 +412,8 @@ impl Hub {
         // No `git` record exists yet; retain that baseline even if the chat grows before attach.
         self.restore_git_branch(&session, session.meta().git_branch);
         self.append(&session, "mux", "created", json!({"harness": agent, "preset": preset_name}));
+        // Opt-in usage patterns: one more chat on this harness (its kind, not the chat).
+        cmux_usage_patterns::count("agent-chat", agent);
         if let Some(a) = &adopt {
             let adopted = if fork_from.is_some() {
                 json!({"agentSessionId": a.agent_session_id, "fork": true})
