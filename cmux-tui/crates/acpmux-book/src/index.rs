@@ -809,6 +809,49 @@ mod tests {
     }
 
     #[test]
+    fn a_thousand_state_changes_keep_live_pages_equal_to_the_ordered_filter() {
+        let mut index = SummaryIndex::new();
+        let mut random = 0x5c_143_u64;
+        for seq in 1..=1000 {
+            random ^= random << 13;
+            random ^= random >> 7;
+            random ^= random << 17;
+            let mut row = Summary::new(format!("chat-{}", random % 53));
+            row.origin = if random & 64 == 0 { "local" } else { "peer" }.into();
+            row.state = match (random >> 8) % 5 {
+                0 => "closed",
+                1 => "running",
+                2 => "waiting",
+                3 => "idle",
+                _ => "ready",
+            }
+            .into();
+            // Ties and movement both exercise ordering across reopen/close.
+            row.last_activity = (random >> 16) % 31;
+            index = index.apply(seq, row);
+            let expected = index
+                .iter()
+                .filter(|row| row.is_live())
+                .map(|row| (SortKey::of(row), row.state.clone()))
+                .collect::<Vec<_>>();
+            let mut actual = Vec::new();
+            let mut anchor = None;
+            loop {
+                let page = index
+                    .read_live_page(anchor.as_ref(), ReadSide::After, false, 7, 8192, None)
+                    .unwrap();
+                actual.extend(page.rows.iter().map(|row| (SortKey::of(row), row.state.clone())));
+                if !page.has_after {
+                    break;
+                }
+                assert_ne!(page.after_key, anchor);
+                anchor = page.after_key;
+            }
+            assert_eq!(actual, expected, "change {seq}");
+        }
+    }
+
+    #[test]
     fn composite_identity_and_typed_edges_survive_log_snapshot_and_restart() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("index.log");
