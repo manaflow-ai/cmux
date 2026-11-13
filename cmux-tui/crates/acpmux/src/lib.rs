@@ -218,6 +218,8 @@ pub mod shell_words;
 pub mod sim_agent;
 #[cfg(test)]
 mod single_shot_list_tests;
+#[cfg(test)]
+mod source_scan_smoke;
 pub mod sr2_cost_labels;
 pub(crate) mod ssh_forward;
 pub mod stats;
