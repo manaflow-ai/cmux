@@ -149,20 +149,12 @@ final class TitlebarToolbarBand: NSView {
         sidebarToggle.symbol = SidebarToggleIcon.slideSymbol(progress: glyphProgress)
     }
 
-    /// The band's full width: the toggle, Back and Forward one gap apart, each the +'s size (`TopRowSpacing`).
-    static var width: CGFloat { TopRowSpacing.bandWidth }
-
-    /// Each item is `presence` of its width, and the gaps close with it, so
-    /// the band reaches 0 width with no jump.
+    private let ink = GlyphInkMeasure()
+    /// The buttons' slots: one ink gap between glyphs (`TopRowSpacing`); each item and gap is `presence` of it.
+    var slots: TopRowSpacing.Slots { ink.slots(for: [sidebarToggle, backButton, forwardButton].map(\.image), gap: TopRowSpacing.glyphGap) }
     override func layout() {
         super.layout()
-        let side = TopRowSpacing.buttonSide
-        let width = side * presence
-        var x: CGFloat = 0
-        for (button, gap) in [(sidebarToggle, TopRowSpacing.toggleGap), (backButton, TopRowSpacing.groupGap), (forwardButton, 0)] {
-            button.frame = NSRect(x: x, y: (bounds.height - side) / 2, width: width, height: side)
-            x += (side + gap) * presence
-        }
+        for (button, frame) in zip([sidebarToggle, backButton, forwardButton], slots.frames(presence: presence, height: bounds.height)) { button.frame = frame }
     }
 
     /// Names the toggle with its action title and bound key.

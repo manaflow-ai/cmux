@@ -1,0 +1,23 @@
+[package]
+name = "acpmux-book"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "A chat as a book: rendered rows, encoded once, in an append-only segment log with a row index and a checkpoint (agent service v2)"
+
+[lints]
+workspace = true
+
+[dependencies]
+crc32fast = "1.5"
+imbl.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

@@ -11,6 +11,8 @@ import { usePopoverTrigger } from "../../../ui/popoverTrigger";
 import type { HeaderPullRequest } from "./headerState";
 import { PullRequestMerge, type MergeResult } from "./PullRequestMerge";
 import { pullRequestStatus, usePullRequestOps, type PullRequestOps } from "./pullRequestOps";
+import { FinishBurst } from "../finish/FinishBurst";
+import { usePullRequestFinish } from "../finish/finishMoments";
 
 const BADGES: Record<string, StringKey> = {
   open: "header.prBadge.open",
@@ -44,6 +46,8 @@ export function PullRequestChip({
   const { number, checks } = pullRequest;
   const { label } = pullRequestStatus(pullRequest, t);
   const review = REVIEWS[pullRequest.review];
+  // Green checks or a merge that just happened (finish/finishMoments.ts).
+  const finish = usePullRequestFinish(pullRequest.url);
   return (
     <>
       <button
@@ -55,10 +59,12 @@ export function PullRequestChip({
         className="acpmux-header-tool acpmux-header-pr"
         data-state={pullRequest.state}
         data-checks={checks.state}
+        data-finish={finish}
         aria-label={label}
         {...trigger}
       >
         <Icon name="git.pullrequest" size={14} />#{number}
+        {finish === "merged" && <FinishBurst />}
       </button>
       <Popover
         id={trigger["aria-controls"]}

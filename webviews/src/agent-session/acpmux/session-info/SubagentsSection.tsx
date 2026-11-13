@@ -16,6 +16,7 @@ import { Icon } from "../icons/Icon";
 
 import type { StartedSession } from "../started/startedSessions";
 import { AgentLine } from "../subagents/AgentLine";
+import { ResumeControl, type ResumeActions } from "../subagents/ResumeControl";
 import { useSenderIconLook } from "../subagents/senderIconLook";
 import { useAgentProgress } from "../subagents/agentProgressStore";
 import { foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subagents/agentIdentityModel";
@@ -103,8 +104,11 @@ export function SubagentsSection({
   sessions = NO_SESSIONS,
   onOpenSession,
   harness,
+  resume,
 }: {
   agents: readonly Subagent[];
+  /// Resume on a stopped subagent's line (subagents/ResumeControl.tsx), as its end line offers it.
+  resume?: ResumeActions;
   waiting: ReadonlySet<string>;
   /// Shows a subagent (App.tsx `showSubagent`); without it a subagent's line opens nothing.
   onOpen?: (id: string) => void;
@@ -199,6 +203,7 @@ export function SubagentsSection({
         depth={item.depth}
         onOpen={item.open}
         card={<AgentCard item={item} />}
+        after={resume && item.agent && <ResumeControl agent={item.agent} actions={resume} />}
       />
     </li>
   );
