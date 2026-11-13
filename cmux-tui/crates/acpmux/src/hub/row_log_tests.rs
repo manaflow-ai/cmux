@@ -51,10 +51,12 @@ fn a_removal_dropped_after_a_barrier_never_lowers_the_floor() {
     log.stamp(own("a"), true);
     log.barrier();
     let floor = log.head();
-    for n in 0..GONE_MOST + 1 {
+    // One removal past the bound: only `a`'s (position 1, below the barrier) is dropped.
+    for n in 0..GONE_MOST {
         log.stamp(own(&format!("c{n}")), true);
     }
-    // The removal of `a` (position 1) was dropped, below the barrier: the floor stays there.
+    assert_eq!(log.len(), (0, GONE_MOST));
+    // The removal of `a` was dropped below the barrier: the floor stays at the barrier.
     assert!(log.since(floor - 1).is_none(), "a cursor before the barrier still resets");
     assert!(log.since(floor).is_some());
 }

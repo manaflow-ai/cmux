@@ -2,9 +2,11 @@
 //! Mac, 2026-10-27): three cmux-tui servers built before #26255 reconnected about once a
 //! second and asked for the full list each time, and the idle daemon spent 30-40% of a
 //! core summarizing, serializing and freeing it. A list read now builds only the rows of each
-//! page it sends (`hub/list_guard.rs`), with no shared build and no pace, which holds a client
-//! asking once a second to a few percent. The real daemon binary runs here, through
-//! its socket, over a few hundred chats with summaries the size of real ones.
+//! page it sends (`hub/list_guard.rs`), with no shared build and no pace (Leo, 2026-11-12:
+//! "Delete the pacer"), so each read costs the same however many clients ask: what is bounded
+//! is one read's CPU, which holds a client asking once a second to a few percent. The real
+//! daemon binary runs here, through its socket, over a few hundred chats with summaries the
+//! size of real ones.
 #![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
@@ -22,8 +24,9 @@ use std::time::{Duration, Instant};
 const CHATS: usize = 400;
 /// How long each client runs while the daemon's CPU is measured.
 const WINDOW: Duration = Duration::from_secs(15);
-/// The daemon's CPU allowed while a client asks once a second, in a share of one core.
-const MAX_SHARE: f64 = 0.08;
+/// The daemon's CPU one whole list of `CHATS` may cost, in seconds of one core: a client asking
+/// once a second costs at most 8% of a core, and n clients n times that (no read is shared).
+const MAX_LIST_CPU: f64 = 0.08;
 /// A broken client: a new connection for each list, as fast as it reads them.
 const FAST: &str = "reconnect as fast as it reads";
 
@@ -216,10 +219,15 @@ fn clients_asking_for_the_whole_list_over_and_over_cost_the_daemon_a_few_percent
         (FAST, 1, true, reconnect),
     ] {
         let (share, lists) = measured(&daemon, clients, fast, ask);
+        let each = share * WINDOW.as_secs_f64() / lists.max(1) as f64;
         report.push((
             name,
-            share,
-            format!("{name}: {:.1}% of a core, {lists} lists", share * 100.0),
+            each,
+            format!(
+                "{name}: {:.1}% of a core, {lists} lists, {:.1} ms of CPU each",
+                share * 100.0,
+                each * 1000.0
+            ),
         ));
     }
     let lines: Vec<&str> = report.iter().map(|r| r.2.as_str()).collect();
@@ -309,14 +317,14 @@ fn clients_asking_for_the_whole_list_over_and_over_cost_the_daemon_a_few_percent
     assert_eq!(paged, whole);
     drop(daemon);
     let _ = std::fs::remove_dir_all(&dir);
-    // A broken client that reads as fast as it can costs what it reads: no list request waits or
-    // is refused (Leo, 2026-11-12: "Delete the pacer"); it is measured, not bounded.
-    let over: Vec<&str> =
-        report.iter().filter(|r| r.0 != FAST && r.1 > MAX_SHARE).map(|r| r.0).collect();
+    // No list request waits or is refused (Leo, 2026-11-12: "Delete the pacer"): a broken client
+    // that reads as fast as it can costs what it reads, and each read, its own or any other
+    // client's, stays under the bound.
+    let over: Vec<&str> = report.iter().filter(|r| r.1 > MAX_LIST_CPU).map(|r| r.0).collect();
     assert!(
         over.is_empty(),
-        "over {:.0}% of a core: {over:?}\n  {}",
-        MAX_SHARE * 100.0,
+        "a list of {CHATS} chats over {:.0} ms of CPU: {over:?}\n  {}",
+        MAX_LIST_CPU * 1000.0,
         lines.join("\n  ")
     );
 }
