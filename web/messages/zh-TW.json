@@ -199,7 +199,10 @@
     "signupPendingBody": "如果你已有帳戶，請使用之前的方法登入。如果你剛建立帳戶，請在登入前驗證電子郵件。",
     "genericTitle": "無法完成登入",
     "genericBody": "請重試。如果問題仍然存在，請聯絡支援。",
-    "backToSignIn": "返回登入"
+    "backToSignIn": "返回登入",
+    "chatgptLinkTitle": "登入一次以連結 ChatGPT",
+    "chatgptLinkBody": "此電子郵件已有 cmux 帳戶。請使用先前的方式登入，ChatGPT 將連結到該帳戶。",
+    "chatgptEmailUnverifiedBody": "你的 ChatGPT 帳戶電子郵件尚未驗證。請在 OpenAI 完成驗證，或改用其他方式登入。"
   },
   "cloudPublicationAccess": {
     "title": "你沒有存取權限",

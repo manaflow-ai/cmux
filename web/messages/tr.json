@@ -199,7 +199,10 @@
     "signupPendingBody": "Zaten bir hesabınız varsa, daha önce kullandığınız yöntemle giriş yapın. Yeni bir hesap oluşturduysanız giriş yapmadan önce e-postanızı doğrulayın.",
     "genericTitle": "Giriş tamamlanamadı",
     "genericBody": "Lütfen tekrar deneyin. Sorun devam ederse destek ekibiyle iletişime geçin.",
-    "backToSignIn": "Girişe dön"
+    "backToSignIn": "Girişe dön",
+    "chatgptLinkTitle": "ChatGPT’yi bağlamak için bir kez giriş yapın",
+    "chatgptLinkBody": "Bu e-postanın zaten bir cmux hesabı var. Daha önce kullandığınız yöntemle giriş yapın, ChatGPT bu hesaba bağlanacak.",
+    "chatgptEmailUnverifiedBody": "ChatGPT hesabınızdaki e-posta doğrulanmamış. OpenAI’da doğrulayın veya başka bir yolla giriş yapın."
   },
   "cloudPublicationAccess": {
     "title": "Erişim izniniz yok",

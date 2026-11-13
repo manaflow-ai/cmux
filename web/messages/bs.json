@@ -199,7 +199,10 @@
     "signupPendingBody": "Ako već imate nalog, prijavite se metodom koju ste ranije koristili. Ako ste upravo kreirali nalog, potvrdite e-poštu prije prijave.",
     "genericTitle": "Prijava nije dovršena",
     "genericBody": "Pokušajte ponovo. Ako problem potraje, kontaktirajte podršku.",
-    "backToSignIn": "Nazad na prijavu"
+    "backToSignIn": "Nazad na prijavu",
+    "chatgptLinkTitle": "Prijavite se jednom da povežete ChatGPT",
+    "chatgptLinkBody": "Ovaj email već ima cmux račun. Prijavite se metodom koju ste ranije koristili i ChatGPT će biti povezan s tim računom.",
+    "chatgptEmailUnverifiedBody": "Email na vašem ChatGPT računu nije potvrđen. Potvrdite ga kod OpenAI-ja ili se prijavite na drugi način."
   },
   "cloudPublicationAccess": {
     "title": "Nemate pristup",
