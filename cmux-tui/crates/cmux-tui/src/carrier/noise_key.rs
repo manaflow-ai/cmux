@@ -74,9 +74,14 @@ const DEV_KEYCHAIN_WAIT: std::time::Duration = std::time::Duration::from_secs(3)
 /// Whether this process belongs to a DEV build (`com.cmuxterm.app.debug[.<tag>]`).
 #[cfg(target_os = "macos")]
 fn is_dev_build() -> bool {
+    // The bundle this binary ships in, not the environment: the app starts `carrier serve`
+    // with its tag and socket but no bundle id, which named no bundle at all.
     let exe = std::env::current_exe().ok();
-    crate::app_identity::AppIdentity::detect(|key| std::env::var(key).ok(), exe.as_deref())
-        .and_then(|identity| identity.bundle_id)
+    let own = crate::app_identity::AppIdentity::detect(|_| None, exe.as_deref());
+    let from_env =
+        || crate::app_identity::AppIdentity::detect(|key| std::env::var(key).ok(), exe.as_deref());
+    own.or_else(from_env)
+        .and_then(|identity| identity.build().bundle_id().map(str::to_owned))
         .is_some_and(|id| crate::app_identity::is_debug_bundle(&id))
 }
 
