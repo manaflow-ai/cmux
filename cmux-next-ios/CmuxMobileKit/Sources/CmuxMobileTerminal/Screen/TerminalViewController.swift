@@ -377,7 +377,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         tuiClip.addGestureRecognizer(tuiHorizontalPan)
         hostGridNote.font = UIFont.preferredFont(forTextStyle: .caption2)
         hostGridNote.adjustsFontForContentSizeCategory = true
-        hostGridNote.textColor = .secondaryLabel
+        // The terminal's theme is dark in both appearances: the note's gray
+        // is the dark one (the light one is near black on the grid's background).
+        hostGridNote.textColor = UIColor.secondaryLabel.resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark))
         hostGridNote.lineBreakMode = .byTruncatingTail
         hostGridNote.isHidden = true
         hostGridNote.isUserInteractionEnabled = false
