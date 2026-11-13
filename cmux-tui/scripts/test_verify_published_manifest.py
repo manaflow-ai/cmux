@@ -737,6 +737,38 @@ class VerifyPublishedManifestTests(TestCase):
         self.assertEqual(code, 1)
         self.assertIn(f"expected {list(self.MACHINE_TARGETS)}", errors)
 
+    def test_the_caller_can_leave_out_only_the_intel_mac_machine_target(self) -> None:
+        """The target set is the caller's argument, bounded: an empty or short expansion cannot pass a thin manifest."""
+        payloads = self.machine_payloads(intel_mac=False)
+        manifest = self.machine_manifest(payloads, intel_mac=False)
+        base = ["--manifest-file", "assets/chatmux-relay/manifest.json", "--expected-commit", self.COMMIT,
+                "--artifact-directory", "assets/chatmux-relay"]
+
+        def check(*targets: str, machine: bool = True) -> tuple[int, str]:
+            argv = base + (["--machine-manifest"] if machine else [])
+            for target in targets:
+                argv += ["--machine-target", target]
+            return self.run_machine_check(argv, manifest, payloads)
+
+        built = self.machine_targets(intel_mac=False)
+        self.assertEqual(check(*built), (0, ""))
+        self.assertEqual(check(*reversed(built)), (0, ""))
+        for targets, message in (
+            ((), "target set mismatch: expected " + str(list(self.MACHINE_TARGETS))),
+            (built[:2], "machine target set cannot leave out ['aarch64-unknown-linux-musl']"),
+            (built[1:], "machine target set cannot leave out ['aarch64-apple-darwin']"),
+            ((self.INTEL_MAC,), "machine target set cannot leave out"),
+            (built + ("x86_64-pc-windows-gnu",), "unknown machine target: ['x86_64-pc-windows-gnu']"),
+            (built + built[:1], "machine target named more than once: ['aarch64-apple-darwin']"),
+        ):
+            with self.subTest(targets=targets):
+                code, errors = check(*targets)
+                self.assertEqual(code, 1)
+                self.assertIn(message, errors)
+        code, errors = check(*built, machine=False)
+        self.assertEqual(code, 1)
+        self.assertIn("--machine-target needs --machine-manifest", errors)
+
     def test_machine_manifest_rejects_compatibility_fields_and_windows(self) -> None:
         payloads = self.machine_payloads()
         manifest = self.machine_manifest(payloads)
