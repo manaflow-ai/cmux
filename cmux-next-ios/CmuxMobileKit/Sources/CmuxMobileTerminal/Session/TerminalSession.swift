@@ -200,6 +200,11 @@ public protocol TerminalSession: AnyObject {
     /// terminal, `attach-replay-history-rows-v1`). Called as often as the page
     /// scrolls there; the session decides. Others ignore it.
     func loadOlderHistory()
+    /// The terminal's foreground program where it runs (the Mac's
+    /// `process-info` `foreground_executable`), nil when unknown or when the
+    /// session runs no program it can name. A drag on the alternate screen
+    /// pages a pager or an editor with it (``TerminalPanRoute``).
+    func foregroundProgram() async -> String?
 }
 
 extension TerminalSession {
@@ -227,6 +232,8 @@ extension TerminalSession {
     public func clearHistory() async throws {}
 
     public func loadOlderHistory() {}
+
+    public func foregroundProgram() async -> String? { nil }
 
     public var hostGridOwnerName: String? { nil }
 }

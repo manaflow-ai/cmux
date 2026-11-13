@@ -551,13 +551,14 @@ final class ShellModel {
     /// The banner over Workspaces: no network first, then the live link (SPEC 7.4).
     var banner: ConnectionBannerState? {
         #if DEBUG
-        // Layout captures only: `-cmux-mobile-banner-demo pairing|pairing-reset|reconnecting`.
-        switch UserDefaults.standard.string(forKey: "cmux-mobile-banner-demo") {
+        // Layout captures only: `-cmux-mobile-banner-demo pairing|pairing-reset|reconnecting|signed-out`.
+        switch Self.bannerDemo {
         case "connected"?: return .connected
         case "reconnecting"?: return .reconnecting(to: "Mac Studio")
         case "offline"?: return .connectionFailed
         case "pairing"?: return .waitingForPairing(on: "Mac Studio")
         case "pairing-reset"?: return .waitingForPairingAfterNewKeys(on: "Mac Studio")
+        case "signed-out"?: return .signedOut
         default: break
         }
         #endif
@@ -570,6 +571,19 @@ final class ShellModel {
         case .failed(let reason)?: return .failed("Pairing failed: \(reason)", identity: live?.focusedMacID)
         default: return live?.banner
         }
+    }
+
+    #if DEBUG
+    static var bannerDemo: String? { UserDefaults.standard.string(forKey: "cmux-mobile-banner-demo") }
+    #endif
+
+    /// The banner has a button: live mode, or the DEBUG signed-out demo (its Sign in
+    /// signs out of the mock account, as a revoked session does, so the flow can be recorded).
+    var bannerHasAction: Bool {
+        #if DEBUG
+        if Self.bannerDemo == "signed-out" { return true }
+        #endif
+        return live != nil
     }
 
     /// The banner's one button: "Sign in" when the account's session was

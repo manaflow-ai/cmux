@@ -124,12 +124,14 @@ FIXTURES = [
     # The parser reads what bash reads (#41768 review: a `case` pattern credited as a command, `X+=x cmd` unseen). Each
     # row is a place the two disagreed: a word bash takes as an assignment, a pattern, an arithmetic or conditional
     # expression, or an expansion of the program word.
-    ("an assignment operator after a quoted subscript equals is still an assignment (dep-fleet-6 F1)",
-     'X["a=b"]=v gh', {"gh"}, None),
+    ("a quoted subscript makes an assignment-looking word uncertain (dep-fleet-6 F1)",
+     'X["a=b"]=v gh', {"gh"}, set()),
+    ("an escaped subscript operator makes an assignment-looking word uncertain (dep-fleet-6 F1)",
+     'X[\\==]"="v gh', set(), set()),
     ("an append assignment before a command (#41768 F2)", "X+=x gh release create v1", {"gh"}, None),
     ("a subscripted assignment before a command", "X[0]=v gh", {"gh"}, None),
     ("a subscripted append assignment before a command", "X[i]+=v gh", {"gh"}, None),
-    ("a quoted subscript in an assignment before a command", 'X["k y"]=v gh', {"gh"}, None),
+    ("a quoted subscript in an assignment before a command is uncertain", 'X["k y"]=v gh', {"gh"}, set()),
     ("a quoted equals in a subscripted assignment is not an assignment (dep-fleet-6 F1)", 'X[0]"=v" gh', set(), None),
     ("a quoted assignment is the program, not an assignment", '"X=1" gh', set(), None),
     ("an escaped = is the program, not an assignment", "X\\=1 gh", set(), None),
@@ -327,7 +329,11 @@ class AgainstBash(unittest.TestCase):
         self.assertEqual(must_run("X=1 coproc true"), [["coproc", "true"]])
 
     def test_quoted_subscript_operator_does_not_credit_gh(self) -> None:
-        self.assertEqual(must_run('X[0]"="v=w gh'), [])
+        for script in ('X["a=b"]=v gh', 'X["k y"]=v gh', 'X[0]"=v" gh', 'X[0]"="v=w gh',
+                       'X[\\==]"="v gh', '"X=1" gh', "X\\=1 gh"):
+            with self.subTest(script=script):
+                self.assertEqual(must_run(script), [])
+                self.assertTrue(may_run_program(script, "gh"))
         self.assertTrue(may_run_program('"env" gh release create v1', "gh"))
 
     def test_coproc_program_position_is_not_any_program(self) -> None:
