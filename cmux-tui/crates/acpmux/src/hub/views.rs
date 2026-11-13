@@ -62,7 +62,7 @@ const TITLE_CHARS: usize = 200;
 /// `title`, or for a longer one its first [`TITLE_CHARS`], folded, and masked before it is cut
 /// as a lane's title is ([`masked_cut`]): a secret the cut would split is masked whole, never
 /// left as a head a peer's masking no longer knows (`peer_text.rs`).
-fn summary_title(title: &str) -> String {
+pub(super) fn summary_title(title: &str) -> String {
     if title.chars().nth(TITLE_CHARS).is_none() {
         title.to_owned()
     } else {

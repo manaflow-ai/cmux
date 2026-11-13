@@ -133,6 +133,8 @@ pub mod media_handles;
 pub mod media_read;
 mod mesh_book;
 mod mesh_rows;
+mod peer_row;
+pub use peer_row::PeerRow;
 pub(crate) mod native_history;
 pub(crate) mod row_log;
 pub(crate) mod subagent_transcript;
@@ -520,7 +522,8 @@ impl RemoteRef {
 #[derive(Debug, Clone)]
 pub struct RemoteSession {
     pub peer: String,
-    pub summary: Value,
+    /// Its row, packed (`peer_row.rs`).
+    pub summary: PeerRow,
     pub receipt: SessionReceipt,
 }
 

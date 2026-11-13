@@ -294,13 +294,11 @@ impl Snapshot {
         let mut rows = Rows::default();
         let closed = hub.own_rows_in_order(with_tools, |row| rows.push(&row));
         if remote {
-            hub.visit_remote_rows(
+            // Each peer row's own text, parsed for none (`peer_row.rs`).
+            hub.visit_remote_texts(
                 |_| true,
-                |row| {
-                    let row =
-                        if with_tools { row } else { super::views::without_summary_tools(row) };
-                    rows.push(&row);
-                },
+                with_tools,
+                |r, text| rows.push_peer(&r.summary, &text),
             );
         }
         rows.finish_with(closed)
@@ -308,7 +306,8 @@ impl Snapshot {
 
     fn build_live(hub: &Hub) -> Built {
         let mut rows = Rows::default();
-        hub.visit_live_session_summaries(false, |row| rows.push(&row));
+        hub.visit_live_own_summaries(false, |row| rows.push(&row));
+        hub.visit_remote_texts(|r| !r.closed(), false, |r, text| rows.push_peer(&r.summary, &text));
         rows.finish()
     }
 
@@ -337,7 +336,12 @@ impl Snapshot {
             let began = Instant::now();
             let (whole, spans, keys) = if self.live_only {
                 let mut rows = Rows::default();
-                hub.visit_live_session_summaries(true, |row| rows.push(&row));
+                hub.visit_live_own_summaries(true, |row| rows.push(&row));
+                hub.visit_remote_texts(
+                    |r| !r.closed(),
+                    true,
+                    |r, text| rows.push_peer(&r.summary, &text),
+                );
                 rows.finish()
             } else {
                 Self::build_rows(hub, true, true)
@@ -565,7 +569,7 @@ pub(crate) fn cut_page(
 
 /// `rows`, in the order given (not sorted), as a list's text, where each is in it, and the
 /// paging keys of each (`at` its place): what [`cut_page`] cuts.
-pub(crate) fn serialize_in_order(rows: &[Value]) -> Built {
+pub(crate) fn serialize_in_order(rows: &[BuiltRow]) -> Built {
     let prefix = br#"{"sessions":["#;
     let mut whole = Vec::from(&prefix[..]);
     let (mut spans, mut keys) = (Vec::with_capacity(rows.len()), Vec::with_capacity(rows.len()));
@@ -574,10 +578,18 @@ pub(crate) fn serialize_in_order(rows: &[Value]) -> Built {
             whole.push(b',');
         }
         let start = whole.len();
-        // A Value always serializes, and Vec's writer cannot fail.
-        let _ = serde_json::to_writer(&mut whole, row);
+        match row {
+            BuiltRow::Tree(row) => {
+                // A Value always serializes, and Vec's writer cannot fail.
+                let _ = serde_json::to_writer(&mut whole, row);
+                keys.push(RowKey::of(row, at).value(at));
+            }
+            BuiltRow::Text(text, key) => {
+                whole.extend_from_slice(text.as_bytes());
+                keys.push(key.value(at));
+            }
+        }
         spans.push(start..whole.len());
-        keys.push(RowKey::of(row, at).value(at));
     }
     whole.extend_from_slice(b"]}");
     // serde_json writes UTF-8.
@@ -656,6 +668,13 @@ struct Rows {
     keys: Vec<RowKey>,
 }
 
+/// A list row built: this daemon's as a tree, or a peer's as its text with its keys
+/// (`PeerRow::listed`), never parsed.
+pub(crate) enum BuiltRow {
+    Tree(Value),
+    Text(String, RowKey),
+}
+
 /// The fields needed for ordering, filtering, and cursors. Keeping these typed avoids
 /// allocating a JSON object for every row while the snapshot is being built.
 #[derive(Clone, Debug, Default)]
@@ -676,6 +695,17 @@ impl RowKey {
             updated_at: row.get("updatedAt").and_then(Value::as_u64).unwrap_or_default(),
             peer: row.get("peer").and_then(Value::as_str).map(str::to_owned),
             status: row.get("status").and_then(Value::as_str).map(str::to_owned),
+        }
+    }
+
+    /// Peer row `row`'s keys, at `at`, read from what it keeps hot.
+    pub(crate) fn of_peer(row: &super::PeerRow, at: usize) -> Self {
+        Self {
+            at,
+            session_id: row.session_id().map(str::to_owned),
+            updated_at: row.updated_ms(),
+            peer: row.peer().map(str::to_owned),
+            status: row.status().map(str::to_owned),
         }
     }
 
@@ -718,6 +748,14 @@ impl Rows {
         let _ = serde_json::to_writer(&mut self.text, row);
         self.spans.push(start..self.text.len());
         self.keys.push(RowKey::of(row, self.keys.len()));
+    }
+
+    /// Peer row `row`, as `text` (`PeerRow::listed`).
+    fn push_peer(&mut self, row: &super::PeerRow, text: &str) {
+        let start = self.text.len();
+        self.text.extend_from_slice(text.as_bytes());
+        self.spans.push(start..self.text.len());
+        self.keys.push(RowKey::of_peer(row, self.keys.len()));
     }
 
     fn finish(self) -> Built {

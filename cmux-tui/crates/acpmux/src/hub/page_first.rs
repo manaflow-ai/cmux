@@ -10,6 +10,7 @@
 //! every row first: on 2026-11-11 a daemon with 11,236 chats (10,874 closed) took 5.4 s for
 //! `ls --limit 5` and 6.1-7.3 s for `ls --limit 1000`.
 
+use super::list_guard::BuiltRow;
 use super::session_pages::{PageRow, Picked, pick_page};
 use super::*;
 
@@ -43,7 +44,7 @@ impl PageRow for Unbuilt {
     fn session_id(&self) -> &str {
         match &self.source {
             Source::Own(session) => &session.id,
-            Source::Peer(row) => row.summary.session_id(),
+            Source::Peer(row) => row.summary.session_id().unwrap_or(""),
         }
     }
 
@@ -74,7 +75,7 @@ impl Hub {
         &self,
         params: &Value,
         with_tools: bool,
-    ) -> Result<(Vec<Value>, Option<Value>), RpcError> {
+    ) -> Result<(Vec<BuiltRow>, Option<Value>), RpcError> {
         // A closed session's row is left out anyway: its handle is not even read.
         let own = if excludes_closed(params) {
             self.live_session_handles()
@@ -101,11 +102,14 @@ impl Hub {
             .iter()
             .filter_map(|&at| rows.get(at))
             .map(|row| match &row.source {
-                Source::Own(session) => self.cached_closed_summary(session, with_tools),
-                Source::Peer(row) => {
-                    let row = super::peers::listed_remote_row(row, &states);
-                    if with_tools { row } else { super::views::without_summary_tools(row) }
+                Source::Own(session) => {
+                    BuiltRow::Tree(self.cached_closed_summary(session, with_tools))
                 }
+                // The row's own text, not parsed (`peer_row.rs`).
+                Source::Peer(row) => BuiltRow::Text(
+                    super::peers::listed_remote_text(row, &states, with_tools),
+                    super::list_guard::RowKey::of_peer(&row.summary, 0),
+                ),
             })
             .collect();
         Ok((built, next))
