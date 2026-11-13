@@ -72,10 +72,11 @@ A documentation-only change needs no build; give the file path instead.
   (`scripts/verify-iphone-auth.sh` must pass; never raw `devicectl`), then boots the tag's Simulator on the person's Mac, opens its window without taking
   focus and launches the app signed in and paired, ready to review. Details: [ios/AGENTS.md](ios/AGENTS.md#finishing-a-task).
 - **Install on every connected phone.** A phone that is connected gets the build, including one
-  you have not seen before: `--review` registers a new phone and installs on it too. Before a new
-  phone's first install, it needs Tailscale signed in to the team tailnet (the dev API is a tailnet
-  host); without it the install succeeds but the auth gate fails with "never published a signed-in
-  app receipt". Report that as the phone's blocker and ask the person to set Tailscale up.
+  you have not seen before: `--review` registers a new phone and installs on it too. The cmux-next
+  iOS app does not need Tailscale, but a fleet-built dev app talks to hq's tagged dev backend, a
+  tailnet-only `*.ts.net` host. A phone off the tailnet then installs the app but fails the auth
+  gate with "never published a signed-in app receipt"; report that as the phone's blocker and name
+  the cause. Locally built dev apps use the public staging API and have no such requirement.
 - **A phone is always connected.** No connected phone, a locked phone, a queued install or a
   failed auth gate is a blocker to report with its error and retry command, never a step to skip
   or replace with a simulator-only result.
@@ -83,7 +84,7 @@ A documentation-only change needs no build; give the file path instead.
 
   ```text
   Dev build:  http://127.0.0.1:17320/<task-slug>   (fleet job <JOB_ID>, head <sha>)
-  Simulator:  cmux-dev-<slug>: booted, window open, app signed in and paired
+  Simulator:  cmux-dev-<slug>: booted, window open, app signed in
   iPhone:     <name> (<model>, <udid>): installed, verify-iphone-auth PASS
               <name> (<model>, <udid>): BLOCKED: <reason>; retry: <command>   (one line per connected phone)
   ```

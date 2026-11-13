@@ -23,9 +23,9 @@ result line per iPhone. Builds run on the build fleet when an hq checkout with
 build-fleet/ios-reload.py is found (CMUX_HQ_ROOT, then `cmux-ci hq-root`);
 otherwise they build locally. No connected phone, or a phone that fails its
 install or auth gate, fails the command (exit non-zero): it is a blocker to
-report, never something to skip. A new phone needs Tailscale signed in to the
-team tailnet before its first dev install, because the dev API is a tailnet
-host. The review simulator signs in with
+report, never something to skip. A fleet-built dev app talks to hq's
+tailnet-only dev backend, so a phone off the tailnet installs it but fails the
+auth gate; the app itself does not need Tailscale. The review simulator signs in with
 the personal profile, the same account as the phone, so it cannot replace the
 phone's pairing with the tagged Mac; the phone is re-verified after it.
 
@@ -667,7 +667,7 @@ review_simulator() {
     echo "error: retry: scripts/mobile-dev-launch.sh --tag $TAG --simulator-id $udid --detach --auth-profile personal --ensure-mac" >&2
     return 1
   fi
-  REVIEW_SIM_STATUS="$name ($udid): booted, window open in $REVIEW_SIM_WINDOW_APP, $BUNDLE_ID launched signed in as $DEVICE_AUTH_ACCOUNT and paired to the tagged Mac"
+  REVIEW_SIM_STATUS="$name ($udid): booted, window open in $REVIEW_SIM_WINDOW_APP, $BUNDLE_ID launched signed in as $DEVICE_AUTH_ACCOUNT"
 }
 
 # Re-run the phone's auth gate after the simulator launch, so the report proves
@@ -727,7 +727,7 @@ review_register_phone() {
   if ! grep -qi "^$udid" "$REVIEW_PHONES_FILE" 2>/dev/null; then
     printf '%s\t%s\t%s\n' "$udid" "$name" "$model" >> "$REVIEW_PHONES_FILE"
     echo "==> new iPhone registered: $name ($model, $udid) in $REVIEW_PHONES_FILE"
-    echo "==> a new phone needs Tailscale signed in to the team tailnet before its first dev install (the dev API is a tailnet host)"
+    echo "==> note: a fleet-built dev app reaches hq's dev backend only on the tailnet; if this phone's auth gate fails, check that it is on the tailnet"
   fi
   if [[ ! -s "$default_file" ]]; then
     printf '%s\n' "$udid" > "$default_file"

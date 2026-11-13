@@ -48,9 +48,12 @@ The first time it sees a phone, it adds it to `~/.config/cmux/iphone-device-ids`
 listed as "not connected" in the report. To get a new phone ready:
 
 1. Pair it with this Mac once (unlock it, tap Trust) and turn on Developer Mode.
-2. Install Tailscale on it and sign in to the team tailnet. The dev API
-   (`CMUXApiBaseURL`, a `*.ts.net` host) is reachable only on the tailnet; without it the app
-   installs but never signs in, and the gate fails with "never published a signed-in app receipt".
+2. Only for fleet-built dev apps (the `--review` default for team members): put the phone on the
+   team tailnet. The cmux-next iOS app itself does not need Tailscale, but hq's fleet bakes its
+   tagged dev backend into `CMUXApiBaseURL`, and that `*.ts.net` host is reachable only on the
+   tailnet. Off the tailnet the app installs but never signs in, and the gate fails with "never
+   published a signed-in app receipt". Locally built device apps use the public
+   `cmux-staging.vercel.app` API instead.
 3. Run `--review` again; the report shows the phone's own line.
 
 A phone is always connected. No connected phone, a locked phone, a queued install or a failed auth
