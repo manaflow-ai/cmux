@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43368262467",
+  "recorded_at": "2026-11-13T05:03:15Z",
+  "reason": "cmux-tui 5f1acbba80dd changes the image's cmux-tui (pinned 44b59d8f804c)",
+  "dry_run": false,
+  "cmux_tui": "5f1acbba80dd2f6604a86aca95a7116d745f2dc2",
+  "fixes": [
+    {
+      "sha": "5f1acbba80dd2f6604a86aca95a7116d745f2dc2",
+      "mergedAt": "2026-11-12T20:29:11-08:00",
+      "subject": "acpmux: a Chief compactor node's session logs no 3.1 MB prompt body (throwaway sessions) (#42320)"
+    },
+    {
+      "sha": "92ea7d115c852ae86a434dc40fce12828c1b83c6",
+      "mergedAt": "2026-11-13T04:26:37Z",
+      "subject": "base red: on Linux the idle daemon woke for each write beside a file it watches (#42311)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T05:03:15Z",
+    "snapshot_id": "sh-d2fcb7761c5744ff9f307cbec5d23d53",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43368262467): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "0a5afc75173e412a0fdabee8a62ed43de8a56123",
+    "image": "cloud-native-auto-5f1acbba-43368262467-1",
+    "revision": "ci-43368262467-1",
+    "at": "2026-11-13T05:03:15Z"
+  },
+  "rolled_back": false
+}
