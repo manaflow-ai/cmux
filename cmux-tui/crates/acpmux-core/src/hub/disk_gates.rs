@@ -132,6 +132,41 @@ fn rss_kb() -> u64 {
         .unwrap_or(0)
 }
 
+fn rss_fields_kb() -> (u64, u64, u64) {
+    let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+    let field = |name: &str| {
+        status
+            .lines()
+            .find_map(|line| {
+                line.strip_prefix(name)
+                    .and_then(|rest| rest.split_whitespace().next())
+                    .and_then(|value| value.parse().ok())
+            })
+            .unwrap_or(0)
+    };
+    (field("RssAnon:"), field("RssFile:"), field("VmRSS:"))
+}
+
+#[cfg(feature = "allocation-metrics")]
+fn live_bytes() -> u64 {
+    crate::allocation_metrics::live_bytes()
+}
+
+#[cfg(not(feature = "allocation-metrics"))]
+fn live_bytes() -> u64 {
+    0
+}
+
+fn attribution_point(label: &str, hub: &Hub) {
+    let (anon_kb, file_kb, rss_kb) = rss_fields_kb();
+    let hot_rows = hub.snapshot().len();
+    let history = hub.history.lock().map(|items| items.len()).unwrap_or(0);
+    println!(
+        "V2_GATE_ATTR point={label} rss_anon_kb={anon_kb} rss_file_kb={file_kb} rss_kb={rss_kb} live_bytes={} hot_rows={hot_rows} history={history}",
+        live_bytes()
+    );
+}
+
 fn child_startup() {
     let dir = std::env::var("V2_GATE_DIR").expect("child fixture directory");
     let boot = std::env::var("V2_GATE_BOOT")
@@ -180,6 +215,28 @@ fn child_startup() {
         });
         println!("V2_GATE_HOT_ROWS={}", hub.snapshot().len());
     }
+    if let Some(cycle) = mode.strip_prefix("attrib-").and_then(|value| value.parse::<usize>().ok())
+    {
+        attribution_point("before_apply", &hub);
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("attribution runtime");
+        runtime.block_on(async {
+            for n in 0..11_000 {
+                let id = format!("row-{:05}", n % cycle);
+                writer.apply(summary(id, 2_000_000 + n as u64, "closed")).expect("apply cold row");
+            }
+            attribution_point("after_apply", &hub);
+            writer.sync_batch().expect("sync cold rows");
+            writer.next_compaction = Some(std::time::Instant::now());
+            writer.process_batch();
+            writer.finish_compaction(true).await;
+            writer.process_batch();
+            writer.finish_compaction(true).await;
+        });
+        attribution_point("after_compaction", &hub);
+    }
     println!("V2_GATE_CHILD_RSS_KB={}", rss_kb());
 }
 
@@ -225,6 +282,48 @@ fn exec_child(dir: &std::path::Path, test_name: &str, boot: u64, mode: &str) -> 
     let status = child.wait().expect("wait startup child");
     assert!(status.success(), "startup child failed: {status}");
     (elapsed, rss.expect("child RSS receipt"), hot_rows)
+}
+
+#[cfg(feature = "allocation-metrics")]
+fn exec_attribution_child(
+    dir: &std::path::Path,
+    test_name: &str,
+    boot: u64,
+    mode: &str,
+) -> Vec<String> {
+    let mut child = Command::new(std::env::current_exe().expect("test executable"))
+        .arg("--exact")
+        .arg(test_name)
+        .arg("--ignored")
+        .arg("--nocapture")
+        .env("V2_GATE_CHILD", "1")
+        .env("V2_GATE_MODE", mode)
+        .env("V2_GATE_DIR", dir)
+        .env("V2_GATE_BOOT", boot.to_string())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn attribution child");
+    let stdout = child.stdout.take().expect("attribution stdout");
+    let mut lines = BufReader::new(stdout).lines();
+    let mut ready = false;
+    let mut points = Vec::new();
+    for line in lines.by_ref() {
+        let line = line.expect("attribution child output");
+        if line == "V2_GATE_WINDOW_READY" {
+            ready = true;
+            break;
+        }
+    }
+    assert!(ready, "attribution child ended before window");
+    for line in lines {
+        let line = line.expect("attribution child output");
+        if line.starts_with("V2_GATE_ATTR ") {
+            points.push(line);
+        }
+    }
+    let status = child.wait().expect("wait attribution child");
+    assert!(status.success(), "attribution child failed: {status}");
+    points
 }
 
 fn make_disk_index(dir: &std::path::Path, index: &SummaryIndex) -> SummaryIndex {
@@ -461,4 +560,29 @@ fn pr05b_startup_pages_and_hot_index_gate() {
     report_tail("two_full_tails", two_ns, two_bytes);
 
     assert!(failures.is_empty(), "PR5b gate failures (all rows were emitted): {failures:?}");
+}
+
+#[cfg(feature = "allocation-metrics")]
+#[test]
+#[ignore = "PR5b memory attribution; run with --features allocation-metrics --ignored --nocapture"]
+fn pr05b_memory_attribution() {
+    if std::env::var_os("V2_GATE_CHILD").is_some() {
+        child_startup();
+        return;
+    }
+    let child_name =
+        module_path!().split_once("::").map_or(module_path!(), |(_, rest)| rest).to_owned()
+            + "::pr05b_memory_attribution";
+    let (small_dir, _) = fixture(20, false, false);
+    let (god_dir, _) = fixture(11_000, false, false);
+    for (label, dir, cycle, boot) in
+        [("small", small_dir, 20, 70_001_u64), ("god", god_dir, 11_000, 70_002_u64)]
+    {
+        let points =
+            exec_attribution_child(dir.path(), &child_name, boot, &format!("attrib-{cycle}"));
+        assert_eq!(points.len(), 3, "{label} attribution points");
+        for point in points {
+            eprintln!("PR5b attribution {label}: {point}");
+        }
+    }
 }

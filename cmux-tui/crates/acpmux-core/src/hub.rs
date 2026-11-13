@@ -266,6 +266,8 @@ pub type SummaryHub = Hub;
 /// [`HubWriter::run`], or synchronously in deterministic unit tests with
 /// [`HubWriter::apply`].
 pub struct HubWriter {
+    #[cfg(test)]
+    turn_measure: disk::TurnMeasure,
     compaction: Option<compaction::Job>,
     retirement: Option<tokio::task::JoinHandle<()>>,
     next_compaction: Option<std::time::Instant>,
@@ -351,6 +353,8 @@ impl Hub {
             history: history.clone(),
         };
         let writer = HubWriter {
+            #[cfg(test)]
+            turn_measure: disk::TurnMeasure::default(),
             compaction: None,
             retirement: None,
             // A rotated generation without its installed snapshot is work

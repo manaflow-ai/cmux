@@ -21,6 +21,16 @@ fn best(samples: &[u128]) -> u128 {
     samples.chunks_exact(SAMPLES).take(ROUNDS).map(p95).min().unwrap()
 }
 
+fn report_split(label: &str, samples: &mut [u128]) {
+    samples.sort_unstable();
+    let median = samples.get(samples.len() / 2).copied().unwrap_or(0);
+    let tail = if samples.is_empty() { 0 } else { p95(samples) };
+    eprintln!(
+        "PR5b turn_split label={label} count={} p50_ns={median} p95_ns={tail}",
+        samples.len()
+    );
+}
+
 fn row(id: impl Into<String>, activity: u64) -> Summary {
     let mut row = Summary::new(id);
     row.last_activity = activity;
@@ -61,6 +71,11 @@ async fn pr05b_compaction_keeps_writing_through_one_million_changes() {
     let mut outside = Vec::new();
     let mut changes = 0_u64;
     let mut first_million_peak = 0;
+    let mut split: [Vec<u128>; 5] = std::array::from_fn(|_| Vec::new());
+    let mut sync_split: [Vec<u128>; 5] = std::array::from_fn(|_| Vec::new());
+    let mut overlays = Vec::new();
+    let mut changed_counts = Vec::new();
+    let mut rotations = Vec::new();
     // Fast compactions may finish in fewer than 1,000 turns through 1M changes.
     // Continue the same workload to collect five rounds, never slow a worker
     // or hold an artificial compaction open to manufacture samples.
@@ -79,13 +94,25 @@ async fn pr05b_compaction_keeps_writing_through_one_million_changes() {
             hub.submit(row(format!("row-{:05}", (changes + n) % 11_000), 1_000_000 + changes + n))
                 .unwrap();
         }
-        let (next, running, elapsed) = tokio::task::spawn_blocking(move || {
+        let (next, running, phase, elapsed) = tokio::task::spawn_blocking(move || {
             let running = writer.compaction.is_some() || writer.retirement.is_some();
+            let mut phase = if writer.compaction.is_some() {
+                1
+            } else if writer.retirement.is_some() {
+                2
+            } else {
+                0
+            };
             let completed = writer.compaction_counters.completed.load(Ordering::Relaxed);
             let old_offset = writer.log.as_ref().unwrap().offset();
             let started = Instant::now();
             writer.process_batch();
             let elapsed = started.elapsed().as_nanos().max(1);
+            if writer.turn_measure.overlay_ns > 0 {
+                phase = 3;
+            } else if writer.turn_measure.rotate_ns > 0 {
+                phase = 4;
+            }
             let log = writer.log.as_ref().unwrap();
             let trigger = writer.published.load().disk().unwrap().bytes().max(1024 * 1024);
             if writer.compaction.is_none() && writer.retirement.is_none() {
@@ -101,11 +128,20 @@ async fn pr05b_compaction_keeps_writing_through_one_million_changes() {
                 assert_eq!(log.retained_bytes(), log.offset());
             }
             assert_eq!(writer.log_errors(), 0);
-            (writer, running, elapsed)
+            (writer, running, phase, elapsed)
         })
         .await
         .unwrap();
         writer = next;
+        split.get_mut(phase).unwrap().push(elapsed);
+        sync_split.get_mut(phase).unwrap().push(writer.turn_measure.sync_ns);
+        if writer.turn_measure.overlay_ns > 0 {
+            overlays.push(writer.turn_measure.overlay_ns);
+            changed_counts.push(writer.turn_measure.changed as u128);
+        }
+        if writer.turn_measure.rotate_ns > 0 {
+            rotations.push(writer.turn_measure.rotate_ns);
+        }
         for _ in 0..count {
             let item = tokio::time::timeout(
                 std::time::Duration::from_secs(1),
@@ -150,6 +186,25 @@ async fn pr05b_compaction_keeps_writing_through_one_million_changes() {
     let small = best(&outside);
     let god = best(&during);
     let all = p95(&during);
+    report_split("during_gate_samples", &mut during);
+    for (n, label) in
+        ["outside", "compaction_running", "retirement_running", "install", "start_compaction"]
+            .iter()
+            .enumerate()
+    {
+        report_split(label, split.get_mut(n).unwrap());
+        report_split(&format!("{label}_sync"), sync_split.get_mut(n).unwrap());
+    }
+    report_split("install_overlay", &mut overlays);
+    changed_counts.sort_unstable();
+    eprintln!(
+        "PR5b install_changed count={} p50={} p95={} max={}",
+        changed_counts.len(),
+        changed_counts.get(changed_counts.len() / 2).unwrap_or(&0),
+        if changed_counts.is_empty() { 0 } else { p95(&changed_counts) },
+        changed_counts.last().unwrap_or(&0)
+    );
+    report_split("rotation", &mut rotations);
     let line = format!(
         "{{\"name\":\"v2.pr05b.apply_during_compaction\",\"small_p95\":{small},\"god_p95\":{god},\"god_p95_all\":{all},\"unit\":\"ns\",\"changes\":{changes},\"compactions\":{},\"peak_excess_bytes\":{},\"first_million_peak_excess_bytes\":{first_million_peak},\"last_duration_ns\":{}}}",
         stats.completed, stats.peak_excess_bytes, stats.duration_ns,

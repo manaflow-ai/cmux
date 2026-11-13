@@ -97,6 +97,8 @@ impl HubWriter {
         if tokio::runtime::Handle::try_current().is_err() {
             return;
         }
+        #[cfg(test)]
+        let rotation_began = Instant::now();
         let plan = match log.rotate(index.seq()) {
             Ok(plan) => plan,
             Err(_) => {
@@ -104,6 +106,10 @@ impl HubWriter {
                 return;
             }
         };
+        #[cfg(test)]
+        {
+            self.turn_measure.rotate_ns = rotation_began.elapsed().as_nanos();
+        }
         let cancelled = Arc::new(AtomicBool::new(false));
         let stop = cancelled.clone();
         let handle = tokio::task::spawn_blocking(move || plan.run_cancellable(index, stop));
@@ -172,11 +178,21 @@ impl HubWriter {
                     self.compaction_failed();
                 }
                 let current = self.published.load_full();
+                #[cfg(test)]
+                let overlay_began = Instant::now();
+                #[cfg(test)]
+                {
+                    self.turn_measure.changed = job.changed.len();
+                }
                 let next = current.with_compacted_snapshot(
                     result.snapshot,
                     std::mem::take(&mut job.changed),
                     result.retained_hot,
                 );
+                #[cfg(test)]
+                {
+                    self.turn_measure.overlay_ns = overlay_began.elapsed().as_nanos();
+                }
                 self.published.store(Arc::new(next));
                 self.hydration = None;
                 self.retirement = Some(tokio::task::spawn_blocking(move || drop(current)));

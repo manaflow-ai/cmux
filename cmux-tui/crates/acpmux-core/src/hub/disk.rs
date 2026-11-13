@@ -4,6 +4,16 @@ use acpmux_book::index::IndexRecord;
 use acpmux_book::index::SnapshotRows;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// Attribution only; the release gate still measures the complete turn.
+#[cfg(test)]
+#[derive(Clone, Copy, Default)]
+pub(super) struct TurnMeasure {
+    pub overlay_ns: u128,
+    pub changed: usize,
+    pub sync_ns: u128,
+    pub rotate_ns: u128,
+}
+
 pub(super) struct Hydration {
     snapshot: Arc<DiskSnapshot>,
     rows: SnapshotRows,
@@ -87,7 +97,13 @@ impl HubWriter {
         }
         if self.log_dirty {
             if let Some(log) = self.log.as_mut() {
+                #[cfg(test)]
+                let began = std::time::Instant::now();
                 log.sync()?;
+                #[cfg(test)]
+                {
+                    self.turn_measure.sync_ns += began.elapsed().as_nanos();
+                }
             }
             self.log_dirty = false;
         }
@@ -95,6 +111,10 @@ impl HubWriter {
     }
 
     pub(super) fn process_batch(&mut self) {
+        #[cfg(test)]
+        {
+            self.turn_measure = TurnMeasure::default();
+        }
         // Installation and releasing the old maps stay off runtime workers.
         self.install_compaction();
         self.hydrate_batch();
