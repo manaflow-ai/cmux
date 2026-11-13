@@ -7,8 +7,10 @@
 // test/bench-browser-launch.test.ts fails a bench file that imports a browser type from "playwright" directly.
 /// <reference types="bun" />
 import { chromium, webkit } from "playwright";
-import { useSystemChrome } from "../test/support/systemChrome";
+// Imported under a name without the `use` prefix: it is no React Hook, and React Doctor's rules-of-hooks reads a
+// top-level `use…()` call as one.
+import { useSystemChrome as launchSystemChrome } from "../test/support/systemChrome";
 
-useSystemChrome(chromium);
+launchSystemChrome(chromium);
 
 export { chromium, webkit };
