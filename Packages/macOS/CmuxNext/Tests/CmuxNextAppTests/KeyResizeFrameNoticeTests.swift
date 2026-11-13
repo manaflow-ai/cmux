@@ -380,7 +380,7 @@ struct KeyResizeFrameNoticeTests {
         let rig = Rig()
         defer { rig.window.closeAfterTest() }
         rig.root.isHidden = true
-        _ = PaneResize.press("p2", .left, model: rig.model, view: rig.root)
+        #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root), "SETUP: the press on a hidden root was refused")
         _ = rig.frame()
         let muted = rig.root.context.hosts.values.flatMap(ResizeDragFrameNoticeTests.subtree).filter { !$0.postsFrameChangedNotifications }
         #expect(muted.isEmpty, "a key resize press on a hidden root holds \(muted.count) pane views' frame notices")
