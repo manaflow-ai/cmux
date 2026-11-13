@@ -584,8 +584,34 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertIn(smoke.RENDER_MARK, seeded["marks"])
         self.assertEqual(seeded["verdict"], "pass", output)
 
+    def test_each_arms_host_is_of_its_own_launch(self):
+        # The real load cannot say which launch a number is of (2 launches seconds apart read nearly the same
+        # load). Here the validator's host_load is a counter, so each value names its read: 1 and 2 are the first
+        # launch's start and Home, 3 and 4 the seeded launch's.
+        ticks = "import itertools\nticks = itertools.count(1)\nsmoke.host_load = lambda: float(next(ticks))"
+        args = ("--seconds", "0", "--startup-timeout", "10", "--arms", "empty,seeded", "--seeded-seconds", "0")
+        cpus = os.cpu_count()
+        first = {"cpus": cpus, "load_at_launch": 1.0, "load_at_home": 2.0}
+        status, output, report = self.run_smoke("healthy", *args, setup=ticks)
+        self.assertEqual(status, smoke.PASS, output)
+        # A seeded launch that passed: the report still describes the first launch.
+        self.assertEqual(report["arms"]["empty"]["host"], first)
+        self.assertEqual(report["host"], first)
+        self.assertEqual(report["arms"]["seeded"]["host"], {"cpus": cpus, "load_at_launch": 3.0, "load_at_home": 4.0})
+        status, output, report = self.run_smoke("sync-crash", *args, setup=ticks)
+        self.assertEqual(status, smoke.FAIL, output)
+        # A seeded launch that failed with no Home: the report describes it, and the first arm keeps its own.
+        died = {"cpus": cpus, "load_at_launch": 3.0, "load_at_home": None}
+        self.assertEqual(report["arms"]["empty"]["host"], first)
+        self.assertEqual(report["arms"]["seeded"]["host"], died)
+        self.assertEqual((report["arm"], report["host"]), ("seeded", died))
+        self.assertEqual(report["arms"]["seeded"]["marks"], report["marks"])
+
     def test_a_host_that_cannot_say_its_load_leaves_it_empty(self):
         with mock.patch.object(os, "getloadavg", side_effect=OSError("no load here")):
+            self.assertIsNone(smoke.host_load())
+        # A platform with no getloadavg at all.
+        with mock.patch.object(os, "getloadavg", side_effect=AttributeError("no getloadavg")):
             self.assertIsNone(smoke.host_load())
 
     def test_a_crash_from_the_seeded_home_fails_the_run_as_that_arms_crash(self):
