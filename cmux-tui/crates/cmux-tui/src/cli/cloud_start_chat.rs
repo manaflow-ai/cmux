@@ -319,6 +319,7 @@ pub(super) fn wait_on(
     let request = Request {
         prompt: None,
         agent: String::new(),
+        model: None,
         cwd: None,
         from_folder: None,
         environment: None,

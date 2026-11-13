@@ -214,6 +214,7 @@ fn read_key(agent: &str, file: Option<&PathBuf>) -> Result<Zeroizing<String>, Ap
         code: Some("usage.invalid".to_owned()),
         message,
         retryable: false,
+        retry_after: None,
     };
     let value = match file {
         Some(path) => {
@@ -253,6 +254,7 @@ pub(super) fn run(command: &Command, target: &Target) -> Result<Value, ApiError>
         code: Some("usage.invalid".into()),
         message: e.to_string(),
         retryable: false,
+        retry_after: None,
     })?;
     // The key is read before anything is sent, so a prompt never waits on a connection.
     let secret = match &command.verb {
@@ -267,6 +269,7 @@ pub(super) fn run(command: &Command, target: &Target) -> Result<Value, ApiError>
                 code: Some("cloud.unreachable".into()),
                 message: e.to_string(),
                 retryable: true,
+                retry_after: None,
             }
         })?;
     let key = command.idempotency_key.clone().unwrap_or_else(cmux_cloud_client::client_key);
@@ -304,6 +307,7 @@ fn params<O: Op>(value: Value) -> Result<O::Params, ApiError> {
             e.to_string().split(" at line").next().unwrap_or("invalid")
         ),
         retryable: false,
+        retry_after: None,
     })
 }
 
