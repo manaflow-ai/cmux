@@ -181,25 +181,93 @@ pub(crate) fn refuse_lost_home(path: &Path) -> Result<()> {
         Ok(())
     };
     #[cfg(test)]
-    if let Some(hook) = seams::CHECKED.get() {
-        hook(path, checked.is_ok());
-    }
+    seams::checked(path, checked.is_ok());
     checked
 }
 
 /// Test seams for the forced lost-home races (`lost_home_race_tests.rs`): each holds a writer at
-/// one point so the order its race depends on is the test's, not the clock's.
+/// one point so the order its race depends on is the test's, not the clock's. Each hook is the
+/// setting thread's own (`thread_local!`), set by an `on_*` guard and taken off when it drops:
+/// a test runs its writer on a thread it owns, so a hook set by one test never fires in another
+/// test running beside it.
 #[cfg(test)]
 pub(crate) mod seams {
+    use std::cell::RefCell;
     use std::path::Path;
+    use std::rc::Rc;
 
-    /// Called on the writing thread at the end of each home check under the home, with the path
-    /// checked and whether the check passed: after the check, before the write it guards.
-    pub(crate) static CHECKED: std::sync::OnceLock<fn(&Path, bool)> = std::sync::OnceLock::new();
+    type Checked = Rc<dyn Fn(&Path, bool)>;
+    type BeforeRename = Rc<dyn Fn(&Path)>;
+    type MidWrite = Rc<dyn Fn(&Path) -> std::io::Result<()>>;
 
-    /// Called with a file's path once its temporary copy is written and synced, before that copy
-    /// is renamed over the file.
-    pub(crate) static BEFORE_RENAME: std::sync::OnceLock<fn(&Path)> = std::sync::OnceLock::new();
+    thread_local! {
+        static CHECKED: RefCell<Option<Checked>> = const { RefCell::new(None) };
+        static BEFORE_RENAME: RefCell<Option<BeforeRename>> = const { RefCell::new(None) };
+        static MID_WRITE: RefCell<Option<MidWrite>> = const { RefCell::new(None) };
+    }
+
+    /// While the guard lives, `hook` is called on this thread at the end of each home check
+    /// under the home, with the path checked and whether the check passed: after the check,
+    /// before the write it guards.
+    pub(crate) fn on_checked(hook: impl Fn(&Path, bool) + 'static) -> Guard {
+        CHECKED.with(|slot| *slot.borrow_mut() = Some(Rc::new(hook)));
+        Guard(Which::Checked)
+    }
+
+    /// While the guard lives, `hook` is called on this thread with a file's path once its
+    /// temporary copy is written and synced, before that copy is renamed over the file.
+    pub(crate) fn on_before_rename(hook: impl Fn(&Path) + 'static) -> Guard {
+        BEFORE_RENAME.with(|slot| *slot.borrow_mut() = Some(Rc::new(hook)));
+        Guard(Which::BeforeRename)
+    }
+
+    /// While the guard lives, `hook` is called on this thread with the path a `home_fs` write
+    /// is filling once part of its bytes are written, before the rest: its error fails the
+    /// write there, as a full disk would.
+    pub(crate) fn on_mid_write(hook: impl Fn(&Path) -> std::io::Result<()> + 'static) -> Guard {
+        MID_WRITE.with(|slot| *slot.borrow_mut() = Some(Rc::new(hook)));
+        Guard(Which::MidWrite)
+    }
+
+    pub(crate) fn mid_write(path: &Path) -> std::io::Result<()> {
+        match MID_WRITE.with(|slot| slot.borrow().clone()) {
+            Some(hook) => hook(path),
+            None => Ok(()),
+        }
+    }
+
+    pub(crate) fn checked(path: &Path, passed: bool) {
+        // Cloned out first: the hook may block, or check again, with the slot free.
+        if let Some(hook) = CHECKED.with(|slot| slot.borrow().clone()) {
+            hook(path, passed);
+        }
+    }
+
+    pub(crate) fn before_rename(path: &Path) {
+        if let Some(hook) = BEFORE_RENAME.with(|slot| slot.borrow().clone()) {
+            hook(path);
+        }
+    }
+
+    enum Which {
+        Checked,
+        BeforeRename,
+        MidWrite,
+    }
+
+    /// Takes its hook off this thread when dropped.
+    #[must_use = "the hook is taken off when the guard drops"]
+    pub(crate) struct Guard(Which);
+
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            match self.0 {
+                Which::Checked => drop(CHECKED.with(|slot| slot.borrow_mut().take())),
+                Which::BeforeRename => drop(BEFORE_RENAME.with(|slot| slot.borrow_mut().take())),
+                Which::MidWrite => drop(MID_WRITE.with(|slot| slot.borrow_mut().take())),
+            }
+        }
+    }
 }
 
 /// Make one acpmux state directory owner-only, including an existing directory
@@ -207,7 +275,7 @@ pub(crate) mod seams {
 /// directory owned by another user before changing its permissions.
 #[cfg(unix)]
 pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
-    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    use std::os::unix::fs::MetadataExt;
 
     refuse_lost_home(dir)?;
     validate_private_state_ancestors(dir)?;
@@ -220,6 +288,28 @@ pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
         .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
         .open(dir)
         .with_context(|| format!("open private state directory {}", dir.display()))?;
+    validate_private_state_dir(&opened, dir)?;
+    let metadata = opened.metadata()?;
+    let reopened = crate::home_fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(dir)
+        .with_context(|| format!("reopen private state directory {}", dir.display()))?;
+    let again = reopened.metadata()?;
+    anyhow::ensure!(
+        metadata.dev() == again.dev() && metadata.ino() == again.ino(),
+        "{} changed while its private permissions were checked",
+        dir.display()
+    );
+    Ok(())
+}
+
+/// Checks the open folder itself, so a held parent can validate a child without walking
+/// the parent's ancestors again.
+#[cfg(unix)]
+pub(crate) fn validate_private_state_dir(opened: &std::fs::File, dir: &Path) -> Result<()> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
     let metadata = opened.metadata()?;
     // SAFETY: getuid has no preconditions.
     let uid = unsafe { libc::getuid() };
@@ -233,23 +323,12 @@ pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
         "{}",
         writable_refusal(dir, metadata.mode(), "700")
     );
-    refuse_extended_acl(&opened, dir)?;
+    refuse_extended_acl(opened, dir)?;
     if metadata.mode() & 0o077 != 0 {
         opened
             .set_permissions(std::fs::Permissions::from_mode(0o700))
             .with_context(|| format!("make {} owner-only", dir.display()))?;
     }
-    let reopened = crate::home_fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
-        .open(dir)
-        .with_context(|| format!("reopen private state directory {}", dir.display()))?;
-    let again = reopened.metadata()?;
-    anyhow::ensure!(
-        metadata.dev() == again.dev() && metadata.ino() == again.ino(),
-        "{} changed while its private permissions were checked",
-        dir.display()
-    );
     Ok(())
 }
 
@@ -276,9 +355,11 @@ fn writable_refusal(path: &Path, mode: u32, owner_only: &str) -> String {
 /// sticky temporary directory is safe because another account cannot rename
 /// this user's entry there.
 #[cfg(unix)]
-fn validate_private_state_ancestors(dir: &Path) -> Result<()> {
+pub(crate) fn validate_private_state_ancestors(dir: &Path) -> Result<()> {
     use std::os::unix::fs::MetadataExt;
 
+    #[cfg(test)]
+    startup_seams::ancestor_check(dir);
     let uid = unsafe { libc::getuid() };
     let check = |path: &Path, metadata: &std::fs::Metadata| -> Result<()> {
         anyhow::ensure!(
@@ -2045,11 +2126,37 @@ fn is_default_kind(k: &HarnessKind) -> bool {
 }
 
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
+    // Sync before rename so a power loss cannot leave empty chat metadata behind.
+    write_atomic_with(path, bytes, |file, tmp| {
+        #[cfg(test)]
+        startup_seams::sync(tmp);
+        file.sync_all().with_context(|| format!("sync {}", tmp.display()))
+    })?;
+    // The rename itself is durable once its directory is synced.
+    if let Some(dir) = path.parent() {
+        #[cfg(test)]
+        startup_seams::sync(dir);
+        let _ = crate::home_fs::sync_dir(dir);
+    }
+    Ok(())
+}
+
+/// Only for checked, rebuildable copies. A lost copy is rebuilt from its source.
+/// The rename still keeps concurrent readers from seeing a partial write.
+pub(crate) fn write_atomic_unsynced(path: &Path, bytes: &[u8]) -> Result<()> {
+    write_atomic_with(path, bytes, |_, _| Ok(()))
+}
+
+fn write_atomic_with(
+    path: &Path,
+    bytes: &[u8],
+    sync: impl FnOnce(&std::fs::File, &Path) -> Result<()>,
+) -> Result<()> {
     refuse_lost_home(path)?;
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let tmp = path.with_extension(format!("tmp-{}-{n}", std::process::id()));
-    let written = write_then_rename(&tmp, path, bytes);
+    let written = write_then_rename(&tmp, path, bytes, sync);
     // A failed write (a full disk) leaves no partial temporary file to hold
     // the space it ran out of; every retry uses a new name.
     if written.is_err() {
@@ -2058,7 +2165,12 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     written
 }
 
-fn write_then_rename(tmp: &Path, path: &Path, bytes: &[u8]) -> Result<()> {
+fn write_then_rename(
+    tmp: &Path,
+    path: &Path,
+    bytes: &[u8],
+    sync: impl FnOnce(&std::fs::File, &Path) -> Result<()>,
+) -> Result<()> {
     // Owner-only from creation: these files hold tokens and session data.
     // Through the folder this daemon holds (`home_fs`): a home replaced after the check never
     // gets the file; it lands in the folder this daemon locked, wherever it is now.
@@ -2074,9 +2186,7 @@ fn write_then_rename(tmp: &Path, path: &Path, bytes: &[u8]) -> Result<()> {
             .open(tmp)
             .with_context(|| format!("write {}", tmp.display()))?;
         f.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
-        // On disk before the rename: a power loss never leaves an empty
-        // session.json (its session id and ACP session id) behind.
-        f.sync_all().with_context(|| format!("sync {}", tmp.display()))?;
+        sync(&f, tmp)?;
         crate::home_fs::before_rename(path);
     }
     // Windows: created with an owner-only access list (`owner_only.rs`).
@@ -2086,20 +2196,17 @@ fn write_then_rename(tmp: &Path, path: &Path, bytes: &[u8]) -> Result<()> {
         // A file a crashed process left under a reused pid is stale.
         let mut f = match crate::owner_only::create_new(tmp) {
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                std::fs::remove_file(tmp).with_context(|| format!("remove {}", tmp.display()))?;
+                crate::home_fs::remove_file(tmp)
+                    .with_context(|| format!("remove {}", tmp.display()))?;
                 crate::owner_only::create_new(tmp)
             }
             other => other,
         }
         .with_context(|| format!("write {}", tmp.display()))?;
         f.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
-        f.sync_all().with_context(|| format!("sync {}", tmp.display()))?;
+        sync(&f, tmp)?;
     }
     crate::home_fs::rename(tmp, path).with_context(|| format!("rename to {}", path.display()))?;
-    // The rename itself is durable once its directory is synced.
-    if let Some(dir) = path.parent() {
-        let _ = crate::home_fs::sync_dir(dir);
-    }
     Ok(())
 }
 
@@ -2165,3 +2272,6 @@ pub fn normalize_permission_mode(value: &str) -> Option<&'static str> {
 mod save_merge_tests;
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+pub(crate) mod startup_seams;

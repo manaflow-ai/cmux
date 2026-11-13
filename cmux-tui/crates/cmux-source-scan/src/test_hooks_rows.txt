@@ -3,12 +3,14 @@ The rows of the test-hooks check (src/test_hooks.rs), read by test_hooks_tests.r
 Kept out of the .rs sources so no checker reads a row's source as the crate's own statics. Each row
 starts with a line `=== KIND ARGS :: TITLE`; its source runs to the next `===` line. KIND is
   passes FILE                   the check finds nothing in FILE (a path under src/)
-  refused FILE LINE [WORDS]     the check names FILE:LINE, with WORDS in that finding
+  refused FILE LINE [WORDS]     the check names FILE:LINE, with WORDS in that finding, and
+                                nothing else; `& LINE [WORDS]` names one more finding (each named
+                                finding takes one, so a second copy of one fails the row)
   clear FILE LINE               the check names nothing at FILE:LINE
   chain refused|passes          a generated chain (the property's prelude goes first): the python
                                 check's verdict, which this check gives too
-The rows of check-test-hooks.test.sh come first, then the review rows (#41427, #41383, and the
-type-alias rows of the timing-ratio review), then the chains.
+The rows of check-test-hooks.test.sh come first, then the review rows (#41427, #41383, the
+type-alias rows of the timing-ratio review, and #41523), then the chains.
 
 === passes lib.rs :: production caches, thread_local! hooks and a serializer
 use regex::Regex;
@@ -59,6 +61,8 @@ struct Cached { at: u64 }
 static HELD: std::sync::Mutex<Option<Cached>> = std::sync::Mutex::new(None);
 === refused text.rs 1 closure :: a fn pointer in a OnceLock
 pub static SAVE_CHECKED: std::sync::OnceLock<fn(bool)> = std::sync::OnceLock::new();
+=== refused text.rs 1 closure & 1 closure :: review of #42341 F1: two statics on one line are two findings, each named
+pub static A: std::sync::OnceLock<fn(bool)> = std::sync::OnceLock::new(); pub static B: std::sync::OnceLock<fn(bool)> = std::sync::OnceLock::new();
 === refused text.rs 4 closure :: a closure alias in a LazyLock
 type Seam = Arc<
     dyn Fn(String) -> Pin<Box<dyn Future<Output = Result<bool, RpcError>> + Send>> + Send + Sync,
@@ -354,6 +358,33 @@ static S: Hide<std::option::Option<u8>> = std::sync::Mutex::new(None);
 === refused alias.rs 2 closure :: a parameter named Option hiding a closure
 type Hide<Option> = std::sync::OnceLock<Option>;
 static S: Hide<fn()> = std::sync::OnceLock::new();
+=== refused macro.rs 3 test slot :: review of #41523 F2: a #[cfg(test)] macro's statics are test-gated
+#[cfg(test)]
+wrapped! {
+    static HOOK: std::sync::Mutex<Option<u8>> = std::sync::Mutex::new(None);
+}
+=== passes macro.rs :: review of #41523 F2: the same macro without #[cfg(test)] is a production cache
+wrapped! {
+    static CACHE: std::sync::Mutex<Option<u8>> = std::sync::Mutex::new(None);
+}
+=== refused macro.rs 4 test slot :: review of #41523 F2: a #[cfg(test)] macro statement in a fn body
+fn setup() {
+    #[cfg(test)]
+    wrapped! {
+        static HOOK: std::sync::Mutex<Option<u8>> = std::sync::Mutex::new(None);
+    }
+}
+=== passes macro.rs :: review of #41523 F2: the same macro statement without #[cfg(test)]
+fn setup() {
+    wrapped! {
+        static CACHE: std::sync::Mutex<Option<u8>> = std::sync::Mutex::new(None);
+    }
+}
+=== refused macro.rs 3 test slot :: review of #41523 F2: every item kind carries #[cfg(test)], a const block too
+#[cfg(test)]
+const _: () = {
+    static HOOK: std::sync::Mutex<Option<u8>> = std::sync::Mutex::new(None);
+};
 === refused local.rs 2 closure :: review of cmux#41567 F1: a static in dbg!({ .. })
 fn f() {
     dbg!({ static INNER: std::sync::OnceLock<fn()> = std::sync::OnceLock::new(); });

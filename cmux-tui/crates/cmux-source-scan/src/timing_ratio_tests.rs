@@ -2,12 +2,12 @@
 //! tools/agent-guards/test_rust_timing_ratio.py (hq#9512) and the review of hq#9478, each run on
 //! a cmux-shaped checkout as the CLI scans one. F4 (no scan is not a clean scan) is below.
 
-use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::*;
 use crate::nextest::{FileTests, Profiles, eval_filter, parse_filter};
+use crate::rows::{Unmatched, unmatched};
 
 const ROWS: &str = include_str!("timing_ratio_rows.txt");
 const PRELUDE: &str = "use std::time::{Duration, Instant};\n\nfn helper() -> Duration {\n    let t = Instant::now();\n    t.elapsed()\n}\n";
@@ -123,23 +123,33 @@ fn judge_row(row: &Row) -> Option<String> {
     }
     let lines: Vec<String> = scan.found.iter().map(ToString::to_string).collect();
     let shown = lines.join("\n");
-    match row.verdict.as_str() {
-        "flagged" => {
-            let Some(hit) = lines.iter().find(|l| l.contains(&row.what)) else {
-                return Some(format!("no finding names `{}`:\n{shown}", row.what));
-            };
-            (row.kind != "-" && !hit.contains(&row.kind))
-                .then(|| format!("want kind {}, got {hit}", row.kind))
-        }
-        "clean" => (!lines.is_empty()).then(|| format!("flagged wrongly:\n{shown}")),
+    // Each finding the row names takes one finding of the scan, and none is left over: a second
+    // copy of a named one fails the row as a missing one does (#42341 F1).
+    let left = match row.verdict.as_str() {
+        "flagged" => unmatched(std::slice::from_ref(&row.what), &scan.found, |what, f| {
+            let line = f.to_string();
+            line.contains(what.as_str()) && (row.kind == "-" || line.contains(&row.kind))
+        }),
+        "clean" => unmatched(&[], &scan.found, |_: &String, _| false),
         "tests" => {
-            let want: BTreeSet<&str> =
-                row.what.split(',').filter(|n| !n.is_empty() && *n != "-").collect();
-            let got: BTreeSet<&str> = scan.found.iter().map(|f| f.test.as_str()).collect();
-            (got != want).then(|| format!("want {want:?}, got {got:?}:\n{shown}"))
+            let want: Vec<String> = row
+                .what
+                .split(',')
+                .filter(|n| !n.is_empty() && *n != "-")
+                .map(str::to_string)
+                .collect();
+            return left_over(&unmatched(&want, &scan.found, |n, f| f.test == *n), &shown);
         }
-        other => Some(format!("no such verdict: {other}")),
-    }
+        other => return Some(format!("no such verdict: {other}")),
+    };
+    left_over(&left, &shown)
+}
+
+fn left_over(left: &Unmatched<'_, '_, String, Finding>, shown: &str) -> Option<String> {
+    (!left.is_empty()).then(|| {
+        let extra: Vec<String> = left.extra.iter().map(ToString::to_string).collect();
+        format!("named but not found {:?}; found but not named {extra:?}:\n{shown}", left.missing)
+    })
 }
 
 #[test]
@@ -159,6 +169,46 @@ fn every_row_is_judged_as_it_says() {
         failed.len(),
         rows.len(),
         failed.join("\n")
+    );
+}
+
+/// #41567 review F1: a `flagged` row names the finding its source holds, so one more finding
+/// fails it.
+#[test]
+fn a_flagged_row_fails_on_a_finding_it_does_not_name() {
+    let row = Row {
+        verdict: "flagged".to_string(),
+        what: "p95 < BUDGET_MS".to_string(),
+        kind: "percentile bound".to_string(),
+        title: "a fixture".to_string(),
+        rust: "#[test]\nfn two_bounds() {\n    let p95 = helper();\n    assert!(p95 < BUDGET_MS);\n    let (busy, idle) = (helper(), helper());\n    assert!(busy < idle * 4);\n}\n".to_string(),
+        bare: false,
+        nextest: None,
+    };
+    let why = judge_row(&row);
+    assert!(
+        why.as_deref().is_some_and(|w| w.contains("busy < idle * 4")),
+        "busy < idle * 4 went unnamed: {why:?}"
+    );
+}
+
+/// #42341 review F1: a `tests` row names each finding by its test, counting duplicates, so a
+/// test with a second finding fails a row that names it once.
+#[test]
+fn a_tests_row_fails_on_a_second_finding_in_a_test_it_names() {
+    let row = Row {
+        verdict: "tests".to_string(),
+        what: "two_bounds".to_string(),
+        kind: "-".to_string(),
+        title: "a fixture".to_string(),
+        rust: "#[test]\nfn two_bounds() {\n    let p95 = helper();\n    assert!(p95 < BUDGET_MS); assert!(p95 < OTHER_MS);\n}\n".to_string(),
+        bare: false,
+        nextest: None,
+    };
+    let why = judge_row(&row);
+    assert!(
+        why.as_deref().is_some_and(|w| w.contains("p95 < OTHER_MS")),
+        "the second bound went unnamed: {why:?}"
     );
 }
 
@@ -286,7 +336,7 @@ fn a_file_names_its_tests_by_crate_layout() {
     let root = co.0.canonicalize().expect("exists");
     let mut layout = Layout::default();
     let id = |layout: &mut Layout, rel: &str| -> Option<TestId> {
-        match layout.file_tests(&root.join(rel), &root) {
+        match layout.file_tests(&root.join(rel), &root).expect("the checkout reads") {
             FileTests::NotRun => None,
             tests => Some(tests.id(&["m".to_string()], "f")),
         }

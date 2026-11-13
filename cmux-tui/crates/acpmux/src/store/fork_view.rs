@@ -76,7 +76,7 @@ pub fn folder_to_replace(store: &dyn Store, id: &str) -> Result<Option<PathBuf>>
     if let Some(dir) = store.session_dir(id) {
         return Ok(Some(dir));
     }
-    if store.session_path(id).is_some_and(|path| std::fs::symlink_metadata(path).is_ok()) {
+    if store.session_path(id).is_some_and(|path| crate::home_fs::symlink_metadata(path).is_ok()) {
         anyhow::bail!("its history could not be written into its folder; try the move again");
     }
     Ok(None)

@@ -986,6 +986,7 @@ export default agentPaneEntry({
       },
     },
     "quiet-chips": {
+      composerLook: "claude",
       note: "Every footer button at rest: +, the one model button (model and effort) and the mode, with Fast mode on and no bolt. None draws a pill until it is hovered, keyboard-focused, pressed or open.",
       snapshot: quietChips(),
     },
@@ -1624,18 +1625,41 @@ export default agentPaneEntry({
       play: pasteTwoScreenshots,
     },
     // Leo, 2026-11-07: "the blinking caret to the right of attachments needs a little more space than
-    // what we have right now". The room after each chip in the text (markdownField.css
-    // .acpmux-md-inline), the caret after the last of two: 2px, a thin spacer; 4px, half; 8px, the
-    // default, the same as from one chip to the next.
+    // what we have right now"; 2026-11-08: "there is now too much of a gap to the right of attachments.
+    // even it out a little bit more between left and right sides. just have the carets be barely to the
+    // side of"; 2026-11-11: "There's still extra space on the right". The room around each chip in the
+    // text (markdownField.css .acpmux-md-inline), the caret after the last of two. `trailing-8` is what
+    // shipped before: all 8px after the chip, none before it. The even ones split a room between the
+    // two sides: 2px a side, 3px a side, and 4px a side (the default, the sent bubble's 4px).
     ...Object.fromEntries(
-      ([2, 4, 8] as const).map((room) => [
-        `attachment-inline-caret-room-${room}`,
+      (
+        [
+          [
+            "trailing-8",
+            { start: "0px", end: "8px" },
+            "Before: all 8px of room after each chip and none before it, so the caret after a chip stood 8px off and the text before it touched it.",
+          ],
+          ["even-2", { room: "4px" }, "2px each side of each chip: the caret all but touches it."],
+          ["even-3", { room: "6px" }, "3px each side of each chip."],
+          [
+            "even-4",
+            { room: "8px" },
+            "4px each side of each chip (the default): the caret and the text stand as far from it on the left as on the right, and two chips are 8px apart, as in a sent bubble.",
+          ],
+        ] as const
+      ).map(([name, room, note]) => [
+        `attachment-inline-caret-${name}`,
         {
-          note: `Leo, 2026-11-07: "the blinking caret to the right of attachments needs a little more space than what we have right now". ${room}px of room after each chip in the text${room === 8 ? " (the default)" : ""}: the caret after the second screenshot stands ${room}px from it, as the second stands from the first. The prompt's text gains no space.`,
+          note: `Leo, 2026-11-08: "even it out a little bit more between left and right sides. just have the carets be barely to the side of". ${note} The prompt's text gains no space.`,
           snapshot: chat(finished),
           ready: { draft: "Which layout reads better?" },
           play: async (ctx: PlayContext) => {
-            ctx.document.documentElement.style.setProperty("--acpmux-inline-room", `${room}px`);
+            const style = ctx.document.documentElement.style;
+            if ("room" in room) style.setProperty("--acpmux-inline-room", room.room);
+            else {
+              style.setProperty("--acpmux-inline-room-start", room.start);
+              style.setProperty("--acpmux-inline-room-end", room.end);
+            }
             await pasteTwoScreenshots(ctx);
             const field = ctx.find({ selector: ".acpmux-md-field" }) as MarkdownFieldElement;
             field.acpmuxMarkdownField!.focus();
@@ -1934,17 +1958,20 @@ export default agentPaneEntry({
       snapshot: chat(working, { isWorking: true, stopping: true }),
     },
     "working-steer": {
-      note: "A prompt typed while the turn runs: Stop's slot before the mic turns into the one Send (↵ in Claude's look), which puts the prompt into the turn as Return does (read when the agent's current step ends); ⌘Return queues it for after the turn; its tooltip names both keys. No second ↵ control (Leo 2026-10-31).",
+      note: "A prompt typed while the turn runs: Stop's slot turns into the one Send (after the mic in Codex, ↵ before it in Claude), which puts the prompt into the turn as Return does (read when the agent's current step ends); ⌘Return queues it for after the turn; its tooltip names both keys. No second ↵ control (Leo 2026-10-31).",
       snapshot: steering(true),
       ready: { draft: "Use the new tokenizer instead" },
       play: async (ctx) => {
         await ctx.waitFor(() => {
           const sends = ctx.document.querySelectorAll(".acpmux-composer-actions :is(.acpmux-send, .acpmux-cancel)");
-          return (
-            sends.length === 1 &&
-            sends[0]!.getAttribute("title") === "↵ steer · ⌘↵ queue" &&
-            ctx.document.querySelector(".acpmux-composer-actions > .acpmux-send + .acpmux-fit-mic")
-          );
+          const send = sends[0];
+          const mic = ctx.document.querySelector(".acpmux-composer-actions .acpmux-fit-mic");
+          if (sends.length !== 1 || !send || !mic || send.getAttribute("title") !== "↵ steer · ⌘↵ queue") return false;
+          const sendBox = send.getBoundingClientRect();
+          const micBox = mic.getBoundingClientRect();
+          return ctx.document.querySelector('[data-composer-look="codex"]')
+            ? sendBox.left >= micBox.right
+            : sendBox.right <= micBox.left;
         });
       },
     },
@@ -2450,6 +2477,7 @@ export default agentPaneEntry({
     // cx-ncc.71 (Codex parity): + > Attach Screenshot… and Attach Window… take a capture through the
     // host (macOS screencapture's own region or window pick) and attach it as an image chip.
     "attach-screenshot": {
+      composerLook: "claude",
       note: "Play: + > Attach Screenshot… asks the host for a region capture, attaches the image it returns and puts focus back in the prompt.",
       snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
         chat(finished),

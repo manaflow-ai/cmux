@@ -104,14 +104,11 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
     // session's start is over.
     crate::cpu_class::start_at_normal(&mut cmd);
     // Bind before the harness starts, so a failure leaves nothing running.
-    let _ = std::fs::remove_file(&spec.socket);
+    let _ = crate::home_fs::remove_file(&spec.socket);
     let listener = UnixListener::bind(&spec.socket)
         .with_context(|| format!("bind {}", spec.socket.display()))?;
     cleanup.paths.push(spec.socket.clone());
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&spec.socket, std::fs::Permissions::from_mode(0o600))?;
-    }
+    crate::home_fs::set_mode(&spec.socket, 0o600)?;
     let mut child = cmd.spawn().map_err(|e| {
         // Both a missing folder and a missing program fail as ENOENT: say which.
         if e.kind() == std::io::ErrorKind::NotFound && !spec.cwd.exists() {
@@ -157,14 +154,13 @@ struct StartCleanup {
 impl Drop for StartCleanup {
     fn drop(&mut self) {
         for path in &self.paths {
-            let _ = std::fs::remove_file(path);
+            let _ = crate::home_fs::remove_file(path);
         }
     }
 }
 
 fn lock_live_file(path: &Path) -> Result<std::fs::File> {
-    use std::os::unix::fs::OpenOptionsExt;
-    let file = std::fs::OpenOptions::new()
+    let file = crate::home_fs::OpenOptions::new()
         .read(true)
         .write(true)
         .create_new(true)
@@ -173,7 +169,7 @@ fn lock_live_file(path: &Path) -> Result<std::fs::File> {
         .with_context(|| format!("create {}", path.display()))?;
     // SAFETY: flock on a descriptor this function owns.
     if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-        let _ = std::fs::remove_file(path);
+        let _ = crate::home_fs::remove_file(path);
         bail!("lock {}", path.display());
     }
     Ok(file)
@@ -1324,7 +1320,7 @@ fn note_term(log: &Path, session: &str, sender: Option<i32>) {
         chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
         std::process::id()
     );
-    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(log) {
+    if let Ok(mut file) = crate::home_fs::OpenOptions::new().create(true).append(true).open(log) {
         let _ = file.write_all(line.as_bytes());
     }
 }

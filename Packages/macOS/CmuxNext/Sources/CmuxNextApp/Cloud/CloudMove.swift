@@ -165,6 +165,9 @@ struct CloudMove {
             let registry = services.registry
             let again = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tabID), arguments: arguments, origin: .user)
             retry = { _ = registry.perform(Self.action, invocation: again) }
+        } else if !(error is Failure), !(error is ActionFailure) { // an unexpected error (no network): Retry runs the move again
+            let registry = services.registry, again = ActionInvocation(target: invocation.target, arguments: invocation.arguments, origin: .user)
+            retry = { _ = registry.perform(Self.action, invocation: again) }
         }
         var title = CloudMoveStrings.retry
         if case .update = failure.retry { title = CloudMachineUpdateStrings.button }
