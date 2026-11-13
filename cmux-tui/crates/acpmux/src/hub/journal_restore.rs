@@ -1087,6 +1087,7 @@ fn test_fails_here(_: &str, _: bool) -> bool {
 #[cfg(test)]
 type Gap = Box<dyn FnOnce() + Send>;
 
+// test-hook-allow: armed per chat id, and only that chat's run takes it
 #[cfg(test)]
 static AFTER_DRAIN: std::sync::Mutex<Vec<(String, Gap)>> = std::sync::Mutex::new(Vec::new());
 
@@ -1110,6 +1111,7 @@ pub(super) fn test_after_drain(id: &str) {
 
 /// Tests only: what runs once a restore of chat `id` put its first record back, before its
 /// second: a crash there, as a test copies what the disk holds then.
+// test-hook-allow: armed per chat id, and only that chat's run takes it
 #[cfg(test)]
 static BETWEEN_RECORDS: std::sync::Mutex<Vec<(String, Gap)>> = std::sync::Mutex::new(Vec::new());
 

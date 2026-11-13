@@ -2509,6 +2509,7 @@ pub(crate) fn fail_before_marker_once(id: &str) {
 #[cfg(test)]
 type Crash = Box<dyn FnOnce() + Send>;
 
+// test-hook-allow: armed per chat id, and only that chat's run takes it
 #[cfg(test)]
 static BETWEEN_SEGMENTS: std::sync::Mutex<Vec<(String, Crash)>> = std::sync::Mutex::new(Vec::new());
 
@@ -2531,23 +2532,27 @@ fn between_segments(id: &str) {
     }
 }
 
-/// Tests only: the chats whose next read of their kept records (`parked.json`,
-/// `Store::kept_parked`) fails, once each, as a transient read error does (review of #37284 at
+/// Tests only: the chats whose reads of their kept records (`parked.json`, `Store::kept_parked`)
+/// fail, as a transient read error does, until [`kept_reads_again`] (review of #37284 at
 /// 23e76b07, F2). Per chat: tests run at once.
 #[cfg(test)]
 static FAIL_KEPT_READ: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
-/// Tests only: arms [`FAIL_KEPT_READ`] for chat `id`, once.
+/// Tests only: every read of chat `id`'s kept records fails from now ([`FAIL_KEPT_READ`]).
 #[cfg(test)]
-pub(crate) fn fail_kept_read_once(id: &str) {
+pub(crate) fn fail_kept_reads(id: &str) {
     FAIL_KEPT_READ.lock().unwrap_or_else(|e| e.into_inner()).push(id.to_owned());
+}
+
+/// Tests only: chat `id`'s kept records read again.
+#[cfg(test)]
+pub(crate) fn kept_reads_again(id: &str) {
+    FAIL_KEPT_READ.lock().unwrap_or_else(|e| e.into_inner()).retain(|a| a != id);
 }
 
 #[cfg(test)]
 fn fails_kept_read(id: &str) -> bool {
-    let mut armed = FAIL_KEPT_READ.lock().unwrap_or_else(|e| e.into_inner());
-    let at = armed.iter().position(|a| a == id);
-    at.map(|at| armed.swap_remove(at)).is_some()
+    FAIL_KEPT_READ.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|a| a == id)
 }
 
 #[cfg(test)]

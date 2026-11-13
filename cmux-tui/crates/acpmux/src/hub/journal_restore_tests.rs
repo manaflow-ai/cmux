@@ -1275,20 +1275,24 @@ async fn an_answered_edit_survives_a_crash_after_a_failed_flush() {
 /// Each waiting prompt's id and preview ([`waiting`]).
 type Waiting = Vec<(String, String)>;
 
-/// What a start after [`edited_during_a_hold_on_disk`] and a crash sees when its first read of
-/// the kept list fails: the waiting prompts then, whether the chat is caught up, whether its log
-/// reads as read; and the waiting prompts once the next request reads it.
+/// What a start after [`edited_during_a_hold_on_disk`] and a crash sees while its reads of the
+/// kept list fail: the waiting prompts then, whether the chat is caught up, whether its log reads
+/// as read; and the waiting prompts once the list reads and the next request reads the log.
 async fn kept_list_unread_once(rules: u8) -> (Waiting, bool, bool, Waiting) {
     let (dir, crashed) = crash_dirs("unread-kept");
     let (hub, session, _) = edited_during_a_hold_on_disk(&dir, rules).await;
     assert!(hub.store.wait_durable(Duration::from_secs(20)).unwrap());
     copy_tree(&dir, &crashed);
     drop(hub);
-    crate::store::fail_kept_read_once(&session.id);
+    crate::store::fail_kept_reads(&session.id);
     let (after, reopened) = restarted(&crashed, rules, &session.id, None);
+    // Every touch meanwhile reads it again, and fails.
+    after.catch_up_tail(&reopened);
+    after.load_session_log(&reopened);
     let first = waiting(&reopened);
     let caught_up = reopened.caught_up.load(Ordering::SeqCst);
     let loaded = after.session_log_loaded(&reopened);
+    crate::store::kept_reads_again(&session.id);
     // The next request for the chat reads its log again.
     after.load_session_log(&reopened);
     let then = waiting(&reopened);
