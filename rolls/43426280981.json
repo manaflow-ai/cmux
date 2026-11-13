@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43426280981",
+  "recorded_at": "2026-11-13T12:41:26Z",
+  "reason": "cmux-tui 4d01af5ba0bb changes the image's cmux-tui (pinned d9546d5fd795)",
+  "dry_run": false,
+  "cmux_tui": "4d01af5ba0bbad3d86c4fd3bddb688b44e79d2b4",
+  "fixes": [
+    {
+      "sha": "4d01af5ba0bbad3d86c4fd3bddb688b44e79d2b4",
+      "mergedAt": "2026-11-13T06:10:02-06:00",
+      "subject": "cmux-tui: the daemon line reader waits in poll before each read"
+    },
+    {
+      "sha": "1f6c67a2846f5a692fb2e45470feccfd6896b188",
+      "mergedAt": "2026-11-13T06:10:02-06:00",
+      "subject": "cmux-tui: red test, the daemon line reader misses a client's half-close"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T12:41:26Z",
+    "snapshot_id": "sh-f60dac76b1084bf38b52f15612dfed0e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43426280981): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "e00980ce5e301793eb6f2411a1a300dcab85e5dd",
+    "image": "cloud-native-auto-4d01af5b-43426280981-1",
+    "revision": "ci-43426280981-1",
+    "at": "2026-11-13T12:41:26Z"
+  },
+  "rolled_back": false
+}
