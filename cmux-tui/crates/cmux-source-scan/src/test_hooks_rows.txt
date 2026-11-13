@@ -333,6 +333,23 @@ fn f() {
         }
     });
 }
+=== refused lib.rs 2 closure :: review of cmux#41581 F1: an alias a dbg!({ .. }) block defines stays in its block
+type Callback = fn();
+static CELL: std::sync::OnceLock<Callback> = std::sync::OnceLock::new();
+fn f() { dbg!({ type Callback = (); let _: Callback = (); }); }
+=== refused lib.rs 2 closure :: review of cmux#41581 F1: an alias a fn body defines stays in its body
+type Callback = fn();
+static CELL: std::sync::OnceLock<Callback> = std::sync::OnceLock::new();
+fn f() { type Callback = (); let _: Callback = (); }
+=== refused lib.rs 2 closure :: review of cmux#41581 F1: a `use` a dbg!({ .. }) block holds stays in its block
+use std::sync::OnceLock as Slot;
+static CELL: Slot<fn()> = Slot::new();
+fn f() { dbg!({ use std::vec::Vec as Slot; let _: Slot<u8> = Slot::new(); }); }
+=== refused lib.rs 2 closure :: review of cmux#41581 F1: a static in dbg!({ .. }) reads its block's alias, not a later outer one
+fn f() {
+    dbg!({ type Hook = fn(); static INNER: std::sync::OnceLock<Hook> = std::sync::OnceLock::new(); });
+}
+type Hook = ();
 === chain refused :: generated chain 0000 (seed 41418)
 type L0<T, W = T> = (T, L1<Mutex<Option<(u8, bool)>>, W>);
 type L1<Future, String> = std::sync::OnceLock<(L2<Box<Future>>, RwLock<Option<String>>)>;

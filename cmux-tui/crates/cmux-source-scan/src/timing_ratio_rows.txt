@@ -540,3 +540,37 @@ fn wrapped_clock_fn() {
         assert!(ready && lap() < lap() * 4);
     }
 }
+=== tests :: outer_lap :: - :: review of cmux#41581 F1: a clock fn a dbg!({ .. }) block defines stays in its block
+fn lap() -> Duration {
+    let t = Instant::now();
+    t.elapsed()
+}
+#[test]
+fn outer_lap() {
+    assert!(lap() < lap() * 4);
+}
+#[test]
+fn inner_lap() {
+    dbg!({
+        fn lap() -> (u64, Duration) {
+            (0, Instant::now().elapsed())
+        }
+        let _ = lap();
+    });
+}
+=== tests :: outer_lap :: - :: review of cmux#41581 F1: a clock fn a test body defines stays in its body
+fn lap() -> Duration {
+    let t = Instant::now();
+    t.elapsed()
+}
+#[test]
+fn outer_lap() {
+    assert!(lap() < lap() * 4);
+}
+#[test]
+fn inner_lap() {
+    fn lap() -> (u64, Duration) {
+        (0, Instant::now().elapsed())
+    }
+    let _ = lap();
+}
