@@ -198,7 +198,7 @@ fn watch_hints_when_the_target_of_a_watched_symbolic_link_is_written() {
 /// file before it hints, so the reader's read has each write made before
 /// that, and a later write hints again: the reader ends with what is on disk.
 #[test]
-fn a_reader_sees_a_write_made_right_after_a_replace_by_rename() {
+fn watch_hints_for_a_write_made_right_after_a_replace_by_rename() {
     use std::io::Write as _;
     let scratch = Scratch::new("race");
     let file = scratch.0.join("cmux-next.json");
