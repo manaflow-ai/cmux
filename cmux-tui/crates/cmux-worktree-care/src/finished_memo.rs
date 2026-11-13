@@ -31,7 +31,9 @@ pub struct FinishedMemo {
     path: Option<PathBuf>,
     answers: Mutex<Answers>,
     pending: AtomicUsize,
-    _writer: Option<std::fs::File>,
+    /// The writer lock; its drop unlocks before it closes, so a child the daemon forked
+    /// meanwhile keeps no lock and the next pass's memo writes.
+    _writer: Option<cmux_file_lock::FileLock>,
 }
 
 impl FinishedMemo {
@@ -52,8 +54,7 @@ impl FinishedMemo {
                 options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
             }
             let file = options.open(path.with_extension("lock")).ok()?;
-            file.try_lock().ok()?;
-            Some(file)
+            cmux_file_lock::FileLock::try_take(file, cmux_file_lock::Kind::Exclusive).ok()
         })();
         let answers = read_memo(&path)
             .map(|entries| {

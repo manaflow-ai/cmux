@@ -539,7 +539,8 @@ pub const MERGE_TREE_MEMORY: u64 = 768 << 20;
 /// Nonblocking host-wide lock shared by daemon and standalone scans. Busy or
 /// unreadable means unknown, never a remembered negative answer. The lock is
 /// independent of the pass lock, which daemon callers already hold.
-fn merge_tree_claim(dir: Option<&Path>) -> Option<std::fs::File> {
+/// Its drop unlocks before it closes, so a child the daemon forked meanwhile keeps no lock.
+fn merge_tree_claim(dir: Option<&Path>) -> Option<cmux_file_lock::FileLock> {
     let dir = dir.map(Path::to_path_buf).or_else(crate::Store::default_dir)?;
     std::fs::create_dir_all(&dir).ok()?;
     let mut options = std::fs::OpenOptions::new();
@@ -550,8 +551,7 @@ fn merge_tree_claim(dir: Option<&Path>) -> Option<std::fs::File> {
         options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
     }
     let file = options.open(dir.join(".merge-tree.lock")).ok()?;
-    file.try_lock().ok()?;
-    Some(file)
+    cmux_file_lock::FileLock::try_take(file, cmux_file_lock::Kind::Exclusive).ok()
 }
 
 /// Whether history in this repository can differ from what its ids say:

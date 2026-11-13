@@ -2590,6 +2590,7 @@ dependencies = [
 name = "cmux-worktree-care"
 version = "0.1.0"
 dependencies = [
+ "cmux-file-lock",
  "cmux-git",
  "libc",
  "serde",

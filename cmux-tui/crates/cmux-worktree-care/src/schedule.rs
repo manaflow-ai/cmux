@@ -46,29 +46,22 @@ pub enum Refused {
     Unavailable(String),
 }
 
+/// The pass lock as held: a `FileLock` on unix, whose drop unlocks before it closes (a child
+/// the daemon forked meanwhile keeps no lock), and the plain file elsewhere, which takes none.
+#[cfg(unix)]
+type Held = cmux_file_lock::FileLock;
+#[cfg(not(unix))]
+type Held = File;
+
 /// The machine's pass, held until dropped or finished.
 #[derive(Debug)]
 pub struct Claim {
-    _lock: File,
+    _lock: Held,
     stamp: Option<PathBuf>,
     started_ms: u64,
     /// The start's stamp could not be written (a full disk): the caller's
     /// own spacing is all that holds the next pass back.
     stamp_error: Option<String>,
-}
-
-impl Drop for Claim {
-    fn drop(&mut self) {
-        #[cfg(unix)]
-        {
-            use std::os::fd::AsRawFd;
-            // SAFETY: the descriptor belongs to this claim and remains open
-            // until this drop implementation returns. Explicitly releasing
-            // it makes the lock handoff deterministic before a caller's next
-            // claim, rather than relying on close-time unlock semantics.
-            unsafe { libc::flock(self._lock.as_raw_fd(), libc::LOCK_UN) };
-        }
-    }
 }
 
 impl Claim {
@@ -121,9 +114,10 @@ fn claim_on(
     spacing: Option<u64>,
     record: bool,
 ) -> Result<Claim, Refused> {
-    if !try_lock(&lock) {
+    // A pass that is not due drops `lock` below, unlocked before it closes.
+    let Some(lock) = try_lock(lock) else {
         return Err(Refused::Busy);
-    }
+    };
     if let Some(spacing) = spacing
         && let Some(stamp) = last(dir)
         // A stamp from the future (the clock was ahead) does not hold
@@ -147,16 +141,15 @@ fn write_stamp(path: &Path, stamp: Stamp) -> Result<(), String> {
     std::fs::rename(&temporary, path).map_err(|e| format!("{}: {e}", path.display()))
 }
 
+/// The same exclusive flock, one try; busy or failed is `None`.
 #[cfg(unix)]
-fn try_lock(file: &File) -> bool {
-    use std::os::fd::AsRawFd;
-    // SAFETY: flock on a descriptor the caller owns for the call.
-    unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) == 0 }
+fn try_lock(file: File) -> Option<Held> {
+    cmux_file_lock::FileLock::try_take(file, cmux_file_lock::Kind::Exclusive).ok()
 }
 
 #[cfg(not(unix))]
-fn try_lock(_file: &File) -> bool {
-    true
+fn try_lock(file: File) -> Option<Held> {
+    Some(file)
 }
 
 #[cfg(test)]
