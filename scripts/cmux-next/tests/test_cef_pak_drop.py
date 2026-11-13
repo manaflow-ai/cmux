@@ -283,6 +283,26 @@ def test_the_build_guard_names_a_lost_image():
     assert tool.lost_images(before, before) == []
 
 
+def test_an_alias_a_kept_page_lists_keeps_the_entry_it_points_to():
+    # grit dedupes equal files: Settings' shared.js (30011) can be an alias of the New Tab
+    # page's entry (30002). Dropping that entry must not take the kept page's id with it.
+    dropped_map = [("new_tab_page.html", 30001), ("ntp_shared.js", 30002)]
+    kept_map = [("settings.html", 30010), ("shared.js", 30011)]
+    binary = macho(sorted(p for run in (dropped_map, kept_map) for p, _ in run), [dropped_map, kept_map])
+    source = pak([(30001, b"<ntp>"), (30002, b"shared()"), (30010, b"<settings>")], [(30011, 1)])
+    with tempfile.TemporaryDirectory() as tmp:
+        path, header, fw = (os.path.join(tmp, n) for n in ("resources.pak", "cef_pack_resources.h", "CEF"))
+        Path(header).write_text(HEADER)
+        Path(fw).write_bytes(binary)
+        Path(path).write_bytes(source)
+        done = subprocess.run([sys.executable, "-I", str(SCRIPT), path, header, "--webui", fw],
+                              capture_output=True, text=True)
+        assert done.returncode == 0, done
+        after = read(Path(path).read_bytes())
+        assert 30001 not in after, sorted(after)
+        assert after.get(30011) == b"shared()" and after[30010] == b"<settings>", after
+
+
 if __name__ == "__main__":
     tests = [value for name, value in sorted(globals().items()) if name.startswith("test_")]
     for test in tests:
