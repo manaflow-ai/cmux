@@ -856,6 +856,116 @@ class LightFastRoute(unittest.TestCase):
                     self.assertIn(f"the fast tier takes idle light `{LIGHT_SIDE}`", printed.getvalue())
 
 
+SPILL = ("swift-canary", "daemon-test", "generated-files")
+
+
+class LightSpillRoute(unittest.TestCase):
+    """Leo, 2026-11-11: "nobody seems to be doing stuff rn", with the std minis at 95 to 100% CPU and the light
+    minis mostly idle. A PR's jobs a 16 GB light mini runs (LIGHT_SPILL_JOBS) that no idle std side runner took
+    take an idle light side runner before the cascade; the Release and scheme compiles never do."""
+
+    def values(self, **overrides):
+        return {"SIDE_LABEL": SIDE, "JOBS": " ".join(JOBS), "LIGHT_SPILL_JOBS": " ".join(SPILL),
+                "GITHUB_RUN_ATTEMPT": "1", **overrides}
+
+    def light(self, count: int, *, busy: int = 0):
+        return [runner(f"cmux{17 + index}-glaeda-1", busy=index < busy, labels=(LIGHT_SIDE,))
+                for index in range(count)]
+
+    def test_idle_light_runners_take_the_spill_jobs_std_did_not(self):
+        runners = [runner("mini-a-glaeda-3", busy=True), *self.light(4)]
+        # Only the listed jobs, in the run's job order, one per idle light runner.
+        self.assertEqual(placement.light_spill_route(self.values(), runners, light_seen()),
+                         (LIGHT_SIDE, ("daemon-test", "generated-files", "swift-canary")))
+        self.assertEqual(placement.light_spill_route(self.values(), self.light(3, busy=2), light_seen()),
+                         (LIGHT_SIDE, ("daemon-test",)))
+        # A job an idle std runner already took stays there.
+        self.assertEqual(placement.light_spill_route(self.values(), runners, light_seen(), owned=("daemon-test",)),
+                         (LIGHT_SIDE, ("generated-files", "swift-canary")))
+
+    def test_the_fast_tier_and_queued_jobs_take_the_idle_light_runners_first(self):
+        runners = self.light(2)
+        self.assertEqual(placement.light_spill_route(self.values(), runners, light_seen(), fast=LIGHT_SIDE),
+                         (LIGHT_SIDE, ("daemon-test",)))
+        self.assertEqual(placement.light_spill_route(self.values(), runners, light_seen(queued={LIGHT_SIDE: 2})),
+                         ("", ()))
+
+    def test_nothing_known_nothing_free_or_nothing_listed_places_nothing(self):
+        idle = self.light(3)
+        cases = {
+            "unread runners": (self.values(), None, light_seen()),
+            "no snapshot": (self.values(), idle, None),
+            "stale snapshot": (self.values(), idle, light_seen(stale=True)),
+            "nightly waits on light": (self.values(), idle,
+                                       light_seen({"glaeda-trusted-light-xcode-26.6": {"reserved_queued": 1}})),
+            "busy": (self.values(), self.light(2, busy=2), light_seen()),
+            "a re-run": (self.values(GITHUB_RUN_ATTEMPT="2"), idle, light_seen()),
+            "no spill jobs (push, fork)": (self.values(LIGHT_SPILL_JOBS=""), idle, light_seen()),
+            "compiles are never listed": (self.values(JOBS="release-compile cmux-scheme-compile"), idle, light_seen()),
+            "already light": (self.values(SIDE_LABEL=LIGHT_SIDE), idle, light_seen()),
+            "not an owned side label": (self.values(SIDE_LABEL=FALLBACK), idle, light_seen()),
+        }
+        for why, (values, runners, seen) in cases.items():
+            with self.subTest(why=why):
+                self.assertEqual(placement.light_spill_route(values, runners, seen), ("", ()))
+
+    def test_main_writes_light_jobs_and_drops_them_from_the_cascade(self):
+        busy_std = [runner(f"mini-{host}-glaeda-3", busy=True) for host in "ab"]
+        cases = (([*busy_std, *self.light(2)], (LIGHT_SIDE, " daemon-test generated-files ")),
+                 ([runner("mini-a-glaeda-3"), *self.light(2)], (LIGHT_SIDE, " generated-files swift-canary ")),
+                 (busy_std, ("", "")))
+        for runners, (expected_runner, expected_jobs) in cases:
+            with self.subTest(expected=expected_jobs), tempfile.TemporaryDirectory() as tmp:
+                output = Path(tmp) / "out"
+                values = env(LIGHT_SPILL_JOBS=" ".join(SPILL), CASCADE_RUNS=" daemon-test generated-files swift-canary ",
+                             JOBS="daemon-test generated-files swift-canary release-compile",
+                             GITHUB_OUTPUT=str(output), ROUTE_TOKEN="t", GITHUB_REPOSITORY="manaflow-ai/cmux")
+                with mock.patch.object(placement.pool, "GitHub") as github, \
+                        mock.patch.object(placement.cascade, "read", return_value=(None, None, light_seen())), \
+                        contextlib.redirect_stdout(io.StringIO()) as printed:
+                    github.return_value.runners.return_value = runners
+                    placement.main(values)
+                lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
+                self.assertEqual((lines["light_runner"], lines["light_jobs"]), (expected_runner, expected_jobs))
+                for job in expected_jobs.split():
+                    self.assertNotIn(f" {job} ", lines["owned_jobs"])
+                    self.assertNotIn(f" {job} ", lines.get("blacksmith_6_jobs", ""))
+                    self.assertNotIn(f" {job} ", lines.get("blacksmith_12_jobs", ""))
+                if expected_jobs:
+                    self.assertIn(f"so they take idle light `{LIGHT_SIDE}`", printed.getvalue())
+
+    def test_the_timeout_fallback_writes_empty_light_outputs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "out"
+            with contextlib.redirect_stdout(io.StringIO()):
+                placement._timeout_fallback({"GITHUB_OUTPUT": str(output), "JOBS": " ".join(JOBS)})
+            text = output.read_text()
+            self.assertIn("light_runner=\n", text)
+            self.assertIn("light_jobs=\n", text)
+
+    def test_each_spill_job_reads_light_jobs_after_the_fork_clause(self):
+        wiring = CmuxNextWiring()
+        jobs = wiring.workflow()["jobs"]
+        place = next(step for step in jobs[wiring.PLACEMENT]["steps"] if step.get("id") == "place")
+        self.assertIn("LIGHT_SPILL_JOBS", place["env"])
+        self.assertIn("light_jobs", jobs[wiring.PLACEMENT]["outputs"])
+
+        def context(*args, **kwargs):
+            value = wiring.context(*args, runner=SIDE, **kwargs)
+            value["needs"]["swift-canary-fleet"] = {"outputs": {"verdict": ""}, "result": "skipped"}
+            value["needs"][wiring.PLACEMENT]["outputs"].update(light_runner=LIGHT_SIDE, light_jobs=f" {name} ")
+            return value
+
+        for name in SPILL:
+            with self.subTest(name=name):
+                job = jobs[name]
+                self.assertEqual(evaluate(job["runs-on"], context()), LIGHT_SIDE)
+                self.assertEqual(evaluate(job["env"]["CMUX_NEXT_RUNNER"], context()), LIGHT_SIDE)
+                # A fork never takes an owned runner; a re-run never reads attempt 1's idle light runner.
+                self.assertEqual(evaluate(job["runs-on"], context(fork=True)), FALLBACK)
+                self.assertNotEqual(evaluate(job["runs-on"], context("2")), LIGHT_SIDE)
+
+
 FRESH = "glaeda-dev-std-xcode-26.6"
 
 

@@ -113,6 +113,8 @@ import Testing
         var frame = 0
         let passes0 = MessagesWindowView.widthPasses, deferred0 = MessagesWindowView.widthPassesDeferred
         let full0 = MessagesWindowView.widthRowsDerived
+        let near0 = demo.widthPassesNearViewport
+        var ghostFrames = 0
         while i < tokens.count {
             let t0 = CACurrentMediaTime()
             frameStart()
@@ -125,6 +127,7 @@ import Testing
             // What this frame shows: the rows' width against the transcript's.
             let rowWidths = Set(demo.model.rows.filter { !$0.ghost }.map(\.spec.width))
             if rowWidths != [demo.bounds.width] { staleFrames.append((frame, demo.bounds.width, rowWidths)) }
+            if demo.model.hasGhosts { ghostFrames += 1 }
             frame += 1
         }
         let sorted = frameMs.sorted()
@@ -136,6 +139,9 @@ import Testing
         func q(_ x: Double) -> Double { changes.isEmpty ? 0 : changes[min(changes.count - 1, Int((Double(changes.count - 1) * x).rounded()))] }
         print(String(format: "HOMERESIZE width change (pass, layout) n %d p50 %.2f p95 %.2f max %.2f ms", changes.count, q(0.5), q(0.95), changes.last ?? 0))
         print("HOMERESIZE full row derivations \(MessagesWindowView.widthRowsDerived - full0)")
+        // Which way the width passes went: only the rows near the viewport, or every loaded row (a fading row is in the model).
+        print("HOMERESIZE width passes near the viewport \(demo.widthPassesNearViewport - near0) of \(MessagesWindowView.widthPasses - passes0)"
+              + ", frames with a fading row \(ghostFrames) of \(frame), loaded rows \(demo.model.liveCount)")
         for s in staleFrames.prefix(5) { print("HOMERESIZE stale frame \(s.frame) width \(s.width) rows \(s.rows.sorted())") }
         #expect(view.controller.store?.state.ui.streams.isEmpty == false, "the reply streams through the drag")
         #expect(staleFrames.isEmpty, "\(staleFrames.count) of \(frameMs.count) frames showed rows at a width other than the transcript's")

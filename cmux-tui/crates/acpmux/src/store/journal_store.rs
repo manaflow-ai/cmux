@@ -485,9 +485,9 @@ impl JournalStore {
         // The lines of chats whose repair failed at an earlier open, journaled again first.
         inner.take_repairs(&mut replay);
         inner.apply(replay)?;
-        // The checkpoint after the replay runs on the checkpointer's thread at once, not here: the
-        // daemon binds its socket after this open returns, and the checkpoint's syncs are the
-        // open's cost per replayed chat (6.1 s for 300 chats on a loaded Mac, fleet 59175d6b).
+        // The checkpoint after replay runs on the checkpointer's thread at once, not here: its
+        // syncs must not hold up store open and request handling (6.1 s for 300 chats on a loaded
+        // Mac, fleet 59175d6b). The daemon already bound its socket before opening this store.
         if inner.order.lock_or_recover().has_work() {
             inner.timer.lock_or_recover().wanted = true;
         }
@@ -895,6 +895,15 @@ impl Store for JournalStore {
     }
     fn stage_compaction(&self, id: &str, mode: CompactMode) -> Result<Option<Staged>> {
         Store::stage_compaction(&self.inner.local, id, mode)
+    }
+    /// Beside the log, not in the journal: what it keeps takes no seq (`hub/restore_writer.rs`).
+    /// Not while a delete or a checkpoint works on the chat's folder.
+    fn keep_parked(&self, id: &str, kept: Option<&[u8]>) -> Result<()> {
+        let _folder = self.inner.folders.lock_or_recover();
+        Store::keep_parked(&self.inner.local, id, kept)
+    }
+    fn kept_parked(&self, id: &str) -> Result<Option<Vec<u8>>> {
+        Store::kept_parked(&self.inner.local, id)
     }
     /// No journal record of the chat may be past the checkpoint: a replay must never write the
     /// lines a retention rewrite cut back into its log. A chat whose newest log record is at or

@@ -163,7 +163,11 @@ def code(line: str) -> str:
 # shell_tree.corpus() is the detector's own check: every unsafe write in it is flagged and no safe template is.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import shell_tree  # noqa: E402
-import process_gone  # noqa: E402
+# tests/process_gone.py by path, as each other test file loads it: `import process_gone` here made a second module
+# object of that file beside theirs (tests/test_script_module_loads.py names it).
+_process_gone_spec = _git_fixture_importlib.spec_from_file_location("process_gone", ROOT / "tests" / "process_gone.py")
+process_gone = _git_fixture_importlib.module_from_spec(_process_gone_spec)
+_process_gone_spec.loader.exec_module(process_gone)
 
 SHELL_TREE_SHA256 = "aa41e3640d1b4995c343676c9ad1bc493202afc5c05ea4252aa92b49ce7cf61d"
 
@@ -193,9 +197,9 @@ def skipped(path: str) -> bool:
             or path.endswith(SKIP_SUFFIXES))
 
 
-def hits(root: Path = ROOT) -> list[tuple[str, int, str, str]]:
-    """(path, line number, the line, what was found): one hit per set -C or guessable name, each with its own text, so
-    an allowance approves that hit and no other on its line."""
+def hits(root: Path = ROOT) -> list[tuple[str, int, str, str, int]]:
+    """(path, line number, the line, what was found, its offset in the line): one hit per set -C or guessable name,
+    each with its own text and place, so an allowance approves that hit and no other on its line."""
     files = subprocess.run(["git", "-C", str(root), "ls-files", "--", *DIRS], capture_output=True, text=True,
                            check=True).stdout.splitlines()
     out = []
@@ -209,29 +213,31 @@ def hits(root: Path = ROOT) -> list[tuple[str, int, str, str]]:
         # A #! line shell_tree cannot resolve is a hit of its own: what reads the file is unknown.
         if shell_tree.shebang(text) == "unresolved":
             first = text.split("\n", 1)[0]
-            out.append((path, 1, first, first))
+            out.append((path, 1, first, first, 0))
         # A shell block shell_tree cannot parse is a hit of its own, its first line: what it runs is unknown, and its
         # raw text is scanned besides, never read line by line (shell_tree.unparsed).
         text_lines = text.split("\n")
         for n in shell_tree.unparsed(path, text):
-            out.append((path, n, text_lines[n - 1].strip(), text_lines[n - 1].strip()))
+            first = text_lines[n - 1]
+            out.append((path, n, first, first.strip(), len(first) - len(first.lstrip())))
         # The file is read whole where it is shell (shell_tree.scan_file), so a here-document, a continued line or
         # a quote across lines keeps its context; the hit keeps the line's own text.
         scans = shell_tree.scan_file(path, text, root=str(root))  # a source in the repository is followed
         for n, (line, scan) in enumerate(zip(text.split("\n"), scans), 1):
             for m in [*NOCLOBBER.finditer(scan), *SHARED_TMP.finditer(scan)]:
-                out.append((path, n, code(line).strip() or line.strip(), m.group(0)))
+                out.append((path, n, line, m.group(0), m.start()))
     return out
 
 
-def holds(entry: tuple, hit: tuple[str, int, str, str]) -> bool:
-    """Whether the allowance ENTRY's piece is on HIT's line in its path and holds what the hit found, never only
-    another name beside it."""
-    (path, piece), (p, _, line, found) = entry[:2], hit
-    return p == path and piece in line and found in piece
+def holds(entry: tuple, hit: tuple[str, int, str, str, int]) -> bool:
+    """Whether the allowance ENTRY's piece is on HIT's line in its path at a place that covers the hit's span, never
+    only beside it (review of manaflow-ai/cmux#41336 at c1c62c86, F1)."""
+    (path, piece), (p, _, line, found, at) = entry[:2], hit
+    starts = [i for i in range(len(line)) if line.startswith(piece, i)]
+    return p == path and any(i <= at and at + len(found) <= i + len(piece) for i in starts)
 
 
-def approves(entry: tuple, found) -> tuple[str, int, str, str] | None:
+def approves(entry: tuple, found) -> tuple[str, int, str, str, int] | None:
     """The one hit of FOUND that the allowance ENTRY ((path, piece[, occurrence])) approves: the occurrence-th, in
     file order, of the hits it holds (manaflow-ai/cmux#41336 review at 911fed64, F2: matched by text alone, one entry
     approved every line and every name with the same piece). None when there is no such hit: the entry is stale."""
@@ -240,7 +246,7 @@ def approves(entry: tuple, found) -> tuple[str, int, str, str] | None:
     return held[n - 1] if 0 < n <= len(held) else None
 
 
-def app_name(hit: tuple[str, int, str, str]) -> bool:
+def app_name(hit: tuple[str, int, str, str, int]) -> bool:
     """What HIT found is a name the app picks (APP_NAMES), never a set -C."""
     return not NOCLOBBER.match(hit[3]) and any(hit[3].startswith(p) for p in APP_NAMES)
 
@@ -248,7 +254,7 @@ def app_name(hit: tuple[str, int, str, str]) -> bool:
 def unapproved(found, allowlist=ALLOWED) -> list[str]:
     """The hits in FOUND that no entry of ALLOWLIST (each approving one hit) or an app name approves."""
     ok = {id(h) for h in (approves(e, found) for e in allowlist) if h is not None}
-    return [f"{h[0]}:{h[1]}: {h[3]} in {h[2][:160]}" for h in found if id(h) not in ok and not app_name(h)]
+    return [f"{h[0]}:{h[1]}: {h[3]} in {h[2].strip()[:160]}" for h in found if id(h) not in ok and not app_name(h)]
 
 
 def scratch_hits(files) -> set[str]:
@@ -261,6 +267,19 @@ def scratch_hits(files) -> set[str]:
             (Path(tmp) / path).write_text(text)
         subprocess.run(["git", "-C", tmp, "add", "-A"], check=True, env=env)
         return {h[0] for h in hits(Path(tmp))}
+
+
+def mktemp_names() -> set[str]:
+    """The names in /tmp (and $TMPDIR) owned by this user that mktemp's default template (tmp.XXXXXXXXXX) makes."""
+    out = set()
+    for folder in {"/tmp", os.environ.get("TMPDIR") or "/tmp"}:
+        try:
+            with os.scandir(folder) as entries:
+                out |= {e.path for e in entries if re.fullmatch(r"tmp\.[A-Za-z0-9]{10}", e.name)
+                        and e.stat(follow_symlinks=False).st_uid == os.getuid()}
+        except OSError:
+            continue
+    return out
 
 
 class NoclobberSweep(unittest.TestCase):
@@ -396,6 +415,7 @@ class NoclobberSweep(unittest.TestCase):
         and called unsafe by the corpus. The other way round is the sweep's design: it flags a guessable name outside a
         template even where bash never writes it (an echo, an array's words, a function never called)."""
         corpus = [c for c in shell_tree.corpus() if c[0] not in shell_tree.TREE_ONLY]
+        before = mktemp_names()
         verdicts = shell_tree.bash_verdicts([line for line, _ in corpus])
         shell = [f for f in shell_tree.FILES if not f[0].endswith(".yml")]
         file_verdicts = shell_tree.bash_verdicts([text for _, text, _ in shell])
@@ -411,21 +431,38 @@ class NoclobberSweep(unittest.TestCase):
         self.assertEqual([p for p, _, unsafe in files if not (unsafe and p in found)], [],
                          "files bash writes a guessable name with, which hits() passes or FILES calls safe")
         self.assertGreater(len(lines), 300)
+        # teamleaderleo/leo-workspace#4368 review at cfd7897e, F4: env -i mktemp found the real mktemp on the default
+        # PATH and made its name in the real temp folder. No fixture may reach it.
+        self.assertEqual(sorted(mktemp_names() - before), [], "a fixture's mktemp made a name in the real temp folder")
 
     def test_an_allowance_approves_only_its_own_hit(self):
         """A downstream review, F2: an allowance approved its whole line, so an unsafe name on the
         line of an approved one passed. Each hit is matched with its own entry, by its own text."""
         line = 'ssh host "mktemp -d /tmp/$NAME-XXXXXX" && printf s > /tmp/out.$$'
+        # manaflow-ai/cmux#41336 review at c1c62c86, F1: matched by text, the template's allowance also approved a
+        # second hit with the same text; an allowance approves only the hit at an offset inside its piece.
+        same = 'ssh host "mktemp -d /tmp/$NAME-XXXXXX" && printf secret > /tmp/$NAME-unsafe'
         allowlist = {("scripts/a.sh", '"mktemp -d /tmp/$NAME-XXXXXX"'): "made on the host by mktemp"}
         with tempfile.TemporaryDirectory() as tmp:
             env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
             subprocess.run(["git", "init", "-q", tmp], check=True, env=env)
             (Path(tmp) / "scripts").mkdir()
-            (Path(tmp) / "scripts/a.sh").write_text(line + "\n")
+            (Path(tmp) / "scripts/a.sh").write_text(line + "\n" + same + "\n")
             subprocess.run(["git", "-C", tmp, "add", "-A"], check=True, env=env)
             found = hits(Path(tmp))
-        self.assertEqual(len(unapproved(found, allowlist)), 1, found)
-        self.assertEqual(len(unapproved(found, {})), 2, found)
+        left = unapproved(found, allowlist)
+        # manaflow-ai/cmux#41336 review at 911fed64, F2: line 2's copy of the piece is another occurrence, which the
+        # one entry (occurrence 1) does not approve.
+        self.assertEqual([h.split(":")[1] for h in left], ["1", "2", "2"], found)
+        self.assertEqual(len(unapproved(found, {})), 4, found)
+
+    def test_a_quoted_env_split_shebang_is_shell(self):
+        """Review of manaflow-ai/cmux#41336 at c1c62c86, F2: `#!/usr/bin/env -S 'bash' -e` read as another program,
+        so the here-document's substitution was missed. env's -S string is split as env splits it, quotes included."""
+        body = "\ncat <<EOF\n# $(printf s > /tmp/out.$$)\nEOF\n"
+        files = [("scripts/q", "#!/usr/bin/env -S 'bash' -e" + body, True),
+                 ("scripts/qq", '#!/usr/bin/env -S "bash" -e' + body, True)]
+        self.assertEqual(scratch_hits(files), {"scripts/q", "scripts/qq"})
 
     def test_an_allowance_approves_one_occurrence(self):
         """manaflow-ai/cmux#41336 review at 911fed64, F2: an allowance matched by text approved every hit with the same

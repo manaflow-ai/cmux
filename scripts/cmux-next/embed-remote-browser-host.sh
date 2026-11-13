@@ -9,6 +9,12 @@
 #       -> ../../../../Frameworks/Chromium Embedded Framework.framework
 #
 # The framework is a relative symlink to the app's own CEF (no ~390 MB copy).
+# The five helper apps run cmux-rb-host-helper, a small Chromium subprocess
+# binary that build-cef-shim.sh builds from the app's own (arm64) CEF, as it
+# builds the app's helpers; before, each was a copy of the 3.6 MB host
+# (cmux#42190). CMUX_NEXT_RB_HOST_HELPER=<binary> names a prebuilt one. When
+# it cannot be built, the helpers fall back to copies of the host binary,
+# which runs the same subprocess path, with a warning.
 # codesign --verify --deep --strict passes on the app; a strict verify of the
 # host app alone rejects the symlink, so a notarized release needs the host to
 # load CEF from an explicit path first (tracker cx-0y2y; unproven either way,
@@ -36,7 +42,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/remote-browser-host-layout.sh"
 FW_NAME="Chromium Embedded Framework.framework"
-LAYOUT="rbh-1-cef-symlink"
+LAYOUT="rbh-2-cef-symlink-small-helper"
 OPT_OUT_FILE="RemoteBrowserHostOptOut.txt"
 
 app="${TARGET_BUILD_DIR:?}/${WRAPPER_NAME:?}"
@@ -96,9 +102,28 @@ bin="$("$SCRIPT_DIR/ensure-remote-browser-host.sh")" ||
 [[ -n "$bin" && -f "$bin" ]] || fail "the pinned remote browser host $host_asset sha256:$host_sha is unavailable"
 lipo -archs "$bin" | tr ' ' '\n' | grep -qx arm64 || { echo "error: $bin has no arm64 slice" >&2; exit 1; }
 
+# The helpers' subprocess binary: the arm64 build of the app's CEF shim (the
+# host is arm64 only). embed-cef.sh built that entry already, so this is a
+# cache hit (a universal build's arm64 half included).
+helper_bin="${CMUX_NEXT_RB_HOST_HELPER:-}"
+if [[ -z "$helper_bin" ]]; then
+  cef_arm="$("$SCRIPT_DIR/ensure-cef.sh" --optional 2>/dev/null)" || cef_arm=""
+  if [[ -n "$cef_arm" ]]; then
+    shim="$(CMUX_CEF_ARCH=arm64 "$SCRIPT_DIR/build-cef-shim.sh" "$cef_arm" "$("$SCRIPT_DIR/cef-cache-root.sh")/shim" | tail -n 1)" || shim=""
+    if [[ -n "$shim" ]]; then helper_bin="$shim/cmux-rb-host-helper"; fi
+  fi
+fi
+if [[ -n "$helper_bin" && -x "$helper_bin" ]] && lipo -archs "$helper_bin" | tr ' ' '\n' | grep -qx arm64; then
+  helper_sha="$(shasum -a 256 "$helper_bin" | cut -c1-16)"
+else
+  echo "warning: no arm64 cmux-rb-host-helper (${helper_bin:-none built}); the remote browser host's helpers are copies of the 3.6 MB host binary (cmux#42190)"
+  helper_bin=""
+  helper_sha="host"
+fi
+
 identity="${EXPANDED_CODE_SIGN_IDENTITY:-}"
 [[ -z "$identity" ]] && identity="-"
-want="$LAYOUT $(json_field "$pin" sha256) $identity"
+want="$LAYOUT $(json_field "$pin" sha256) $helper_sha $identity"
 if [[ -f "$stamp" && "$(cat "$stamp")" == "$want" && -L "$dest/Contents/Frameworks/$FW_NAME" ]] &&
   codesign --verify "$dest/Contents/MacOS/$RBH_NAME" 2>/dev/null; then
   echo "note: remote browser host already embedded ($want)"
@@ -109,7 +134,7 @@ mkdir -p "$app/Contents/Helpers"
 tmp="$(mktemp -d "$app/Contents/Helpers/.rbh.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
 staged="$tmp/$RBH_NAME.app"
-rbh_write_bundle "$bin" "$staged"
+rbh_write_bundle "$bin" "$staged" "$helper_bin"
 ln -s "../../../../Frameworks/$FW_NAME" "$staged/Contents/Frameworks/$FW_NAME"
 rbh_sign "$staged" "$identity"
 rm -rf "$dest"
