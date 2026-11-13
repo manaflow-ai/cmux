@@ -174,6 +174,16 @@ impl acpmux_core::hub::PageProvider for V1PageProvider {
 /// durable identity and lineage edges into typed summary fields.
 fn summary_from_session(v1: &Hub, session: &Session) -> Option<Summary> {
     let mut row = v1.session_list_summary(session);
+    let peer_form = match crate::server::peer_text::masked(&crate::rpc::Message::Response {
+        id: serde_json::json!(0),
+        result: Some(row.clone()),
+        error: None,
+    }) {
+        Some(crate::rpc::Message::Response { result: Some(masked), .. }) if masked != row => {
+            serde_json::value::to_raw_value(&masked).ok()
+        }
+        _ => None,
+    };
     let object = row.as_object_mut()?;
     let meta = session.meta();
     let chat_id = object.remove("sessionId")?.as_str()?.to_owned();
@@ -227,7 +237,7 @@ fn summary_from_session(v1: &Hub, session: &Session) -> Option<Summary> {
         workspace,
         origin: "local".to_owned(),
         pinned: false,
-        peer_form: None,
+        peer_form,
         parent,
         fork_of,
         folder: cwd.map(|path| path.trim_end_matches('/').to_owned()),

@@ -173,6 +173,23 @@ impl Summary {
         RowKey::new(self.origin.as_str(), self.chat_id.as_str())
     }
 
+    /// Whether v1's one-level list folding can place `child` beneath `parent`.
+    /// The decision is made from the two rows supplied by the same snapshot, so an
+    /// archived or non-root parent cannot hide a child after it changes.
+    pub fn listed_under(child: &Summary, parent: Option<&Summary>) -> bool {
+        let Some(parent) = parent else { return false };
+        if parent.parent.is_some() || parent.archived() {
+            return false;
+        }
+        child.parent.as_ref() == Some(&parent.key())
+    }
+
+    fn archived(&self) -> bool {
+        self.extra
+            .pointer("/tags/archived")
+            .is_some_and(|value| value.as_bool() == Some(true) || value.as_str() == Some("true"))
+    }
+
     /// Keys are refused, never shortened. Opaque data stays opaque.
     pub fn validate(&self) -> io::Result<()> {
         self.key().validate()?;
