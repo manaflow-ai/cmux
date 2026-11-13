@@ -134,15 +134,19 @@ export function readHostRestoring(source: unknown, at: number): HostRestoring | 
 /// fixes itself"): "Restoring sessions… m:ss" while the host says acpmux restores its chats, else
 /// "Reconnecting…" once a lost connection has been coming back for RECONNECT_LINE_AFTER_MS. Past
 /// HOST_ERROR_DEADLINE_MS a reconnect is the waiting line's or the failure's (HostWaitingLine,
-/// HostUnavailableLine), so this says nothing then.
+/// HostUnavailableLine), so this says nothing then. A failure the pane already says (`failureShown`:
+/// a refusal said at once, such as another build's acpmux on the socket) is never covered by
+/// "Reconnecting…": the person needs its Restart now, not after the deadline. The restore line
+/// stays, since the host says it only while acpmux restores, and a refusal without it ends it.
 export function hostRecoveryLine(state: {
   relinkingSince?: number;
   restoring?: HostRestoring;
+  failureShown?: boolean;
   now: number;
 }): { kind: "restoring"; waitedMs: number } | { kind: "reconnecting" } | undefined {
-  const { relinkingSince, restoring, now } = state;
+  const { relinkingSince, restoring, failureShown, now } = state;
   if (restoring) return { kind: "restoring", waitedMs: restoring.waitedMs + Math.max(0, now - restoring.at) };
-  if (relinkingSince === undefined) return undefined;
+  if (relinkingSince === undefined || failureShown) return undefined;
   const waited = now - relinkingSince;
   if (waited < RECONNECT_LINE_AFTER_MS || waited >= HOST_ERROR_DEADLINE_MS) return undefined;
   return { kind: "reconnecting" };

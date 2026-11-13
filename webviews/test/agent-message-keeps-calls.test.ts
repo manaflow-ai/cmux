@@ -23,7 +23,7 @@ import { LANE_NOTICE_BATCH, MESSAGE_RUN, type AcpmuxRow } from "../src/agent-ses
 import { turnViewFrom } from "../src/agent-session/acpmux/conversation/turns";
 
 // The closed fold keeps the replies beside it (turnFoldReplies.experiment.ts `replies`); the shipped
-// `answer` keeps only the final answer, covered by turn-fold-keeps-replies.test.ts.
+// `answer` keeps substantive replies and the final answer while short narration folds with the work.
 beforeAll(() => {
   globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "turn-fold-replies": "replies" };
 });

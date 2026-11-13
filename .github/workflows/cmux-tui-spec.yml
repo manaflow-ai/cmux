@@ -351,6 +351,20 @@ jobs:
           shared-key: cmux-tui-acpmux-tests
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
 
+      - name: v2 bench home emits all gate rows
+        if: ${{ steps.scope.outputs.run == 'true' }}
+        working-directory: cmux-tui
+        run: |
+          output="$RUNNER_TEMP/acpmux-v2-bench.json"
+          cargo bench -q -p acpmux --bench v2 -- --output "$output"
+          python3 - "$output" <<'PY'
+          import json, sys
+          with open(sys.argv[1], encoding="utf-8") as f:
+              rows = json.load(f)["rows"]
+          expected = {"1", "1b", "2", "2b", "3", "4", "5", "5b", "6", "7", "8", "9", "10", "11", "12", "13"}
+          assert expected.issubset({row["pr"] for row in rows})
+          PY
+
       - name: cargo test -p acpmux --lib --test hub_integration
         if: ${{ steps.scope.outputs.run == 'true' }}
         working-directory: cmux-tui

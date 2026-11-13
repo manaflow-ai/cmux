@@ -121,6 +121,11 @@ fn tabs_small_rules_answer_over_the_channel() {
         body,
         json!({"chat": {"route": "adopt", "harness": "codex", "session": "s"}, "harness": "codex"})
     );
+    let (_, body) = call_json(
+        c"window_tabs_terminal_chat_toggle",
+        &json!({"chat": true, "agent": "claude", "session": "s"}),
+    );
+    assert_eq!(body, json!({"route": "toTerminal", "harness": "claude", "session": "s"}));
     let (_, body) = call_json(c"window_tabs_duplicate", &json!({"tabs": [{"localPage": true}]}));
     assert_eq!(body, json!({"actions": null}));
     let (_, body) = call_json(c"window_tabs_by_number", &json!({"number": 9, "count": 4}));

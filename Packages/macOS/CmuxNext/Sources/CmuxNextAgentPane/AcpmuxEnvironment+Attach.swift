@@ -26,7 +26,7 @@ nonisolated extension AcpmuxEnvironment {
         guard let build, build.kind == .dev, build.bundleID?.hasPrefix(attachBundlePrefix) == true,
               let raw = environment[attachKey]?.trimmingCharacters(in: .whitespaces), !raw.isEmpty else { return nil }
         let path = raw == "~" ? userHome.path
-            : raw.hasPrefix("~/") ? userHome.appendingPathComponent(String(raw.dropFirst(2))).path : raw
+            : raw.hasPrefix("~/") ? userHome.appending(path: String(raw.dropFirst(2)), directoryHint: .isDirectory).path : raw
         guard path.hasPrefix("/") else { return nil }
         return URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
     }

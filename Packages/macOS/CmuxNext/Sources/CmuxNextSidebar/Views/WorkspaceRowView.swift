@@ -292,7 +292,7 @@ final class WorkspaceRowView: SidebarRowView {
         lastTitle = shownTitle
         hiddenWorkspaceName = ws.namesWorkspace(shownTitle) ? nil : ws.title
         isArchived = ws.isArchived
-        icon.alphaValue = isArchived ? SidebarStyle.archivedAlpha : 1
+        icon.alphaValue = (isArchived ? SidebarStyle.archivedAlpha : 1) * SidebarStyle.glyphOpacity
         // Roll is for renames: a first name over the loading bar arrives at once, as under instant.
         let arrival = priorTitle?.isEmpty == true && !shownTitle.isEmpty && !isPlaceholderRow
             && ![.instant, .roll].contains(tunables.workspaceTitleMotion) && Motion.sidebar.animatesMovement(in: window)
