@@ -1,0 +1,31 @@
+name: iOS reliability matrix
+
+# The iOS connectivity and reliability matrix runs from feat-cmux-next's
+# ios-reliability-matrix.yml (#40289): Linux protocol cells, iOS simulator
+# cells and one report. GitHub runs a schedule, and registers a dispatch, only
+# from the default branch, so this file is on main too. Here the nightly cron
+# (08:17 UTC) runs job start, which dispatches the workflow on feat-cmux-next.
+# That dispatch runs feat-cmux-next's own file (event workflow_dispatch, branch
+# feat-cmux-next), never this one, so this file holds no matrix jobs to drift
+# from it. A dispatch on main does nothing.
+on:
+  schedule:
+    - cron: "17 8 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  # No secrets: it only dispatches this workflow on feat-cmux-next.
+  start:
+    if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'schedule'
+    permissions:
+      actions: write # dispatch ios-reliability-matrix.yml
+      contents: read
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Dispatch the full matrix on feat-cmux-next
+        run: gh workflow run ios-reliability-matrix.yml -R "$GITHUB_REPOSITORY" --ref feat-cmux-next

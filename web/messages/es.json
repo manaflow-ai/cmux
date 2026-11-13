@@ -199,7 +199,10 @@
     "signupPendingBody": "Si ya tienes una cuenta, inicia sesión con el método que usaste antes. Si acabas de crear una cuenta, verifica tu correo antes de iniciar sesión.",
     "genericTitle": "No se pudo completar el inicio de sesión",
     "genericBody": "Inténtalo de nuevo. Si el problema continúa, contacta con soporte.",
-    "backToSignIn": "Volver a iniciar sesión"
+    "backToSignIn": "Volver a iniciar sesión",
+    "chatgptLinkTitle": "Inicia sesión una vez para conectar ChatGPT",
+    "chatgptLinkBody": "Este correo ya tiene una cuenta de cmux. Inicia sesión con el método que usaste antes y ChatGPT se conectará a esa cuenta.",
+    "chatgptEmailUnverifiedBody": "El correo de tu cuenta de ChatGPT no está verificado. Verifícalo con OpenAI o inicia sesión de otra forma."
   },
   "cloudPublicationAccess": {
     "title": "No tienes acceso",
