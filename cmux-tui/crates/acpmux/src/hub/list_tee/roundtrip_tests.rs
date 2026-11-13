@@ -28,7 +28,9 @@ fn roundtrip_meta(id: &str) -> crate::store::SessionMeta {
 }
 
 fn without_usage_stats(mut row: Value) -> Value {
-    row.as_object_mut().map(|object| object.remove("usageStats"));
+    if let Some(object) = row.as_object_mut() {
+        object.remove("usageStats");
+    }
     row
 }
 
