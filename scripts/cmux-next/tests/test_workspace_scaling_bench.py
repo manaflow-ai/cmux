@@ -247,6 +247,21 @@ class SidebarRowMismatchTests(unittest.TestCase):
         self.assertEqual(record["topology_workspaces"], 1000)
         self.assertEqual(record["unlisted_names"], [{"name": "ws 0001", "id": "ws_b"}])
 
+    def test_a_pinned_tile_counts_as_a_listed_workspace(self):
+        """8aeac9fd3a9 on the bench Mac: 999 rows of 1000, the one unlisted bench workspace was `ws 0004`, the only
+        workspace the probe both leaves out of a group and pins. The app draws a pinned workspace as a tile over the
+        list (SidebarListView+SelectionOrder.swift `selectionOrder`), not as a `workspace(...)` row."""
+        topology = {"workspaces": [{"id": "ws_home", "key": "k-h", "name": "Home"},
+                                   {"id": "ws_a", "key": "k-a", "name": "ws 0000"},
+                                   {"id": "ws_b", "key": "k-b", "name": "ws 0004"},
+                                   {"id": "ws_c", "key": "k-c", "name": "ws 0005"}]}
+        rows = [{"key": "workspace(k-a)", "title": "ws 0000"}]
+        self.assertEqual(bench_launch.pinned_tiles(topology, rows, ["ws_a", "ws_b"]), 1)
+        report = {"sizes": {"999": {"rows_listed": 999, "pinned_tiles": 1, "create_failures": []}}}
+        self.assertIsNone(bench.sidebar_row_mismatch(report, 999, 1000))
+        report["sizes"]["999"]["rows_listed"] = 998
+        self.assertEqual(bench.sidebar_row_mismatch(report, 999, 1000)["pinned_tiles"], 1)
+
     def test_full_list_is_no_record(self):
         self.assertIsNone(bench.sidebar_row_mismatch({"sizes": {"99": {"rows_listed": 100}}}, 99, 100))
 
