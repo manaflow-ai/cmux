@@ -68,6 +68,13 @@ struct TerminalComposer: View {
             }
         }
         .padding(.horizontal, TerminalDockMetrics.horizontalInset)
+        // The row is always its own height, never the hosting view's current
+        // one. The hosting view takes a taller row's height one layout pass
+        // after SwiftUI measures it; offered the older, shorter height, the
+        // field's min-height frame took it and the grown draft and send
+        // circle drew below the rounded glass (user reports 2026-11-12 and
+        // 2026-11-13). See `fieldContainer`.
+        .fixedSize(horizontal: false, vertical: true)
         // V6-1: a draft that shrinks drew a shorter row while the hosting view
         // kept the taller height. The row's own height tells the screen to
         // measure the composer again (classic: the band reflows over 0.25 s).
@@ -175,6 +182,11 @@ struct TerminalComposer: View {
         .padding(.trailing, TerminalDockMetrics.fieldPadding)
         .padding(.vertical, TerminalDockMetrics.fieldPadding)
         .frame(minHeight: TerminalDockMetrics.control, alignment: .top)
+        // A frame with only a minimum takes whatever height it is offered
+        // (at least 40 pt), not its content's: offered less than the text
+        // needs, the glass below ended above the last line. Its own ideal
+        // height, so the glass always wraps the text and the send circle.
+        .fixedSize(horizontal: false, vertical: true)
         .glassSurface(in: .rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("terminal.composer.box")
