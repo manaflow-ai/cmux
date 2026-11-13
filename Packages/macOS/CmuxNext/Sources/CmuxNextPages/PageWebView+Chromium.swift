@@ -12,6 +12,11 @@ import os
 // WebKit view stays as an unloaded, hidden subview, so a page that fails in Chromium reopens in
 // WebKit at once (``fallBackToWebKit(_:)``) and WebKit-only hosts keep compiling.
 extension PageWebView {
+    var chromiumZoomScript: String {
+        PageChromiumDocumentScripts.pageZoomScript(
+            backingScale: Double(window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1))
+    }
+
     /// Re-syncs every Chromium page in a view subtree with its AppKit state.
     public static func syncChromiumVisibility(in root: NSView) {
         if let page = root as? PageWebView { page.setChromiumVisibility(true) }
@@ -180,7 +185,7 @@ extension PageWebView {
         page.readyResources = { [weak self] url in self?.readyChromiumResource(url) }
         do {
             for (method, params) in ChromiumPageHostBridge.setupCalls(handlers: handlers,
-                                                                       documentScripts: scripts.sources) {
+                                                                       documentScripts: [chromiumZoomScript] + scripts.sources) {
                 _ = try await page.devTools(method, params: params)
             }
             if descriptor.isAgentPage {
@@ -213,7 +218,7 @@ extension PageWebView {
         }
         chromiumSession = session
         scriptTarget.bridge = bridge
-        bridge.evaluate(DesignSettings.shared.interfaceScaleScript(pageZoom: pageZoom))
+        bridge.evaluate(chromiumZoomScript + DesignSettings.shared.interfaceScaleScript(pageZoom: pageZoom))
         page.setZoom(pageZoom)
         // The WebKit page draws no background (`drawsBackground` off): the Chromium page neither.
         page.setSeeThrough(true)
