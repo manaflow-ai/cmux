@@ -37,6 +37,26 @@ const BOOT_DELAY: Duration = Duration::from_secs(30);
 const INTERVAL: Duration = Duration::from_secs(60);
 /// An update waiting for a turn to end looks again this soon.
 const BUSY_RETRY: Duration = Duration::from_secs(60);
+/// At most this much is added to each wait, a fresh draw each time
+/// ([`next_look`]), so machines that started together (spares restored from
+/// one snapshot, a fleet that restarted into one update) do not look in step.
+const JITTER: Duration = Duration::from_millis(3_750);
+
+/// How long the worker waits after a check that ended in `outcome` before it
+/// looks again: [`BUSY_RETRY`] while an update waits for idle, else
+/// [`INTERVAL`], plus `draw` folded into [`JITTER`].
+pub(super) fn next_look(outcome: &Outcome, draw: u64) -> Duration {
+    let base = if matches!(outcome, Outcome::Busy(_)) { BUSY_RETRY } else { INTERVAL };
+    base + Duration::from_millis(draw % (JITTER.as_millis() as u64 + 1))
+}
+
+/// A fresh random draw for [`next_look`] (std's per-process random hash keys).
+fn jitter_draw() -> u64 {
+    use std::hash::{BuildHasher as _, Hasher as _};
+    let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+    hasher.write_u64(wall_ms());
+    hasher.finish()
+}
 pub(super) use super::gate::CONNECT_HOLD;
 /// The new build has this long to serve after its restart: a session host
 /// replays its journal before it listens (minutes for a large one).
@@ -543,7 +563,7 @@ fn run(paths: &Paths, rx: &Receiver<Msg>) {
             continue;
         }
         let (outcome, _) = check(paths, Honor::All);
-        let next = if matches!(outcome, Outcome::Busy(_)) { BUSY_RETRY } else { INTERVAL };
+        let next = next_look(&outcome, jitter_draw());
         if !wait_watching(paths, rx, next) {
             return;
         }
