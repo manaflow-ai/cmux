@@ -43,8 +43,7 @@ const PEERS: &str = "Other agents in this session:";
 /// The longest time the first test keeps the daemon at its limit after it
 /// lets the agent start. The context hook gives its whole read 1500 ms
 /// (`session_context.rs` `DEADLINE`); the daemon is free again well inside
-/// that. The test frees the daemon sooner when the daemon has refused a
-/// connection of the start, or when the start has ended.
+/// that. The test frees the daemon sooner when the context hook has ended.
 const HOLD: Duration = Duration::from_millis(700);
 
 fn test_timeout(timeout: Duration) -> Duration {
@@ -166,6 +165,17 @@ impl Control {
         stream.set_read_timeout(Some(test_timeout(Duration::from_secs(30)))).unwrap();
         let writer = stream.try_clone_box().unwrap();
         Self { writer, reader: BufReader::new(stream), sent: 0 }
+    }
+
+    /// A connection that the daemon admitted: it answered a request on it.
+    /// `None` when the daemon refused the connection.
+    fn admitted(socket: &Path) -> Option<Self> {
+        let mut connection = Self::open(socket);
+        writeln!(connection.writer, "{}", json!({"id": 0, "cmd": "server-stats"})).ok()?;
+        let mut line = String::new();
+        connection.reader.read_line(&mut line).ok()?;
+        let reply: Value = serde_json::from_str(&line).ok()?;
+        (reply["ok"] == true).then_some(connection)
     }
 
     /// One legacy request; its `data`.
@@ -430,42 +440,34 @@ fn first_agent_started(daemon: &Daemon, gate: Gate) -> String {
     first.terminal
 }
 
-/// Opens connections and keeps them until the daemon is at its connection
-/// limit (the limit that `server-stats` reports) and refuses one more
-/// connection with its busy line.
-fn hold_at_limit(socket: &Path, control: &mut Control) -> Vec<Box<dyn transport::Stream>> {
+/// Opens connections and keeps them until the test itself holds every
+/// connection of the daemon's limit (its control connection is one of them).
+/// The daemon answered a request on each one, so each one holds a slot; the
+/// daemon is then at its limit whatever another client does, and it stays
+/// there until the test drops what this returns.
+fn hold_at_limit(socket: &Path, control: &mut Control) -> Vec<Control> {
+    let limit = usize::try_from(control.connections().limit).unwrap();
     let deadline = Instant::now() + test_timeout(Duration::from_secs(30));
     let mut held = Vec::new();
-    loop {
+    while held.len() + 1 < limit {
         assert!(
             Instant::now() < deadline,
-            "setup: the daemon did not refuse a connection with {} held by the test",
-            held.len()
+            "setup: the daemon admitted {} of the {limit} connections that the test holds",
+            held.len() + 1
         );
-        let now = control.connections();
-        let stream = transport::connect(socket).expect("setup: connect to hold a slot");
-        if now.active >= now.limit {
-            // At the limit the daemon writes the busy line at once. If a
-            // slot became free in between, this connection holds it.
-            stream.set_read_timeout(Some(Duration::from_millis(300))).unwrap();
-            let mut reader = BufReader::new(stream);
-            let mut line = String::new();
-            let _ = reader.read_line(&mut line);
-            if line.contains("server.busy") {
-                return held;
-            }
-            held.push(reader.into_inner());
-            continue;
+        match Control::admitted(socket) {
+            Some(connection) => held.push(connection),
+            // A connection of the setup still ends in the daemon.
+            None => std::thread::sleep(Duration::from_millis(10)),
         }
-        held.push(stream);
-        // The accept loop counts a connection after the connect returns.
-        let seen = now.accepted + now.refused;
-        let counted = wait_until(deadline.saturating_duration_since(Instant::now()), || {
-            let then = control.connections();
-            then.accepted + then.refused > seen
-        });
-        assert!(counted, "setup: the daemon did not count a held connection");
     }
+    let now = control.connections();
+    assert!(now.active >= now.limit, "setup: {} of {} slots are held", now.active, now.limit);
+    assert!(
+        Control::admitted(socket).is_none(),
+        "setup: the daemon admitted a connection above its limit of {limit}"
+    );
+    held
 }
 
 /// One agent starts while the daemon is at its connection limit; the limit
@@ -490,14 +492,13 @@ fn start_burst_one_agent_at_the_connection_limit_gets_its_place_and_the_other_ag
 
     gate.open();
     let opened = Instant::now();
-    let mut met_the_limit = false;
-    while !marked(&daemon.dir, "done", 1) && opened.elapsed() < HOLD {
-        if control.connections().refused > at_limit.refused {
-            met_the_limit = true;
-            break;
-        }
+    // The daemon stays at its limit until the context hook has ended (today
+    // it ends at once: each of its requests is refused) or until `HOLD`.
+    let context_ended = daemon.dir.join("out/1.ctx.rc");
+    while !context_ended.exists() && opened.elapsed() < HOLD {
         std::thread::sleep(Duration::from_millis(1));
     }
+    let ended_at_the_limit = context_ended.exists();
     let refused_at_the_limit = control.connections().refused - at_limit.refused;
     let held_for = opened.elapsed();
     drop(held);
@@ -511,8 +512,9 @@ fn start_burst_one_agent_at_the_connection_limit_gets_its_place_and_the_other_ag
         test_timeout(Duration::from_secs(20)),
     );
     let facts = format!(
-        "limit {}; the daemon refused {refused_at_the_limit} connection(s) of the start before \
-         the test freed it (seen before the free: {met_the_limit}), {} ms after the start; {}",
+        "limit {}; the daemon refused {refused_at_the_limit} connection(s) of the start, and \
+         the context hook had ended: {ended_at_the_limit}, when the test freed the daemon {} ms \
+         after the start; {}",
         at_limit.limit,
         held_for.as_millis(),
         start.shown()
