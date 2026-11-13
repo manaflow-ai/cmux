@@ -79,7 +79,9 @@ public final class CloudPaletteTargetSource: PaletteTargetSource {
         return rows.compactMap { row -> PaletteTargetOption? in
             guard let id = row["id"] as? String, let title = row["title"] as? String else { return nil }
             let state = row["state"] as? String, intent = row["intent"] as? String
-            let recovery = intent == "createDesktop" ? PaletteTargetRecovery(action: "newCloudMachine", title: Words.create) : nil
+            let recovery = intent == "startDesktop"
+                ? PaletteTargetRecovery(action: "cloudSetupDesktop", title: Words.setup, target: ActionTargetRef(kind: .machine, id: id))
+                : intent == "createDesktop" ? PaletteTargetRecovery(action: "newCloudMachine", title: Words.create) : nil
             return PaletteTargetOption(id: id, title: state == "empty" ? Words.create : title,
                                        subtitle: Words.state(state), symbol: state == "empty" ? "plus" : "desktopcomputer",
                                        isEnabled: intent != nil, accessory: desktop && state == "resume" ? Words.resume : nil, recovery: recovery)
@@ -89,6 +91,7 @@ public final class CloudPaletteTargetSource: PaletteTargetSource {
     private enum Words {
         static var machine: String { String(localized: "cloud.palette.machine", defaultValue: "Cloud Machine", table: "CloudPalette", bundle: .module) }
         static var create: String { String(localized: "cloud.palette.createDesktop", defaultValue: "Create desktop machine", table: "CloudPalette", bundle: .module) }
+        static var setup: String { String(localized: "cloud.palette.setupDesktop", defaultValue: "Set up desktop", table: "CloudPalette", bundle: .module) }
         static var resume: String { String(localized: "cloud.palette.resumeDesktop", defaultValue: "Resume and open", table: "CloudPalette", bundle: .module) }
         static func state(_ state: String?) -> String? {
             switch state {

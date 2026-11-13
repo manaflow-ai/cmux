@@ -33,10 +33,11 @@ public struct PaletteTargetOption: Identifiable, Sendable, Hashable {
 public struct PaletteTargetRecovery: Sendable, Hashable {
     public var action: ActionID
     public var title: String
+    /// The object being repaired, when recovery is an inline action for a listed row.
+    public var target: ActionTargetRef?
 
-    public init(action: ActionID, title: String) {
-        self.action = action
-        self.title = title
+    public init(action: ActionID, title: String, target: ActionTargetRef? = nil) {
+        (self.action, self.title, self.target) = (action, title, target)
     }
 }
 

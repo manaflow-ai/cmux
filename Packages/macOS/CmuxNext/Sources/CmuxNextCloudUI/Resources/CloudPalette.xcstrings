@@ -1,6 +1,17 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cloud.palette.setupDesktop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set up desktop"
+          }
+        }
+      }
+    },
     "cloud.palette.createDesktop": {
       "extractionState": "manual",
       "localizations": {

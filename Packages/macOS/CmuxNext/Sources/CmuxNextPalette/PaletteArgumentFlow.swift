@@ -229,7 +229,7 @@ struct PaletteArgumentFlow {
             let next = adding(argument, option.id, to: collected)
             let registry = registry
             let choose: PaletteEffect = if let recovery = option.recovery {
-                .perform { registry.perform(recovery.action, invocation: ActionInvocation()) }
+                .perform { registry.perform(recovery.action, invocation: ActionInvocation(target: recovery.target)) }
             } else {
                 next.map { invocation in .deferred { effect(collected: invocation) } } ?? .performKeepingOpen {}
             }

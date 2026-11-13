@@ -85,15 +85,17 @@ struct PaletteTargetPickerSnapshotTests {
         var windows: [NSWindow] = []
         var scopes: [ThemeScope] = []
         defer { windows.forEach { $0.close() } }
-        let create = PaletteTargetRecovery(action: "newCloudMachine", title: "Create desktop machine")
+        let setup = PaletteTargetRecovery(action: "cloudSetupDesktop", title: "Set up desktop",
+                                          target: ActionTargetRef(kind: .machine, id: "old"))
         let ready = PaletteTargetOption(id: "ready", title: "Design desktop", symbol: "desktopcomputer")
         let paused = PaletteTargetOption(id: "paused", title: "Review desktop", subtitle: "Paused", symbol: "desktopcomputer", accessory: "Resume and open")
-        let missing = PaletteTargetOption(id: "old", title: "Cloud Machine 2", subtitle: "Desktop service unavailable", symbol: "desktopcomputer", recovery: create)
+        let missing = PaletteTargetOption(id: "old", title: "Cloud Machine 2", subtitle: "Desktop service unavailable", symbol: "desktopcomputer", recovery: setup)
         let states: [(String, [PaletteTargetOption])] = [
             ("Desktop ready first", [ready, paused, missing]),
             ("Resume and open", [paused]),
             ("Older image recovery", [missing]),
-            ("First desktop", [PaletteTargetOption(id: "create", title: create.title, symbol: "plus", recovery: create)]),
+            ("First desktop", [PaletteTargetOption(id: "create", title: "Create desktop machine", symbol: "plus",
+                                                     recovery: PaletteTargetRecovery(action: "newCloudMachine", title: "Create desktop machine"))]),
         ]
         var cells: [[NSImage]] = []
         for (_, options) in states {

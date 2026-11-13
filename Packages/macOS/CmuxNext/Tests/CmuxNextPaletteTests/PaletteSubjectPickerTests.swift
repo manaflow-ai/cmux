@@ -79,20 +79,21 @@ struct PaletteSubjectPickerTests {
         }
     }
 
-    @Test func inlineRepairRunsCreationWithoutTargetingTheOldMachine() async throws {
+    @Test func inlineRepairRunsSetupOnTheOldMachine() async throws {
         let registry = ActionRegistry.standard(), targets = Targets()
         var created = false, opened = false
         registry.bind("cloudOpenDesktop", invoke: { _ in opened = true })
-        registry.bind("newCloudMachine", invoke: {
-            #expect($0.target == nil)
+        registry.bind("cloudSetupDesktop", invoke: {
+            #expect($0.target == ActionTargetRef(kind: .machine, id: "old"))
             created = true
         })
         targets.options = [PaletteTargetOption(id: "old", title: "Older machine", subtitle: "Desktop service unavailable",
-            recovery: PaletteTargetRecovery(action: "newCloudMachine", title: "Create desktop machine"))]
+            recovery: PaletteTargetRecovery(action: "cloudSetupDesktop", title: "Set up desktop",
+                                             target: ActionTargetRef(kind: .machine, id: "old")))]
         let item = try row("cloudOpenDesktop", registry: registry, targets: targets)
         guard case .push(let page) = item.primary.effect.resolved() else { Issue.record("missing picker"); return }
         let choice = try #require(await page.providers.first?.items().first)
-        #expect(choice.accessory == "Create desktop machine")
+        #expect(choice.accessory == "Set up desktop")
         guard case .perform(let run) = choice.primary.effect.resolved() else { Issue.record("missing repair"); return }
         run()
         #expect(created)
@@ -102,15 +103,17 @@ struct PaletteSubjectPickerTests {
     @Test func unsupportedCapturedMachineOffersRecoveryDespiteTargetGate() async throws {
         let registry = ActionRegistry.standard(), targets = Targets()
         registry.bind("cloudOpenDesktop", invoke: { _ in Issue.record("unsupported machine ran") })
+        registry.bind("cloudSetupDesktop", invoke: { _ in })
         ActionTargetVisibility.gate("cloudOpenDesktop", in: registry) { _ in "Desktop service unavailable" }
         targets.options = [PaletteTargetOption(id: "old", title: "Older machine", subtitle: "Desktop service unavailable",
-            recovery: PaletteTargetRecovery(action: "newCloudMachine", title: "Create desktop machine"))]
+            recovery: PaletteTargetRecovery(action: "cloudSetupDesktop", title: "Set up desktop",
+                                             target: ActionTargetRef(kind: .machine, id: "old")))]
         let item = try row("cloudOpenDesktop", registry: registry, targets: targets,
                            captured: [ActionTargetRef(kind: .machine, id: "old")])
         #expect(item.isEnabled)
         guard case .push(let page) = item.primary.effect.resolved() else { Issue.record("missing recovery picker"); return }
         let choice = try #require(await page.providers.first?.items().first)
-        #expect(choice.accessory == "Create desktop machine")
+        #expect(choice.accessory == "Set up desktop")
     }
 
     @Test func disabledCapturedMachineStaysInThePicker() throws {
