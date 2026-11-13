@@ -1,8 +1,8 @@
 // l10n-allow-file: test fixture prompts, replies and file text, not shipped UI.
-// The Edited files card stays small and calm (cx-ncc.99, Leo: "too big / too tonka toys"):
-// nothing heavier than medium weight, file names in regular weight, paths in the chat's monospace
-// with counts in tabular figures, compact rows, small radii and hairline rims, and the card flush
-// with the reply text. The turn's diff opens in a tab beside the chat (5c388eb6). The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in
+// The Edited files card stays calm (cx-ncc.99, Leo: "too big / too tonka toys") in the Codex app's
+// sizes (Lucas, 2026-11-12: "match the Codex app"): nothing heavier than medium weight, file names in
+// regular weight, paths in the chat's font with counts in tabular figures, a 64px head with a 40px
+// glyph tile, 36px rows, a 12px card radius and hairline rims, and the card flush with the reply text. The turn's diff opens in a tab beside the chat (5c388eb6). The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in
 // acpmux daemon (as agent-pane-edited-side.test.ts).
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -198,33 +198,31 @@ await requireBrowserLane("agent-pane-edited-calm.test.ts", async () => {
     );
   const calm = (list: Awaited<ReturnType<typeof looks>>) => {
     const loud = list.filter((one) => one.weight > 500).map((one) => `${one.cls} ${one.text} ${one.weight}`);
-    const round = list.filter((one) => one.radius > 8).map((one) => `${one.cls} ${one.radius}`);
+    const round = list.filter((one) => one.radius > 12).map((one) => `${one.cls} ${one.radius}`);
     const thick = list
       .filter((one) => one.border > 1 || one.ring > 1)
       .map((one) => `${one.cls} ${one.border}/${one.ring}`);
     return { loud, round, thick };
   };
 
-  test("the card: regular weights, mono paths, tabular counts, compact rows, small radii, hairline rims", async () => {
+  test("the card: regular weights, chat-font paths, tabular counts, the Codex app's sizes, hairline rims", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url(CHAT));
     await page.getByText("Retry added to the uploader.").waitFor();
     await page.locator(".acpmux-edited-file").first().waitFor();
     expect(calm(await looks(page, ".acpmux-edited"))).toEqual({ loud: [], round: [], thick: [] });
     expect((await style(page, ".acpmux-edited-base", "font-weight"))["font-weight"]).toBe("400");
-    expect(String((await style(page, ".acpmux-edited-path", "font-family"))["font-family"])).toMatch(/mono|Menlo/i);
+    expect(String((await style(page, ".acpmux-edited-path", "font-family"))["font-family"])).not.toMatch(/mono|Menlo/i);
     expect(
       String(
         (await style(page, ".acpmux-edited-file .acpmux-diff-counts", "font-variant-numeric"))["font-variant-numeric"],
       ),
     ).toContain("tabular-nums");
-    expect((await style(page, ".acpmux-edited-file")).height).toBeLessThanOrEqual(28);
-    expect((await style(page, ".acpmux-edited-head")).height).toBeLessThanOrEqual(40);
-    expect((await style(page, ".acpmux-review-changes")).height).toBeLessThanOrEqual(24);
-    // No tile around the head's glyph.
-    expect(
-      await page.locator(".acpmux-edited-icon").evaluate((node) => node.getBoundingClientRect().width),
-    ).toBeLessThanOrEqual(16);
+    expect((await style(page, ".acpmux-edited-file")).height).toBe(36);
+    expect((await style(page, ".acpmux-edited-head")).height).toBe(64);
+    expect((await style(page, ".acpmux-review-changes")).height).toBe(28);
+    // The head's glyph sits in a 40px tile, as the Codex app's.
+    expect(await page.locator(".acpmux-edited-icon").evaluate((node) => node.getBoundingClientRect().width)).toBe(40);
     await page.close();
   });
 
