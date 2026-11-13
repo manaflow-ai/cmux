@@ -135,6 +135,9 @@ struct MirrorState {
     seen: HashMap<(String, String), ListKey>,
     touched: HashSet<(String, String)>,
     pending_wanted: VecDeque<ListKey>,
+    // Decision 166: a window or a successful page permits one immediate retry.
+    read_error_since_progress: bool,
+    reads_stopped: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -532,6 +535,9 @@ where
             mirror.wanted.insert(id, key.clone());
             mirror.pending_wanted.push_back(key);
         }
+        // An explicit want may read pending keys after a stop, but does not
+        // replenish the retry allowance or restart the view's walk.
+        mirror.reads_stopped = false;
         self.maybe_start_wanted(sid);
         Ok(())
     }
@@ -631,6 +637,14 @@ where
     }
 
     fn start_mirror_walk(&mut self, sid: &str) {
+        if self
+            .subscriptions
+            .get(sid)
+            .and_then(|sub| sub.mirror.as_ref())
+            .is_some_and(|mirror| mirror.reads_stopped)
+        {
+            return;
+        }
         if self.pages.contains_key(sid) {
             if let Some(sub) = self.subscriptions.get_mut(sid)
                 && let Some(mirror) = sub.mirror.as_mut()
@@ -644,6 +658,7 @@ where
             let Some(sub) = self.subscriptions.get_mut(sid) else { return };
             let Some(mirror) = sub.mirror.as_mut() else { return };
             mirror.walking = true;
+            mirror.whole = false;
             mirror.seen.clear();
             mirror.touched.clear();
             Page {
@@ -677,7 +692,7 @@ where
         let page = {
             let Some(sub) = self.subscriptions.get_mut(sid) else { return };
             let Some(mirror) = sub.mirror.as_mut() else { return };
-            if mirror.walking || mirror.pending_wanted.is_empty() {
+            if mirror.walking || mirror.reads_stopped || mirror.pending_wanted.is_empty() {
                 return;
             }
             let mut keys = Vec::with_capacity(100);
@@ -791,6 +806,8 @@ where
                     sub.replaying = false;
                     sub.window_taken = true;
                     if let Some(mirror) = sub.mirror.as_mut() {
+                        mirror.read_error_since_progress = false;
+                        mirror.reads_stopped = false;
                         for row in &window.rows {
                             if let Some(key) = Self::value_key(row) {
                                 let id = Self::row_identity(&key);
@@ -818,6 +835,11 @@ where
                     self.skips.unheld_sid = self.skips.unheld_sid.saturating_add(1);
                     self.charge_frame_now(None, frame_bytes);
                     return;
+                }
+                if let Some(mirror) =
+                    self.subscriptions.get_mut(&sid).and_then(|sub| sub.mirror.as_mut())
+                {
+                    mirror.read_error_since_progress = false;
                 }
                 let state = self.pages.remove(&sid).unwrap_or_default();
                 if matches!(state.purpose, PagePurpose::User | PagePurpose::MirrorWalk) {
@@ -885,42 +907,11 @@ where
                 let method =
                     value.get("method").and_then(Value::as_str).unwrap_or("unknown").to_owned();
                 let code = value.get("code").and_then(Value::as_str).unwrap_or("error").to_owned();
-                let mut retry_wanted = None;
                 let restart_walk = if method == "page" {
-                    sid.as_deref().and_then(|sid| {
-                        self.pages.remove(sid).and_then(|state| {
-                            if matches!(state.purpose, PagePurpose::Wanted) {
-                                if let Some(sub) = self.subscriptions.get_mut(sid)
-                                    && let Some(mirror) = sub.mirror.as_mut()
-                                    && let Some(request) = state.request
-                                    && let Some(keys) = request.keys
-                                {
-                                    for key in keys.into_iter().rev() {
-                                        mirror.pending_wanted.push_front(key);
-                                    }
-                                }
-                                retry_wanted = Some(sid.to_owned());
-                                return None;
-                            }
-                            (matches!(state.purpose, PagePurpose::MirrorWalk)
-                                && self
-                                    .subscriptions
-                                    .get(sid)
-                                    .and_then(|sub| sub.mirror.as_ref())
-                                    .is_some())
-                            .then_some(sid.to_owned())
-                        })
-                    })
+                    sid.as_deref().is_some_and(|sid| self.accept_page_error(sid))
                 } else {
-                    None
+                    false
                 };
-                if let Some(sid) = restart_walk.as_deref()
-                    && let Some(sub) = self.subscriptions.get_mut(sid)
-                    && let Some(mirror) = sub.mirror.as_mut()
-                {
-                    mirror.walking = false;
-                    mirror.whole = false;
-                }
                 if sid.is_some() && method == "sub" && code != "not_ready" {
                     self.subscriptions.remove(sid.as_deref().unwrap_or_default());
                 }
@@ -931,15 +922,12 @@ where
                         id: value.get("id").and_then(Value::as_str).map(str::to_owned),
                         code,
                     },
-                    sid,
+                    sid.clone(),
                     frame_bytes,
                     true,
                 );
-                if let Some(sid) = restart_walk {
+                if restart_walk && let Some(sid) = sid {
                     self.start_mirror_walk(&sid);
-                }
-                if let Some(sid) = retry_wanted {
-                    self.maybe_start_wanted(&sid);
                 }
             }
             FrameKind::Unknown(kind) => {
@@ -948,6 +936,33 @@ where
             }
             _ => self.skip_unknown(0, &frame, frame_bytes),
         }
+    }
+
+    /// Both automatic read paths share one retry allowance per subscription.
+    /// A failed wanted read keeps its keys while the retry walks from the head.
+    fn accept_page_error(&mut self, sid: &str) -> bool {
+        let state = self.pages.remove(sid);
+        let Some(mirror) = self.subscriptions.get_mut(sid).and_then(|sub| sub.mirror.as_mut())
+        else {
+            return false;
+        };
+        let retry = !mirror.read_error_since_progress;
+        mirror.read_error_since_progress = true;
+        let Some(state) = state else { return false };
+        if matches!(state.purpose, PagePurpose::User) {
+            return false;
+        }
+        if matches!(state.purpose, PagePurpose::Wanted)
+            && let Some(keys) = state.request.and_then(|request| request.keys)
+        {
+            for key in keys.into_iter().rev() {
+                mirror.pending_wanted.push_front(key);
+            }
+        }
+        mirror.walking = false;
+        mirror.whole = false;
+        mirror.reads_stopped = !retry;
+        retry
     }
 
     fn accept_mirror_walk_page(&mut self, page: PageResult<T>, frame_bytes: u64) {
@@ -1183,7 +1198,7 @@ where
                     let value = serde_json::to_value(&summary).ok();
                     let key = value.as_ref().and_then(Self::row_key);
                     let live = value.as_ref().is_some_and(Self::summary_is_live);
-                    let (live_view, held, wanted) = self
+                    let (live_view, held, wanted, mirrored) = self
                         .subscriptions
                         .get(&sid)
                         .map(|sub| {
@@ -1197,11 +1212,12 @@ where
                                 id.as_ref().is_some_and(|id| {
                                     mirror.is_some_and(|mirror| mirror.wanted.contains_key(id))
                                 }),
+                                mirror.is_some(),
                             )
                         })
-                        .unwrap_or((false, false, false));
+                        .unwrap_or((false, false, false, false));
                     let left = live_view && !live && held && !wanted;
-                    let deliver = !live_view || live || held || wanted;
+                    let deliver = !mirrored || !live_view || live || held || wanted;
                     if let Some(sub) = self.subscriptions.get_mut(&sid)
                         && let Some(mirror) = sub.mirror.as_mut()
                         && let Some(key) = key
@@ -2321,9 +2337,16 @@ tail"#;
         .encode();
         client.received(&error);
         assert!(matches!(client.next_change(), Some(Change::Error { .. })));
-        let retry = client.take_send().expect("wanted page retry");
+        let retry = client.take_send().expect("retry walks from the head");
         let value: Value = Frame::from_encoded(&retry).unwrap().decode_json().unwrap();
-        assert_eq!(value.pointer("/params/keys/0/chatId"), Some(&Value::String("a".into())));
+        assert!(value.pointer("/params/keys").is_none());
+        finish_empty_walk(&mut client);
+        let wanted = take_pages(&mut client);
+        assert_eq!(wanted.len(), 1);
+        assert_eq!(
+            wanted.first().unwrap().pointer("/params/keys/0/chatId"),
+            Some(&Value::String("a".into()))
+        );
     }
 
     #[test]
