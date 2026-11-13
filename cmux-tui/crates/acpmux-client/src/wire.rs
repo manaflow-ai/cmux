@@ -239,7 +239,6 @@ impl Sub {
 pub enum ListView {
     All,
     Live,
-    Folders,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -856,10 +855,11 @@ mod other_delta_tests {
             at: 19,
             count: 3,
         };
-        let mut request = Sub::new("s", "list");
-        request.view = Some(ListView::Folders);
+        let request = Sub::new("s", "list");
         let value = serde_json::to_value(&request).unwrap();
-        assert_eq!(value.get("view"), Some(&serde_json::json!("folders")));
+        assert!(value.get("view").is_none());
+        let unsupported = serde_json::json!({"sid":"s","kind":"list","view":"folders"});
+        assert!(serde_json::from_value::<Sub>(unsupported).is_err());
 
         let ops = vec![
             DeltaOp::<serde_json::Value>::Folder { seq: 4, row: row.clone() },
