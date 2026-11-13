@@ -153,6 +153,24 @@ import CmuxNextTestSupport
         return clock
     }
 
+    /// Puts the card's popup open on `clock`, so a test moves the rest before it opens itself.
+    func manualOpen(_ h: Harness) -> ManualClock {
+        let clock = ManualClock()
+        h.card.notesOpenTimer = DemandTimer(owner: "test.update-card.notes-open", clock: clock)
+        return clock
+    }
+
+    /// The pointer rests on the card for the open delay: waits for the open timer to sleep, moves
+    /// the clock past it, and waits until the card's open check (a hop to the main actor) has run.
+    func rest(_ clock: ManualClock, _ h: Harness, for delay: Duration = SidebarUpdateCardView.notesOpenDelay) async throws {
+        try await clock.waitForSleeper()
+        let checks = h.card.notesOpenChecks
+        clock.advance(by: delay)
+        if delay >= SidebarUpdateCardView.notesOpenDelay {
+            try #require(await eventually { h.card.notesOpenChecks > checks }, "the popup's open check never ran")
+        }
+    }
+
     /// One close wait passes: waits for the timer to sleep, moves the clock past it, and waits
     /// until the card's close check (a hop to the main actor) has run.
     func passCloseDelay(_ clock: ManualClock, _ h: Harness) async throws {
@@ -187,6 +205,7 @@ import CmuxNextTestSupport
         h.window.orderFront(nil)
         h.card.highlights = Highlights()
         _ = manualClose(h)
+        let open = manualOpen(h)
         let point = cardPoint(h, fraction: 0.5)
         h.card.screenPointer = { point.screen }
         PointerHover.setDebugPointer(point.window, in: h.window)
@@ -197,6 +216,44 @@ import CmuxNextTestSupport
         h.card.screenPointer = { CGPoint(x: -50_000, y: -50_000) }
         PointerHover.setDebugPointer(nil, in: h.window)
         #expect(!h.card.notesAreShown, "the pointer passed over the card and left a popup open")
+        // The rest it never took passes: the pass left nothing pending to open later.
+        #expect(!h.card.notesOpenTimer.isScheduled, "leaving the card kept its open pending")
+        open.advance(by: SidebarUpdateCardView.notesOpenDelay * 2)
+        await Task.yield()
+        #expect(!h.card.notesAreShown, "the popup opened after the pointer had passed over the card")
+    }
+
+    /// A pointer resting on the card opens the popup after the delay, not before; moves while it
+    /// waits do not push the deadline back. A click opens it at once.
+    @Test func restingOnTheCardOpensThePopupAfterTheDelayAndAClickAtOnce() async throws {
+        let h = try await make()
+        defer {
+            PointerHover.setDebugPointer(nil, in: h.window)
+            h.close()
+        }
+        try #require(!h.card.isHidden, "the staged update shows no card")
+        h.window.orderFront(nil)
+        h.card.highlights = Highlights()
+        _ = manualClose(h)
+        let open = manualOpen(h)
+        #expect(SidebarUpdateCardView.notesOpenDelay >= .milliseconds(400), "the popup opens before a deliberate rest")
+        let point = cardPoint(h, fraction: 0.5)
+        h.card.screenPointer = { point.screen }
+        PointerHover.setDebugPointer(point.window, in: h.window)
+        try await rest(open, h, for: SidebarUpdateCardView.notesOpenDelay - .milliseconds(100))
+        moveOver(h, to: cardPoint(h, fraction: 0.6))
+        #expect(!h.card.notesAreShown, "the popup opened before the rest was over")
+        let checks = h.card.notesOpenChecks
+        open.advance(by: .milliseconds(100))
+        #expect(await eventually { h.card.notesOpenChecks > checks }, "the open check never ran")
+        #expect(h.card.notesAreShown, "a rest on the card for the whole delay opened no popup")
+        // A click on a card with nothing open opens (and pins) the popup in the same turn.
+        h.card.hideNotes()
+        PointerHover.setDebugPointer(nil, in: h.window)
+        #expect(await eventually { !h.card.notesAreShown }, "the popup did not close")
+        h.card.toggleNotesPinned()
+        #expect(h.card.notesAreShown, "a click on the card did not open the popup at once")
+        #expect(!h.card.notesOpenTimer.isScheduled, "a click left an open pending")
     }
 
     /// "Only the right side" opened it: a move over the card's left, middle or right opens it.
@@ -210,10 +267,12 @@ import CmuxNextTestSupport
         h.window.orderFront(nil)
         h.card.highlights = Highlights()
         let clock = manualClose(h)
+        let open = manualOpen(h)
         for fraction in [0.08, 0.5, 0.92] as [CGFloat] {
             PointerHover.setDebugPointer(nil, in: h.window)
             try #require(!h.card.isHovered, "the card is hovered with the pointer outside the window")
             moveOver(h, to: cardPoint(h, fraction: fraction))
+            try await rest(open, h)
             #expect(h.card.notesAreShown, "a move at \(fraction) of the card's width opened no popup")
             h.card.screenPointer = { CGPoint(x: -50_000, y: -50_000) }
             PointerHover.setDebugPointer(nil, in: h.window)
@@ -237,9 +296,11 @@ import CmuxNextTestSupport
         page.contentHeight = 300
         h.card.highlights = page
         let clock = manualClose(h)
+        let open = manualOpen(h)
         let start = cardPoint(h, fraction: 0.5)
         h.card.screenPointer = { start.screen }
         PointerHover.setDebugPointer(start.window, in: h.window)
+        try await rest(open, h)
         try #require(h.card.notesAreShown, "hovering the card opened no popup")
         let popup = try #require(h.window.childWindows?.first)
         let surface = try #require(popup as? HoverCardPanel, "the popup is not the app's one hover card").cardFrame
@@ -282,9 +343,11 @@ import CmuxNextTestSupport
         page.contentHeight = 300
         h.card.highlights = page
         let clock = manualClose(h)
+        let open = manualOpen(h)
         let start = cardPoint(h, fraction: 0.5)
         h.card.screenPointer = { start.screen }
         PointerHover.setDebugPointer(start.window, in: h.window)
+        try await rest(open, h)
         try #require(h.card.notesAreShown, "hovering the card opened no popup")
         let popup = try #require(h.window.childWindows?.first)
         let surface = try #require(popup as? HoverCardPanel, "the popup is not the app's one hover card").cardFrame
@@ -314,16 +377,20 @@ import CmuxNextTestSupport
         h.window.orderFront(nil)
         h.card.highlights = Highlights()
         _ = manualClose(h)
+        let open = manualOpen(h)
         let point = cardPoint(h, fraction: 0.5)
         h.card.screenPointer = { point.screen }
         PointerHover.setDebugPointer(point.window, in: h.window)
+        try await rest(open, h)
         try #require(h.card.notesAreShown, "hovering the card opened no popup")
         h.card.hideNotes()
         #expect(await eventually { h.card.notesDismissedWhileHovered }, "the close under the pointer was not noted")
         moveOver(h, to: point)
+        #expect(!h.card.notesOpenTimer.isScheduled, "a move over the card armed an open of the popup it was told to close")
         #expect(!h.card.notesAreShown, "a move over the card reopened the popup it was told to close")
         PointerHover.setDebugPointer(nil, in: h.window)
         PointerHover.setDebugPointer(point.window, in: h.window)
+        try await rest(open, h)
         #expect(h.card.notesAreShown, "coming back to the card opened no popup")
         h.card.isHidden = true
         #expect(!h.card.notesAreShown, "the popup stayed open after its card hid")
@@ -370,11 +437,13 @@ import CmuxNextTestSupport
         let page = Highlights()
         h.card.highlights = page
         let clock = manualClose(h)
+        let open = manualOpen(h)
         let point = cardPoint(h, fraction: 0.5)
         let away = CGPoint(x: -50_000, y: -50_000)
         for round in 1...4 {
             h.card.screenPointer = { point.screen }
             PointerHover.setDebugPointer(point.window, in: h.window)
+            try await rest(open, h)
             try #require(h.card.isHovered, "round \(round): the card is not hovered with the pointer on it")
             let popup = try #require(h.card.notesPanel, "round \(round): hovering the card made no popup")
             #expect(h.card.notesAreShown, "round \(round): coming back to the card opened no popup")
