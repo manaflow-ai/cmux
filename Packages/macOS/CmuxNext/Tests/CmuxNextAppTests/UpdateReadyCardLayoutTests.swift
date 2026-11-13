@@ -172,6 +172,33 @@ import CmuxNextTestSupport
         h.card.mouseMoved(with: event!)
     }
 
+    // MARK: Open delay (Lawrence 2026-11-12, msg 30807)
+
+    /// "hovering on update should wait longer before opening the card to the right": the popup
+    /// opened on the first touch of the card, so a pointer on its way elsewhere opened it. The
+    /// first touch and the moves after it open nothing until the pointer rests on the card.
+    @Test func aPassOverTheCardOpensNothing() async throws {
+        let h = try await make()
+        defer {
+            PointerHover.setDebugPointer(nil, in: h.window)
+            h.close()
+        }
+        try #require(!h.card.isHidden, "the staged update shows no card")
+        h.window.orderFront(nil)
+        h.card.highlights = Highlights()
+        _ = manualClose(h)
+        let point = cardPoint(h, fraction: 0.5)
+        h.card.screenPointer = { point.screen }
+        PointerHover.setDebugPointer(point.window, in: h.window)
+        try #require(h.card.isHovered, "the card is not hovered with the pointer on it")
+        #expect(!h.card.notesAreShown, "the popup opened on the first touch of the card, with no rest")
+        moveOver(h, to: cardPoint(h, fraction: 0.8))
+        #expect(!h.card.notesAreShown, "a move over the card opened the popup with no rest")
+        h.card.screenPointer = { CGPoint(x: -50_000, y: -50_000) }
+        PointerHover.setDebugPointer(nil, in: h.window)
+        #expect(!h.card.notesAreShown, "the pointer passed over the card and left a popup open")
+    }
+
     /// "Only the right side" opened it: a move over the card's left, middle or right opens it.
     @Test func thePointerAnywhereOnTheCardOpensThePopup() async throws {
         let h = try await make()
