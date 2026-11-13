@@ -32,6 +32,8 @@ pub(super) enum OperationOwner {
     ConductorImport,
     /// `palette.rank` (resource_router/palette_rank.rs): stateless.
     PaletteRank,
+    /// `browser_import.read` (resource_router/browser_import.rs): stateless.
+    BrowserImport,
 }
 
 pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
@@ -155,7 +157,8 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::GitStatus
         | ResourceOperation::DiffCommentsList
         | ResourceOperation::DiffCommentsSave
-        | ResourceOperation::DiffCommentsDelete => OperationOwner::Git,
+        | ResourceOperation::DiffCommentsDelete
+        | ResourceOperation::DiffCommentsSend => OperationOwner::Git,
         ResourceOperation::HistoryEntriesList
         | ResourceOperation::HistoryEntriesRemove
         | ResourceOperation::HistorySiteRemove
@@ -185,6 +188,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
             OperationOwner::ConductorImport
         }
         ResourceOperation::PaletteRank => OperationOwner::PaletteRank,
+        ResourceOperation::BrowserImportRead => OperationOwner::BrowserImport,
         ResourceOperation::WorkspaceUpdate
         | ResourceOperation::WorkspaceAgentFolderSet
         | ResourceOperation::WorkspaceAgentStartGet
@@ -395,6 +399,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::SettingsSet
         | ResourceOperation::SettingsReset
         | ResourceOperation::SettingsResetAll
+        | ResourceOperation::SettingsEdit
         | ResourceOperation::KeybindingsGet
         | ResourceOperation::KeybindingsSet
         | ResourceOperation::KeybindingsRemove

@@ -1,5 +1,5 @@
 /* The new tab screen, variant B (plans/cmux-next/new-tab.md). Quiet: the theme's text tones over the shared page background, the composer's fill and edge (none under appearance.borders = none), the theme's red for a dropped chat; the theme accent only marks focus and the selected row. */
-.nt-screen{flex:1;min-height:0;min-width:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior-x:none;display:flex;flex-direction:column;align-items:center;gap:var(--ds-space-3);--nt-screen-top:clamp(40px,14vh,140px);--nt-screen-inset:var(--cv-inset,max(var(--cv-edge,16px),round(nearest,(100% - var(--cv-column,720px))/2,1px)));padding:var(--nt-screen-top) var(--nt-screen-inset) 24px;box-sizing:border-box;font-family:var(--font-ui);-webkit-font-smoothing:antialiased;container-type:inline-size}
+.nt-screen{flex:1;min-height:0;min-width:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior-x:none;display:flex;flex-direction:column;align-items:center;gap:var(--ds-space-3);--nt-screen-top:clamp(40px,14vh,140px);--nt-screen-inset:var(--cv-inset,max(var(--cv-edge,16px),calc((100% - var(--cv-column,720px))/2)));padding:var(--nt-screen-top) var(--nt-screen-inset) 24px;box-sizing:border-box;font-family:var(--font-ui);-webkit-font-smoothing:antialiased;container-type:inline-size}
 /* A short pane gives the location strip over the card (26px) back from the space above the card, so the
    All chats list keeps its room and stays the page's only scroller (new-tab-scroll): 12px at 360px tall
    and under, rising with the height to the 14vh above 480px. One continuous curve, so a window resized
@@ -168,11 +168,10 @@
      2026-10-29: "stop making them take up so much space"). */
   --acpmux-strip-height: 24px;
   margin: 0;
-  /* The folder icon's center is 15.5 px into the strip's first ghost button (its padding and ink):
-     the strip's leading padding puts it on the + glyph's center, inset + 14 (Leo 2026-10-31: the
-     project chip row starts at a different x than + and the text). */
+  /* Subtract the context and ghost button insets from the + center. The location slot scales
+     with density; the ghost button's 4.5 px leading inset does not. */
   padding: 0 var(--ds-space-1);
-  padding-inline-start: calc(var(--nt-composer-inset) - 1.5px);
+  padding-inline-start: calc(var(--nt-composer-inset) + (var(--acpmux-composer-control) - var(--acpmux-location-box)) / 2 - var(--acpmux-strip-pad, 4px) - 4.5px);
   border-radius: 0;
   background: none;
   box-shadow: none;
@@ -324,7 +323,7 @@
 /* Chats and Projects (cx-ncc.66): the view tabs are buttons; the chosen one reads in full ink. */
 .nt-all button.nt-chats-tab{padding:0;border:0;background:none;font-family:inherit}
 .nt-all button.nt-chats-tab:hover,.nt-all .nt-chats-tab.is-selected{color:var(--agent-text)}
-.nt-all button.nt-chats-tab:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px;border-radius:4px}
+.nt-all button.nt-chats-tab:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px;border-radius:var(--ds-radius-control)}
 /* Filter (cx-htpk0): quiet text like the view tabs, full ink while it narrows the list. */
 .nt-all .nt-chats-filter-button{display:inline-flex;align-items:center;gap:var(--ds-space-1);height:22px;padding:0 var(--ds-space-2);border:0;border-radius:var(--ds-radius-control);background:none;color:var(--acpmux-composer-dim);font-family:inherit;font-size:var(--text-detail);font-weight:var(--weight-emphasis);letter-spacing:var(--text-detail--letter-spacing)}
 .nt-all .nt-chats-filter-button.is-selected,.nt-all .nt-chats-filter-button:hover,.nt-all .nt-chats-filter-button[aria-expanded="true"]{color:var(--agent-text);background:var(--ds-color-hover)}
@@ -416,7 +415,7 @@
   --acpmux-composer-trail-glyph: var(--acpmux-composer-glyph);
   --acpmux-composer-trail-stroke: 1.5;
   --acpmux-composer-lead-gap: calc(var(--ds-space-2) * var(--cmux-density-scale, var(--cmux-interface-scale, 1)));
-  --acpmux-text-drop: calc(var(--text-content) / 14);
+  --acpmux-text-drop: 0px;
   --acpmux-composer-inset: var(--nt-composer-inset);
   --acpmux-chip-glyph: var(--acpmux-composer-glyph);
   --acpmux-chip-chevron: calc(12px * var(--cmux-density-scale, var(--cmux-interface-scale, 1)));
@@ -467,8 +466,10 @@
 .nt-foot :is(.acpmux-mode-text, .acpmux-model-name, .acpmux-model-short, .acpmux-model-detail) {
   color: inherit;
 }
-/* The left column: the permission chip's shield overhangs its box as the folder's glyph does, so
-   both glyphs and both labels start on one edge each (the shield's center stays under +). */
+/* The permission chip's padding and shield slot scale with density, as the + control does. */
+.nt-foot .acpmux-composer-foot .acpmux-access {
+  margin-inline-start: calc(var(--acpmux-composer-inset) + var(--acpmux-composer-control) / 2 - var(--acpmux-row-inset) - var(--acpmux-shield-box) / 2);
+}
 .nt-foot .acpmux-mode .acpmux-access-trigger > .acpmux-icon:first-child {
   margin-inline-end: calc((var(--ui-ghost-icon-size) - var(--acpmux-chip-glyph)) / 2);
 }
@@ -505,8 +506,7 @@
   min-height: var(--acpmux-composer-control);
   margin: 0 0 max(0px, calc(var(--nt-input-pad-block) + var(--text-content--line-height) / 2 - var(--acpmux-composer-control) / 2));
 }
-/* The field's text drops by --acpmux-text-drop (composerLocation.css) so its ink, not its line box,
-   centers on the row's middle where the controls stand; the shell glyph drops with it. */
+/* Keep the prompt, placeholder and shell glyph on the same centered line. */
 .nt-input[data-split] .nt-field {
   padding-top: calc(var(--nt-input-pad-block) + var(--acpmux-text-drop));
   padding-bottom: calc(var(--nt-input-pad-block) - var(--acpmux-text-drop));
@@ -664,7 +664,7 @@
 /* The bar fills from the inline start: right to left under RTL. */
 .nt-player-played:dir(rtl){transform-origin:right center}
 .nt-player-controls{display:flex;align-items:center;gap:var(--ds-space-2);margin-left:calc(-1 * var(--ds-space-1))}
-.nt-player-button{display:grid;place-items:center;width:28px;height:28px;padding:6px;box-sizing:border-box;border:0;border-radius:50%;
+.nt-player-button{display:grid;place-items:center;width:28px;height:28px;padding:6px;box-sizing:border-box;border:0;border-radius:var(--ds-radius-control);
   background:transparent;color:var(--agent-text)}
 .nt-player-button:hover:not(:disabled){background:var(--acpmux-pill-hover)}
 .nt-player-button:active:not(:disabled){background:var(--acpmux-pill-press)}
@@ -789,7 +789,7 @@
   padding: 0 var(--ds-space-2);
   box-sizing: border-box;
   border: 0;
-  border-radius: var(--ds-radius-popup);
+  border-radius: var(--ds-radius-control);
   background: none;
   box-shadow: none;
   color: var(--agent-soft);
