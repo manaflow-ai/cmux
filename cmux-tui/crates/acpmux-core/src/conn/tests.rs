@@ -71,7 +71,7 @@ use crate::hub::Hub;
 use crate::wire::{
     CREDIT_WINDOW_BYTES, Credit, DeltaFrame, DeltaOp, MAX_FRAME_BYTES, ReplayMark, Window,
 };
-use acpmux_book::index::{Summary, SummaryIndex};
+use acpmux_book::index::{SortedSnapshot, Summary, SummaryIndex};
 use std::time::Duration;
 use tokio::io::{AsyncWriteExt, DuplexStream};
 
@@ -108,9 +108,115 @@ fn list_pair() -> ListPair {
     let task = tokio::spawn(async move { run(rd, wr, serving, "test", &["list".into()]).await });
     (client, task, hub, writer, source)
 }
+
+fn row_with_folder(id: &str, folder: &str, at: u64) -> Summary {
+    let mut row = Summary::new(id);
+    row.folder = Some(folder.into());
+    row.last_activity = at;
+    row
+}
 async fn hello(client: &mut DuplexStream) {
     send(client, json!({"method":"hello","params":{"clientKind":"test","protocol":2}})).await;
     assert_eq!(receive(client).await.kind, FrameKind::Hello);
+}
+
+#[tokio::test]
+async fn folder_hydration_does_not_block_other_sids_or_credit() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut initial = SummaryIndex::new();
+    initial = initial.apply(1, summary(1));
+    SortedSnapshot::write(dir.path().join("index.snap"), &initial).unwrap();
+    let (hub, _writer) = Hub::open(dir.path(), 1, || 7).unwrap();
+    let hub = Arc::new(hub);
+    let source = Arc::new(HubSource::new(hub));
+    let (mut client, server) = tokio::io::duplex(4096);
+    let (rd, wr) = tokio::io::split(server);
+    let task_source = source.clone();
+    let task =
+        tokio::spawn(async move { run(rd, wr, task_source, "test", &["list".into()]).await });
+
+    hello(&mut client).await;
+    send(
+        &mut client,
+        json!({"method":"sub","params":{"sid":"folders","stream":"list","view":"folders"}}),
+    )
+    .await;
+    send(
+        &mut client,
+        json!({"method":"sub","params":{"sid":"summary","stream":"list","view":"all"}}),
+    )
+    .await;
+
+    let window = receive(&mut client).await;
+    assert_eq!(window.kind, FrameKind::Window);
+    let summary_window: Window<Summary> = window.decode_json().unwrap();
+    assert_eq!(summary_window.sid, "summary");
+
+    send(&mut client, json!({"method":"credit","params":{"sid":"summary","consumed":0}})).await;
+    send(&mut client, json!({"method":"page","params":{"sid":"summary","stream":"list"}})).await;
+    assert_eq!(receive(&mut client).await.kind, FrameKind::Page);
+
+    drop(client);
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn folder_and_summary_sids_refuse_cross_view_pages_and_keep_cursors_separate() {
+    let (mut client, task, _hub, mut writer, _source) = list_pair();
+    writer.apply(row_with_folder("chat", "/a", 1)).unwrap();
+    hello(&mut client).await;
+    send(
+        &mut client,
+        json!({"method":"sub","params":{"sid":"summary","stream":"list","view":"all"}}),
+    )
+    .await;
+    send(
+        &mut client,
+        json!({"method":"sub","params":{"sid":"folders","stream":"list","view":"folders"}}),
+    )
+    .await;
+    let first = receive(&mut client).await;
+    let second = receive(&mut client).await;
+    assert!(matches!(first.kind, FrameKind::Window));
+    assert!(matches!(second.kind, FrameKind::Window));
+
+    send(
+        &mut client,
+        json!({"method":"page","params":{"sid":"summary","stream":"list","view":"folders"}}),
+    )
+    .await;
+    assert_eq!(receive(&mut client).await.kind, FrameKind::Error);
+    send(
+        &mut client,
+        json!({"method":"page","params":{"sid":"folders","stream":"list","view":"all"}}),
+    )
+    .await;
+    assert_eq!(receive(&mut client).await.kind, FrameKind::Error);
+    send(
+        &mut client,
+        json!({"method":"sub","params":{"sid":"bad","stream":"list","view":"folders","anchor":{"key":{"lastActivity":1,"chatId":"chat","origin":"local"},"side":"after"}}}),
+    )
+    .await;
+    assert_eq!(receive(&mut client).await.kind, FrameKind::Error);
+
+    writer.apply(row_with_folder("chat", "/b", 2)).unwrap();
+    let delta_one = receive(&mut client).await;
+    let delta_two = receive(&mut client).await;
+    let frames = [delta_one, delta_two];
+    assert!(frames.iter().all(|frame| frame.kind == FrameKind::Delta));
+    let mut seen = std::collections::HashSet::new();
+    for frame in frames {
+        let value: serde_json::Value = frame.decode_json().unwrap();
+        seen.insert(value["sid"].as_str().unwrap().to_owned());
+        assert!(value.get("cursor").is_none(), "delta cursor belongs on each op");
+        assert!(value["ops"].as_array().is_some_and(|ops| {
+            ops.iter().all(|op| op.get("seq").and_then(serde_json::Value::as_u64).is_some())
+        }));
+    }
+    assert_eq!(seen, ["folders".to_owned(), "summary".to_owned()].into_iter().collect());
+
+    drop(client);
+    task.await.unwrap().unwrap();
 }
 async fn subscribe(client: &mut DuplexStream, sid: &str) -> Frame {
     send(client, json!({"method":"sub","params":{"sid":sid,"stream":"list"}})).await;
