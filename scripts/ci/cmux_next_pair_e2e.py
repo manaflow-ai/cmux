@@ -105,12 +105,13 @@ def takes_pair_url_env():
 
 
 def dev_credential():
-    """(email, password) of the DEBUG dev account (AuthCoordinator's "42" shortcut), as mac.py reads it."""
-    src = os.path.join(ROOT, "Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthCoordinator.swift")
-    m = re.search(r'CMUXAuthAutoLoginCredentials\(email:\s*"([^"]+)",\s*password:\s*"([^"]+)"\)', open(src).read())
-    if not m:
-        raise SystemExit("DEBUG dev credential not found in CmuxAuthRuntime")
-    return m.group(1), m.group(2)
+    """(email, password) of the DEBUG dev account, from the environment (`CMUX_UITEST_STACK_EMAIL` /
+    `CMUX_UITEST_STACK_PASSWORD`, the names the app reads); the source holds no credential."""
+    email = os.environ.get("CMUX_UITEST_STACK_EMAIL", "")
+    password = os.environ.get("CMUX_UITEST_STACK_PASSWORD", "")
+    if not email or not password:
+        raise SystemExit("DEBUG dev credential: set CMUX_UITEST_STACK_EMAIL and CMUX_UITEST_STACK_PASSWORD")
+    return email, password
 
 
 def machine_id(bundle_id):
