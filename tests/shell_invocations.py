@@ -126,6 +126,7 @@ class Token(NamedTuple):
     dynamic: bool = False  # the word holds an expansion bash resolves at run time ($x, ${..}, $(..), `..`, <(..))
     subs: tuple[str, ...] = ()  # the scripts of its command and process substitutions
     plain: int = 0  # how many leading characters of text are unquoted, unescaped literals (an assignment's NAME=)
+    equal_unquoted: bool = False  # an unquoted `=` occurred in the word (including the assignment operator)
 
 
 class Lexed(NamedTuple):
@@ -334,6 +335,8 @@ def lex(text: str) -> Lexed:
     word_start = 0
     plain = 0  # the unquoted literal prefix of the word being read
     plain_open = True  # nothing quoted, escaped or expanded yet in it
+    equal_seen = False
+    equal_unquoted = False
     i = 0
 
     def start_word(at: int) -> None:
@@ -341,17 +344,21 @@ def lex(text: str) -> Lexed:
         if not in_word:
             in_word, word_start = True, at
 
+    def quoted_equal_is_operator() -> bool:
+        prefix = "".join(buf)
+        return "]" in prefix or "[" not in prefix
+
     def end_word(at: int) -> None:
-        nonlocal buf, subs, quoted, dynamic, in_word, expect_delimiter, plain, plain_open
+        nonlocal buf, subs, quoted, dynamic, in_word, expect_delimiter, plain, plain_open, equal_seen, equal_unquoted
         if not in_word:
             return
         word = "".join(buf)
         if expect_delimiter is not None:
             pending.append((word, expect_delimiter, not quoted))
             expect_delimiter = None
-        tokens.append(Token("word", word, quoted, word_start, at, dynamic, tuple(subs), plain))
+        tokens.append(Token("word", word, quoted, word_start, at, dynamic, tuple(subs), plain, equal_unquoted))
         buf, subs, quoted, dynamic, in_word = [], [], False, False, False
-        plain, plain_open = 0, True
+        plain, plain_open, equal_seen, equal_unquoted = 0, True, False, False
 
     def command_starts() -> bool:
         """Whether a word here would be the first of a command (where `((` opens an arithmetic command)."""
@@ -425,6 +432,8 @@ def lex(text: str) -> Lexed:
                 return Lexed(tokens, False, heredoc_subs)
             start_word(i)
             buf.append(text[i + 1])
+            if text[i + 1:i + 2] == "=" and not equal_seen and quoted_equal_is_operator():
+                equal_seen = True
             quoted = True
             plain_open = False
             i += 2
@@ -434,6 +443,8 @@ def lex(text: str) -> Lexed:
                 return Lexed(tokens, False, heredoc_subs)
             start_word(i)
             buf.append(text[i + 1:close])
+            if not equal_seen and "=" in text[i + 1:close] and quoted_equal_is_operator():
+                equal_seen = True
             quoted = True
             plain_open = False
             i = close + 1
@@ -456,12 +467,16 @@ def lex(text: str) -> Lexed:
                     if text[i + 1] == "\n":
                         i += 2
                         continue
+                    if text[i + 1] == "=" and not equal_seen and quoted_equal_is_operator():
+                        equal_seen = True
                 if text[i] in "$`":
                     after = expansion(i, True)
                     if after is None:
                         return Lexed(tokens, False, heredoc_subs)
                     i = after
                     continue
+                if text[i] == "=" and not equal_seen and quoted_equal_is_operator():
+                    equal_seen = True
                 buf.append(text[i])
                 i += 1
         elif c == "#" and not in_word:
@@ -516,6 +531,8 @@ def lex(text: str) -> Lexed:
         else:
             start_word(i)
             buf.append(c)
+            if c == "=" and not equal_seen:
+                equal_seen, equal_unquoted = True, True
             if plain_open:
                 plain += 1
             i += 1
@@ -669,6 +686,8 @@ def _commands(run: str, nested: bool, defined: set[str]) -> tuple[list[_Command]
     case_pattern_matches: list[bool] = []
     case_body_active: list[bool] = []
     case_fallthrough: list[bool] = []
+    case_matched: list[bool] = []
+    case_retest: list[bool] = []
     in_conditional = False  # inside `[[ .. ]]`: an expression, its operators split nothing
 
     def case_reached() -> bool:
@@ -719,13 +738,17 @@ def _commands(run: str, nested: bool, defined: set[str]) -> tuple[list[_Command]
                 case_pattern_matches.pop()
                 case_body_active.pop()
                 case_fallthrough.pop()
+                case_matched.pop()
+                case_retest.pop()
             elif state == "pattern" and token.kind == "word":
                 nested_subs(token)  # a pattern's substitution runs only when bash reaches the pattern: nested
                 case_pattern_matches[-1] |= token.text == case_subjects[-1]
             elif state == "pattern" and token.kind == "op" and token.text in ("(", "|"):
                 pass
             elif state == "pattern" and token.kind == "op" and token.text == ")":
-                case_body_active[-1] = case_fallthrough[-1] or case_pattern_matches[-1]
+                case_body_active[-1] = case_fallthrough[-1] or (
+                    case_pattern_matches[-1] and (case_retest[-1] or not case_matched[-1]))
+                case_matched[-1] |= case_pattern_matches[-1]
                 cases[-1] = "body"
             else:
                 complete = False  # bash refuses this case: what follows is unread
@@ -734,9 +757,11 @@ def _commands(run: str, nested: bool, defined: set[str]) -> tuple[list[_Command]
             continue
         if token.kind == "word" and not token.quoted and at_command_start() \
                 and token.text in ("case", "esac", "[["):
+            if words:
+                flow.keywords(words)
+                words, dynamic = [], False
             if token.text == "[[":
                 in_conditional = True
-                words, dynamic = [], False
                 previous = token
                 continue
             if token.text == "case":
@@ -745,7 +770,8 @@ def _commands(run: str, nested: bool, defined: set[str]) -> tuple[list[_Command]
                 case_pattern_matches.append(False)
                 case_body_active.append(False)
                 case_fallthrough.append(False)
-                words, dynamic = [], False
+                case_matched.append(False)
+                case_retest.append(False)
                 previous = token
                 continue
             if token.text == "esac" and cases:
@@ -754,7 +780,8 @@ def _commands(run: str, nested: bool, defined: set[str]) -> tuple[list[_Command]
                 case_pattern_matches.pop()
                 case_body_active.pop()
                 case_fallthrough.pop()
-                words, dynamic = [], False
+                case_matched.pop()
+                case_retest.pop()
                 previous = token
                 continue
         if cases and token.kind == "op" and token.text in (";;", ";&", ";;&"):
@@ -763,7 +790,9 @@ def _commands(run: str, nested: bool, defined: set[str]) -> tuple[list[_Command]
             words, dynamic, skip_target = [], False, False
             cases[-1] = "pattern"
             case_pattern_matches[-1] = False
-            case_fallthrough[-1] = token.text == ";&" and case_body_active[-1]
+            if case_body_active[-1]:
+                case_fallthrough[-1] = token.text == ";&"
+                case_retest[-1] = token.text == ";;&"
             case_body_active[-1] = False
             previous = token
             continue
@@ -848,7 +877,7 @@ def _is_assignment(word: Token) -> bool:
         return False
     if match.group(2) is None:
         return word.plain >= match.end()
-    return word.plain > len(match.group(1))  # `X["k y"]=v`: the subscript may be quoted, NAME[ may not
+    return word.plain > len(match.group(1)) and word.equal_unquoted  # `X["k y"]=v`: the subscript may be quoted, NAME[ and = may not
 
 
 def _unwrap(words: list[Token], index: int, wrapper: _Wrapper) -> tuple[int | None, bool]:
@@ -952,15 +981,19 @@ def _classify(command: _Command, defined: set[str]) -> Invocation | None:
     if start < len(words) and words[start].text == "coproc" and not words[start].quoted:
         # `coproc cmd` runs cmd in the background, `coproc NAME { .. }` a group: what runs is not read here.
         return Invocation([w.text for w in words[start:]], False, True)
+    had_prefix_assignment = False
     while start < len(words) and _is_assignment(words[start]):  # a keyword after an assignment is a program
+        had_prefix_assignment = True
         start += 1
     certain = not command.dynamic and not command.nested and command.reached
     any_program = False
+    wrappers: list[str] = []
+    wrapper_assignment = False
     while start < len(words) and not _opaque(words[start]):
         name = words[start].text
-        if name in _WRAPPERS:
+        if name in _WRAPPERS and (name != "time" or not words[start].quoted):
             program, sure = _unwrap(words, start, _WRAPPERS[name])
-        elif name in _SHELLS:
+        elif name in _SHELLS and not words[start].quoted:
             program, sure = _shell_script(words, start)
         else:
             break
@@ -970,12 +1003,19 @@ def _classify(command: _Command, defined: set[str]) -> Invocation | None:
             # `env` or `nice` alone runs itself; `exec` or `time` alone runs nothing.
             return Invocation([w.text for w in words[start:]], certain and sure, False)
         certain = certain and sure
+        wrappers.append(name)
+        wrapper_assignment = wrapper_assignment or any(_is_assignment(words[i]) for i in range(start + 1, program))
         start = program
         if name in _SHELLS:
             # An unmodeled mode (-i reads rc files, --rcfile FILE, -l a profile) may run a file the words name
             # only as an option value, or none.
             any_program = not sure
             break  # the operand is a script file, whatever its name
+    if wrappers and all(name == "time" for name in wrappers) and not had_prefix_assignment and not wrapper_assignment \
+            and start < len(words) \
+            and words[start].text == "coproc" and not words[start].quoted:
+        # Only time (including repeated or -p forms) keeps coproc as a reserved word after unwrapping.
+        return Invocation([w.text for w in words[start:]], False, True)
     if start >= len(words):
         return None  # only assignments and redirections: nothing is run (a substitution's commands are separate)
     program = words[start]

@@ -46,7 +46,7 @@ import { callOutput, rowFailed, toolFailure } from "./toolFailure";
 import { RepoRecoveryCard } from "./RepoRecoveryCard";
 import { InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 import { failureWord, useInStep } from "./toolFailureCauseModel";
-import { Check, ChevronRight } from "./icons";
+import { ChevronRight } from "./icons";
 import { toolIcon } from "./toolRowModel";
 import { repoRecoveryFor } from "./repoRecoveryCardModel";
 
@@ -184,8 +184,7 @@ export const ToolRow = memo(function ToolRow({
         {running && <RowShimmer>{words}</RowShimmer>}
         <InlineFailureCause failure={failure} />
       </span>
-      {/* The failure word is a tag after the words, outside their ellipsis, so a long label never
-          hides it (as CommandRow's "Failed"; conversation.css `.cv-tool > .cv-tool__failed`). */}
+      {/* The failure word, for screen readers only (conversation.css clips it away; Codex draws none). */}
       {failure && (
         <span className="cv-tool__failed" data-find-skip>
           {" "}
@@ -208,7 +207,7 @@ export const ToolRow = memo(function ToolRow({
           <ReactionMark reaction={tool.reaction} />
           {tool.approved && <ApprovedMark />}
           <BackgroundMark background={background} />
-          {duration && <span className="cv-command__time">{duration}</span>}
+          {running && duration && <span className="cv-command__time">{duration}</span>}
         </span>
       ) : foreground && shell && !tool.approved ? (
         // A running shell's edge holds only the offer of another machine, from 20 s on (RunElsewhere.tsx).
@@ -237,8 +236,8 @@ export const ToolRow = memo(function ToolRow({
             )}
             <ReactionMark reaction={tool.reaction} />
             {tool.approved && <ApprovedMark />}
-            {!foreground && !failed && <Check size={14} className="cv-command__ok" />}
-            {duration && <span className="cv-command__time">{duration}</span>}
+            {/* Codex marks no call as passed or failed, and shows no time once it ends (2026-11-11). */}
+            {running && duration && <span className="cv-command__time">{duration}</span>}
           </span>
         )
       )}

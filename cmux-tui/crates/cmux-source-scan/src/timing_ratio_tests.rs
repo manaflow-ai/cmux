@@ -248,7 +248,7 @@ fn a_file_names_its_tests_by_crate_layout() {
     let root = co.0.canonicalize().expect("exists");
     let mut layout = Layout::default();
     let id = |layout: &mut Layout, rel: &str| -> Option<TestId> {
-        match layout.file_tests(&root.join(rel), &root) {
+        match layout.file_tests(&root.join(rel), &root).expect("the checkout reads") {
             FileTests::NotRun => None,
             tests => Some(tests.id(&["m".to_string()], "f")),
         }

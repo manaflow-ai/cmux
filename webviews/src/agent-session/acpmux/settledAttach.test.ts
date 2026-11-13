@@ -62,6 +62,11 @@ describe("settledAttachFailed", () => {
     expect(settledAttachFailed({ message: "attach failed", reason: "settled_view_corrupt" })).toBe(true);
     expect(settledAttachFailed({ message: "attach failed", reason: "settled view corrupt" })).toBe(true);
   });
+  // A host whose params rule does not know `settled` refuses the whole attach as malformed
+  // (cmux#42185): the chat must still open from the plain attach.
+  test("a host that refuses the settled ask as malformed is retried plain", () => {
+    expect(settledAttachFailed({ message: "Refused by the cmux host", code: "transport.intent_invalid" })).toBe(true);
+  });
   test("any other failure is not", () => {
     expect(settledAttachFailed(new Error("session not found"))).toBe(false);
     expect(settledAttachFailed(undefined)).toBe(false);
