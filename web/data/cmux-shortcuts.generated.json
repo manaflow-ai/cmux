@@ -6378,6 +6378,104 @@
           "aliases": []
         },
         {
+          "id": "browserScrollDown",
+          "title": {
+            "en": "Scroll Down",
+            "ar": "التمرير لأسفل",
+            "bs": "Pomjeri nadolje",
+            "da": "Rul ned",
+            "de": "Nach unten scrollen",
+            "es": "Desplazar hacia abajo",
+            "fr": "Défiler vers le bas",
+            "it": "Scorri in basso",
+            "ja": "下にスクロール",
+            "km": "រំកិលចុះក្រោម",
+            "ko": "아래로 스크롤",
+            "no": "Rull ned",
+            "pl": "Przewiń w dół",
+            "pt-BR": "Rolar para Baixo",
+            "ru": "Прокрутить вниз",
+            "th": "เลื่อนลง",
+            "tr": "Aşağı Kaydır",
+            "uk": "Прокрутити вниз",
+            "vi": "Cuộn xuống",
+            "zh-CN": "向下滚动",
+            "zh-TW": "向下捲動"
+          },
+          "shortcut": {
+            "key": "j",
+            "modifiers": []
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
+          "id": "browserScrollUp",
+          "title": {
+            "en": "Scroll Up",
+            "ar": "التمرير لأعلى",
+            "bs": "Pomjeri nagore",
+            "da": "Rul op",
+            "de": "Nach oben scrollen",
+            "es": "Desplazar hacia arriba",
+            "fr": "Défiler vers le haut",
+            "it": "Scorri in alto",
+            "ja": "上にスクロール",
+            "km": "រំកិលឡើងលើ",
+            "ko": "위로 스크롤",
+            "no": "Rull opp",
+            "pl": "Przewiń w górę",
+            "pt-BR": "Rolar para Cima",
+            "ru": "Прокрутить вверх",
+            "th": "เลื่อนขึ้น",
+            "tr": "Yukarı Kaydır",
+            "uk": "Прокрутити вгору",
+            "vi": "Cuộn lên",
+            "zh-CN": "向上滚动",
+            "zh-TW": "向上捲動"
+          },
+          "shortcut": {
+            "key": "k",
+            "modifiers": []
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
+          "id": "browserScrollToBottom",
+          "title": {
+            "en": "Scroll to Bottom",
+            "ar": "التمرير إلى الأسفل",
+            "bs": "Pomjeri na dno",
+            "da": "Rul til bunden",
+            "de": "Zum Ende scrollen",
+            "es": "Desplazar al final",
+            "fr": "Défiler jusqu’en bas",
+            "it": "Scorri alla fine",
+            "ja": "一番下までスクロール",
+            "km": "រំកិលទៅខាងក្រោមបំផុត",
+            "ko": "맨 아래로 스크롤",
+            "no": "Rull til bunnen",
+            "pl": "Przewiń na dół",
+            "pt-BR": "Rolar para o Final",
+            "ru": "Прокрутить в конец",
+            "th": "เลื่อนไปล่างสุด",
+            "tr": "En Alta Kaydır",
+            "uk": "Прокрутити в кінець",
+            "vi": "Cuộn xuống cuối",
+            "zh-CN": "滚动到底部",
+            "zh-TW": "捲動到底端"
+          },
+          "shortcut": {
+            "key": "g",
+            "modifiers": [
+              "shift"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
           "id": "splitBrowserRight",
           "title": {
             "en": "Split Browser Right",

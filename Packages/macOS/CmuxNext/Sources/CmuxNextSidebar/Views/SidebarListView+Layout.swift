@@ -13,8 +13,6 @@ extension SidebarListViewComponents {
         if animated, !fromModel { model.noteUserIntent() }
         reloads &+= 1
         holdsModelChange = false // this reload shows the model as it is now
-        // No drag holds the rows: this reload shows every held patch (the model has them).
-        if !holdsRowPatches { rowHold = SidebarRowHold() }
         // One loose row added (a create): spliced in, its row cached; nothing else is listed again (SIDEBAR INSERT 2).
         let spliced = spliceInsertion()
         // One loose row closed or moved: taken out (and put back), the caches changed for it alone.
@@ -56,8 +54,6 @@ extension SidebarListViewComponents {
         inlineRename.follow()
         groupEditor.follow(groups)
         if let shown = groupEditor.shownGroup { (rowViews[.group(shown)] as? GroupHeaderRowView)?.isEditing = true }
-        // The settle ended in this reload with its card already gone (no landing to finish): the held rows show now.
-        releaseRowHold()
     }
     /// The rows' caches (workspaces, groups and their subtrees, sections, listed items) from the sections the list draws.
     private func rebuildRowCaches() {
@@ -284,8 +280,8 @@ extension SidebarListViewComponents {
             // motion and replay it when realized later.
             for key in reopened { openingRows[key] = nil }
         }
-        // Without motion the rows that leave park first (as they would after the loop), so the rows that
-        // come take their views: a space switch reuses the old space's views, it makes none (space-switch-fast).
+        // Without motion the rows that leave park first (as they would after the loop), so the rows that come
+        // can take a parked view: their own, or with no spare left the oldest one, and make none (space-switch-fast).
         // RowMotion also snaps when sidebar movement is disabled (Reduce Motion or the sidebar switch),
         // even though `animate` is true. Park leaving views before that snap realizes replacements too.
         if (!animate || !Motion.sidebar.animatesMovement(in: window)), !adopting {
@@ -315,9 +311,11 @@ extension SidebarListViewComponents {
             let existing = rowViews[row.key]
             guard existing != nil || target.intersects(realize) else { continue }
             keep.insert(row.key)
-            // Without motion (a space switch, a page) any parked view of the kind serves, as a scroll's
-            // does: a space's rows then make no new views once the pool holds some (space-switch-fast).
-            let view = existing ?? dequeue(row.key, rebinding: !animate && !adopting)
+            // Without motion (a space switch, a page) any parked view of the kind serves, as a scroll's does. On a
+            // space switch a workspace row with no view of its own takes a spare first: a space shown for the first
+            // time makes no view and takes none of the space that leaves, which then has its own views when it
+            // shows again (space-switch-fast).
+            let view = existing ?? dequeue(row.key, rebinding: !animate && !adopting, spareFirst: spacePages.entering != nil)
             view.targetSize = target.size
             // A recycled view (a block's region from another time) takes its content at once, not on a spring.
             configure(view, row: row, animated: animate || (adopting && existing != nil))

@@ -1780,3 +1780,36 @@ fn a_status_commit_frees_the_session_lock_while_it_writes_the_registry() {
     assert!(waited.is_ok(), "a key's session lookup waited for a status commit's registry write");
     assert_eq!(set["entries"][0]["text"], "slow write", "{set}");
 }
+
+/// A list decorates its rows on cached statements (`values::query_row_cached`,
+/// on the registry's read-only connections): read again it is the same, it
+/// equals the snapshot, and a change made between two lists is in the second.
+#[test]
+fn repeated_tab_lists_decorate_as_the_snapshot_and_show_each_change() {
+    let session = Session::new("cached-decorations");
+    let mux = session.open();
+    let tabs = terminal_tabs(&mux, 3);
+    let marked = tab_id(&mux, tabs[1]);
+    mutate(
+        &mux,
+        "tab.update",
+        json!({"tab": marked, "marked_unread": true, "zoom": 1.5}),
+        "deco-1",
+    );
+    let tab_of = |list: &Value| {
+        list.as_array().unwrap().iter().find(|tab| tab["id"] == marked).cloned().unwrap()
+    };
+
+    let first = read(&mux, "tab.list", json!({}));
+    assert_eq!(read(&mux, "tab.list", json!({})), first, "a list read again is the same");
+    assert_eq!(first, snapshot(&mux)["tabs"], "the list is the snapshot's tabs");
+    assert_eq!(tab_of(&first)["extra"]["marked_unread"], true);
+    assert_eq!(tab_of(&first)["extra"]["zoom"], 1.5);
+
+    mutate(&mux, "tab.update", json!({"tab": marked, "marked_unread": false}), "deco-2");
+    let after = read(&mux, "tab.list", json!({}));
+    assert!(tab_of(&after)["extra"].get("marked_unread").is_none(), "the cleared mark is gone");
+    assert_eq!(tab_of(&after)["extra"]["zoom"], 1.5);
+    assert_eq!(after, snapshot(&mux)["tabs"]);
+    mux.shutdown();
+}

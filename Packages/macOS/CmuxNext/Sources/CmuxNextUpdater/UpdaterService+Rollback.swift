@@ -112,7 +112,11 @@ extension UpdaterService {
         let running = await team ?? nil
         if let index {
             let target = kept[index]
-            kept[index] = (try? await work.run(.userVisible, mayBlock: .files) { store.verified(target, reusing: checkOnly) }) ?? target
+            // A check may reuse an earlier answer only when no code of the bundle runs after it: without a
+            // valid record its CLI runs next, so it is checked afresh (a CLI replaced under an unchanged
+            // seal keeps the cache key).
+            let reuses = checkOnly && target.storeSchemas != nil
+            kept[index] = (try? await work.run(.userVisible, mayBlock: .files) { store.verified(target, reusing: reuses) }) ?? target
             // Its CLI runs only once its signature is this app's team: a kept bundle changed on disk never
             // runs code as the app (``RollbackDecision`` refuses it on the team before any schema).
             if kept[index].storeSchemas == nil, let running, kept[index].teamID == running,

@@ -52,6 +52,8 @@ from typing import Callable, Iterator
 # A socket wait that ran out. Before Python 3.10 (the builder Macs' /usr/bin/python3 can be 3.9) socket.timeout is
 # an OSError of its own, not a TimeoutError; from 3.10 it is TimeoutError.
 _SOCKET_TIMEOUT = (TimeoutError, socket.timeout)
+# Sent when the caller sets no User-Agent of its own (see _start).
+USER_AGENT = "cmux-ci/1 (https://github.com/manaflow-ai/cmux)"
 
 
 class RequestTimeout(TimeoutError):
@@ -284,6 +286,10 @@ def _start(req: urllib.request.Request | str, seconds: float | None,
         deadline = Deadline(seconds)
     if isinstance(req, str):
         req = urllib.request.Request(req)
+    # files.cmux.com answers urllib's default "Python-urllib/3.x" with 403 (2026-11-13: every
+    # completion.json read of cmux_next_tree_notify.py came back 403, and read as "not published").
+    if not req.has_header("User-agent"):
+        req.add_header("User-Agent", USER_AGENT)
     return req, deadline
 
 

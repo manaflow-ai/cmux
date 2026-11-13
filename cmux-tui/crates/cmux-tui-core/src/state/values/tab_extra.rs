@@ -126,39 +126,41 @@ pub(super) fn tab_extra(
     connection: &Connection,
     tab_id: &str,
 ) -> anyhow::Result<Map<String, Value>> {
-    let pinned = connection
-        .query_row("SELECT pinned FROM tab_presentation WHERE tab_id = ?1", [tab_id], |row| {
-            row.get::<_, i64>(0)
-        })
-        .optional()?
-        .is_some_and(|value| value != 0);
-    let group = connection
-        .query_row(
-            "SELECT m.group_id
+    let pinned = crate::state::values::query_row_cached(
+        connection,
+        "SELECT pinned FROM tab_presentation WHERE tab_id = ?1",
+        [tab_id],
+        |row| row.get::<_, i64>(0),
+    )
+    .optional()?
+    .is_some_and(|value| value != 0);
+    let group = crate::state::values::query_row_cached(
+        connection,
+        "SELECT m.group_id
              FROM tab_group_members AS m
              JOIN tab_groups AS g ON g.group_id = m.group_id
              JOIN resource_tabs AS t ON t.public_id = m.tab_id AND t.pane_id = g.pane_id
              WHERE m.tab_id = ?1",
-            [tab_id],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?;
-    let state = connection
-        .query_row(
-            &format!("SELECT {TAB_STATE_COLUMNS} FROM tab_state WHERE tab_id = ?1"),
-            [tab_id],
-            |row| TabStateRow::read(row, 0),
-        )
-        .optional()?;
-    let frontend = connection
-        .query_row(
-            "SELECT f.owner, f.profile_id FROM resource_tabs AS t
+        [tab_id],
+        |row| row.get::<_, String>(0),
+    )
+    .optional()?;
+    let state = crate::state::values::query_row_cached(
+        connection,
+        &format!("SELECT {TAB_STATE_COLUMNS} FROM tab_state WHERE tab_id = ?1"),
+        [tab_id],
+        |row| TabStateRow::read(row, 0),
+    )
+    .optional()?;
+    let frontend = crate::state::values::query_row_cached(
+        connection,
+        "SELECT f.owner, f.profile_id FROM resource_tabs AS t
              JOIN frontend_browser_tabs AS f ON f.browser_id = t.content_id
              WHERE t.public_id = ?1",
-            [tab_id],
-            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, Option<String>>(1)?)),
-        )
-        .optional()?;
+        [tab_id],
+        |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, Option<String>>(1)?)),
+    )
+    .optional()?;
     fields(TabRows {
         pinned,
         group,
