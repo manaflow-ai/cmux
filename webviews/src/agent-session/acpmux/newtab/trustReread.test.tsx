@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { TrustSource } from "../folderTrust";
 import { useFolderTrustAsk } from "../useFolderTrustAsk";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 // SHORTCUT FRAMES F2 (review of #31624): a parked New Tab spare drew the tab's folder before Cmd-T, but its trust
 // read was refused (the parked page has no tab's roots). Cmd-T then keeps the screen mounted (same folder), so
@@ -27,8 +28,9 @@ beforeEach(() => {
   root = createRoot(dom.window.document.getElementById("root")!);
 });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
+  await settleReact();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;

@@ -8,6 +8,14 @@ import UIKit
 /// While text is being composed (marked text, as in Japanese or Chinese
 /// input), Return belongs to the input method and the commands step aside.
 /// Shows a placeholder while empty.
+///
+/// Its height follows `ComposerFieldHeight` (`fittingSize(proposedWidth:)`):
+/// it grows a line at a time up to the policy's `maxLines`, then scrolls
+/// inside. Scrolling stays on at every height, so the text is always clipped
+/// to the field and the caret line kept inside it; while the text fits, the
+/// view is held at its top, so a stale offset from a frame that had not grown
+/// yet never shows. Nothing here toggles a property that changes the view's
+/// measured size, so measuring it never feeds back into another layout.
 open class ComposerReturnTextView: UITextView {
     public var returnPolicy: ComposerReturnPolicy
     /// Called when Return should send the draft.
@@ -28,6 +36,9 @@ open class ComposerReturnTextView: UITextView {
     public init(policy: ComposerReturnPolicy) {
         returnPolicy = policy
         super.init(frame: .zero, textContainer: nil)
+        isScrollEnabled = true
+        alwaysBounceVertical = false
+        showsHorizontalScrollIndicator = false
         placeholderLabel.font = .preferredFont(forTextStyle: .body)
         placeholderLabel.adjustsFontForContentSizeCategory = true
         placeholderLabel.textColor = .tertiaryLabel
@@ -50,8 +61,71 @@ open class ComposerReturnTextView: UITextView {
         didSet { updatePlaceholder() }
     }
 
+    // MARK: Height
+
+    /// The height rule for this view's font, insets and `maxLines`.
+    public var fieldHeight: ComposerFieldHeight {
+        ComposerFieldHeight(lineHeight: Self.laidOutLineHeight(font ?? .preferredFont(forTextStyle: .body)),
+                            verticalInset: textContainerInset.top + textContainerInset.bottom,
+                            maxLines: returnPolicy.maxLines)
+    }
+
+    /// One line's height as a text view lays it out in `font`. It is taller
+    /// than `font.lineHeight` (22 pt against 20.3 for the 17 pt body), so a
+    /// maximum computed from the font cut the sixth line in half and
+    /// scrolled a draft that fit. Measured once per font.
+    private static var lineHeights: [UIFont: CGFloat] = [:]
+
+    private static func laidOutLineHeight(_ font: UIFont) -> CGFloat {
+        if let height = lineHeights[font] { return height }
+        let probe = UITextView(frame: .zero, textContainer: nil)
+        probe.font = font
+        probe.textContainerInset = .zero
+        probe.textContainer.lineFragmentPadding = 0
+        probe.isScrollEnabled = false
+        probe.text = "Xg\nXg"
+        let two = probe.sizeThatFits(CGSize(width: 1_000, height: CGFloat.greatestFiniteMagnitude)).height
+        probe.text = "Xg"
+        let one = probe.sizeThatFits(CGSize(width: 1_000, height: CGFloat.greatestFiniteMagnitude)).height
+        // The pitch between lines, not the first line's own extent.
+        let height = two - one > 0 ? two - one : max(one, font.lineHeight)
+        lineHeights[font] = height
+        return height
+    }
+
+    /// The text's own height at `width` (all of it, however tall).
+    public func contentHeight(width: CGFloat) -> CGFloat {
+        sizeThatFits(CGSize(width: max(width, 1), height: .greatestFiniteMagnitude)).height
+    }
+
+    /// The field's size for a proposed width (SwiftUI's `sizeThatFits`):
+    /// as wide as offered, as tall as `fieldHeight` says for the text.
+    public func fittingSize(proposedWidth: CGFloat?) -> CGSize {
+        let width = proposedWidth ?? (bounds.width > 0 ? bounds.width : 240)
+        return CGSize(width: width, height: fieldHeight.height(contentHeight: contentHeight(width: width)))
+    }
+
+    /// Whether the text is taller than the field (it scrolls inside).
+    public var textOverflows: Bool { contentSize.height > bounds.height + 0.5 }
+
+    /// After an edit: a draft taller than the field keeps the caret line in
+    /// view; one that fits stays at its top.
+    public func followCaret() {
+        if textOverflows {
+            scrollRangeToVisible(selectedRange)
+        } else {
+            pinToTop()
+        }
+    }
+
+    private func pinToTop() {
+        let top = -adjustedContentInset.top
+        if contentOffset.y != top { contentOffset.y = top }
+    }
+
     override open func layoutSubviews() {
         super.layoutSubviews()
+        if !textOverflows { pinToTop() }
         let width = max(0, bounds.width - textContainerInset.left - textContainerInset.right)
         let size = placeholderLabel.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
         placeholderLabel.frame = CGRect(x: textContainerInset.left + textContainer.lineFragmentPadding, y: textContainerInset.top,

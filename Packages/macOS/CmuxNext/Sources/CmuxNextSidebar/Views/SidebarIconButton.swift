@@ -204,7 +204,8 @@ final class SidebarIconButton: ClickableButton {
     }
 
     override func updateLayer() {
-        layer?.cornerRadius = isRound ? min(bounds.width, bounds.height) / 2 : Metrics.itemCornerRadius
+        // isRound: a light round x on a card (Lawrence 2026-11-07, "the X sits in a heavy box").
+        layer?.cornerRadius = isRound ? min(bounds.width, bounds.height) / 2 : Metrics.buttonCornerRadius // radius-allow: isRound
         performWithTheme {
             contentTintColor = tintOverride ?? (hover.state.hovering || hover.state.pressed ? Palette.textPrimary : Palette.textSecondary)
         }
