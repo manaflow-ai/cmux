@@ -196,6 +196,11 @@ export interface AttachParams {
   limit?: (number | null);
   maxBytes?: (number | null);
   sessionId: string;
+  /**
+   * Answer from the chat's settled view first (`settled-attach-v1`,
+   * `server/requests/settled_attach.rs`): a read, falling back to a plain page.
+   */
+  settled?: (boolean | null);
   /** False attaches without showing the chat (`hub/seen.rs`); default true. */
   visible?: (boolean | null);
   /** Wait for restart-time log restoration before answering; false serves the page immediately. */
