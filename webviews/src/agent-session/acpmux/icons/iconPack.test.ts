@@ -36,7 +36,7 @@ describe("icon pack", () => {
     const pack = bundled as IconPack;
     const overlay = neko as IconPack;
     const names = Object.keys(overlay.icons);
-    expect(names.length).toBe(38);
+    expect(names.length).toBe(37);
     expect(names).toContain("action.copy");
     expect(names).toContain("action.pin");
     expect(names).toContain("agent.chat");

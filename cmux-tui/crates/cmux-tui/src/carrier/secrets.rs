@@ -214,12 +214,13 @@ pub(super) fn run(args: &[String]) -> i32 {
                 let mut stderr = std::io::stderr().lock();
                 let _ = stderr.write_all(line.as_bytes());
             }),
+            phases: Arc::new(|_| {}),
+            fresh_sessions: Default::default(),
+            progress: None,
+            ssh: Arc::new(super::ssh::SshSetup::from_env(None)),
+            ssh_refusal: super::ssh::SshRefusal::default(),
         };
-        let dialed = match client::dial(&plan, |ceiling| {
-            cmux_remote::connection::ReconnectPolicy::default().retry_delay(ceiling)
-        })
-        .await
-        {
+        let dialed = match client::dial(&plan).await {
             Ok(dialed) => dialed,
             Err(failure) => {
                 return self::failure(failure.step.error_code(), None, failure.retryable);

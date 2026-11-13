@@ -2,6 +2,8 @@ import { startTransition, useEffect, useState } from "react";
 import type { CategoryGroup } from "../categories";
 import { text } from "../strings";
 import { SettingRow } from "./SettingRow";
+import { MoreOptions } from "./MoreOptions";
+import type { ArrangedGroup } from "../rowLevels";
 
 /** Rows a category draws in its first frame: more than a tall window shows. */
 const FIRST_FRAME_ROWS = 24;
@@ -43,7 +45,7 @@ export function GroupList({
   mounted,
   pageTitle,
 }: {
-  groups: CategoryGroup[];
+  groups: (CategoryGroup | ArrangedGroup)[];
   query?: string;
   focus?: string | null;
   shown?: ReadonlySet<string>;
@@ -68,7 +70,8 @@ export function GroupList({
     if (first >= limit) return null;
     const rows = group.rows.slice(0, limit - first);
     const open = !shown || group.rows.some((row) => shown.has(row.key));
-    const title = shownGroupTitle(text(group.title), pageTitle);
+    const proposed = group as ArrangedGroup;
+    const title = proposed.untitled ? "" : shownGroupTitle(text(group.title), pageTitle);
     return (
       <section
         className={shown ? "group collapse" : "group"}
@@ -98,6 +101,8 @@ export function GroupList({
                 <SettingRow key={row.key} row={row} query={query} focused={row.key === focus} />
               ),
             )}
+            {/* The card's More Options row and the rows it opens (rowLevels.ts). */}
+            {!shown && proposed.more && proposed.more.length > 0 && <MoreOptions rows={proposed.more} focus={focus} />}
           </div>
         </div>
       </section>

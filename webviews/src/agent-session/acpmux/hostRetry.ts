@@ -71,6 +71,27 @@ export function nextRetryDelay(delay: number, recovering: boolean): number {
   return Math.min(delay * 2, recovering ? 2_000 : 2_147_483_647);
 }
 
+/// The first wait before a reconnect.
+export const RETRY_FIRST_MS = 250;
+/// How long a connection stays up before its loss starts the backoff over. One that dropped
+/// sooner (a daemon that crashes after attach, a socket the bridge replaces, a liveness check that
+/// gives up) was not a recovery: the pane reconnected every 250 ms and drew the chat anew each
+/// time (Leo's NIGHTLY, 2026-11-12: "this loop is just so fundamentally f***ing stupid").
+export const CONNECTION_STABLE_MS = 30_000;
+/// The longest wait between reconnects to a daemon that keeps dropping the pane soon after it
+/// connects (direct.ts `RECONNECT_MAX_MS` is the same).
+export const FLAP_RETRY_MAX_MS = 10_000;
+
+/// The wait before reconnecting after an established connection was lost `upForMs` after it
+/// connected, while the backoff stood at `delay`, and the backoff after it. Never start the backoff
+/// over at a connect: only a connection that stayed up does (agent-pane-reconnect-loop.test.ts).
+export function lostRetryDelay(delay: number, upForMs: number): { wait: number; next: number } {
+  // Capped too: the handshakes before a first connect may have backed off far past it (a long outage).
+  const wait =
+    upForMs >= CONNECTION_STABLE_MS ? RETRY_FIRST_MS : Math.min(Math.max(delay, RETRY_FIRST_MS), FLAP_RETRY_MAX_MS);
+  return { wait, next: Math.min(wait * 2, FLAP_RETRY_MAX_MS) };
+}
+
 /// What the pane's handshake loop does around a Restart acpmux.
 export type AcpmuxRestartHooks = {
   /// Drops the automatic retry waiting to run and a Retry queued behind an attempt in flight.
@@ -110,4 +131,44 @@ export class AcpmuxRestartGate {
       if (!hooks.connected()) hooks.ask();
     }
   }
+}
+
+/// How long a lost connection stays unsaid before the pane's quiet "Reconnecting…" line shows: a
+/// reconnect that lands sooner (the usual one, well under a second) shows nothing.
+export const RECONNECT_LINE_AFTER_MS = 1_500;
+
+/// What the host says while acpmux restores its chats after a start (`restoring`): how long it has
+/// waited so far, in milliseconds, as of `at` (this page's `Date.now()` when it heard it).
+export type HostRestoring = { waitedMs: number; at: number };
+
+/// The host's word on a restore in progress, from its `acpmux-host-status` event's detail or a
+/// refused handshake's `details` (`{restoring: {waitedMs}}`); undefined when it says none (a
+/// missing, null or malformed `restoring` ends one).
+export function readHostRestoring(source: unknown, at: number): HostRestoring | undefined {
+  const restoring = (source as { restoring?: unknown } | null | undefined)?.restoring;
+  const waited = (restoring as { waitedMs?: unknown } | null | undefined)?.waitedMs;
+  if (typeof waited !== "number" || !Number.isFinite(waited) || waited < 0) return undefined;
+  return { waitedMs: waited, at };
+}
+
+/// The quiet line the pane shows while it gets its chat back on its own (Leo, 2026-11-08: "it
+/// fixes itself"): "Restoring sessions… m:ss" while the host says acpmux restores its chats, else
+/// "Reconnecting…" once a lost connection has been coming back for RECONNECT_LINE_AFTER_MS. Past
+/// HOST_ERROR_DEADLINE_MS a reconnect is the waiting line's or the failure's (HostWaitingLine,
+/// HostUnavailableLine), so this says nothing then. A failure the pane already says (`failureShown`:
+/// a refusal said at once, such as another build's acpmux on the socket) is never covered by
+/// "Reconnecting…": the person needs its Restart now, not after the deadline. The restore line
+/// stays, since the host says it only while acpmux restores, and a refusal without it ends it.
+export function hostRecoveryLine(state: {
+  relinkingSince?: number;
+  restoring?: HostRestoring;
+  failureShown?: boolean;
+  now: number;
+}): { kind: "restoring"; waitedMs: number } | { kind: "reconnecting" } | undefined {
+  const { relinkingSince, restoring, failureShown, now } = state;
+  if (restoring) return { kind: "restoring", waitedMs: restoring.waitedMs + Math.max(0, now - restoring.at) };
+  if (relinkingSince === undefined || failureShown) return undefined;
+  const waited = now - relinkingSince;
+  if (waited < RECONNECT_LINE_AFTER_MS || waited >= HOST_ERROR_DEADLINE_MS) return undefined;
+  return { kind: "reconnecting" };
 }

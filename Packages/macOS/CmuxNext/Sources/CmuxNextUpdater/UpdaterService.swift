@@ -31,6 +31,11 @@ public final class UpdaterService {
     /// The Sparkle driver; nil when Sparkle cannot run in this build.
     public let controller: UpdateController?
     public private(set) var lastProbe: UpdateProbeResult?
+    /// The feed's last answer for a ring (``probe()`` or ``readFeedAhead()``), on ``now``: the
+    /// install click decides at once on one this recent (``StagedUpdateRefresh/clickReadFreshness``).
+    @ObservationIgnored public internal(set) var lastFeedRead: FeedRead?
+    /// A read ahead of the install click in flight (``readFeedAhead()``); never joined by a probe.
+    @ObservationIgnored var feedReadAheadTask: Task<Void, Never>?
     public private(set) var lastProbeError: String?
     public private(set) var isProbing = false
     /// The running stable <-> NIGHTLY switch, if any.
@@ -86,8 +91,9 @@ public final class UpdaterService {
     @ObservationIgnored var releasePushRetry: DemandTimer
     /// Opens the changelog page (set by the App; the What's New page's link).
     @ObservationIgnored public var openChangelog: (() -> Bool)?
-    /// Opens the changelog page for the releases after `from` up to `to` (set by the App).
-    @ObservationIgnored public var openChangelogSpan: ((_ from: String, _ to: String) -> Bool)?
+    /// Opens the changelog page for the releases after `from` up to `to`, scrolled to `focus`
+    /// when given (set by the App).
+    @ObservationIgnored public var openChangelogSpan: ((_ from: String, _ to: String, _ focus: ChangelogFocus?) -> Bool)?
     /// Opens a web release notes page in a browser tab (set by the App;
     /// "See all changes" when the staged build has no signed notes).
     @ObservationIgnored public var openReleaseNotesURL: ((URL) -> Bool)?
@@ -107,6 +113,13 @@ public final class UpdaterService {
     @ObservationIgnored let lastUpdates: WhatsNewLastUpdateStore?
     /// The record last written, so an unchanged one is not written again.
     @ObservationIgnored var recordedUpdate: WhatsNewLastUpdate?
+    /// What the switch or rollback the person started is doing, step by step (Settings > Updates'
+    /// Channels card shows it on the pressed button); nil when none runs.
+    public internal(set) var buildSwitchProgress: BuildSwitchProgress?
+    /// A switch or rollback runs (``UpdateDropBack``): a second one from any entry point is refused.
+    @ObservationIgnored var switchRunning = false
+    /// Signing teams already read: the running app's, and kept builds the Channels card asks about.
+    @ObservationIgnored let signingTeams = SigningTeamCache()
     /// The running bundle's keep for rollback (``keepRunningBuildForRollback()``).
     @ObservationIgnored var keptRunningBuild: KeepState?
     @ObservationIgnored var keepTask: Task<Void, Never>?
@@ -188,6 +201,10 @@ public final class UpdaterService {
     @ObservationIgnored var phaseObservation: Task<Void, Never>?
     @ObservationIgnored var pathMonitor: NWPathMonitor?
     @ObservationIgnored var network: (constrained: Bool, expensive: Bool) = (false, false)
+    /// ``followNetwork()`` started the monitor and its first path has not arrived: until it does the
+    /// link counts as metered, so a launch check's update does not download on Low Data Mode before
+    /// the monitor says which link this is (#39680 review F1).
+    @ObservationIgnored var networkPending = false
     /// `updates.downloadAutomatically` and `meteredNetwork` as last configured; nothing downloads
     /// by itself until the settings load (``configure``).
     @ObservationIgnored var downloadSetting: (enabled: Bool, metered: UpdateMeteredMode) = (false, .deferLowData)
@@ -467,7 +484,7 @@ public final class UpdaterService {
     public func probe() -> Task<String?, Never> {
         if let probeTask { return probeTask }
         isProbing = true
-        let prober = prober
+        let prober = prober, ring = ring
         // Sparkle's allowedChannels reads the baked feed, not a test feed: the probe does the same.
         let allowed = identity.feed().channel.allowedSparkleChannels(ring: ring)
         var identity = identity
@@ -478,12 +495,14 @@ public final class UpdaterService {
                 let result = try await prober.probe(identity, allowedChannels: allowed)
                 self?.lastProbe = result
                 self?.lastProbeError = nil
+                if let self { self.lastFeedRead = FeedRead(result, at: self.now(), ring: ring) }
                 self?.log.append("probe \(result.outcome.kind) feed=\(result.feedURL) items=\(result.itemCount)")
                 failure = nil
             } catch {
-                let reason = String(describing: error)
+                // The sheet and the indicator show plain words; the log keeps the error.
+                let reason = UpdateFailureText.plain(error)
                 self?.lastProbeError = reason
-                self?.log.append("probe failed: \(reason)")
+                self?.log.append("probe failed: \(String(describing: error))")
                 failure = reason
             }
             self?.isProbing = false
@@ -491,6 +510,28 @@ public final class UpdaterService {
             return failure
         }
         probeTask = task
+        return task
+    }
+
+    /// Reads the feed ahead of the install click and records only ``lastFeedRead``: no probe state,
+    /// no on-screen answer, nothing a pending probe, a ring pick or an install click waits on. It
+    /// never joins ``probe()`` and a probe never joins it, so it cannot consume, delay or reschedule
+    /// a check. Joins a read ahead already in flight.
+    @discardableResult
+    func readFeedAhead() -> Task<Void, Never> {
+        if let feedReadAheadTask { return feedReadAheadTask }
+        let prober = prober, ring = ring
+        let allowed = identity.feed().channel.allowedSparkleChannels(ring: ring)
+        var identity = identity
+        if let testFeedURL { identity.infoFeedURL = testFeedURL }
+        let task = Task { [weak self] in
+            let result = try? await prober.probe(identity, allowedChannels: allowed)
+            guard let self else { return }
+            self.feedReadAheadTask = nil
+            // A ring picked while it read makes it another ring's answer: kept under that ring, never used.
+            if let result { self.lastFeedRead = FeedRead(result, at: self.now(), ring: ring) }
+        }
+        feedReadAheadTask = task
         return task
     }
 
@@ -549,9 +590,9 @@ public final class UpdaterService {
                 let outcome = try await switcher.switchTo(target) { phase in sink.yield(phase) }
                 self?.log.append("channel switch to \(target.rawValue): \(outcome)")
             } catch {
-                failure = String(describing: error)
+                failure = UpdateFailureText.plain(error)
                 self?.channelSwitchError = failure
-                self?.log.append("channel switch to \(target.rawValue) failed: \(failure ?? "")")
+                self?.log.append("channel switch to \(target.rawValue) failed: \(String(describing: error))")
             }
             sink.finish()
             await applier.value
@@ -625,5 +666,25 @@ extension UpdaterService {
     /// Why installing is impossible here, or nil.
     public var installUnavailableReason: String? {
         controller != nil && disabledReason == nil ? nil : UpdaterUnavailable(reason: disabledReason).description
+    }
+}
+
+/// The feed's newest build for a ring, and when that was known (``UpdaterService/lastFeedRead``).
+public struct FeedRead: Sendable, Equatable {
+    /// The newest build the feed offers this Mac, or nil when it offers nothing newer than the running one.
+    public let newest: String?
+    public let at: Date
+    public let ring: UpdateRing
+
+    public init(newest: String?, at: Date, ring: UpdateRing) {
+        self.newest = newest
+        self.at = at
+        self.ring = ring
+    }
+
+    init(_ result: UpdateProbeResult, at: Date, ring: UpdateRing) {
+        if case .updateAvailable(let item) = result.outcome { newest = item.version } else { newest = nil }
+        self.at = at
+        self.ring = ring
     }
 }

@@ -134,7 +134,7 @@ impl Hub {
         if !self.idle_reaper.swap(true, Ordering::SeqCst) {
             let weak = Arc::downgrade(self);
             let wake = self.idle_wake.clone();
-            tokio::spawn(async move { Self::idle_reaper_loop(weak, wake).await });
+            self.scope.spawn_until_cancelled("idle-reaper", Self::idle_reaper_loop(weak, wake));
         }
         self.idle_wake.notify_one();
     }
@@ -175,9 +175,12 @@ impl Hub {
     }
 
     /// When the first live child's idle period ends, on the hub clock.
-    fn next_idle_deadline(&self) -> Option<std::time::Duration> {
+    pub(super) fn next_idle_deadline(&self) -> Option<std::time::Duration> {
         let idle = (*self.idle_child.lock().unwrap())?;
-        self.sessions()
+        // The live sessions, unsorted: this runs on every wake of the reaper (each turn's start
+        // and end, each sign of a model), and sorting every session's record, closed ones
+        // included, to take a minimum cost O(N log N) with ~3,000 chats.
+        self.live_session_handles()
             .iter()
             .filter(|s| s.child.try_lock().map(|c| c.is_some()).unwrap_or(true))
             .map(|s| std::time::Duration::from_nanos(s.last_active.load(Ordering::Relaxed)) + idle)
@@ -194,7 +197,14 @@ impl Hub {
         let Some(idle) = *self.idle_child.lock().unwrap() else { return };
         let now = self.clock_now();
         let idle = idle.as_nanos() as u64;
-        for session in self.sessions() {
+        // The live sessions past their deadline, newest first as before: only those are sorted.
+        let due = newest_first(
+            self.live_session_handles()
+                .into_iter()
+                .filter(|s| s.last_active.load(Ordering::Relaxed).saturating_add(idle) <= now)
+                .collect(),
+        );
+        for session in due {
             if session.last_active.load(Ordering::Relaxed).saturating_add(idle) > now {
                 continue;
             }
@@ -392,7 +402,7 @@ impl Hub {
         }
         let hub = self.clone();
         let session = session.clone();
-        tokio::spawn(async move {
+        self.scope.spawn_until_cancelled("wake-for-cause", async move {
             if !hub.folder_trusted(&session, web).await
                 || session.stops.load(Ordering::SeqCst) != stops
                 || session.status() == SessionStatus::Closed

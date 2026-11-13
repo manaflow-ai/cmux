@@ -17,7 +17,9 @@
 //!
 //! Claude Code writes each shell's output to a file it names
 //! (`output_file`), which `_acpmux/process/tail` reads. The agent host runs
-//! on this machine, so the daemon reads the file itself.
+//! on this machine, so the daemon reads the file itself. A running one's
+//! file is also where a dev server prints its URL: `process_preview.rs`
+//! finds it, and the record carries it as `preview`.
 
 use super::*;
 use serde::{Deserialize, Serialize};
@@ -35,9 +37,12 @@ const TAIL_DEFAULT: u64 = 64 << 10;
 /// The most one tail reads, whatever `maxBytes` asks.
 const TAIL_MAX: u64 = 1 << 20;
 
-/// Leave ample room for JSON-RPC framing and a potentially long cursor. A page never
-/// constructs or sends the full completed-process history.
-const PROCESS_PAGE_BUDGET: usize = crate::rpc::MAX_MESSAGE_BYTES - (64 << 10);
+/// The most one `_acpmux/process/list` reply holds, paged or not: a client path's reply bound
+/// ([`REPLY_PAGE_BYTES`](crate::rpc::REPLY_PAGE_BYTES)) less room for JSON-RPC framing and a
+/// long cursor. A page never constructs or sends the full completed-process history, and an
+/// unpaged list keeps the newest processes that fit ([`process_window_values`]): a 34 MB
+/// unpaged list was serialized whole only to be refused as too large (2026-11-11).
+const PROCESS_PAGE_BUDGET: usize = crate::rpc::REPLY_PAGE_BYTES - (16 << 10);
 
 /// Where a process is in its life.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -92,9 +97,22 @@ pub(super) struct Process {
     /// The file Claude Code writes its output to (`output_file`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     output_file: Option<String>,
+    /// The loopback server it runs, found in its output (`process_preview.rs`);
+    /// only while it runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    preview: Option<ProcessPreview>,
     /// Its latest state is in a logged `process_update`.
     #[serde(skip)]
     logged: bool,
+}
+
+/// The local URL a running process serves, as its output printed it and a
+/// loopback connect confirmed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ProcessPreview {
+    url: String,
+    port: u16,
 }
 
 /// A session's processes, in the order they started.
@@ -114,6 +132,8 @@ pub(super) struct ProcessTable {
     running: std::collections::BTreeSet<usize>,
     /// Processes a person asked to stop: their end is the person's.
     stopping: std::collections::HashSet<String>,
+    /// Processes whose output a preview watch reads (`process_preview.rs`): one each.
+    watching: std::collections::HashSet<String>,
 }
 
 #[cfg(test)]
@@ -127,6 +147,13 @@ mod process_active_tests;
 #[cfg(test)]
 #[path = "processes_page_tests.rs"]
 mod process_page_tests;
+
+#[path = "process_preview.rs"]
+mod preview;
+
+#[cfg(test)]
+#[path = "processes_preview_tests.rs"]
+mod process_preview_tests;
 
 impl ProcessTable {
     /// All appends go here, including records replayed from a logged process update.
@@ -201,6 +228,7 @@ impl ProcessTable {
                     origin: text("origin").unwrap_or("background").to_owned(),
                     output_bytes: None,
                     output_file: None,
+                    preview: None,
                     logged: false,
                 };
                 self.insert(process)
@@ -226,6 +254,8 @@ impl ProcessTable {
         let asked = self.stopping.remove(&p.id);
         p.state = state;
         p.ended_at = Some(at);
+        // An ended server serves nothing.
+        p.preview = None;
         p.reason = match state {
             ProcessState::Lost => Some(HARNESS_EXIT.into()),
             ProcessState::Killed if asked => Some("person".into()),
@@ -267,6 +297,12 @@ impl ProcessTable {
         {
             let new_tool = process.tool_call_id.clone();
             let live = process.state == ProcessState::Running;
+            // A preview found here outlives a record that names none, while it runs.
+            if !live {
+                process.preview = None;
+            } else if process.preview.is_none() {
+                process.preview = slot.preview.clone();
+            }
             let old_tool = std::mem::replace(slot, process).tool_call_id;
             if live {
                 self.running.insert(at);
@@ -345,6 +381,7 @@ impl ProcessTable {
             self.stopping.remove(&p.id);
             p.state = ProcessState::Lost;
             p.ended_at = Some(at);
+            p.preview = None;
             p.reason = Some(reason.to_owned());
             p.logged = logged;
             lost.push(p.clone());
@@ -363,6 +400,55 @@ fn process_values(processes: Vec<Process>, length: impl Fn(&str) -> u64) -> Vec<
             serde_json::to_value(process).ok()
         })
         .collect()
+}
+
+/// A process row too large for a reply alone: its identity and state, with its size, as a
+/// page's oversized row goes.
+fn process_stub(row: &Value, full_bytes: usize) -> Value {
+    // `get` serializes a missing field as null, as an index did.
+    json!({
+        "id": row.get("id"), "sessionId": row.get("sessionId"),
+        "toolCallId": row.get("toolCallId"), "taskId": row.get("taskId"),
+        "harness": row.get("harness"), "command": "",
+        "startedAt": row.get("startedAt"), "endedAt": row.get("endedAt"),
+        "state": row.get("state"), "origin": row.get("origin"),
+        "omitted": {"reason": "too_large", "bytes": full_bytes}
+    })
+}
+
+/// The newest of `processes` (in the order given, oldest first) whose rows fit in `budget`
+/// bytes, oldest first, and `omitted`, how many older ones did not fit, when any. Walked from
+/// the newest and stopped at the first that does not fit: an unpaged list costs one reply's
+/// work, not the history's. A row too large alone goes as its [`process_stub`].
+fn process_window_values(
+    processes: Vec<Process>,
+    budget: usize,
+    length: impl Fn(&str) -> u64,
+) -> Value {
+    let total = processes.len();
+    let (mut rows, mut used) = (Vec::new(), 64_usize);
+    for mut process in processes.into_iter().rev() {
+        process.output_bytes = process.output_file.as_deref().map(&length);
+        let Ok(mut row) = serde_json::to_value(process) else { continue };
+        let mut bytes = row.to_string().len();
+        if bytes.saturating_add(64) > budget {
+            row = process_stub(&row, bytes);
+            bytes = row.to_string().len();
+        }
+        if used.saturating_add(bytes).saturating_add(1) > budget {
+            break;
+        }
+        used = used.saturating_add(bytes).saturating_add(1);
+        rows.push(row);
+    }
+    let omitted = total.saturating_sub(rows.len());
+    rows.reverse();
+    let mut reply = serde_json::Map::new();
+    reply.insert("processes".to_owned(), Value::Array(rows));
+    if omitted > 0 {
+        reply.insert("omitted".to_owned(), json!(omitted));
+    }
+    Value::Object(reply)
 }
 
 /// A byte-bounded process page. Resolve file sizes and serialize after releasing the
@@ -387,15 +473,7 @@ fn process_page_values(
         let mut bytes = row.to_string().len();
         if bytes.saturating_add(cursor_bytes).saturating_add(64) > budget {
             let full_bytes = bytes;
-            // `get` serializes a missing field as null, as an index did.
-            row = json!({
-                "id": row.get("id"), "sessionId": row.get("sessionId"),
-                "toolCallId": row.get("toolCallId"), "taskId": row.get("taskId"),
-                "harness": row.get("harness"), "command": "",
-                "startedAt": row.get("startedAt"), "endedAt": row.get("endedAt"),
-                "state": row.get("state"), "origin": row.get("origin"),
-                "omitted": {"reason": "too_large", "bytes": full_bytes}
-            });
+            row = process_stub(&row, full_bytes);
             bytes = row.to_string().len();
             if bytes.saturating_add(cursor_bytes).saturating_add(64) > budget {
                 return Err(RpcError::too_large(full_bytes));
@@ -527,8 +605,11 @@ impl Hub {
     /// Reads the session's processes from its log again: a daemon that
     /// adopted a running host lists them again (`hosts.rs`).
     pub(super) fn rebuild_processes(&self, session: &Session) {
-        let table = self.read_processes(session);
-        *session.processes.lock().unwrap_or_else(|e| e.into_inner()) = table;
+        let mut table = self.read_processes(session);
+        let mut slot = session.processes.lock().unwrap_or_else(|e| e.into_inner());
+        // The preview watches still run: they stay the only ones.
+        table.watching = std::mem::take(&mut slot.watching);
+        *slot = table;
     }
 
     /// A logged `background_task_update` (`tap.rs`), the session's own or a
@@ -622,6 +703,30 @@ impl Hub {
                 .collect(),
         };
         json!({"processes": process_values(processes, output_len)})
+    }
+
+    /// `_acpmux/process/list` with no page (`limit`), as a client reads it: [`Self::list_processes`]
+    /// cut to the newest processes that fit one reply ([`PROCESS_PAGE_BUDGET`]), in the order they
+    /// started, with `omitted`, how many older ones it left out, when any. Across every chat
+    /// (no `session`) the newest are by start. Only the rows it keeps have their output file's
+    /// size read and are serialized: its cost is the reply's, however long the history.
+    pub(crate) fn list_processes_reply(&self, session: Option<&Session>) -> Value {
+        let mut processes: Vec<Process> = match session {
+            Some(session) => self.process_table(session).snapshot(),
+            None => self
+                .sessions()
+                .iter()
+                .flat_map(|s| {
+                    let table = s.processes.lock().unwrap_or_else(|e| e.into_inner());
+                    if table.loaded { table.snapshot() } else { Vec::new() }
+                })
+                .collect(),
+        };
+        if session.is_none() {
+            // Stable: one chat's processes keep their order.
+            processes.sort_by_key(|p| p.started_at);
+        }
+        process_window_values(processes, PROCESS_PAGE_BUDGET, output_len)
     }
 
     /// Optional byte-bounded process-list pages, scoped to one session. The caller

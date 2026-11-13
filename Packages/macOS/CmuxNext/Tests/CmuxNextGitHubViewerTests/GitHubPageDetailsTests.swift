@@ -43,6 +43,16 @@ struct GitHubPageDetailsTests {
         }}}}
         """#
 
+    /// Review of #38263, F1: a read that got every comment and review is whole, though the empty
+    /// review wrapper it leaves out makes `conversation` shorter than the total.
+    @Test func aWholeReadCountsTheEmptyReviewItLeavesOut() throws {
+        let whole = Self.answer.replacingOccurrences(of: #""comments": {"totalCount": 3,"#, with: #""comments": {"totalCount": 2,"#)
+        let details = try #require(GitHubPullRequestDetails.parse(Data(whole.utf8)))
+        #expect(details.conversation.count == 3)
+        #expect(details.conversationTotal == 4)
+        #expect(details.conversationRead == details.conversationTotal)
+    }
+
     @Test func theDetailsReadKeepsTheConversationInTimeOrder() throws {
         let details = try #require(GitHubPullRequestDetails.parse(Data(Self.answer.utf8)))
         #expect(details.body == "## Summary\nFixes it.")
@@ -56,6 +66,10 @@ struct GitHubPageDetailsTests {
         #expect(details.conversation[1].state == "changes_requested")
         #expect(details.conversation[1].comments == [.init(path: "a.swift", line: 12, body: "Here", url: nil)])
         #expect(details.conversationTotal == 5)
+        // The read got 2 of 3 comments and both reviews: 4 of 5, counted before the empty review is
+        // left out (review of #38263, F1), so not `conversation.count`.
+        #expect(details.conversationRead == 4)
+        #expect(details.json["conversationRead"] == JSONValue(4))
         // Asked again after reviewing: requested, not "changes requested".
         #expect(details.reviewers.map(\.name) == ["lawrence", "austin", "core"])
         #expect(details.reviewers.map(\.state) == ["approved", "requested", "requested"])

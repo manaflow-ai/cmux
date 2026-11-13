@@ -51,6 +51,16 @@ is routed.
 | swift | `cmux-next swift test` (a pull request only with `full-ci`; the tip suite dispatch runs it on the `feat-cmux-next` tip) | the test targets the target graph reaches | mini |
 | daemon | `cmux-next daemon tests` (`same-tree cmux-tui` reports a tree that nothing will publish) | cmux-tui tree inputs, daemon capabilities, `pin-cmux-tui.sh`, CmuxNextDaemon or CmuxNextMobile and their dependencies, CmuxNextControl | a mini, once the tree is published |
 
+An app FFI re-pin runs only the app compile. When a pull request changes
+Package.swift alone, only the CCmuxAppFFI url's release sha and its checksum
+change, and that release's source commit has the head's FFI sources
+(`pure_ffi_repin` in the router), the native tier is its only Mac tier: the
+build fleet's app compile, with the Mac Release compile as the fallback when the
+fleet gives no verdict. `cmux-next checks` still runs "Check the app FFI pin".
+Any other Package.swift change runs every tier, as before. On 2026-11-10 re-pin
+#40576 waited 2 h 49 min behind the Mac queue that every tier took, and the base
+stayed red on the pin check for about five hours.
+
 A web nit runs no Mac tier. When every changed file is under `webviews/`, the
 webviews app, the agent-pane bundle (`CmuxNextAgentPane/Resources/agent-pane/`)
 or docs, and no Swift test reads it, only `cmux-next checks` runs here. ci-web
@@ -214,7 +224,18 @@ No runner waits for the tree. `cmux-next path routing` probes it once
   same-tree mode (`scripts/ci/cmux_next_tree_notify.py`) for each run that is
   still current. That run checks out the probed commit (a pull request's merge
   commit), runs only the two jobs, and posts `... (same-tree)` commit statuses
-  on the push or the pull request head;
+  on the push or the pull request head. Each same-tree run has a concurrency
+  group of its own, so after a dispatch on a same-repository pull request's
+  head branch (or when it finds a marker of that pull request superseded) the
+  notifier cancels that branch's older same-tree runs that have no Mac job in
+  progress, except the oldest of them (its queued job is nearest a runner, so
+  the pull request still gets verdicts when the Mac wait is longer than its
+  push interval). The newest run, the runs of the pull request's head and any
+  run with a Mac job in progress stay. The sweep reads only what GitHub
+  records (the marker artifact's run, `pulls/<n>`), never main or
+  feat-cmux-next. A marker that a fork pull request's run uploaded starts and
+  cancels nothing (the fork's run executes the fork's workflow file, so it can
+  write any marker); the fork keeps its pull_request run;
 - superseded push: the two jobs skip;
 - nothing will publish it: `same-tree cmux-tui` fails at once with the reason.
   The marker stays, so a later publication of the key (a re-run, a

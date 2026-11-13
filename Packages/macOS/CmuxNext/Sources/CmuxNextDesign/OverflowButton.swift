@@ -51,6 +51,12 @@ public final class OverflowButton: ClickableButton {
             needsDisplay = true
         }
     }
+    /// The plate's corner radius where the host knows the corner the button rests in (the pane tab
+    /// bar's ⋮ in the card's top-trailing corner: concentric with it, the card's radius less the
+    /// button's inset); nil: the button radius, a tab's (``Metrics/buttonCornerRadius``). A circle ignores it.
+    public var plateCornerRadius: CGFloat? {
+        didSet { if plateCornerRadius != oldValue { needsDisplay = true } }
+    }
     private var renderedSize: CGFloat = 0
 
     public init(label: String) {
@@ -115,7 +121,9 @@ public final class OverflowButton: ClickableButton {
     nonisolated override public var wantsUpdateLayer: Bool { true }
 
     override public func updateLayer() {
-        layer?.cornerRadius = hoverStyle == .circle ? min(bounds.width, bounds.height) / 2 : Metrics.itemCornerRadius
+        let side = min(bounds.width, bounds.height)
+        // The opt-in circle look (ChromeHoverStyle.circle) is a circle; every other plate rounds as a tab.
+        layer?.cornerRadius = hoverStyle == .circle ? side / 2 : min(plateCornerRadius ?? Metrics.buttonCornerRadius, side / 2) // radius-allow: circle look
         performWithTheme {
             // Without a fill, a press or an open menu shows in the glyph's own ink, as the tab bar's + does.
             let pressedInk = hoverStyle == .glyph ? Palette.litGlyph : Palette.textPrimary

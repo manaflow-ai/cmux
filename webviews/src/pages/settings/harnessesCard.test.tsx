@@ -243,7 +243,7 @@ test("a change from the host shows without a reload; no daemon says why", async 
   await settle();
   element = card(page.container)!;
   expect(element.querySelector<HTMLElement>("[data-harnesses-problem]")!.dataset.harnessesProblem).toBe("unreachable");
-  expect(element.textContent).toContain("acpmux did not answer");
+  expect(element.textContent).toContain("cmux did not answer");
   page.unmount();
 });
 

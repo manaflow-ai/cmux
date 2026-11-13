@@ -53,10 +53,10 @@ import type {
   UpdateHighlights,
   UpdateSurfaceActions,
 } from "./updateHighlights";
-import { PreviewIntent, previewEntries } from "./updatedPreview";
+import { PREVIEW_CLOSE_MS, PreviewIntent, previewEntries } from "./updatedPreview";
 import { parsePreviewMode, type UpdatedPreviewMode } from "./updatedPreviewMode";
 import { pressCard, SHIPPED_DRAG_FEEL, type CardDragFeel, type CardDragHost, type CardRow } from "./updatedCardDrag";
-import { PREVIEW_MAX_PX, UpdatedCardPreview, type PreviewLayout } from "./UpdatedCardPreview";
+import { PREVIEW_MAX_PX, UpdatedCardPreview, type PreviewLayout, type PreviewTarget } from "./UpdatedCardPreview";
 export type { PreviewLayout } from "./UpdatedCardPreview";
 import { summarizeHighlights, summarizeUpdate, type SummaryRow } from "./updateSummary";
 
@@ -207,9 +207,6 @@ export type WhatsNewPlacement = "title" | "top-right" | "button";
 
 /** How long the card waits for the host to make room for the open preview before it opens anyway. */
 const PREVIEW_ROOM_WAIT_MS = 150;
-/** How long the preview's close runs before the card hands its room back (the card's own curve,
-    `--wn-preview-motion` in updateSurfaces.css); with motion reduced or off, no wait. */
-const PREVIEW_CLOSE_MS = 265;
 
 export function UpdatedCard({
   data,
@@ -230,6 +227,8 @@ export function UpdatedCard({
   anchor = "bottom",
   drag,
   dragFeel = SHIPPED_DRAG_FEEL,
+  notesLoading = false,
+  loadingLook = SHIPPED_NOTE_LOADING,
 }: {
   data: UpdateHighlights;
   /** The notes of every build after the previous version, newest first; absent until they load. */
@@ -272,6 +271,12 @@ export function UpdatedCard({
   /** Moves the card while the person drags it (updatedCardDrag.ts); absent: the card does not drag. */
   drag?: CardDragHost;
   dragFeel?: CardDragFeel;
+  /** The notes of the update's span are still loading: the title is final, and the change line holds
+      its one line with a quiet indicator until the words come (or the load gives up and the host's
+      items stand in), so the card never draws blank and the line never jumps. */
+  notesLoading?: boolean;
+  /** How the loading change line looks (gallery variants); `dots` ships. */
+  loadingLook?: NoteLoadingLook;
 }) {
   const titleId = useId();
   const [copied, setCopied] = useState(false);
@@ -296,10 +301,12 @@ export function UpdatedCard({
     enabled: !doodle && mode === "above",
     runsHeight: true,
   });
-  const openChangelog = () => {
+  // A row of the in-card preview opens What's New at its change; the card's own links at the top.
+  const openChangelog = (target?: PreviewTarget) => {
     preview.close();
-    actions.openChangelog();
+    actions.openChangelog(target);
   };
+  const openWhatsNew = () => openChangelog();
   const rest = useRef<HTMLElement | null>(null);
   const dragRef = useCardDrag(rest, drag, dragFeel, preview.closeForDrag);
   const { cardRef } = preview;
@@ -324,7 +331,7 @@ export function UpdatedCard({
     rest.current = element;
   }, []);
   const whatsNew = (
-    <button type="button" className="wn-card-primary" onClick={openChangelog}>
+    <button type="button" className="wn-card-primary" onClick={openWhatsNew}>
       {strings.t("changelog.page.title")}
     </button>
   );
@@ -357,11 +364,13 @@ export function UpdatedCard({
       <p className="wn-card-version">{data.version}</p>
     ) : mode === "quiet" ? (
       <p className="wn-card-note">
-        <button type="button" className="wn-card-seenew" onClick={openChangelog}>
+        <button type="button" className="wn-card-seenew" onClick={openWhatsNew}>
           {strings.t("updates.card.seeWhatsNew")}
           <span aria-hidden="true"> ↗</span>
         </button>
       </p>
+    ) : notesLoading ? (
+      <NoteLoading look={loadingLook} label={strings.t("updates.card.loadingNotes")} />
     ) : (
       <p className="wn-card-note">
         {top ? (
@@ -426,7 +435,7 @@ export function UpdatedCard({
           {/* The shipped title line is the title alone (Lawrence 2026-11-07: "Updated to ..." was cut
               to fit What's New beside it); What's New leads the open preview. */}
           {placement === "top-right" && (
-            <button type="button" className="wn-card-link" onClick={openChangelog}>
+            <button type="button" className="wn-card-link" onClick={openWhatsNew}>
               {strings.t("changelog.page.title")}
               <span aria-hidden="true"> ↗</span>
             </button>
@@ -439,6 +448,45 @@ export function UpdatedCard({
         {placement === "button" && <div className="wn-card-actions">{whatsNew}</div>}
       </div>
     </section>
+  );
+}
+
+/** The loading change line's looks (gallery variants, Leo 2026-11-09: "for the, you know, fixed or
+    whatever subtitle text individually, we can have it be, like, should have a loading indicator, like
+    an ellipsis-type thing"): three still dots (`dots`, shipped; no breathing loop, test/no-breathing-dots),
+    the ellipsis glyph (`glyph`), a bar one line tall that a light crosses (`bar`), and the words
+    (`words`). */
+export type NoteLoadingLook = "dots" | "glyph" | "bar" | "words";
+export const NOTE_LOADING_LOOKS: readonly NoteLoadingLook[] = ["dots", "glyph", "bar", "words"];
+export const SHIPPED_NOTE_LOADING: NoteLoadingLook = "dots";
+
+/** The change line while the update's notes load: the note's own box (its font, line height and
+    margin), so the words that replace it take exactly its room. VoiceOver reads "Loading what's new"
+    (a clipped label); the marks are hidden from it. */
+function NoteLoading({ look, label }: { look: NoteLoadingLook; label: string }) {
+  return (
+    <p className="wn-card-note wn-card-note-loading" data-loading={look}>
+      {look === "words" ? (
+        `${label}\u2026`
+      ) : (
+        <>
+          <span className="wn-note-label">{label}</span>
+          <span aria-hidden="true">
+            {look === "bar" ? (
+              <span className="wn-note-bar" />
+            ) : look === "glyph" ? (
+              "\u2026"
+            ) : (
+              <span className="wn-note-dots">
+                <span />
+                <span />
+                <span />
+              </span>
+            )}
+          </span>
+        </>
+      )}
+    </p>
   );
 }
 
@@ -703,7 +751,7 @@ export function UpdateReadyHighlights({
   if (items.length === 0 && (rest?.length ?? 0) === 0) {
     const from = data.fromVersion && data.fromVersion !== data.version ? data.fromVersion : null;
     const link = (
-      <button type="button" className="wn-pop-all" onClick={actions.openChangelog}>
+      <button type="button" className="wn-pop-all" onClick={() => actions.openChangelog()}>
         {strings.t("updates.popover.seeReleaseNotes")}
         <span aria-hidden="true"> →</span>
       </button>
@@ -763,7 +811,7 @@ export function UpdateReadyHighlights({
         {items.length > 0 && (
           <ul className="wn-pop-list">
             {items.map((item) => (
-              <PopRow key={item.id} item={item} layout={layout} onOpen={actions.openChangelog} />
+              <PopRow key={item.id} item={item} layout={layout} onOpen={() => actions.openChangelog()} />
             ))}
           </ul>
         )}
@@ -775,7 +823,7 @@ export function UpdateReadyHighlights({
                   {label && <h4>{label}</h4>}
                   <ul>
                     {items.map((item) => (
-                      <PopRow key={item.id} item={item} layout={layout} onOpen={actions.openChangelog} />
+                      <PopRow key={item.id} item={item} layout={layout} onOpen={() => actions.openChangelog()} />
                     ))}
                   </ul>
                 </section>
@@ -788,7 +836,7 @@ export function UpdateReadyHighlights({
         {!rest && data.moreCount > 0 && (
           <span className="wn-pop-more">{strings.format("updates.card.more", String(data.moreCount))}</span>
         )}
-        <button type="button" className="wn-pop-all" onClick={actions.openChangelog}>
+        <button type="button" className="wn-pop-all" onClick={() => actions.openChangelog()}>
           {strings.t(all.length > 0 ? "updates.popover.seeAll" : "updates.popover.seeReleaseNotes")}
           <span aria-hidden="true"> →</span>
         </button>

@@ -1460,16 +1460,21 @@ impl ServerAuthenticator for AuthDatabase {
                                 "carrier grant verifier answered a non-grant device id".into()
                             );
                         }
-                        self.admitted_grants.remember(request.device_public_key, admission.clone());
+                        self.admitted_grants.remember(
+                            request.device_public_key,
+                            request.session,
+                            admission.clone(),
+                        );
                         admission
                     }
                     // A resume: only into a session this key already holds
                     // (the daemon refuses generation 1+ without one).
-                    None if request.generation > 0 => {
-                        self.admitted_grants.get(&request.device_public_key).ok_or_else(|| {
+                    None if request.generation > 0 => self
+                        .admitted_grants
+                        .get(&request.device_public_key, request.session)
+                        .ok_or_else(|| {
                             "no carrier grant admitted this key; ask for a grant".to_string()
-                        })?
-                    }
+                        })?,
                     None => return Err("a new carrier session needs a grant".into()),
                 };
                 Ok(AuthGrant {
@@ -1519,8 +1524,22 @@ impl ServerAuthenticator for AuthDatabase {
                             authority: crate::crypto::ServiceAuthority::legacy_full(),
                         });
                     }
-                    if state.pending.contains_key(&invitation_id) {
-                        return Err("invitation already has a pending enrollment".into());
+                    if let Some(existing) = state.pending.get(&invitation_id) {
+                        // Another device may never ride on, or displace, this request.
+                        if existing.device_public_key != request.device_public_key {
+                            return Err("invitation already has a pending enrollment".into());
+                        }
+                        // The same device presents the invitation again: its client gave up on
+                        // the link that is waiting (a network change or a dropped link abandons
+                        // the attempt, and the redial presents the invitation again), and that
+                        // waiter's link is gone. This attempt takes over the request, so the
+                        // person's approval reaches the link the device is on now.
+                        if let Some(superseded) = state.pending.remove(&invitation_id) {
+                            let _ = superseded.decision.send(Err(
+                                "a newer connection from this device took over the enrollment request"
+                                    .into(),
+                            ));
+                        }
                     }
                     state.pending.insert(
                         invitation_id.clone(),

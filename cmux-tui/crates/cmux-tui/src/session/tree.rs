@@ -605,14 +605,16 @@ impl PaneView {
     }
 }
 
-/// `attention`: the attention marks of live tabs by public tab id, as the
-/// mux's presentation snapshot holds them (`tab-attention-v1`).
+/// `presentation`: the mux's presentation snapshot. It holds the attention
+/// marks of live tabs by public tab id (`tab-attention-v1`) and the rule for
+/// what a tab shows of its title.
 pub fn tree_from_state_with_notifications(
     state: &State,
     notifications: &HashMap<SurfaceId, SurfaceNotification>,
-    attention: &HashMap<String, cmux_tui_core::TabAttentionRecord>,
+    presentation: &cmux_tui_core::PresentationSnapshot,
     git_branches: &HashMap<SurfaceId, String>,
 ) -> TreeView {
+    let attention = &presentation.tab_attention;
     let ids = state
         .workspaces
         .iter()
@@ -659,7 +661,11 @@ pub fn tree_from_state_with_notifications(
                         }),
                     short_id: short_ids.get(sid).cloned().unwrap_or_default(),
                     name: state.surfaces.get(sid).and_then(|s| s.name()),
-                    title: state.surfaces.get(sid).map(|s| s.title()).unwrap_or_default(),
+                    title: state
+                        .surfaces
+                        .get(sid)
+                        .map(|s| presentation.shown_title(s).text.to_string())
+                        .unwrap_or_default(),
                     kind: state.surfaces.get(sid).map(|s| s.kind()).unwrap_or(SurfaceKind::Pty),
                     browser_source: state.surfaces.get(sid).and_then(|s| s.browser_source()),
                     browser_frames_stalled: state
@@ -744,6 +750,7 @@ fn parse_layout(value: &Value) -> Option<Node> {
                 _ => return None,
             };
             Some(Node::Split {
+                divider_hidden: false,
                 id: value.get("split")?.as_u64()?,
                 dir,
                 ratio: value.get("ratio")?.as_f64()? as f32,
@@ -817,11 +824,7 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
                                 .unwrap_or_default()
                                 .to_string(),
                             name: tab.get("name").and_then(|v| v.as_str()).map(|s| s.to_string()),
-                            title: tab
-                                .get("title")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or_default()
-                                .to_string(),
+                            title: cmux_tui_core::TabTitle::of_tree_tab(tab).text.to_string(),
                             kind: match tab.get("kind").and_then(|v| v.as_str()) {
                                 Some("browser" | "remote-terminal") => SurfaceKind::Browser,
                                 _ => SurfaceKind::Pty,

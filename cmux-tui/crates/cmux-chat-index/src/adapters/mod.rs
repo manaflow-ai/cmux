@@ -19,6 +19,7 @@ mod kimi;
 mod muse;
 mod opencode;
 pub use codex::forget as forget_codex_reads;
+pub use codex::{CodexThreadRow, thread_rows as codex_thread_rows};
 pub use opencode::find_session as find_opencode_session;
 mod openhands;
 mod pi;
@@ -209,6 +210,19 @@ pub fn classify_path(kind: AdapterKind, root: &Path, path: &Path) -> PathRole {
         AdapterKind::Continue => continue_dev::classify(&parts),
         AdapterKind::OpenHands => openhands::classify(&parts),
         AdapterKind::Muse => muse::classify(&parts),
+    }
+}
+
+/// The folders of a `kind` root that hold its session files, when the root holds other busy
+/// files beside them: a watcher watches these folders whole and the root's own entries and
+/// store files ([`classify_path`]) one by one, so writes to the rest never reach it. `None`:
+/// the root is watched whole. Codex's home holds its logs and databases (`logs_2.sqlite` and
+/// its WAL, written several times a second by every running Codex), its history, shell
+/// snapshots and caches beside `sessions/` and `archived_sessions/`.
+pub fn session_folders(kind: AdapterKind) -> Option<&'static [&'static str]> {
+    match kind {
+        AdapterKind::Codex => Some(codex::SESSION_FOLDERS),
+        _ => None,
     }
 }
 

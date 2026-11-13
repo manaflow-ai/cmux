@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 @testable import CmuxNextCloud
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -36,7 +37,7 @@ struct SandboxRunNoticeTests {
     static let cancelled = #"{"run":{"id":"r1","status":"cancelled"},"receipt":{"status":"cancelled"}}"#
 
     private func defaults() throws -> UserDefaults {
-        try #require(UserDefaults(suiteName: "SandboxRunNoticeTests.\(UUID().uuidString)"))
+        try #require(UserDefaults(testSuiteName: "SandboxRunNoticeTests.\(UUID().uuidString)"))
     }
 
     private func follower(_ server: Server, defaults: UserDefaults, now: @escaping @MainActor () -> Date = { Date() }) -> (SandboxRunFollower, Ends) {
@@ -128,7 +129,7 @@ struct SandboxRunNoticeTests {
         await server.script("r1", [.failure(.transport("offline")), .success(Self.succeeded)])
         let (follower, ends) = follower(server, defaults: try defaults())
         // The send's own answer is "no receipt in time", as the send's own poll answered it.
-        await #expect(throws: CloudAPIError.timedOut("/api/runs/r1")) { try await follower.follow(record()) }
+        await #expect(throws: CloudAPIError.timedOut("cloud.runs/r1")) { try await follower.follow(record()) }
         await ends.wait(for: 1)
         #expect(ends.all.map(\.outcome) == [.succeeded])
     }

@@ -38,10 +38,10 @@ enum NewTabPlacesFeed {
     }
 
     private static func push(_ tabs: AgentTabStore, services: AppServices) {
-        for key in tabs.newTabPages.keys {
-            guard let view = tabs.views[key] else { continue }
+        for entry in tabs.newTabPages.entries {
+            guard let view = tabs.views[entry.key] else { continue }
             let window = view.window.flatMap { services.windows.owner(of: $0) } ?? services.windows.active
-            let places = NewTabPage.places(services, excluding: key, current: window?.state.workspaceID)
+            let places = NewTabPage.places(services, excluding: entry.key.key, current: window?.state.workspaceID)
             view.refreshNewTabPlaces(tabs: places.tabs, workspaces: places.workspaces)
         }
     }

@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import CoreGraphics
 
 // What the strip's observation loops compare between updates.
@@ -7,6 +8,8 @@ extension TabStripView {
         var metrics: TabStripMetrics
         var titleFont: CGFloat
         var trailingButtons: TabTrailingButtons
+        /// The group chips' glass settings (`GroupChipGlass`).
+        var groupLook: GroupChipGlass
     }
 
     /// Model fields whose change triggers a sync. Equal arrays that share

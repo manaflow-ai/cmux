@@ -1,3 +1,4 @@
+import os
 import CmuxNextCompat
 public import Observation
 
@@ -34,8 +35,21 @@ public nonisolated enum SpaceWindowAction: Hashable, Sendable {
     public var windowIsIncognito = false
     /// Runs a switcher choice (the App's one path: the window registry and `space.bringHere`).
     @ObservationIgnored public var perform: ((SpaceWindowAction) -> Void)?
+    /// The bar is in a window (`ProfileBarView.viewDidMoveToWindow`): the marks observe the windows only then, so a
+    /// closed window's switcher leaves no observer behind.
+    @ObservationIgnored public var isActive = false {
+        didSet { if isActive != oldValue { restartObservation() } }
+    }
+    @ObservationIgnored private weak var source: (any SpaceWindowSource)?
+    @ObservationIgnored private var windowID: (@MainActor @Sendable () -> String?)?
+    /// The observation task, in a lock so the nonisolated deinit can cancel it without a main-actor hop.
+    @ObservationIgnored let observation = OSAllocatedUnfairLock<Task<Void, Never>?>(initialState: nil)
 
     public init() {}
+
+    // A dropped `Task` handle does not cancel its task: cancel the observation here (#38333 review).
+    // cx-t7hu: nonisolated; the lock is a Sendable let, so cancelling needs no main-actor hop.
+    nonisolated deinit { observation.withLock { $0?.cancel() } }
 }
 
 /// The App's side of one window's switcher (`SpaceWindowMarks.install`): it reads the open windows and runs a choice.
@@ -55,7 +69,7 @@ public nonisolated enum SpaceWindowAction: Hashable, Sendable {
 
 extension SpaceWindowMarks {
     /// Fills the marks for the window `windowID` names from `source` and runs the switcher's choices through it.
-    /// Event-driven (Observation of what `source` and `windowID` read); it ends with the marks. Leo 2026-10-29: "having
+    /// Event-driven (Observation of what `source` and `windowID` read), only while `isActive`. Leo 2026-10-29: "having
     /// windows be switchable in this way". `windowID` is read live: the window opened at launch takes a restored
     /// record's id later (`WindowState.adopt`), and a stale id would ring this window's own space as another window's.
     public func install(source: any SpaceWindowSource, windowID: @escaping @MainActor @Sendable () -> String?) {
@@ -72,18 +86,38 @@ extension SpaceWindowMarks {
                 source.spaceWindowNewIncognitoSpace()
             }
         }
-        // task-owner: ends with the marks (the window's switcher); event-driven (Observation)
-        Task { [weak self, weak source] in
+        self.source = source
+        self.windowID = windowID
+        restartObservation()
+    }
+
+    /// The window closed (`SidebarBridge.teardown`): stops the observation and drops the source for good, so a reused or
+    /// retained bar never observes again. A retained window keeps its views, so `isActive` alone may never turn off.
+    public func tearDown() {
+        perform = nil
+        source = nil
+        windowID = nil
+        restartObservation()
+    }
+
+    /// Observes the windows while the bar is in a window and `install` has given a source; cancels otherwise.
+    private func restartObservation() {
+        observation.withLock { $0?.cancel(); $0 = nil }
+        guard isActive, let source, let windowID else { return }
+        // task-owner: `observation`, cancelled when the bar leaves its window (`isActive`) or the window closes (`tearDown`);
+        // event-driven (Observation)
+        let task = Task { [weak self, weak source] in
             for await value in ObservationStream({ () -> ([ProfileKey: SpaceElsewhere], Bool)? in
                 guard let source else { return nil }
                 let here = windowID() ?? ""
                 return (SpaceSwitcherLogic.shownElsewhere(source.spaceWindowsShowing(), here: here),
                         source.spaceWindowIsIncognito(here))
             }) {
-                guard let self, let value else { return }
+                guard !Task.isCancelled, let self, let value else { return }
                 if elsewhere != value.0 { elsewhere = value.0 }
                 if windowIsIncognito != value.1 { windowIsIncognito = value.1 }
             }
         }
+        observation.withLock { $0 = task }
     }
 }

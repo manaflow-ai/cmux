@@ -10,13 +10,13 @@ import CmuxNextChiefViews
 import CmuxNextCompat
 import CmuxNextDaemonRecovery
 import CmuxNextDesign
-import CmuxNextFeed
 import CmuxNextFloating
 import CmuxNextGitHubViewer
 import CmuxNextHistory
 import CmuxNextHomeModel
 import CmuxNextIcons
 import CmuxNextLayout
+import CmuxNextMacScreen
 import CmuxNextOnboarding
 import CmuxNextPages
 import CmuxNextPalette
@@ -36,11 +36,10 @@ enum TunableCatalog {
         ChiefViewsPage.tunables +
         DesignTunables.all + [IconFamily.tunable.descriptor] + LayoutTunables.all + TabTunables.all + SidebarTunables.all + DragTunables.all
             + [AgentPaneTunables.sessionInfo.descriptor]
-            + AgentActivityTunables.all + AppsTunables.all + PageTunables.all + AgentPaneTunables.all + PaletteTunables.all + ServerTunables.all + DaemonTunables.all + FeedTunables.all
+            + AgentActivityTunables.all + AppsTunables.all + PageTunables.all + AgentPaneTunables.all + PaletteTunables.all + ServerTunables.all + DaemonTunables.all
             + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + WorkspaceAutoNameTunables.all + QuickComposerTunables.all + ChiefPetTunables.all + HomeTunables.all + HomeTunables.headerPanels + [SidebarToggleIcon.tunable.descriptor] + BrowserPageTunables.all + AccountTunables.all + GitHubViewerTunables.all
             + TitlebarHistoryTunables.all + CloudTunables.all
-            + HangFileTunables.all + HostPressureTunables.all
-            + BrowserHostTunables.all
+            + HangFileTunables.all + HostPressureTunables.all + BrowserHostTunables.all + MacScreenTunables.all
     }
 }
 
@@ -104,7 +103,7 @@ final class DebugSettingsService: InternalPageProvider {
 
     /// `~/Library/Application Support/cmux/<tag or channel>/debug-tunables.json`
     /// for a build that keeps its app names (``BuildIdentity/keepsAppNames``),
-    /// `cmux/builds/<key>/debug-tunables.json` for every other build, so no
+    /// `cmux-next/builds/<key>/debug-tunables.json` for every other build, so no
     /// build reads another's tunables (per-build isolation S5, cx-is1kf.6);
     /// or the `CMUX_NEXT_DEBUG_TUNABLES_FILE` override.
     nonisolated static func fileURL(environment: [String: String], tag: String?, bundleID: String?,
@@ -114,7 +113,8 @@ final class DebugSettingsService: InternalPageProvider {
             return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
         }
         let cmux = home.appending(path: "Library/Application Support/cmux")
-        if let build, !build.keepsAppNames, let state = build.daemonStateDirectory(appSupport: cmux) {
+        if let build, !build.keepsAppNames,
+           let state = build.daemonStateDirectory(appSupport: home.appending(path: "Library/Application Support/cmux-next")) {
             return state.deletingLastPathComponent().appending(path: "debug-tunables.json")
         }
         let folder = tag ?? (bundleID.map { $0.hasPrefix(DevTools.nightlyBundleID) ? "nightly" : "dev" } ?? "dev")

@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import hashlib
+import os
 import stat
 import tarfile
 from pathlib import Path, PurePosixPath
@@ -26,6 +28,10 @@ MAX_MEMBERS = 1_024
 # for five platforms. Measured aggregate: 473 MB at main ce6be93cf232,
 # 819 MB at feat-cmux-next 04d120ef87f4. 1.5 GiB keeps ~2x headroom and
 # still refuses a decompression bomb long before it fills a runner disk.
+# At feat-cmux-next 1a1c28bd (2026-11-08) the stripped Linux x64 cmux-tui is
+# 163 MiB (thin LTO since #27830, plus the in-process daemon's growth) and the
+# two copies of each made 1593 MiB; create_archive now stores the second copy
+# as a hard link, which counts no bytes here: 847 MiB.
 MAX_EXPANDED_BYTES = 1536 * 1024 * 1024
 
 
@@ -71,15 +77,44 @@ def create_archive(packages_dir: Path, archive: Path) -> None:
         ) as compressed:
             with tarfile.open(fileobj=compressed, mode="w") as output:
                 members = [packages_dir, *sorted(packages_dir.rglob("*"))]
+                # Each cmux-tui binary ships in cmux-tui-<platform> and again in
+                # cmux-relay-<platform>: the second copy of identical bytes and
+                # mode is a hard link to the first, so the transfer archive
+                # carries every binary once.
+                first_copy: dict[tuple[str, int], str] = {}
                 for path in members:
-                    output.add(
-                        path,
-                        arcname=PurePosixPath(
-                            PACKAGE_ROOT, path.relative_to(packages_dir).as_posix()
-                        ),
-                        recursive=False,
-                        filter=_normalize_member,
-                    )
+                    arcname = PurePosixPath(
+                        PACKAGE_ROOT, path.relative_to(packages_dir).as_posix()
+                    ).as_posix()
+                    info = output.gettarinfo(path, arcname=arcname)
+                    if info.islnk():
+                        # A source file that is already a hard link goes through the same
+                        # content dedupe as any other file, with a normalized mode.
+                        info.type = tarfile.REGTYPE
+                        info.linkname = ""
+                        info.size = path.stat().st_size
+                    info = _normalize_member(info)
+                    if not info.isfile():
+                        output.addfile(info)
+                        continue
+                    key = (_sha256(path), info.mode)
+                    if key in first_copy:
+                        info.type = tarfile.LNKTYPE
+                        info.linkname = first_copy[key]
+                        info.size = 0
+                        output.addfile(info)
+                        continue
+                    first_copy[key] = arcname
+                    with path.open("rb") as data:
+                        output.addfile(info, data)
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as data:
+        for chunk in iter(lambda: data.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _normalize_member(member: tarfile.TarInfo) -> tarfile.TarInfo:
@@ -107,6 +142,7 @@ def validated_members(archive: tarfile.TarFile) -> list[tarfile.TarInfo]:
         raise SystemExit("npm package archive has too many entries")
 
     seen: set[str] = set()
+    files: set[str] = set()
     expanded_bytes = 0
     for member in members:
         path = PurePosixPath(member.name)
@@ -118,9 +154,20 @@ def validated_members(archive: tarfile.TarFile) -> list[tarfile.TarInfo]:
         if normalized_name in seen:
             raise SystemExit(f"duplicate npm package archive entry: {member.name}")
         seen.add(normalized_name)
-        if not (member.isfile() or member.isdir()):
+        if member.islnk():
+            # Only a hard link to a regular file earlier in this archive, by that
+            # file's exact name: the second copy of an identical binary
+            # (create_archive). A name that only cleans to it ("file/") is refused.
+            if member.linkname not in files or member.size:
+                raise SystemExit(
+                    f"npm package archive link must name an earlier file: {member.name}"
+                )
+        elif not (member.isfile() or member.isdir()):
             raise SystemExit(f"unsupported npm package archive entry: {member.name}")
+        if member.isfile() and member.name == normalized_name:
+            files.add(member.name)
         member.mode &= 0o777
+        # A hard link adds no bytes on disk; the guard counts each file's bytes once.
         expanded_bytes += member.size
         if expanded_bytes > MAX_EXPANDED_BYTES:
             raise SystemExit(
@@ -140,7 +187,14 @@ def extract_archive(archive_path: Path, out_dir: Path) -> None:
 
     with tarfile.open(archive_path, "r:gz") as archive:
         members = validated_members(archive)
-        archive.extractall(out_dir, members=members, filter="tar")
+        links = [member for member in members if member.islnk()]
+        archive.extractall(
+            out_dir, members=[m for m in members if not m.islnk()], filter="tar"
+        )
+    # tarfile writes a full copy of a link's file when it cannot link; the size
+    # guard counted each link as no bytes, so a link that cannot be made fails.
+    for link in links:
+        os.link(out_dir / link.linkname, out_dir / link.name)
     verify_executables(packages_dir)
 
 
