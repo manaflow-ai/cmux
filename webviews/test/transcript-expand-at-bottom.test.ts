@@ -406,7 +406,7 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
         // but a read at the end place within JUMP_MS of the click, or all of the move between two
         // reads next to each other, is a jump however the reads ran.
         const { largest, judged, joined, jumped, first } = steps(frames, moving, before[moving], after[moving]);
-        if (first === undefined || first > JUMP_MS)
+        if (!jumped && (first === undefined || first > JUMP_MS))
           console.log(
             `no verdict: jump (${engineName} ${direction}: the first read after the click ran ${first?.toFixed(0) ?? "never"}ms after it, later than ${JUMP_MS}ms)`,
           );
