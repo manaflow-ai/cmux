@@ -24,7 +24,10 @@ extension LiveCoordinator {
     /// Connects a new Mac session to the coordinator.
     func wire(_ session: MacSession) {
         session.link.endpoint = { [weak self] macID in
-            guard let self, let teamID = self.registeredTeamID else { return nil }
+            // A Cloud machine whose carrier dropped is not dialed until a fresh list read says it
+            // still runs (``cloudDropHolds``): every dial asks here first, so the controller's own
+            // retry after the drop cannot start a machine that just idle-paused.
+            guard let self, !self.cloudDropHolds.contains(macID), let teamID = self.registeredTeamID else { return nil }
             return LinkEndpoint(baseURL: self.api.baseURL, teamID: teamID, deviceID: self.identity.link, macDeviceID: macID)
         }
         session.link.onLink = { [weak self, weak session] link in
@@ -170,7 +173,8 @@ extension LiveCoordinator {
             // A Cloud machine's carrier dropped under a link still wanted (not a close we made): hold
             // its redial until the list, read again now, says it still runs. The service wakes a
             // paused machine for a person's dial, so a blind redial would undo an idle pause.
-            if session.isCloud, session.link.target != nil, session.fedData {
+            // Only the session that still holds the machine: a replaced one's drop never holds its successor.
+            if session.isCloud, session.link.target != nil, session.fedData, sessions[macID] === session {
                 cloudDropHolds.insert(macID)
                 onCloudLinkDropped?(macID)
                 Task { @MainActor [weak self, weak session] in
