@@ -57,10 +57,10 @@ import Testing
     /// The frame from hostd decodes with its terminal lines; one without them still decodes.
     @Test func theAppearanceFrameCarriesTheTerminalLines() throws {
         let palette = (0..<8).map { "\"#0\($0)0000\"" }.joined(separator: ",")
-        let frame = #"{"theme":{"background":"#000000","foreground":"#ffffff","palette":[\#(palette)],"accent":"neutral","background_opacity":1},"wallpaper":null,"terminal":["background = #2b0b3f","foreground = #f9e79f"]}"#
+        let frame = ##"{"theme":{"background":"#000000","foreground":"#ffffff","palette":[\##(palette)],"accent":"neutral","background_opacity":1},"wallpaper":null,"terminal":["background = #2b0b3f","foreground = #f9e79f"]}"##
         let appearance = try #require(CmuxMobileMacAppearance.decode(Data(frame.utf8)))
         #expect(appearance.terminal == ["background = #2b0b3f", "foreground = #f9e79f"])
-        let older = frame.replacingOccurrences(of: #","terminal":["background = #2b0b3f","foreground = #f9e79f"]"#, with: "")
+        let older = frame.replacingOccurrences(of: ##","terminal":["background = #2b0b3f","foreground = #f9e79f"]"##, with: "")
         #expect(try #require(CmuxMobileMacAppearance.decode(Data(older.utf8))).terminal == nil)
     }
 }
