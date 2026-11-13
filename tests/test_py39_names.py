@@ -677,15 +677,16 @@ class UnderPython39(unittest.TestCase):
         self.assertTrue(complete)
 
     def test_multiple_callee_bindings_are_not_complete(self):
-        """cmux#42289 F2: a name with several known callable bindings remains uncertain."""
+        """cmux#42289 F2: an ambiguous call cannot certainly return the imported module."""
         tree = ast.parse("from pathlib import Path\n"
                          "load = __import__\n"
                          "load = Path\n"
-                         "value = load\n")
+                         "value = load('sys')\n"
+                         "result = value\n")
         resolver = scope_resolver.Resolver(tree)
-        read = tree.body[3].value
+        read = tree.body[4].value
         values, complete = resolver.values(read, read.id)
-        self.assertEqual(values, {"builtins.__import__", "pathlib.Path"})
+        self.assertIn("sys", values)
         self.assertFalse(complete)
 
     def test_scope_build_failure_refuses_the_file(self):
@@ -696,15 +697,18 @@ class UnderPython39(unittest.TestCase):
             p = Path(d) / "probe.py"
             p.write_text("value = " + "x + " * 399 + "x\n")
             old = ROOT
-            old_limit = sys.getrecursionlimit()
             ROOT = Path(d)
             try:
-                sys.setrecursionlimit(300)
                 with self.assertRaisesRegex(AssertionError, r"scope resolution refused"):
                     sites(p)
             finally:
-                sys.setrecursionlimit(old_limit)
                 ROOT = old
+
+    def test_scope_constructor_recursion_is_a_named_refusal(self):
+        """Failures while walking the AST must refuse before any binding can be lost."""
+        tree = ast.parse("value = " + "x + " * 1499 + "x\n")
+        with self.assertRaisesRegex(scope_resolver.ScopeResolutionError, r"scope.*recursion"):
+            scope_resolver.Resolver(tree)
 
     def test_import_as_shadowing_is_lexical(self):
         self.scan("import ast as parser\n"
