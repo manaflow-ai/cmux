@@ -1287,7 +1287,25 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    /// Whether `ty` is a `Mutex<()>`, std's or tokio's (through the file's aliases).
+    /// `idents` with its first segment replaced by the path the file's `use` gives it, again and
+    /// again (`use std::sync as s; use s::Mutex as Lock;`), until no `use` names its head.
+    fn used_path(&self, idents: &[String]) -> Vec<String> {
+        let mut path = idents.to_vec();
+        let mut seen: Vec<String> = Vec::new();
+        while let Some(head) = path.first().cloned()
+            && !seen.contains(&head)
+            && let Some(full) = self.names.uses.get(&head)
+        {
+            seen.push(head);
+            let mut next: Vec<String> = full.split("::").map(str::to_string).collect();
+            next.extend(path.drain(1..));
+            path = next;
+        }
+        path
+    }
+
+    /// Whether `ty` is a `Mutex<()>`, std's or tokio's (through the file's aliases and its
+    /// `use` names, renames included: `use std::sync::Mutex as Lock` makes `Lock<()>` one).
     fn is_serializer(&self, ty: &Type, depth: usize) -> bool {
         let Type::Path(p) = ty else {
             return false;
@@ -1296,18 +1314,21 @@ impl<'a> Resolver<'a> {
             return false;
         }
         let idents: Vec<String> = p.path.segments.iter().map(|s| s.ident.to_string()).collect();
-        let shape = match idents.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
-            [name] if *name != "Mutex" => {
-                return match self.names.defs.get(*name) {
-                    Some(Def { params, body: Body::Alias(inner), .. }) if params.is_empty() => {
-                        self.is_serializer(inner, depth + 1)
-                    }
-                    _ => false,
-                };
-            }
-            ["Mutex"] => self.names.uses.get("Mutex").is_none_or(|full| {
-                matches!(full.as_str(), "std::sync::Mutex" | "tokio::sync::Mutex")
-            }),
+        if let [name] = idents.as_slice()
+            && let Some(def) = self.names.defs.get(name)
+        {
+            return match def {
+                Def { params, body: Body::Alias(inner), .. } if params.is_empty() => {
+                    self.is_serializer(inner, depth + 1)
+                }
+                _ => false,
+            };
+        }
+        let shape = match self.used_path(&idents).iter().map(String::as_str).collect::<Vec<_>>()[..]
+        {
+            // A bare `Mutex` the file does not import is taken as std's (the prelude has none,
+            // so it is an import from another file or a glob).
+            ["Mutex"] => true,
             ["std" | "tokio", "sync", "Mutex"] => true,
             _ => false,
         };
