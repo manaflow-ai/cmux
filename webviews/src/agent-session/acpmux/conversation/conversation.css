@@ -2109,7 +2109,17 @@ pre.cv-math-source {
    they leave their placed tops and sit in normal flow, each with the gap under it as a margin, so
    the browser rewraps them at each width in its own layout pass, as it does a web page. Anchored at
    the first mounted row's top (--acpmux-flow-start, the padding above it) unless the view follows
-   the latest row. The rows are placed again once the width holds. */
+   the latest row. The rows are placed again once the width holds.
+   The gap is a length the transcript writes on each mounted row as the rows start to flow
+   (--acpmux-flow-gap, VirtualTranscript `anchorFlow`; 0 on the last one). It does not inherit: a
+   write styles the row alone, not what it holds. No rule here reads a row's place among its
+   siblings (:last-child and the like): such a rule makes the page style the row before a new one
+   again each time a row arrives, drag or no drag. */
+@property --acpmux-flow-gap {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
 .acpmux-thread.acpmux-thread--flow {
   display: flex;
   flex-direction: column;
@@ -2124,7 +2134,7 @@ pre.cv-math-source {
    read of a row: the one above takes that room first, up to the first row's place in a chat the
    view holds whole (--acpmux-flow-start; the box's own length, so no room is left, while older
    rows are unmounted above), and the one under takes the rest. Neither is a child, so the rows keep their
-   order and the last row its :last-child margin; only a strut's size changes with the rows'. */
+   order; only a strut's size changes with the rows'. */
 .acpmux-thread.acpmux-thread--flow-end {
   justify-content: flex-end;
   height: var(--acpmux-flow-end);
@@ -2146,10 +2156,7 @@ pre.cv-math-source {
   right: auto;
   left: auto;
   margin-top: 0 !important;
-  margin-bottom: var(--acpmux-row-gap, 0px);
-}
-.acpmux-thread--flow > .acpmux-row:last-child {
-  margin-bottom: 0;
+  margin-bottom: var(--acpmux-flow-gap);
 }
 .acpmux-row__gap {
   position: absolute;
