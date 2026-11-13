@@ -728,13 +728,15 @@ fn follows(initialized: &Value) -> bool {
         .is_some_and(|ids| ids.iter().any(|id| id == ACPMUX_LIST_FOLLOW))
 }
 
-/// Whether a `session_changed` is older than the row the watch holds: its list position is
-/// lower than the one the row came with.
-fn older_than_held(held: Option<&Chat>, params: &Value) -> bool {
+/// Whether a `session_changed` is older than what the watch holds: its list position is lower
+/// than the one the row came with, or than `floor`, the position of the list or follow last read
+/// on this connection. That reply holds every change up to it, a chat's removal too, so a late
+/// push from before it brings back no chat the reply left out.
+fn older_than_held(held: Option<&Chat>, floor: u64, params: &Value) -> bool {
     params
         .get("listSeq")
         .and_then(Value::as_u64)
-        .is_some_and(|seq| held.is_some_and(|chat| chat.list_seq > seq))
+        .is_some_and(|seq| held.map_or(floor, |chat| chat.list_seq.max(floor)) > seq)
 }
 
 /// Reads one connection to its end; when the watch's list came whole. The
@@ -840,7 +842,7 @@ fn read_watch(
                 }
                 if !followed {
                     // A first list (also a follow acpmux reset): every row held is compared with
-                    // it, and one it leaves out is gone; positions held are another list's.
+                    // it, and one it leaves out is gone; a row held is as of this list's position.
                     let held: Vec<String> = chats
                         .keys()
                         .filter(|session| !pushed.contains(*session))
@@ -852,7 +854,7 @@ fn read_watch(
                         }
                     }
                     for chat in unlisted.values_mut() {
-                        chat.list_seq = 0;
+                        chat.list_seq = list_seq;
                     }
                 }
             }
@@ -970,7 +972,11 @@ fn read_watch(
                 if gate
                     && params["peer"].is_null()
                     && let Some(session) = params["sessionId"].as_str()
-                    && older_than_held(chats.get(session).or_else(|| unlisted.get(session)), params)
+                    && older_than_held(
+                        chats.get(session).or_else(|| unlisted.get(session)),
+                        list_seq,
+                        params,
+                    )
                 {
                     continue;
                 }
@@ -1626,10 +1632,11 @@ mod tests {
         assert!(!chats.contains_key("chat-2"), "a row gone goes");
         assert_eq!(chats["chat-3"].indicator, "working", "an older push does not undo the follow");
         assert_eq!(cursor, cursor_at(9));
-        assert!(older_than_held(chats.get("chat-3"), &json!({"listSeq": 8})));
-        assert!(!older_than_held(chats.get("chat-3"), &json!({"listSeq": 9})));
-        assert!(!older_than_held(chats.get("chat-3"), &json!({})), "no position: as before");
-        assert!(!older_than_held(None, &json!({"listSeq": 1})));
+        assert!(older_than_held(chats.get("chat-3"), 0, &json!({"listSeq": 8})));
+        assert!(!older_than_held(chats.get("chat-3"), 0, &json!({"listSeq": 9})));
+        assert!(!older_than_held(chats.get("chat-3"), 0, &json!({})), "no position: as before");
+        assert!(!older_than_held(None, 0, &json!({"listSeq": 1})));
+        assert!(older_than_held(None, 9, &json!({"listSeq": 8})), "the list's position holds it");
     }
 
     /// A follow cut at its size (`more`) goes on from the position it reached, and a watch acpmux
@@ -1679,6 +1686,41 @@ mod tests {
         assert!(!chats.contains_key("chat-1"), "the reset list left it out");
         assert_eq!(chats["chat-2"].list_seq, 3);
         assert_eq!(cursor, Some(ListCursor { epoch: "run-2".to_owned(), seq: 3 }));
+    }
+
+    /// A reset list at position 5 leaves out chat-1, removed before it. Pushes about chat-1 from
+    /// before it (positions 3 and 4) come late, one while the list is still paging and one after
+    /// it is whole: neither brings it back. A push past the list's position still counts.
+    #[test]
+    fn a_push_older_than_a_reset_list_does_not_bring_back_a_chat_it_left_out() {
+        let mux = test_mux("notices-follow-reset-race");
+        let mut chats = held(&["chat-1"], 4);
+        let mut cursor = cursor_at(7);
+        let push = |session: &str, seq: u64| {
+            format!(
+                "{}\n",
+                json!({"jsonrpc": "2.0", "method": "_acpmux/session_changed",
+                "params": {"sessionId": session, "kind": "updated", "session": local(session),
+                    "listSeq": seq}})
+            )
+        };
+        let first = format!(
+            "{}\n",
+            json!({"jsonrpc": "2.0", "id": 2, "result": {"reset": true, "listEpoch": "run-2",
+                "listSeq": 5, "sessions": [local("chat-2")], "nextCursor": "page-2"}})
+        );
+        let (client, serve) = fake_acpmux(vec![
+            format!("{}{first}{}", initialized(true), push("chat-1", 3)),
+            format!("{}{}{}", list_reply(3, &[], None), push("chat-1", 4), push("chat-3", 6)),
+        ]);
+        let _ = follow(&Arc::downgrade(&mux), client, &mut chats, &mut cursor);
+        serve.join().expect("the fake acpmux");
+        assert!(
+            !chats.contains_key("chat-1"),
+            "an older push brought back a chat the list left out"
+        );
+        assert!(chats.contains_key("chat-2"));
+        assert!(chats.contains_key("chat-3"), "a push past the list's position counts");
     }
 
     /// An acpmux without the capability keeps no cursor: the next connection reads the list
