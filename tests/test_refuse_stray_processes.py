@@ -3,8 +3,8 @@
 
 One job builds, signs and publishes, so a detached process left by a build script, a dependency or the app would
 run beside the keychain and the publication secrets. The check counts every process carrying this job's
-RUNNER_TRACKING_ID or working under the runner's _work dir or $RUNNER_TEMP, except the runner and the check's own
-process tree.
+RUNNER_TRACKING_ID or working under the runner's _work dir or $RUNNER_TEMP, except the runner, the processes of the
+job hooks its Runner.Worker was started with, and the check's own process tree.
 """
 from __future__ import annotations
 
@@ -23,6 +23,8 @@ import refuse_stray_processes as stray  # noqa: E402
 
 P = stray.Proc
 WORK = "/Users/ci/actions-runner/_work"
+HOOKS = "/Users/ci/actions-runner/glaeda-hooks"
+PYTHON = "/opt/homebrew/Cellar/python@3.13/3.13.15/Frameworks/Python.framework/Versions/3.13/Resources/Python.app/Contents/MacOS/Python"
 
 
 class Strays(unittest.TestCase):
@@ -63,6 +65,60 @@ class Strays(unittest.TestCase):
         table[900] = P(1, "xcodebuild", False, "/Users/ci/actions-runner-2/_work/cmux/cmux")
         self.assertEqual(stray.strays(table, 400, [WORK]), [])
 
+    def hooked(self, **extra):
+        """The first one-job nightly (run 43366166125): the job-started hook's admission holder and telemetry
+        sampler, forks of the hook that run for the whole job with its environment."""
+        table = self.table(**extra)
+        table[200] = P(100, table[200].command, True, table[200].cwd,
+                       (f"{HOOKS}/job-started.sh", f"{HOOKS}/job-completed.sh"))
+        table[1000] = P(1, f"{PYTHON} {HOOKS}/glaeda-cmux-runner-hook job-started", True, "/")
+        table[1001] = P(1, f"{PYTHON} {HOOKS}/glaeda-cmux-runner-hook job-started", True, "/")
+        return table
+
+    def test_the_runners_job_hook_processes_are_not_strays(self):
+        table = self.hooked()
+        hooks = stray.hook_dirs(table, 400, [WORK])
+        self.assertEqual(hooks, [HOOKS])
+        self.assertEqual(stray.strays(table, 400, [WORK], hooks), [])
+        table[1002] = P(1, f"{HOOKS}/listen.sh", True, "/")
+        self.assertEqual(stray.strays(table, 400, [WORK], hooks), [])
+        self.assertEqual(stray.strays(table, 400, [WORK]), [1000, 1001, 1002], "without a hook they are strays")
+
+    def test_only_a_program_of_the_hook_directory_is_spared(self):
+        table = self.hooked()
+        hooks = stray.hook_dirs(table, 400, [WORK])
+        table[1100] = P(1, f"node {WORK}/cmux/cmux/web/watch.js {HOOKS}/glaeda-cmux-runner-hook", True, "/")
+        table[1101] = P(1, f"/bin/cat -n {HOOKS}/job-started.sh", True, "/")
+        table[1102] = P(1, f"{PYTHON} {HOOKS}-evil/glaeda-cmux-runner-hook", True, "/")
+        table[1103] = P(1, f"{PYTHON} {HOOKS}/deeper/tool", True, "/")
+        table[1104] = P(1, f"{PYTHON} glaeda-hooks/glaeda-cmux-runner-hook", False, f"{WORK}/cmux/cmux")
+        table[1105] = P(1, "node build-helper.js", True, "/")
+        self.assertEqual(stray.strays(table, 400, [WORK], hooks), [1100, 1101, 1102, 1103, 1104, 1105])
+
+    def test_the_hook_directory_comes_from_this_jobs_worker_alone(self):
+        """A step can set the variable for itself and for its children, never for the Runner.Worker above it."""
+        table = self.table()
+        table[300] = P(200, table[300].command, True, table[300].cwd, ("/tmp/evil/job-started.sh",))
+        table[400] = P(300, table[400].command, True, table[400].cwd, ("/tmp/evil/job-started.sh",))
+        table[910] = P(1, "/Users/ci/actions-runner-2/bin/Runner.Worker spawnclient 1 2", False, "/",
+                       ("/Users/ci/actions-runner-2/glaeda-hooks/job-started.sh",))
+        self.assertEqual(stray.hook_dirs(table, 400, [WORK]), [])
+        self.assertEqual(stray.hook_dirs({400: table[400]}, 400, [WORK]), [], "no Runner.Worker above it")
+
+    def test_a_hook_the_job_could_write_is_not_taken(self):
+        for hook in (f"{WORK}/cmux/cmux/hooks/job-started.sh", f"{WORK}/_temp/job-started.sh", "/job-started.sh"):
+            table = self.table()
+            table[200] = P(100, table[200].command, True, table[200].cwd, (hook,))
+            self.assertEqual(stray.hook_dirs(table, 400, [WORK]), [], hook)
+
+    def test_ps_lists_the_hooks_after_the_arguments(self):
+        line = (f"/Users/ci/actions-runner/bin/Runner.Worker spawnclient 1 2 HOME=/Users/ci "
+                f"ACTIONS_RUNNER_HOOK_JOB_STARTED={HOOKS}/job-started.sh PATH=/usr/bin "
+                f"ACTIONS_RUNNER_HOOK_JOB_COMPLETED={HOOKS}/job-completed.sh")
+        self.assertEqual(stray.HOOK_IN_PS.findall(line), [f"{HOOKS}/job-started.sh", f"{HOOKS}/job-completed.sh"])
+        self.assertEqual(stray.HOOK_IN_PS.findall("env NOT_ACTIONS_RUNNER_HOOK_JOB_STARTED=/x/y.sh"), [])
+        self.assertEqual(stray.HOOK_IN_PS.findall("sh ACTIONS_RUNNER_HOOK_JOB_STARTED=relative/y.sh"), [])
+
 
 @unittest.skipUnless(sys.platform.startswith("linux"), "reads /proc")
 class LiveCheck(unittest.TestCase):
@@ -86,6 +142,39 @@ class LiveCheck(unittest.TestCase):
                     env=env, capture_output=True, text=True, timeout=120)
                 self.assertEqual(result.returncode, 1, result.stdout)
                 self.assertIn(f"pid {child.pid}", result.stdout)
+            finally:
+                child.kill()
+                child.wait()
+
+    def test_a_process_the_job_started_hook_left_passes_under_a_worker_with_that_hook(self):
+        """The check runs under a stand-in Runner.Worker started with a job hook, as the runner starts it; the
+        hook's own detached process (an interpreter running the hook's script, as glaeda's holder is) carries the
+        tracking id for the whole job. A step's variable spares nothing."""
+        with tempfile.TemporaryDirectory() as tmp:
+            work, hooks, bin_dir = Path(tmp) / "_work", Path(tmp) / "glaeda-hooks", Path(tmp) / "bin"
+            for made in (work / "_temp", work / "cmux", hooks, bin_dir):
+                made.mkdir(parents=True)
+            worker, holder = bin_dir / "Runner.Worker", hooks / "holder"
+            worker.symlink_to(sys.executable)
+            holder.write_text("import time\ntime.sleep(300)\n")
+            run_step = [str(worker), "-c", "import subprocess, sys; sys.exit(subprocess.call(sys.argv[1:]))"]
+            env = dict(os.environ, RUNNER_TRACKING_ID=f"test-hook-{os.getpid()}", RUNNER_TEMP=str(work / "_temp"),
+                       RUNNER_WORKSPACE=str(work / "cmux"))
+            env.pop("ACTIONS_RUNNER_HOOK_JOB_STARTED", None)
+            hooked = dict(env, ACTIONS_RUNNER_HOOK_JOB_STARTED=str(hooks / "job-started.sh"))
+            check = [sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); import refuse_stray_processes "
+                     "as s; s.GRACE_S = 0; sys.exit(s.main())", str(SCRIPT.parent)]
+            child = subprocess.Popen([sys.executable, str(holder)], env=env, cwd="/", start_new_session=True)
+            try:
+                under_hook = subprocess.run([*run_step, *check], env=hooked, capture_output=True, text=True,
+                                            timeout=120)
+                self.assertEqual(under_hook.returncode, 0, under_hook.stdout + under_hook.stderr)
+                self.assertIn(str(hooks), under_hook.stdout)
+                no_hook = subprocess.run([*run_step, *check], env=env, capture_output=True, text=True, timeout=120)
+                self.assertEqual(no_hook.returncode, 1, no_hook.stdout)
+                self.assertIn(f"pid {child.pid}", no_hook.stdout)
+                step_only = subprocess.run(check, env=hooked, capture_output=True, text=True, timeout=120)
+                self.assertEqual(step_only.returncode, 1, step_only.stdout)
             finally:
                 child.kill()
                 child.wait()
