@@ -474,6 +474,8 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
       if (retrying) return;
       runRetry(recovery.run, recovery.label);
     });
+  const promptOnly = row.toolCount === 0 && !text && !copy && !row.turnWork?.length && !row.changedFiles;
+  if (!failed && promptOnly && !stoppedWord) return null;
   // A failure reads as the turn's answer does: its own block above the footer row, never squeezed
   // into it (Codex, Claude desktop). The row is one quiet line under the answer's left edge; it
   // shows on hover or keyboard focus, and always for a failed turn (VirtualTranscript marks the
