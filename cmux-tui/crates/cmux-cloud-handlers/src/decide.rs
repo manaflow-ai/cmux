@@ -266,7 +266,7 @@ fn palette_status(
     match status.as_str() {
         "paused" | "suspended" => {
             if wants_desktop && !desktop {
-                (PaletteTargetState::DesktopUnavailable, Some(PaletteTargetIntent::CreateDesktop))
+                (PaletteTargetState::Resume, Some(PaletteTargetIntent::StartDesktop))
             } else {
                 (PaletteTargetState::Resume, Some(PaletteTargetIntent::Choose))
             }

@@ -259,14 +259,28 @@ fn palette_desktop_starting_state_wins_over_missing_capability() {
 }
 
 #[test]
-fn paused_desktopless_machine_offers_desktop_recovery() {
-    let machines: Vec<PaletteMachine> = serde_json::from_value(json!([
-        {"id": "paused", "title": "Paused", "status": "paused", "desktop": false}
-    ]))
-    .unwrap();
-    let row = &palette_targets(true, &machines)[0];
-    assert_eq!(row.state, PaletteTargetState::DesktopUnavailable);
-    assert_eq!(row.intent, Some(PaletteTargetIntent::CreateDesktop));
+fn palette_desktop_paused_machine_resumes_and_sets_up_the_same_target() {
+    for status in ["paused", "suspended", " Paused "] {
+        for desktop in [false, true] {
+            let machines = vec![PaletteMachine {
+                id: "paused-machine".into(),
+                title: "Paused".into(),
+                status: status.into(),
+                desktop,
+            }];
+            let row = &palette_targets(true, &machines)[0];
+            assert_eq!(row.id, "paused-machine");
+            assert_eq!(row.state, PaletteTargetState::Resume);
+            assert_eq!(
+                row.intent,
+                Some(if desktop {
+                    PaletteTargetIntent::Choose
+                } else {
+                    PaletteTargetIntent::StartDesktop
+                })
+            );
+        }
+    }
 }
 
 #[test]
