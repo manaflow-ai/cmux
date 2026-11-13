@@ -46,6 +46,7 @@ impl HubWriter {
 
     pub(super) fn start_hydration(&mut self) {
         let Some(snapshot) = self.published.load().disk().cloned() else { return };
+        self.compaction_counters.damaged_snapshot_frames.store(0, Ordering::Relaxed);
         self.hydration = Some(Hydration { rows: snapshot.rows(), snapshot });
     }
 
@@ -69,7 +70,9 @@ impl HubWriter {
             match load.rows.next() {
                 Some(Ok(row)) => next = next.hydrate(row, now),
                 Some(Err(error)) if is_corrupt_snapshot_row(&error) => {
-                    self.log_errors.fetch_add(1, Ordering::Relaxed);
+                    self.compaction_counters
+                        .damaged_snapshot_frames
+                        .fetch_add(1, Ordering::Relaxed);
                 }
                 Some(Err(_)) => {
                     self.log_errors.fetch_add(1, Ordering::Relaxed);

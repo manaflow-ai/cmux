@@ -15,6 +15,7 @@ pub(super) struct Counters {
     pub peak_active_bytes: AtomicU64,
     pub peak_excess_bytes: AtomicU64,
     pub oldest_seq: AtomicU64,
+    pub damaged_snapshot_frames: AtomicU64,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -64,6 +65,12 @@ impl Drop for Job {
 }
 
 impl Hub {
+    /// Damaged frames found by the active snapshot's single hydration walk.
+    /// Page and seek reads do not count; a clean snapshot install resets it.
+    pub fn damaged_snapshot_frames(&self) -> u64 {
+        self.compaction_counters.damaged_snapshot_frames.load(Ordering::Relaxed)
+    }
+
     pub fn compaction_stats(&self) -> CompactionStats {
         let stats = &self.compaction_counters;
         CompactionStats {
@@ -206,6 +213,7 @@ impl HubWriter {
                 }
                 self.retire_origin_sources(&current, &next);
                 self.published.store(Arc::new(next));
+                self.compaction_counters.damaged_snapshot_frames.store(0, Ordering::Relaxed);
                 self.hydration = None;
                 // Only the obsolete shadow root is retired, never rebuilt maps.
                 // Its last drop can visit every key, so it stays off the turn.

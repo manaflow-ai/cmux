@@ -48,7 +48,7 @@ pub use kin::{FolderKey, KinTables};
 pub use log::{IndexLog, replay_generation_logs, replay_log, replay_log_from};
 pub use snapshot::{
     DiskSnapshot, FatalSnapshotRead, SnapshotRows, SortedSnapshot, is_corrupt_snapshot_row,
-    is_fatal_snapshot_read, snapshot_skipped_frames,
+    is_fatal_snapshot_read,
 };
 
 use std::io;

@@ -101,7 +101,6 @@ impl Gauges {
 pub fn daemon_status() -> Value {
     let mut status = global().status();
     status["queues"] = crate::server::queue_gauge::status();
-    status["v2SnapshotSkippedFrames"] = json!(acpmux_book::index::snapshot_skipped_frames());
     status
 }
 
@@ -162,13 +161,6 @@ fn peak_rss_bytes() -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn daemon_status_reports_the_snapshot_reader_skip_counter() {
-        let before = acpmux_book::index::snapshot_skipped_frames();
-        let reported = daemon_status()["v2SnapshotSkippedFrames"].as_u64().unwrap();
-        assert!(reported >= before);
-    }
 
     #[test]
     fn a_phase_reports_its_length_and_a_mark_only_its_first_time() {

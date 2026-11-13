@@ -56,8 +56,8 @@ fn hydration_does_not_restore_a_removed_or_moved_snapshot_row() {
     assert_eq!(window.rows.first().unwrap().last_activity, 200);
 }
 
-#[test]
-fn hydration_skips_a_corrupt_middle_snapshot_row_and_counts_it() {
+#[tokio::test(flavor = "current_thread")]
+async fn hydration_skips_a_corrupt_middle_snapshot_row_and_counts_it() {
     let dir = tempfile::tempdir().unwrap();
     let mut index = SummaryIndex::new();
     for (id, activity) in [("first", 3), ("corrupt", 2), ("last", 1)] {
@@ -85,7 +85,32 @@ fn hydration_skips_a_corrupt_middle_snapshot_row_and_counts_it() {
     assert!(hub.snapshot().get("first").is_some());
     assert!(hub.snapshot().get("corrupt").is_none());
     assert!(hub.snapshot().get("last").is_some());
-    assert!(writer.log_errors() > 0);
+    assert_eq!(hub.damaged_snapshot_frames(), 1);
+    let (other, _) = Hub::new(SummaryIndex::new());
+    assert_eq!(other.damaged_snapshot_frames(), 0);
+    for _ in 0..3 {
+        let frame = hub.list_window(&Sub::new("again", "list")).unwrap();
+        let window: Window<Summary> = frame.decode_json().unwrap();
+        assert_eq!(window.rows.len(), 2);
+    }
+    assert_eq!(hub.damaged_snapshot_frames(), 1);
+    writer = tokio::task::spawn_blocking(move || {
+        writer.next_compaction = Some(std::time::Instant::now());
+        writer.process_batch();
+        writer
+    })
+    .await
+    .unwrap();
+    writer.finish_compaction(true).await;
+    writer = tokio::task::spawn_blocking(move || {
+        writer.process_batch();
+        writer
+    })
+    .await
+    .unwrap();
+    assert!(writer.hydration.is_none());
+    assert_eq!(hub.damaged_snapshot_frames(), 0);
+    assert_eq!(other.damaged_snapshot_frames(), 0);
 }
 
 #[tokio::test(flavor = "current_thread")]

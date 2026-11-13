@@ -21,6 +21,10 @@ pub(crate) struct TeeHandle {
 }
 
 impl TeeHandle {
+    pub(super) fn damaged_snapshot_frames(&self) -> u64 {
+        self.state.hub.upgrade().map_or(0, |hub| hub.damaged_snapshot_frames())
+    }
+
     pub(super) fn mark(&self, id: &str) {
         self.state.mark(id);
     }
@@ -37,6 +41,7 @@ impl TeeHandle {
 
 #[derive(Default)]
 struct TeeState {
+    hub: std::sync::Weak<acpmux_core::hub::Hub>,
     pending: std::sync::Mutex<HashSet<String>>,
     notify: Notify,
     marks: AtomicU64,
@@ -300,7 +305,7 @@ pub(crate) fn start_v2_tee(
     v1: Arc<Hub>,
     v2: Arc<V2>,
 ) -> (Arc<TeeHandle>, impl std::future::Future<Output = ()> + Send + 'static) {
-    let state = Arc::new(TeeState::default());
+    let state = Arc::new(TeeState { hub: Arc::downgrade(&v2.hub), ..TeeState::default() });
     let handle = Arc::new(TeeHandle { state: state.clone() });
     let task = async move {
         let mut expiries = reconcile(&v1, &v2, &state).await;

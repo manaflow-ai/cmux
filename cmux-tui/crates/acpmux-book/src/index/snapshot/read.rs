@@ -144,8 +144,12 @@ impl DiskSnapshot {
                 left_count = left_rows.len().min(limit - right_count);
                 let skip = left_rows.len().saturating_sub(left_count);
                 left_rows.drain(..skip);
-                let first = left_rows.first().map_or(position.ordinal, |row| row.ordinal);
                 left_rows.extend(after.rows.into_iter().take(right_count));
+                let first = left_rows
+                    .first()
+                    .map_or(position.ordinal.saturating_sub(before.scanned as u64), |row| {
+                        row.ordinal
+                    });
                 let next = left_rows.last().map_or(position.offset, |row| row.end);
                 let next_ordinal = left_rows
                     .last()
@@ -236,7 +240,7 @@ impl DiskSnapshot {
         ordinal: u64,
         rows: usize,
         max_bytes: usize,
-    ) -> io::Result<(SnapshotPiece, usize)> {
+    ) -> io::Result<(SnapshotPiece, usize, usize, usize)> {
         if rows == 0 || max_bytes == 0 {
             return Err(page_bound());
         }
@@ -245,6 +249,14 @@ impl DiskSnapshot {
         if forward.scanned == 0 && offset < self.head.data_end {
             return Err(page_bound());
         }
+        let leading = forward
+            .rows
+            .first()
+            .map_or(forward.next_offset, |row| row.start)
+            .saturating_sub(offset) as usize;
+        let trailing =
+            forward.next_offset.saturating_sub(forward.rows.last().map_or(offset, |row| row.end))
+                as usize;
         let piece = self.finish_piece(
             forward.rows,
             forward.first_ordinal.unwrap_or(ordinal + forward.scanned as u64),
@@ -253,7 +265,7 @@ impl DiskSnapshot {
             ordinal + forward.scanned as u64,
             bytes.len(),
         );
-        Ok((piece, forward.skipped))
+        Ok((piece, forward.skipped, leading, trailing))
     }
 
     pub fn first_page(&self, max_bytes: usize) -> io::Result<SnapshotPiece> {
@@ -291,8 +303,10 @@ impl DiskSnapshot {
         bytes_read: usize,
     ) -> SnapshotPiece {
         SnapshotPiece {
-            has_before: first_ordinal > 0,
-            has_after: next_ordinal < self.len(),
+            // An empty terminal piece has no row from which to continue.
+            // Streaming callers still retain its physical offset and ordinal.
+            has_before: !rows.is_empty() && first_ordinal > 0,
+            has_after: !rows.is_empty() && next_ordinal < self.len(),
             rows: rows.into_iter().map(|row| row.summary).collect(),
             physical_count,
             next_ordinal,
@@ -311,7 +325,8 @@ impl DiskSnapshot {
             return Err(super::fatal("short snapshot frame length"));
         }
         let body_len =
-            read_u32(input.get(..4).ok_or_else(|| super::fatal("snapshot frame length")))? as usize;
+            read_u32(input.get(..4).ok_or_else(|| super::fatal("snapshot frame length"))?)?
+                as usize;
         if body_len > crate::index::MAX_INDEX_RECORD_BYTES - 8 {
             return Err(super::fatal("snapshot frame length"));
         }
@@ -340,10 +355,7 @@ impl DiskSnapshot {
             {
                 Ok(Frame::Row(record_value.summary, frame_len))
             }
-            Ok(Some(_)) | Ok(None) | Err(_) => {
-                super::SKIPPED_SNAPSHOT_FRAMES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                Ok(Frame::Skipped(frame_len))
-            }
+            Ok(Some(_)) | Ok(None) | Err(_) => Ok(Frame::Skipped(frame_len)),
         }
     }
 
@@ -373,6 +385,7 @@ impl DiskSnapshot {
                     end += len as u64;
                     rows.push(BufferedRow {
                         summary: Arc::new(summary),
+                        start: end - len as u64,
                         end,
                         ordinal: frame_ordinal,
                     });
@@ -431,6 +444,7 @@ impl DiskSnapshot {
                 Frame::Row(summary, actual) if actual == len && frame.is_empty() => {
                     rows.push(BufferedRow {
                         summary: Arc::new(summary),
+                        start: end - len as u64,
                         end,
                         ordinal: frame_ordinal,
                     });

@@ -10,13 +10,6 @@ use std::io::{self, Read};
 use std::path::Path;
 use std::sync::Arc;
 
-pub(super) static SKIPPED_SNAPSHOT_FRAMES: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(0);
-
-pub fn snapshot_skipped_frames() -> u64 {
-    SKIPPED_SNAPSHOT_FRAMES.load(std::sync::atomic::Ordering::Relaxed)
-}
-
 #[derive(Debug)]
 pub struct CorruptSnapshotRow;
 
@@ -33,11 +26,11 @@ pub fn is_corrupt_snapshot_row(error: &io::Error) -> bool {
 }
 
 #[derive(Debug)]
-pub struct FatalSnapshotRead(pub &'static str);
+pub struct FatalSnapshotRead(String);
 
 impl std::fmt::Display for FatalSnapshotRead {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(self.0)
+        formatter.write_str(&self.0)
     }
 }
 
@@ -48,7 +41,17 @@ pub fn is_fatal_snapshot_read(error: &io::Error) -> bool {
 }
 
 pub(super) fn fatal(message: &'static str) -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidData, FatalSnapshotRead(message))
+    io::Error::new(io::ErrorKind::InvalidData, FatalSnapshotRead(message.to_owned()))
+}
+
+pub(super) fn classify_read_error(error: io::Error) -> io::Error {
+    if is_fatal_snapshot_read(&error) {
+        error
+    } else if matches!(error.kind(), io::ErrorKind::InvalidData | io::ErrorKind::UnexpectedEof) {
+        io::Error::new(io::ErrorKind::InvalidData, FatalSnapshotRead(error.to_string()))
+    } else {
+        error
+    }
 }
 
 #[cfg(test)]
@@ -198,6 +201,7 @@ struct Position {
 
 struct BufferedRow {
     summary: Arc<Summary>,
+    start: u64,
     end: u64,
     ordinal: u64,
 }
@@ -240,20 +244,18 @@ impl Iterator for SnapshotRows {
             // thousands of heap allocations between writer batches, even
             // when every row is cold.
             match self.snapshot.rows_at_tolerant(self.offset, self.ordinal, 64, 32 * 1024) {
-                Ok((piece, skipped)) if piece.next_offset > self.offset => {
+                Ok((piece, skipped, leading, trailing)) if piece.next_offset > self.offset => {
                     self.offset = piece.next_offset;
                     self.ordinal += piece.physical_count as u64;
                     self.skipped += skipped;
                     self.pending_errors += skipped;
-                    if piece.rows.is_empty() {
-                        self.skipped_bytes = self.skipped_bytes.saturating_add(piece.bytes_read);
-                        if self.skipped_bytes > PAGE_BYTES {
-                            self.failed = true;
-                            return Some(Err(fatal("snapshot corrupt run exceeds bounded read")));
-                        }
-                    } else {
-                        self.skipped_bytes = 0;
+                    let consecutive = self.skipped_bytes.saturating_add(leading);
+                    if consecutive > PAGE_BYTES {
+                        self.failed = true;
+                        self.pending_errors = 0;
+                        return Some(Err(fatal("snapshot corrupt run exceeds bounded read")));
                     }
+                    self.skipped_bytes = if piece.rows.is_empty() { consecutive } else { trailing };
                     self.rows = piece.rows.into_iter();
                     // A piece may consist entirely of skipped rows; return
                     // one bounded error per physical row before loading more.
@@ -262,7 +264,7 @@ impl Iterator for SnapshotRows {
                     self.failed = true;
                     return Some(Err(result
                         .err()
-                        .unwrap_or_else(|| codec::invalid("snapshot made no progress"))));
+                        .unwrap_or_else(|| fatal("snapshot made no progress"))));
                 }
             }
         }
@@ -288,6 +290,10 @@ impl DiskSnapshot {
 
     /// Reads only the fixed head, never the sparse table or the rows.
     pub fn open(path: impl AsRef<Path>) -> io::Result<Option<Arc<Self>>> {
+        Self::open_inner(path.as_ref()).map_err(classify_read_error)
+    }
+
+    fn open_inner(path: &Path) -> io::Result<Option<Arc<Self>>> {
         let file = match File::open(path) {
             Ok(file) => file,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
@@ -398,7 +404,7 @@ impl DiskSnapshot {
 #[cfg(unix)]
 fn read_at(file: &File, bytes: &mut [u8], offset: u64) -> io::Result<()> {
     use std::os::unix::fs::FileExt;
-    file.read_exact_at(bytes, offset)
+    file.read_exact_at(bytes, offset).map_err(classify_read_error)
 }
 
 #[cfg(windows)]
@@ -407,7 +413,7 @@ fn read_at(file: &File, mut bytes: &mut [u8], mut offset: u64) -> io::Result<()>
     while !bytes.is_empty() {
         let read = file.seek_read(bytes, offset)?;
         if read == 0 {
-            return Err(io::Error::from(io::ErrorKind::UnexpectedEof));
+            return Err(fatal("short snapshot read"));
         }
         offset += read as u64;
         bytes = bytes.get_mut(read..).ok_or_else(|| codec::invalid("short read"))?;

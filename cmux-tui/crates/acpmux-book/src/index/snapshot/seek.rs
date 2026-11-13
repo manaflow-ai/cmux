@@ -18,7 +18,7 @@ impl DiskSnapshot {
             self.directory_offset() + (index * CHECKPOINT_BYTES) as u64,
         )?;
         *bytes_read += bytes.len();
-        let checkpoint = Checkpoint::decode(&bytes)?;
+        let checkpoint = Checkpoint::decode(&bytes).map_err(super::classify_read_error)?;
         if checkpoint.offset < HEADER_BYTES as u64
             || checkpoint.offset >= self.head.data_end
             || checkpoint.ordinal >= self.head.count

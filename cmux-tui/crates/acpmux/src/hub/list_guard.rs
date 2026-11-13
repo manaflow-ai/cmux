@@ -61,6 +61,10 @@ impl Events {
         let _ = self.tee.set(tee);
     }
 
+    pub(super) fn damaged_snapshot_frames(&self) -> u64 {
+        self.tee.get().map_or(0, |tee| tee.damaged_snapshot_frames())
+    }
+
     fn mark_tee(&self, id: &str) {
         if let Some(tee) = self.tee.get() {
             tee.mark(id);
