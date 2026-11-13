@@ -3,15 +3,21 @@
 //! else as the streamed copy. The machine side is the real `FsService` and
 //! `GitSeedService` behind a socket that answers lines the way the daemon
 //! does; "GitHub" is a folder of bare repositories the service clones from
-//! (`GitSeedService::with_test_github`).
+//! (`GitSeedService::with_test_github`). With `--store`, a fake platform
+//! (`/v1/sync/*`) holds the bundle's blobs and the machine's real
+//! `BlobFetchService` fetches them from it.
 #![cfg(unix)]
 
-use std::io::{BufRead as _, BufReader, Write as _};
+use std::collections::HashMap;
+use std::io::{BufRead as _, BufReader, Read as _, Write as _};
+use std::net::TcpListener;
 use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
+use cmux_tui_core::blob_fetch::{self, BlobFetchService};
 use cmux_tui_core::fs_ops::{FsService, Roots};
 use cmux_tui_core::git_seed::{self, GitSeedService};
 use serde_json::{Value, json};
@@ -46,6 +52,8 @@ enum Serves {
     Hold,
     /// Another build without `git-seed-v1`.
     CopyOnly,
+    /// `git-seed-v1` and `blob-fetch-v2`: it fetches from the store.
+    Fetch,
 }
 
 /// One test's world: "GitHub", this Mac's working copy, the machine's home
@@ -60,6 +68,8 @@ struct World {
     socket: PathBuf,
     /// `fs.write` requests the machine answered.
     writes: &'static AtomicUsize,
+    /// Those of them that wrote a seed bundle (or its part file).
+    bundle_writes: &'static AtomicUsize,
 }
 
 impl World {
@@ -94,8 +104,18 @@ impl World {
         std::fs::create_dir_all(home.join("work")).unwrap();
         let sockets = tempfile::Builder::new().prefix("ls").tempdir_in("/tmp").unwrap();
         let socket = sockets.path().join("m.sock");
-        let writes = serve(&socket, &home, &github, serves);
-        Self { _dir: dir, _sockets: sockets, root, github, work, home, socket, writes }
+        let (writes, bundle_writes) = serve(&socket, &home, &github, serves);
+        Self {
+            _dir: dir,
+            _sockets: sockets,
+            root,
+            github,
+            work,
+            home,
+            socket,
+            writes,
+            bundle_writes,
+        }
     }
 
     fn remote(&self, name: &str) -> PathBuf {
@@ -104,14 +124,24 @@ impl World {
 
     /// `cmux link seed ARGS`: exit status, its answer line, its stderr lines.
     fn seed(&self, args: &[&str]) -> (bool, Value, Vec<Value>) {
-        let output = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+        self.seed_with_stdin(args, "")
+    }
+
+    /// [`Self::seed`] with `stdin` on its standard input (`--store`'s credential).
+    fn seed_with_stdin(&self, args: &[&str], stdin: &str) -> (bool, Value, Vec<Value>) {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
             .env("CMUX_TUI_STATE_DIR", self.root.join("state"))
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .args(["link", "seed"])
             .args(args)
-            .output()
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
             .unwrap();
+        child.stdin.take().unwrap().write_all(stdin.as_bytes()).unwrap();
+        let output = child.wait_with_output().unwrap();
         let answer = serde_json::from_slice(&output.stdout).unwrap_or_else(|_| {
             panic!(
                 "one JSON answer on stdout: {}{}",
@@ -145,15 +175,25 @@ impl World {
     }
 }
 
-/// Serves `fs.*` and `git.seed.*` lines (and `identify`) on `socket`, one
-/// thread per connection, until the test process ends.
-fn serve(socket: &Path, home: &Path, github: &Path, serves: Serves) -> &'static AtomicUsize {
+/// Serves `fs.*`, `git.seed.*` and (for [`Serves::Fetch`]) `blob.fetch.*`
+/// lines (and `identify`) on `socket`, one thread per connection, until the
+/// test process ends. Returns the count of `fs.write` requests, and of those
+/// that wrote a bundle.
+fn serve(
+    socket: &Path,
+    home: &Path,
+    github: &Path,
+    serves: Serves,
+) -> (&'static AtomicUsize, &'static AtomicUsize) {
     let listener = UnixListener::bind(socket).unwrap();
     let roots = Roots::new([home.to_path_buf()]);
     let fs: &'static FsService = Box::leak(Box::new(FsService::new(roots.clone())));
+    let fetch: &'static BlobFetchService =
+        Box::leak(Box::new(BlobFetchService::new(roots.clone())));
     let seed: &'static GitSeedService =
         Box::leak(Box::new(GitSeedService::with_test_github(roots, github)));
     let writes: &'static AtomicUsize = Box::leak(Box::default());
+    let bundle_writes: &'static AtomicUsize = Box::leak(Box::default());
     std::thread::spawn(move || {
         for connection in listener.incoming() {
             let Ok(connection) = connection else { return };
@@ -169,9 +209,15 @@ fn serve(socket: &Path, home: &Path, github: &Path, serves: Serves) -> &'static 
                             Serves::Seed => json!(["fs-v1", "git-seed-v1"]),
                             Serves::Hold => json!(["fs-v1", "git-seed-v1", "git-seed-hold-v2"]),
                             Serves::CopyOnly => json!(["fs-v1"]),
+                            Serves::Fetch => {
+                                json!(["fs-v1", "git-seed-v1", blob_fetch::BLOB_FETCH_CAPABILITY])
+                            }
                         };
                         json!({"id": id, "ok": true, "data": {"capabilities": capabilities,
                                "build_id": "machine-build", "session_id": "machine-a"}})
+                    } else if serves == Serves::Fetch && blob_fetch::frame_command(&line).is_some()
+                    {
+                        blob_fetch::answer_line(Some(fetch), true, &line)
                     } else if git_seed::frame_command(&line).is_some() {
                         if serves != Serves::CopyOnly {
                             git_seed::answer_line(Some(seed), true, &line)
@@ -182,6 +228,10 @@ fn serve(socket: &Path, home: &Path, github: &Path, serves: Serves) -> &'static 
                     } else {
                         if cmd == "fs.write" {
                             writes.fetch_add(1, Ordering::SeqCst);
+                            if request["path"].as_str().is_some_and(|path| path.contains(".bundle"))
+                            {
+                                bundle_writes.fetch_add(1, Ordering::SeqCst);
+                            }
                         }
                         let request = request.as_object().cloned().unwrap_or_default();
                         let seeds = (serves == Serves::Hold).then_some(seed);
@@ -198,7 +248,141 @@ fn serve(socket: &Path, home: &Path, github: &Path, serves: Serves) -> &'static 
             });
         }
     });
-    writes
+    (writes, bundle_writes)
+}
+
+const CREDENTIAL: &str = "person-token-for-tests";
+const GRANT: &str = "csg_read-grant-for-tests-0123456789";
+
+/// The platform's sync store (`/v1/sync/*`), one user: the bytes uploaded to it.
+#[derive(Default)]
+struct Store {
+    blobs: Mutex<HashMap<String, Vec<u8>>>,
+    uploaded: AtomicU64,
+}
+
+fn serve_store() -> (String, Arc<Store>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+    let store = Arc::new(Store::default());
+    let shared = store.clone();
+    std::thread::spawn(move || {
+        for connection in listener.incoming() {
+            let Ok(connection) = connection else { return };
+            let store = shared.clone();
+            std::thread::spawn(move || answer_http(connection, &store));
+        }
+    });
+    (origin, store)
+}
+
+fn answer_http(mut connection: std::net::TcpStream, store: &Store) {
+    let mut reader = BufReader::new(connection.try_clone().unwrap());
+    let mut first = String::new();
+    if reader.read_line(&mut first).unwrap_or(0) == 0 {
+        return;
+    }
+    let (mut length, mut bearer) = (0usize, String::new());
+    loop {
+        let mut header = String::new();
+        if reader.read_line(&mut header).unwrap_or(0) == 0 || header == "\r\n" {
+            break;
+        }
+        let lower = header.to_ascii_lowercase();
+        if let Some(value) = lower.strip_prefix("content-length:") {
+            length = value.trim().parse().unwrap_or(0);
+        }
+        if lower.starts_with("authorization:") {
+            bearer = header.trim().rsplit(' ').next().unwrap_or("").to_string();
+        }
+    }
+    let mut body = vec![0u8; length];
+    reader.read_exact(&mut body).unwrap();
+    let mut parts = first.split(' ');
+    let (method, path) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
+    let person = bearer == CREDENTIAL;
+    let hex = |bytes: &[u8]| -> String {
+        sha2::Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
+    };
+    let (status, reply): (&str, Vec<u8>) = match (method, path) {
+        _ if !(person || (method == "GET" && bearer == GRANT)) => ("401 Unauthorized", vec![]),
+        ("POST", "/v1/sync/blobs/missing") => {
+            let asked: Value = serde_json::from_slice(&body).unwrap();
+            let blobs = store.blobs.lock().unwrap();
+            let missing: Vec<&str> = asked["sha256"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(Value::as_str)
+                .filter(|hash| !blobs.contains_key(*hash))
+                .collect();
+            ("200 OK", json!({ "missing": missing }).to_string().into_bytes())
+        }
+        ("POST", "/v1/sync/grants") => (
+            "200 OK",
+            json!({"grant": GRANT, "expiresAt": "2099-01-01T00:00:00Z"}).to_string().into_bytes(),
+        ),
+        ("PUT", path) => {
+            let hash = path.trim_start_matches("/v1/sync/blobs/");
+            if hex(&body) != hash {
+                ("400 Bad Request", vec![])
+            } else {
+                store.uploaded.fetch_add(body.len() as u64, Ordering::SeqCst);
+                store.blobs.lock().unwrap().insert(hash.to_string(), body);
+                ("200 OK", b"{}".to_vec())
+            }
+        }
+        ("GET", path) => {
+            let hash = path.trim_start_matches("/v1/sync/blobs/");
+            match store.blobs.lock().unwrap().get(hash) {
+                Some(blob) => ("200 OK", blob.clone()),
+                None => ("404 Not Found", vec![]),
+            }
+        }
+        _ => ("404 Not Found", vec![]),
+    };
+    let head = format!(
+        "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+        reply.len()
+    );
+    let _ = connection.write_all(head.as_bytes());
+    let _ = connection.write_all(&reply);
+}
+
+/// Bytes that do not compress, so a bundle carrying them is past the store's 1 MiB floor.
+fn noise(seed: u64, len: usize) -> Vec<u8> {
+    let mut state = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+    (0..len)
+        .map(|_| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state >> 24) as u8
+        })
+        .collect()
+}
+
+impl World {
+    /// An unpushed commit of a 3 MiB file the remote lacks, so the bundle carries it.
+    fn commit_big_file(&self) {
+        std::fs::create_dir_all(self.work.join("assets")).unwrap();
+        std::fs::write(self.work.join("assets/model.bin"), noise(11, 3 * 1024 * 1024)).unwrap();
+        git(&self.work, &["add", "assets/model.bin"]);
+        git(&self.work, &["commit", "-q", "-m", "big"]);
+    }
+
+    /// A full seed push, through the store at `origin` when given (`--store`).
+    fn push_through(&self, remote: &Path, origin: Option<&str>) -> (bool, Value, Vec<Value>) {
+        let mut args = vec!["push", "--socket", self.socket.to_str().unwrap()];
+        args.extend([self.work.to_str().unwrap(), remote.to_str().unwrap()]);
+        match origin {
+            Some(origin) => {
+                args.extend(["--store", origin]);
+                self.seed_with_stdin(&args, &format!("{CREDENTIAL}\n"))
+            }
+            None => self.seed(&args),
+        }
+    }
 }
 
 /// Every file below `root` but `.git`, by relative path.
@@ -659,4 +843,50 @@ fn a_folder_the_machine_already_has_gets_the_plain_copy() {
     assert!(copied.get("filling").is_none(), "{copied}");
     assert_eq!(copied["copy"]["written"], json!(7), "{copied}");
     assert_eq!(std::fs::read_to_string(remote.join("theirs.txt")).unwrap(), "the machine's\n");
+}
+
+#[test]
+fn a_seed_bundle_goes_through_the_store_when_the_machine_fetches_from_it() {
+    let w = World::new(Serves::Fetch);
+    w.commit_big_file();
+    let (origin, store) = serve_store();
+    let remote = w.remote("widget");
+
+    let (ok, seeded, progress) = w.push_through(&remote, Some(&origin));
+    assert!(ok, "{seeded}");
+    assert_eq!(seeded["mode"], json!("seed"), "{seeded}");
+    let bundle = seeded["bundle_bytes"].as_u64().unwrap();
+    assert!(bundle >= 1024 * 1024, "the bundle is under the store's floor: {seeded}");
+    // The bundle's bytes went up to the store and the machine fetched them:
+    // none of it crossed the link as `fs.write`.
+    assert!(store.uploaded.load(Ordering::SeqCst) >= bundle, "{seeded}");
+    assert_eq!(w.bundle_writes.load(Ordering::SeqCst), 0, "the bundle went over the link");
+    assert!(
+        !progress.iter().any(|line| line["store"]["used"] == json!(false)),
+        "the store was refused: {progress:?}"
+    );
+    // The seed itself is whole: the branch at HEAD and the tree.
+    assert_eq!(git(&remote, &["rev-parse", "HEAD"]), git(&w.work, &["rev-parse", "HEAD"]));
+    assert_eq!(files(&remote), files(&w.work));
+}
+
+#[test]
+fn a_seed_bundle_goes_over_the_link_without_a_store_or_a_machine_that_fetches_from_it() {
+    // A machine without `blob-fetch-v2`, with the store on; and a machine
+    // that fetches, with no store: both get the bundle over the link.
+    for (serves, store_on) in [(Serves::Seed, true), (Serves::Fetch, false)] {
+        let w = World::new(serves);
+        w.commit_big_file();
+        let (origin, store) = serve_store();
+        let remote = w.remote("widget");
+
+        let (ok, seeded, _) = w.push_through(&remote, store_on.then_some(origin.as_str()));
+        assert!(ok, "{seeded}");
+        assert_eq!(seeded["mode"], json!("seed"), "{seeded}");
+        assert!(seeded["bundle_bytes"].as_u64().unwrap() >= 1024 * 1024, "{seeded}");
+        assert_eq!(store.uploaded.load(Ordering::SeqCst), 0, "the store got the bundle");
+        assert!(w.bundle_writes.load(Ordering::SeqCst) > 0, "the bundle never crossed the link");
+        assert_eq!(git(&remote, &["rev-parse", "HEAD"]), git(&w.work, &["rev-parse", "HEAD"]));
+        assert_eq!(files(&remote), files(&w.work));
+    }
 }

@@ -24,7 +24,10 @@
 //! `seed.since_mismatch` and `seed.machine_changed` are errors.
 //!
 //! The bundle is uploaded through `fs-v1` beside REMOTE
-//! (`REMOTE/../.cmux-seed-<id>.bundle`, inside the machine's fs roots), then
+//! (`REMOTE/../.cmux-seed-<id>.bundle`, inside the machine's fs roots), or
+//! through the content-addressed store when one is on (`--store
+//! PLATFORM|default`, the cmux credential on stdin, as `cmux link sync push`
+//! takes it) and the machine fetches from it ([`sync_cli::upload`]), then
 //! `git.seed.start` runs the seed as a job on the machine, and the job is
 //! read with one `git.seed.status` request every [`STATUS_EVERY`] until it
 //! ends or [`SEED_DEADLINE`] passes. That wait is inside this process. A start
@@ -97,7 +100,8 @@ use record::{Kept, Record};
 use sync_cli::SeedBase;
 
 const USAGE: &str = "usage: cmux link seed push --socket PATH LOCAL_FOLDER REMOTE_FOLDER \
-[--since-last | --seed-only | --head-first SUBPATH] [--allow-large]
+[--since-last | --seed-only | --head-first SUBPATH] [--store PLATFORM|default] [--allow-large]
+       (--store: the bundle through the content-addressed store, the cmux credential on stdin)
        cmux link seed clone --socket PATH --repo OWNER/NAME [--ref REF] REMOTE_FOLDER
        cmux link seed pull --socket PATH LOCAL_FOLDER REMOTE_FOLDER \
 [--or-copy | --base-head SHA --base-index SHA --base-work SHA]
@@ -267,6 +271,7 @@ pub(super) fn run(args: &[String]) -> i32 {
         "--repo",
         "--ref",
         "--head-first",
+        "--store",
         "--base-head",
         "--base-index",
         "--base-work",
@@ -295,7 +300,13 @@ pub(super) fn run(args: &[String]) -> i32 {
             println!("{line}");
             return code;
         }
-        Command::Push { socket, local, remote, since_last, seed_only, head_first } => {
+        Command::Push { socket, local, remote, since_last, seed_only, head_first, store } => {
+            if let Some(store) = store
+                && let Err(error) = sync_cli::store_from_stdin(&store, &mut std::io::stdin().lock())
+            {
+                println!("{}", SeedError::new("unauthorized", error).line());
+                return 1;
+            }
             let pushed = if since_last {
                 push_since_last(&socket, &local, &remote)
             } else if seed_only {
@@ -336,6 +347,8 @@ enum Command {
         since_last: bool,
         seed_only: bool,
         head_first: Option<String>,
+        /// `--store PLATFORM|default`: the bundle through the content-addressed store.
+        store: Option<String>,
     },
     Clone {
         socket: PathBuf,
@@ -356,7 +369,7 @@ enum Command {
 fn parse(args: &[String]) -> Option<Command> {
     let (action, rest) = args.split_first()?;
     let (mut socket, mut repo, mut git_ref, mut since_last) = (None, None, None, false);
-    let (mut or_copy, mut seed_only, mut head_first) = (false, false, None);
+    let (mut or_copy, mut seed_only, mut head_first, mut store) = (false, false, None, None);
     let (mut adopt, mut find_root) = (false, false);
     let (mut head, mut index, mut work) = (None, None, None);
     let mut positional = Vec::new();
@@ -372,6 +385,7 @@ fn parse(args: &[String]) -> Option<Command> {
             "--adopt" => adopt = true,
             "--find-root" => find_root = true,
             "--head-first" => head_first = Some(rest.next()?.clone()),
+            "--store" => store = Some(rest.next()?.clone()),
             "--base-head" => head = Some(rest.next()?.clone()),
             "--base-index" => index = Some(rest.next()?.clone()),
             "--base-work" => work = Some(rest.next()?.clone()),
@@ -394,6 +408,9 @@ fn parse(args: &[String]) -> Option<Command> {
     };
     let plain = repo.is_none() && git_ref.is_none();
     if head_first.is_some() && (action != "push" || since_last) {
+        return None;
+    }
+    if store.is_some() && action != "push" {
         return None;
     }
     match (action.as_str(), positional.as_slice()) {
@@ -426,6 +443,7 @@ fn parse(args: &[String]) -> Option<Command> {
             since_last,
             seed_only,
             head_first,
+            store,
         }),
         _ if seed_only => None,
         ("clone", [remote]) if !since_last => {
