@@ -13,6 +13,7 @@ import {
   LIMITS,
   nextExpiry,
   OPEN_EXPIRY_MS,
+  tellHeld,
   parseReport,
   PER_REPORTER_STORED,
   retryable,
@@ -226,13 +227,19 @@ describe("the desk", () => {
     for (let i = 0; i < LIMITS.perReporterPerHour; i++) applyReport(desk, onMac(i), tina, TEAM, AWAKE(T0), T0)
     applyReport(desk, onMac(80), tina, TEAM, AWAKE(T0), T0 + 1)
     applyReport(desk, onMac(81), tina, TEAM, AWAKE(T0), T0 + 2)
-    expect(text(applyReport(desk, onMac(82), ted, TEAM, AWAKE(T0), T0 + 3))).toContain("• 2 more incidents were held back in the last hour (rate limit)")
-    // Held long ago and never told: not "in the last hour" any more, so not said.
-    const old = emptyDesk()
-    for (let i = 0; i < LIMITS.perReporterPerHour; i++) applyReport(old, onMac(i), tina, TEAM, AWAKE(T0), T0)
-    applyReport(old, onMac(90), tina, TEAM, AWAKE(T0), T0 + 1)
-    const later = applyReport(old, onMac(91, T0 + 2 * 3_600_000), ted, TEAM, AWAKE(T0 + 2 * 3_600_000), T0 + 2 * 3_600_000)
-    expect(text(later)).not.toContain("held back")
+    expect(text(applyReport(desk, onMac(82), ted, TEAM, AWAKE(T0), T0 + 3))).toContain("• 2 more incidents were held back since the last post (rate limit)")
+    // Held and no post came after it within the hour: the desk tells it on its own, once.
+    const quiet = emptyDesk()
+    for (let i = 0; i < LIMITS.perReporterPerHour; i++) applyReport(quiet, onMac(i), tina, TEAM, AWAKE(T0), T0)
+    const lone = onMac(90)
+    applyReport(quiet, lone, tina, TEAM, AWAKE(T0), T0 + 1)
+    applyReport(quiet, { ...lone, state: "ended", endReason: "mac_offline" }, tina, TEAM, AWAKE(T0), T0 + 2)
+    expect(nextExpiry(quiet)).toBe(T0 + 1 + 3_600_000)
+    expect(tellHeld(quiet, T0 + 3_600_000)).toEqual([])
+    expect(tellHeld(quiet, T0 + 1 + 3_600_000)).toEqual([
+      { kind: "notice", route: "team", text: expect.stringContaining("1 more connectivity incident was held back by the hourly limit and not posted (tina@manaflow.ai)") }
+    ])
+    expect(tellHeld(quiet, T0 + 2 * 3_600_000)).toEqual([])
   })
 
   it("closes a message whose end never came, and still takes a late end", () => {
@@ -268,7 +275,7 @@ describe("the desk", () => {
     expect(applyReport(desk, held, tina, TEAM, AWAKE(T0), T0 + 10)).toMatchObject({ accepted: true, note: "rate_limited", actions: [] })
     // Another teammate still gets through, and the post says one incident was held back.
     const next = applyReport(desk, onMac(50), ted, TEAM, AWAKE(T0), T0 + 20)
-    expect(text(next)).toContain("• 1 more incident was held back in the last hour (rate limit)")
+    expect(text(next)).toContain("• 1 more incident was held back since the last post (rate limit)")
     // The held incident's end is posted as a whole once the hour has passed.
     const late = applyReport(desk, { ...held, state: "resolved", durationMs: 50_000 }, tina, TEAM, AWAKE(T0), T0 + 3_600_001)
     expect(late.actions.map((a) => a.kind)).toEqual(["post"])
@@ -292,15 +299,36 @@ describe("the desk", () => {
     expect(desk.meta.held.team).toHaveLength(1)
     // The next post is an end (its start was lost to a relaunch): it still carries the count.
     const endOnly = applyReport(desk, report({ mac: { id: "mac-77-0000", name: "M" }, state: "ended", endReason: "app_relaunched" }, T0 + 3), ted, TEAM, AWAKE(T0), T0 + 3)
-    expect(text(endOnly)).toContain("• 1 more incident was held back in the last hour (rate limit)")
+    expect(text(endOnly)).toContain("• 1 more incident was held back since the last post (rate limit)")
     expect(desk.meta.held.team).toEqual([])
   })
 
-  it("keeps at most 100 incidents per reporter", () => {
+  it("keeps at most 100 incidents per reporter, making room by dropping held-only ones first", () => {
     const desk = emptyDesk()
-    for (let i = 0; i < PER_REPORTER_STORED; i++) applyReport(desk, report({ mac: { id: `mac-${i}-0000`, name: "M" } }), tina, TEAM, { liveness: null }, T0)
-    expect(applyReport(desk, report(), tina, TEAM, AWAKE(T0), T0)).toMatchObject({ note: "reporter_cap", actions: [], changed: [] })
-    expect(applyReport(desk, report(), ted, TEAM, AWAKE(T0), T0).actions).toHaveLength(1)
+    // 100 suppressed incidents (the Mac was offline): a real one still posts, evicting the oldest.
+    for (let i = 0; i < PER_REPORTER_STORED; i++) applyReport(desk, report({ mac: { id: `mac-${i}-0000`, name: "M" } }), tina, TEAM, { liveness: null }, T0 + i)
+    const real = applyReport(desk, report(), tina, TEAM, AWAKE(T0 + 200), T0 + 200)
+    expect(real.actions).toHaveLength(1)
+    expect(real.removed).toHaveLength(1)
+    // 100 that posted: none can go, so the next is refused (their ends must still find their messages).
+    const full = emptyDesk()
+    for (let i = 0; i < PER_REPORTER_STORED; i++) {
+      full.meta.posted = []
+      applyReport(full, report({ mac: { id: `mac-${i}-0000`, name: "M" } }), tina, TEAM, AWAKE(T0), T0)
+    }
+    full.meta.posted = []
+    expect(applyReport(full, report(), tina, TEAM, AWAKE(T0), T0)).toMatchObject({ note: "reporter_cap", actions: [] })
+    expect(applyReport(full, report(), ted, TEAM, AWAKE(T0), T0).actions).toHaveLength(1)
+  })
+
+  it("is not fooled by a phone clock that runs fast or slow", () => {
+    // The link stopped 31 s before the phone saw it; the phone's clock is 2 minutes fast.
+    const fast = report({ startedAt: new Date(T0 + 120_000 - 31_000).toISOString(), observedAt: new Date(T0 + 120_000).toISOString() }, T0 + 120_000)
+    expect(startVerdict(fast, { liveness: { connected: true, lastPingAt: T0 - 20_000, pings: true } }, T0)).toBeUndefined()
+    expect(startVerdict(fast, { liveness: { connected: true, lastPingAt: T0 - 40_000, pings: true } }, T0)).toBe("mac_asleep")
+    // 2 minutes slow.
+    const slow = report({ startedAt: new Date(T0 - 120_000 - 31_000).toISOString(), observedAt: new Date(T0 - 120_000).toISOString() }, T0 - 120_000)
+    expect(startVerdict(slow, { liveness: { connected: true, lastPingAt: T0 - 120_000 - 20_000, pings: true } }, T0)).toBeUndefined()
   })
 
   it("flags a likely service outage when teammates lose Macs together, and a service the phone could not reach", () => {

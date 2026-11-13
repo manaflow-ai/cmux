@@ -3,6 +3,7 @@ import CmuxMobileAgentChat
 import CmuxMobileArtifacts
 import CmuxMobileBrowserStream
 import CmuxMobileChief
+import CmuxConnectivityTelemetry
 import CmuxMobileDesign
 import CmuxMobileFeed
 import CmuxMobileModel
@@ -197,7 +198,8 @@ public final class LiveCoordinator {
         readMarks: FeedReadMarks? = nil,
         pins: MacPins? = nil,
         push: PushKeys? = nil,
-        clock: any Clock<Duration> = ContinuousClock()
+        clock: any Clock<Duration> = ContinuousClock(),
+        watchesConnectivity: Bool = true
     ) {
         self.secrets = secrets
         ConnectTimeline.shared.mark("coordinator_start")
@@ -216,8 +218,11 @@ public final class LiveCoordinator {
         self.blockUDP = blockUDP
         self.dialer = dialer
         let apiForIncidents = api
+        // A headless coordinator (a notification reply on a cold background launch) never watches: its
+        // reporter has no file, so it neither sends nor recovers the app's own open incidents.
         incidents = ConnectivityIncidentReporter(
-            file: ConnectivityIncidentReporter.file(account: userID), clock: clock,
+            file: watchesConnectivity ? ConnectivityIncidentReporter.file(account: userID) : nil, clock: clock,
+            isTeam: watchesConnectivity ? { ConnectivityTelemetry.shared.audience == .team } : { false },
             check: ConnectivityIncidentReporter.liveCheck(serviceBase: api.baseURL),
             send: { incident, simulations, app in
                 try await apiForIncidents.reportConnectivityIncident(incident, simulations: simulations, app: app)

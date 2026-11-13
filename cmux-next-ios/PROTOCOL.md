@@ -924,8 +924,9 @@ Nothing here changes the wire; it is how a phone keeps a dial short.
   `ping`, which the hub answers with `pong` without waking (a hibernation
   auto-response) and whose time it keeps: it tells a Mac that is awake from
   one that slept with its socket half open ("Connectivity incidents"). An
-  older Worker answers `ping` with a `bad_request` error frame; both are
-  ignored by the reader. A reused socket that does not answer a ping within
+  older Worker answers `ping` with a session-less `bad_request` error frame:
+  the reader counts the pings it sent and swallows one such answer per ping,
+  so it never fails a dial in flight; `pong` is dropped the same way. A reused socket that does not answer a ping within
   2.5 s while a dial runs is replaced and the dial redone.
 - `GET /v1/ice` is cached for half its `ttl` (60 s when it lists no TURN
   server) by the phone and by `cmux-mobile-host`, which refreshes it in the
@@ -1575,7 +1576,8 @@ Only when the signed-in account's connectivity audience is the team (`Connectivi
   `https://captive.apple.com/hotspot-detect.html` and `GET /v1/health` at once: if the internet does not
   answer, the phone itself is offline, nothing is sent, and the 30 s start again from that check.
   `serviceReachable` says whether the cmux service answered.
-- `link_unstable`: three drops of a live link (its stream ended or a probe went unanswered) in five
+- `link_unstable`: three drops of a live link that came back within 20 s while the Mac stayed online (a
+  drop where the Mac itself went away, or that turned into an unreachable stretch, is not instability) (its stream ended or a probe went unanswered) in five
   minutes, not counting drops in the 10 s after the app came to the front or the network changed. The
   same reachability check gates it. At most one per Mac per 30 minutes. It is reported only once the link is up again (the Mac is then awake; one that went to sleep never reconnects).
 - Not reported: a Mac presence calls offline, a link no longer used, a slow connect that succeeds, time in
@@ -1632,8 +1634,11 @@ as `app_relaunched`, at the time it was last seen.
   (5 s, 30 s, 2 min, 10 min, then every 30 min) for as long as the incident is kept. Any other Slack error
   drops that call (logged), so one bad call never holds up the alerts behind it.
 - At most 5 new incidents per reporter and 20 overall per hour per channel, thread replies included. Each
-  held-back incident is counted once, and the next post (whatever its state) says how many were held back
-  in the last hour; an end whose start was held back is posted whole later. A Mac outage that two or more
+  held-back incident is counted once; the next post (whatever its state) says how many were held back
+  since the last post, and if none comes within the hour the desk posts that count (and whose) on its own.
+  An end whose start was held back is posted whole later. One open incident per Mac at a time.
+- The verdict uses the phone's own `observedAt - startedAt` with the server's clock, so a phone clock that
+  runs fast or slow does not change it. A Mac outage that two or more
   teammates hit within 10 minutes is flagged as likely service-side; a phone that could not reach the
   service is flagged as a likely service outage.
 - 10 reports a minute per user (`INCIDENT_LIMIT`).

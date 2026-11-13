@@ -246,10 +246,11 @@ import Testing
         #expect(later.isEmpty)
     }
 
-    @Test func dropsSurviveTheMacBlinkingOfflineAndAddUpToAnUnstableLink() throws {
+    @Test func aMacThatRestartsOrSleepsIsNotAnUnstableLink() {
         var d = detector()
         _ = connected(&d, at: 20)
-        // Each time the host dies the link drops and presence blinks offline; it comes back in seconds.
+        // Each time the host is restarted the link drops and presence goes offline: the Mac went away,
+        // the link did not fail. Three of these are no unstable link.
         var outputs: [Detector.Output] = []
         for at0 in [60.0, 100.0, 140.0] {
             outputs += d.dropped(macID: "m1", reason: "the link closed", at: at(at0))
@@ -257,11 +258,37 @@ import Testing
             outputs += d.link(macID: "m1", name: "Studio", Self.trying, at: at(at0 + 3))
             outputs += connected(&d, at: at0 + 4)
         }
-        let id = try #require(checkID(outputs))
-        let checked = reports(d.reachability(macID: "m1", checkID: id, internet: true, service: true, at: at(145)))
-        let open = try #require(checked.first)
-        #expect(open.kind == .linkUnstable)
-        #expect(open.drops == 3)
+        #expect(checkID(outputs) == nil)
+    }
+
+    @Test func aDropTheLinkDoesNotRecoverFromQuicklyIsNotCounted() {
+        var d = detector()
+        _ = connected(&d, at: 20)
+        _ = drop(&d, at: 60)
+        _ = drop(&d, at: 100)
+        // The third drop takes 40 s to come back (a hung or asleep Mac, an unreachable stretch): not a drop
+        // of an unstable link.
+        var out = d.dropped(macID: "m1", reason: "probe timed out", at: at(140))
+        out += d.link(macID: "m1", name: "Studio", .trying(transport: "webrtc", reason: nil, newDial: true), at: at(140))
+        out += d.tick(at: at(165))
+        out += connected(&d, at: 180)
+        #expect(checkID(out) == nil)
+    }
+
+    @Test func oneMacHasOneOpenIncidentAtATime() throws {
+        var d = detector()
+        _ = connected(&d, at: 20)
+        _ = drop(&d, at: 60)
+        _ = drop(&d, at: 100)
+        let third = drop(&d, at: 140)
+        let id = try #require(checkID(third))
+        let opened = reports(d.reachability(macID: "m1", checkID: id, internet: true, service: true, at: at(142)))
+        #expect(opened.map(\.kind) == [.linkUnstable])
+        // While it is open the link goes down for a minute: no second (unreachable) incident.
+        var out = d.link(macID: "m1", name: "Studio", Self.trying, at: at(200))
+        for second in stride(from: 205.0, through: 270, by: 5) { out += d.tick(at: at(second)) }
+        #expect(checkID(out) == nil)
+        #expect(reports(out).isEmpty)
     }
 
     @Test func goingToTheBackgroundOrLosingTheNetworkEndsOpenIncidents() throws {

@@ -33,6 +33,8 @@ public struct ConnectivityIncidentDetector: Sendable {
         /// presence blip) before the incident ends as "the Mac went offline": coming back within it
         /// keeps the incident (and the drops counted so far), and connecting resolves it.
         public var macOfflineGrace: TimeInterval = 60
+        /// A drop counts toward an unstable link only if the link is back within this.
+        public var dropRecoverWithin: TimeInterval = 20
 
         public init() {}
     }
@@ -120,6 +122,10 @@ public struct ConnectivityIncidentDetector: Sendable {
         var lastUnstable: Date?
         /// When the Mac went offline while something was open or counted (see `macOfflineGrace`).
         var offlineSince: Date?
+        /// A drop not counted yet: it counts once the link is back within `dropRecoverWithin`
+        /// while the Mac stayed online. A drop where the Mac itself went away (quit, restart,
+        /// sleep) or that turns into an unreachable stretch is not link instability.
+        var pendingDrop: Date?
 
         enum Check: Sendable, Equatable {
             case none
@@ -207,6 +213,13 @@ public struct ConnectivityIncidentDetector: Sendable {
         case .connected(let transport):
             track.offlineSince = nil
             track.transport = transport
+            if let drop = track.pendingDrop {
+                track.pendingDrop = nil
+                if date.timeIntervalSince(drop) <= rules.dropRecoverWithin {
+                    track.drops.append(drop)
+                    track.lastDrop = drop
+                }
+            }
             if let open = track.unreachable {
                 var resolved = open.with(.resolved, at: date)
                 resolved.attempts = track.attempts
@@ -223,11 +236,13 @@ public struct ConnectivityIncidentDetector: Sendable {
             // period to come back; `evaluate` ends the incident if it does not. A check in flight is
             // about the phone's own internet and stays valid.
             track.downSince = nil
+            track.pendingDrop = nil
             if track.offlineSince == nil { track.offlineSince = date }
         case .notWanted(let why):
             track.downSince = nil
             track.check = .none
             track.offlineSince = nil
+            track.pendingDrop = nil
             out += Self.end(&track, why, at: date)
         }
         macs[macID] = track
@@ -239,8 +254,7 @@ public struct ConnectivityIncidentDetector: Sendable {
         guard var track = macs[macID], qualifies else { return [] }
         if let wake = lastWake, date.timeIntervalSince(wake) < rules.settleAfter { return [] }
         if let change = lastNetworkChange, date.timeIntervalSince(change) < rules.settleAfter { return [] }
-        track.drops.append(date)
-        track.lastDrop = date
+        track.pendingDrop = date
         track.lastError = reason
         macs[macID] = track
         return evaluate(macID, at: date)
@@ -260,7 +274,8 @@ public struct ConnectivityIncidentDetector: Sendable {
         }
         track.check = .none
         var out: [Output] = []
-        if let since = track.downSince, track.isTrying, track.unreachable == nil,
+        // One open incident per Mac: an unreachable stretch during an unstable link is part of it.
+        if let since = track.downSince, track.isTrying, track.unreachable == nil, track.unstable == nil,
            date.timeIntervalSince(since) >= rules.unreachableAfter {
             let incident = Incident(id: makeID(), kind: .macUnreachable, state: .open, startedAt: since, observedAt: date,
                                     macID: macID, macName: track.name, attempts: track.attempts, lastError: track.lastError,
@@ -270,7 +285,8 @@ public struct ConnectivityIncidentDetector: Sendable {
         }
         // A link that kept dropping is reported once it is up again (the Mac is awake then; one that went
         // to sleep never reconnects). Not up yet: `evaluate` asks again when it is.
-        if track.unstable == nil, case .connected = track.state, let first = unstableWindowStart(track, at: date) {
+        if track.unstable == nil, track.unreachable == nil, case .connected = track.state,
+           let first = unstableWindowStart(track, at: date) {
             let incident = Incident(id: makeID(), kind: .linkUnstable, state: .open, startedAt: first, observedAt: date,
                                     macID: macID, macName: track.name, drops: track.drops.count, lastError: track.lastError,
                                     transport: track.transport, serviceReachable: service, network: networkKind)
@@ -328,9 +344,11 @@ public struct ConnectivityIncidentDetector: Sendable {
             return out
         }
         if case .phoneOffline(let at) = track.check, date.timeIntervalSince(at) >= rules.recheckAfter { track.check = .none }
-        let unreachableDue = track.isTrying && track.unreachable == nil
+        // A pending drop the link did not recover from in time is not a drop of an unstable link.
+        if let drop = track.pendingDrop, date.timeIntervalSince(drop) > rules.dropRecoverWithin { track.pendingDrop = nil }
+        let unreachableDue = track.isTrying && track.unreachable == nil && track.unstable == nil
             && track.downSince.map { date.timeIntervalSince($0) >= rules.unreachableAfter } == true
-        let unstableDue = track.unstable == nil && unstableWindowStart(track, at: date) != nil
+        let unstableDue = track.unstable == nil && track.unreachable == nil && unstableWindowStart(track, at: date) != nil
         if (unreachableDue || unstableDue), track.check == .none {
             lastCheckID += 1
             track.check = .pending(id: lastCheckID)

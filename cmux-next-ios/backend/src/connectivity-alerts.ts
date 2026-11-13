@@ -245,7 +245,7 @@ export const normalizeMeta = (meta: Partial<DeskMeta> | undefined): DeskMeta => 
 })
 
 /** Held-back incidents of the last hour on a route, not yet told. */
-const heldInHour = (desk: DeskState, route: "team" | "test", now: number) => desk.meta.held[route].filter((h) => now - h.at < 3_600_000)
+const heldUntold = (desk: DeskState, route: "team" | "test") => desk.meta.held[route]
 
 /**
  * One Slack call the desk wants made, in order. `incident` names the message it posts, edits or replies to.
@@ -254,6 +254,8 @@ const heldInHour = (desk: DeskState, route: "team" | "test", now: number) => des
  */
 export type SlackAction =
   | { kind: "post"; incident: string; route: "team" | "test"; text: string; thread?: string }
+  /** A desk message tied to no incident (the held-back notice). */
+  | { kind: "notice"; route: "team" | "test"; text: string }
   | { kind: "update"; incident: string; text: string; thread?: string }
   | { kind: "reply"; incident: string; text: string }
 
@@ -273,7 +275,11 @@ const HOUR = 3_600_000
 export type MacCheck = { readonly liveness: MacLiveness | null }
 
 /** The moment an incident is judged at: when the phone saw it (never later than now). */
-export const judgedAt = (report: IncidentReport, now: number): number => Math.min(now, Date.parse(report.observedAt))
+export const judgedAt = (report: IncidentReport, now: number): number => {
+  // A phone clock running fast says the incident is in the future: judge it at now.
+  const seen = Date.parse(report.observedAt)
+  return Number.isFinite(seen) ? Math.min(now, seen) : now
+}
 
 /**
  * Whether an incident's start may be posted.
@@ -291,7 +297,10 @@ export const startVerdict = (report: IncidentReport, check: MacCheck, now: numbe
   if (report.kind === "link_unstable") return undefined
   const live = check.liveness
   const at = judgedAt(report, now)
-  const since = Math.max(Date.parse(report.startedAt), at - ALIVE_WITHIN_MS)
+  // The link stopped `startedAt..observedAt` before the phone saw it, both by the phone's clock: that
+  // difference is free of the phone's clock offset; the moment itself is the server's (`at`).
+  const stoppedFor = Math.max(0, Date.parse(report.observedAt) - Date.parse(report.startedAt))
+  const since = Math.max(at - stoppedFor, at - ALIVE_WITHIN_MS)
   if (live && live.lastPingAt !== null && live.lastPingAt >= since) return undefined
   if (!live || !live.connected) return "mac_offline"
   if (!live.pings) return "mac_liveness_unknown"
@@ -307,7 +316,6 @@ export const startVerdict = (report: IncidentReport, check: MacCheck, now: numbe
 export const applyReport = (desk: DeskState, report: IncidentReport, reporter: Reporter, audience: { route: "team" | "test"; why?: TestReason }, check: MacCheck, now: number): DeskOutcome => {
   const removed: Array<string> = []
   desk.meta.posted = desk.meta.posted.filter((p) => now - p.at < HOUR)
-  for (const route of ["team", "test"] as const) desk.meta.held[route] = heldInHour(desk, route, now)
   for (const [id, incident] of Object.entries(desk.incidents))
     if (now - incident.updatedAt > RETENTION_MS) {
       delete desk.incidents[id]
@@ -340,8 +348,17 @@ export const applyReport = (desk: DeskState, report: IncidentReport, reporter: R
     return done({ ...postNew(desk, known, report, now), changed: [known.id] })
   }
 
-  if (Object.values(desk.incidents).filter((i) => i.reporter.key === reporter.key).length >= PER_REPORTER_STORED)
-    return done({ accepted: true, note: "reporter_cap", actions: [], changed: [] })
+  // The per-reporter store keeps every incident that posted (its end must find its message); the ones
+  // kept only for a suppressed start (asleep, offline) go first when a reporter is over the cap.
+  const mine = Object.values(desk.incidents).filter((i) => i.reporter.key === reporter.key)
+  if (mine.length >= PER_REPORTER_STORED) {
+    const evictable = mine.filter((i) => !i.queued).sort((a, b) => a.updatedAt - b.updatedAt)
+    for (const old of evictable.slice(0, mine.length - PER_REPORTER_STORED + 1)) {
+      delete desk.incidents[old.id]
+      removed.push(old.id)
+    }
+    if (mine.length - evictable.length >= PER_REPORTER_STORED) return done({ accepted: true, note: "reporter_cap", actions: [], changed: [] })
+  }
   const incident: Incident = {
     id: report.id,
     route: audience.route,
@@ -406,12 +423,37 @@ const postNew = (desk: DeskState, incident: Incident, report: IncidentReport, no
 /** How long an incident may stay open with no end from the phone (killed and never relaunched, removed). */
 export const OPEN_EXPIRY_MS = 3 * HOUR
 
-/** When the next open incident expires, if any. */
+/** When the next open incident expires, or held-back incidents must be told, if any. */
 export const nextExpiry = (desk: DeskState): number | undefined => {
   const due = Object.values(desk.incidents)
     .filter((i) => i.queued && !i.expired && !i.states.some((s) => s !== "open"))
     .map((i) => i.receivedAt + OPEN_EXPIRY_MS)
+  for (const route of ["team", "test"] as const) {
+    const first = desk.meta.held[route][0]
+    if (first) due.push(first.at + HOUR)
+  }
   return due.length ? Math.min(...due) : undefined
+}
+
+/**
+ * Held-back incidents that no later post told about: once the oldest has been held an hour (the next post
+ * would no longer be in its hour), one message on its route says how many there were and whose, so a burst
+ * over the limit is never lost silently.
+ */
+export const tellHeld = (desk: DeskState, now: number): Array<SlackAction> => {
+  const actions: Array<SlackAction> = []
+  for (const route of ["team", "test"] as const) {
+    const held = desk.meta.held[route]
+    if (!held.length || now - held[0]!.at < HOUR) continue
+    const who = [...new Set(held.map((h) => desk.incidents[h.id]?.reporter.email).filter((e): e is string => !!e))]
+    actions.push({
+      kind: "notice",
+      route,
+      text: `:double_vertical_bar: ${held.length} more connectivity incident${held.length === 1 ? " was" : "s were"} held back by the hourly limit and not posted (${who.map(esc).join(", ") || "unknown"}).`
+    })
+    desk.meta.held[route] = []
+  }
+  return actions
 }
 
 /**
@@ -528,9 +570,9 @@ export const render = (incident: Incident, report: IncidentReport, desk: DeskSta
   if (report.simulations?.length) lines.push(`• Developer network simulation on: ${report.simulations.join(", ")}`)
   const late = now - Date.parse(report.observedAt)
   if (late > LATE_MS) lines.push(`• Delivered ${duration(late)} late (the phone queued it)`)
-  const held = heldInHour(desk, incident.route, now).filter((h) => h.id !== incident.id).length
+  const held = heldUntold(desk, incident.route).filter((h) => h.id !== incident.id).length
   if (opts.announceHeld && held > 0)
-    lines.push(`• ${held} more incident${held === 1 ? " was" : "s were"} held back in the last hour (rate limit)`)
+    lines.push(`• ${held} more incident${held === 1 ? " was" : "s were"} held back since the last post (rate limit)`)
   if (incident.route === "test") lines.push(`• _Test route: ${TEST_WORDS[incident.why ?? "agent_account"]}_`)
   lines.push(`_Incident \`${incident.id.slice(0, 8)}\` · started <!date^${Math.floor(Date.parse(report.startedAt) / 1000)}^{date_short_pretty} {time_secs}|${report.startedAt}> · Mac \`${esc(report.mac.id.slice(0, 8))}\`_`)
   return lines.join("\n")
@@ -646,10 +688,12 @@ export class ConnectivityAlertDesk extends DurableObject<Env> {
     if (retryAt <= now) await this.ctx.storage.delete("retryAt")
     const desk = await this.loadDesk()
     const expired = expireStale(desk, now)
+    const told = tellHeld(desk, now)
+    expired.actions.push(...told)
     if (expired.actions.length) {
       const outbox = await this.outbox()
       for (const action of expired.actions) outbox.push({ action, tries: 0, at: now })
-      const writes: Record<string, unknown> = { outbox }
+      const writes: Record<string, unknown> = { outbox, meta: desk.meta }
       for (const id of expired.changed) writes[`inc:${id}`] = desk.incidents[id]
       await this.ctx.storage.put(writes)
       console.log(JSON.stringify({ msg: "connectivity incidents expired", count: expired.changed.length }))
@@ -706,7 +750,7 @@ export class ConnectivityAlertDesk extends DurableObject<Env> {
         await this.ctx.storage.setAlarm(Date.now() + 600_000)
         return
       }
-      const incident = await this.ctx.storage.get<Incident>(`inc:${head.action.incident}`)
+      const incident = head.action.kind === "notice" ? undefined : await this.ctx.storage.get<Incident>(`inc:${head.action.incident}`)
       const result = await this.send(head.action, incident, config, call).catch((e) => ({ ok: false as const, error: `network: ${String(e).slice(0, 80)}` }))
       const outbox = await this.outbox()
       const giveUp = !result.ok && (!retryable(result.error) || Date.now() - head.at > MAX_AGE_MS)
@@ -714,7 +758,7 @@ export class ConnectivityAlertDesk extends DurableObject<Env> {
         if (giveUp) console.log(JSON.stringify({ msg: "connectivity alert dropped", kind: head.action.kind, error: result.error, tries: head.tries + 1 }))
         outbox.shift()
         const writes: Record<string, unknown> = { outbox }
-        if (result.ok && "posted" in result && result.posted) {
+        if (result.ok && "posted" in result && result.posted && head.action.kind !== "notice") {
           const fresh = await this.ctx.storage.get<Incident>(`inc:${head.action.incident}`)
           if (fresh) writes[`inc:${head.action.incident}`] = { ...fresh, slack: result.posted }
         }
@@ -738,6 +782,11 @@ export class ConnectivityAlertDesk extends DurableObject<Env> {
     config: SlackConfig | undefined,
     call: SlackCall
   ): Promise<{ ok: boolean; error?: string; posted?: { channel: string; ts: string } }> {
+    if (action.kind === "notice") {
+      const channel = action.route === "team" ? config?.teamChannel : config?.testChannel
+      if (!channel) return { ok: true }
+      return call("chat.postMessage", { channel, text: action.text, unfurl_links: false })
+    }
     if (!incident) return { ok: true }
     const threadOf = async (id: string | undefined) => (id ? (await this.ctx.storage.get<Incident>(`inc:${id}`))?.slack : undefined)
     switch (action.kind) {
