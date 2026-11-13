@@ -1097,7 +1097,9 @@ impl Worker {
             }
             Err(e) => log(&format!("inference gateway token: {e}")),
         }
-        let mut session = Session::new(&bound.machine, daemon, heartbeat);
+        // The first report carries the updater's block: after an update's restart, its swap.
+        let mut session = Session::new(&bound.machine, daemon, heartbeat)
+            .with_updater(crate::updater::look::report(&self.paths));
         let reqs = session.start(self.now());
         self.live = Some(Live { client: CloudClient::new(http, bound, key), session });
         if let Some(bridge) = &self.bootstrap {
@@ -1241,6 +1243,10 @@ impl Worker {
     fn probe_workload(&mut self) {
         let now = self.now();
         self.workload_at = Some(now + super::workload::PROBE_INTERVAL_MS);
+        let Some(live) = self.live.as_mut() else { return };
+        // The updater's block, read on the same tick (a small file; a report only when it changed).
+        let reqs = live.session.updater(crate::updater::look::report(&self.paths), now);
+        self.drive(reqs);
         let Some(live) = self.live.as_mut() else { return };
         let seen = match super::workload::read_snapshot(self.paths.root(), now) {
             // The first probe has no CPU baseline yet: it changes nothing.

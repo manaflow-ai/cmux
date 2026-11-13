@@ -26,7 +26,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-feed", "retry-terminal", "retry-home-offline", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "live-terminal"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-feed", "retry-terminal", "retry-home-offline", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -95,6 +95,26 @@ struct DemoDriver {
         case "call-scope": await callScope()
         case "call-scope-home":
             ChiefSources.shared.showDemoCloudChief(named: "Atlas")
+            shell.tab = .home
+        case "new-message-forward":
+            // A11: Forward from a Chief's select mode opens Home's New Message with the draft
+            // (the conversation's own select and Forward paths, driven by its lab verbs).
+            ChiefSources.shared.showDemoCloudChief(named: "Atlas", brains: true)
+            ChiefSources.shared.mac.macName = "Mac Studio"
+            MacHomeFeed.shared.seedNewMessageRows(macID: "mac-studio", macChief: ChiefSources.shared.mac.conversationID)
+            shell.tab = .home
+            shell.homePath.append(ChiefRoute(place: .cloud))
+            await pause(2.5)
+            _ = ChiefDemoHook.shared.lab("select theirs")
+            await pause(0.8)
+            _ = ChiefDemoHook.shared.lab("forward")
+        case "new-message", "new-message-mac-only":
+            // Home's New Message (verify/new-message): a Cloud Chief (unless Mac-only), the Mac's Chiefs and
+            // conversations, and the demo team; real touches open the sheet from the compose button.
+            if name == "new-message" { ChiefSources.shared.showDemoCloudChief(named: "Atlas", brains: true) }
+            ChiefSources.shared.mac.macName = "Mac Studio"
+            // The Mac Chief's row is its session's conversation, as on a real Mac's list.
+            MacHomeFeed.shared.seedNewMessageRows(macID: "mac-studio", macChief: ChiefSources.shared.mac.conversationID)
             shell.tab = .home
         case "chief-open":
             // Opens Chief and leaves it to real touches (verify/imsg-parity.sh).

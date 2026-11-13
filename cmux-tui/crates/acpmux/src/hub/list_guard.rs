@@ -67,6 +67,24 @@ impl Events {
         }
     }
 
+    pub(super) fn mark_remote_tee(&self, peer: &str, id: &str) {
+        if let Some(tee) = self.tee.get() {
+            tee.mark_remote(peer, id);
+        }
+    }
+
+    pub(super) fn origin_tee(&self, id: &str, state: acpmux_book::index::OriginState, since: u64) {
+        if let Some(tee) = self.tee.get() {
+            tee.origin(id, state, since);
+        }
+    }
+
+    pub(super) fn remote_tee_ready(&self) {
+        if let Some(tee) = self.tee.get() {
+            tee.remote_ready();
+        }
+    }
+
     /// Sends `event`, stamped with the list position of the row it changes, if any.
     fn stamped(&self, mut event: HubEvent) -> Result<usize, broadcast::error::SendError<HubEvent>> {
         let Some((key, gone)) = super::row_log::row_change(&event) else {
@@ -166,6 +184,9 @@ impl Events {
         event: HubEvent,
     ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
         debug_assert!(event.remote.is_some(), "a local event goes through Events::send");
+        if let Some(remote) = event.remote.as_ref() {
+            self.mark_remote_tee(&remote.peer, &event.session_id);
+        }
         self.stamped(event)
     }
 

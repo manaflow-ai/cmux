@@ -7,6 +7,7 @@ use cmux_json::JsonSet as _;
 
 mod auxiliary;
 mod browser_engine;
+pub(crate) mod browser_import;
 mod close_value;
 mod config;
 mod content;
@@ -291,6 +292,7 @@ fn dispatch_resource_request(
             crate::state::conductor_import_router::dispatch(mux, request)
         }
         OperationOwner::PaletteRank => palette_rank::dispatch(mux, request),
+        OperationOwner::BrowserImport => browser_import::dispatch(mux, request),
         OperationOwner::Machine => {
             mux.resource_machine_service().dispatch(&ResourceMachineRequest {
                 operation,
