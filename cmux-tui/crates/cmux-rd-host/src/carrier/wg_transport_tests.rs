@@ -265,6 +265,7 @@ fn wg_selection_omission_is_legacy_but_unknown_or_malformed_never_downgrades() {
         serde_json::json!("rd_wg/2"),
         serde_json::json!(false),
         serde_json::json!(["rd_wg/1"]),
+        serde_json::json!({"rd_wg/1":null}),
     ] {
         assert!(
             serde_json::from_value::<Selection>(serde_json::json!({"peer_carrier":value})).is_err()

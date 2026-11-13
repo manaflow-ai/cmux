@@ -117,13 +117,21 @@ impl<S: Read + Write + AsRawFd> Carrier for SocketCarrier<'_, S> {
 /// Selected by the authenticated offer/answer before either media protocol starts.
 /// Only an omitted field selects legacy; unknown or null values fail deserialization.
 #[cfg(feature = "link")]
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum LinkMode {
     #[default]
-    #[serde(skip)]
     Legacy,
-    #[serde(rename = "rd_wg/1")]
     Wg,
+}
+#[cfg(feature = "link")]
+impl<'de> serde::Deserialize<'de> for LinkMode {
+    fn deserialize<D: serde::Deserializer<'de>>(decoder: D) -> Result<Self, D::Error> {
+        let marker = <String as serde::Deserialize>::deserialize(decoder)?;
+        match marker.as_str() {
+            "rd_wg/1" => Ok(Self::Wg),
+            _ => Err(serde::de::Error::custom("unsupported peer_carrier")),
+        }
+    }
 }
 
 /// A device hub session's secure link (cmux-rd-link's UDP driver).

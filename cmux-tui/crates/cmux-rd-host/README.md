@@ -45,9 +45,12 @@ null or malformed value fails closed. The app forwards the peer's authenticated
 marker only after Rust accepts Setup. Mixed old/new pairs therefore keep their
 original protocol; two updated peers select WG. This initial legacy selection
 is not a fallback: a selected WG session can never switch to bare rd media.
-The app and worker must ship together: the bundled `bin/cmux` (or explicit dev
-override) must contain this selector before Swift advertises or echoes WG support.
-An old worker ignores unknown setup fields, so Swift-only validation is insufficient.
+The updated app invokes `cmux rd serve-v2` or `cmux rd connect-v2`. These
+versioned aliases prove the worker implements signed carrier selection; old
+workers reject them before emitting any key. Old app callers retain `serve`
+and `connect`. This also prevents an old dev override from falsely advertising
+WG through new Swift. The bundled `bin/cmux` and app still need an integrated
+artifact check; Swift-only validation is insufficient.
 
 Before readiness, an unsupported or failed WG negotiation proposes a typed
 WebRTC retry. Both sides acknowledge the proposal, and each waits until its
