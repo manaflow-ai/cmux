@@ -17,7 +17,8 @@ from pathlib import Path
 from typing import Any
 
 
-EXPORT_STAR = re.compile(r"\bexport\s*\*\s+from\s*[\"']([^\"']+)[\"']")
+EXPORT_STAR = re.compile(r"(?:^|[;\n\r}])\s*export\s*\*\s+from\s*[\"']([^\"']+)[\"']")
+JS_COMMENTS = re.compile(r"//[^\n]*|/\*[\s\S]*?\*/")
 JS_COMMENTS_AND_STRINGS = re.compile(
     r"//[^\n]*|/\*[\s\S]*?\*/|(['\"`])(?:\\.|(?!\1)[^\\])*\1"
 )
@@ -61,6 +62,11 @@ def resolve_input(path: str, metafile: Path, source_root: Path | None) -> Path:
 def clean_javascript(text: str) -> str:
     """Remove comments and literals before checking for CommonJS syntax."""
     return JS_COMMENTS_AND_STRINGS.sub("", text)
+
+
+def clean_comments(text: str) -> str:
+    """Remove comments while preserving export specifier strings."""
+    return JS_COMMENTS.sub("", text)
 
 
 def resolve_export(source: Path, specifier: str) -> Path | None:
@@ -125,7 +131,7 @@ def load_bundle(
         row["ratio"] = round(row["reachableBytes"] / row["sourceBytes"], 4) if row["sourceBytes"] else 0
         row["package"] = package_name(path)
         row["packageInstance"] = package_instance(path)
-        row["barrel"] = len(EXPORT_STAR.findall(text))
+        row["barrel"] = len(EXPORT_STAR.findall(clean_comments(text)))
         source_record = source_inputs.get(path, {})
         row["commonjs"] = (
             source_record.get("format") == "cjs"
@@ -162,7 +168,7 @@ def load_bundle(
             current_row = rows_by_source.get(current)
             if current_row is not None:
                 descendants[current] = current_row
-            for specifier in EXPORT_STAR.findall(source_texts.get(current_path, "")):
+            for specifier in EXPORT_STAR.findall(clean_comments(source_texts.get(current_path, ""))):
                 child = resolve_export(current, specifier)
                 if child is not None and child in rows_by_source:
                     pending.append(child)

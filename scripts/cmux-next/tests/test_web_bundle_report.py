@@ -156,6 +156,16 @@ class WebBundleReportTests(unittest.TestCase):
             self.assertEqual(bundle["barrels"][0]["barrel"], 1)
             self.assertEqual(bundle["barrels"][0]["barrelReachableBytes"], 100_000)
 
+    def test_barrel_comments_do_not_count_as_exports(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source.ts"
+            source.write_text("// export * from './missing';\nconst text = \"export * from './missing'\";\n", encoding="utf-8")
+            metafile = root / "bundle.json"
+            metafile.write_text(json.dumps({"outputs": {"entry.js": {"bytes": 10, "inputs": {"source.ts": {"bytesInOutput": 10}}}}}), encoding="utf-8")
+            bundle = MODULE.load_bundle("bundle", metafile, root)
+            self.assertEqual(bundle["barrels"], [])
+
 
 if __name__ == "__main__":
     unittest.main()
