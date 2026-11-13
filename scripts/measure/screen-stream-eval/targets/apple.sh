@@ -21,7 +21,11 @@ case "$verb" in
   build)
     screen_sharing_app >/dev/null || { echo "apple-$mode: Screen Sharing.app is unavailable" >&2; exit 1; }
     command -v screencapture >/dev/null || { echo "apple-$mode: screencapture is unavailable" >&2; exit 1; }
-    swiftc -O -o "$EVAL_BIN/screen-eval-window-id" "$EVAL_ROOT/scripts/measure/screen-stream-eval/window-id.swift"
+    if [[ -n "${EVAL_PREBUILT:-}" ]]; then
+      [[ -x "$EVAL_BIN/screen-eval-window-id" ]] || { echo "apple-$mode: prebuilt window-id helper missing" >&2; exit 1; }
+    else
+      swiftc -O -o "$EVAL_BIN/screen-eval-window-id" "$EVAL_ROOT/scripts/measure/screen-stream-eval/window-id.swift"
+    fi
     ;;
   host-start)
     # Screen Sharing's system service is already enabled on the dedicated measure
@@ -121,9 +125,8 @@ OSA
         # VNC transport payload. Keep kbps explicitly unavailable.
         bucket_frames=$((bucket_frames + changed))
         if (( now - bucket_start_ms >= 1000 )); then
-          # The evaluator treats each row as one second. Publish changed
-          # hashes as sampled frame rate; transport bytes are unavailable.
-          rows+=("{\"unix_ms\":$now,\"bytes\":null,\"frames\":null,\"sampled_changes\":$bucket_frames}")
+          # Each count belongs to this bucket's actual elapsed duration.
+          rows+=("{\"unix_ms\":$now,\"duration_ms\":$((now - bucket_start_ms)),\"bytes\":null,\"frames\":null,\"sampled_changes\":$bucket_frames}")
           bucket_start_ms=$now
           bucket_frames=0
         fi
@@ -134,7 +137,7 @@ OSA
       sleep 0.1
     done
     if (( bucket_frames > 0 )); then
-      rows+=("{\"unix_ms\":$(now_ms),\"bytes\":null,\"frames\":null,\"sampled_changes\":$bucket_frames}")
+      rows+=("{\"unix_ms\":$now,\"duration_ms\":$((now - bucket_start_ms)),\"bytes\":null,\"frames\":null,\"sampled_changes\":$bucket_frames}")
     fi
     [[ -e "$go" ]] || touch "$go"
     cpu=null

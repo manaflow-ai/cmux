@@ -61,9 +61,10 @@ def phase_numbers(series: list[dict], phases: dict[str, dict]) -> tuple[dict, di
         fps[name] = (round(sum(frame_rows) / len(frame_rows), 1)
                      if all(isinstance(value, (int, float)) for value in frame_rows) else None)
         sampled_rows = [s.get("sampled_changes") for s in rows]
-        elapsed_ms = (rows[-1].get("unix_ms", 0) - rows[0].get("unix_ms", 0)) if len(rows) > 1 else 0
+        durations = [s.get("duration_ms") for s in rows]
+        elapsed_ms = (sum(durations) if all(isinstance(d, (int, float)) and d > 0 for d in durations) else 0)
         sampled_fps[name] = (round(sum(sampled_rows) / (elapsed_ms / 1000), 1)
-                             if len(rows) > 1 and elapsed_ms > 0
+                             if elapsed_ms > 0
                              and all(isinstance(value, (int, float)) for value in sampled_rows) else None)
         enc = [s["encode_ms"] for s in rows if isinstance(s.get("encode_ms"), (int, float))]
         dec = [s["decode_ms"] for s in rows if isinstance(s.get("decode_ms"), (int, float))]
@@ -118,8 +119,9 @@ def target(name: str, folder: Path, out: Path) -> None:
                     phases[row["phase"]] = row
         kbps, fps, sampled_fps, encode, decode = phase_numbers(window.get("series") or [], phases)
         ocr = load(folder / f"ocr-{rep}.json")
-        if None in fps.values() and None in sampled_fps.values():
-            errors.append(f"window {rep}: no frame or sampled-change numbers for {[k for k, v in fps.items() if v is None and sampled_fps.get(k) is None]} (phases logged: {sorted(phases)})")
+        missing = [k for k in WINDOW_PHASES if fps[k] is None and sampled_fps[k] is None]
+        if missing:
+            errors.append(f"window {rep}: no frame or sampled-change numbers for {missing} (phases logged: {sorted(phases)})")
         if ocr is None:
             errors.append(f"ocr {rep}: no result")
         else:

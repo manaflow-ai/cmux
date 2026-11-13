@@ -49,9 +49,9 @@ struct StreamWindowTests {
 
     private func unixMs() -> Int { Int(Date().timeIntervalSince1970 * 1000) }
 
-    private func processCPUSeconds() -> Double {
+    private func processCPUSeconds() -> Double? {
         var usage = rusage()
-        guard getrusage(RUSAGE_SELF, &usage) == 0 else { return 0 }
+        guard getrusage(RUSAGE_SELF, &usage) == 0 else { return nil }
         func seconds(_ time: timeval) -> Double {
             Double(time.tv_sec) + Double(time.tv_usec) / 1_000_000
         }
@@ -71,7 +71,6 @@ struct StreamWindowTests {
         // The first frame (bounded: 15 s, as the rd bench).
         for _ in 0 ..< 150 where reader.rendered == 0 { try await Task.sleep(for: .milliseconds(100)) }
         try #require(reader.rendered > 0, "no video within 15 s")
-        let cpuStart = processCPUSeconds()
         // Unbuffered, for a person reading the log; the eval starts its scene from CMUX_EVAL_GO below.
         FileHandle.standardOutput.write(Data("streamwindow: first frame\n".utf8))
         if let go = env["CMUX_EVAL_GO"] { FileManager.default.createFile(atPath: go, contents: nil) }
@@ -79,7 +78,9 @@ struct StreamWindowTests {
         var last = await viewer.videoStats()
         let first = last
         let clock = ContinuousClock()
-        var next = clock.now
+        let cpuStart = processCPUSeconds()
+        let started = clock.now
+        var next = started
         for _ in 0 ..< seconds {
             next += .seconds(1)
             try await Task.sleep(until: next, clock: clock)
@@ -95,6 +96,15 @@ struct StreamWindowTests {
             ])
             last = now
         }
+        let elapsed = started.duration(to: clock.now).components
+        let elapsedSeconds = Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
+        let cpuEnd = processCPUSeconds()
+        let cpuPercent: Any
+        if let cpuStart, let cpuEnd, cpuEnd >= cpuStart, elapsedSeconds > 0 {
+            cpuPercent = (cpuEnd - cpuStart) / elapsedSeconds * 100
+        } else {
+            cpuPercent = NSNull()
+        }
         if let path = env["CMUX_EVAL_SNAPSHOT"], let pixels = reader.newest { writePNG(pixels, to: path) }
         let report: [String: Any] = [
             "engine": "webrtc (CmuxVNCWebRTC ScreenStreamHost)",
@@ -105,7 +115,7 @@ struct StreamWindowTests {
             "packets_lost": last.packetsLost - first.packetsLost,
             "frames_dropped": last.framesDropped - first.framesDropped,
             "freezes": last.freezeCount - first.freezeCount,
-            "client_cpu_pct": (processCPUSeconds() - cpuStart) / Double(seconds) * 100,
+            "client_cpu_pct": cpuPercent,
         ]
         let json = try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys])
         print("streamwindow: \(String(decoding: json, as: UTF8.self))")
