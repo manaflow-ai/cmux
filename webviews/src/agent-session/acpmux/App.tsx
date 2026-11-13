@@ -11559,7 +11559,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                     sinceKey={childRows ? undefined : sinceKey}
                                                                     promptAuthor={directClient.current?.presence.selfId}
                                                                     onJumpToSince={jumpToSince}
-                                                                    clockOffset={snapshot.clockOffsetMs ?? 0}
                                                                     coldOpen={
                                                                       !childRows && opened.cold
                                                                         ? opened.open
