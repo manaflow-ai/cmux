@@ -172,10 +172,11 @@ request --sha "$head" --release-compile-green
 # A direct push red on feat-cmux-next's push runs quarantines its commit (the status cmuxterm-hq's base-red-watch
 # posts, read by scripts/cmux-next/nightly_quarantine.py): it is not promoted until a later push is green. The shape is
 # 11-12's e0d3bb0ec2f0 by lawrencecchen.
-# The read is one lookup per first-parent commit (c0, c1, ...); only cmux-bot[bot]'s statuses count.
-status_node() { # <commit> <state> [creator]
-  printf '{"oid":"%s","author":{"user":{"login":"lawrencecchen"},"name":"Lawrence Chen"},"status":{"context":{"state":"%s","description":"red: base %s since e0d3bb0ec2f0 by lawrencecchen","creator":{"login":"%s"}}}}' \
-    "$1" "$2" "$(printf '4%.0s' {1..40})" "${3:-cmux-bot[bot]}"
+# The read is one lookup per first-parent commit (c0, c1, ...); only the cmux-bot app's statuses count. GraphQL names
+# it as GitHub does here: login cmux-bot, __typename Bot (REST's cmux-bot[bot] is accepted too).
+status_node() { # <commit> <state> [creator login] [creator type]
+  printf '{"oid":"%s","author":{"user":{"login":"lawrencecchen"},"name":"Lawrence Chen"},"status":{"context":{"state":"%s","description":"red: base %s since e0d3bb0ec2f0 by lawrencecchen","creator":{"__typename":"%s","login":"%s"}}}}' \
+    "$1" "$2" "$(printf '4%.0s' {1..40})" "${4:-Bot}" "${3:-cmux-bot}"
 }
 statuses() { # <node>...: the GraphQL answer
   local body="" i=0 node
@@ -207,6 +208,14 @@ request --sha "$head" --release-compile-green
 log=$(cd "$src" && PATH="$TMP/bin:$PATH" python3 scripts/cmux-next/nightly_quarantine.py quarantined --repo o/r --tip "$head" 2>&1 >/dev/null)
 grep -q "ignored a cmux-next/direct-push-gates status (SUCCESS) on ${head:0:12} from someone" <<<"$log" \
   || fail "the ignored status must be named with its creator:" "$log"
+# A user who registers the bare login cmux-bot is a User, not the app: its success does not lift it either. REST's
+# cmux-bot[bot] form of the app still counts (cmux#42343 review F1).
+statuses "$(status_node "$head" SUCCESS cmux-bot User)" "$(status_node "$parent" FAILURE)"
+request --sha "$head" --release-compile-green
+! dispatched "$head" || fail "a User named cmux-bot must not lift the quarantine:" "$(cat "$TMP/gh.log")"
+statuses "$(status_node "$head" FAILURE 'cmux-bot[bot]')"
+request --sha "$head" --release-compile-green
+! dispatched "$head" || fail "the app's REST login form must still quarantine:" "$(cat "$TMP/gh.log")"
 # Only the first-parent line the nightly promotes from is read: a side branch's success does not lift it (Codex F1 on
 # #42248), and the read asks for exactly those commits.
 statuses "$(status_node "$(printf '5%.0s' {1..40})" SUCCESS)" "$(status_node "$parent" FAILURE)"

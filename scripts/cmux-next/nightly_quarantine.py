@@ -34,13 +34,16 @@ import sys
 
 CONTEXT = "cmux-next/direct-push-gates"
 DEPTH = 100  # first-parent commits read: request-nightly-next.sh promotes from the tip's newest 99
-CREATOR = "cmux-bot[bot]"  # the trusted publisher's app login: only its CONTEXT statuses are read
+CREATOR = "cmux-bot[bot]"  # the trusted publisher's app, as REST names it: only its CONTEXT statuses are read
+# GraphQL names the same app `cmux-bot` with __typename Bot (REST adds "[bot]"); a user may register the bare login, so a
+# creator counts only as a Bot with one of these logins (cmux#42343 review F1).
+CREATOR_LOGINS = frozenset({"cmux-bot", "cmux-bot[bot]"})
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 BASE_RE = re.compile(r"\bbase ([0-9a-f]{40})\b")
 SINCE_RE = re.compile(r"\bsince ([0-9a-f]{7,40})\b")
 BY_RE = re.compile(r"\bby @?([A-Za-z0-9][A-Za-z0-9-]*(?:\[bot\])?)")
 COMMIT_FIELDS = (f'... on Commit{{oid author{{user{{login}} name}} '
-                 f'status{{context(name:"{CONTEXT}"){{state description creator{{login}}}}}}}}')
+                 f'status{{context(name:"{CONTEXT}"){{state description creator{{__typename login}}}}}}}}')
 
 
 def query(shas: list[str]) -> str:
@@ -61,8 +64,9 @@ def quarantine_walk(nodes: list) -> tuple[dict | None, list[tuple[str, dict]]]:
     for node in reversed([n for n in nodes or [] if isinstance(n, dict) and isinstance(n.get("oid"), str)]):
         ctx = (node.get("status") or {}).get("context") if isinstance(node.get("status"), dict) else None
         ctx = ctx if isinstance(ctx, dict) else {}
-        creator = str((ctx.get("creator") or {}).get("login") or "") if isinstance(ctx.get("creator"), dict) else ""
-        if ctx and creator != CREATOR:
+        who = ctx.get("creator") if isinstance(ctx.get("creator"), dict) else {}
+        creator = str(who.get("login") or "")
+        if ctx and not (who.get("__typename") == "Bot" and creator in CREATOR_LOGINS):
             print(f"direct-push quarantine: ignored a {CONTEXT} status ({ctx.get('state')}) on {node['oid'][:12]} "
                   f"from {creator or 'an unknown creator'}; only {CREATOR} posts it", file=sys.stderr)
             ctx = {}
