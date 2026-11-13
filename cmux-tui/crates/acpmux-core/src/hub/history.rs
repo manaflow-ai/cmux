@@ -60,6 +60,14 @@ impl History {
         self.len == 0
     }
 
+    pub(super) fn first_seq(&self) -> Option<u64> {
+        (self.len != 0).then_some(self.first)
+    }
+
+    pub(super) fn last_seq(&self) -> Option<u64> {
+        self.first_seq().and_then(|first| first.checked_add(self.len as u64 - 1))
+    }
+
     fn clear(&mut self) {
         self.head = 0;
         self.len = 0;
@@ -87,7 +95,7 @@ impl History {
             ListItem::Gone { seq, origin, chat_id } => {
                 Op::Gone { seq: *seq, origin: origin.as_str(), chat_id: chat_id.as_str() }
             }
-            ListItem::Dropped { .. } => return Ok(()),
+            ListItem::Lagged { .. } => return Ok(()),
         };
         let seq = match &op {
             Op::Summary { seq, .. } | Op::Gone { seq, .. } => *seq,

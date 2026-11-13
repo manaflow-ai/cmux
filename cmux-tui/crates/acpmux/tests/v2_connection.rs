@@ -121,7 +121,7 @@ impl View {
                             self.cursor = seq;
                             self.rows.insert(summary.chat_id, summary.last_activity);
                         }
-                        DeltaOp::Gone { seq, chat_id } => {
+                        DeltaOp::Gone { seq, chat_id, .. } => {
                             assert_eq!(seq, self.cursor + 1);
                             self.cursor = seq;
                             self.rows.remove(&chat_id);
