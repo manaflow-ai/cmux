@@ -111,8 +111,10 @@ final class CloudWorkspacesCaptureUITests: XCTestCase {
         app.buttons["cloudMachines.workspace.ws-cloud-1"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["workspace.ws-cloud-1"].waitForExistence(timeout: 10), "workspace\n\(app.debugDescription)")
         shot(app, "\(name)-02-workspace")
-        // Back to the machine's page, and New Workspace opens its new workspace the same way.
-        app.navigationBars.buttons.firstMatch.tap()
+        // Back to the machine's page with the edge swipe (the workspace page draws its own chrome,
+        // no navigation-bar back button): the route pops like any push.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
+            .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)))
         XCTAssertTrue(app.navigationBars["Build box"].waitForExistence(timeout: 10), "back\n\(app.debugDescription)")
         app.terminate()
 
