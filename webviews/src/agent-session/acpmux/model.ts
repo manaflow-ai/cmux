@@ -712,9 +712,13 @@ export type AcpmuxRow = {
   liveState?: "subagents" | "writing" | "compacting";
   liveAgents?: number;
   liveCompaction?: AcpmuxCompaction;
-  /// With the line reading "Thinking" past the first step: how long the turn's thoughts streamed,
-  /// summed (conversation/turns.ts `thoughtTime`), the time it shows beside the word.
-  thoughtMs?: number;
+  /// With the line reading "Thinking" past the first step (conversation/turns.ts `liveClock`, this
+  /// computer's clock): when this stretch of thinking began, the time beside the word ticking from
+  /// it, and when the turn last heard anything, after which a silence of SILENT_MS reads "Waiting".
+  /// `heardKey` changes with every event the turn's rows take (Thinking.tsx `useChangedAt`).
+  phaseAt?: number;
+  heardAt?: number;
+  heardKey?: string;
   /// The live line's clock is the turn's whole time, past its first step: it reads "4m" beside the label, or "2s · 4m" after a step's own time, so
   /// the time never reads as what the line names (conversation/Thinking.tsx).
   turnTotal?: boolean;
@@ -3182,12 +3186,6 @@ export function layoutConversation(
   previous?: { rows: readonly AcpmuxRow[]; layout: ConversationLayout },
   /// The chat the rows are from, which keys the messages the person opened (incomingOpened.ts).
   sessionId?: string,
-  /// A live resize (a divider dragged): the last layout, at another width, and the rows around the
-  /// view `[from, to)`. Only those rows are measured at `width`; every other row that is the same
-  /// object keeps its height from that layout until the resize settles and a full layout runs. A drag
-  /// frame then costs the rows in view, not the whole chat (Leo, 2026-11-11: "the dragging
-  /// responsiveness is slow for agent chat but fast for browser hmmm").
-  resizing?: { rows: readonly AcpmuxRow[]; layout: ConversationLayout; from: number; to: number },
 ): ConversationLayout {
   const gaps = new Float64Array(rows.length);
   const marks = new Uint8Array(rows.length);
@@ -3240,15 +3238,6 @@ export function layoutConversation(
     const kept = known?.get(row);
     let height: number;
     if (kept && kept.width === width && kept.edge === edge) height = kept.height;
-    else if (
-      resizing &&
-      (resizing.layout.scale ?? 1) === scale &&
-      (index < resizing.from || index >= resizing.to) &&
-      index < resizing.layout.heights.length &&
-      resizing.rows[index] === row
-    )
-      // Out of view during a live resize: its height at the last width, never recorded as this width's.
-      height = resizing.layout.heights[index]!;
     else {
       const customHeight = measureOverride?.(row, width);
       const custom = customHeight !== undefined && Number.isFinite(customHeight) && customHeight >= 0;

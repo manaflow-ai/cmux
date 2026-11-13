@@ -366,6 +366,25 @@ impl Store for ForkView {
     fn flush_session(&self, id: &str) -> Result<()> {
         self.inner.flush_session(id)
     }
+    /// A journal restore's cut of `id`'s own records past `after` (`hub/journal_restore.rs`):
+    /// the forks that show them get them first, as a retention commit does. The trait's own
+    /// default stages through this view, which stages nothing for a store with no segments (the
+    /// memory store), and the cut never happened.
+    fn truncate_after(&self, id: &str, after: u64) -> Result<bool> {
+        let _dropping = self.exclusive();
+        for fork in self.forks_of(id)? {
+            self.materialize_locked(&fork)?;
+        }
+        self.inner.truncate_after(id, after)
+    }
+    /// What a chat keeps while a journal restore holds it (`hub/restore_writer.rs`): the
+    /// store's own, beside its log. The trait's default keeps nothing across a restart.
+    fn keep_parked(&self, id: &str, kept: Option<&[u8]>) -> Result<()> {
+        self.inner.keep_parked(id, kept)
+    }
+    fn kept_parked(&self, id: &str) -> Result<Option<Vec<u8>>> {
+        self.inner.kept_parked(id)
+    }
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
         let _held = self.shared();
         let Some(r) = self.reference(id)? else { return self.inner.events(id, after, limit) };

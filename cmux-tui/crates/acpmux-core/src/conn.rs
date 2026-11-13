@@ -377,6 +377,10 @@ fn error_frame(request: &Frame, error: &ConnError) -> Result<Frame, ConnError> {
         ConnError::DuplicateSubscription(_) => "duplicate_sid",
         ConnError::TooManySubscriptions => "subscription_limit",
         ConnError::Frame(_) => "invalid_request",
+        ConnError::Hub(HubError::CursorGone) => "cursor_gone",
+        ConnError::Hub(
+            HubError::InvalidParams(_) | HubError::InvalidPage | HubError::InvalidWindow,
+        ) => "invalid_params",
         _ => "request_failed",
     };
     let mut fields = serde_json::Map::new();

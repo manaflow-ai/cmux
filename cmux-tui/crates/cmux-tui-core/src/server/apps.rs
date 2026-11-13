@@ -456,7 +456,14 @@ pub(super) fn try_handle(
             );
             return Some(true);
         }
-        Command::Logs { app, follow } => Ok(supervisor.logs(client, &app, follow)),
+        Command::Logs { app, follow } => {
+            // A follow outlives its request (`server/message_writer/long_connection.rs`).
+            if follow && let Err(full) = writer.long.hold() {
+                Err(crate::apps::ApiError::new("operation.failed", full.to_string()))
+            } else {
+                Ok(supervisor.logs(client, &app, follow))
+            }
+        }
         Command::ProviderRegister { families, inventory_watch } => {
             if inventory_watch {
                 supervisor.register_inventory_provider(client, claim_for(mux, client), families)

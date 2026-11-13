@@ -2774,6 +2774,39 @@ class PortablePlacementBootstrapAdmission(unittest.TestCase):
                     self.assertEqual(evaluate(bootstrap, context), expected)
 
 
+class ChecksTimeoutFitsItsRunner(unittest.TestCase):
+    """A checks job placed on a mini gets a verdict, not a timeout's cancel (docs note-349).
+
+    #42624, a data-only devbox image promotion, was placed on a mini on all three of its heads; each run
+    hit the 15-minute timeout sized for Blacksmith (jobs 131984422217, 132002973791, 132013731059: the
+    runner hook's admission wait and the slower checks), ended cancelled, and merge_hold had no verdict.
+    """
+
+    def context(self, **extra) -> dict:
+        return {"github.repository_owner": "manaflow-ai", "github.repository": "manaflow-ai/cmux",
+                "github.event_name": "pull_request", "github.run_attempt": 1,
+                "github.event.pull_request.head.repo.full_name": "manaflow-ai/cmux",
+                "needs.portable-placement.outputs.placed_attempt": "1", **extra}
+
+    def test_a_mini_placed_checks_job_outlasts_the_hook_wait_and_the_slow_checks(self):
+        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"][JOB]
+        mini = self.context(**{"needs.portable-placement.outputs.mini_jobs": " path_route checks ",
+                               "needs.portable-placement.outputs.mini_runner": "glaeda-side-std-xcode-26.6"})
+        self.assertEqual(evaluate(one_runs_on(job), mini), "glaeda-side-std-xcode-26.6")
+        # Observed on a mini: 8 min 5 s of admission wait (job 132013731059) plus about 16 min of checks.
+        self.assertGreaterEqual(evaluate(str(job["timeout-minutes"]), mini), 30)
+        for why, context in (
+                ("Blacksmith", self.context()),
+                ("fleet Linux", self.context(**{"needs.portable-placement.outputs.linux_jobs": " checks ",
+                                                "needs.portable-placement.outputs.linux_runner": "glaeda-linux"})),
+                ("an earlier attempt's mini", {**mini, "github.run_attempt": 2}),
+                ("a listed job with no mini label", {**mini, "needs.portable-placement.outputs.mini_runner": ""}),
+                ("a fork repository", {**mini, "github.repository_owner": "someone"})):
+            with self.subTest(why=why):
+                self.assertNotEqual(evaluate(one_runs_on(job), context), "glaeda-side-std-xcode-26.6")
+                self.assertEqual(evaluate(str(job["timeout-minutes"]), context), 15)
+
+
 class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
     """A PR that changes any CmuxNext package Swift file runs the Release compile; a web-only PR does not.
 
