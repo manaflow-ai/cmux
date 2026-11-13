@@ -1591,10 +1591,13 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextMacScreenTests",
       "targets": [
+        "CmuxNextCompat",
         "CmuxNextMacScreen",
         "CmuxNextRemoteView"
       ],
-      "packages": [],
+      "packages": [
+        "CmuxScreenKit"
+      ],
       "reads": [
         "cmux-tui/crates/cmux-rd-proto/tests/vectors/app_lines.json"
       ]
