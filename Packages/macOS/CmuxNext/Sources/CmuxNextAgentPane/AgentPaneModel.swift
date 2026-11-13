@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextCloud
 public import CmuxNextDesign
 public import CmuxNextSettings
 public import Foundation
@@ -123,6 +124,9 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onCloudStartChat: (@MainActor (AgentPaneCloudStart) async -> [String: Any])?
     /// Signs into the app's Cloud account for inline first-send recovery; nil when Cloud is unavailable.
     @ObservationIgnored public var onCloudSignIn: (@MainActor () async -> Bool)?
+    /// The Set up Cloud card's way in, then the wait for a connection serving the family (``CloudSetup/setUp(_:family:)``);
+    /// false when the wait ended without one. nil when Cloud is unavailable.
+    @ObservationIgnored public var onCloudSetUp: (@MainActor (CloudSetup.Action, String) async -> Bool)?
     /// Whether the app's Cloud account is signed in now (in another pane, window or Settings, say):
     /// a `cloud.signIn` then resumes without opening the browser. nil reads as not signed in.
     @ObservationIgnored public var onCloudSignedIn: (@MainActor () -> Bool)?
@@ -130,6 +134,8 @@ public final class AgentPaneModel {
     @ObservationIgnored var cloudSignInGeneration = 0
     /// This pane's browser sign-in while a `cloud.signIn` waits on it; an expired `cloud.signInCancel` cancels it.
     @ObservationIgnored var cloudSignInBrowser: Task<Bool, Never>?
+    /// This pane's Set up Cloud wait while a `cloud.setUp` waits on it; `cloud.signInCancel` cancels it.
+    @ObservationIgnored var cloudSetUpWait: Task<Bool, Never>?
     /// The click a `cloud.signIn` kept once it signed in, for the page's one send again of that start
     /// (``AgentPaneModel/takeCloudSignInGrant(_:)``); `cloud.signInCancel` drops it.
     @ObservationIgnored var cloudSignInGrant: (key: String, generation: Int, until: ContinuousClock.Instant)?
@@ -652,6 +658,7 @@ public final class AgentPaneModel {
         // A new chat's send elsewhere spends Cloud time: the Send's own gesture (``AgentPaneHandOff``).
         case .sandboxRun(let task, let agent, let key): return await AgentPaneHandOff(model: self).sandbox(task: task, agent: agent, key: key)
         case .cloudSignIn(let key): return await signInToCloud(key: key)
+        case .cloudSetUp(let key, let action, let family): return await setUpCloud(key: key, action: action, family: family)
         // Starts nothing and needs no gesture: it only withdraws a pending sign-in's kept click.
         case .cloudSignInCancel(let expired): return cancelCloudSignIn(expired: expired)
         case .cloudStartChat(let start): return await AgentPaneHandOff(model: self).cloud(start)
