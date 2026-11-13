@@ -598,14 +598,18 @@ impl Outcome {
 
 /// The updater's lock (`<state>/lock`, flock): one check, commit, rollback
 /// or guard at a time, in this process or another (`cmux host update
-/// check`). Released when the holder exits, also when the restart ends it.
+/// check`). Released when the holder lets go (commit and rollback do while
+/// the service lives on) or exits, also when the restart ends it. The drop
+/// unlocks before it closes: a child the service forked meanwhile keeps no
+/// lock through its copy, so the next check does not fail as "another update
+/// check runs".
 struct Lock {
-    _file: fs::File,
+    _lock: cmux_file_lock::FileLock,
 }
 
 impl Lock {
     fn take(paths: &Paths, wait: bool) -> Option<Lock> {
-        use std::os::unix::io::AsRawFd as _;
+        use cmux_file_lock::{FileLock, Kind};
         let dir = paths.at(super::STATE_DIR);
         fs::create_dir_all(&dir).ok()?;
         let file = fs::OpenOptions::new()
@@ -614,9 +618,13 @@ impl Lock {
             .write(true)
             .open(dir.join("lock"))
             .ok()?;
-        let flags = if wait { libc::LOCK_EX } else { libc::LOCK_EX | libc::LOCK_NB };
-        // SAFETY: flock on a descriptor this function owns.
-        (unsafe { libc::flock(file.as_raw_fd(), flags) } == 0).then_some(Lock { _file: file })
+        // The same exclusive flock as before: blocking, or one try.
+        let lock = if wait {
+            FileLock::take(file, Kind::Exclusive).ok()?
+        } else {
+            FileLock::try_take(file, Kind::Exclusive).ok()?
+        };
+        Some(Lock { _lock: lock })
     }
 }
 

@@ -1581,6 +1581,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-cloud-environment",
+ "cmux-file-lock",
  "cmux-json",
  "cmux-link",
  "cmux-server",

@@ -121,9 +121,11 @@ pub struct Gate {
     paths: Paths,
 }
 
-/// The gate's flock, held until dropped.
+/// The gate's flock, held until dropped. The drop unlocks before it closes: a child the
+/// service forked meanwhile (a session host, `wg`, systemctl) keeps no lock through its copy.
+/// `None` when the lock file could not be opened or locked: the caller goes on unlocked.
 struct Locked {
-    _file: Option<fs::File>,
+    _lock: Option<cmux_file_lock::FileLock>,
 }
 
 /// What `act` may do inside [`Gate::run`], under the gate's flock.
@@ -169,17 +171,17 @@ impl Gate {
     }
 
     fn lock(&self) -> Locked {
-        use std::os::unix::io::AsRawFd as _;
+        use cmux_file_lock::{FileLock, Kind};
         let path = self.paths.at(GATE_LOCK);
-        let file = path
+        let lock = path
             .parent()
             .and_then(|dir| fs::create_dir_all(dir).ok())
             .and_then(|()| {
                 fs::OpenOptions::new().create(true).truncate(false).write(true).open(&path).ok()
             })
-            // SAFETY: flock on a descriptor this function owns.
-            .filter(|file| unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0);
-        Locked { _file: file }
+            // The same blocking exclusive flock as before.
+            .and_then(|file| FileLock::take(file, Kind::Exclusive).ok());
+        Locked { _lock: lock }
     }
 
     fn read(&self) -> GateState {
