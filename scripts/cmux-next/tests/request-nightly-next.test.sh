@@ -128,6 +128,12 @@ if [[ "\$1 \$2" == "api graphql" ]]; then
   if [[ -f "$TMP/gh-graphql" ]]; then cat "$TMP/gh-graphql"; else echo '{"data":{"repository":{}}}'; fi
   exit 0
 fi
+# A commit's full status list (REST, newest first): $TMP/gh-statuses-<sha>, else none.
+if [[ "\$1" == api && "\$2" == repos/*/commits/*/statuses\?* ]]; then
+  sha="\${2#repos/*/commits/}"; sha="\${sha%%/*}"
+  if [[ -f "$TMP/gh-statuses-\$sha" && "\$2" == *"&page=1" ]]; then cat "$TMP/gh-statuses-\$sha"; else echo '[]'; fi
+  exit 0
+fi
 [[ "\$1" == api ]] || exit 0
 echo "gh stub: unexpected api call \$*" >&2; exit 1
 STUB
@@ -208,6 +214,16 @@ request --sha "$head" --release-compile-green
 log=$(cd "$src" && PATH="$TMP/bin:$PATH" python3 scripts/cmux-next/nightly_quarantine.py quarantined --repo o/r --tip "$head" 2>&1 >/dev/null)
 grep -q "ignored a cmux-next/direct-push-gates status (SUCCESS) on ${head:0:12} from someone" <<<"$log" \
   || fail "the ignored status must be named with its creator:" "$log"
+# GraphQL's status.context is only the latest status of the context: a SUCCESS anyone posts over the publisher's
+# FAILURE must not hide it (Codex BLOCK on #42343 at 28980e76). The publisher's newest verdict is read from the
+# commit's full status list, and only for a commit whose latest status is someone else's.
+statuses "$(status_node "$head" SUCCESS someone User)"
+printf '[{"context":"cmux-next/direct-push-gates","state":"success","description":"","creator":{"login":"someone","type":"User"}},{"context":"cmux-next/direct-push-gates","state":"failure","description":"red: base %s since e0d3bb0ec2f0 by lawrencecchen","creator":{"login":"cmux-bot[bot]","type":"Bot"}}]\n' \
+  "$(printf '4%.0s' {1..40})" > "$TMP/gh-statuses-$head"
+request --sha "$head" --release-compile-green
+! dispatched "$head" || fail "a forged success over the publisher's failure must not lift the quarantine:" "$(cat "$TMP/gh.log")"
+grep -q "^api repos/o/r/commits/$head/statuses" "$TMP/gh.log" || fail "the forged latest status must send the read to the full list:" "$(cat "$TMP/gh.log")"
+rm -f "$TMP/gh-statuses-$head"
 # A user who registers the bare login cmux-bot is a User, not the app: its success does not lift it either. REST's
 # cmux-bot[bot] form of the app still counts (cmux#42343 review F1).
 statuses "$(status_node "$head" SUCCESS cmux-bot User)" "$(status_node "$parent" FAILURE)"

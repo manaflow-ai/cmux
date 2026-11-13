@@ -66,7 +66,7 @@ def quarantine_walk(nodes: list) -> tuple[dict | None, list[tuple[str, dict]]]:
         ctx = ctx if isinstance(ctx, dict) else {}
         who = ctx.get("creator") if isinstance(ctx.get("creator"), dict) else {}
         creator = str(who.get("login") or "")
-        if ctx and not (who.get("__typename") == "Bot" and creator in CREATOR_LOGINS):
+        if ctx and not trusted(who):
             print(f"direct-push quarantine: ignored a {CONTEXT} status ({ctx.get('state')}) on {node['oid'][:12]} "
                   f"from {creator or 'an unknown creator'}; only {CREATOR} posts it", file=sys.stderr)
             ctx = {}
@@ -94,6 +94,33 @@ def first_parents(tip: str) -> list[str]:
     return shas
 
 
+STATUS_PAGES = 10  # REST lists at most 100 statuses a page; GitHub keeps at most 1000 per commit and context
+
+
+def trusted(who) -> bool:
+    """A status creator is the publisher: a Bot (GraphQL __typename, REST type) with one of CREATOR_LOGINS."""
+    who = who if isinstance(who, dict) else {}
+    return (who.get("__typename") or who.get("type")) == "Bot" and who.get("login") in CREATOR_LOGINS
+
+
+def newest_trusted(repo: str, sha: str) -> dict:
+    """The publisher's newest CONTEXT status on SHA, as GraphQL's context reads ({} for none), from REST's full status
+    list (newest first). GraphQL's status.context(name:) is only the latest status of that context, so a status posted
+    over the publisher's FAILURE by anyone else would hide it (Codex BLOCK on #42343 at 28980e76): read only when the
+    latest is not the publisher's. A list past STATUS_PAGES raises (unreadable), never reads as no verdict."""
+    for page in range(1, STATUS_PAGES + 1):
+        got = json.loads(gh("api", f"repos/{repo}/commits/{sha}/statuses?per_page=100&page={page}") or "[]")
+        if not isinstance(got, list):
+            raise ValueError(f"{sha[:12]}'s statuses unreadable")
+        for item in got:
+            if isinstance(item, dict) and item.get("context") == CONTEXT and trusted(item.get("creator")):
+                return {"state": str(item.get("state") or "").upper(), "description": item.get("description") or "",
+                        "creator": {"__typename": "Bot", "login": item["creator"]["login"]}}
+        if len(got) < 100:
+            return {}
+    raise ValueError(f"{sha[:12]} has more than {STATUS_PAGES * 100} statuses; the publisher's may be past them")
+
+
 def history(repo: str, oid: str) -> list:
     """GraphQL nodes for OID's first-parent commits, newest first; a commit GitHub does not return reads as one with no
     status (an open quarantine still holds it)."""
@@ -106,7 +133,17 @@ def history(repo: str, oid: str) -> list:
     if not isinstance(found, dict):
         raise ValueError(f"{oid}'s history unreadable")
     by_oid = {n["oid"]: n for n in found.values() if isinstance(n, dict) and isinstance(n.get("oid"), str)}
-    return [by_oid.get(sha) or {"oid": sha} for sha in shas]
+    nodes = [by_oid.get(sha) or {"oid": sha} for sha in shas]
+    for node in nodes:
+        ctx = (node.get("status") or {}).get("context") if isinstance(node.get("status"), dict) else None
+        if isinstance(ctx, dict) and ctx and not trusted(ctx.get("creator")):
+            # someone else's status is the latest: the publisher's verdict, if any, is under it
+            who = (ctx.get("creator") or {}).get("login") if isinstance(ctx.get("creator"), dict) else None
+            print(f"direct-push quarantine: ignored a {CONTEXT} status ({ctx.get('state')}) on {node['oid'][:12]} "
+                  f"from {who or 'an unknown creator'}; only {CREATOR} posts it, so its newest status under that "
+                  "one is read", file=sys.stderr)
+            node["status"] = {"context": newest_trusted(repo, node["oid"])}
+    return nodes
 
 
 def quarantined(args: argparse.Namespace) -> int:
