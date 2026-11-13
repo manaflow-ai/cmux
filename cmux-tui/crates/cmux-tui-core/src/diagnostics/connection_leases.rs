@@ -15,9 +15,15 @@
 //! client that only shut down its writing half (`cmux-tui relay`) also moves to
 //! the pool. It is still served to the end; only its slot is counted in the
 //! pool instead of the limit. Linux reports it once both halves are closed.
+//!
+//! A connection's terminal is set one time: at accept, when its terminal has
+//! its seat (`terminal_seats`), or at the moment the terminal takes its seat
+//! (`join_terminal`). Each change of a lease's state or terminal is made
+//! under the lease's `turning` lock, so each slot goes back one time, to the
+//! count that holds it.
 
-use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::{Arc, Mutex, PoisonError, Weak};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
 
 use super::{ConnectionStats, LongConnectionsFull};
 
@@ -41,16 +47,29 @@ pub type PeerClosed = Box<dyn Fn() -> bool + Send + Sync>;
 /// connections once it became one.
 pub struct ConnectionLease {
     stats: Arc<ConnectionStats>,
-    /// `SHORT`, then at most one change, to `HUNG_UP` or to `LONG`.
+    /// `SHORT`, then at most one change, to `HUNG_UP` or to `LONG`. Changed
+    /// only under `turning`.
     state: AtomicU8,
-    /// Held while the connection becomes long (`become_long`), so two starts
-    /// on one connection at the same moment take one long place.
+    /// Held for each change of `state` and of `terminal`: the connection
+    /// becomes long (`become_long`), joins its terminal (`join_terminal`) or
+    /// gives its slots back after a hang-up (`reclaim_hung_up`). Two starts
+    /// on one connection at the same moment take one long place, and a slot
+    /// that one of them takes is seen by the next. Never held across a wait.
     turning: Mutex<()>,
     peer_closed: Option<PeerClosed>,
-    /// Also holds a terminal slot (`ConnectionStats::try_claim_terminal`,
-    /// #27698), given back with the main slot; inside, the terminal it came
-    /// from (nil when unknown).
-    terminal: Option<Option<u32>>,
+    /// Set one time, when the connection is counted as one from a terminal:
+    /// it holds a terminal slot (`ConnectionStats::try_claim_terminal`,
+    /// #27698), given back with the main slot, or a long place. Inside, the
+    /// terminal it came from (its process session; nil when unknown). Not
+    /// set: a connection from outside the terminals.
+    terminal: OnceLock<Option<u32>>,
+    /// The process session of the client of a connection that was admitted
+    /// as one from outside the terminals (`admitted_outside`). A terminal
+    /// that takes its seat later finds its connections by it.
+    outside_session: OnceLock<u32>,
+    /// The connection started long work while it was counted as one from
+    /// outside the terminals (`become_long` made no change then).
+    long_work: AtomicBool,
 }
 
 impl ConnectionLease {
@@ -62,20 +81,65 @@ impl ConnectionLease {
         peer_closed: Option<PeerClosed>,
         terminal: Option<Option<u32>>,
     ) -> Arc<Self> {
-        let watched = peer_closed.is_some();
         let lease = Arc::new(Self {
             stats,
             state: AtomicU8::new(SHORT),
             turning: Mutex::new(()),
             peer_closed,
-            terminal,
+            terminal: terminal.map(OnceLock::from).unwrap_or_default(),
+            outside_session: OnceLock::new(),
+            long_work: AtomicBool::new(false),
         });
-        if watched {
-            let mut leases = lease.stats.leases.lock().unwrap_or_else(PoisonError::into_inner);
-            leases.retain(|lease| lease.strong_count() > 0);
-            leases.push(Arc::downgrade(&lease));
-        }
+        let mut leases = lease.stats.leases.lock().unwrap_or_else(PoisonError::into_inner);
+        leases.retain(|lease| lease.strong_count() > 0);
+        leases.push(Arc::downgrade(&lease));
+        drop(leases);
         lease
+    }
+
+    /// The accept loop admitted this connection as one from outside the
+    /// terminals, and its client runs in process session `session`. If that
+    /// session is a terminal's, the connection joins the terminal: now, or
+    /// when the terminal takes its seat (`ConnectionStats::seat_terminal`).
+    ///
+    /// A terminal's process can connect before the daemon knows the terminal:
+    /// the process starts first. The seat is taken before the terminal looks
+    /// at the open connections, and the session is written here before the
+    /// look at the seats, so one of the two sees the other in each order.
+    pub fn admitted_outside(&self, session: u32) {
+        let _ = self.outside_session.set(session);
+        if self.stats.terminal_seated(session) {
+            self.join_terminal(session);
+        }
+    }
+
+    /// The terminal of process session `session` has its seat: a connection
+    /// from that session that was admitted as an outside one is counted as
+    /// the terminal's from now on. A short one enters the terminals' short
+    /// lane. One that started long work (`long_work`) becomes long: it takes
+    /// the long place first and gives its short slot back after.
+    ///
+    /// No limit and no share apply (`TerminalLane::enter`): the connection is
+    /// open already, and each later claim sees it. No change for a connection
+    /// from another session, for one that has a terminal, and for one whose
+    /// client hung up (its slot went back before).
+    pub(super) fn join_terminal(&self, session: u32) {
+        if self.outside_session.get() != Some(&session) {
+            return;
+        }
+        let _turn = self.turning.lock().unwrap_or_else(PoisonError::into_inner);
+        if self.terminal.get().is_some() || self.state.load(Ordering::Acquire) != SHORT {
+            return;
+        }
+        let client = Some(session);
+        if self.long_work.load(Ordering::Acquire) {
+            self.stats.long.enter(client);
+            self.state.store(LONG, Ordering::Release);
+            self.stats.release();
+        } else {
+            self.stats.terminal_lane.enter(client);
+        }
+        let _ = self.terminal.set(client);
     }
 
     /// The client hung up and this connection no longer holds a slot.
@@ -94,27 +158,25 @@ impl ConnectionLease {
     /// start the work.
     ///
     /// No change for a connection from outside the terminals (it holds no
-    /// terminal slot), for one that is long already, and for one whose client
-    /// hung up (its slots went back before).
+    /// terminal slot; the start is kept in `long_work` for `join_terminal`),
+    /// for one that is long already, and for one whose client hung up (its
+    /// slots went back before).
     pub fn become_long(&self, limit: u64) -> Result<(), LongConnectionsFull> {
-        let Some(client) = self.terminal else { return Ok(()) };
         // One start at a time. A connection's reader can start a stream while
         // its dispatcher hands over a wait: the second one must see what the
         // first one did. Without this, both took a long place for a moment,
         // and at the bound the second one was refused though the connection
         // was long.
         let _turn = self.turning.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(&client) = self.terminal.get() else {
+            self.long_work.store(true, Ordering::Release);
+            return Ok(());
+        };
         if self.state.load(Ordering::Acquire) != SHORT {
             return Ok(());
         }
         self.stats.long.claim(limit, client)?;
-        let moved =
-            self.state.compare_exchange(SHORT, LONG, Ordering::AcqRel, Ordering::Acquire).is_ok();
-        if !moved {
-            // The accept loop took its slots back between the load and here.
-            self.stats.long.release(client);
-            return Ok(());
-        }
+        self.state.store(LONG, Ordering::Release);
         self.stats.release();
         self.stats.release_terminal(client);
         Ok(())
@@ -128,7 +190,7 @@ impl ConnectionLease {
 
 impl Drop for ConnectionLease {
     fn drop(&mut self) {
-        match (*self.state.get_mut(), self.terminal) {
+        match (*self.state.get_mut(), self.terminal.get().copied()) {
             (HUNG_UP, _) => {
                 self.stats.hung_up.fetch_sub(1, Ordering::AcqRel);
             }
@@ -149,13 +211,8 @@ impl ConnectionStats {
     /// A long connection holds no slot to free: it keeps its long place until
     /// its thread ends.
     pub(super) fn reclaim_hung_up(&self, limit: u64) -> u64 {
-        let leases: Vec<Arc<ConnectionLease>> = {
-            let mut leases = self.leases.lock().unwrap_or_else(PoisonError::into_inner);
-            leases.retain(|lease| lease.strong_count() > 0);
-            leases.iter().filter_map(Weak::upgrade).collect()
-        };
         let mut freed = 0;
-        for lease in &leases {
+        for lease in &self.open_leases() {
             let Some(peer_closed) = &lease.peer_closed else { continue };
             if lease.state.load(Ordering::Acquire) != SHORT || !peer_closed() {
                 continue;
@@ -169,21 +226,29 @@ impl ConnectionStats {
             if !pooled {
                 break;
             }
-            // Another accept loop may have taken this one back first, or the
-            // connection became a long one.
-            let taken =
-                lease.state.compare_exchange(SHORT, HUNG_UP, Ordering::AcqRel, Ordering::Acquire);
-            if taken.is_err() {
+            // Under the lease's lock: another accept loop may have taken this
+            // one back first, or the connection became a long one, or it joins
+            // its terminal at this moment. The terminal slot is read after.
+            let _turn = lease.turning.lock().unwrap_or_else(PoisonError::into_inner);
+            if lease.state.load(Ordering::Acquire) != SHORT {
                 self.hung_up.fetch_sub(1, Ordering::AcqRel);
                 continue;
             }
+            lease.state.store(HUNG_UP, Ordering::Release);
             self.release();
-            if let Some(client) = lease.terminal {
+            if let Some(&client) = lease.terminal.get() {
                 self.release_terminal(client);
             }
             freed += 1;
         }
         self.reclaimed.fetch_add(freed, Ordering::Relaxed);
         freed
+    }
+
+    /// The leases of the connections that are open now.
+    pub(super) fn open_leases(&self) -> Vec<Arc<ConnectionLease>> {
+        let mut leases = self.leases.lock().unwrap_or_else(PoisonError::into_inner);
+        leases.retain(|lease| lease.strong_count() > 0);
+        leases.iter().filter_map(Weak::upgrade).collect()
     }
 }
