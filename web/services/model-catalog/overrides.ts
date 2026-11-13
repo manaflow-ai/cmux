@@ -148,7 +148,13 @@ export const HARNESS_OVERRIDES: HarnessOverride[] = [
     // Gemini CLI has no effort setting.
     dropEfforts: ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
     shortNamePrefix: "Gemini ",
-    familyNames: { "gemini-pro": "Pro", "gemini-flash": "Flash", "gemini-flash-lite": "Flash Lite" },
+    familyNames: {
+      "gemini-carbon": "Carbon",
+      "gemini-hydrogen": "Hydrogen",
+      "gemini-pro": "Pro",
+      "gemini-flash": "Flash",
+      "gemini-flash-lite": "Flash Lite",
+    },
   },
   // Every other harness acpmux runs (discover.rs), so the picker lists them installed or not (Leo
   // 2026-10-26: "show all harnesses, all models (pi, opencode, prime intellect, etc…)").
