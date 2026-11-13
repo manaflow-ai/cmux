@@ -102,6 +102,10 @@ public final class ConversationStore {
     /// store would take its updates.
     public var hasPrimaryObserver: Bool { primaryObserver != nil }
 
+    /// Whether a screen that claimed this store (``claimPrimary(_:_:)``) is still alive. A screen
+    /// that left (Home's Chief screen popped) leaves its observer behind, but not itself.
+    public var hasLivePrimaryOwner: Bool { primaryOwner != nil }
+
     /// The screen that set `onChange` (``claimPrimary(_:)``), so only it gives the updates back.
     public private(set) weak var primaryOwner: AnyObject?
 

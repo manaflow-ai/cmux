@@ -226,7 +226,8 @@ public final class HomeNewMessage {
         guard let session else { return nil }
         // Another screen draws that conversation (Forward from inside it, or it sits under Home's
         // top screen): a second one would take its updates, so the blank page sends there instead.
-        guard !session.store.hasPrimaryObserver else { return nil }
+        // A screen that has left (its owner is gone) does not count: its leftover observer is replaced.
+        guard !session.store.hasLivePrimaryOwner else { return nil }
         let view = EmbeddedConversation(session: session, keyboard: sheet?.keyboard, carrying: carrying.text)
         // A message sent there (a new row of mine, not an older one's progress): New Message is
         // done, and the conversation opens on Home.

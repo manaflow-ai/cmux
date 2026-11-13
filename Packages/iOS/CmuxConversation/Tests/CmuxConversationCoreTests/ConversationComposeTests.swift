@@ -257,3 +257,22 @@ final class FakeDirectory: ConversationDirectory, @unchecked Sendable {
         #expect(session.suggestions == [kate])
     }
 }
+
+/// A conversation screen that has gone no longer holds its store: New Message can show that
+/// conversation again (round-3 verifier: a Chief opened from Home showed the blank page after).
+@MainActor
+@Suite struct ConversationStorePrimaryOwnerTests {
+    final class Owner {}
+
+    @Test func aGoneOwnerReleasesTheStoreAndOnlyTheOwnerCanRelease() {
+        let store = ConversationStore(backend: ScriptedBackend(total: 1))
+        var owner: Owner? = Owner()
+        store.claimPrimary(owner!) { _ in }
+        #expect(store.hasLivePrimaryOwner)
+        let other = Owner()
+        store.releasePrimary(other)
+        #expect(store.hasLivePrimaryOwner, "another screen cannot give it back")
+        owner = nil
+        #expect(!store.hasLivePrimaryOwner, "a screen that left no longer holds the store")
+    }
+}
