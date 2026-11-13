@@ -60,7 +60,7 @@ export default defineConfig({
   server: { host: "127.0.0.1", port: DEV_SERVER_PORT, strictPort: true },
   plugins: [
     bundleMetafile(process.env.CMUX_WEBVIEWS_METAFILE),
-    artifactRuntimeVite(),
+    artifactRuntimeVite({ metafile: process.env.CMUX_ARTIFACT_RUNTIME_METAFILE }),
     // Serve-only dev hosts (diff sidecar, markdown shell, agent pane pages); never in the build.
     ...cmuxDevServer(),
     // React Compiler: Babel by default, Oxc with CMUX_REACT_COMPILER=oxc (reactCompiler.mjs).

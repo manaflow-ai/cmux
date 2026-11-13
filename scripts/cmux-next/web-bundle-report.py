@@ -80,6 +80,7 @@ def load_bundle(
     outputs = raw.get("outputs", {})
     source_inputs = raw.get("inputs", {})
     tool = raw.get("tool")
+    kind = raw.get("kind", "graph")
     is_rolldown = tool == "rolldown"
     modules: dict[str, dict[str, Any]] = {}
     output_rows = []
@@ -219,7 +220,7 @@ def load_bundle(
         source_bytes = sum(item["sourceBytes"] for item in descendants.values())
         row["barrelRatio"] = round(row["barrelReachableBytes"] / source_bytes, 4) if source_bytes else 0
     shipped = None
-    if bundle_dir and bundle_dir.is_dir():
+    if kind != "embedded" and bundle_dir and bundle_dir.is_dir():
         shipped = sum(p.stat().st_size for p in bundle_dir.rglob("*") if p.is_file())
     rows.sort(key=lambda item: item["attributionValue"], reverse=True)
     metrics = {row["attributionMetric"] for row in rows if row["attributionMetric"] is not None}
@@ -233,6 +234,7 @@ def load_bundle(
             key=lambda item: item["sourceBytes"], reverse=True,
         )
     return {
+        "kind": kind,
         "name": name,
         "metafile": str(metafile),
         "sourceRoot": str(source_root) if source_root else None,
@@ -247,16 +249,57 @@ def load_bundle(
         "barrels": sorted(barrels, key=lambda item: item["attributionValue"], reverse=True),
         "commonjs": sorted(commonjs, key=lambda item: item["attributionValue"], reverse=True),
         "devInputs": dev_inputs,
+        "staticAssets": [],
+        "embeddedBytes": raw.get("embeddedBytes") if kind == "embedded" else None,
+    }
+
+
+def load_static_bundle(name: str, static_dir: Path, excluded_dirs: list[Path] | None = None) -> dict[str, Any]:
+    """Inventory files shipped outside a bundler graph.
+
+    Static files have no module reachability or tree-shaking metric.  Bundle
+    output directories may live below the resource root, so callers can pass
+    those directories to avoid counting their files twice.
+    """
+    excluded = [path.resolve() for path in (excluded_dirs or [])]
+    assets = []
+    excluded_files = []
+    if static_dir.is_dir():
+        root = static_dir.resolve()
+        for path in sorted(path for path in root.rglob("*") if path.is_file()):
+            if any(path.is_relative_to(directory) for directory in excluded):
+                excluded_files.append(path.relative_to(root).as_posix())
+                continue
+            assets.append({"path": path.relative_to(root).as_posix(), "bytes": path.stat().st_size})
+    shipped = sum(asset["bytes"] for asset in assets)
+    return {
+        "kind": "static",
+        "name": name,
+        "metafile": None,
+        "sourceRoot": None,
+        "bundleDir": str(static_dir),
+        "shippedBytes": shipped,
+        "attributionMetric": "static-file",
+        "attributionValue": None,
+        "reachableBytes": None,
+        "omittedInputs": None,
+        "outputs": [{"path": asset["path"], "bytes": asset["bytes"], "entry": None} for asset in assets],
+        "modules": [],
+        "barrels": [],
+        "commonjs": [],
+        "devInputs": [],
+        "staticAssets": assets,
+        "excludedFiles": excluded_files,
     }
 
 
 def render_markdown(report: dict[str, Any]) -> str:
-    lines = ["# NEXT web bundle attribution", "", "| Bundle | shipped bytes | module attribution | metric | outputs |", "| --- | ---: | ---: | --- | ---: |"]
+    lines = ["# NEXT web bundle attribution", "", "| Bundle | kind | shipped bytes | module attribution | metric | outputs |", "| --- | --- | ---: | ---: | --- | ---: |"]
     for bundle in report["bundles"]:
         reachable = bundle["attributionValue"]
         value = f"{reachable:,}" if reachable is not None else "unknown"
         shipped = f"{bundle['shippedBytes']:,}" if bundle["shippedBytes"] is not None else "unknown"
-        lines.append(f"| {bundle['name']} | {shipped} | {value} | {bundle['attributionMetric']} | {len(bundle['outputs'])} |")
+        lines.append(f"| {bundle['name']} | {bundle.get('kind', 'graph')} | {shipped} | {value} | {bundle['attributionMetric']} | {len(bundle['outputs'])} |")
     lines += [
         "", "Shipped bytes come from the output directory. Module attribution describes the bundler graph;",
         "Rolldown pre-minification lengths are not emitted bytes. Postprocessed files (including Pages CSS)",
@@ -264,10 +307,25 @@ def render_markdown(report: dict[str, Any]) -> str:
         "CommonJS findings use bundler format/import metadata or explicit .cjs/.cts extensions;",
         "metadata without that evidence is not proof that a module is ESM. Source text is not parsed for this check.",
         "Source bytes without captured byte metadata come from the inspection checkout; originalLength is kept separately.",
+        "Embedded graphs are nested build receipts (for example an artifact iframe runtime), not extra shipped files; their module bytes must not be added to shipped totals.",
         "", "## Top modules", "", "| Bundle | Module | source bytes | attribution | metric | ratio | flags |",
         "| --- | --- | ---: | ---: | --- | ---: | --- |",
     ]
+    static_bundles = [bundle for bundle in report["bundles"] if bundle.get("kind") == "static"]
+    if static_bundles:
+        lines += [
+            "", "## Static shipped assets", "",
+            "These files are shipped outside a bundler graph. Their bytes are measured, but no module reachability or tree-shaking claim is made.",
+            "", "| Bundle | file | bytes |", "| --- | --- | ---: |",
+        ]
+        for bundle in static_bundles:
+            for asset in bundle["staticAssets"]:
+                lines.append(f"| {bundle['name']} | `{asset['path']}` | {asset['bytes']:,} |")
+            if bundle["excludedFiles"]:
+                lines.append(f"| {bundle['name']} | *(excluded bundle output: {len(bundle['excludedFiles'])} files)* | — |")
     for bundle in report["bundles"]:
+        if bundle.get("kind") == "static":
+            continue
         for row in bundle["modules"][:20]:
             flags = []
             if row["barrel"] and row["barrelReachableBytes"] > 50 * 1024 and row["barrelRatio"] >= 0.95:
@@ -288,6 +346,8 @@ def render_markdown(report: dict[str, Any]) -> str:
         "", "| Bundle | omitted inputs | source bytes (not savings) |", "| --- | ---: | ---: |",
     ]
     for bundle in report["bundles"]:
+        if bundle.get("kind") == "static":
+            continue
         omitted = bundle["omittedInputs"]
         count = str(len(omitted)) if omitted is not None else "unknown"
         size = f"{sum(item['sourceBytes'] for item in omitted):,}" if omitted is not None else "unknown"
@@ -303,8 +363,15 @@ def render_markdown(report: dict[str, Any]) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--metafile", action="append", required=True, metavar="NAME=PATH")
+    parser.add_argument("--metafile", action="append", default=[], metavar="NAME=PATH")
     parser.add_argument("--bundle-dir", action="append", default=[], metavar="NAME=PATH")
+    parser.add_argument(
+        "--static-dir",
+        action="append",
+        default=[],
+        metavar="NAME=PATH",
+        help="inventory files shipped outside a bundler graph; nested bundle dirs are excluded",
+    )
     parser.add_argument(
         "--source-root",
         action="append",
@@ -320,10 +387,16 @@ def main() -> int:
         help="return status 1 when detector findings are present (default is report-only)",
     )
     args = parser.parse_args()
+    if not args.metafile and not args.static_dir:
+        parser.error("at least one --metafile or --static-dir is required")
     dirs = {}
     for item in args.bundle_dir:
         name, path = item.split("=", 1)
         dirs[name] = Path(path)
+    static_dirs = []
+    for item in args.static_dir:
+        name, path = item.split("=", 1)
+        static_dirs.append((name, Path(path)))
     source_roots = {}
     for item in args.source_root:
         name, path = item.split("=", 1)
@@ -332,6 +405,8 @@ def main() -> int:
     for item in args.metafile:
         name, path = item.split("=", 1)
         bundles.append(load_bundle(name, Path(path), dirs.get(name), source_roots.get(name)))
+    bundle_dirs = [path for path in dirs.values() if path.is_dir()]
+    bundles.extend(load_static_bundle(name, path, bundle_dirs) for name, path in static_dirs)
 
     package_bundles: dict[str, set[str]] = defaultdict(set)
     package_paths: dict[str, set[str]] = defaultdict(set)

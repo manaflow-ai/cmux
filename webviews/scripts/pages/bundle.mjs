@@ -14,6 +14,7 @@ import { katexStylePlugin } from "../agent-pane/katexStylePlugin.mjs";
 const [outdir, ...pages] = process.argv.slice(2);
 if (!outdir || !pages.length) throw new Error("usage: bundle.mjs OUTDIR PAGE...");
 const srcRoot = fileURLToPath(new URL("../../src", import.meta.url));
+const artifactMetafile = process.env.CMUX_ARTIFACT_RUNTIME_METAFILE;
 const mode = reactCompilerMode();
 const jsonParseSettingsPagePlugin = createJsonParsePlugin({ settingsPageOnly: true });
 const compiled = new Set();
@@ -41,7 +42,7 @@ const result = await build({
       onCompiled: (id) => compiled.add(id),
       onDiagnostic: (item) => bailouts.push(item),
     }),
-    artifactRuntimePlugin(),
+    artifactRuntimePlugin({ metafile: artifactMetafile }),
     tailwindPlugin,
     jsonParseSettingsPagePlugin,
     // Preserve the existing pages' math styling; splitting must not add new styling defaults.

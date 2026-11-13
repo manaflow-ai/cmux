@@ -55,7 +55,7 @@ LOADER="$(bun scripts/pages/split-strings.mjs "$SRC/acpmux/generated/strings.jso
 # one of the sheets the page's <style> is written from (checked below).
 # --preload-list names the chunks pane.js imports statically: the page preloads them with it.
 if [ -n "$REPORT_DIR" ]; then
-  bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/pane/pane.js" --split --css-inputs "$WORK/imported-sheets" --preload-list "$WORK/preload-chunks" --metafile "$REPORT_DIR/agent-pane.json"
+  bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/pane/pane.js" --split --css-inputs "$WORK/imported-sheets" --preload-list "$WORK/preload-chunks" --metafile "$REPORT_DIR/agent-pane.json" --artifact-metafile "$REPORT_DIR/agent-pane-artifact-runtime.json"
 else
   bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/pane/pane.js" --split --css-inputs "$WORK/imported-sheets" --preload-list "$WORK/preload-chunks"
 fi

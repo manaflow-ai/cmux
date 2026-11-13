@@ -388,6 +388,79 @@ class WebBundleReportTests(unittest.TestCase):
             bundle = MODULE.load_bundle("bundle", metafile, root)
             self.assertEqual(bundle["barrels"], [])
 
+    def test_static_inventory_has_file_bytes_and_excludes_graph_outputs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            static = root / "markdown-viewer"
+            output = static / "webviews-app"
+            output.mkdir(parents=True)
+            (static / "mermaid.min.js").write_bytes(b"m" * 7)
+            (static / "ondine.min.js").write_bytes(b"o" * 5)
+            (static / "shell.html").write_bytes(b"h" * 3)
+            (output / "main.mjs").write_bytes(b"bundle")
+            bundle = MODULE.load_static_bundle("markdown-viewer-assets", static, [output])
+            self.assertEqual(bundle["kind"], "static")
+            self.assertEqual(bundle["shippedBytes"], 15)
+            self.assertEqual({asset["path"] for asset in bundle["staticAssets"]},
+                             {"mermaid.min.js", "ondine.min.js", "shell.html"})
+            self.assertEqual(bundle["excludedFiles"], ["webviews-app/main.mjs"])
+
+    def test_static_inventory_is_cli_report_only_and_has_no_module_attribution(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            static = root / "assets"
+            static.mkdir()
+            (static / "vendor.js").write_bytes(b"vendor")
+            metafile = self.write_bundle(root, "graph", [("src/main.ts", 10, 4)])
+            report_path = root / "report.json"
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--metafile", f"graph={metafile}",
+                 "--static-dir", f"vendor={static}", "--json", str(report_path)],
+                check=True, capture_output=True, text=True,
+            )
+            report = json.loads(report_path.read_text())
+            static_report = next(bundle for bundle in report["bundles"] if bundle["name"] == "vendor")
+            self.assertEqual(static_report["attributionMetric"], "static-file")
+            self.assertIsNone(static_report["attributionValue"])
+            self.assertIn("| vendor | static | 6 | unknown | static-file | 1 |", result.stdout)
+
+    def test_static_inventory_can_run_without_metafiles(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            static = root / "assets"
+            static.mkdir()
+            (static / "vendor.js").write_bytes(b"vendor")
+            report_path = root / "report.json"
+            subprocess.run(
+                [sys.executable, str(SCRIPT), "--static-dir", f"vendor={static}", "--json", str(report_path)],
+                check=True, capture_output=True, text=True,
+            )
+            report = json.loads(report_path.read_text())
+            self.assertEqual(len(report["bundles"]), 1)
+
+    def test_embedded_metafile_reports_modules_without_shipped_bytes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "node_modules/react/index.js"
+            source.parent.mkdir(parents=True)
+            source.write_text("export const createElement = () => null;\n", encoding="utf-8")
+            metafile = root / "artifact.json"
+            metafile.write_text(json.dumps({
+                "schema": 1,
+                "tool": "esbuild",
+                "kind": "embedded",
+                "embeddedBytes": 120,
+                "inputs": {str(source): {"bytes": source.stat().st_size}},
+                "outputs": {"artifact.js": {"bytes": 120, "inputs": {
+                    str(source): {"bytesInOutput": 120},
+                }}},
+            }), encoding="utf-8")
+            bundle = MODULE.load_bundle("artifact-runtime", metafile, root / "missing-output")
+            self.assertEqual(bundle["kind"], "embedded")
+            self.assertIsNone(bundle["shippedBytes"])
+            self.assertEqual(bundle["embeddedBytes"], 120)
+            self.assertEqual(bundle["modules"][0]["emittedBytes"], 120)
+
 
 if __name__ == "__main__":
     unittest.main()
