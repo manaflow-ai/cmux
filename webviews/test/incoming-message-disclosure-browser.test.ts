@@ -425,20 +425,30 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       expect(await atLatest(page)).toBe(true);
       await toggle.click();
       expect(await toggle.getAttribute("aria-expanded")).toBe("true");
-      // A frame into the open, inside its hold: up from the end by one view, from code.
+      // A frame into the open, inside its hold: up from the end by one view, from code. Where the
+      // opened line then draws is the place the reader was put.
       const put = await page.locator(".acpmux-scroll").evaluate(async (el) => {
         await new Promise<void>((done) => requestAnimationFrame(() => done()));
         el.scrollTop = el.scrollHeight - el.clientHeight * 2;
-        return el.scrollTop;
+        const line = document.querySelector(".cv-received .cv-agentmsg__toggle")!.getBoundingClientRect().top;
+        return { top: el.scrollTop, line };
       });
       // The regression is a re-pin inside the open's hold (400 ms, or the fold's length plus 150 ms).
       // fixed-wait: waiting past the hold is the behavior under test
       await page.waitForTimeout(600);
       await rest(page);
-      const after = await page.locator(".acpmux-scroll").evaluate((el) => el.scrollTop);
-      console.log(`code scroll after open: put ${put} -> ${after}`);
+      const after = await page.locator(".acpmux-scroll").evaluate((el) => ({
+        top: el.scrollTop,
+        line: document.querySelector(".cv-received .cv-agentmsg__toggle")!.getBoundingClientRect().top,
+      }));
+      console.log(`code scroll after open: put ${put.top} -> ${after.top}, line ${put.line} -> ${after.line}`);
       expect(await atLatest(page)).toBe(false);
-      expect(Math.abs(after - put)).toBeLessThan(2);
+      // The opened line stays where the scroll put it. The offset itself may move: during the hold,
+      // each placement pass moves it by however far the line moved (foldAnchor.ts), so a pass that
+      // lands after the code's scroll moves the offset and keeps the line still. On a busy runner
+      // the open's first measure landed one frame later: the offset went 1404 -> 1408 with the
+      // line held at 472 px. A re-pin to the end moves the line by most of a view.
+      expect(Math.abs(after.line - put.line)).toBeLessThan(2);
     } finally {
       await page.close();
     }
