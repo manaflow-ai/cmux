@@ -281,6 +281,8 @@ class OneStartPerWindowTests(unittest.TestCase):
 
 
 TIP = "c" * 40
+# nightly-next's head built and finished: nothing holds the push group, so the rule promotes.
+IDLE = [run(21, 40, status="completed", head_sha=HEAD)]
 
 
 class Api:
@@ -340,7 +342,8 @@ class ApiReadTests(unittest.TestCase):
         self.assertIn(f"repos/o/r/compare/{HEAD}...{TIP}?per_page=1&page=1", api.paths)
 
     def test_a_rate_limited_refs_api_still_decides_when_ls_remote_answers(self):
-        api = api_for(compare("ahead", [(WAITING, 30)]), ref=OSError("HTTP 403: API rate limit exceeded for installation"))
+        api = api_for(compare("ahead", [(WAITING, 30)]), ref=OSError("HTTP 403: API rate limit exceeded for installation"),
+                      runs=IDLE)
         go, reason = rolling.evaluate(NOW, "o/r", TIP, api=api, ls_remote=lambda repo, branch: HEAD)
         self.assertNotIn("could not read nightly-next", reason)
         self.assertTrue(go, reason)
@@ -358,18 +361,18 @@ class ApiReadTests(unittest.TestCase):
 
     def test_the_oldest_waiting_commit_is_page_one_of_a_one_per_page_compare(self):
         """Page 1 at per_page=1 is the oldest commit after nightly-next (the API's documented order)."""
-        api = api_for(compare("ahead", [(WAITING, 11)], ahead_by=2))
-        go, reason = rolling.evaluate(NOW, "o/r", TIP, api=api)
-        self.assertTrue(go, reason)
-        self.assertIn(WAITING[:12], reason)
+        api = api_for(compare("ahead", [(WAITING, 11)], ahead_by=2), runs=[run(20, 12, head_sha=HEAD)])
+        self.assertEqual(rolling.oldest_after(api, "o/r", HEAD, TIP)[0], WAITING)
+        self.assertIn(f"repos/o/r/compare/{HEAD}...{TIP}?per_page=1&page=1", api.paths)
 
     def test_a_gap_past_250_commits_still_finds_its_oldest_landing(self):
         """An unpaginated compare stops at 250 commits ending at the newest; page 1 of one per page
         is the oldest whatever the gap, and no shallow checkout is involved."""
-        api = api_for(compare("ahead", [(WAITING, 300)], ahead_by=400))
+        api = api_for(compare("ahead", [(WAITING, 300)], ahead_by=400), runs=IDLE)
         go, reason = rolling.evaluate(NOW, "o/r", TIP, api=api)
         self.assertTrue(go, reason)
-        self.assertIn("waited 300 min", reason)
+        sha, landed = rolling.oldest_after(api, "o/r", HEAD, TIP)
+        self.assertEqual((sha, round((NOW - landed).total_seconds() / 60)), (WAITING, 300))
         self.assertTrue(all("/compare/" not in p or p.endswith("?per_page=1&page=1") for p in api.paths), api.paths)
 
     def test_a_tip_at_or_behind_nightly_next_waits_for_nothing(self):
@@ -379,13 +382,13 @@ class ApiReadTests(unittest.TestCase):
                 self.assertFalse(go, reason)
 
     def test_an_unknown_gap_promotes(self):
-        """A failed compare, a diverged nightly-next (a train commit) or an empty list: the oldest
-        landing counts as old."""
+        """A failed compare, a diverged nightly-next (a train commit) or an empty list: unknown, which
+        promotes when nothing builds (and waits, like any gap, while a push run builds)."""
         for answer in (OSError("502"), compare("diverged", [(WAITING, 1)]), compare("ahead", [], ahead_by=3)):
             with self.subTest(answer=repr(answer)[:40]):
-                go, reason = rolling.evaluate(NOW, "o/r", TIP, api=api_for(answer))
+                self.assertEqual(rolling.oldest_after(api_for(answer), "o/r", HEAD, TIP), rolling.UNKNOWN)
+                go, reason = rolling.evaluate(NOW, "o/r", TIP, api=api_for(answer, runs=IDLE))
                 self.assertTrue(go, reason)
-                self.assertIn("unknown", reason)
 
     def test_an_unreadable_nightly_next_waits_for_the_backstop_and_says_so(self):
         """Never a silent go: the feed watch's dispatch for one commit skips this rule."""
@@ -511,7 +514,7 @@ class LocalGapTests(unittest.TestCase):
     def test_evaluate_reads_compare_when_the_head_is_not_in_the_checkout(self):
         def missing(head, tip):
             raise LookupError("not here")
-        api = api_for(compare("ahead", [(WAITING, 30)]))
+        api = api_for(compare("ahead", [(WAITING, 30)]), runs=IDLE)
         go, reason = rolling.evaluate(NOW, "o/r", TIP, api=api, ls_remote=lambda repo, branch: HEAD, local_gap=missing)
         self.assertTrue(go, reason)
         self.assertIn(f"repos/o/r/compare/{HEAD}...{TIP}?per_page=1&page=1", api.paths)
