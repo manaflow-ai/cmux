@@ -191,9 +191,9 @@ def main():
     ap = argparse.ArgumentParser()
     for flag in ("--mac-app", "--ios-app", "--sims", "--udid", "--bundle-id", "--work", "--out", "--summary"):
         ap.add_argument(flag, required=True)
-    # The theme leg: the Mac runs a distinctive Ghostty terminal theme (THEME_CONFIG), and once
-    # paired the phone opens that Mac's terminal; both screens are kept (theme-*.png).
-    ap.add_argument("--theme", action="store_true")
+    # The theme leg: the Mac runs this Ghostty config, and once paired the phone opens that Mac's
+    # terminal; both screens are kept (theme-*.png).
+    ap.add_argument("--theme", metavar="GHOSTTY_CONFIG")
     a = ap.parse_args()
     proof_path = os.environ.get("CMUX_IOS_CLOUD_PROOF_FILE")
     proof = read_proof(proof_path, artifact_root=a.out) if proof_path else None
@@ -236,10 +236,7 @@ def main():
                CMUX_NEXT_MOBILE_DEVICE_NAME=RIG_MAC_NAME,
                CMUX_NEXT_SOCKET_MODE="automation")
     if a.theme:
-        theme_file = os.path.join(a.work, "pair-theme.ghostty")
-        with open(theme_file, "w") as f:
-            f.write(THEME_CONFIG)
-        env["CMUX_NEXT_GHOSTTY_CONFIG"] = theme_file
+        env["CMUX_NEXT_GHOSTTY_CONFIG"] = os.path.realpath(a.theme)
 
     def rpc(method, params=None, timeout=30):
         try:
@@ -491,33 +488,6 @@ def main():
 
 ASKS = re.compile(r"phone (\w+) asks to pair: (\w+)")
 LINK_REFUSED = re.compile(r"mac_identity_changed|bad_mac_proof")
-
-
-# A terminal theme no default resembles (pair-e2e --theme): the phone's terminal must show these.
-THEME_CONFIG = """theme =
-background = #2b0b3f
-foreground = #f9e79f
-cursor-color = #ff2e97
-selection-background = #00e5c7
-selection-foreground = #1a0626
-palette = 0=#3d1458
-palette = 1=#ff3864
-palette = 2=#2de2a6
-palette = 3=#ffd319
-palette = 4=#36c2ff
-palette = 5=#ff61d8
-palette = 6=#00f0e0
-palette = 7=#f2e6ff
-palette = 8=#7a4fa0
-palette = 9=#ff7a9c
-palette = 10=#7dffcf
-palette = 11=#ffe873
-palette = 12=#8fdcff
-palette = 13=#ffa3ec
-palette = 14=#7afff5
-palette = 15=#ffffff
-faint-opacity = 0.35
-"""
 
 
 def theme_leg(simctl, udid, bundle_id, phone_env, phone_log, phone_shot, rpc, screens):

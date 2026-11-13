@@ -54,7 +54,7 @@
 #           DerivedData. Copy the identical head benchmark test to the baseline
 #           tree; baseline mode selects its original-view adapter.
 #           bench/ retains each log, console output and result bundle.
-#   pair-e2e [theme]
+#   pair-e2e
 #           build, plus a tagged DEBUG cmux NEXT Mac app built here
 #           (reload.sh), and pairing by its QR code end to end
 #           (cmux_next_pair_e2e.py): the Mac's Mobile Pairing link, opened on
@@ -66,8 +66,9 @@
 #           Then the upload leg: the phone streams a sparse ~150 MB file (past
 #           the old 100 MiB cap) to the Mac with its own LinkUpload, and the
 #           stored file's size and SHA-256 must match (UploadProbe.swift).
-#           `theme`: the Mac runs a distinctive Ghostty terminal theme, and once
-#           paired the phone opens the Mac's terminal (DEBUG demo live-terminal);
+#           On a tree with cmux-next-ios/verify/pair-e2e-theme.ghostty (a demo
+#           branch adds it), the Mac runs that Ghostty config and, once paired,
+#           the phone opens the Mac's terminal (DEBUG demo live-terminal);
 #           screens/theme-phone-terminal.png and theme-mac-window.png show both.
 #   listperf
 #           build, plus the list frame-rate rig (ListStressRig,
@@ -103,12 +104,12 @@ cmux_next_require_fleet cmux-next-ios-sim.sh "xcodebuild and an iOS simulator" "
 
 mode="${1:-build}"
 case "$mode" in build|release-build|test|bench|all|pair-e2e|shots|chief-live-perf|chief-live-perf-baseline|listperf) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, release-build, test, bench, all, pair-e2e, shots, chief-live-perf, chief-live-perf-baseline or listperf, got '$mode'" >&2; exit 2 ;; esac
+# pair-e2e's theme leg runs on a tree that carries its Ghostty config (a demo branch adds it; the
+# controller takes no further pair-e2e argument).
+pair_theme_config=cmux-next-ios/verify/pair-e2e-theme.ghostty
 pair_args=()
-if [[ "$mode" == pair-e2e && $# -gt 1 ]]; then
-  for sel in "${@:2}"; do
-    [[ "$sel" == theme ]] || { echo "cmux-next-ios-sim.sh: pair-e2e takes only 'theme' after it, got '$sel'" >&2; exit 2; }
-    pair_args=(--theme)
-  done
+if [[ "$mode" == pair-e2e && -f "$pair_theme_config" ]]; then
+  pair_args=(--theme "$pair_theme_config")
 fi
 if [[ "$mode" == release-build && $# -ne 1 ]]; then
   echo "cmux-next-ios-sim.sh: release-build takes no further arguments" >&2; exit 2
