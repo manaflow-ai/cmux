@@ -1,10 +1,18 @@
 // l10n-allow-file: test fixtures.
 // A run of messages in a running turn: the one still going out is on the live line (turns.ts
 // `codexRuns`), so the line, not a group, says who it goes to. The finished one draws no row while
-// the turn runs (liveTurnWork.experiment.ts `line`, as chatgpt.com draws a running turn).
-import { expect, test } from "bun:test";
+// the turn runs under liveTurnWork.experiment.ts `line`, as chatgpt.com draws a running turn.
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
 import { turnView } from "./turns";
+
+// This file covers the `line` arm of liveTurnWork.experiment.ts (the shipped arm is `runs`).
+beforeEach(() => {
+  globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "live-turn-work": "line" };
+});
+afterEach(() => {
+  delete globalThis.cmuxExperiments;
+});
 
 const sendMessage = (id: string, to: string, status: string) => ({
   kind: "tool",

@@ -186,6 +186,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
             toolbar?.view.frame = NSRect(x: bounds.width - tools, y: stripView.frame.minY, width: tools, height: shown)
         }
         var hostFrame = isBandActive || rowTools > 0 ? bounds : NSRect(x: 0, y: onTop ? stripHeight : 0, width: bounds.width, height: contentHeight)
+        contentHost.paintsRestingGround = rowTools <= 0
         let listWidth = layoutVerticalList()
         if listWidth > 0 { (hostFrame.origin.x, hostFrame.size.width) = (hostFrame.minX + listWidth, max(0, hostFrame.width - listWidth)) }
         reportHeaderIfChanged()
@@ -197,8 +198,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
             clearLaunchImage(invokeCallback: launchImageInvokesResizeCallback)
             launchImageInvokesResizeCallback = true
         }
-        // After the host frame: a strip pinned to a browser's band reads its
-        // frame from constraints that depend on the host frame.
+        // Lay out the browser's band after the host frame its constraints depend on.
         super.layout()
         toolbar?.view.refreshCorner() // "…"'s hover spans the strip's frame, set above or by the band's constraints
         // Restored terminal views are attached while the pane is still at
