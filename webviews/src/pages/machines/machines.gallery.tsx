@@ -130,7 +130,7 @@ export default componentEntry<Props>({
           style: "compact",
           busy: [],
           failed: {},
-          screenSharing: { viewerName: "Air Blue", scope: "full", connected: true },
+          screenSharing: { viewerName: "studio-mac", scope: "full", connected: true },
         },
       },
     },
