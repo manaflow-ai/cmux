@@ -29,6 +29,10 @@ import re
 import subprocess
 import sys
 import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import receipt_read  # noqa: E402  (the shared reader: a PR's comments, read back past the newest page)
 
 MARKER = "<!-- cmux-published-in -->"
 PR_SUFFIX = re.compile(r"\(#(\d+)\)\s*$")
@@ -75,15 +79,6 @@ def gh(*args: str, payload: dict | None = None) -> object:
     return json.loads(result.stdout) if result.stdout.strip() else None
 
 
-def comments_query(owner: str, name: str, numbers: list[int]) -> str:
-    fields = " ".join(
-        f"p{n}: issueOrPullRequest(number: {n}) {{ ... on PullRequest {{ comments(last: 100) "
-        "{ nodes { databaseId body author { login } } } } }"
-        for n in numbers
-    )
-    return f'query {{ repository(owner: "{owner}", name: "{name}") {{ {fields} }} }}'
-
-
 def marker_comment(node: dict | None) -> dict | None:
     for comment in reversed(((node or {}).get("comments") or {}).get("nodes") or []):
         login = (comment.get("author") or {}).get("login")
@@ -95,29 +90,38 @@ def marker_comment(node: dict | None) -> dict | None:
 def existing_comments(repo: str, numbers: list[int], batch: int = 25) -> tuple[dict[int, dict], set[int]]:
     """The marker comment on each PR, and the numbers that could not be read.
 
-    Reads 25 PRs per GraphQL query from each PR's last 100 comments: a stable
-    release spans hundreds of PRs, more than one REST call per PR fits in the
-    job token's hourly quota. A marker comment older than the last 100
-    comments is missed, and that PR gets a second one. A batch that fails (a
-    number that was deleted or transferred) is retried one PR at a time, and
-    the PRs that still fail are skipped.
+    Reads 25 PRs per GraphQL query, each PR's newest 100 comments, and pages
+    back (receipt_read.read) only for a PR whose comments so far hold no marker,
+    at most receipt_read.MORE_PAGES more pages: a stable release spans hundreds
+    of PRs, more than one REST call per PR fits in the job token's hourly
+    quota. Until 2026-11-11 it read only the newest 100, so a marker further
+    back was missed and the PR got a second one. A batch that fails (a number
+    that was deleted or transferred, or not a PR) is retried one PR at a time,
+    and the PRs that still fail are skipped.
     """
-    owner, name = repo.split("/", 1)
     found: dict[int, dict] = {}
     unreadable: set[int] = set()
+    graphql = receipt_read.gh_graphql()
+
+    def enough(items: list, _head: str) -> bool:
+        return marker_comment({"comments": {"nodes": items}}) is not None
+
+    def read(chunk: list[int]) -> dict:
+        return receipt_read.read(graphql, repo, chunk, enough, types=("ISSUE_COMMENT",), page=100)
+
     for start in range(0, len(numbers), batch):
         chunk = numbers[start:start + batch]
         try:
-            data = gh("graphql", "-f", f"query={comments_query(owner, name, chunk)}")["data"]["repository"]
-        except (subprocess.CalledProcessError, KeyError, TypeError):
+            data = read(chunk)
+        except receipt_read.ReadError:
             data = {}
             for n in chunk:
                 try:
-                    data.update(gh("graphql", "-f", f"query={comments_query(owner, name, [n])}")["data"]["repository"])
-                except (subprocess.CalledProcessError, KeyError, TypeError):
+                    data.update(read([n]))
+                except receipt_read.ReadError:
                     unreadable.add(n)
         for n in chunk:
-            comment = marker_comment(data.get(f"p{n}"))
+            comment = marker_comment({"comments": {"nodes": data[n]["items"]}}) if n in data else None
             if comment:
                 found[n] = comment
     return found, unreadable

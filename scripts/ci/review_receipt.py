@@ -32,12 +32,17 @@ a base merge can change what a risk:high patch does even with no conflict). next
 Before that, as next-autoland's review_state() judges it, the newest review-like word on any head must not say wait:
 a change request, "Review (codex): BLOCK", "Verdict: BLOCK", a bare first line "BLOCK at <sha>", "NOT SHIP" or "Do
 not merge", or a comment starting "Hold..." refuses even after a SHIP on the head; a carried SHIP is not a review
-there either, so it never overtakes one. When the 30-review or 40-comment window comes back full and reaches
-back no further than the SHIP, something newer may be cut off, so that refuses too. Comments starting `<!--`
+there either, so it never overtakes one. When the read stopped with older items unread and reaches back no further
+than the SHIP, something newer may be cut off, so that refuses too. Comments starting `<!--`
 are tools' marked comments, not reviews. Nothing waives a refusal. A base merge (merge-main.sh, update-branch)
 makes a new head, which needs its own receipt.
 
-One GraphQL read. --pr-file reads a recorded response instead (tests). Prints `receipt=<who passed it>`.
+The read is receipt_read.py's (the shared receipt reader): the PR's reviews and comments as one timeline, newest
+first, a page of receipt_read.PAGE and then back with `before:` until an item names the head, at most
+receipt_read.MORE_PAGES more pages, all GraphQL. It read only the newest 30 reviews and 40 comments until
+2026-11-11, so on a busy PR a SHIP further back read as "no SHIP review receipt" (a refusal with the wrong reason;
+cmuxterm-hq docs/handbook/newest-n-read-as-any.md). --pr-file reads a recorded response instead (tests). Prints
+`receipt=<who passed it>`.
 Exit 0: receipt; 1: refused (the reason on stderr); 3: GitHub rate-limited the read.
 """
 from __future__ import annotations
@@ -77,7 +82,8 @@ def hold_lifted(first: str) -> bool:
 # A first line that is only a wait verdict, with or without a sha: "BLOCK at <sha>", "**BLOCK at <sha>**", "NOT SHIP",
 # "Do not merge". It names no review, so REVIEW_LINE misses it; it still says wait (re-review of cmux#23067).
 WAIT_LINE = re.compile(r"^\W*(?:BLOCK|NOT SHIP|HOLD|DO NOT MERGE)\b", re.I)
-# The read's windows, next-autoland's: the newest 30 reviews and 40 comments.
+# A recorded response's windows (--pr-file, tests), next-autoland's: the newest 30 reviews and 40 comments. A live read
+# says itself whether it reached the start ("complete", receipt_read.split).
 REVIEWS_WINDOW, COMMENTS_WINDOW = 30, 40
 # A review-like comment counts only with an explicit verdict in a label near its top (next_autoland.py).
 LABELLED = r"(?:\breview[^:\n]{0,160}|\bverdict\W{0,4}):\W{0,8}"
@@ -98,12 +104,7 @@ RECEIPT = re.compile(r"^\W*(?:independent\s+)?review\s*\(([^)\n]*)\)\s*:\W*(ship
 # whole finding" was read as carried and refused (2026-10-29). cmuxterm-hq next_autoland.CARRIED has the same rule (#5214).
 CARRIED = re.compile(r"^\W*(?:independent\s+)?review\s*\([^)\n]*\bcarr(?:y|ies|ied|ying)\b[^)\n]*\)\s*:"
                      r"|\bcarried\s+(?:from|over)\b", re.I)
-QUERY = ("query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){"
-         "headRefOid labels(first:100){nodes{name}} "
-         f"reviews(last:{REVIEWS_WINDOW})"
-         "{nodes{state submittedAt body authorAssociation author{__typename login} commit{oid}}} "
-         f"comments(last:{COMMENTS_WINDOW})"
-         "{nodes{createdAt body authorAssociation author{__typename login}}}}}}")
+LABELS = "labels(first:100){nodes{name}}"
 
 Runner = Callable[[list[str]], tuple[int, str, str]]
 
@@ -118,6 +119,14 @@ class RateLimited(Refused):
 
 def _load_rate_limit():
     spec = importlib.util.spec_from_file_location("_review_receipt_rate_limit", Path(__file__).with_name("gh_rate_limit.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_receipt_read():
+    """The shared receipt reader beside this file (receipt_read.py), loaded by path like gh_rate_limit.py."""
+    spec = importlib.util.spec_from_file_location("_review_receipt_read", Path(__file__).with_name("receipt_read.py"))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -302,7 +311,15 @@ def receipt(pr: dict, head: str) -> str:
 def window_cut_off(pr: dict, since: str | None) -> str:
     """The list ("reviews" or "comments") that came back full and reaches back no further than `since`, so items
     newer than `since` may have been cut off from it; "" when both lists reach past it. With None, any full
-    window is ambiguous: a carried receipt needs complete history to prove no verdict names its head."""
+    window is ambiguous: a carried receipt needs complete history to prove no verdict names its head. A live read
+    (receipt_read: both lists carry "complete") is one timeline: it is cut off when older items were left unread and
+    its oldest item, of either kind, is no older than `since`."""
+    if any("complete" in (pr.get(key) or {}) for key in ("reviews", "comments")):
+        if all((pr.get(key) or {}).get("complete") is True for key in ("reviews", "comments")):
+            return ""
+        stamps = [node.get(stamp) for key, stamp in (("reviews", "submittedAt"), ("comments", "createdAt"))
+                  for node in (pr.get(key) or {}).get("nodes") or [] if node and node.get(stamp)]
+        return "timeline" if since is None or min(stamps, default=since) >= since else ""
     for key, cap, stamp in (("reviews", REVIEWS_WINDOW, "submittedAt"), ("comments", COMMENTS_WINDOW, "createdAt")):
         nodes = [node for node in (pr.get(key) or {}).get("nodes") or [] if node]
         # A pending review has no timestamp; it says nothing about how far back the window reaches.
@@ -327,7 +344,7 @@ def decide(pr: dict, head: str) -> tuple[str, str]:
         return "", f"no SHIP review receipt on {head}{newer}{exact}"
     cut = window_cut_off(pr, found[0])
     if cut:
-        size = REVIEWS_WINDOW if cut == "reviews" else COMMENTS_WINDOW
+        size = {"reviews": f"{REVIEWS_WINDOW} reviews", "comments": f"{COMMENTS_WINDOW} comments"}.get(cut, "items read")
         return "", (f"no SHIP review receipt on {head} can be confirmed: {cut} window full (the newest {size} reach "
                     "back only to the SHIP), so the gate can't confirm nothing newer says wait; post the receipt again")
     return found[1], ""
@@ -342,14 +359,34 @@ def _gh(args: list[str]) -> tuple[int, str, str]:
 
 
 def read_pr(repo: str, number: str, run: Runner = _gh) -> dict:
-    owner, _, name = repo.partition("/")
-    status, out, err = run(["api", "graphql", "-f", f"query={QUERY}", "-f", f"owner={owner}", "-f", f"name={name}",
-                            "-F", f"number={number}"])
-    if status != 0:
-        if _load_rate_limit().is_rate_limited(err):
-            raise RateLimited(f"GitHub rate-limited the review read ({err.strip()[:200]})")
-        raise Refused(f"cannot read the reviews of #{number} ({err.strip()[:200]})")
-    return unwrap(json.loads(out))
+    """The PR's head, labels, and its reviews and comments from the newest back to the newest item naming the head
+    (receipt_read.read), as {"headRefOid", "labels", "reviews": {"nodes", "complete"}, "comments": {...}}."""
+    reader = _load_receipt_read()
+
+    def graphql(query: str, variables: dict) -> dict:
+        argv = ["api", "graphql", "-f", f"query={query}"]
+        for key, value in variables.items():
+            argv += ["-f", f"{key}={value}"]
+        status, out, err = run(argv)
+        if status != 0:
+            if _load_rate_limit().is_rate_limited(err):
+                raise RateLimited(f"GitHub rate-limited the review read ({err.strip()[:200]})")
+            raise Refused(f"cannot read the reviews of #{number} ({err.strip()[:200]})")
+        payload = json.loads(out)
+        if payload.get("errors"):
+            raise Refused(f"the review read returned errors: {json.dumps(payload['errors'])[:200]}")
+        return payload.get("data") or {}
+
+    def enough(items: list, head: str) -> bool:
+        return any(reader.names_head(item, head) for item in items)
+
+    try:
+        found = reader.read(graphql, repo, [int(number)], enough, extra=LABELS)[int(number)]
+    except reader.ReadError as error:
+        raise Refused(f"cannot read the reviews of #{number} ({str(error)[:200]})") from None
+    if not found["head"]:
+        raise Refused("the review read returned no pull request")
+    return reader.split(found)
 
 
 def unwrap(payload: dict) -> dict:

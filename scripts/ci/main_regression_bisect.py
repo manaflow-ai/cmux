@@ -51,6 +51,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import main_full_suite as suite_run  # noqa: E402
 import main_regression_attribution as attribution  # noqa: E402
 import machine_failure  # noqa: E402
+import receipt_read  # noqa: E402  (the shared reader: a PR's comments, read back past the newest page)
 
 DISPATCH_SCRIPT = Path(__file__).resolve().parent / "dispatch-focused-test.py"
 STATE_PREFIX = "<!-- main-regression-bisect-state "
@@ -644,14 +645,15 @@ def issue_comments(repo: str, number: int) -> tuple[Comment | None, list[Comment
 
 
 def pr_comments(repo: str, number: int) -> list[Comment]:
-    owner, name = repo.split("/", 1)
-    query = (
-        "query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) "
-        "{ pullRequest(number: $number) { comments(last: 100) { nodes { databaseId body author { login } } } } } }"
-    )
-    data = graphql(query, owner=owner, name=name, number=number)
-    nodes = ((data["repository"].get("pullRequest") or {}).get("comments") or {}).get("nodes") or []
-    return [Comment(int(node["databaseId"]), str(node.get("body") or "")) for node in nodes if is_bot(node)]
+    """The PR's bot comments, oldest first: its newest 100 comments and, while they hold none of attribution's suspect
+    comments, older pages (receipt_read.read, at most receipt_read.MORE_PAGES more). Until 2026-11-11 only the newest
+    100 were read, so on a busy PR the suspect comment fell out and its flaky or confirmed note was never written."""
+    def enough(items: list, _head: str) -> bool:
+        return any(is_bot(node) and attribution.MARKER_RE.search(str(node.get("body") or "")) for node in items)
+
+    found = receipt_read.read(lambda query, variables: graphql(query, **variables), repo, [number], enough,
+                              types=("ISSUE_COMMENT",), page=100)[number]
+    return [Comment(int(node["databaseId"]), str(node.get("body") or "")) for node in found["items"] if is_bot(node)]
 
 
 def poll_run(repo: str, run_id: int) -> str:
