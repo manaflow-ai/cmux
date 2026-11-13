@@ -23,7 +23,8 @@ publish-nightly, and the build number is <push run><attempt as 2 digits>. The st
   g_sign         build-sign-notarize-nightly, start to end; g1_notarize is its step NOTARIZE_STEP
   h_verify       sign job end -> publish-nightly started (the verify jobs and the publish queue)
   i_publish      publish-nightly started -> feed time
-  job:<name>     every job that ran, start to end, by its name in the run
+  job:<name>     every job that ran, start to end, by its name in the run; a sign-run job whose name the push run
+                 also has is job:<name> (sign run), and a name repeated in one run is numbered #2, #3 by start
 
 A one-job nightly is one run: the push run itself uploads the feed and no sign run names it. It is found as a push
 run that succeeded with no sign run, and its record carries promote, a_push_wait, then:
@@ -47,7 +48,7 @@ one list of nightly.yml's newest runs on nightly-next (GH_TOKEN, actions read; p
 for each completed sign run not yet recorded (the newest --newest) the two jobs lists of its attempt and of its push
 run's attempt: nothing more when nothing is new. A sign run that did not publish (failed, or cancelled when a newer
 one replaced it) costs no read past the list: it is one line with its conclusion and the minutes it was open in the
-sign group (created -> completed), the waste account.
+sign group (created -> completed), the waste account. Such a run is read again when it is re-run (a higher attempt).
 
 `check` judges the newest record. Over budget: merge_to_feed over BUDGET_MIN. A stage is slow when it is over
 SLOW_RATIO (1.5) x its median over the TRAILING (20) records before it AND at least SLOW_FLOOR_MIN (1 min) over
@@ -100,11 +101,12 @@ LIST_PAGE = 100
 ISSUE_TITLE = "cmux NEXT nightly speed budget"
 ISSUE_MARK = "<!-- cmux-next-nightly-speed -->"
 HISTORY_RE = re.compile(r"<!-- nightly-speed-history: (\{.*?\}) -->", re.S)
-# An issue body holds 65536 characters. Build 4318547490101's record is 2.7 KB with its 33 jobs and 0.9 KB without,
-# so per-job detail stays on the newest JOBS_KEEP records, the others keep their per-host sums, and 40 records
-# (twice the trailing window) leave room for the visible report (VISIBLE_RESERVE).
+# An issue body holds 65536 characters. Build 4318547490101's record is 3.8 KB with its 33 jobs and 2.1 KB without
+# (its job walls, the sign run's copies of the push run's job names included), so per-job detail stays on the newest
+# JOBS_KEEP records, the others keep their per-host sums, and 40 records (twice the trailing window) leave room for
+# the visible report (VISIBLE_RESERVE).
 HISTORY_KEEP = 40
-JOBS_KEEP = 6
+JOBS_KEEP = 4
 UNPUBLISHED_KEEP = 40
 BODY_LIMIT = 60000
 VISIBLE_RESERVE = 16000
@@ -322,10 +324,18 @@ def build_record(sign: Dict[str, Any], push: Dict[str, Any], sign_jobs: List[Dic
             wall = span(step) if step.get("conclusion") != "skipped" else None
             if wall is not None and wall >= STEP_FLOOR_MIN and step.get("name") not in (BUILD_STEP, NOTARIZE_STEP):
                 stages.setdefault(f"step:{(step.get('name') or '?')[:60]}", wall)
-    for j in push_jobs + sign_jobs:
-        wall = span(j) if j.get("conclusion") != "skipped" else None
-        if wall is not None:
-            stages.setdefault(f"job:{(j.get('name') or '?')[:60]}", wall)
+    # Both runs have jobs of one name (build-nightly-app), and a matrix repeats one in a run: the push run's first keeps
+    # the plain key (the history's), a sign run's copy says so, and later ones are numbered in start order.
+    push_names = {(j.get("name") or "?")[:60] for j in push_jobs}
+    for run_jobs, suffix in ((push_jobs, ""), (sign_jobs, " (sign run)")):
+        count: Dict[str, int] = {}
+        for j in sorted(run_jobs, key=lambda j: (j.get("started_at") or "", j.get("name") or "")):
+            wall = span(j) if j.get("conclusion") != "skipped" else None
+            if wall is None:
+                continue
+            name = (j.get("name") or "?")[:60]
+            n = count[name] = count.get(name, 0) + 1
+            stages[f"job:{name}{suffix if name in push_names else ''}{f' #{n}' if n > 1 else ''}"] = wall
     lines = job_lines(push_jobs) + job_lines(sign_jobs)
     return {
         "build": f"{push_run}{push_attempt:02d}", "sha": push.get("head_sha"),
@@ -343,7 +353,8 @@ def build_record(sign: Dict[str, Any], push: Dict[str, Any], sign_jobs: List[Dic
 
 def unpublished_line(sign: Dict[str, Any], why: Optional[str] = None) -> Dict[str, Any]:
     m = SIGN_RE.match(sign.get("display_title") or "")
-    return {"sign_run": sign.get("id"), "push_run": int(m.group(1)) if m else sign.get("id"),
+    return {"sign_run": sign.get("id"), "attempt": sign.get("run_attempt") or 1,
+            "push_run": int(m.group(1)) if m else sign.get("id"),
             "conclusion": why or sign.get("conclusion"), "created_at": sign.get("created_at"),
             "held_min": minutes(ts(sign.get("created_at")), ts(sign.get("updated_at")))}
 
@@ -400,7 +411,14 @@ def record(repo: str, hq_repo: str, newest: int, git_dir: str, base_ref: str, to
         hist = parse_history(issue["body"]) if issue else {"records": [], "unpublished": []}
     except SourceError as e:
         history_why, hist = str(e), {"records": [], "unpublished": []}
-    known = {r["sign_run"] for r in hist["records"]} | {u["sign_run"] for u in hist["unpublished"]}
+    # GitHub keeps a run's id when it is re-run, so an unpublished run is known only at the attempt it was seen at (a
+    # line from before attempts were kept saw attempt 1); a recorded one is known at any attempt.
+    recorded = {r["sign_run"] for r in hist["records"]}
+    seen = {(u["sign_run"], u.get("attempt") or 1) for u in hist["unpublished"]}
+
+    def known(r: Dict[str, Any]) -> bool:
+        return r.get("id") in recorded or (r.get("id"), r.get("run_attempt") or 1) in seen
+
     oldest = min((r.get("sign_created") or "" for r in hist["records"]), default="")
     state: Dict[str, Any] = {"schema": SCHEMA, "records": hist["records"], "unpublished": hist["unpublished"],
                              "new": [], "new_unpublished": [], "history_why": history_why, "why": None}
@@ -412,14 +430,14 @@ def record(repo: str, hq_repo: str, newest: int, git_dir: str, base_ref: str, to
         return state
     by_id = {r.get("id"): r for r in runs}
     signs = [r for r in runs if SIGN_RE.match(r.get("display_title") or "") and r.get("status") == "completed"
-             and r.get("id") not in known and (r.get("created_at") or "") >= oldest]
+             and not known(r) and (r.get("created_at") or "") >= oldest]
     # A one-job nightly: a push run that succeeded and that no sign run names. With the two-run pipeline a push run
     # that succeeded has dispatched its sign run before it ends (48 of 48 on 2026-11-11 and 12; the superseded ones
     # are cancelled), so none is read here for nothing. One listed before its sign run is forgotten once that run is.
     signed = {int(SIGN_RE.match(r["display_title"]).group(1)) for r in runs if SIGN_RE.match(r.get("display_title") or "")}
     signs += [r for r in runs if r.get("event") == "push" and not SIGN_RE.match(r.get("display_title") or "")
               and r.get("status") == "completed" and r.get("conclusion") == "success" and r.get("id") not in signed
-              and r.get("id") not in known and (r.get("created_at") or "") >= oldest]
+              and not known(r) and (r.get("created_at") or "") >= oldest]
     signs.sort(key=lambda r: r.get("created_at") or "", reverse=True)
     landed = landing_times(git_dir, base_ref, run) if signs else {}
     new_recs, new_unp, whys = [], [], []
@@ -444,8 +462,10 @@ def record(repo: str, hq_repo: str, newest: int, git_dir: str, base_ref: str, to
         else:
             new_unp.append(unpublished_line(sign, f"success, {why}"))
     state["records"] = merge(state["records"], new_recs, "feed_at", HISTORY_KEEP)
+    # A rerun that published is no longer an unpublished run.
+    published = {r["sign_run"] for r in state["records"]}
     state["unpublished"] = [u for u in merge(state["unpublished"], new_unp, "created_at", UNPUBLISHED_KEEP)
-                            if u["sign_run"] not in signed]
+                            if u["sign_run"] not in signed and u["sign_run"] not in published]
     state["new"] = [r["build"] for r in sorted(new_recs, key=lambda r: r["feed_at"])]
     state["new_unpublished"] = [u["sign_run"] for u in new_unp]
     state["why"] = "; ".join(whys) or None
@@ -729,7 +749,9 @@ def write_issue(state: Dict[str, Any], hq_repo: str, token: Optional[str], git_d
         return f"#{issue['number']} (nothing new, not written)"
     old = parse_history(issue["body"]) if issue else {"records": [], "unpublished": []}
     records = merge(old["records"], state.get("records") or [], "feed_at", HISTORY_KEEP)
-    unpublished = merge(old["unpublished"], state.get("unpublished") or [], "created_at", UNPUBLISHED_KEEP)
+    published = {r["sign_run"] for r in records}
+    unpublished = [u for u in merge(old["unpublished"], state.get("unpublished") or [], "created_at", UNPUBLISHED_KEEP)
+                   if u["sign_run"] not in published]
     body = issue_body(records, unpublished, git_dir, run)
     env = {**os.environ, "GH_TOKEN": token or ""}
     if issue:

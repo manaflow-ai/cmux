@@ -137,6 +137,30 @@ class Record(unittest.TestCase):
         self.assertEqual(len([c for c in gh2.calls if c[0][:2] == ["gh", "api"]]), 1)
         self.assertEqual(len(st2["records"]), 1)
 
+    def test_a_job_of_one_name_in_both_runs_keeps_both_walls(self):
+        r = fixture_record()
+        self.assertEqual(r["stages"]["job:build-nightly-app"], 15.65, "the push run's keeps the plain key")
+        self.assertEqual(r["stages"]["job:build-nightly-app (sign run)"], 4.7)
+        self.assertEqual(r["stages"]["job:decide (sign run)"], 0.53)
+        self.assertNotIn("job:find-nightly-next-recovery (sign run)", r["stages"], "a name only the sign run has")
+        self.assertIn("job:find-nightly-next-recovery", r["stages"])
+        # The diff table shows the sign run's copy when it moved.
+        then = synthetic(1, 20.0, {"job:build-nightly-app (sign run)": 4.7})
+        now = synthetic(2, 40.0, {"job:build-nightly-app (sign run)": 9.7})
+        text = ns.render_verdict(ns.check([then, now], ".", run=FakeGh()))
+        self.assertIn("| job:build-nightly-app (sign run) | 9.7 | 4.7 | +5.0 |", text)
+
+    def test_a_name_repeated_in_one_run_is_numbered_by_start(self):
+        def job(start, end):
+            return {"name": "verify", "conclusion": "success", "created_at": f"2026-11-12T09:{start}Z",
+                    "started_at": f"2026-11-12T09:{start}Z", "completed_at": f"2026-11-12T09:{end}Z"}
+        sign = SIGN_JOBS + [job("50:00", "53:00"), job("49:00", "50:00"),
+                            {**job("49:30", "59:00"), "conclusion": "skipped"}]
+        rec, why = ns.build_record(BY_ID[43189297315], BY_ID[43185474901], sign, PUSH_JOBS, LANDED)
+        self.assertIsNone(why)
+        self.assertEqual((rec["stages"]["job:verify"], rec["stages"]["job:verify #2"]), (1.0, 3.0))
+        self.assertNotIn("job:verify #3", rec["stages"], "a skipped job is no stage")
+
     def test_unreadable_history_and_list_say_why(self):
         st = ns.record("o/r", "o/hq", 8, ".", "x", None, None, run=FakeGh())
         self.assertIn("no cmuxterm-hq token", st["history_why"])
@@ -228,6 +252,56 @@ class OneJob(unittest.TestCase):
         st2 = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh2)
         self.assertEqual(st2["new"], ["4318547490101"])
         self.assertNotIn(43185474901, [u["sign_run"] for u in st2["unpublished"]])
+
+    def test_a_rerun_of_an_unpublished_sign_run_that_publishes_is_recorded(self):
+        failed = [{**r, "conclusion": "failure"} if r["id"] == 43189297315 else r for r in RUNS]
+        gh = FakeGh(api={"workflows/nightly.yml/runs": {"workflow_runs": failed}})
+        st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
+        line = next(u for u in st["unpublished"] if u["sign_run"] == 43189297315)
+        self.assertEqual((line["conclusion"], line["attempt"]), ("failure", 1))
+        body = ns.issue_body(st["records"], st["unpublished"], ".", run=gh)
+        rerun = [{**r, "run_attempt": 2} if r["id"] == 43189297315 else r for r in RUNS]
+        gh2 = FakeGh(issues=[{"number": 9, "title": ns.ISSUE_TITLE, "body": body}],
+                     api={"workflows/nightly.yml/runs": {"workflow_runs": rerun},
+                          "runs/43189297315/attempts/2/jobs": {"jobs": SIGN_JOBS},
+                          "runs/43185474901/attempts/1/jobs": {"jobs": PUSH_JOBS}})
+        st2 = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh2)
+        self.assertEqual(st2["new"], ["4318547490101"])
+        self.assertEqual(st2["records"][0]["sign_attempt"], 2)
+        self.assertNotIn(43189297315, [u["sign_run"] for u in st2["unpublished"]])
+        # Written over the issue that still has the failed line: the line is gone there too.
+        ns.write_issue(st2, "o/hq", "t", ".", run=gh2)
+        self.assertNotIn(43189297315, [u["sign_run"] for u in ns.parse_history(gh2.written)["unpublished"]])
+
+    def test_a_rerun_that_publishes_nothing_again_is_read_once_per_attempt(self):
+        def record(attempt, body=None):
+            runs = [{**one_job_run(), "run_attempt": attempt}]
+            gh = FakeGh(issues=[{"number": 9, "title": ns.ISSUE_TITLE, "body": body}] if body else [],
+                        api={"workflows/nightly.yml/runs": {"workflow_runs": runs},
+                             f"runs/43300000001/attempts/{attempt}/jobs": {"jobs": one_job_jobs(feed=False)}})
+            st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
+            reads = len([c for c in gh.calls if c[0][:2] == ["gh", "api"]])
+            return st, reads, ns.issue_body(st["records"], st["unpublished"], ".", run=gh)
+
+        st, reads, body = record(1)
+        self.assertEqual((st["new_unpublished"], reads), ([43300000001], 2))
+        st, reads, body = record(2, body)
+        self.assertEqual((st["new_unpublished"], reads), ([43300000001], 2), "the rerun's jobs are read")
+        self.assertEqual([(u["sign_run"], u["attempt"]) for u in st["unpublished"]], [(43300000001, 2)])
+        st, reads, _ = record(2, body)
+        self.assertEqual((st["new_unpublished"], reads), ([], 1), "the same attempt is not read again")
+
+    def test_an_unpublished_line_without_an_attempt_is_attempt_one(self):
+        line = ns.unpublished_line(one_job_run(), "success, no feed upload")
+        line.pop("attempt", None)
+        body = ns.issue_body([], [line], ".", run=FakeGh())
+        for attempt, reads in ((1, 1), (2, 2)):
+            runs = [{**one_job_run(), "run_attempt": attempt}]
+            gh = FakeGh(issues=[{"number": 9, "title": ns.ISSUE_TITLE, "body": body}],
+                        api={"workflows/nightly.yml/runs": {"workflow_runs": runs},
+                             f"runs/43300000001/attempts/{attempt}/jobs": {"jobs": one_job_jobs(feed=False)}})
+            ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
+            self.assertEqual(len([c for c in gh.calls if c[0][:2] == ["gh", "api"]]), reads, f"attempt {attempt}")
 
     def test_only_a_push_run_that_succeeded_is_read(self):
         runs = [one_job_run(1, "failure"), one_job_run(2, "cancelled"), one_job_run(3, None, "in_progress"),
