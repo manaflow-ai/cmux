@@ -2,7 +2,6 @@
 //! These assertions describe the contract, not the current incorrect output.
 
 use super::*;
-use std::sync::Arc;
 
 fn row(id: &str, activity: u64) -> Summary {
     let mut row = Summary::new(id);
@@ -18,7 +17,7 @@ fn cold(rows: &[Summary]) -> (tempfile::TempDir, SummaryIndex) {
         full = full.apply(n as u64 + 1, row.clone());
     }
     SortedSnapshot::write(&path, &full).unwrap();
-    let disk = Arc::new(DiskSnapshot::open(&path).unwrap().unwrap());
+    let disk = DiskSnapshot::open(&path).unwrap().unwrap();
     (dir, SummaryIndex::from_disk(Some(disk), 1))
 }
 
