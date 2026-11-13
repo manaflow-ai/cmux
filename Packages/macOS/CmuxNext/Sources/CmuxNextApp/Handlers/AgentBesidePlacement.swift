@@ -7,13 +7,13 @@ import CmuxNextLayout
 import Foundation
 import CmuxNextWakeups
 
-/// beside_caller in the app (hq-6d right-column design). The control router
-/// picks the pane (ControlCaller): the column right of the agent's chat, or,
-/// with no column there, the chat's own pane with `newColumnBeside`. Here the
-/// new tab is made in that pane without moving keyboard focus out of the
-/// chat: selected in the column right of the chat, or made unselected in the
-/// chat's pane and moved into a new column right of it, so the chat pane
-/// never shows it. A person's click from the chat (the header's Changes,
+/// beside_caller in the app (hq-6d right-column design). The control router picks the pane
+/// (ControlCallerPlacement): the column right of the agent's chat or terminal, or, with no column there,
+/// the caller's own pane with `newColumnBeside`. Here the new tab is made in that pane without moving
+/// keyboard focus out of the caller's pane: selected in the column right of it, or made unselected in
+/// the caller's pane and moved into a new column right of it, so that pane never shows it. Another
+/// agent's pane (`besideAgentHomes`) is never that column: the tab gets its own column right of the
+/// caller. A person's click from the chat (the header's Changes,
 /// Preview or Files, ``ActionInvocation/besideTakesFocus``) lands the same
 /// way, but its tab takes the focus and its close gives it back to the chat.
 enum AgentBesidePlacement {
@@ -49,8 +49,8 @@ enum AgentBesidePlacement {
     }
 
     @MainActor static func opening(_ invocation: ActionInvocation, in controller: PaneController,
-                                   then: (@MainActor (SurfaceID) -> Void)?) -> Opening {
-        opening(invocation, pane: controller.pane, controller: controller, services: controller.services, then: then)
+                                   then: (@MainActor (SurfaceID) -> Void)?, waitsForExisting: Bool = true) -> Opening {
+        opening(invocation, pane: controller.pane, controller: controller, services: controller.services, then: then, waitsForExisting: waitsForExisting)
     }
 
     @MainActor private static func opening(_ invocation: ActionInvocation, pane anchor: PaneModel, controller: PaneController?,
@@ -190,7 +190,7 @@ enum AgentBesidePlacement {
             }
             defer { finish() }
             let source = controller ?? services.paneController(for: anchor)
-            let measured = source.map { LinkOpener.rightColumn(beside: $0) } ?? RightColumnPlacement.Column()
+            let measured = (source.map { LinkOpener.rightColumn(beside: $0) } ?? RightColumnPlacement.Column()).avoiding(invocation.besideAgentHomes)
             let kind = RightColumnPlacement.Kind(opening: tab.kind, document: tab.page == InternalPageID.diff.rawValue)
             let decision = RightColumnPlacement.decide(measured, opening: kind)
             let destination: PaneController? = {
@@ -222,8 +222,8 @@ enum AgentBesidePlacement {
             }
             guard moved else { return "beside-caller: the move into the right pane failed (see the app log)" }
             if let clicked { focus(surface, returningTo: from, awayFrom: away, in: clicked, generation: intent, services: services) }
-            if case .tab = decision, let right = destination ?? source,
-               !(personActed() && right.workspace?.focusedPane === right) {
+            if case .tab = decision, let right = destination ?? source, destination != nil || !invocation.callerIsTerminalAgent,
+               !(personActed() && right.workspace?.focusedPane === right) { // a terminal too narrow to split keeps the tab behind it: its agent stays in view
                 right.selectWhenReportedKeepingFocus(surface: surface)
             }
             if case .splitRight = decision { await revealMoved(tab.id, from: anchor, services: services) }

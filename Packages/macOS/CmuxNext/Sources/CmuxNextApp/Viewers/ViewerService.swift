@@ -62,7 +62,13 @@ final class ViewerService {
     /// An action's file open on `pane` (`file.open`, `openMarkdownFile`, `cmux open`), of `machine` (nil: this Mac's): on
     /// a pane that shows an agent chat it goes on the chat's right as the chat's own file links do (``LinkOpener``), never as
     /// a tab beside the chat (Leo, 2026-11-04); elsewhere in `pane`. Returns why it did not open.
-    func openFile(_ file: URL, on machine: DaemonService?, from pane: PaneController, userChose: Bool, asText: Bool = false) -> String? {
+    func openFile(_ file: URL, on machine: DaemonService?, from pane: PaneController, userChose: Bool, asText: Bool = false, beside agent: ActionInvocation? = nil) -> String? {
+        if let agent, let opener = fileOpener as? FilePageOpener, let services { // an agent's open beside it (ControlCallerPlacement): AgentBesidePlacement selects or moves its tab, focus kept
+            let opening = AgentBesidePlacement.opening(agent, in: pane, then: nil, waitsForExisting: false)
+            let refusal = opener.open(file, on: machine ?? services.daemon, in: pane, userChose: userChose, asText: asText, placed: opening.created, shownInPlace: { opening.failed(nil) })
+            if refusal != nil { opening.failed(nil) }
+            return refusal
+        }
         guard AgentBesidePlacement.showsChat(pane), let opener = fileOpener as? FilePageOpener, let links = services?.linkOpener else {
             if let machine { return openFile(file, on: machine, in: pane, userChose: userChose, asText: asText) }
             return openFile(file, in: pane, userChose: userChose, asText: asText)

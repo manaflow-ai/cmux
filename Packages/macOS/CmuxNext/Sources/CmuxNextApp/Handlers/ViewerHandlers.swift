@@ -82,6 +82,8 @@ enum ViewerHandlers {
                 let open = WindowRules().openMarkdown(path: invocation["path"]?.stringValue, local: pane.daemon.isLocal, // `files::open_markdown`
                                                       showsChat: AgentBesidePlacement.showsChat(pane), allowsViewChange: invocation.allowsViewChange)
                 switch (open?.decision, open?.place, open?.path) {
+                case ("open"?, let place, let path?) where invocation.besideAgent != nil: // an agent's run with its caller and no target: beside the caller
+                    if let reason = viewers.openFile(URL(fileURLWithPath: path), on: place == "remote" ? pane.daemon : nil, from: pane, userChose: false, beside: invocation.besideAgent) { throw ActionFailure(message: reason) }
                 case ("open"?, "remote"?, let path?):
                     if let reason = viewers.openFile(URL(fileURLWithPath: path), on: pane.daemon, from: pane, userChose: invocation.origin == .user) {
                         throw ActionFailure(message: reason)

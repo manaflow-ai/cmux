@@ -75,6 +75,11 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     /// The panes beside the caller that are another agent's home (their pane ids): a beside run never puts its
     /// tab in a column that holds one, it makes its own column right of the caller. The control socket sets it.
     public var besideAgentHomes: Set<String> = []
+    /// This run when the control router aimed it beside its agent caller (``besideCaller`` over the control
+    /// socket), nil for any other run: its handler places the new tab through the app's beside placement.
+    public var besideAgent: ActionInvocation? { viaControlSocket && besideCaller ? self : nil }
+    /// The caller is an agent that runs in a terminal (``callerTerminal``), not one in an agent chat.
+    public var callerIsTerminalAgent: Bool { callerTerminal != nil && callerAgentSession == nil }
     /// A person's click opened this beside the chat (the header's Changes, Preview or Files): its
     /// tab takes the keyboard focus where it lands, and its close gives it back to the chat. An
     /// agent's beside run never takes it. In-app only: the control socket never sets it.

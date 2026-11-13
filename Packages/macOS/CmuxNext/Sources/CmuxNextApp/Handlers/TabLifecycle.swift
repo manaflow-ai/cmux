@@ -26,6 +26,7 @@ enum TabLifecycle {
         let cwd = invocation["cwd"]?.stringValue
         // `--keep`: the terminal outlives its tab (a background terminal made on purpose).
         let keep = invocation["keep"]?.boolValue == true ? true : nil
+        if let agent = invocation.besideAgent, let beside = ctx.services.paneController(for: focused) { return beside.newTerminalTab(cwd: cwd, keep: keep, placementOwner: true, then: AgentBesidePlacement.placed(agent, in: beside, then: nil)) } // an agent's terminal beside it (ControlCallerPlacement): selected in its column or moved into a new one, focus kept
         let opensWorkspace = NewTerminalWorkspaceSetting.resolves(
             setting: ctx.services.settings?.snapshot.newTerminalOpensWorkspace ?? NewTerminalWorkspaceSetting.fallback,
             toggled: invocation["toggleWorkspace"]?.boolValue == true
@@ -73,7 +74,7 @@ enum TabLifecycle {
         }
         let handle = pane.handle, options = SpawnOptions(cwd: tabCwd ?? pane.tabs.first?.cwd, workspace: ctx.services.workspaceKey(of: pane), keep: keep)
         // Home's dock that no window shows opens nothing in itself either: the tab moves beside it, the focus kept; a dock taking no tab: a column right of it (as above).
-        let beside = HomeDockOpens.opensBeside(pane, services: ctx.services), width = ctx.services.newColumnWidth(nextTo: pane)
+        let beside = HomeDockOpens.opensBeside(pane, services: ctx.services) || invocation.besideAgent?.newColumnBeside == true, width = ctx.services.newColumnWidth(nextTo: pane)
         let closed = ctx.services.daemon(for: pane).store.pinnedDock(holding: pane.handle)?.takesTabs == false
         ctx.send("new-tab") { connection in
             if closed { _ = try await connection.newColumn(beside: handle, left: false, width: width, options: options); return }

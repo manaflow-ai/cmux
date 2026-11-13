@@ -68,6 +68,13 @@ public struct RightColumnPlacement {
             self.widths = widths
             self.kinds = kinds
         }
+
+        /// The column with no pane when one of its panes is in `homes` (another agent's home, the control
+        /// router's `besideAgentHomes`): the open then gets its own column right of the source, never a
+        /// pane or a split in that one.
+        public func avoiding(_ homes: Set<String>) -> Column {
+            panes.contains(where: { homes.contains($0) }) ? Column(sourceWidth: sourceWidth) : self
+        }
     }
 
     /// Decides for `column` an open of `kind` (nil: no kind); `holds` says whether a pane already
