@@ -281,6 +281,21 @@ class Provision(unittest.TestCase):
         grant = text.split("- name: Grant the operator plan only", 1)[1].split("- name:", 1)[0]
         self.assertIn("inputs.target != 'production-team'", grant)
 
+    def test_the_workflow_offers_every_target_and_gives_the_production_key_to_exactly_the_production_ones(self):
+        # The script had `journey` (the staging journey pair, cmux#42626) while the workflow never offered it, so the
+        # one staging rotation nobody could dispatch was the one the journeys needed.
+        text = (ROOT / ".github" / "workflows" / "cloud-capture-provision.yml").read_text()
+        options = next(line for line in text.splitlines() if line.strip().startswith("options:"))
+        offered = {o.strip() for o in options.split("[", 1)[1].rsplit("]", 1)[0].split(",")}
+        self.assertEqual(offered, set(provision.TARGETS))
+        environment = next(line for line in text.splitlines() if line.strip().startswith("environment:"))
+        grant = text.split("- name: Grant the operator plan only", 1)[1].split("- name:", 1)[0]
+        for name, target in provision.TARGETS.items():
+            production = target.project == provision.PRODUCTION_PROJECT_ID
+            self.assertEqual(f"inputs.target == '{name}'" in environment, production, name)
+            if production:
+                self.assertIn(f"inputs.target != '{name}'", grant)
+
     def test_preclaim_reads_the_staging_names_and_keeps_production_names(self):
         text = (ROOT / ".github" / "workflows" / "cloud-journey-prod.yml").read_text()
         preclaim = text.split("- name: Staging preclaim login burst", 1)[1].split("- name: Upload staging preclaim evidence", 1)[0]
