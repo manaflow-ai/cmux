@@ -30788,399 +30788,6 @@
         }
       }
     },
-    "settings.appearance.sidebarRowHeight": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Workspace Row Height"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ارتفاع صف مساحة العمل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Visina reda radnog prostora"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Højde på arbejdsområderækker"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Höhe der Arbeitsbereichszeilen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Altura de fila del espacio de trabajo"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hauteur des lignes d’espace de travail"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Altezza delle righe dell’area di lavoro"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ワークスペース行の高さ"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "កម្ពស់ជួរកន្លែងធ្វើការ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "작업 공간 행 높이"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Høyde på arbeidsområderader"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Wysokość wierszy obszarów roboczych"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Altura da linha do espaço de trabalho"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Высота строки рабочего пространства"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ความสูงแถวพื้นที่ทำงาน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Çalışma alanı satır yüksekliği"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Висота рядка робочого простору"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chiều cao hàng không gian làm việc"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "工作区行高"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "工作區列高"
-          }
-        }
-      }
-    },
-    "settings.browser.vimKeys": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vim Keys in Pages"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "مفاتيح Vim في الصفحات"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vim tipke na stranicama"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vim-taster på sider"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vim-Tasten auf Seiten"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Teclas de Vim en páginas"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Touches Vim dans les pages"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tasti Vim nelle pagine"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ページでVimキーを使う"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "គ្រាប់ចុច Vim ក្នុងទំព័រ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "페이지에서 Vim 키"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vim-taster på sider"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Klawisze Vim na stronach"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Teclas do Vim nas Páginas"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Клавиши Vim на страницах"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ปุ่มแบบ Vim ในหน้าเว็บ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sayfalarda Vim Tuşları"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Клавіші Vim на сторінках"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Phím Vim trong trang"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "页面中的 Vim 按键"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "頁面中的 Vim 按鍵"
-          }
-        }
-      }
-    },
-    "settings.browser.vimKeys.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Outside a text field, f clicks a link by its label, Shift-F opens one in a new split, j and k scroll, gg and Shift-G go to the top and bottom."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "خارج حقل النص، يضغط f رابطًا عبر تسميته، ويفتح Shift-F رابطًا في قسم جديد، ويمرر j وk الصفحة، وينتقل gg وShift-G إلى الأعلى والأسفل."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Izvan tekstualnog polja, f klikne link po njegovoj oznaci, Shift-F ga otvori u novoj podjeli, j i k pomjeraju stranicu, gg i Shift-G idu na vrh i dno."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Uden for et tekstfelt klikker f på et link via dets mærke, Shift-F åbner det i en ny opdeling, j og k ruller, gg og Shift-G går til toppen og bunden."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Außerhalb eines Textfelds klickt f einen Link über sein Kürzel, Shift-F öffnet ihn in einer neuen Teilung, j und k scrollen, gg und Shift-G springen an den Anfang und das Ende."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fuera de un campo de texto, f hace clic en un enlace por su etiqueta, Mayús-F lo abre en una nueva división, j y k desplazan, gg y Mayús-G van al principio y al final."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hors d’un champ de texte, f clique sur un lien par son repère, Maj-F l’ouvre dans une nouvelle division, j et k font défiler, gg et Maj-G vont en haut et en bas."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fuori da un campo di testo, f fa clic su un link tramite la sua etichetta, Maiusc-F lo apre in una nuova divisione, j e k scorrono, gg e Maiusc-G vanno all’inizio e alla fine."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "テキストフィールドの外で、fはラベルでリンクをクリックし、Shift-Fは新しい分割で開き、jとkでスクロールし、ggとShift-Gで先頭と末尾に移動します。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "នៅក្រៅប្រអប់អត្ថបទ f ចុចតំណតាមស្លាករបស់វា Shift-F បើកវាក្នុងការបំបែកថ្មី j និង k រំកិល gg និង Shift-G ទៅខាងលើ និងខាងក្រោមបំផុត។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "텍스트 필드 밖에서 f는 레이블로 링크를 클릭하고, Shift-F는 새 분할에서 열며, j와 k는 스크롤하고, gg와 Shift-G는 맨 위와 맨 아래로 이동합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Utenfor et tekstfelt klikker f på en lenke via merket, Shift-F åpner den i en ny deling, j og k ruller, gg og Shift-G går til toppen og bunnen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Poza polem tekstowym f klika link po jego etykiecie, Shift-F otwiera go w nowym podziale, j i k przewijają, gg i Shift-G przechodzą na górę i na dół."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fora de um campo de texto, f clica em um link pelo rótulo, Shift-F o abre em uma nova divisão, j e k rolam, gg e Shift-G vão para o topo e o final."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Вне текстового поля f нажимает ссылку по её метке, Shift-F открывает её в новом разделении, j и k прокручивают, gg и Shift-G переходят в начало и конец."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "นอกช่องข้อความ f คลิกลิงก์ตามป้ายกำกับ Shift-F เปิดในการแยกใหม่ j และ k เลื่อนหน้า gg และ Shift-G ไปบนสุดและล่างสุด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Metin alanı dışında f bir bağlantıya etiketiyle tıklar, Shift-F onu yeni bölmede açar, j ve k kaydırır, gg ve Shift-G en üste ve en alta gider."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Поза текстовим полем f натискає посилання за міткою, Shift-F відкриває його в новому розділенні, j і k прокручують, gg і Shift-G переходять на початок і в кінець."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bên ngoài ô văn bản, f nhấp liên kết theo nhãn, Shift-F mở nó trong vùng chia mới, j và k cuộn, gg và Shift-G về đầu và cuối trang."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "在文本框之外，f 按标签点击链接，Shift-F 在新分屏中打开，j 和 k 滚动，gg 和 Shift-G 跳到顶部和底部。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "在文字欄位之外，f 依標籤點按連結，Shift-F 在新分割中開啟，j 和 k 捲動，gg 和 Shift-G 跳到頂端和底端。"
-          }
-        }
-      }
-    },
     "settings.browser.wakeTabsOnHover": {
       "comment": "Settings > Browser > Memory toggle: hover preload (browser.wakeTabsOnHover).",
       "extractionState": "manual",
@@ -44933,268 +44540,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "書籤"
-          }
-        }
-      }
-    },
-    "settings.browser.showLoadingBar": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Loading Bar"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "読み込みバーを表示"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "إظهار شريط التحميل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prikaži traku učitavanja"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vis indlæsningslinje"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ladebalken anzeigen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostrar barra de carga"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Afficher la barre de chargement"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostra barra di caricamento"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បង្ហាញរបារផ្ទុក"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "로딩 막대 표시"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vis lastelinje"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pokaż pasek ładowania"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostrar barra de carregamento"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Показывать полосу загрузки"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แสดงแถบการโหลด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Yükleme Çubuğunu Göster"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Показувати смугу завантаження"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hiện thanh tải"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "显示加载条"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "顯示載入列"
-          }
-        }
-      }
-    },
-    "settings.browser.showLoadingBar.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A thin progress line under the address bar while a page loads. The Stop button shows either way."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ページの読み込み中、アドレスバーの下に細い進行状況の線を表示します。停止ボタンはどちらの場合も表示されます。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "خط تقدم رفيع أسفل شريط العنوان أثناء تحميل الصفحة. يظهر زر الإيقاف في الحالتين."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tanka linija napretka ispod adresne trake dok se stranica učitava. Dugme Zaustavi se prikazuje u oba slučaja."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "En tynd statuslinje under adresselinjen, mens en side indlæses. Stop-knappen vises under alle omstændigheder."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Eine dünne Fortschrittslinie unter der Adressleiste, während eine Seite lädt. Die Stopp-Taste wird in jedem Fall angezeigt."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Una línea de progreso fina bajo la barra de direcciones mientras se carga una página. El botón Detener se muestra en ambos casos."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Une fine ligne de progression sous la barre d’adresse pendant le chargement d’une page. Le bouton Arrêter s’affiche dans tous les cas."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Una sottile linea di avanzamento sotto la barra degli indirizzi mentre una pagina si carica. Il pulsante Interrompi appare in ogni caso."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បន្ទាត់វឌ្ឍនភាពស្តើងនៅក្រោមរបារអាសយដ្ឋាន ពេលទំព័រកំពុងផ្ទុក។ ប៊ូតុងឈប់បង្ហាញក្នុងករណីទាំងពីរ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "페이지를 불러오는 동안 주소 표시줄 아래에 얇은 진행 선을 표시합니다. 중지 버튼은 어느 경우에나 표시됩니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "En tynn fremdriftslinje under adressefeltet mens en side lastes inn. Stopp-knappen vises uansett."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cienka linia postępu pod paskiem adresu podczas ładowania strony. Przycisk Zatrzymaj jest widoczny w obu przypadkach."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Uma linha de progresso fina abaixo da barra de endereço enquanto a página carrega. O botão Parar aparece de qualquer forma."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Тонкая линия прогресса под адресной строкой во время загрузки страницы. Кнопка «Остановить» отображается в любом случае."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เส้นความคืบหน้าบาง ๆ ใต้แถบที่อยู่ขณะที่หน้ากำลังโหลด ปุ่มหยุดจะแสดงไม่ว่ากรณีใด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bir sayfa yüklenirken adres çubuğunun altında ince bir ilerleme çizgisi. Durdur düğmesi her durumda görünür."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Тонка лінія поступу під адресним рядком під час завантаження сторінки. Кнопка «Зупинити» показується в будь-якому разі."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Một vạch tiến trình mỏng dưới thanh địa chỉ khi trang đang tải. Nút Dừng vẫn hiện trong mọi trường hợp."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "页面加载时在地址栏下方显示一条细进度线。无论是否开启，都会显示“停止”按钮。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "頁面載入時在網址列下方顯示一條細進度線。無論是否開啟，都會顯示「停止」按鈕。"
           }
         }
       }
@@ -219365,6 +218710,661 @@
         }
       }
     },
+    "settings.appearance.sidebarRowHeight": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace Row Height"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ارتفاع صف مساحة العمل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Visina reda radnog prostora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Højde på arbejdsområderækker"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Höhe der Arbeitsbereichszeilen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Altura de fila del espacio de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hauteur des lignes d’espace de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Altezza delle righe dell’area di lavoro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ワークスペース行の高さ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្ពស់ជួរកន្លែងធ្វើការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "작업 공간 행 높이"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Høyde på arbeidsområderader"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wysokość wierszy obszarów roboczych"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Altura da linha do espaço de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Высота строки рабочего пространства"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ความสูงแถวพื้นที่ทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalışma alanı satır yüksekliği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Висота рядка робочого простору"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiều cao hàng không gian làm việc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "工作区行高"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "工作區列高"
+          }
+        }
+      }
+    },
+    "settings.browser.vimKeys": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vim Keys in Pages"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مفاتيح Vim في الصفحات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vim tipke na stranicama"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vim-taster på sider"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vim-Tasten auf Seiten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Teclas de Vim en páginas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Touches Vim dans les pages"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tasti Vim nelle pagine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ページでVimキーを使う"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្រាប់ចុច Vim ក្នុងទំព័រ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "페이지에서 Vim 키"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vim-taster på sider"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klawisze Vim na stronach"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Teclas do Vim nas Páginas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Клавиши Vim на страницах"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปุ่มแบบ Vim ในหน้าเว็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sayfalarda Vim Tuşları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Клавіші Vim на сторінках"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phím Vim trong trang"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "页面中的 Vim 按键"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "頁面中的 Vim 按鍵"
+          }
+        }
+      }
+    },
+    "settings.browser.vimKeys.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outside a text field, f clicks a link by its label, Shift-F opens one in a new split, j and k scroll, gg and Shift-G go to the top and bottom."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خارج حقل النص، يضغط f رابطًا عبر تسميته، ويفتح Shift-F رابطًا في قسم جديد، ويمرر j وk الصفحة، وينتقل gg وShift-G إلى الأعلى والأسفل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Izvan tekstualnog polja, f klikne link po njegovoj oznaci, Shift-F ga otvori u novoj podjeli, j i k pomjeraju stranicu, gg i Shift-G idu na vrh i dno."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uden for et tekstfelt klikker f på et link via dets mærke, Shift-F åbner det i en ny opdeling, j og k ruller, gg og Shift-G går til toppen og bunden."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Außerhalb eines Textfelds klickt f einen Link über sein Kürzel, Shift-F öffnet ihn in einer neuen Teilung, j und k scrollen, gg und Shift-G springen an den Anfang und das Ende."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fuera de un campo de texto, f hace clic en un enlace por su etiqueta, Mayús-F lo abre en una nueva división, j y k desplazan, gg y Mayús-G van al principio y al final."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hors d’un champ de texte, f clique sur un lien par son repère, Maj-F l’ouvre dans une nouvelle division, j et k font défiler, gg et Maj-G vont en haut et en bas."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fuori da un campo di testo, f fa clic su un link tramite la sua etichetta, Maiusc-F lo apre in una nuova divisione, j e k scorrono, gg e Maiusc-G vanno all’inizio e alla fine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "テキストフィールドの外で、fはラベルでリンクをクリックし、Shift-Fは新しい分割で開き、jとkでスクロールし、ggとShift-Gで先頭と末尾に移動します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅក្រៅប្រអប់អត្ថបទ f ចុចតំណតាមស្លាករបស់វា Shift-F បើកវាក្នុងការបំបែកថ្មី j និង k រំកិល gg និង Shift-G ទៅខាងលើ និងខាងក្រោមបំផុត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "텍스트 필드 밖에서 f는 레이블로 링크를 클릭하고, Shift-F는 새 분할에서 열며, j와 k는 스크롤하고, gg와 Shift-G는 맨 위와 맨 아래로 이동합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utenfor et tekstfelt klikker f på en lenke via merket, Shift-F åpner den i en ny deling, j og k ruller, gg og Shift-G går til toppen og bunnen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Poza polem tekstowym f klika link po jego etykiecie, Shift-F otwiera go w nowym podziale, j i k przewijają, gg i Shift-G przechodzą na górę i na dół."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fora de um campo de texto, f clica em um link pelo rótulo, Shift-F o abre em uma nova divisão, j e k rolam, gg e Shift-G vão para o topo e o final."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вне текстового поля f нажимает ссылку по её метке, Shift-F открывает её в новом разделении, j и k прокручивают, gg и Shift-G переходят в начало и конец."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "นอกช่องข้อความ f คลิกลิงก์ตามป้ายกำกับ Shift-F เปิดในการแยกใหม่ j และ k เลื่อนหน้า gg และ Shift-G ไปบนสุดและล่างสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Metin alanı dışında f bir bağlantıya etiketiyle tıklar, Shift-F onu yeni bölmede açar, j ve k kaydırır, gg ve Shift-G en üste ve en alta gider."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поза текстовим полем f натискає посилання за міткою, Shift-F відкриває його в новому розділенні, j і k прокручують, gg і Shift-G переходять на початок і в кінець."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bên ngoài ô văn bản, f nhấp liên kết theo nhãn, Shift-F mở nó trong vùng chia mới, j và k cuộn, gg và Shift-G về đầu và cuối trang."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在文本框之外，f 按标签点击链接，Shift-F 在新分屏中打开，j 和 k 滚动，gg 和 Shift-G 跳到顶部和底部。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在文字欄位之外，f 依標籤點按連結，Shift-F 在新分割中開啟，j 和 k 捲動，gg 和 Shift-G 跳到頂端和底端。"
+          }
+        }
+      }
+    },
+    "settings.browser.showLoadingBar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Loading Bar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "読み込みバーを表示"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار شريط التحميل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži traku učitavanja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis indlæsningslinje"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ladebalken anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar barra de carga"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher la barre de chargement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra barra di caricamento"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញរបារផ្ទុក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "로딩 막대 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis lastelinje"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokaż pasek ładowania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar barra de carregamento"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывать полосу загрузки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงแถบการโหลด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yükleme Çubuğunu Göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показувати смугу завантаження"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện thanh tải"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示加载条"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顯示載入列"
+          }
+        }
+      }
+    },
+    "settings.browser.showLoadingBar.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A thin progress line under the address bar while a page loads. The Stop button shows either way."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ページの読み込み中、アドレスバーの下に細い進行状況の線を表示します。停止ボタンはどちらの場合も表示されます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خط تقدم رفيع أسفل شريط العنوان أثناء تحميل الصفحة. يظهر زر الإيقاف في الحالتين."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tanka linija napretka ispod adresne trake dok se stranica učitava. Dugme Zaustavi se prikazuje u oba slučaja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En tynd statuslinje under adresselinjen, mens en side indlæses. Stop-knappen vises under alle omstændigheder."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine dünne Fortschrittslinie unter der Adressleiste, während eine Seite lädt. Die Stopp-Taste wird in jedem Fall angezeigt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una línea de progreso fina bajo la barra de direcciones mientras se carga una página. El botón Detener se muestra en ambos casos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une fine ligne de progression sous la barre d’adresse pendant le chargement d’une page. Le bouton Arrêter s’affiche dans tous les cas."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una sottile linea di avanzamento sotto la barra degli indirizzi mentre una pagina si carica. Il pulsante Interrompi appare in ogni caso."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្ទាត់វឌ្ឍនភាពស្តើងនៅក្រោមរបារអាសយដ្ឋាន ពេលទំព័រកំពុងផ្ទុក។ ប៊ូតុងឈប់បង្ហាញក្នុងករណីទាំងពីរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "페이지를 불러오는 동안 주소 표시줄 아래에 얇은 진행 선을 표시합니다. 중지 버튼은 어느 경우에나 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En tynn fremdriftslinje under adressefeltet mens en side lastes inn. Stopp-knappen vises uansett."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cienka linia postępu pod paskiem adresu podczas ładowania strony. Przycisk Zatrzymaj jest widoczny w obu przypadkach."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma linha de progresso fina abaixo da barra de endereço enquanto a página carrega. O botão Parar aparece de qualquer forma."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Тонкая линия прогресса под адресной строкой во время загрузки страницы. Кнопка «Остановить» отображается в любом случае."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เส้นความคืบหน้าบาง ๆ ใต้แถบที่อยู่ขณะที่หน้ากำลังโหลด ปุ่มหยุดจะแสดงไม่ว่ากรณีใด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir sayfa yüklenirken adres çubuğunun altında ince bir ilerleme çizgisi. Durdur düğmesi her durumda görünür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Тонка лінія поступу під адресним рядком під час завантаження сторінки. Кнопка «Зупинити» показується в будь-якому разі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một vạch tiến trình mỏng dưới thanh địa chỉ khi trang đang tải. Nút Dừng vẫn hiện trong mọi trường hợp."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "页面加载时在地址栏下方显示一条细进度线。无论是否开启，都会显示“停止”按钮。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "頁面載入時在網址列下方顯示一條細進度線。無論是否開啟，都會顯示「停止」按鈕。"
+          }
+        }
+      }
+    },
     "settings.group.usagePatterns": {
       "extractionState": "manual",
       "localizations": {
@@ -219446,27 +219446,27 @@
     "settings.diagnostics.usagePatterns.help": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Counts how you use cmux on this computer: commands, pane splits, agent chats, prompts and tokens, and connections, by day and hour. It never records prompts, terminal text, web addresses, file names or anything you type, and nothing is sent anywhere. See them with cmux usage-patterns or on the Agent Stats page."}},
-        "ar": {"stringUnit": {"state": "translated", "value": "يحسب كيف تستخدم cmux على هذا الكمبيوتر: الأوامر وتقسيم الأجزاء ومحادثات الوكلاء والمطالبات والرموز والاتصالات، حسب اليوم والساعة. لا يسجّل أبدًا المطالبات أو نص الطرفية أو عناوين الويب أو أسماء الملفات أو أي شيء تكتبه، ولا يُرسل أي شيء إلى أي مكان. اعرضها باستخدام cmux usage-patterns أو في صفحة إحصاءات الوكلاء."}},
-        "de": {"stringUnit": {"state": "translated", "value": "Zählt, wie du cmux auf diesem Computer nutzt: Befehle, geteilte Bereiche, Agent-Chats, Prompts und Tokens sowie Verbindungen, nach Tag und Stunde. Prompts, Terminaltext, Webadressen, Dateinamen oder deine Eingaben werden nie aufgezeichnet, und nichts wird irgendwohin gesendet. Ansehen mit cmux usage-patterns oder auf der Seite „Agent-Statistiken“."}},
-        "es": {"stringUnit": {"state": "translated", "value": "Cuenta cómo usas cmux en este ordenador: comandos, divisiones de paneles, chats de agentes, prompts y tokens, y conexiones, por día y hora. Nunca registra prompts, texto del terminal, direcciones web, nombres de archivo ni nada que escribas, y no se envía nada a ningún sitio. Consúltalos con cmux usage-patterns o en la página Estadísticas de agentes."}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Compte la façon dont vous utilisez cmux sur cet ordinateur : commandes, divisions de volets, chats d’agents, prompts et jetons, et connexions, par jour et par heure. Les prompts, le texte du terminal, les adresses web, les noms de fichiers et tout ce que vous tapez ne sont jamais enregistrés, et rien n’est envoyé nulle part. Consultez-les avec cmux usage-patterns ou sur la page Statistiques des agents."}},
-        "ja": {"stringUnit": {"state": "translated", "value": "このコンピュータでの cmux の使い方を数えます：コマンド、ペインの分割、エージェントのチャット、プロンプトとトークン、接続を、日ごと・時間ごとに。プロンプト、ターミナルのテキスト、Web アドレス、ファイル名、入力した内容は一切記録せず、どこにも送信しません。cmux usage-patterns または「エージェント統計」ページで確認できます。"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "이 컴퓨터에서 cmux를 어떻게 쓰는지 셉니다: 명령, 창 분할, 에이전트 채팅, 프롬프트와 토큰, 연결을 일과 시간별로 기록합니다. 프롬프트, 터미널 텍스트, 웹 주소, 파일 이름이나 입력한 내용은 절대 기록하지 않으며 아무 데도 보내지 않습니다. cmux usage-patterns 또는 에이전트 통계 페이지에서 확인하세요."}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "统计你在这台电脑上如何使用 cmux：命令、窗格拆分、代理聊天、提示和 token，以及连接，按天和小时。绝不记录提示、终端文本、网址、文件名或你输入的任何内容，也不会发送到任何地方。用 cmux usage-patterns 或在“代理统计”页面查看。"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "統計你在這台電腦上如何使用 cmux：指令、窗格分割、代理聊天、提示與 token，以及連線，按日與小時。絕不記錄提示、終端機文字、網址、檔案名稱或你輸入的任何內容，也不會傳送到任何地方。用 cmux usage-patterns 或在「代理統計」頁面查看。"}},
-        "bs": {"stringUnit": {"state": "translated", "value": "Broji kako koristite cmux na ovom računaru: naredbe, podjele panela, razgovore s agentima, upite i tokene te veze, po danu i satu. Nikada ne bilježi upite, tekst terminala, web adrese, nazive datoteka ni bilo što što upišete, i ništa se nigdje ne šalje. Pogledajte ih pomoću cmux usage-patterns ili na stranici Statistika agenata."}},
-        "da": {"stringUnit": {"state": "translated", "value": "Tæller, hvordan du bruger cmux på denne computer: kommandoer, rudedelinger, agentchats, prompts og tokens samt forbindelser, fordelt på dag og time. Den registrerer aldrig prompts, terminaltekst, webadresser, filnavne eller noget, du skriver, og intet sendes nogen steder hen. Se dem med cmux usage-patterns eller på siden Agentstatistik."}},
-        "it": {"stringUnit": {"state": "translated", "value": "Conta come usi cmux su questo computer: comandi, divisioni dei pannelli, chat con agenti, prompt e token, e connessioni, per giorno e ora. Non registra mai prompt, testo del terminale, indirizzi web, nomi di file né nulla di ciò che digiti, e nulla viene inviato altrove. Consultali con cmux usage-patterns o nella pagina Statistiche agenti."}},
-        "km": {"stringUnit": {"state": "translated", "value": "រាប់របៀបដែលអ្នកប្រើ cmux នៅលើកុំព្យូទ័រនេះ៖ ពាក្យបញ្ជា ការបំបែកផ្ទាំង ការជជែកភ្នាក់ងារ ប្រូមិត និងតូខឹន និងការតភ្ជាប់ តាមថ្ងៃ និងម៉ោង។ វាមិនដែលកត់ត្រាប្រូមិត អត្ថបទទែមីណាល់ អាសយដ្ឋានគេហទំព័រ ឈ្មោះឯកសារ ឬអ្វីដែលអ្នកវាយនោះទេ ហើយគ្មានអ្វីត្រូវបានផ្ញើទៅកន្លែងណាឡើយ។ មើលវាដោយ cmux usage-patterns ឬនៅលើទំព័រស្ថិតិភ្នាក់ងារ។"}},
-        "nb": {"stringUnit": {"state": "translated", "value": "Teller hvordan du bruker cmux på denne datamaskinen: kommandoer, rutedelinger, agentchatter, prompter og tokens samt tilkoblinger, per dag og time. Den registrerer aldri prompter, terminaltekst, nettadresser, filnavn eller noe du skriver, og ingenting sendes noe sted. Se dem med cmux usage-patterns eller på siden Agentstatistikk."}},
-        "pl": {"stringUnit": {"state": "translated", "value": "Zlicza, jak używasz cmux na tym komputerze: polecenia, podziały paneli, czaty z agentami, prompty i tokeny oraz połączenia, według dnia i godziny. Nigdy nie rejestruje promptów, tekstu terminala, adresów internetowych, nazw plików ani niczego, co wpisujesz, i nic nie jest nigdzie wysyłane. Zobacz je poleceniem cmux usage-patterns lub na stronie Statystyki agentów."}},
-        "pt-BR": {"stringUnit": {"state": "translated", "value": "Conta como você usa o cmux neste computador: comandos, divisões de painel, chats de agentes, prompts e tokens, e conexões, por dia e hora. Nunca registra prompts, texto do terminal, endereços web, nomes de arquivos nem nada que você digite, e nada é enviado a lugar nenhum. Veja com cmux usage-patterns ou na página Estatísticas de agentes."}},
-        "ru": {"stringUnit": {"state": "translated", "value": "Считает, как вы используете cmux на этом компьютере: команды, разделения панелей, чаты с агентами, промпты и токены, а также подключения, по дням и часам. Никогда не записывает промпты, текст терминала, веб-адреса, имена файлов и всё, что вы вводите, и ничего никуда не отправляется. Смотрите их командой cmux usage-patterns или на странице статистики агентов."}},
-        "th": {"stringUnit": {"state": "translated", "value": "นับวิธีที่คุณใช้ cmux บนคอมพิวเตอร์เครื่องนี้ ได้แก่ คำสั่ง การแบ่งพาเนล แชตเอเจนต์ พรอมต์และโทเค็น และการเชื่อมต่อ ตามวันและชั่วโมง จะไม่บันทึกพรอมต์ ข้อความในเทอร์มินัล ที่อยู่เว็บ ชื่อไฟล์ หรือสิ่งที่คุณพิมพ์ และไม่มีการส่งข้อมูลไปที่ใด ดูได้ด้วย cmux usage-patterns หรือในหน้าสถิติเอเจนต์"}},
-        "tr": {"stringUnit": {"state": "translated", "value": "Bu bilgisayarda cmux'u nasıl kullandığınızı sayar: komutlar, bölme ayırmaları, ajan sohbetleri, istemler ve token'lar ile bağlantılar; güne ve saate göre. İstemleri, terminal metnini, web adreslerini, dosya adlarını veya yazdığınız hiçbir şeyi kaydetmez ve hiçbir yere bir şey gönderilmez. Bunları cmux usage-patterns ile veya Ajan İstatistikleri sayfasında görün."}},
-        "uk": {"stringUnit": {"state": "translated", "value": "Рахує, як ви використовуєте cmux на цьому комп’ютері: команди, розділення панелей, чати з агентами, промпти й токени та підключення, за днями й годинами. Ніколи не записує промпти, текст термінала, вебадреси, імена файлів чи будь-що, що ви вводите, і нічого нікуди не надсилається. Переглядайте їх командою cmux usage-patterns або на сторінці статистики агентів."}},
-        "vi": {"stringUnit": {"state": "translated", "value": "Đếm cách bạn dùng cmux trên máy tính này: lệnh, chia ngăn, cuộc trò chuyện với tác nhân, câu lệnh nhắc và token, cùng các kết nối, theo ngày và giờ. Không bao giờ ghi lại câu lệnh nhắc, văn bản terminal, địa chỉ web, tên tệp hay bất cứ thứ gì bạn gõ, và không có gì được gửi đi đâu cả. Xem bằng cmux usage-patterns hoặc trên trang Thống kê tác nhân."}}
+        "en": {"stringUnit": {"state": "translated", "value": "Counts how you use cmux on this computer: commands, pane splits, agent chats, prompts and tokens, and connections, by day and hour. It never records prompts, terminal text, web addresses, file names or anything you type, and nothing is sent anywhere. See them with cmux usage-patterns or on the Agent Stats page. It also counts which packages agents install, by name."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يحسب كيف تستخدم cmux على هذا الكمبيوتر: الأوامر وتقسيم الأجزاء ومحادثات الوكلاء والمطالبات والرموز والاتصالات، حسب اليوم والساعة. لا يسجّل أبدًا المطالبات أو نص الطرفية أو عناوين الويب أو أسماء الملفات أو أي شيء تكتبه، ولا يُرسل أي شيء إلى أي مكان. اعرضها باستخدام cmux usage-patterns أو في صفحة إحصاءات الوكلاء. ويحسب أيضًا الحزم التي يثبّتها الوكلاء، بأسمائها."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Zählt, wie du cmux auf diesem Computer nutzt: Befehle, geteilte Bereiche, Agent-Chats, Prompts und Tokens sowie Verbindungen, nach Tag und Stunde. Prompts, Terminaltext, Webadressen, Dateinamen oder deine Eingaben werden nie aufgezeichnet, und nichts wird irgendwohin gesendet. Ansehen mit cmux usage-patterns oder auf der Seite „Agent-Statistiken“. Außerdem zählt es, welche Pakete Agenten installieren, nach Namen."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Cuenta cómo usas cmux en este ordenador: comandos, divisiones de paneles, chats de agentes, prompts y tokens, y conexiones, por día y hora. Nunca registra prompts, texto del terminal, direcciones web, nombres de archivo ni nada que escribas, y no se envía nada a ningún sitio. Consúltalos con cmux usage-patterns o en la página Estadísticas de agentes. También cuenta los paquetes que instalan los agentes, por nombre."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Compte la façon dont vous utilisez cmux sur cet ordinateur : commandes, divisions de volets, chats d’agents, prompts et jetons, et connexions, par jour et par heure. Les prompts, le texte du terminal, les adresses web, les noms de fichiers et tout ce que vous tapez ne sont jamais enregistrés, et rien n’est envoyé nulle part. Consultez-les avec cmux usage-patterns ou sur la page Statistiques des agents. Il compte aussi les paquets que les agents installent, par nom."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "このコンピュータでの cmux の使い方を数えます：コマンド、ペインの分割、エージェントのチャット、プロンプトとトークン、接続を、日ごと・時間ごとに。プロンプト、ターミナルのテキスト、Web アドレス、ファイル名、入力した内容は一切記録せず、どこにも送信しません。cmux usage-patterns または「エージェント統計」ページで確認できます。エージェントがインストールしたパッケージも名前ごとに数えます。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "이 컴퓨터에서 cmux를 어떻게 쓰는지 셉니다: 명령, 창 분할, 에이전트 채팅, 프롬프트와 토큰, 연결을 일과 시간별로 기록합니다. 프롬프트, 터미널 텍스트, 웹 주소, 파일 이름이나 입력한 내용은 절대 기록하지 않으며 아무 데도 보내지 않습니다. cmux usage-patterns 또는 에이전트 통계 페이지에서 확인하세요. 에이전트가 설치하는 패키지도 이름별로 셉니다."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "统计你在这台电脑上如何使用 cmux：命令、窗格拆分、代理聊天、提示和 token，以及连接，按天和小时。绝不记录提示、终端文本、网址、文件名或你输入的任何内容，也不会发送到任何地方。用 cmux usage-patterns 或在“代理统计”页面查看。还会按名称统计智能体安装的软件包。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "統計你在這台電腦上如何使用 cmux：指令、窗格分割、代理聊天、提示與 token，以及連線，按日與小時。絕不記錄提示、終端機文字、網址、檔案名稱或你輸入的任何內容，也不會傳送到任何地方。用 cmux usage-patterns 或在「代理統計」頁面查看。也會按名稱統計代理程式安裝的套件。"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Broji kako koristite cmux na ovom računaru: naredbe, podjele panela, razgovore s agentima, upite i tokene te veze, po danu i satu. Nikada ne bilježi upite, tekst terminala, web adrese, nazive datoteka ni bilo što što upišete, i ništa se nigdje ne šalje. Pogledajte ih pomoću cmux usage-patterns ili na stranici Statistika agenata. Broji i pakete koje agenti instaliraju, po imenu."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Tæller, hvordan du bruger cmux på denne computer: kommandoer, rudedelinger, agentchats, prompts og tokens samt forbindelser, fordelt på dag og time. Den registrerer aldrig prompts, terminaltekst, webadresser, filnavne eller noget, du skriver, og intet sendes nogen steder hen. Se dem med cmux usage-patterns eller på siden Agentstatistik. Den tæller også de pakker, agenter installerer, efter navn."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Conta come usi cmux su questo computer: comandi, divisioni dei pannelli, chat con agenti, prompt e token, e connessioni, per giorno e ora. Non registra mai prompt, testo del terminale, indirizzi web, nomi di file né nulla di ciò che digiti, e nulla viene inviato altrove. Consultali con cmux usage-patterns o nella pagina Statistiche agenti. Conta anche i pacchetti che gli agenti installano, per nome."}},
+        "km": {"stringUnit": {"state": "translated", "value": "រាប់របៀបដែលអ្នកប្រើ cmux នៅលើកុំព្យូទ័រនេះ៖ ពាក្យបញ្ជា ការបំបែកផ្ទាំង ការជជែកភ្នាក់ងារ ប្រូមិត និងតូខឹន និងការតភ្ជាប់ តាមថ្ងៃ និងម៉ោង។ វាមិនដែលកត់ត្រាប្រូមិត អត្ថបទទែមីណាល់ អាសយដ្ឋានគេហទំព័រ ឈ្មោះឯកសារ ឬអ្វីដែលអ្នកវាយនោះទេ ហើយគ្មានអ្វីត្រូវបានផ្ញើទៅកន្លែងណាឡើយ។ មើលវាដោយ cmux usage-patterns ឬនៅលើទំព័រស្ថិតិភ្នាក់ងារ។ វាក៏រាប់កញ្ចប់ដែលភ្នាក់ងារដំឡើង តាមឈ្មោះផងដែរ។"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Teller hvordan du bruker cmux på denne datamaskinen: kommandoer, rutedelinger, agentchatter, prompter og tokens samt tilkoblinger, per dag og time. Den registrerer aldri prompter, terminaltekst, nettadresser, filnavn eller noe du skriver, og ingenting sendes noe sted. Se dem med cmux usage-patterns eller på siden Agentstatistikk. Den teller også pakkene agenter installerer, etter navn."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Zlicza, jak używasz cmux na tym komputerze: polecenia, podziały paneli, czaty z agentami, prompty i tokeny oraz połączenia, według dnia i godziny. Nigdy nie rejestruje promptów, tekstu terminala, adresów internetowych, nazw plików ani niczego, co wpisujesz, i nic nie jest nigdzie wysyłane. Zobacz je poleceniem cmux usage-patterns lub na stronie Statystyki agentów. Liczy też pakiety instalowane przez agentów, według nazwy."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Conta como você usa o cmux neste computador: comandos, divisões de painel, chats de agentes, prompts e tokens, e conexões, por dia e hora. Nunca registra prompts, texto do terminal, endereços web, nomes de arquivos nem nada que você digite, e nada é enviado a lugar nenhum. Veja com cmux usage-patterns ou na página Estatísticas de agentes. Também conta os pacotes que os agentes instalam, por nome."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Считает, как вы используете cmux на этом компьютере: команды, разделения панелей, чаты с агентами, промпты и токены, а также подключения, по дням и часам. Никогда не записывает промпты, текст терминала, веб-адреса, имена файлов и всё, что вы вводите, и ничего никуда не отправляется. Смотрите их командой cmux usage-patterns или на странице статистики агентов. Также считает пакеты, которые устанавливают агенты, по названию."}},
+        "th": {"stringUnit": {"state": "translated", "value": "นับวิธีที่คุณใช้ cmux บนคอมพิวเตอร์เครื่องนี้ ได้แก่ คำสั่ง การแบ่งพาเนล แชตเอเจนต์ พรอมต์และโทเค็น และการเชื่อมต่อ ตามวันและชั่วโมง จะไม่บันทึกพรอมต์ ข้อความในเทอร์มินัล ที่อยู่เว็บ ชื่อไฟล์ หรือสิ่งที่คุณพิมพ์ และไม่มีการส่งข้อมูลไปที่ใด ดูได้ด้วย cmux usage-patterns หรือในหน้าสถิติเอเจนต์ นอกจากนี้ยังนับแพ็กเกจที่เอเจนต์ติดตั้ง ตามชื่อ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Bu bilgisayarda cmux'u nasıl kullandığınızı sayar: komutlar, bölme ayırmaları, ajan sohbetleri, istemler ve token'lar ile bağlantılar; güne ve saate göre. İstemleri, terminal metnini, web adreslerini, dosya adlarını veya yazdığınız hiçbir şeyi kaydetmez ve hiçbir yere bir şey gönderilmez. Bunları cmux usage-patterns ile veya Ajan İstatistikleri sayfasında görün. Ajanların kurduğu paketleri de adlarına göre sayar."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Рахує, як ви використовуєте cmux на цьому комп’ютері: команди, розділення панелей, чати з агентами, промпти й токени та підключення, за днями й годинами. Ніколи не записує промпти, текст термінала, вебадреси, імена файлів чи будь-що, що ви вводите, і нічого нікуди не надсилається. Переглядайте їх командою cmux usage-patterns або на сторінці статистики агентів. Також рахує пакети, які встановлюють агенти, за назвою."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Đếm cách bạn dùng cmux trên máy tính này: lệnh, chia ngăn, cuộc trò chuyện với tác nhân, câu lệnh nhắc và token, cùng các kết nối, theo ngày và giờ. Không bao giờ ghi lại câu lệnh nhắc, văn bản terminal, địa chỉ web, tên tệp hay bất cứ thứ gì bạn gõ, và không có gì được gửi đi đâu cả. Xem bằng cmux usage-patterns hoặc trên trang Thống kê tác nhân. Nó cũng đếm các gói mà tác tử cài đặt, theo tên."}}
       }
     },
     "settings.category.chat": {
@@ -220125,6 +220125,1062 @@
           "stringUnit": {
             "state": "translated",
             "value": "對話記錄"
+          }
+        }
+      }
+    },
+    "settings.appearance.titleAreaTone": {
+      "comment": "Title of the Appearance choice between a title/tab bar shaded apart from the content (two tones) and one in the content's color.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Title Area"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "منطقة العنوان"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Područje naslova"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Titelområde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Titelbereich"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Área de título"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zone de titre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Area del titolo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイトル領域"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "តំបន់ចំណងជើង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제목 영역"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tittelområde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obszar tytułu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Área de título"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Область заголовка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นที่ชื่อเรื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başlık alanı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Область заголовка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vùng tiêu đề"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标题区域"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標題區域"
+          }
+        }
+      }
+    },
+    "settings.appearance.titleAreaTone.help": {
+      "comment": "Help under the Title Area setting; 'Two Tones' and 'One Color' are its two choices.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One Color draws the title bar, the tab bar and the sidebar in the content's color, parted by thin dividers, with a highlighted selected tab. Subtle Tone shades them slightly apart from the content, and the selected tab opens into the content."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يرسم «لون واحد» شريط العنوان وشريط علامات التبويب والشريط الجانبي بلون المحتوى، تفصل بينها فواصل رفيعة، مع إبراز علامة التبويب المحددة. أما «درجة لونية خفيفة» فتظللها قليلًا لتتميز عن المحتوى، وتنفتح علامة التبويب المحددة على المحتوى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jedna boja crta naslovnu traku, traku s karticama i bočnu traku u boji sadržaja, odvojene tankim razdjelnicima, s istaknutom odabranom karticom. Blaga nijansa ih blago zasjenjuje u odnosu na sadržaj, a odabrana kartica se otvara u sadržaj."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Én farve tegner titellinjen, fanelinjen og sidepanelet i indholdets farve, adskilt af tynde skillelinjer, med den valgte fane fremhævet. Diskret tone skygger dem en smule fra indholdet, og den valgte fane åbner sig ind i indholdet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Farbe zeichnet Titelleiste, Tableiste und Seitenleiste in der Farbe des Inhalts, getrennt durch dünne Trennlinien, mit hervorgehobenem ausgewähltem Tab. Dezenter Farbton schattiert sie leicht vom Inhalt ab, und der ausgewählte Tab öffnet sich in den Inhalt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un color dibuja la barra de título, la barra de pestañas y la barra lateral con el color del contenido, separadas por divisores finos y con la pestaña seleccionada resaltada. Tono sutil las sombrea ligeramente respecto al contenido y la pestaña seleccionada se abre hacia el contenido."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une couleur dessine la barre de titre, la barre d’onglets et la barre latérale dans la couleur du contenu, séparées par de fins séparateurs, avec l’onglet sélectionné mis en évidence. Teinte subtile les ombre légèrement par rapport au contenu, et l’onglet sélectionné s’ouvre sur le contenu."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un colore disegna la barra del titolo, la barra delle schede e la barra laterale nel colore del contenuto, separate da sottili divisori, con la scheda selezionata evidenziata. Tono tenue le ombreggia leggermente rispetto al contenuto e la scheda selezionata si apre nel contenuto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「単色」はタイトルバー、タブバー、サイドバーをコンテンツと同じ色で描き、細い区切り線で分け、選択中のタブを強調表示します。「控えめなトーン」はそれらをコンテンツからわずかに陰影で区別し、選択中のタブはコンテンツにつながります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពណ៌តែមួយ គូររបារចំណងជើង របារផ្ទាំង និងរបារចំហៀង ជាពណ៌នៃខ្លឹមសារ បំបែកដោយបន្ទាត់ខណ្ឌស្តើងៗ ហើយផ្ទាំងដែលបានជ្រើសត្រូវបានរំលេច។ ពណ៌ស្រាលៗ ធ្វើឲ្យពួកវាងងឹតបន្តិចដាច់ពីខ្លឹមសារ ហើយផ្ទាំងដែលបានជ្រើសបើកចូលទៅក្នុងខ្លឹមសារ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "단색은 제목 막대, 탭 막대, 사이드바를 콘텐츠와 같은 색으로 그리고 얇은 구분선으로 나누며 선택한 탭을 강조합니다. 은은한 톤은 이들을 콘텐츠와 살짝 다른 음영으로 구분하고, 선택한 탭이 콘텐츠로 이어집니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Én farge tegner tittellinjen, fanelinjen og sidefeltet i innholdets farge, skilt av tynne skillelinjer, med den valgte fanen uthevet. Diskret tone skygger dem litt fra innholdet, og den valgte fanen åpner seg inn i innholdet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jeden kolor rysuje pasek tytułu, pasek kart i pasek boczny w kolorze treści, rozdzielone cienkimi liniami, z wyróżnioną wybraną kartą. Subtelny odcień lekko je przyciemnia względem treści, a wybrana karta otwiera się na treść."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma cor desenha a barra de título, a barra de abas e a barra lateral na cor do conteúdo, separadas por divisórias finas, com a aba selecionada destacada. Tom sutil as sombreia levemente em relação ao conteúdo, e a aba selecionada se abre para o conteúdo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Один цвет» рисует заголовок, панель вкладок и боковую панель цветом содержимого, разделяя их тонкими линиями и выделяя выбранную вкладку. «Мягкий тон» слегка затеняет их относительно содержимого, а выбранная вкладка переходит в содержимое."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สีเดียวจะวาดแถบชื่อเรื่อง แถบแท็บ และแถบด้านข้างด้วยสีของเนื้อหา คั่นด้วยเส้นแบ่งบางๆ และเน้นแท็บที่เลือก โทนอ่อนๆ จะแรเงาให้ต่างจากเนื้อหาเล็กน้อย และแท็บที่เลือกจะเปิดต่อเข้าไปในเนื้อหา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tek renk, başlık çubuğunu, sekme çubuğunu ve kenar çubuğunu içeriğin renginde çizer; ince ayırıcılarla ayırır ve seçili sekmeyi vurgular. Hafif ton bunları içerikten biraz farklı gölgelendirir ve seçili sekme içeriğe açılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Один колір» малює заголовок, панель вкладок і бічну панель кольором вмісту, розділяючи їх тонкими лініями й виділяючи вибрану вкладку. «М'який тон» трохи затінює їх відносно вмісту, а вибрана вкладка переходить у вміст."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một màu vẽ thanh tiêu đề, thanh tab và thanh bên bằng màu của nội dung, ngăn cách bởi các đường chia mảnh, với tab đang chọn được làm nổi bật. Tông nhẹ tô bóng chúng hơi khác nội dung, và tab đang chọn mở liền vào nội dung."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“单色”用内容的颜色绘制标题栏、标签栏和侧边栏，以细分隔线分开，并突出显示所选标签。“柔和色调”让它们与内容略有明暗区别，所选标签与内容相连。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「單色」以內容的顏色繪製標題列、分頁列和側邊欄，以細分隔線分開，並醒目顯示所選分頁。「柔和色調」讓它們與內容略有明暗區別，所選分頁與內容相連。"
+          }
+        }
+      }
+    },
+    "settings.appearance.titleAreaTone.summary": {
+      "comment": "One-line summary of the Title Area setting in search results.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One color or a subtle tone for the title area"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لون واحد أو درجة لونية خفيفة لمنطقة العنوان"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jedna boja ili blaga nijansa za područje naslova"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Én farve eller en diskret tone til titelområdet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Farbe oder ein dezenter Farbton für den Titelbereich"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un color o un tono sutil para el área de título"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une couleur ou une teinte subtile pour la zone de titre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un colore o un tono tenue per l’area del titolo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイトル領域を単色または控えめなトーンに"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពណ៌តែមួយ ឬពណ៌ស្រាលៗ សម្រាប់តំបន់ចំណងជើង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제목 영역을 단색 또는 은은한 톤으로"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Én farge eller en diskret tone for tittelområdet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jeden kolor lub subtelny odcień obszaru tytułu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma cor ou um tom sutil para a área de título"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Один цвет или мягкий тон для области заголовка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สีเดียวหรือโทนอ่อนๆ สำหรับพื้นที่ชื่อเรื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başlık alanı için tek renk veya hafif ton"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Один колір або м'який тон для області заголовка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một màu hoặc tông nhẹ cho vùng tiêu đề"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标题区域使用单色或柔和色调"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標題區域使用單色或柔和色調"
+          }
+        }
+      }
+    },
+    "settings.choice.titleAreaTone.subtleTone": {
+      "comment": "Title Area choice: the title and tab bar shaded apart from the content.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subtle Tone"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "درجة لونية خفيفة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blaga nijansa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diskret tone"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dezenter Farbton"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tono sutil"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teinte subtile"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tono tenue"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "控えめなトーン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពណ៌ស្រាលៗ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "은은한 톤"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diskret tone"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subtelny odcień"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tom sutil"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мягкий тон"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โทนอ่อนๆ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hafif ton"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "М'який тон"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tông nhẹ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "柔和色调"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "柔和色調"
+          }
+        }
+      }
+    },
+    "settings.choice.titleAreaTone.oneColor": {
+      "comment": "Title Area choice: the title and tab bar in the content's color.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One Color"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لون واحد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jedna boja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Én farve"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Farbe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un color"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une couleur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un colore"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "単色"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពណ៌មួយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "단색"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Én farge"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jeden kolor"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma cor"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Один цвет"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สีเดียว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tek Renk"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Один колір"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một màu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "单色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "單色"
+          }
+        }
+      }
+    },
+    "settings.appearance.titleAreaContrast": {
+      "comment": "Title of the Appearance setting that scales how much darker the window chrome (title bar, tab bar, sidebar) is than the content.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Title Area Contrast"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تباين منطقة العنوان"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontrast područja naslova"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontrast i titelområdet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontrast des Titelbereichs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contraste del área de título"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contraste de la zone de titre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contrasto dell'area del titolo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイトル領域のコントラスト"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្រិតពន្លឺផ្ទុយនៃតំបន់ចំណងជើង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제목 영역 대비"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontrast i tittelområdet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontrast obszaru tytułu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contraste da área de título"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Контраст области заголовка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คอนทราสต์ของพื้นที่ชื่อเรื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başlık alanı kontrastı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Контраст області заголовка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Độ tương phản vùng tiêu đề"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标题区域对比度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標題區域對比度"
+          }
+        }
+      }
+    },
+    "settings.appearance.titleAreaContrast.help": {
+      "comment": "Help under the Title Area Contrast setting. The value is a number; 1 is the default.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How much darker the title bar, the tab bar and the sidebar are than the content, under Subtle Tone or a shaded window style. 1 is the default; lower is softer, higher is stronger."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مقدار دُكنة شريط العنوان وشريط علامات التبويب والشريط الجانبي مقارنةً بالمحتوى، مع «درجة لونية خفيفة» أو نمط نافذة مظلل. القيمة الافتراضية 1؛ الأقل أنعم والأعلى أقوى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koliko su naslovna traka, traka s karticama i bočna traka tamnije od sadržaja, uz Blagu nijansu ili zasjenjeni stil prozora. Zadano je 1; manje je mekše, više je jače."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor meget mørkere titellinjen, fanelinjen og sidepanelet er end indholdet med Diskret tone eller en skygget vinduesstil. 1 er standard; lavere er blødere, højere er stærkere."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie viel dunkler Titelleiste, Tableiste und Seitenleiste als der Inhalt sind, bei Dezentem Farbton oder einem schattierten Fensterstil. 1 ist der Standard; niedriger ist weicher, höher ist stärker."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuánto más oscuras son la barra de título, la barra de pestañas y la barra lateral que el contenido, con Tono sutil o un estilo de ventana sombreado. 1 es el valor predeterminado; menos es más suave, más es más fuerte."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "À quel point la barre de titre, la barre d’onglets et la barre latérale sont plus sombres que le contenu, avec Teinte subtile ou un style de fenêtre ombré. 1 est la valeur par défaut ; moins est plus doux, plus est plus marqué."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quanto la barra del titolo, la barra delle schede e la barra laterale sono più scure del contenuto, con Tono tenue o uno stile di finestra ombreggiato. 1 è il valore predefinito; meno è più morbido, più è più marcato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「控えめなトーン」または陰影のあるウインドウスタイルで、タイトルバー、タブバー、サイドバーをコンテンツよりどれだけ暗くするか。既定は 1 で、小さいほど柔らかく、大きいほど強くなります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្រិតដែលរបារចំណងជើង របារផ្ទាំង និងរបារចំហៀង ងងឹតជាងខ្លឹមសារ ក្រោមពណ៌ស្រាលៗ ឬរចនាបថបង្អួចមានស្រមោល។ 1 គឺលំនាំដើម; តិចជាងគឺទន់ជាង ច្រើនជាងគឺខ្លាំងជាង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "은은한 톤이나 음영이 있는 창 스타일에서 제목 막대, 탭 막대, 사이드바가 콘텐츠보다 얼마나 어두운지 정합니다. 기본값은 1이며, 낮을수록 부드럽고 높을수록 강합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor mye mørkere tittellinjen, fanelinjen og sidefeltet er enn innholdet, med Diskret tone eller en skyggelagt vindusstil. 1 er standard; lavere er mykere, høyere er sterkere."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jak bardzo pasek tytułu, pasek kart i pasek boczny są ciemniejsze od treści przy Subtelnym odcieniu lub cieniowanym stylu okna. Domyślnie 1; mniej to łagodniej, więcej to mocniej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quanto a barra de título, a barra de abas e a barra lateral são mais escuras que o conteúdo, com Tom sutil ou um estilo de janela sombreado. 1 é o padrão; menor é mais suave, maior é mais forte."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Насколько заголовок, панель вкладок и боковая панель темнее содержимого при «Мягком тоне» или затенённом стиле окна. По умолчанию 1; меньше — мягче, больше — сильнее."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แถบชื่อเรื่อง แถบแท็บ และแถบด้านข้างเข้มกว่าเนื้อหาเท่าใด เมื่อใช้โทนอ่อนๆ หรือสไตล์หน้าต่างที่มีการแรเงา ค่าเริ่มต้นคือ 1 ค่าน้อยจะนุ่มนวลกว่า ค่ามากจะชัดกว่า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hafif ton veya gölgeli bir pencere stiliyle başlık çubuğunun, sekme çubuğunun ve kenar çubuğunun içerikten ne kadar koyu olduğu. Varsayılan 1'dir; düşük daha yumuşak, yüksek daha güçlüdür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Наскільки заголовок, панель вкладок і бічна панель темніші за вміст за «М'якого тону» або затіненого стилю вікна. Типово 1; менше — м'якше, більше — сильніше."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thanh tiêu đề, thanh tab và thanh bên tối hơn nội dung bao nhiêu, khi dùng Tông nhẹ hoặc kiểu cửa sổ có bóng. Mặc định là 1; thấp hơn thì dịu hơn, cao hơn thì đậm hơn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在“柔和色调”或带阴影的窗口样式下，标题栏、标签栏和侧边栏比内容暗多少。默认值为 1；越低越柔和，越高越明显。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在「柔和色調」或帶陰影的視窗樣式下，標題列、分頁列和側邊欄比內容暗多少。預設值為 1；越低越柔和，越高越明顯。"
+          }
+        }
+      }
+    },
+    "settings.appearance.titleAreaContrast.summary": {
+      "comment": "One-line summary of the Title Area Contrast setting in search results.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How much the title and tab bar stand apart"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مدى تميز شريط العنوان وعلامات التبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koliko se naslovna traka i kartice ističu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor meget titel- og fanelinjen skiller sig ud"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie stark sich Titel- und Tableiste abheben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuánto destacan la barra de título y de pestañas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Démarcation de la barre de titre et des onglets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quanto risaltano la barra del titolo e delle schede"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイトルバーとタブバーの目立ち具合"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្រិតដែលរបារចំណងជើង និងផ្ទាំងលេចធ្លោ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제목 및 탭 막대가 구분되는 정도"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor mye tittel- og fanelinjen skiller seg ut"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jak bardzo wyróżnia się pasek tytułu i kart"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quanto a barra de título e de abas se destaca"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Насколько выделяются заголовок и вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แถบชื่อเรื่องและแท็บโดดเด่นแค่ไหน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başlık ve sekme çubuğunun ne kadar ayrıştığı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Наскільки виділяються заголовок і вкладки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mức nổi bật của thanh tiêu đề và tab"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标题栏和标签栏的突出程度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標題列和標籤列的突出程度"
           }
         }
       }

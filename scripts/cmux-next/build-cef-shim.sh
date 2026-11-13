@@ -3,6 +3,8 @@
 #   libcef_dll_wrapper.a      CEF's C++ wrapper (from the artifact's libcef_dll/)
 #   libcmux_cef_shim.dylib    Packages/macOS/CmuxNext/CEFShim (C ABI for Swift)
 #   cmux-cef-helper           the subprocess binary for the helper apps
+#   cmux-rb-host-helper       the subprocess binary for the remote browser
+#                             host's helper apps (embed-remote-browser-host.sh)
 #   cmux-chromium-host        Chromium's browser process as an app of its own
 #                             (prototype, plans/cmux-next/cef-helper-app-DESIGN.md;
 #                             embed-cef.sh bundles it in Debug builds only)
@@ -46,7 +48,7 @@ key="$(
   } | shasum -a 256 | awk '{print $1}'
 )"
 FINAL_DIR="$CACHE_DIR/$(basename "$CEF_DIR")-${key:0:16}"
-complete() { [[ -f "$1/.build-key" && "$(cat "$1/.build-key")" == "$key" && -f "$1/libcmux_cef_shim.dylib" && -x "$1/cmux-cef-helper" && -x "$1/cmux-chromium-host" ]]; }
+complete() { [[ -f "$1/.build-key" && "$(cat "$1/.build-key")" == "$key" && -f "$1/libcmux_cef_shim.dylib" && -x "$1/cmux-cef-helper" && -x "$1/cmux-rb-host-helper" && -x "$1/cmux-chromium-host" ]]; }
 # A use refreshes the entry's mtime, so the week-old pruning below (here and
 # in other builds) removes only entries no build used for a week.
 touch -c "$FINAL_DIR" 2>/dev/null || true
@@ -107,6 +109,11 @@ done
 "$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" \
   -o "$OUT_DIR/cmux-cef-helper" \
   "$OUT_DIR/obj/shim/helper_main.mm.o" \
+  "$OUT_DIR/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface
+
+"$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" \
+  -o "$OUT_DIR/cmux-rb-host-helper" \
+  "$OUT_DIR/obj/shim/rb_host_helper_main.mm.o" \
   "$OUT_DIR/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface
 
 "$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" \
