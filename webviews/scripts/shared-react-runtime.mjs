@@ -82,6 +82,7 @@ const exportsByFacade = {
     "useSyncExternalStore",
     "useTransition",
     "version",
+    "__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE",
   ],
   "react-dom.js": [
     "createPortal",
@@ -97,6 +98,7 @@ const exportsByFacade = {
     "useFormState",
     "useFormStatus",
     "version",
+    "__DOM_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE",
   ],
   "react-dom-client.js": ["createRoot", "hydrateRoot", "version"],
   "react-jsx-runtime.js": ["Fragment", "jsx", "jsxs"],
@@ -116,7 +118,7 @@ export async function buildSharedReactRuntime(outdir, metafile) {
     "export { React, ReactDOM, ReactDOMClient, JSXRuntime, CompilerRuntime };",
     "",
   ].join("\n");
-  await build({
+  const result = await build({
     stdin: { contents: entry, resolveDir: webviewsRoot, sourcefile: "shared-react-runtime-entry.mjs", loader: "js" },
     bundle: true,
     format: "esm",
