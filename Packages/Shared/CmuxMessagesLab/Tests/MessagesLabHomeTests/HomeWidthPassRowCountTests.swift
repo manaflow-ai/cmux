@@ -39,6 +39,8 @@ import Testing
         /// The same after a scroll to the oldest row, before the exact rows of the resting width are in.
         var shownAtOtherWidthAfterScroll = 0
         var loadedRows = 0
+        /// Width passes over every loaded row in the 30 steps (the pass of before cmux#42345).
+        var wholePasses: Int { passes.reduce(0, +) - nearPasses.reduce(0, +) }
         /// Every loaded row was exact at the transcript's width once the width rested.
         var exactAtRest = false
     }
@@ -61,7 +63,9 @@ import Testing
 
     /// A scroll of `dy` points the way AppKit makes it: the scroll view's clip view moves, and the bridge
     /// (`TranscriptScrollView`) sets the list's offset and tells the window view (`userScrolled`). Negative: toward
-    /// the oldest row. Returns how far the list moved.
+    /// the oldest row. Then the list lays out, as it does before a display frame shows, so its cells are the rows at
+    /// the new offset. Returns how far the list moved (a measure of rows above the viewport that the scroll started
+    /// moves the offset too: the rows on screen keep their places).
     @discardableResult static func scroll(_ rig: HomeChatRig, _ demo: MessagesWindowView, by dy: CGFloat) -> CGFloat {
         let scrollView = rig.view.controller.host.scrollView, clip = scrollView.contentView
         let before = demo.collection.contentOffset.y
@@ -69,7 +73,15 @@ import Testing
         to.origin.y += dy
         clip.scroll(to: clip.constrainBoundsRect(to).origin)
         scrollView.reflectScrolledClipView(clip)
+        demo.collection.setNeedsLayout()
+        demo.collection.layoutIfNeeded()
         return demo.collection.contentOffset.y - before
+    }
+
+    /// The loaded rows the list holds cells for: how many, and the first and last of them.
+    static func shownRows(_ demo: MessagesWindowView) -> (count: Int, first: Int, last: Int) {
+        let items = demo.collection.visibleCells.compactMap { demo.collection.indexPath(for: $0)?.item }
+        return (items.count, items.min() ?? -1, items.max() ?? -1)
     }
 
     /// The loaded row under the viewport's y `at` (points from the view's top) and that row's top there.
@@ -156,12 +168,13 @@ import Testing
         // The width rests: every loaded row is measured off main and the exact rows are installed.
         out.exactAtRest = try await rest(rig, demo)
         let sorted = out.ms.sorted()
-        func p(_ q: Double) -> Double { sorted.isEmpty ? 0 : sorted[min(sorted.count - 1, Int((Double(sorted.count - 1) * q).rounded()))] }
+        func p(_ q: Double) -> Double { sorted.isEmpty ? 0 : sorted[checked: Int((Double(sorted.count - 1) * q).rounded())] ?? 0 }
         print(String(format: "HOMEWIDTHPASS rows %d loaded %d visited per step min %d max %d step ms p50 %.2f p95 %.2f max %.2f",
                      rows, out.loadedRows, out.visited.min() ?? 0, out.visited.max() ?? 0, p(0.5), p(0.95), sorted.last ?? 0))
         // The rig's width step sets the view's frame and the window's content size: the passes of one step are counted.
         print("HOMEWIDTHPASS rows \(rows) width passes per step min \(out.passes.min() ?? 0) max \(out.passes.max() ?? 0)"
-              + ", of them near the viewport min \(out.nearPasses.min() ?? 0) max \(out.nearPasses.max() ?? 0)")
+              + ", of them near the viewport min \(out.nearPasses.min() ?? 0) max \(out.nearPasses.max() ?? 0)"
+              + ", passes over every loaded row in the 30 steps \(out.wholePasses)")
         return out
     }
 
@@ -175,6 +188,9 @@ import Testing
                 "a width step of the 500-row Home measured \(longMost) rows, of the 50-row Home \(shortMost): the count follows the loaded rows")
         #expect(longMost < long.loadedRows / 4, "a width step measured \(longMost) of \(long.loadedRows) loaded rows")
         #expect(long.visited.allSatisfy { $0 > 0 }, "every width step measured the rows on screen")
+        // The pass over every loaded row is the fall-back (a fading row, one large step): a plain drag never takes it.
+        #expect(short.wholePasses == 0 && long.wholePasses == 0,
+                "a plain drag took the pass over every loaded row \(short.wholePasses) times (50 rows) and \(long.wholePasses) times (500 rows)")
     }
 
     @Test func everyRowOnScreenIsAtTheTranscriptWidth() async throws {
@@ -196,15 +212,17 @@ import Testing
             width -= 4
             let scrolls = (10..<20).contains(step)
             // In one frame the scroll comes before the width change, in the next one after it.
-            if scrolls, step % 2 == 0 { scrolled += Self.scroll(rig, demo, by: -270) }
+            if scrolls, step % 2 == 0 { scrolled += Self.scroll(rig, demo, by: -300) }
             rig.resize(width: width)
             if scrolls, step % 2 == 1 {
-                scrolled += Self.scroll(rig, demo, by: -270)
+                scrolled += Self.scroll(rig, demo, by: -300)
                 rig.frame()
             }
             shown += Self.shownAtOtherWidth(demo)
         }
-        try #require(scrolled <= -2_690, "the scroll went 3 screens toward the oldest row (it went \(scrolled) pt)")
+        // 10 scrolls of 300 pt. The offset moved less: each measure of rows above the viewport (they are higher at the
+        // narrower width) moves it the other way, with the rows on screen in place.
+        try #require(scrolled <= -2_700, "the scroll went 3 screens toward the oldest row (it went \(scrolled) pt)")
         #expect(shown == 0, "\(shown) rows on screen were at another width in a drag with a scroll")
         // The far rows are still at their older widths: they take their size at rest.
         let stale = Self.rowsAtOtherWidth(demo)
@@ -374,8 +392,12 @@ import Testing
         let scrolled = Self.scroll(rig, demo, by: -(demo.collection.contentOffset.y - demo.minOffset))
         rig.frame()
         try #require(scrolled < -2_700, "the scroll went to rows the drag did not measure (it went \(scrolled) pt)")
+        let cells = Self.shownRows(demo)
+        try #require(cells.count > 0 && cells.first < 30, "the list shows the oldest rows (\(cells.count) rows, \(cells.first) to \(cells.last))")
         let shown = Self.shownAtOtherWidth(demo)
-        print("HOMEWIDTHPASS scroll while a row fades: scrolled \(scrolled) pt, ghosts \(demo.model.hasGhosts), rows on screen at another width \(shown)")
+        print("HOMEWIDTHPASS scroll while a row fades: scrolled \(scrolled) pt, ghosts \(demo.model.hasGhosts), the list shows \(cells.count) rows"
+              + " (\(cells.first) to \(cells.last) of \(demo.model.count)), rows on screen at another width \(shown)"
+              + ", loaded rows at another width \(Self.rowsAtOtherWidth(demo))")
         #expect(shown == 0, "\(shown) rows on screen were at another width after a scroll while a row faded")
         let rested = try await rest(rig, demo)
         #expect(rested, "when the width rests every loaded row is exact at the transcript's width")
