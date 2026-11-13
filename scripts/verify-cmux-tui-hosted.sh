@@ -95,6 +95,13 @@ if [[ ! "$round_seconds" =~ ^[1-9][0-9]*$ ]]; then
   echo "error: CMUX_TUI_HOSTED_ROUND_SECONDS must be a positive whole number of seconds" >&2
   exit 2
 fi
+# All reads of why a cancelled run ended share this budget; they run after the
+# final verdict, so they never move the exit code or the deadline.
+cause_read_seconds="${CMUX_TUI_HOSTED_CAUSE_READ_SECONDS:-20}"
+if [[ ! "$cause_read_seconds" =~ ^[1-9][0-9]*$ ]]; then
+  echo "error: CMUX_TUI_HOSTED_CAUSE_READ_SECONDS must be a positive whole number of seconds" >&2
+  exit 2
+fi
 # The wait before the second and third dispatch tries is this times the try number.
 dispatch_backoff="${CMUX_TUI_HOSTED_DISPATCH_BACKOFF_SECONDS:-10}"
 if [[ ! "$dispatch_backoff" =~ ^[0-9]{1,4}$ ]]; then
@@ -398,6 +405,110 @@ echo "Run: $run_url"
 echo "Waiting for hosted verification"
 
 
+# Runs one child, at most `limit` seconds; sets child_status (143 when the
+# limit stopped it). gh run watch has no timeout of its own.
+#
+# The limiter learns that the child ended from a line on its own fifo, not
+# from a signal: a TERM sent to a subshell that has not yet set its trap is
+# lost, and the watcher then waited out the whole limit (main tip CI, PR
+# #38729, 2026-11-08: a 60 s run read held the watcher to its deadline, so a
+# cancelled run read as "still running"). A line in a pipe cannot be lost,
+# and a fresh fifo per child means a line left by an earlier child is never
+# read as this one's.
+run_child() {
+  local limit="$1"
+  shift
+  # mktemp -u: a new name per child, in the watcher and in the main shell.
+  local done_fifo
+  done_fifo="$(mktemp -u "$temp_dir/child-done.XXXXXX")"
+  mkfifo "$done_fifo"
+  # Read-write, so neither end blocks on open; the limiter reads it as fd 5.
+  exec 5<> "$done_fifo"
+  "$@" 5>&- &
+  local child=$!
+  # The limiter keeps no stdio of the script.
+  (
+    if ! read -r -t "$limit" -u 5 _; then
+      kill -TERM "$child" 2>/dev/null
+    fi
+  ) </dev/null >/dev/null 2>&1 &
+  local limiter=$!
+  wait "$child"
+  child_status=$?
+  echo ended >&5
+  wait "$limiter" 2>/dev/null || true
+  exec 5>&-
+  rm -f "$done_fifo"
+}
+
+# A job limit as GitHub writes it, in minutes: a Go duration (40m0s, or
+# 1h10m0s for 70 minutes) or the older "360 minutes". Empty when it is neither.
+job_limit_minutes() {
+  local text="$1" go_duration='^(([0-9]+)h)?(([0-9]+)m)?(([0-9]+)s)?$' old_style='^([0-9]+) minutes$'
+  local minutes seconds
+  if [[ "$text" =~ $old_style ]]; then
+    echo "$((10#${BASH_REMATCH[1]}))m"
+    return 0
+  fi
+  [[ -n "$text" && "$text" =~ $go_duration ]] || return 0
+  minutes=$((10#${BASH_REMATCH[2]:-0} * 60 + 10#${BASH_REMATCH[4]:-0}))
+  seconds=$((10#${BASH_REMATCH[6]:-0}))
+  if (( seconds > 0 )); then echo "${minutes}m${seconds}s"; else echo "${minutes}m"; fi
+}
+
+# Why each cancelled job of the attempt ended, from its check-run annotations,
+# on stderr. GitHub shows the dispatcher as the run's actor, so the actor does
+# not say who cancelled it (2026-11-09: the shared login was blamed for cmux-bot
+# rescue cancels and 40-minute job timeouts). It runs once, after the final
+# verdict (cancelled and not re-run within the rescue window), so it never
+# moves the exit code or the deadline. All reads share cause_read_seconds; at
+# most 4 annotation reads; a failed or hung read says "cause unknown".
+describe_cancelled_attempt() {
+  local attempt="$1" budget_end=$((SECONDS + cause_read_seconds))
+  local jobs_file="$temp_dir/cancelled-jobs" notes_file="$temp_dir/job-annotations"
+  local job_id job_name cause who limit_text limit left reads=0 named=0
+  run_child "$cause_read_seconds" gh api "repos/$REPO/actions/runs/$run_id/attempts/$attempt/jobs?per_page=100" \
+    --jq '.jobs[] | select(.conclusion == "cancelled") | "\(.id)\t\(.name)"' > "$jobs_file" 2>/dev/null
+  if [[ "$child_status" -ne 0 ]]; then
+    echo "  cause unknown: the jobs of attempt $attempt could not be read within ${cause_read_seconds}s" >&2
+    return 0
+  fi
+  while IFS=$'\t' read -r job_id job_name; do
+    [[ "$job_id" =~ ^[0-9]+$ ]] || continue
+    named=$((named + 1))
+    left=$((budget_end - SECONDS))
+    if (( reads >= 4 )); then
+      echo "  $job_name: cause not read (only the first 4 cancelled jobs are read)" >&2
+      continue
+    fi
+    if (( left <= 0 )); then
+      echo "  $job_name: cause unknown (the ${cause_read_seconds}s for cause reads ran out)" >&2
+      continue
+    fi
+    reads=$((reads + 1))
+    run_child "$left" gh api "repos/$REPO/check-runs/$job_id/annotations" --jq '.[].message' \
+      > "$notes_file" 2>/dev/null
+    cause="cause unknown"
+    if [[ "$child_status" -eq 0 ]]; then
+      limit_text="$(sed -n 's/.*exceeded the maximum execution time of \([0-9hms]*\( minutes\)\{0,1\}\).*/\1/p' "$notes_file" | head -n 1)"
+      limit="$(job_limit_minutes "$limit_text")"
+      who="$(sed -n 's/.*The run was canceled by @\([A-Za-z0-9_.-]*\(\[bot\]\)\{0,1\}\)\..*/\1/p' "$notes_file" | head -n 1)"
+      if [[ -n "$limit" ]]; then
+        cause="job timeout $limit"
+      elif [[ "$who" == "cmux-bot[bot]" ]]; then
+        cause="cancelled by @cmux-bot[bot] (owned-pool rescue or queue janitor); no re-run came within ${rescue_window_seconds}s"
+      elif [[ -n "$who" ]]; then
+        cause="cancelled by @$who"
+      fi
+    fi
+    echo "  $job_name: $cause" >&2
+  done < "$jobs_file"
+  if (( named == 0 )); then
+    echo "  cause unknown: attempt $attempt lists no cancelled job" >&2
+  fi
+  return 0
+}
+
 watch_result_fifo="$temp_dir/run-watch-result"
 mkfifo "$watch_result_fifo"
 
@@ -423,41 +534,6 @@ exec 3<> "$watch_result_fifo"
   }
   trap stop_watch_owner HUP TERM INT
   trap stop_children EXIT
-  # Runs one child, at most `limit` seconds; sets child_status (143 when the
-  # limit stopped it). gh run watch has no timeout of its own.
-  #
-  # The limiter learns that the child ended from a line on its own fifo, not
-  # from a signal: a TERM sent to a subshell that has not yet set its trap is
-  # lost, and the watcher then waited out the whole limit (main tip CI, PR
-  # #38729, 2026-11-08: a 60 s run read held the watcher to its deadline, so a
-  # cancelled run read as "still running"). A line in a pipe cannot be lost,
-  # and a fresh fifo per child means a line left by an earlier child is never
-  # read as this one's.
-  child_seq=0
-  run_child() {
-    local limit="$1"
-    shift
-    child_seq=$((child_seq + 1))
-    local done_fifo="$temp_dir/child-done.$child_seq"
-    mkfifo "$done_fifo"
-    # Read-write, so neither end blocks on open; the limiter reads it as fd 5.
-    exec 5<> "$done_fifo"
-    "$@" 5>&- &
-    local child=$!
-    # The limiter keeps no stdio of the script.
-    (
-      if ! read -r -t "$limit" -u 5 _; then
-        kill -TERM "$child" 2>/dev/null
-      fi
-    ) </dev/null >/dev/null 2>&1 &
-    local limiter=$!
-    wait "$child"
-    child_status=$?
-    echo ended >&5
-    wait "$limiter" 2>/dev/null || true
-    exec 5>&-
-    rm -f "$done_fifo"
-  }
   read_run_state() {
     : > "$run_state_file"
     run_child 60 gh run view --repo "$REPO" "$run_id" --json status,conclusion,attempt \
@@ -561,14 +637,14 @@ exec 3<> "$watch_result_fifo"
   fi
   set -e
   trap - HUP TERM INT EXIT
-  printf '%s\t%s\n' "$run_status" "$run_conclusion" >&3
+  printf '%s\t%s\t%s\n' "$run_status" "$run_conclusion" "$run_attempt" >&3
   exit 0
 ) &
 watch_owner_pid=$!
 
 run_finished=false
 # The watcher publishes at its own deadline; this read is the backstop.
-if IFS=$'\t' read -r -t "$((timeout_seconds + 150))" run_status run_conclusion <&3; then
+if IFS=$'\t' read -r -t "$((timeout_seconds + 150))" run_status run_conclusion run_attempt <&3; then
   wait "$watch_owner_pid" || true
   watch_owner_pid=""
   [[ "$run_status" == "completed" ]] && run_finished=true
@@ -610,6 +686,15 @@ if [[ "$run_conclusion" != "success" ]]; then
   echo "Hosted verification failed: $run_url" >&2
   if [[ "$run_conclusion" == "cancelled" ]]; then
     echo "The run was cancelled outside this script and was not re-run within ${rescue_window_seconds}s." >&2
+    echo "The run's actor is its dispatcher, not its canceller. Cause per cancelled job of attempt ${run_attempt:-?}:" >&2
+    if [[ "${run_attempt:-}" =~ ^[0-9]+$ ]]; then
+      # A failed read only says "cause unknown": it must not end the script here.
+      set +e
+      describe_cancelled_attempt "$run_attempt"
+      set -e
+    else
+      echo "  cause unknown: the run's attempt was not read" >&2
+    fi
   fi
   gh run view --repo "$REPO" "$run_id" --log-failed || true
   exit 1
