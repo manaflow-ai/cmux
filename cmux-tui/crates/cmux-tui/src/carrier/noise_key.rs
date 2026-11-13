@@ -35,16 +35,23 @@ pub(super) fn lasting_identity() -> Result<StaticIdentity, String> {
 ///
 /// A DEV build whose Keychain refuses the shared item (a locally built,
 /// ad-hoc signed `cmux` is a new app to the Keychain after each rebuild, and
-/// an unanswered prompt is `-128`) dials with a key made for this one dial,
+/// an unanswered prompt is `-128`) never shows the Keychain's prompt and, when
+/// the item is not readable without one, dials with a key made for this one dial,
 /// as a Linux dial does, instead of failing the handshake. The key is never
 /// written down. Release builds keep failing, so they never drift off their
 /// lasting device key.
 pub(super) fn device_identity() -> Result<StaticIdentity, String> {
     #[cfg(target_os = "macos")]
     {
+        let dev = is_dev_build();
+        if dev {
+            // Never wait on a Keychain prompt: an unanswered one held `carrier serve` past
+            // its deadline, so the link failed before the person even saw the question.
+            keychain::forbid_prompts();
+        }
         match keychain::load_or_create(SERVICE, ACCOUNT) {
             Ok(key) => Ok(StaticIdentity::from_private(key)),
-            Err(why) if is_dev_build() => {
+            Err(why) if dev => {
                 eprintln!("cmux carrier: {why}; this DEV build dials with a key made for this dial");
                 StaticIdentity::generate().map_err(|e| format!("no Noise key: {e}"))
             }
@@ -82,6 +89,14 @@ mod keychain {
     #[link(name = "Security", kind = "framework")]
     unsafe extern "C" {
         static kSecAttrAccessible: CFStringRef;
+    }
+
+    /// Keychain reads in this process fail with `errSecInteractionNotAllowed` instead of asking.
+    pub(super) fn forbid_prompts() {
+        // SAFETY: a plain call with a boolean; it only changes this process's Keychain prompt policy.
+        unsafe {
+            security_framework_sys::keychain::SecKeychainSetUserInteractionAllowed(0);
+        }
     }
 
     fn options(service: &str, account: &str) -> PasswordOptions {
