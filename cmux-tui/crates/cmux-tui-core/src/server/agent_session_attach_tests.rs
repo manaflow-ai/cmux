@@ -425,6 +425,11 @@ fn serve(
             "agent/credentials.update" => {
                 Some(json!({"sessionId": params["sessionId"], "restart": "now"}))
             }
+            // Two sessions on an owner's credential; the first one lost in a restart.
+            "agent/credentials.list" => Some(json!({"holders": [
+                {"sessionId": SESSION, "connection": "chatgpt-1", "expires_at": 1_900_000_000u64, "chatgpt": true, "lost": true},
+                {"sessionId": "OTHER", "connection": "claude-token", "expires_at": null, "chatgpt": false, "lost": false},
+            ]})),
             // The agent answers its whole option list, the value just set included.
             "session/set_config_option" => Some(json!({"configOptions": [{
                 "id": params["configId"], "currentValue": params["value"]}]})),

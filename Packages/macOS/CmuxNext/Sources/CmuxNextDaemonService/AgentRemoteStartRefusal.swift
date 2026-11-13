@@ -42,6 +42,10 @@ public nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHost
     /// SSH host, which has no update, keeps the folder refusal.
     public static let olderDaemonCodes: Set<String> = [AgentSessionAttachError.teamMachine, "agent_session.host_unverified", appFolderNeeded]
     public static func startUnsupported(machine: String) -> Self { Self(code: AgentSessionAttachClient.startUnsupported, machine: machine) }
+    /// The model connection the Cloud start chose could not be read from this Mac's acpmux (signed out,
+    /// removed, or acpmux not running): the chat does not start on another route in its place.
+    public static let credentialUnavailableCode = "app.credential_unavailable"
+    public static func credentialUnavailable(machine: String) -> Self { Self(code: credentialUnavailableCode, machine: machine) }
 
     public var userMessage: String { errorDescription ?? code }
 
@@ -84,6 +88,9 @@ public nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHost
         case Self.hostMismatchCode:
             RefusalStrings.format("handlers.refusal.agentRemoteStart.belongsTo",
                                   "This chat belongs to %@, so it does not run on this Mac.", machine)
+        case Self.credentialUnavailableCode:
+            RefusalStrings.format("handlers.refusal.agentRemoteStart.credentialUnavailable",
+                                  "This Mac could not read the model connection for the chat on %@. Check it in Settings > Models, then send again.", machine)
         case Self.listedElsewhereCode:
             RefusalStrings.format("handlers.refusal.agentRemoteStart.listedElsewhere",
                                   "This chat belongs to this Mac, so it does not run on %@.", machine)

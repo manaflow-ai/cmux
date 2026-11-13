@@ -455,6 +455,8 @@ impl Hub {
             spawn_argv: None,
             launch_digest: None,
             family: parent_meta.family.clone(),
+            // A fork runs on this machine's route: the owner's credential is the parent chat's alone.
+            credential_ref: None,
             preset: parent_meta.preset.clone(),
             model_request: parent_meta.model_request.clone(),
             cwd,

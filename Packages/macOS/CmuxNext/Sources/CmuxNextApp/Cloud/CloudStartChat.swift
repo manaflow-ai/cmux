@@ -51,8 +51,8 @@ struct CloudStartChat {
         if let refusal = Self.refusal(services) {
             return AgentPaneReply.failure(code: refusal, message: CloudStrings.startRefusal(refusal))
         }
-        // Cloud first use: nothing serving the picker's model shows Set up Cloud (CloudSetup.refusal) and starts nothing.
-        if let setup = await services.cloud.setup.refusal(harness: start.harness, model: start.model, account: start.account) { return setup }
+        // Cloud first use, once: nothing serving the picker's model shows Set up Cloud and starts nothing; else the start runs on the connection it chose (CloudSetup.admit).
+        let (start, setup) = await services.cloud.setup.admit(start); if let setup { return setup }
         do {
             if let team = start.team { try await services.cloud.auth.activeTeam.select(team) } // the plan card's Switch to <team>, then only in it:
             if let refused = CloudStartCore().refusal(cloudDisabled: false, signedIn: true, requestedTeam: start.team, activeTeam: services.cloud.auth.teamID) { return AgentPaneReply.failure(code: refused, message: refused, details: nil, retryable: true, origin: "native") }

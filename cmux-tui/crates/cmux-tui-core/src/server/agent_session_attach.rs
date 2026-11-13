@@ -932,6 +932,12 @@ pub(super) fn try_handle(
         }
         return Some(credentials(mux, client, id, object, writer));
     }
+    if cmd == "agent-session-credential-status" {
+        if author.is_some() {
+            return Some(refuse(writer, id, Refusal::NotTrusted));
+        }
+        return Some(credential_status(mux, client, id, object, writer));
+    }
     if cmd == "agent-session-trust" {
         return Some(trust(mux, client, id, object, writer));
     }
@@ -1002,7 +1008,7 @@ fn start(
     agent_session_start::start(mux, client, id, socket, params, writer)
 }
 
-/// `agent-session-credentials {surface, env, vm_kind}`: the owner's refreshed model credential
+/// `agent-session-credentials {surface, env, connection?, expires_at?, vm_kind}`: the owner's refreshed model credential
 /// for the chat tab `surface` shows (a refreshed ChatGPT token), relayed to acpmux as
 /// `agent/credentials.update` on that tab's own session, which restarts its agent on it and
 /// resumes the chat. Only the owner's own app on the owner's own Cloud VM
@@ -1012,9 +1018,102 @@ fn start(
 struct CredentialsParams {
     surface: SurfaceId,
     env: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    connection: Option<String>,
+    #[serde(default)]
+    expires_at: Option<u64>,
     #[serde(default, deserialize_with = "crate::server::command_args::present_nullable")]
     vm_kind: Option<Option<String>>,
 }
+
+/// `agent-session-credential-status {surface, vm_kind}`: whether the chat tab `surface` shows runs
+/// on the owner's credential, as acpmux's `agent/credentials.list` says of the tab's own session:
+/// `{surface, credential: {connection, expires_at, chatgpt, lost} | null}`, never a value. The owner's
+/// app reads it when it attaches the chat again (a relaunch, a reconnect) to keep a ChatGPT token
+/// fresh, and sends the credential again when acpmux `lost` it in a restart. Same checks as the
+/// refresh.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CredentialStatusParams {
+    surface: SurfaceId,
+    #[serde(default, deserialize_with = "crate::server::command_args::present_nullable")]
+    vm_kind: Option<Option<String>>,
+}
+
+/// The tab's own session, of a tab this store hosts: never a session id the caller names.
+fn credential_session(mux: &Arc<Mux>, surface: SurfaceId) -> Option<String> {
+    mux.surface(surface).and_then(|runtime| match mux.conversation_tab_of(&runtime) {
+        Some(ConversationTabRecord::AgentSession { host, session: Some(session), .. })
+            if host == agent_session_start::store_host(mux) =>
+        {
+            Some(session)
+        }
+        _ => None,
+    })
+}
+
+fn credential_status(
+    mux: &Arc<Mux>,
+    client: u64,
+    id: Option<Value>,
+    params: serde_json::Map<String, Value>,
+    writer: &MessageWriter,
+) -> bool {
+    let Ok(CredentialStatusParams { surface, vm_kind }) =
+        serde_json::from_value(Value::Object(params))
+    else {
+        return refuse(writer, id, Refusal::BadRequest);
+    };
+    if !mux.agent_carrier_allowed(client) {
+        return refuse(writer, id, Refusal::NotTrusted);
+    }
+    if !agent_session_start::credentials_admitted(mux, client, &vm_kind) {
+        return refuse(writer, id, Refusal::OwnerOnly);
+    }
+    let Some(session) = credential_session(mux, surface) else {
+        return refuse(writer, id, Refusal::UnknownTab);
+    };
+    let Some(socket) = mux.control_clients.agent_sessions.socket() else {
+        return refuse(writer, id, Refusal::Unavailable);
+    };
+    let (worker_mux, worker_writer, worker_id) = (mux.clone(), writer.clone(), id.clone());
+    let spawned =
+        std::thread::Builder::new().name("mux-agent-credential-status".into()).spawn(move || {
+            let answer = agent_session_start::connect(&worker_mux, &socket).and_then(|link| {
+                let reply = link.call("agent/credentials.list", json!({}), CREDENTIAL_STATUS_TIMEOUT);
+                link.close();
+                reply.map_err(Refusal::of)
+            });
+            match answer {
+                Ok(reply) => {
+                    let held = reply
+                        .get("holders")
+                        .and_then(Value::as_array)
+                        .and_then(|all| {
+                            all.iter().find(|h| h.get("sessionId").and_then(Value::as_str) == Some(&session))
+                        })
+                        .map(|h| {
+                            json!({
+                                "connection": h.get("connection").cloned().unwrap_or(Value::Null),
+                                "expires_at": h.get("expires_at").cloned().unwrap_or(Value::Null),
+                                "chatgpt": h.get("chatgpt").and_then(Value::as_bool).unwrap_or(false),
+                                "lost": h.get("lost").and_then(Value::as_bool).unwrap_or(false),
+                            })
+                        })
+                        .unwrap_or(Value::Null);
+                    ok(&worker_writer, worker_id, json!({"surface": surface, "credential": held}))
+                }
+                Err(refusal) => refuse(&worker_writer, worker_id, refusal),
+            };
+        });
+    if spawned.is_err() {
+        return refuse(writer, id, Refusal::Limit);
+    }
+    true
+}
+
+/// The status read answers from acpmux's memory.
+const CREDENTIAL_STATUS_TIMEOUT: Duration = Duration::from_secs(10);
 
 fn credentials(
     mux: &Arc<Mux>,
@@ -1023,12 +1122,12 @@ fn credentials(
     params: serde_json::Map<String, Value>,
     writer: &MessageWriter,
 ) -> bool {
-    let Ok(CredentialsParams { surface, env, vm_kind }) =
+    let Ok(CredentialsParams { surface, env, connection, expires_at, vm_kind }) =
         serde_json::from_value(Value::Object(params))
     else {
         return refuse(writer, id, Refusal::BadRequest);
     };
-    let credential = agent_session_start::StartCredentials { env };
+    let credential = agent_session_start::StartCredentials { env, connection, expires_at };
     if !credential.valid() {
         return refuse(writer, id, Refusal::BadRequest);
     }
@@ -1038,17 +1137,7 @@ fn credentials(
     if !agent_session_start::credentials_admitted(mux, client, &vm_kind) {
         return refuse(writer, id, Refusal::OwnerOnly);
     }
-    // The tab's own session, of a tab this store hosts: never a session id the caller names.
-    let session =
-        mux.surface(surface).and_then(|runtime| match mux.conversation_tab_of(&runtime) {
-            Some(ConversationTabRecord::AgentSession { host, session: Some(session), .. })
-                if host == agent_session_start::store_host(mux) =>
-            {
-                Some(session)
-            }
-            _ => None,
-        });
-    let Some(session) = session else {
+    let Some(session) = credential_session(mux, surface) else {
         return refuse(writer, id, Refusal::UnknownTab);
     };
     let Some(socket) = mux.control_clients.agent_sessions.socket() else {

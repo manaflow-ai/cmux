@@ -97,8 +97,9 @@ pub const AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY: &str = "agent-session-star
 pub const AGENT_SESSION_START_PERMISSION_MODE_CAPABILITY: &str =
     "agent-session-start-permission-mode-v1";
 
-/// `credentials: {env: {NAME: value}}` on `agent-session-start`, and the `agent-session-credentials
-/// {surface, env, vm_kind}` refresh: the owner's model credential for the chat's agent, from the
+/// `credentials: {env: {NAME: value}, connection?, expires_at?}` on `agent-session-start`, the
+/// `agent-session-credentials {surface, env, connection?, expires_at?, vm_kind}` refresh and the
+/// `agent-session-credential-status {surface, vm_kind}` read (no value): the owner's model credential for the chat's agent, from the
 /// owner's own app on the owner's own Cloud VM only ([`credentials_admitted`]), relayed to acpmux
 /// (`_meta.acpmux.credentials`, `agent/credentials.update`), which holds it in memory for that agent
 /// alone (acpmux `agent_credentials.rs`). Advertised only where the owner-Cloud start is.
@@ -109,11 +110,16 @@ const CREDENTIAL_NAMES: [&str; 4] =
     ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "CMUX_CHATGPT_ACCESS_TOKEN"];
 const MAX_CREDENTIAL_BYTES: usize = 16 * 1024;
 
-/// A launch credential as the caller sends it. Never printed: no `Debug`.
+/// A launch credential as the caller sends it: the variable, the connection's id and the token's
+/// expiry (neither a secret). Never printed: no `Debug`.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct StartCredentials {
     pub(super) env: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    pub(super) connection: Option<String>,
+    #[serde(default)]
+    pub(super) expires_at: Option<u64>,
 }
 
 impl StartCredentials {
@@ -125,10 +131,21 @@ impl StartCredentials {
                     && (1..=MAX_CREDENTIAL_BYTES).contains(&value.len())
                     && value.bytes().all(|b| b.is_ascii_alphanumeric() || b"-._~+/=:".contains(&b))
             })
+            && self.connection.as_deref().is_none_or(|id| {
+                (1..=128).contains(&id.len())
+                    && id.bytes().all(|b| b.is_ascii_alphanumeric() || b"-._:".contains(&b))
+            })
     }
 
     pub(super) fn wire(&self) -> Value {
-        json!({"env": self.env})
+        let mut wire = json!({"env": self.env});
+        if let Some(connection) = &self.connection {
+            wire["connection"] = json!(connection);
+        }
+        if let Some(expires_at) = self.expires_at {
+            wire["expires_at"] = json!(expires_at);
+        }
+        wire
     }
 }
 

@@ -174,6 +174,12 @@ impl Hub {
         // behind adoption's recovered turn below.
         self.session_log(session).await;
         self.wait_adopted(session).await;
+        // A chat on the owner's credential whose token expired, or that this daemon lost with no
+        // agent still running on it, waits for the owner's Mac (`agent_credentials::blocked`).
+        let live = session.child.lock().await.is_some();
+        if let Some(refused) = self.credential_blocked(session, live) {
+            return Err(refused);
+        }
         // A watched Claude chat whose app still runs it takes the prompt into that app (`bridge.rs`).
         if let Some(answer) = self.bridged_prompt(session, &blocks, client, &mut opts).await {
             return answer;

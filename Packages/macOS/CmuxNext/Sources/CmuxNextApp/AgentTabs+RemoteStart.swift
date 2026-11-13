@@ -89,17 +89,16 @@ extension AgentTabStore {
         if fallback == nil && !supportsNoCwd {
             throw AgentRemoteStartRefusal.folderNeeded(machine: machineName ?? machine)
         }
-        let client = AgentSessionAttachClient(surface: surface, requestTimeout: AgentTabRemoteStart.timeout, reconnect: reconnect, endpoint: endpoint)
         let result: Result<String, any Error>
         let home = fallback.map { existingView(key, machine: machine)?.model.transport.remoteHomeChosen.contains($0) == true } ?? false // the person's Use Home Folder (cx-1bhjj)
         let harness = chosenHarness ?? seed?.harness
         // A default model pick is omitted by the page. After a harness switch it must remain
         // that harness's default, rather than restoring the previous harness's seeded model.
         let model = chosenModel ?? (harness == seed?.harness ? seed?.model : nil)
-        // The owner's model credential its Cloud start chose (read now; never sent to a machine that is not theirs).
-        let credential = ownerLink == nil ? nil : try await cloudCredentials?.launchCredential(chat: key, machine: machine)
+        let credential = ownerLink == nil ? nil : try await cloudCredentials?.launchCredential(connection: seed?.cloudConnection, family: CloudSetup.family(of: harness), refusal: AgentRemoteStartRefusal.credentialUnavailable(machine: machineName ?? machine)) // the owner's credential of the connection its Cloud start chose (the seed's), read before any machine call; never sent to a machine that is not theirs
+        let client = AgentSessionAttachClient(surface: surface, requestTimeout: AgentTabRemoteStart.timeout, reconnect: reconnect, endpoint: endpoint)
         do { result = .success(try await client.start(cwd: fallback, harness: harness, homeConfirmed: home, personKey: personKey, ownerLink: ownerLink, model: model, permissionMode: startPermissionMode(),
-                                                      credentials: credential?.env)) } catch { result = .failure(error) }
+                                                      credentials: credential?.launch)) } catch { result = .failure(error) }
         let phases = await client.startPhases
         await client.close()
         switch result {

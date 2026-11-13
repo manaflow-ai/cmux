@@ -1,3 +1,4 @@
+public import CmuxNextDaemon
 public import Foundation
 
 /// One model connection's credential as this Mac's acpmux gives it for a Cloud chat
@@ -32,6 +33,11 @@ public struct CloudAgentCredential: Sendable, Equatable, CustomStringConvertible
     /// A ChatGPT plan token the Mac pushes again before it expires.
     public var refreshes: Bool { kind == Self.chatGPTPlan && expiresAt != nil }
 
+    /// What the machine session carries: the variable, the connection's id and the token's expiry.
+    public var launch: AgentSessionAttachClient.LaunchCredential {
+        AgentSessionAttachClient.LaunchCredential(env: env, connection: connectionID, expiresAt: expiresAt)
+    }
+
     public var description: String { "CloudAgentCredential(\(connectionID), \(kind), \(env.keys.sorted().joined(separator: ",")))" }
     public var debugDescription: String { description }
     public var customMirror: Mirror {
@@ -40,9 +46,12 @@ public struct CloudAgentCredential: Sendable, Equatable, CustomStringConvertible
 }
 
 /// The owner's model credentials for Cloud chats (model-connections.md "Revision 2", lane F): the one
-/// entry point that reads a connection's credential from this Mac's acpmux, the connection each new
-/// Cloud chat starts on (the Cloud start picks it, ``use(connection:chat:machine:)``), and the
-/// ``refresher`` that keeps each live ChatGPT plan agent's token fresh on its machine.
+/// entry point that reads a connection's credential from this Mac's acpmux, the credential a new
+/// Cloud chat's start sends (the connection its Cloud start chose rides in the chat's seed,
+/// `AgentPaneSeed.cloudConnection`), and the ``refresher`` that keeps each live ChatGPT plan agent's
+/// token fresh on its machine: the chats this app started, and the ones it attaches again after a
+/// relaunch or a reconnect (``reattach(chat:machine:status:push:)``), whose credential the machine's
+/// acpmux may have lost in a restart.
 ///
 /// Nothing here writes a credential anywhere: it is read when a start or a refresh needs it, sent
 /// over the machine session, and dropped.
@@ -56,11 +65,17 @@ public final class CloudAgentCredentials {
 
     /// One `_acpmux/connections/credential {id}` on this Mac's acpmux, as the person: its result.
     public typealias Read = @MainActor (_ connectionID: String) async throws -> Data
+    /// Whether a machine's chat runs on the owner's credential (`agent-session-credential-status`).
+    public typealias Status = @Sendable () async throws -> AgentSessionAttachClient.CredentialStatus?
 
     /// Set by the app once it has an acpmux; nil reads nothing.
     public var read: Read?
-    /// The connection each new Cloud chat starts on, by machine and chat tab key.
-    private var chosen: [ChatKey: String] = [:]
+    /// The refresher's id of each chat it keeps fresh, by machine and chat tab key.
+    private var tracked: [ChatKey: UUID] = [:]
+    /// The chats whose status a reattach reads now.
+    private var reattaching: Set<ChatKey> = []
+    /// Each chat's reattach while it runs.
+    private var reattaches: [ChatKey: Task<Void, Never>] = [:]
 
     private struct ChatKey: Hashable { let machine: String, chat: String }
 
@@ -80,30 +95,94 @@ public final class CloudAgentCredentials {
         return credential
     }
 
-    /// The Cloud start's choice for the chat tab `chat` on `machine`: its agent launches on connection
-    /// `id` (nil: the machine's own route). Read once, at the chat's start on that machine.
-    public func use(connection id: String?, chat: String, machine: String) {
-        chosen[ChatKey(machine: machine, chat: chat)] = id
+    /// The credential a chat's start sends, read now: nil when its Cloud start chose no connection
+    /// (`connection`, the seed's) or when the agent it starts is of another family than the
+    /// connection's (the person switched agent after the choice; `family`: ``CloudSetup/family(of:)``).
+    /// A chosen connection that cannot be read throws `refusal` (the start says so) instead of
+    /// starting on the machine's own route.
+    public func launchCredential(connection: String?, family: String?, refusal: @autoclosure () -> any Error) async throws -> CloudAgentCredential? {
+        guard let connection else { return nil }
+        let credential: CloudAgentCredential
+        do { credential = try await self.credential(forConnection: connection) } catch { throw refusal() }
+        guard family == nil || credential.family == family else { return nil }
+        return credential
     }
 
-    /// The connection chosen for `chat` on `machine`, if any.
-    public func connection(chat: String, machine: String) -> String? {
-        chosen[ChatKey(machine: machine, chat: chat)]
-    }
-
-    /// The credential the chat's start sends, read now; nil when no connection was chosen for it. A
-    /// chosen connection that cannot be read throws: the start says so instead of using another route.
-    public func launchCredential(chat: String, machine: String) async throws -> CloudAgentCredential? {
-        guard let id = connection(chat: chat, machine: machine) else { return nil }
-        return try await credential(forConnection: id)
-    }
-
-    /// The chat started on `credential`: its choice is spent, and a ChatGPT plan token is kept fresh
-    /// on that machine through `push` (``CloudAgentCredentialRefresher/track(_:push:)``).
+    /// The chat tab `chat` on `machine` started on `credential`: a ChatGPT plan token is kept fresh
+    /// on that machine through `push` (``CloudAgentCredentialRefresher/track(_:delivered:push:)``).
     @discardableResult
     public func started(chat: String, machine: String, on credential: CloudAgentCredential,
                         push: @escaping CloudAgentCredentialRefresher.Push) -> UUID? {
-        chosen[ChatKey(machine: machine, chat: chat)] = nil
-        return refresher.track(credential, push: push)
+        keep(ChatKey(machine: machine, chat: chat), refresher.track(credential, push: push))
+    }
+
+    /// This app attached the chat tab `chat` on `machine` again (a relaunch, a reconnect): when its
+    /// machine says it runs on the owner's credential (`status`), its connection is read again and a
+    /// ChatGPT plan token is kept fresh from the expiry the machine has; a credential the machine's
+    /// acpmux lost in a restart is sent again at once (`push`), so the chat goes on rather than
+    /// waiting with "needs your Mac". Once per chat while it is kept; a chat on the machine's own
+    /// route, or one whose connection this Mac no longer has, is left as it is (the chat says it
+    /// needs this Mac to reconnect when its token runs out).
+    public func reattach(chat: String, machine: String, status: @escaping Status, push: @escaping CloudAgentCredentialRefresher.Push) {
+        let key = ChatKey(machine: machine, chat: chat)
+        if let id = tracked[key], refresher.isTracked(id) { return }
+        guard !reattaching.contains(key) else { return }
+        reattaching.insert(key)
+        // task-owner: this chat's reattach (one status read, one credential read, at most one push); cancelled by machineRemoved
+        reattaches[key] = Task { [weak self] in
+            let found = try? await status()
+            await self?.reattached(key, found.flatMap { $0 }, push: push)
+        }
+    }
+
+    private func reattached(_ key: ChatKey, _ status: AgentSessionAttachClient.CredentialStatus?, push: @escaping CloudAgentCredentialRefresher.Push) async {
+        defer { reattaching.remove(key); reattaches[key] = nil }
+        guard let status, let connection = status.connection,
+              let credential = try? await credential(forConnection: connection) else { return }
+        var delivered = status.expiresAt ?? credential.expiresAt
+        if status.lost {
+            guard await push(credential.launch) == .delivered else { return }
+            delivered = credential.expiresAt
+        }
+        keep(key, refresher.track(credential, delivered: delivered, push: push))
+    }
+
+    @discardableResult
+    private func keep(_ key: ChatKey, _ id: UUID?) -> UUID? {
+        if let old = tracked.removeValue(forKey: key) { refresher.untrack(old) }
+        if let id { tracked[key] = id }
+        return id
+    }
+
+    /// The machine is gone (deleted, or no longer the account's): its chats are no longer refreshed.
+    public func machineRemoved(_ machine: String) {
+        for key in tracked.keys where key.machine == machine {
+            if let id = tracked.removeValue(forKey: key) { refresher.untrack(id) }
+        }
+        for key in reattaches.keys where key.machine == machine { reattaches.removeValue(forKey: key)?.cancel(); reattaching.remove(key) }
+    }
+
+    /// How many chats are kept fresh now.
+    public var trackedChats: Int { tracked.values.filter(refresher.isTracked).count }
+
+    /// Waits for every reattach that runs now (tests).
+    func reattachesSettled() async {
+        for task in Array(reattaches.values) { await task.value }
+    }
+}
+
+extension CloudAgentCredentials {
+    /// ``reattach(chat:machine:status:push:)`` for the chat on tab `surface` of a Cloud machine's
+    /// daemon, over the owner answer of its link (nil: not the owner's machine, nothing is read).
+    public func reattach(chat: String, machine: String, surface: UInt64, ownerLink: AgentSessionAttachClient.OwnerLink?,
+                         reconnect: AgentSessionAttachClient.Reconnect?, endpoint: @escaping AgentSessionAttachClient.EndpointProvider) {
+        guard let ownerLink else { return }
+        reattach(chat: chat, machine: machine, status: {
+            let client = AgentSessionAttachClient(surface: surface, reconnect: reconnect, endpoint: endpoint)
+            let status: Result<AgentSessionAttachClient.CredentialStatus?, any Error>
+            do { status = .success(try await client.credentialStatus(ownerLink: ownerLink)) } catch { status = .failure(error) }
+            await client.close()
+            return try status.get()
+        }, push: CloudAgentCredentialRefresher.machinePush(surface: surface, ownerLink: ownerLink, reconnect: reconnect, endpoint: endpoint))
     }
 }

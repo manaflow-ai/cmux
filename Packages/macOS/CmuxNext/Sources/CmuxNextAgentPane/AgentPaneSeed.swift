@@ -31,6 +31,10 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
     public var model: String?
     /// The effort a new chat starts on with ``model`` (a Cloud start's picker); nil keeps the default.
     public var effort: String?
+    /// The owner's model connection a Cloud chat's start chose (``AgentPaneCloudStart/connection``):
+    /// the machine's agent launches on its credential, read at the start (CmuxNextCloud
+    /// `CloudAgentCredentials`); nil runs on the machine's own route. An id, never a credential.
+    public var cloudConnection: String?
     /// The requested destination for a new chat. The native handler consumes this before the
     /// page opens; retaining it in the seed keeps a destination-bearing seed from being treated
     /// as a folder-only New Tab replacement.

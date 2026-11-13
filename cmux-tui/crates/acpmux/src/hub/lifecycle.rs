@@ -375,6 +375,7 @@ impl Hub {
                 },
             };
             meta.wait_start = wait_start;
+            meta.credential_ref = credential.as_ref().map(|c| c.reference());
             let session = self.make_session(meta);
             session.person.store(person, Ordering::SeqCst);
             // Before the session is published, so its first spawn already has it; memory only.
