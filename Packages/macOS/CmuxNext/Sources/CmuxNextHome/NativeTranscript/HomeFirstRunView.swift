@@ -63,6 +63,10 @@ final class HomeFirstRunView: NSView {
 
     static let maxWidth: CGFloat = 340
 
+    /// How many times the panel measured its parts (the full pass of `layout()`). A pane width change that keeps the
+    /// column's width, and any layout while the panel is hidden, add none (HomeFirstRunWidthChangeTests).
+    private(set) var measurePasses = 0
+
     var rows: [HomeFirstRunRow] { actionRows + agentRows }
     /// The action rows, in panel order.
     var actionRows: [HomeFirstRunRow] { memoryOffer == nil ? [agent, terminal, pet] : [agent, terminal, memory, pet] }
@@ -305,6 +309,7 @@ final class HomeFirstRunView: NSView {
     override func layout() {
         super.layout()
         let width = max(0, min(Self.maxWidth * scale, bounds.width - 48 * scale))
+        measurePasses += 1
         for row in rows { row.width = width }
         if headerWidth.constant != width { headerWidth.constant = width }
         if cardWidth.constant != width { cardWidth.constant = width }
