@@ -177,8 +177,11 @@ for (const name of pages) {
   for (const variant of variants) {
     const html = await readFile(path.join(output, variant, "pages", name, "index.html"), "utf8");
     const matches = [...html.matchAll(/<style>([\s\S]*?)<\/style>/g)];
-    if (matches.length !== 1) throw new Error(`${variant}/${name}: expected one inline stylesheet`);
-    styles.push(matches[0][1]);
+    if (matches.length === 0) throw new Error(`${variant}/${name}: expected an inline stylesheet`);
+    // The pre-shared baseline may emit several style tags while the shared
+    // candidate emits one. Compare the CSS payload in document order without
+    // imposing a tag-count policy on either production builder.
+    styles.push(matches.map((match) => match[1]).join(""));
   }
   cssEquality.push({ page: name, equal: styles[0] === styles[1], hashes: styles.map(sha256) });
 }
