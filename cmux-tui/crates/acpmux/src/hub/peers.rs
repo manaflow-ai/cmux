@@ -127,6 +127,7 @@ impl Hub {
                 break;
             }
         }
+        self.events.remote_tee_ready();
     }
 
     pub(crate) async fn wait_local_ready(&self) {

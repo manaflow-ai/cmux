@@ -341,6 +341,68 @@ async fn startup_reconciles_local_rows_and_marks_purge_and_recreation() {
 }
 
 #[tokio::test]
+async fn saved_peer_cache_waits_for_remote_reconciliation() {
+    let mut config = crate::config::Config::default();
+    config.store.mode = crate::config::StoreMode::Memory;
+    config.peers.insert(
+        "saved".into(),
+        crate::config::PeerConfig {
+            link_host: None,
+            wireguard: None,
+            url: "ws://127.0.0.1:9/saved".into(),
+            token: None,
+            peer_token: None,
+            vm_boundary: false,
+            github_broker: false,
+        },
+    );
+    let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+    let v1 = Hub::new(config, store);
+    let mut cached = Summary::new("cached");
+    cached.origin = "saved".into();
+    let mut missing = Summary::new("missing");
+    missing.origin = "saved".into();
+    let mut forgotten = Summary::new("forgotten");
+    forgotten.origin = "forgotten-peer".into();
+    let index = acpmux_book::index::SummaryIndex::new()
+        .apply(1, cached.clone())
+        .apply(2, missing)
+        .apply(3, forgotten);
+    let (hub, writer) = acpmux_core::hub::Hub::new(index);
+    let v2 = V2::new(hub, writer);
+    let subscription = v2.hub.subscribe(&acpmux_core::wire::Sub::new("test", "list")).unwrap();
+    let state = TeeState::default();
+
+    // The local half runs before the deferred peer-start gate. A cached row is not
+    // treated as gone while v1 has not loaded the peer's table yet.
+    let _ = reconcile(&v1, &v2, &state).await;
+    assert!(subscription.receiver.try_next().is_none());
+    assert!(v2.hub.snapshot().get_row(&RowKey::new("saved", "cached")).is_some());
+    assert!(v2.hub.snapshot().get_row(&RowKey::new("saved", "missing")).is_some());
+
+    // This remote row models load_peer_cache after start_saved_peers. The remote half now
+    // compares the complete table, so the missing row is gone and a removed origin is cut.
+    let remote = Hub::remote_summary(
+        "saved",
+        serde_json::json!({"sessionId":"cached", "name":"cached", "status":"idle"}),
+    );
+    let receipt = crate::session_identity::SessionReceipt::new("saved", "cached", None, 1);
+    v1.remote_sessions.write().insert(
+        "saved/cached".into(),
+        RemoteSession { peer: "saved".into(), summary: remote.into(), receipt },
+    );
+    state.remote_ready();
+    reconcile_remote(&v1, &v2, &state).await;
+    v2.hub.close();
+    v2.take_writer().unwrap().run().await.unwrap();
+
+    let snapshot = v2.hub.snapshot();
+    assert!(snapshot.get_row(&RowKey::new("saved", "cached")).is_some());
+    assert!(snapshot.get_row(&RowKey::new("saved", "missing")).is_none());
+    assert!(snapshot.get_row(&RowKey::new("forgotten-peer", "forgotten")).is_none());
+}
+
+#[tokio::test]
 async fn attending_a_chat_updates_the_tee_unread_count_through_seen() {
     use acpmux_core::hub::ListItem;
     let v1 = memory_hub();

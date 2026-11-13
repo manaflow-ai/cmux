@@ -31,6 +31,10 @@ impl TeeHandle {
     pub(super) fn origin(&self, id: &str, state: OriginState, since: u64) {
         self.state.origin(id, state, since);
     }
+
+    pub(super) fn remote_ready(&self) {
+        self.state.remote_ready();
+    }
 }
 
 #[derive(Default)]
@@ -38,6 +42,7 @@ struct TeeState {
     pending: std::sync::Mutex<HashSet<String>>,
     remote: std::sync::Mutex<HashSet<(String, String)>>,
     origins: std::sync::Mutex<HashMap<String, VecDeque<(OriginState, u64)>>>,
+    remote_ready: AtomicBool,
     notify: Notify,
     marks: AtomicU64,
     all: AtomicBool,
@@ -74,6 +79,11 @@ impl TeeState {
         } else {
             queue.push_back((state, since));
         }
+        self.notify.notify_one();
+    }
+
+    fn remote_ready(&self) {
+        self.remote_ready.store(true, Ordering::Release);
         self.notify.notify_one();
     }
 
@@ -198,11 +208,11 @@ fn drain_marks(v1: &Hub, v2: &V2, state: &TeeState, expiries: &mut Expiries) {
         }
     }
     for (peer, id) in state.take_remote(BATCH.saturating_sub(used)) {
-        submit_remote_id(v1, v2, &peer, &id);
+        submit_remote_id(v1, v2, &peer, &id, state.remote_ready.load(Ordering::Acquire));
     }
 }
 
-fn submit_remote_id(v1: &Hub, v2: &V2, peer: &str, id: &str) {
+fn submit_remote_id(v1: &Hub, v2: &V2, peer: &str, id: &str, remote_ready: bool) {
     if v2.hub.source(peer) == Some(Source::Mirror) {
         return;
     }
@@ -218,7 +228,7 @@ fn submit_remote_id(v1: &Hub, v2: &V2, peer: &str, id: &str) {
                 tracing::warn!(peer, session_id = id, %error, "v2 list tee could not build a remote summary")
             }
         }
-    } else if let Err(error) = v2.hub.remove_from(Source::V1, peer, id) {
+    } else if remote_ready && let Err(error) = v2.hub.remove_from(Source::V1, peer, id) {
         tracing::warn!(peer, session_id = id, %error, "v2 list tee rejected a remote removal");
     }
 }
@@ -226,6 +236,52 @@ fn submit_remote_id(v1: &Hub, v2: &V2, peer: &str, id: &str) {
 async fn reconcile(v1: &Hub, v2: &V2, state: &TeeState) -> Expiries {
     v1.wait_store().await;
     let _ = v2.hub.wait_hydrated().await;
+    // Only ids survive a page. Each lookup uses the current session map,
+    // so a purge drained between pages cannot be undone by an old handle.
+    let mut unseen: HashSet<_> =
+        v1.sessions.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect();
+    let mut expiries = Expiries::default();
+    let mut anchor: Option<SortKey> = None;
+    loop {
+        let page = match v2.hub.snapshot().read_page(
+            anchor.as_ref(),
+            ReadSide::After,
+            false,
+            BATCH,
+            256 * 1024,
+            None,
+        ) {
+            Ok(page) => page,
+            Err(error) => {
+                tracing::warn!(%error, "v2 list reconciliation page failed");
+                break;
+            }
+        };
+        for row in &page.rows {
+            if row.origin == "local" {
+                unseen.remove(&row.chat_id);
+                submit_id(v1, v2, &mut expiries, &row.chat_id);
+            }
+        }
+        drain_marks(v1, v2, state, &mut expiries);
+        if !page.has_after {
+            break;
+        }
+        let Some(next) = page.after_key else { break };
+        anchor = Some(next);
+        tokio::task::yield_now().await;
+    }
+    for (n, id) in unseen.into_iter().enumerate() {
+        submit_id(v1, v2, &mut expiries, &id);
+        if (n + 1) % BATCH == 0 {
+            drain_marks(v1, v2, state, &mut expiries);
+            tokio::task::yield_now().await;
+        }
+    }
+    expiries
+}
+
+async fn reconcile_remote(v1: &Hub, v2: &V2, state: &TeeState) {
     let mut peer_names: HashSet<String> = v1.config.read().await.peers.keys().cloned().collect();
     for peer in v1.peers() {
         let Some(name) = peer.get("name").and_then(Value::as_str) else { continue };
@@ -254,11 +310,6 @@ async fn reconcile(v1: &Hub, v2: &V2, state: &TeeState) -> Expiries {
             state.origin(&origin.id, OriginState::Removed, crate::store::now_ms());
         }
     }
-    // Only ids survive a page. Each lookup uses the current session map,
-    // so a purge drained between pages cannot be undone by an old handle.
-    let mut unseen: HashSet<_> =
-        v1.sessions.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect();
-    let mut expiries = Expiries::default();
     let mut anchor: Option<SortKey> = None;
     loop {
         let page = match v2.hub.snapshot().read_page(
@@ -271,19 +322,17 @@ async fn reconcile(v1: &Hub, v2: &V2, state: &TeeState) -> Expiries {
         ) {
             Ok(page) => page,
             Err(error) => {
-                tracing::warn!(%error, "v2 list reconciliation page failed");
+                tracing::warn!(%error, "v2 remote reconciliation page failed");
                 break;
             }
         };
         for row in &page.rows {
-            if row.origin == "local" {
-                unseen.remove(&row.chat_id);
-                submit_id(v1, v2, &mut expiries, &row.chat_id);
-            } else if !remote_keys.contains(&(row.origin.clone(), row.chat_id.clone())) {
+            if row.origin != "local"
+                && !remote_keys.contains(&(row.origin.clone(), row.chat_id.clone()))
+            {
                 state.mark_remote(&row.origin, &row.chat_id);
             }
         }
-        drain_marks(v1, v2, state, &mut expiries);
         if !page.has_after {
             break;
         }
@@ -291,14 +340,6 @@ async fn reconcile(v1: &Hub, v2: &V2, state: &TeeState) -> Expiries {
         anchor = Some(next);
         tokio::task::yield_now().await;
     }
-    for (n, id) in unseen.into_iter().enumerate() {
-        submit_id(v1, v2, &mut expiries, &id);
-        if (n + 1) % BATCH == 0 {
-            drain_marks(v1, v2, state, &mut expiries);
-            tokio::task::yield_now().await;
-        }
-    }
-    expiries
 }
 
 pub(crate) fn start_v2_tee(
@@ -309,9 +350,17 @@ pub(crate) fn start_v2_tee(
     let handle = Arc::new(TeeHandle { state: state.clone() });
     let task = async move {
         let mut expiries = reconcile(&v1, &v2, &state).await;
+        if v1.config.read().await.peers.is_empty() {
+            state.remote_ready();
+        }
         let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
+        let mut remote_reconciled = false;
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
+            if state.remote_ready.load(Ordering::Acquire) && !remote_reconciled {
+                reconcile_remote(&v1, &v2, &state).await;
+                remote_reconciled = true;
+            }
             tokio::select! {
                 biased;
                 _ = tick.tick() => {},
