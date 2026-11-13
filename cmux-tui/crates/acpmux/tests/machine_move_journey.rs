@@ -456,7 +456,7 @@ async fn move_to_a_fresh_machine(fault: Fault) {
         // started from the disk before any turn, whose own restore cannot read the copy at
         // first (it reads it a few seconds later).
         let deadline = Instant::now() + Duration::from_secs(30);
-        while acpmux::hub::journal_restore::fail_once_armed() {
+        while acpmux::hub::journal_restore::fail_once_armed(&id) {
             assert!(Instant::now() < deadline, "B2's restore never stopped short");
             tokio::time::sleep(Duration::from_millis(2)).await;
         }
@@ -616,7 +616,7 @@ async fn move_to_a_fresh_machine(fault: Fault) {
         assert!(raced["seq"].as_u64().unwrap() > restored, "the racer went first: {raced}");
     }
     if fail_midway {
-        assert!(!acpmux::hub::journal_restore::fail_once_armed(), "the restore never failed");
+        assert!(!acpmux::hub::journal_restore::fail_once_armed(&id), "the restore never failed");
     }
 }
 

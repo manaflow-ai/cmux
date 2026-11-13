@@ -1043,31 +1043,38 @@ fn refused(reason: &str, why: &str, session: &Session) -> RpcError {
 }
 
 /// Debug builds only: the restore of chat `id` fails once, after its first record (a disk that
-/// fills midway), so a test sees a partial restore answered as one and finished by a retry.
+/// fills midway), so a test sees a partial restore answered as one and finished by a retry. Armed
+/// per chat, so tests that run at once do not take each other's failure (review of #37284 at
+/// dd52b1d3, F2).
 #[cfg(debug_assertions)]
-static FAIL_ONCE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+static FAIL_ONCE: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
 #[cfg(debug_assertions)]
 #[doc(hidden)]
 pub fn fail_once_after_first_record(id: &str) {
-    *FAIL_ONCE.lock().unwrap_or_else(|e| e.into_inner()) = Some(id.to_owned());
+    FAIL_ONCE.lock().unwrap_or_else(|e| e.into_inner()).push(id.to_owned());
 }
 
-/// Whether the failure [`fail_once_after_first_record`] armed has not happened yet.
+/// Whether the failure [`fail_once_after_first_record`] armed for chat `id` has not happened yet.
 #[cfg(debug_assertions)]
 #[doc(hidden)]
-pub fn fail_once_armed() -> bool {
-    FAIL_ONCE.lock().unwrap_or_else(|e| e.into_inner()).is_some()
+pub fn fail_once_armed(id: &str) -> bool {
+    FAIL_ONCE.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|armed| armed == id)
 }
 
 #[cfg(debug_assertions)]
 fn test_fails_here(id: &str, past_first: bool) -> bool {
-    let mut armed = FAIL_ONCE.lock().unwrap_or_else(|e| e.into_inner());
-    let fails = past_first && armed.as_deref() == Some(id);
-    if fails {
-        *armed = None;
+    if !past_first {
+        return false;
     }
-    fails
+    let mut armed = FAIL_ONCE.lock().unwrap_or_else(|e| e.into_inner());
+    match armed.iter().position(|a| a == id) {
+        Some(at) => {
+            armed.swap_remove(at);
+            true
+        }
+        None => false,
+    }
 }
 
 #[cfg(not(debug_assertions))]

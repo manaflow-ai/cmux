@@ -256,7 +256,7 @@ impl Hub {
         }
         session.unparked.lock().unwrap_or_else(|e| e.into_inner()).extend(parked);
         self.store_unparked(session);
-        self.keep_durably(session);
+        self.keep_durably_after_drain(session);
     }
 
     /// Writes what parked so far, now, by the restore's own thread, before it rebuilds anything
@@ -289,7 +289,7 @@ impl Hub {
         let stored = self.store_unparked(session);
         if kept {
             // What is left kept, on disk; none, none.
-            self.keep_durably(session);
+            self.keep_durably_after_drain(session);
         }
         stored || self.at_a088()
     }
@@ -419,7 +419,7 @@ impl Hub {
         }
         if self.store_unparked(session) {
             // None is kept now: neither is it on disk.
-            self.keep_durably(session);
+            self.keep_durably_after_drain(session);
             return Err((msg, kept));
         }
         let at = at.unwrap_or_else(now_ms);
@@ -511,6 +511,21 @@ impl Hub {
         Ok((record, old))
     }
 
+    /// [`Self::keep_durably`] after a drain stored kept records in the journal: what it stored
+    /// reaches the disk before the copy kept here shrinks, or a record dropped from the copy is
+    /// in neither place after a machine crash (review of #37284 at dd52b1d3, F1). On a failed
+    /// flush the copy on disk stays as it was.
+    fn keep_durably_after_drain(&self, session: &Session) -> bool {
+        if self.at_b749() {
+            return true;
+        }
+        if let Err(e) = self.store.flush_session(&session.id) {
+            tracing::warn!(session = %session.id, "the journal did not flush, so the records kept on disk stay: {e:#}");
+            return false;
+        }
+        self.keep_durably(session)
+    }
+
     /// Writes every record kept for `session` (those the store refused, then those parked) to
     /// the store, durably, as one list; removes it when none is (`Store::keep_parked`). Answers
     /// whether it is on disk. b7496c3f kept them in memory only. The caller holds `append_lock`.
@@ -583,7 +598,7 @@ impl Hub {
         let left: Vec<Parked> = kept.into_iter().skip(stored).collect();
         tracing::info!(session = %session.id, stored, left = left.len(), "records kept while a restore held this chat before a restart are kept again");
         session.unparked.lock().unwrap_or_else(|e| e.into_inner()).extend(left);
-        self.keep_durably(session);
+        self.keep_durably_after_drain(session);
     }
 
     /// [`Hub::append`] of a record whose caller answers a client that its change is made (a
