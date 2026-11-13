@@ -1276,6 +1276,9 @@ export type AcpmuxSnapshot = {
     /// The family (`claude`, `codex`) of a conversation another app runs that this chat only shows
     /// (acpmux `watching`): no prompt goes until the user takes it over.
     watching?: string;
+    /// The harness's own session id for the conversation (Claude Code's, Codex's thread id), when
+    /// acpmux knows it: Move to Terminal resumes it there (header/terminalMoveRow.ts).
+    agentSessionId?: string;
     /// A watched Claude or Codex desktop session acpmux delivers replies into (`bridgedWatch`): a reply goes
     /// to the app and takes nothing over.
     bridged?: boolean;
