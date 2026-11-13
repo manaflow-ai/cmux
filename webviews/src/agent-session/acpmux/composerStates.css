@@ -30,9 +30,40 @@
      shared/theme.ts scales it as the host scaled the move step). */
   --agent-motion-send: var(--cmux-motion-send, 180ms);
   --agent-motion-send-fade: var(--agent-motion-send);
+  /* The send tokens as the root holds them (the host's inline value, or the minimal motion's 0), for
+     a part of the page that caps them below (SEND-SLIM) without reading its own value. */
+  --agent-motion-send-root: var(--agent-motion-send);
+  --agent-motion-send-fade-root: var(--agent-motion-send-fade);
   --agent-ease-send: var(--cmux-ease-send, cubic-bezier(0.16, 1, 0.3, 1));
   /* Core Animation's easeOut, which the native fades use. */
   --agent-ease-out: var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
+}
+
+/* SEND-SLIM: the slim follow arm's send (VirtualTranscript `data-send-entrance="fade"`): the sent
+   prompt's one motion runs at most 120 ms, the host's speed scaling it down but never up, so the
+   bubble, its fade and any composer-to-bubble flight rest within 150 ms of Return (Leo, 2026-11-09:
+   "the scroll up is extremely sluggish, and it doesn't look great when it's so slow"). */
+.acpmux-scroll[data-send-entrance="fade"] {
+  --agent-motion-send: min(var(--agent-motion-send-root, 120ms), 120ms);
+  --agent-motion-send-fade: min(var(--agent-motion-send-fade-root, 120ms), 120ms);
+}
+
+/* MINIMAL-MOTION: the chat missed its frame budget (conversation/frameBudget.ts marks the page, or
+   a gallery variant marks an element over the chat): every chat motion goes to 0, so rows land in
+   place in the frame they come and nothing slides, settles or glides after it (Leo 2026-11-09: "at
+   really high loads if it knows it can't performantly perform the animation... it just goes into
+   minimal ish mode"). Important: the host's tokens are inline on the root. */
+[data-chat-motion="minimal"] {
+  --agent-motion-in: 0ms !important;
+  --agent-motion-arrive: 0ms !important;
+  --agent-motion-out: 0ms !important;
+  --agent-motion-move: 0ms !important;
+  --agent-motion-send: 0ms !important;
+  --agent-motion-send-fade: 0ms !important;
+}
+[data-chat-motion="minimal"] .acpmux-scroll[data-send-entrance] {
+  --agent-motion-send: 0ms !important;
+  --agent-motion-send-fade: 0ms !important;
 }
 
 .acpmux-shell {
@@ -87,6 +118,50 @@
 :root[data-cmux-see-through] .acpmux-shell {
   --acpmux-composer-surface: color-mix(in srgb, var(--acpmux-composer-solid) 60%, transparent);
 }
+/* All cards in the bottom stack use the input's material. Extra text washes on individual
+   cards otherwise change the wallpaper's tint at every seam. */
+.acpmux-shell {
+  --acpmux-stack-tint: color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-glass-popover-tint), transparent);
+  --acpmux-stack-backdrop: var(--ds-glass-popover-blur);
+}
+:root[data-cmux-see-through] .acpmux-shell {
+  --acpmux-stack-tint: color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-glass-popover-art-tint), transparent);
+  --acpmux-stack-backdrop: var(--glass-material-backdrop);
+}
+:root[data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency]) .acpmux-shell {
+  --acpmux-stack-tint: var(--glass-tint);
+  --acpmux-stack-backdrop: var(--glass-backdrop);
+}
+:root[data-reduce-transparency] .acpmux-shell {
+  /* glass-opaque-allow: the shared Reduce Transparency fill */
+  --acpmux-stack-tint: var(--acpmux-composer-solid);
+  --acpmux-stack-backdrop: none;
+}
+@media (prefers-reduced-transparency: reduce) {
+  :root .acpmux-shell,
+  :root[data-cmux-see-through] .acpmux-shell,
+  :root[data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency]) .acpmux-shell {
+    /* glass-opaque-allow: the shared Reduce Transparency fill */
+    --acpmux-stack-tint: var(--acpmux-composer-solid);
+    --acpmux-stack-backdrop: none;
+  }
+}
+/* Register each stack card with the shared glass renderer, including Lens and Spectrum.
+   The transcript is masked beneath the dock, so these cards need no Chromium text underlay. */
+.acpmux-stack-material {
+  --glass-tint: var(--acpmux-stack-tint);
+  --glass-backdrop: var(--acpmux-stack-backdrop);
+  /* glass-opaque-allow: the Reduce Transparency fill only */
+  --glass-opaque: var(--acpmux-composer-solid);
+  --glass-underlay: 0%;
+  --acpmux-stack-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
+}
+@media not (prefers-reduced-transparency: reduce) {
+  :root:not([data-reduce-transparency]):not([data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]))
+    .acpmux-stack-material {
+    --acpmux-stack-shadow: var(--glass-material-rim), inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
+  }
+}
 /* The card and the queued prompts are the liquid glass (.ui-glass, ui/glass/glass.css;
    plans/cmux-next/glass-lens-DESIGN.md "Surfaces"), with these tokens set on the composer so the
    strip, the queue and the card take one material:
@@ -116,13 +191,12 @@
    tint (50%), under the same blur.
    Lens and Spectrum keep the liquid glass's own tint and frost; Reduce Transparency the solid
    surface (glass.css). The queued prompts keep the stack's tokens above. */
-:root:not([data-cmux-see-through]) .acpmux-composer > :is(.acpmux-composer-box, .acpmux-composer-strip),
 :root:not([data-cmux-see-through]) .nt-composer > .nt-box {
   --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-glass-popover-tint), transparent);
   --glass-backdrop: var(--ds-glass-popover-blur);
 }
 :root[data-cmux-see-through]:not([data-glass="lens"], [data-glass="spectrum"])
-  :is(.acpmux-composer > :is(.acpmux-composer-box, .acpmux-composer-strip), .nt-composer > .nt-box) {
+  .nt-composer > .nt-box {
   --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-glass-popover-art-tint), transparent);
   --glass-backdrop: var(--ds-glass-popover-blur);
 }
@@ -131,12 +205,18 @@
   /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
   --glass-opaque: var(--acpmux-composer-solid);
 }
-:root[data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]) .acpmux-shell {
+:root[data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency]) .acpmux-shell {
   --acpmux-composer-rim:
     inset 0 var(--cmux-hairline, 0.5px) 0 0 var(--glass-specular),
     inset 0 calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--glass-shade),
     inset var(--cmux-hairline, 0.5px) 0 0 0 var(--glass-fringe-red),
     inset calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 0 var(--glass-fringe-cyan);
+}
+:root:not([data-cmux-see-through]) .acpmux-composer > :is(.acpmux-composer-box, .acpmux-composer-strip),
+:root[data-cmux-see-through]:not([data-glass="lens"], [data-glass="spectrum"])
+  .acpmux-composer > :is(.acpmux-composer-box, .acpmux-composer-strip) {
+  --glass-tint: var(--acpmux-stack-tint);
+  --glass-backdrop: var(--acpmux-stack-backdrop);
 }
 /* The strip has no glass class of its own (ComposerContext also draws the New Tab's plain strip):
    it takes the same fill and the same frost. */
@@ -287,7 +367,8 @@
    light theme keeps them: white light on a near-white card is the faint highlight it should be,
    and halving it would uncover the dark hairline along the top instead. The glass's tint, frost
    and depth are unchanged, and appearance.borders none (--glass-rim 0) still clears the light.
-   Other glass surfaces keep the shared material (glass.css). */
+   The stack's other cards take the same light; glass elsewhere keeps the shared material. */
+.acpmux-stack-material,
 .acpmux-composer > .acpmux-composer-box.ui-glass-material {
   --acpmux-composer-glint: 0.5;
   --glass-material-specular: light-dark(
@@ -695,7 +776,8 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   border-radius: 6px;
   background: var(--acpmux-composer-hover);
 }
-.acpmux-queued:focus-visible .acpmux-queued-actions {
+/* Only while the page is the key one: another pane or app taking the keyboard fades them (styles.css). */
+:root:not([data-page-inactive]) .acpmux-queued:focus-visible .acpmux-queued-actions {
   opacity: 1;
 }
 /* The edit field draws no ring of its own (Leo, 2026-10-21: no thick focus ring): its hairline edge
@@ -792,12 +874,17 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 .acpmux-composer-queue {
   grid-auto-rows: max-content;
 }
-/* fitList writes the queue's whole-row max-height as prompts arrive or the fold toggles. Let the
-   stack take that structural space on the same move token as transcript folds, so the composer and
-   the transcript do not jump a row in one frame. Reduce Motion and the host's zero-duration policy
-   still apply it at once. */
+/* fitList writes the queue's whole-row max-height as prompts arrive or leave or the reader toggles
+   the fold, a row's edit or a row from the keyboard. The reader's toggles take that structural
+   space on the same move token as transcript folds, so the transcript does not jump a row in one
+   frame. A prompt that arrives or leaves takes it at once ([data-rows-changed], ComposerQueue.tsx):
+   a sent prompt is its whole queued row in the frame the composer clears, never a list easing open
+   over a clipped row (Leo, 2026-11-11: "you sending a message while I have things queued up, like
+   that sort of slow growth is just... it gives me the heebie-jeebies to look at"); the transcript's
+   follow carries the chat above (followChase.ts). Reduce Motion and the host's zero-duration
+   policy apply every change at once. */
 @media (prefers-reduced-motion: no-preference) {
-  .acpmux-composer-queue[data-fit-ready]:not([data-held]) {
+  .acpmux-composer-queue[data-fit-ready]:not([data-held], [data-rows-changed]) {
     transition: max-height var(--agent-motion-move) var(--agent-ease-out);
   }
 }

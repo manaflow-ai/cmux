@@ -13,7 +13,11 @@ async fn restart_settles_without_stale_rows_or_delayed_flap_notices() {
         json!({"sessionId":"live", "name":"live", "status":"ready"}),
         json!({"sessionId":"done", "name":"done", "status":"closed"}),
     ];
-    hub.apply_peer_notice(&peer.name, peer.generation, PeerNotice::Sessions(rows.clone()));
+    hub.apply_peer_notice(
+        &peer.name,
+        peer.generation,
+        PeerNotice::sessions_from_values(rows.clone()),
+    );
     let before = hub.remote_sessions();
     assert_eq!(before.len(), 2);
     let mut events = hub.events.subscribe();
@@ -27,7 +31,7 @@ async fn restart_settles_without_stale_rows_or_delayed_flap_notices() {
     tokio::task::yield_now().await;
     assert_eq!(hub.remote_sessions(), before);
     assert!(events.try_recv().is_err(), "restart never schedules a flap deadline");
-    hub.apply_peer_notice(&peer.name, peer.generation, PeerNotice::Sessions(rows));
+    hub.apply_peer_notice(&peer.name, peer.generation, PeerNotice::sessions_from_values(rows));
     hub.apply_peer_notice(&peer.name, peer.generation, PeerNotice::Connected);
     assert!(events.try_recv().is_err(), "unchanged reconnect rows do not flap");
 }
@@ -93,8 +97,15 @@ impl LinkServing {
         .unwrap();
         let store =
             crate::store::open(&self.cfg.store, std::path::Path::new("/nonexistent")).unwrap();
-        let hub =
-            Hub::build(self.cfg.clone(), store, Mailbox::memory(), false, false, wireguard.clone());
+        let hub = Hub::build(
+            self.cfg.clone(),
+            store,
+            Mailbox::memory(),
+            false,
+            false,
+            wireguard.clone(),
+            true,
+        );
         let peer = hub.peers.lock().unwrap().get("b").cloned().unwrap();
         let paths = peer.summary()["paths"].clone();
         let vias = paths

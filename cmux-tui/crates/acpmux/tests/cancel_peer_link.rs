@@ -13,7 +13,14 @@
 //!   its late answer is dropped at A with the `acpmux::cancel` log, and the client hears nothing
 //!   more.
 //!
-//! One test function: it sets this process's tracing subscriber, and both scenarios read it.
+//! - Dual send (review F1 of #41285, `server/dual_requests.rs`): a link whose path is in doubt
+//!   sends a request on its path and a copy on a shadow path, one `dualId` on both. The shadow's
+//!   copy reaches B first and runs; the link's copy waits on it; the cancel comes on the link
+//!   only. Whichever copy runs is stopped, the other never runs, each connection gets one
+//!   -32800, and both entries are freed.
+//!
+//! The first test function sets this process's tracing subscriber, and both of its scenarios
+//! read it; the dual-send test reads no log.
 
 // Unix only until the Windows port runs the daemon (cmux::local_socket).
 #![cfg(unix)]
@@ -445,4 +452,148 @@ async fn no_cancel_frame_for_an_older_peer(logs: &Captured) {
     assert_eq!(ca.answers_to(32).len(), 1, "{:#?}", ca.answers_to(32));
     assert_eq!(p.a_pending().await, 0);
     assert_eq!(until(b_idle, || async { p.b.requests_in_flight() }).await, b_idle);
+}
+
+/// One of A's two paths to B as B's listener sees it: a WebSocket that presented the peer token,
+/// so B serves it as the peer principal (`dual_requests::PEER_LINK`).
+type Path_ =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+async fn peer_path(port: u16, peer_token: &str) -> Path_ {
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    let mut req = format!("ws://127.0.0.1:{port}").into_client_request().unwrap();
+    req.headers_mut().insert("authorization", "Bearer tok".parse().unwrap());
+    req.headers_mut().insert(acpmux::server::peer_auth::HEADER, peer_token.trim().parse().unwrap());
+    tokio_tungstenite::connect_async(req).await.unwrap().0
+}
+
+async fn path_send(ws: &mut Path_, v: Value) {
+    use futures_util::SinkExt;
+    ws.send(tokio_tungstenite::tungstenite::Message::Text(v.to_string().into())).await.unwrap();
+}
+
+/// Every answer to `id` `ws` reads within `within`.
+async fn path_answers(ws: &mut Path_, id: i64, within: Duration) -> Vec<Value> {
+    use futures_util::StreamExt;
+    let mut got = Vec::new();
+    let deadline = tokio::time::Instant::now() + within;
+    while let Ok(Some(Ok(frame))) = tokio::time::timeout_at(deadline, ws.next()).await {
+        if let tokio_tungstenite::tungstenite::Message::Text(text) = frame {
+            let v: Value = serde_json::from_str(text.as_str()).unwrap();
+            if v.get("method").is_none() && v["id"] == json!(id) {
+                got.push(v);
+            }
+        }
+    }
+    got
+}
+
+/// The first answer to `id` on `ws`, waiting at most `within`.
+async fn path_answer(ws: &mut Path_, id: i64, within: Duration) -> Option<Value> {
+    use futures_util::StreamExt;
+    let deadline = tokio::time::Instant::now() + within;
+    while let Ok(Some(Ok(frame))) = tokio::time::timeout_at(deadline, ws.next()).await {
+        if let tokio_tungstenite::tungstenite::Message::Text(text) = frame {
+            let v: Value = serde_json::from_str(text.as_str()).unwrap();
+            if v.get("method").is_none() && v["id"] == json!(id) {
+                return Some(v);
+            }
+        }
+    }
+    None
+}
+
+/// Review F1 of #41285. A's link to B is in doubt, so A sends `_acpmux/stats` (one of the
+/// requests sent on two paths, `dual_requests::METHODS`) on the link and a copy on the shadow,
+/// both with id 7 and one `dualId`, as `peer_dual.rs` writes them. The shadow's copy reaches B
+/// first and stalls in B's handler (a hold, never timing); the link's copy then waits on it.
+/// The client cancels: A sends `$/cancel_request` on the link. B must stop the copy that runs
+/// (on the other connection), so the stalled work never goes on, and each connection gets
+/// exactly one answer, -32800. Both entries are freed. Then the other order: the link's copy
+/// runs and is cancelled, and the shadow's copy, arriving after, never starts.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_cancel_stops_the_dual_copy_that_runs_and_the_other_never_starts() {
+    let _ = HERMETIC;
+    let scratch =
+        Scratch(std::env::temp_dir().join(format!("amx-cancel-dual-{}", uuid::Uuid::new_v4())));
+    let home = scratch.0.join("home");
+    let b = hub();
+    // B's handler: every `_acpmux/stats` stalls for good; `ran` counts the copies that reached
+    // it, `active` those still stalled there (one leaves when a cancel drops it).
+    let ran = Arc::new(AtomicUsize::new(0));
+    let active = Arc::new(AtomicUsize::new(0));
+    let reached = Arc::new(Semaphore::new(0));
+    let (on_ran, on_active, on_reached) = (ran.clone(), active.clone(), reached.clone());
+    b.hold_requests_for_tests(Arc::new(move |stage, m: &str, _: &Value| -> Held {
+        let ours = stage == RequestStage::Dispatch && m == method::MUX_STATS;
+        let (ran, active, reached) = (on_ran.clone(), on_active.clone(), on_reached.clone());
+        Box::pin(async move {
+            if ours {
+                active.fetch_add(1, Ordering::SeqCst);
+                let _serving = Serving(active.clone());
+                ran.fetch_add(1, Ordering::SeqCst);
+                reached.add_permits(1);
+                std::future::pending::<()>().await;
+            }
+        })
+    }));
+    let auth = PeerAuth::create(&home).unwrap();
+    let peer_token = std::fs::read_to_string(acpmux::server::peer_auth::token_path(&home)).unwrap();
+    let l = bind_ws("127.0.0.1:0").await.unwrap();
+    let port = l.local_addr().unwrap().port();
+    let ws_auth = WsAuth { local_app: None, peer: Some(Arc::new(auth)) };
+    tokio::spawn(serve_ws_with(b.clone(), l, "tok".into(), ws_auth));
+    let mut link = peer_path(port, &peer_token).await;
+    let mut shadow = peer_path(port, &peer_token).await;
+    let b_idle = Pair::idle(&b).await;
+    let stats = |id: i64, dual: &str| {
+        json!({"jsonrpc": "2.0", "id": id, "method": method::MUX_STATS,
+            "params": {"_meta": {"acpmux": {"dualId": dual}}}})
+    };
+    let cancel = |id: i64| json!({"jsonrpc": "2.0", "method": method::CANCEL_REQUEST, "params": {"requestId": id}});
+    let quiet = Duration::from_millis(500);
+
+    // The shadow's copy first: it runs, and stalls in B's handler.
+    let dual = format!("n:1:{}", uuid::Uuid::now_v7());
+    path_send(&mut shadow, stats(7, &dual)).await;
+    tokio::time::timeout(WAIT, reached.acquire())
+        .await
+        .expect("B ran the shadow's copy")
+        .unwrap()
+        .forget();
+    // The link's copy: a repeat, waiting on the shadow's. Then the cancel, on the link only.
+    path_send(&mut link, stats(7, &dual)).await;
+    path_send(&mut link, cancel(7)).await;
+    let on_link = path_answer(&mut link, 7, WAIT).await.expect("the link's copy is answered");
+    assert!(cancelled(&on_link), "{on_link}");
+    let on_shadow = path_answer(&mut shadow, 7, Duration::from_secs(10)).await;
+    assert!(
+        on_shadow.as_ref().is_some_and(cancelled),
+        "the copy that ran is stopped and answered -32800 on its own connection: {on_shadow:?}"
+    );
+    assert_eq!(until(0, || async { active.load(Ordering::SeqCst) }).await, 0, "its work dropped");
+    assert!(path_answers(&mut link, 7, quiet).await.is_empty(), "one answer on the link");
+    assert!(path_answers(&mut shadow, 7, quiet).await.is_empty(), "one answer on the shadow");
+    assert_eq!(ran.load(Ordering::SeqCst), 1, "only the shadow's copy reached the handler");
+    assert_eq!(until(b_idle, || async { b.requests_in_flight() }).await, b_idle, "both freed");
+
+    // The other order: the link's copy runs and is cancelled; the shadow's, arriving after,
+    // never starts.
+    let dual = format!("n:1:{}", uuid::Uuid::now_v7());
+    path_send(&mut link, stats(8, &dual)).await;
+    tokio::time::timeout(WAIT, reached.acquire())
+        .await
+        .expect("B ran the link's copy")
+        .unwrap()
+        .forget();
+    path_send(&mut link, cancel(8)).await;
+    assert!(cancelled(&path_answer(&mut link, 8, WAIT).await.expect("answered")));
+    path_send(&mut shadow, stats(8, &dual)).await;
+    let late = path_answer(&mut shadow, 8, WAIT).await.expect("the late copy is answered");
+    assert!(cancelled(&late), "the late copy takes the cancel's answer: {late}");
+    assert_eq!(until(0, || async { active.load(Ordering::SeqCst) }).await, 0, "its work dropped");
+    assert!(path_answers(&mut link, 8, quiet).await.is_empty());
+    assert!(path_answers(&mut shadow, 8, quiet).await.is_empty());
+    assert_eq!(ran.load(Ordering::SeqCst), 2, "the shadow's late copy never reached it");
+    assert_eq!(until(b_idle, || async { b.requests_in_flight() }).await, b_idle);
 }
