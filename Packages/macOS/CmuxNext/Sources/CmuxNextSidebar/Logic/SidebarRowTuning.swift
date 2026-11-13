@@ -10,7 +10,8 @@ import AppKit
 /// Every number is a ``ComputedTunable``: with no override it is the value the density, the text size and the type
 /// scale derive (the expression lives once, in its `derive`), so a tuned value never freezes the other densities.
 /// In Release the store is inert and every read is its derived default.
-public nonisolated enum SidebarRowTuning {
+public nonisolated struct SidebarRowTuning {
+    public nonisolated init() {}
     /// The Debug Settings section, and the tuner's one list.
     public static let section = TunableSection(id: "sidebarRows", title: "Sidebar Rows", symbol: "sidebar.squares.left", order: 13)
 
