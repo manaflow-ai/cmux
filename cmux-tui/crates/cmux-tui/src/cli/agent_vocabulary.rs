@@ -13,6 +13,7 @@
 //! | `opencode` | `open-code`, `open_code` |
 //! | `gemini` | `gemini-cli`, `gemini_cli` |
 //! | `amp` | `ampcode`, `amp-code` |
+//! | `antigravity` | `agy` |
 //!
 //! Sources: `hook`, `plugin` (alias `detected`), `socket` and
 //! `program_status` (OSC 7501; alias `status`, `osc7501`).
@@ -27,6 +28,7 @@ pub(in crate::cli) fn harness_name(raw: &str) -> String {
         "opencode" | "open-code" | "open_code" => "opencode",
         "gemini" | "gemini-cli" | "gemini_cli" => "gemini",
         "amp" | "ampcode" | "amp-code" => "amp",
+        "antigravity" | "agy" => "antigravity",
         _ => return lower,
     };
     canonical.to_owned()
