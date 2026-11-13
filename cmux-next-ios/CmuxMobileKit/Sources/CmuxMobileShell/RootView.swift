@@ -894,10 +894,17 @@ struct ShellTabs: View {
                         machines: {
                             AnyView(CloudMachinesScreen(model: shell.cloudWorkspaces?.model ?? .live(),
                                                         openChats: { shell.cloudChats = ShellModel.CloudChatsPresentation(attention: nil) },
-                                                        workspaces: shell.cloudMachineWorkspaces()))
+                                                        workspaces: shell.cloudMachineWorkspaces(),
+                                                        openMachine: { shell.settingsPath.append(.cloudMachine($0)) }))
                         },
                         automations: { AnyView(CloudAutomationsScreen()) },
                         connectGitHub: { AnyView(GitHubConnectRow()) },
+                        machine: { id in
+                            AnyView(CloudMachinesScreen.machinePage(
+                                model: shell.cloudWorkspaces?.model ?? .live(), id: id,
+                                openChats: { shell.cloudChats = ShellModel.CloudChatsPresentation(attention: nil) },
+                                workspaces: shell.cloudMachineWorkspaces()))
+                        },
                         workspace: { shell.cloudWorkspacePage(machineID: $0, workspaceID: $1) }
                     ),
                     inviteToTeam: { shell.invite(to: $0) },

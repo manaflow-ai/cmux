@@ -18,10 +18,22 @@ public struct CloudMachinesScreen: View {
     /// Each machine's workspaces on its page (live: the Workspaces list's own); nil hides them.
     private let workspaces: CloudMachineWorkspaces?
 
-    public init(model: CloudMachinesModel = .live(), openChats: (() -> Void)? = nil, workspaces: CloudMachineWorkspaces? = nil) {
+    /// Opens a machine's page as a route on the host's navigation path (nil: the page pushes it
+    /// itself). On a value path every page must be a value too, or a pop skips levels.
+    private let openMachine: ((String) -> Void)?
+
+    public init(model: CloudMachinesModel = .live(), openChats: (() -> Void)? = nil, workspaces: CloudMachineWorkspaces? = nil,
+                openMachine: ((String) -> Void)? = nil) {
         _model = State(initialValue: model)
         self.openChats = openChats
         self.workspaces = workspaces
+        self.openMachine = openMachine
+    }
+
+    /// One machine's page, for a host that pushes it as a route (``openMachine``).
+    public static func machinePage(model: CloudMachinesModel, id: String, openChats: (() -> Void)?,
+                                   workspaces: CloudMachineWorkspaces?) -> some View {
+        CloudMachineDetail(model: model, id: id, openChats: openChats, workspaces: workspaces)
     }
 
     public var body: some View {
@@ -62,6 +74,31 @@ public struct CloudMachinesScreen: View {
         }
     }
 
+    /// A machine's row: a route on the host's path when it has one, else an in-place push.
+    @ViewBuilder
+    private func machineLink(_ machine: CloudMachine, @ViewBuilder label: () -> some View) -> some View {
+        if let openMachine {
+            Button { openMachine(machine.id) } label: {
+                HStack {
+                    label()
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.right")
+                        .font(theme.type.meta.weight(.semibold))
+                        .foregroundStyle(theme.colors.label3)
+                        .accessibilityHidden(true)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        } else {
+            NavigationLink {
+                CloudMachineDetail(model: model, id: machine.id, openChats: openChats, workspaces: workspaces)
+            } label: {
+                label()
+            }
+        }
+    }
+
     private var list: some View {
         List {
             if let plan = model.plan {
@@ -79,9 +116,7 @@ public struct CloudMachinesScreen: View {
             if !model.machines.isEmpty {
                 Section("Machines") {
                     ForEach(model.sorted) { machine in
-                        NavigationLink {
-                            CloudMachineDetail(model: model, id: machine.id, openChats: openChats, workspaces: workspaces)
-                        } label: {
+                        machineLink(machine) {
                             CloudMachineRow(machine: machine, busy: model.busyID == machine.id)
                         }
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {

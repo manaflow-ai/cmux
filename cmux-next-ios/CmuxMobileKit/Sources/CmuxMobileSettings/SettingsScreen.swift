@@ -294,6 +294,8 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
             cloudPages?.machines()
         case .automations:
             cloudPages?.automations()
+        case .cloudMachine(let machineID):
+            cloudPages?.machine(machineID)
         case .cloudWorkspace(let machineID, let workspaceID):
             cloudPages?.workspace(machineID, workspaceID)
         case .longPressMenus:
@@ -316,6 +318,8 @@ public enum SettingsRoute: Hashable, Sendable {
     case accentColor
     /// Cloud → Cloud Machines (the account's Cloud machines).
     case cloudMachines
+    /// One Cloud machine's page, from Cloud Machines (the shell builds the page).
+    case cloudMachine(String)
     /// A Cloud machine's workspace, opened from its Cloud Machines page (the shell builds the page).
     case cloudWorkspace(machineID: String, workspaceID: String)
 

@@ -61,9 +61,15 @@ final class CloudWorkspacesGallery {
         }
     }
 
+    /// A page on the gallery's Cloud Machines stack, as the app's Settings routes are.
+    enum Route: Hashable {
+        case machine(String)
+        case workspace(Workspace)
+    }
+
     /// The machine page's Workspaces section over the same store; a workspace opens as a route
     /// on `path`, as the app's Settings stack does.
-    func machineWorkspaces(path: Binding<[Workspace]>) -> CloudMachineWorkspaces {
+    func machineWorkspaces(path: Binding<[Route]>) -> CloudMachineWorkspaces {
         let store = store, creator = creator
         return CloudMachineWorkspaces(
             state: { id in
@@ -72,19 +78,27 @@ final class CloudWorkspacesGallery {
             canCreate: { id in creator.availableMacs.contains { $0.id == id } },
             create: { creator.create(start: .terminal, macID: $0) },
             page: { workspace in AnyView(WorkspaceScreen(store: store, workspaceID: workspace.id, creator: creator)) },
-            open: { path.wrappedValue.append($0) })
+            open: { path.wrappedValue.append(.workspace($0)) })
     }
 
     /// The Cloud Machines page with its machines' workspaces pushed on its own path.
     struct MachinesPage: View {
         let gallery: CloudWorkspacesGallery
-        @State private var path: [Workspace] = []
+        @State private var path: [Route] = []
+        @State private var model = CloudMachinesModel.gallery()
 
         var body: some View {
             NavigationStack(path: $path) {
-                CloudMachinesScreen(model: .gallery(), workspaces: gallery.machineWorkspaces(path: $path))
-                    .navigationDestination(for: Workspace.self) { workspace in
-                        WorkspaceScreen(store: gallery.store, workspaceID: workspace.id, creator: gallery.creator)
+                CloudMachinesScreen(model: model, workspaces: gallery.machineWorkspaces(path: $path),
+                                    openMachine: { path.append(.machine($0)) })
+                    .navigationDestination(for: Route.self) { route in
+                        switch route {
+                        case .machine(let id):
+                            CloudMachinesScreen.machinePage(model: model, id: id, openChats: nil,
+                                                            workspaces: gallery.machineWorkspaces(path: $path))
+                        case .workspace(let workspace):
+                            WorkspaceScreen(store: gallery.store, workspaceID: workspace.id, creator: gallery.creator)
+                        }
                     }
             }
         }
