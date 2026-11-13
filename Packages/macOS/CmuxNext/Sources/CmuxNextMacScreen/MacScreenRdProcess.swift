@@ -27,7 +27,9 @@ private nonisolated final class MacScreenRdLineSink: Sendable {
 /// actor); `send` writes one line to stdin on a serial queue, so a full pipe never blocks the caller.
 /// Closing stdin, or this app ending, ends the process (it reads end of file and stops its session).
 nonisolated final class MacScreenRdProcess: Sendable {
-    enum Role: String { case serve, connect }
+    // Versioned commands assert signed-carrier support before the worker emits a key.
+    // An older bundled/development worker rejects them instead of silently ignoring metadata.
+    enum Role: String { case serve = "serve-v2", connect = "connect-v2" }
 
     let lines: AsyncStream<MacScreenRdMessage>
     private let continuation: AsyncStream<MacScreenRdMessage>.Continuation

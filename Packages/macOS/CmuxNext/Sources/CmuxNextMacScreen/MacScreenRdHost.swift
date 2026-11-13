@@ -65,16 +65,11 @@ nonisolated final class MacScreenRdHost: Sendable {
         handler.load()?(event)
     }
 
-    /// Serves the session until it ends: waits for the viewer's offer, starts the host, answers with
-    /// this side's session key, displays and candidates, and relays candidates both ways.
-    func serve(_ signaling: any ScreenSignaling) async throws {
-        var started = false
-        var consideredFallback = false
-        let session = self.session
+    /// Output starts only for an rd offer. Rust accepts Setup before emitting its key,
+    /// so an answer echoes carrier metadata only after Rust validated it.
+    private func readOutput(_ signaling: any ScreenSignaling, peerCarrier: String?,
+                            fallbackDecision: AsyncStream<Bool>.Continuation) -> Task<Void, Never> {
         let process = self.process
-        // The signed WebRTC offer and the local Rust decision may arrive in either order.
-        // Buffer the single decision; Rust owns eligibility and its negotiation deadline.
-        let (fallbackDecisions, fallbackDecision) = AsyncStream.makeStream(of: Bool.self, bufferingPolicy: .bufferingOldest(1))
         // task-owner: the host's output for this session; ends with the process or disconnectViewer
         let output = Task { [weak self] in
             defer { fallbackDecision.finish() }
@@ -88,13 +83,13 @@ nonisolated final class MacScreenRdHost: Sendable {
                     return
                 }
                 if let displays = line.displays {
-                    var document = answer ?? MacScreenRdDocument(key: "")
+                    var document = answer ?? MacScreenRdDocument(key: "", peerCarrier: peerCarrier)
                     document.displays = displays.compactMap { $0.count == 2 ? CGSize(width: Double($0[0]), height: Double($0[1])) : nil }
                     document.currentDisplay = line.current
                     answer = document
                 }
                 if let key = line.key {
-                    var document = answer ?? MacScreenRdDocument(key: key)
+                    var document = answer ?? MacScreenRdDocument(key: key, peerCarrier: peerCarrier)
                     document.key = key
                     answer = document
                 }
@@ -134,8 +129,20 @@ nonisolated final class MacScreenRdHost: Sendable {
             self?.emit(.sourceFailed(process.stderrTail.isEmpty ? "the screen host stopped" : process.stderrTail))
         }
         self.output.withLock { $0 = output }
-        // Nothing to read when no rd host started (a WebRTC viewer, or a viewer that never offered).
-        defer { if !process.started { output.cancel() } }
+        return output
+    }
+
+    /// Serves the session until it ends: waits for the viewer's offer, starts the host, answers with
+    /// this side's session key, displays and candidates, and relays candidates both ways.
+    func serve(_ signaling: any ScreenSignaling) async throws {
+        var started = false
+        var consideredFallback = false
+        let session = self.session
+        let process = self.process
+        // The signed WebRTC offer and the local Rust decision may arrive in either order.
+        // Buffer the single decision; Rust owns eligibility and its negotiation deadline.
+        let (fallbackDecisions, fallbackDecision) = AsyncStream.makeStream(of: Bool.self, bufferingPolicy: .bufferingOldest(1))
+        var output: Task<Void, Never>?
         var forward: AsyncThrowingStream<ScreenSignal, any Error>.Continuation?
         var webRTCServe: Task<Void, any Error>?
         defer { forward?.finish() }
@@ -151,7 +158,7 @@ nonisolated final class MacScreenRdHost: Sendable {
                     consideredFallback = true
                     var decision = fallbackDecisions.makeAsyncIterator()
                     guard await decision.next() == true, !Task.isCancelled else { continue }
-                    output.cancel()
+                    output?.cancel()
                     process.stop()
                 }
                 // A WebRTC viewer: its offer and every later signal go to the WebRTC host.
@@ -177,12 +184,13 @@ nonisolated final class MacScreenRdHost: Sendable {
                     emit(.sourceFailed("the screen host could not start: \(error.localizedDescription)"))
                     return
                 }
+                output = readOutput(signaling, peerCarrier: offer.peerCarrier, fallbackDecision: fallbackDecision)
                 process.send(Setup(session: session.id, peerKey: offer.key,
                                    viewer: Setup.Viewer(user: session.viewerID, install: session.viewerID),
                                    scope: session.viewOnly ? "view" : "control", stun: session.servers.stun,
                                    turn: session.servers.turn,
                                    display: offer.display.map(String.init) ?? "main", maxFps: offer.maxFps.map { min($0, 120) },
-                                   maxWidth: offer.maxWidth))
+                                   maxWidth: offer.maxWidth, peerCarrier: offer.peerCarrier))
                 for candidate in offer.candidates { process.send(Later(candidate: candidate)) }
             case let .candidate(candidate) where candidate.sdpMid == "cmux-rd":
                 process.send(Later(candidate: candidate.candidate))
@@ -239,9 +247,11 @@ nonisolated final class MacScreenRdHost: Sendable {
         var display: String
         var maxFps: Int?
         var maxWidth: Int?
+        var peerCarrier: String?
 
         enum CodingKeys: String, CodingKey {
             case session, viewer, scope, stun, turn, display
+            case peerCarrier = "peer_carrier"
             case peerKey = "peer_key"
             case maxFps = "max_fps"
             case maxWidth = "max_width"

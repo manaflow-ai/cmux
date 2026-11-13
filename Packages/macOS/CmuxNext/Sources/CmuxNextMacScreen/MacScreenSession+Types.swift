@@ -42,9 +42,11 @@ extension MacScreenSession {
         var candidates: [String]
         var socket: String
         var relayOnly: Bool
+        var peerCarrier: String?
 
         enum CodingKeys: String, CodingKey {
             case session, stun, turn, candidates, socket
+            case peerCarrier = "peer_carrier"
             case peerKey = "peer_key"
             case relayOnly = "relay_only"
         }

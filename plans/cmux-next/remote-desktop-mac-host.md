@@ -170,3 +170,23 @@ late render callbacks before another session can show frames.
 The comparison remains unverified until the same two Macs run both carriers
 and Apple Screen Sharing on both network paths. Historical decoder timings
 are not presented-frame measurements; no performance win follows from this glue.
+
+
+### Carrier negotiation and older peers
+
+New Mac peers add `a=fingerprint:cmux-rd-carrier rd_wg/1` to the existing signed
+rd offer and answer. `TicketSignaling` authenticates that line with the session
+key fingerprint. The platform passes its raw value as `peer_carrier` to Rust;
+Rust validates it before starting the network. Missing metadata selects the
+original rd-link protocol for an older peer. Empty, unknown, null or duplicate
+metadata does not select that compatibility path: it fails closed. Once both
+peers select WG, failure may only negotiate WebRTC, never downgrade to legacy
+media. Hub tickets, approval, scope and revocation are unchanged.
+
+The app invokes `cmux rd serve-v2` / `connect-v2`, asserting that the bundled
+worker implements this contract before it emits a key. An older worker rejects
+those commands instead of silently ignoring the JSON field and advertising
+support it lacks. The unversioned commands remain available for older app
+callers. Verify the app and bundled worker together, as well as new/new,
+new/old, old/new and old/old peers. A new FFI pin alone does not prove the bundled
+worker contains the carrier change.

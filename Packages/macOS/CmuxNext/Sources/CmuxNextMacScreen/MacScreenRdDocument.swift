@@ -13,6 +13,7 @@ import Foundation
 ///
 ///     cmux.rd/1
 ///     a=fingerprint:cmux-rd-key <64 hex>
+///     a=fingerprint:cmux-rd-carrier rd_wg/1            (new peers only)
 ///     a=cmux-rd-candidate:host 192.168.1.4:51000     (repeated)
 ///     a=cmux-rd-display:1                             (offer: the display to show)
 ///     a=cmux-rd-max-width:1920                        (offer: the quality wish)
@@ -22,9 +23,12 @@ import Foundation
 nonisolated struct MacScreenRdDocument: Equatable, Sendable {
     static let header = "cmux.rd/1"
     static let keyPrefix = "cmux-rd-key "
+    static let carrierFingerprint = "cmux-rd-carrier"
 
     /// This side's session key (64 hex).
     var key: String
+    /// Authenticated wire metadata; Rust validates and selects the carrier.
+    var peerCarrier: String?
     var candidates: [String] = []
     var display: Int?
     var maxWidth: Int?
@@ -34,6 +38,7 @@ nonisolated struct MacScreenRdDocument: Equatable, Sendable {
 
     var text: String {
         var lines = [Self.header, "a=fingerprint:\(Self.keyPrefix)\(key)"]
+        if let peerCarrier { lines.append("a=fingerprint:\(Self.carrierFingerprint) \(peerCarrier)") }
         lines += candidates.map { "a=cmux-rd-candidate:\($0)" }
         if let display { lines.append("a=cmux-rd-display:\(display)") }
         if let maxWidth { lines.append("a=cmux-rd-max-width:\(maxWidth)") }
@@ -57,6 +62,15 @@ nonisolated struct MacScreenRdDocument: Equatable, Sendable {
             switch name {
             case "fingerprint" where value.hasPrefix(Self.keyPrefix):
                 key = String(value.dropFirst(Self.keyPrefix.count))
+            case "fingerprint" where value.hasPrefix(Self.carrierFingerprint):
+                // Preserve invalid/duplicate metadata for Rust to reject; never turn it into
+                // an absent capability, which denotes an older peer's original protocol.
+                if peerCarrier != nil {
+                    peerCarrier = "invalid:duplicate-carrier"
+                } else {
+                    let suffix = String(value.dropFirst(Self.carrierFingerprint.count))
+                    peerCarrier = suffix.hasPrefix(" ") ? String(suffix.dropFirst()) : "invalid:carrier"
+                }
             case "cmux-rd-candidate": candidates.append(value)
             case "cmux-rd-display": display = Int(value)
             case "cmux-rd-max-width": maxWidth = Int(value)
@@ -74,8 +88,9 @@ nonisolated struct MacScreenRdDocument: Equatable, Sendable {
         self.key = key.lowercased()
     }
 
-    init(key: String) {
+    init(key: String, peerCarrier: String? = nil) {
         self.key = key
+        self.peerCarrier = peerCarrier
     }
 
     /// The stream size and rate a quality preset asks the host for (nil width: the display's own,

@@ -253,7 +253,7 @@ public final class MacScreenSession {
             }
             if let key = line.key, !offered {
                 offered = true
-                var offer = MacScreenRdDocument(key: key)
+                var offer = MacScreenRdDocument(key: key, peerCarrier: "rd_wg/1")
                 let wish = MacScreenRdDocument.wish(preferences.quality, refresh: displayMaximumFrameRate ?? 60, paneWidth: paneWidthPixels)
                 offer.maxWidth = wish.maxWidth
                 offer.maxFps = wish.maxFps
@@ -310,7 +310,7 @@ public final class MacScreenSession {
             socketPath = path
             logger.info("cmux rd: link started toward the host")
             process.send(Answer(session: sessionID, peerKey: answer.key, stun: servers.stun, turn: servers.turn,
-                                candidates: answer.candidates, socket: path, relayOnly: relayOnly))
+                                candidates: answer.candidates, socket: path, relayOnly: relayOnly, peerCarrier: answer.peerCarrier))
         })
     }
 
