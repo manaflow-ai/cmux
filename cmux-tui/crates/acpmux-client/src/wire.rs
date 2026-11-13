@@ -699,6 +699,7 @@ pub enum FrameError {
     TrailingBytes,
     Encode(serde_json::Error),
     Decode(serde_json::Error),
+    RequestInFlight,
 }
 
 impl fmt::Display for FrameError {
@@ -713,6 +714,7 @@ impl fmt::Display for FrameError {
             Self::TrailingBytes => f.write_str("more than one frame in input"),
             Self::Encode(error) => write!(f, "frame payload encode failed: {error}"),
             Self::Decode(error) => write!(f, "frame payload decode failed: {error}"),
+            Self::RequestInFlight => f.write_str("a page request is already in flight"),
         }
     }
 }
