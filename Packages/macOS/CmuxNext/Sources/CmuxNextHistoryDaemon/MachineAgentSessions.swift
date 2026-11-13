@@ -7,7 +7,8 @@ import Foundation
 /// A daemon with `history-agent-sessions-v1` lists each session whole (`history.entries.list`). It keeps the
 /// fold of its journal with its cursor, so a session whose records journal retention deleted is still in its
 /// list, and the app never folds that daemon's journal. While that fold is behind, the daemon's list is not
-/// complete (`isComplete`), and it takes no session away. A daemon without the capability is older than
+/// complete (`isComplete`), and it takes no session away. A machine that gave no answer yet has no complete
+/// list either: a session can exist on it. A daemon without the capability is older than
 /// retention: its journal has every record, and the app folds it from the first one
 /// (`session.journal.subscribe`), then only the records after its cursor.
 public struct MachineAgentSessions: Sendable {
@@ -28,12 +29,14 @@ public struct MachineAgentSessions: Sendable {
     public init(fold: AgentSessionFold) {
         machine = fold.machine
         self.fold = fold
+        isComplete = true
     }
 
     /// The sessions of a daemon's list.
     public init(machine: String, listed: [AgentSession]) {
         self.init(machine: machine)
         self.listed = listed
+        isComplete = true
     }
 
     /// Newest activity first.
@@ -49,9 +52,10 @@ public struct MachineAgentSessions: Sendable {
         take(listed: list.sessions, complete: list.isComplete)
     }
 
-    /// False while the daemon's list is not complete (`pending_kinds` names `agent`: its fold of the journal
-    /// is behind): a session that `sessions` does not have can still exist.
-    public private(set) var isComplete = true
+    /// False before the machine's first answer (its daemon is not up yet, or a read got no answer), and while
+    /// the daemon's list is not complete (`pending_kinds` names `agent`: its fold of the journal is behind): a
+    /// session that `sessions` does not have can still exist.
+    public private(set) var isComplete = false
 
     /// The daemon's whole list replaces every session read before, a journal fold of the same daemon's older
     /// build too. A list that is not complete (`complete` false) takes no session away: the daemon's fold
