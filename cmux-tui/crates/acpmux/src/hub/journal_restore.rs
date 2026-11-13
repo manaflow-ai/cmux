@@ -1067,7 +1067,7 @@ fn refused(reason: &str, why: &str, session: &Session) -> RpcError {
         .with_data(json!({"reason": reason, "lastSeq": last}))
 }
 
-/// Debug builds only: the restore of chat `id` fails once, after its first record (a disk that
+/// Debug and test builds only: the restore of chat `id` fails once, after its first record (a disk that
 /// fills midway), so a test sees a partial restore answered as one and finished by a retry. Armed
 /// per chat, so tests that run at once do not take each other's failure (review of #37284 at
 /// dd52b1d3, F2).
