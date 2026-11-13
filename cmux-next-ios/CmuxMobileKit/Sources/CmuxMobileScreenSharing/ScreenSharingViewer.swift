@@ -12,10 +12,9 @@ public enum ScreenSharingEndReason: String, Sendable {
 }
 
 /// One Screen Sharing session from this phone to a Mac, as the viewer: it
-/// asks the hub for a session, waits for the Mac's approval and ticket, hands
-/// the ticket's signaling to its `ScreenSession` once, and ends at once on a
-/// denial, revocation or end. Tickets admit once, so every new stream is a
-/// new request (`reconnectLimit` 0; Try Again asks again).
+/// asks the hub for a session, waits for the Mac's approval and ticket, and
+/// keeps the approved session alive across a transient stream drop. A drop
+/// re-admits this same viewer/host pair with a short-lived ticket.
 @MainActor @Observable
 public final class ScreenSharingViewer: Identifiable {
     public enum Phase: Equatable, Sendable {
@@ -27,6 +26,8 @@ public final class ScreenSharingViewer: Identifiable {
         /// Approved; the ticket is on its way.
         case approved(sessionID: String, scope: SessionScope)
         case streaming(sessionID: String, scope: SessionScope)
+        /// The stream failed; the approved hub session is being re-admitted.
+        case reconnecting(sessionID: String, scope: SessionScope)
         /// The Mac's person said Deny.
         case declined(SessionScope)
         /// The hub refused the request.
@@ -55,12 +56,17 @@ public final class ScreenSharingViewer: Identifiable {
     @ObservationIgnored var requestSession: @MainActor (DeviceHub, String, SessionScope) async throws -> HubSession = { hub, host, scope in
         try await hub.requestSession(host: host, scope: scope)
     }
+    /// Re-admits the same approved session after a transient stream drop.
+    @ObservationIgnored var reattachSession: @MainActor (DeviceHub, String) async throws -> SessionTicket = { hub, id in
+        try await hub.reattachSession(id)
+    }
     /// Starts the stream (tests replace it: no WebRTC there).
     @ObservationIgnored var startStream: @MainActor (ScreenSession) -> Void = { $0.connect() }
     /// Every session this viewer ended or left on the hub (the service ignores later tickets for them).
     @ObservationIgnored var sessionLeft: @MainActor (String) -> Void = { _ in }
     @ObservationIgnored private var pendingSignaling: (any ScreenSignaling)?
     @ObservationIgnored private var requestTask: Task<Void, Never>?
+    @ObservationIgnored private var reattachTask: Task<Void, Never>?
     /// A denial or end the hub pushed before the request's HTTP answer named its session.
     @ObservationIgnored private var earlyOutcomes: [String: Phase] = [:]
 
@@ -74,7 +80,7 @@ public final class ScreenSharingViewer: Identifiable {
     /// The session id the hub knows this viewer by, once it answered.
     public var sessionID: String? {
         switch phase {
-        case let .waitingForApproval(id, _), let .approved(id, _), let .streaming(id, _): id
+        case let .waitingForApproval(id, _), let .approved(id, _), let .streaming(id, _), let .reconnecting(id, _): id
         default: nil
         }
     }
@@ -82,7 +88,7 @@ public final class ScreenSharingViewer: Identifiable {
     /// Whether a request or stream is in progress (the waiting card or the screen shows).
     public var isActive: Bool {
         switch phase {
-        case .requesting, .waitingForApproval, .approved, .streaming: true
+        case .requesting, .waitingForApproval, .approved, .streaming, .reconnecting: true
         default: false
         }
     }
@@ -99,6 +105,8 @@ public final class ScreenSharingViewer: Identifiable {
     /// Asks the Mac for a session (Connect, Try Again).
     public func request(_ scope: SessionScope) {
         droppedSessionID = nil
+        reattachTask?.cancel()
+        reattachTask = nil
         cancelPending(endingSession: true)
         stopStream()
         lastScope = scope
@@ -161,6 +169,8 @@ public final class ScreenSharingViewer: Identifiable {
     /// (the hub hears the reason first, then the stream stops).
     public func close(reason: ScreenSharingEndReason) {
         let id = sessionID
+        reattachTask?.cancel()
+        reattachTask = nil
         cancelPending(endingSession: false)
         phase = .ended(reason: reason.rawValue)
         if let id { end(id, reason: reason.rawValue) }
@@ -186,12 +196,23 @@ public final class ScreenSharingViewer: Identifiable {
         do {
             pendingSignaling = try makeSignaling(ticket, hub)
         } catch {
+            if case let .reconnecting(id, _) = phase, id == ticket.sessionId {
+                scheduleReattach(ticket.sessionId)
+                return
+            }
             end(ticket.sessionId, reason: ScreenSharingEndReason.failed.rawValue)
             phase = .refused(.other, requested: ticket.scope)
             return
         }
         lastScope = ticket.scope
         phase = .streaming(sessionID: ticket.sessionId, scope: ticket.scope)
+        reattachTask?.cancel()
+        reattachTask = nil
+        if let screen {
+            screen.reconnect()
+            watch(screen, sessionID: ticket.sessionId)
+            return
+        }
         let session = ScreenSession(title: hostName, preferences: preferences.screen(for: hostID),
                                     signaling: { [weak self] in self?.takeSignaling() })
         session.reconnectLimit = 0
@@ -201,9 +222,8 @@ public final class ScreenSharingViewer: Identifiable {
         startStream(session)
     }
 
-    /// A dropped stream (WebRTC failed or ended) cannot reconnect: its ticket admitted once.
-    /// End the hub session so the Mac stops sharing, and show the ended card, whose Connect
-    /// Again asks the Mac again.
+    /// A dropped stream leaves the approved hub session alive and asks for a
+    /// fresh viewer/host ticket using the fixed roaming backoff.
     private func watch(_ session: ScreenSession, sessionID: String) {
         withObservationTracking {
             _ = session.phase
@@ -222,11 +242,36 @@ public final class ScreenSharingViewer: Identifiable {
     }
 
     func streamDropped(_ id: String) {
-        guard case .streaming(id, _) = phase else { return }
-        end(id, reason: ScreenSharingEndReason.failed.rawValue)
-        stopStream()
-        phase = .ended(reason: ScreenSharingEndReason.failed.rawValue)
+        guard case let .streaming(current, scope) = phase, current == id else { return }
+        screen?.prepareForReconnect()
+        phase = .reconnecting(sessionID: id, scope: scope)
         droppedSessionID = id
+        scheduleReattach(id)
+    }
+
+    /// The link's roaming backoff: 1/2/4/8/16/30 seconds, then 30 seconds.
+    public nonisolated static let reattachBackoff: [Duration] = [.seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(16), .seconds(30)]
+
+    private func scheduleReattach(_ id: String) {
+        reattachTask?.cancel()
+        let hub = hub
+        let reattach = reattachSession
+        reattachTask = Task { [weak self] in
+            var attempt = 0
+            while !Task.isCancelled {
+                let delay = Self.reattachBackoff[min(attempt, Self.reattachBackoff.count - 1)]
+                do { try await Task.sleep(for: delay) } catch { return }
+                guard let self, case .reconnecting(id, _) = self.phase else { return }
+                do {
+                    let ticket = try await reattach(hub, id)
+                    guard !Task.isCancelled else { return }
+                    self.accept(ticket)
+                    return
+                } catch {
+                    attempt += 1
+                }
+            }
+        }
     }
 
     /// The session whose stream dropped here last: the Mac's own end reason
@@ -244,7 +289,7 @@ public final class ScreenSharingViewer: Identifiable {
     func denied() {
         let scope: SessionScope
         switch phase {
-        case let .waitingForApproval(_, requested), let .approved(_, requested), let .requesting(requested): scope = requested
+        case let .waitingForApproval(_, requested), let .approved(_, requested), let .requesting(requested), let .reconnecting(_, requested): scope = requested
         default: scope = lastScope
         }
         cancelPending(endingSession: false)
@@ -254,6 +299,8 @@ public final class ScreenSharingViewer: Identifiable {
 
     /// `session.revoked` or `session.ended`: stop now and say why.
     func ended(reason: String?) {
+        reattachTask?.cancel()
+        reattachTask = nil
         cancelPending(endingSession: false)
         stopStream()
         phase = .ended(reason: reason)

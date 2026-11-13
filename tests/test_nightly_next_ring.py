@@ -13,14 +13,14 @@ import unittest
 import xml.etree.ElementTree as ET
 
 import yaml
-from nightly_workflow_text import nightly_text
+from nightly_workflow_text import nightly_text, write_out_step_aliases
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/nightly_next_ring.py"
-spec = importlib.util.spec_from_file_location("nightly_next_ring", SCRIPT)
-ring = importlib.util.module_from_spec(spec)
-sys.modules["nightly_next_ring"] = ring
-spec.loader.exec_module(ring)
+# Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
+if str(ROOT / "scripts/ci") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+import nightly_next_ring as ring  # noqa: E402
 
 GUARD = ROOT / "scripts/ci/nightly-next-guard.py"
 NIGHTLY_YML = ROOT / ".github/workflows/nightly.yml"
@@ -443,7 +443,7 @@ class WorkflowTests(unittest.TestCase):
     def test_the_next_feed_keeps_its_newest_nightly_item_before_it_goes_live(self):
         # 2026-10-27: the /next/ feed held only the newest build, on cmux-next-dev, so a
         # Nightly-ring app was offered nothing for hours while no verdict was written.
-        text = nightly_text()
+        text = write_out_step_aliases(nightly_text())
         job = text[text.index("\n  publish-nightly:"):text.index("\n  publish-nightly-next-github:")]
         keep = job.index("- name: Keep the live feed's newest Nightly item beside the new build")
         step = job[keep:job.index("\n      - ", keep + 1)]

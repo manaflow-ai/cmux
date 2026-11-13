@@ -116,6 +116,9 @@ impl MeshHub for Loopback {
             let ack = super::super::deliver(&self.b, &message, &self.hook, Some("inst_b"))
                 .await
                 .expect("a read is always answered");
+            // The hub keeps an answer of at most one message body, as the real hub does.
+            let answered = ack.result.as_ref().map_or(0, String::len);
+            assert!(answered <= MAX_READ_RESULT_BYTES, "an answer of {answered} bytes");
             let mut receipt: Receipt = serde_json::from_value(json!({
                 "messageId": id, "state": serde_json::to_value(ack.state).unwrap(), "createdAt": 1
             }))
@@ -224,6 +227,65 @@ async fn the_same_persons_machine_reads_a_reply_through_the_hub_and_no_one_else_
     let unknown =
         read(&unknown, "machine-c", "own-e2e", method::MUX_INFO, &json!({})).await.unwrap_err();
     assert_eq!(unknown.code, RpcError::not_found("").code, "{unknown:?}");
+}
+
+/// A chat with one record over the hub's 64 KiB opens through the hub, and its older pages read
+/// back to that record: a page always holds at least one record, so no smaller page fits it.
+#[tokio::test]
+async fn a_chat_page_with_a_record_over_64_kib_opens_through_the_hub() {
+    let b = machine_b();
+    let meta = json!({"acpmux": {"harness": "fake", "name": "big-record"}});
+    let made = call(
+        &b,
+        "session/new",
+        json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": meta}),
+    )
+    .await;
+    let session = made["sessionId"].as_str().unwrap().to_owned();
+    let big = "a 65 KiB line ".repeat(65 * 1024 / 14 + 1);
+    assert!(big.len() > 65 * 1024);
+    call(
+        &b,
+        method::SESSION_PROMPT,
+        json!({"sessionId": session, "prompt": [{"type": "text", "text": big}]}),
+    )
+    .await;
+    let dir = tempfile::tempdir().unwrap();
+    let hub = Loopback::new(&b, dir.path(), "person-1");
+
+    // The app's open of the chat, then its older pages as the pane reads them back.
+    let attach =
+        json!({"sessionId": format!("machine-b/{session}"), "limit": 200, "maxBytes": 1 << 20});
+    let opened = read(&hub, "machine-b", &session, method::MUX_ATTACH, &attach).await.unwrap();
+    assert_eq!(opened["session"]["sessionId"].as_str(), Some(session.as_str()));
+    assert_eq!((opened["peer"].as_str(), opened["via"].as_str()), (Some("machine-b"), Some("hub")));
+    let mut events: Vec<Value> = opened["events"].as_array().cloned().unwrap_or_default();
+    let mut more = opened["hasMore"].as_bool() == Some(true);
+    for _ in 0..64 {
+        if !more {
+            break;
+        }
+        let oldest = events.iter().filter_map(|e| e["seq"].as_u64()).min().unwrap();
+        let older = json!({"limit": 200, "maxBytes": 1 << 20, "beforeSeq": oldest});
+        let page = read(&hub, "machine-b", &session, method::MUX_EVENTS, &older).await.unwrap();
+        more = page["hasMore"].as_bool() == Some(true);
+        events.extend(page["events"].as_array().cloned().unwrap_or_default());
+    }
+    assert!(!more, "the pages never reached the chat's start");
+    events.sort_by_key(|e| e["seq"].as_u64());
+    let mut transcript = crate::transcript::Transcript::default();
+    for event in &events {
+        transcript.apply_event(event);
+    }
+    let replies: Vec<_> = transcript
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            crate::transcript::Item::Assistant { text } => Some(text.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(replies, [format!("echo: {big}")]);
 }
 
 #[tokio::test]

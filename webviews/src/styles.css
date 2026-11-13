@@ -277,7 +277,7 @@ body {
   text-overflow: ellipsis;
   padding: 0 24px 0 9px;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   background:
     linear-gradient(45deg, transparent 50%, currentcolor 50%) right 11px center / 4px 4px no-repeat,
     linear-gradient(135deg, currentcolor 50%, transparent 50%) right 7px center / 4px 4px no-repeat,
@@ -344,10 +344,10 @@ body {
 #base-select {
   flex: 0 1 120px;
 }
-#source-select:focus,
-#repo-select:focus,
-#base-select:focus,
-#jump-select:focus,
+#source-select:focus-visible,
+#repo-select:focus-visible,
+#base-select:focus-visible,
+#jump-select:focus-visible,
 #jump-search-button:focus-visible,
 .base-picker-button:focus-visible,
 .toolbar-icon:focus-visible,
@@ -381,7 +381,7 @@ body {
   min-width: 0;
   padding: 0 7px 0 9px;
   border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 18%, transparent);
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   background: color-mix(in lab, var(--cmux-diff-fg) 11%, transparent);
   color: var(--cmux-diff-fg);
   font: inherit;
@@ -761,7 +761,7 @@ body {
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--ds-radius-control);
   background: transparent;
   color: color-mix(in lab, var(--cmux-diff-fg) 62%, var(--cmux-diff-bg));
   padding: 0;
@@ -927,7 +927,7 @@ body[data-status-only="true"] #files-motion-curtain {
   background: color-mix(in srgb, var(--cmux-diff-fg) 4%, var(--cmux-diff-files-bg));
   color: var(--cmux-diff-text-dim);
 }
-#files-filter:focus-within {
+#files-filter:is(:focus-visible, :has(:focus-visible)) {
   border-color: color-mix(in lab, var(--cmux-diff-accent) 60%, transparent);
 }
 #files-filter > svg {
@@ -963,7 +963,7 @@ body[data-status-only="true"] #files-motion-curtain {
   height: 20px;
   padding: 0;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--ds-radius-control);
   background: transparent;
   color: var(--cmux-diff-text-dim);
   cursor: default;
@@ -1430,7 +1430,7 @@ body[data-loading="true"] #status::before {
   font-size: 13px;
   line-height: 1.45;
 }
-.comment-composer:focus-within {
+.comment-composer:is(:focus-visible, :has(:focus-visible)) {
   border-color: color-mix(in lab, var(--cmux-diff-accent) 60%, var(--cmux-diff-border));
   box-shadow: 0 0 0 3px color-mix(in lab, var(--cmux-diff-accent) 18%, transparent);
 }
@@ -1464,7 +1464,7 @@ body[data-loading="true"] #status::before {
 .comment-button {
   padding: 4px 12px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   background: transparent;
   color: var(--cmux-diff-text-muted);
   font: inherit;
@@ -1925,7 +1925,7 @@ svg[data-icon-fill] {
   height: var(--ds-control-compact);
   padding: 0 var(--ds-space-2) 0 var(--ds-space-3);
   border: 0;
-  border-radius: var(--ds-radius-sm);
+  border-radius: var(--ds-radius-control);
   background: transparent;
   color: var(--cmux-diff-fg);
   font: inherit;
@@ -1959,7 +1959,7 @@ svg[data-icon-fill] {
   height: var(--grid-row);
   padding: 0 var(--ds-space-2) 0 var(--ds-space-3);
   border: 0;
-  border-radius: var(--ds-radius-md);
+  border-radius: var(--ds-radius-control);
   background: var(--cmux-diff-pill-bg);
   box-shadow: var(--cmux-diff-pill-rim);
   font-weight: 400;
@@ -1985,7 +1985,7 @@ svg[data-icon-fill] {
   height: var(--grid-row);
   padding: 0;
   border: 0;
-  border-radius: var(--ds-radius-md);
+  border-radius: var(--ds-radius-control);
   background: var(--cmux-diff-pill-bg);
   box-shadow: var(--cmux-diff-pill-rim);
   color: var(--cmux-diff-fg);
@@ -2203,7 +2203,7 @@ svg[data-icon-fill] {
   height: 28px;
   padding: 0;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--ds-radius-control);
   background: transparent;
   color: color-mix(in srgb, var(--cmux-diff-fg) 62%, var(--cmux-diff-solid-bg));
   cursor: default;
@@ -2378,7 +2378,7 @@ button.file-header-open:hover {
 button.file-header-open:focus-visible {
   outline: 2px solid var(--cmux-diff-accent);
   outline-offset: 1px;
-  border-radius: 3px;
+  border-radius: var(--ds-radius-control);
 }
 .file-header-caret {
   flex: 0 0 auto;
@@ -2480,7 +2480,7 @@ button.file-header-open:focus-visible {
   margin-left: 6px;
   padding: 0;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--ds-radius-control);
   background: transparent;
   color: var(--cmux-diff-text-dim);
   cursor: default;
@@ -2914,4 +2914,175 @@ button.review-brief-spot:hover {
 }
 .review-brief-plan li[data-status="completed"] {
   color: var(--cmux-diff-text-muted);
+}
+
+/* Plain English (diff-viewer/PlainEnglishView.tsx): the diff read as one sentence per hunk, over
+   the code view, which stays as it was beneath it. Every row has its height before its sentence
+   comes, so a sentence arriving moves nothing. */
+#viewer[data-plain-english] .code-view-root {
+  visibility: hidden;
+}
+.plain-english {
+  --plain-english-row: calc(2lh + 16px);
+  position: absolute;
+  inset: 0;
+  z-index: var(--layer-raised);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px 16px 32px;
+  background: var(--cmux-diff-bg);
+  color: var(--cmux-diff-fg);
+  font-family: var(--cmux-diff-ui-font-family);
+  font-size: var(--cmux-diff-ui-font-size);
+  line-height: 1.45;
+}
+.plain-english-note {
+  margin: 0 4px 12px;
+  color: var(--cmux-diff-text-muted);
+  font-size: var(--text-detail);
+}
+.plain-english-file {
+  margin: 0 0 16px;
+  /* A long diff draws only the files near the window. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 160px;
+}
+.plain-english-path {
+  margin: 0 4px 4px;
+  overflow: hidden;
+  color: var(--cmux-diff-text-muted);
+  font-family: var(--cmux-diff-code-font-family);
+  font-size: var(--text-detail);
+  font-weight: var(--weight-emphasis);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+  unicode-bidi: plaintext;
+}
+.plain-english-hunks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--cmux-diff-border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.plain-english-hunk + .plain-english-hunk {
+  border-top: 1px solid var(--cmux-diff-border);
+}
+.plain-english-row {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: var(--plain-english-row);
+  padding: 8px 12px 8px 8px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: default;
+}
+.plain-english-row:hover {
+  background: var(--cmux-diff-hover-bg);
+}
+.plain-english-row:focus-visible {
+  outline: 2px solid color-mix(in lab, var(--cmux-diff-fg) 36%, transparent);
+  outline-offset: -2px;
+}
+.plain-english-row svg {
+  color: var(--cmux-diff-text-muted);
+}
+/* The preview and the sentence share one cell: the sentence takes the preview's place. */
+.plain-english-text {
+  display: grid;
+  align-items: center;
+  min-width: 0;
+  height: 100%;
+}
+.plain-english-text > * {
+  grid-area: 1 / 1;
+  min-width: 0;
+}
+.plain-english-preview {
+  overflow: hidden;
+  color: var(--cmux-diff-text-muted);
+  font-family: var(--cmux-diff-code-font-family);
+  font-size: var(--text-detail);
+  text-overflow: ellipsis;
+  white-space: pre;
+  transition: opacity var(--cmux-motion-micro) var(--cmux-ease-out);
+}
+.plain-english-row:is([data-state="ready"], [data-state="failed"]) .plain-english-preview {
+  opacity: 0;
+}
+.plain-english-sentence {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.plain-english-failed {
+  color: var(--cmux-diff-text-muted);
+}
+.plain-english-row[data-arrives] .plain-english-sentence {
+  animation: plain-english-arrive var(--cmux-motion-micro) var(--cmux-ease-out) both;
+}
+@keyframes plain-english-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+.plain-english-stats {
+  display: flex;
+  gap: 8px;
+  font-family: var(--cmux-diff-code-font-family);
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+}
+.plain-english-added {
+  color: var(--cmux-diff-count-added);
+}
+.plain-english-removed {
+  color: var(--cmux-diff-count-deleted);
+}
+.plain-english-code {
+  border-top: 1px solid var(--cmux-diff-border);
+}
+.plain-english-open {
+  margin: 4px 12px 8px;
+  padding: 4px 8px;
+  border: 1px solid var(--cmux-diff-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--cmux-diff-fg);
+  font: inherit;
+  font-size: var(--text-detail);
+}
+.plain-english-open:hover {
+  background: var(--cmux-diff-hover-bg);
+}
+/* Reduce Motion: the sentence fades in, no slide (motion.md rule 7). */
+:root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .plain-english-row[data-arrives] .plain-english-sentence {
+  animation-name: plain-english-fade;
+  animation-duration: var(--cmux-motion-quick);
+}
+:root[data-cmux-motion="off"] :is(.plain-english-row[data-arrives] .plain-english-sentence, .plain-english-preview) {
+  animation: none;
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .plain-english-row[data-arrives] .plain-english-sentence {
+    animation-name: plain-english-fade;
+    animation-duration: var(--cmux-motion-quick);
+  }
+}
+@keyframes plain-english-fade {
+  from {
+    opacity: 0;
+  }
 }

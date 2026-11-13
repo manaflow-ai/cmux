@@ -49,8 +49,11 @@ pub(crate) const CONFIRMATION_TTL_MS: u64 = 60_000;
 /// make the daemon read a file by path. The same holds for a step of the
 /// location trail. The move from classic cmux reads classic's session
 /// (terminal scrollback included) and writes the app's migration ledger
-/// and backups, so only the verified app runs it.
-pub(crate) const USER_ONLY_OPERATIONS: [&str; 11] = [
+/// and backups, so only the verified app runs it. A browser import read
+/// opens another browser's profile by path: an agent must not read the
+/// person's bookmarks, history or tabs through the daemon, nor a profile
+/// macOS keeps from it (Full Disk Access) by asking the daemon instead.
+pub(crate) const USER_ONLY_OPERATIONS: [&str; 12] = [
     "apps.install",
     "apps.uninstall",
     "apps.enable",
@@ -62,6 +65,7 @@ pub(crate) const USER_ONLY_OPERATIONS: [&str; 11] = [
     crate::history_ops::TRAIL_RECORD_OPERATION,
     crate::state::classic_import_router::PLAN_OPERATION,
     crate::state::classic_import_router::RECORD_OPERATION,
+    crate::resource_router::browser_import::OPERATION,
 ];
 /// Unconsumed tokens one relay connection may hold; the oldest goes first.
 const MAX_CONFIRMATIONS_PER_RELAY: usize = 16;

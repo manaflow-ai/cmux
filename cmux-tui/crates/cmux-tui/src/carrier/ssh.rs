@@ -168,8 +168,8 @@ struct SshDevice<'a> {
 }
 
 /// This device's half of the ssh route, or why there is none: no refusal
-/// this dial, the tunnel hub up, this binary for the ProxyCommand, and the
-/// carrier key (read, or made the first time). [`ssh_route`] asks it for
+/// this dial, the tunnel hub up, this binary for the ProxyCommand, paths ssh
+/// can take, and the carrier key (read, or made the first time). [`ssh_route`] asks it for
 /// every answer, and `carrier capabilities` reports it as ssh's
 /// availability ([`super::fault::this_build`]), so the two cannot disagree.
 fn ssh_device<'a>(setup: &'a SshSetup, refusal: &SshRefusal) -> Result<SshDevice<'a>, Absent> {
@@ -179,6 +179,11 @@ fn ssh_device<'a>(setup: &'a SshSetup, refusal: &SshRefusal) -> Result<SshDevice
     let hub = setup.hub.as_deref().filter(|hub| hub_up(hub)).ok_or(Absent::Tunnel)?;
     let exe = setup.exe.as_deref().ok_or(Absent::Tunnel)?;
     let state = setup.state.as_deref().ok_or(Absent::Key)?;
+    // Every path the route hands ssh must be one ssh can take, checked
+    // here with the same words the route's arguments use: the pin's own
+    // directory is a machine id, which adds no character ssh refuses.
+    ssh_arguments(&CarrierKey::path_in(state), &state.join("known_hosts"), exe, hub)
+        .ok_or(Absent::Key)?;
     let key = CarrierKey::load_or_create(state).map_err(|_| Absent::Key)?;
     Ok(SshDevice { hub, exe, state, key })
 }
@@ -471,10 +476,15 @@ pub(super) fn public_line_of(text: &str) -> Option<String> {
 }
 
 impl CarrierKey {
+    /// Where the key lives in `state`.
+    fn path_in(state: &Path) -> PathBuf {
+        state.join("id_ed25519")
+    }
+
     /// `<state>/id_ed25519`, made (0600, never through a symlink) when
     /// there is none. Two processes making it at once keep the first.
     pub(super) fn load_or_create(state: &Path) -> std::io::Result<Self> {
-        let path = state.join("id_ed25519");
+        let path = Self::path_in(state);
         let invalid = || std::io::Error::from(std::io::ErrorKind::InvalidData);
         let read = || -> std::io::Result<Self> {
             let file = OpenOptions::new()

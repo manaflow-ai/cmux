@@ -113,6 +113,11 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final CancelCreatingInputResult cancelCreatingInput(CancelCreatingInputRequest request) throws CmuxException {
+        Object result = execute(Commands.CANCEL_CREATING_INPUT, request.toWire());
+        return CancelCreatingInputResult.fromWire(result);
+    }
+
     public final ChiefInspectResult chiefInspect(ChiefInspectRequest request) throws CmuxException {
         Object result = execute(Commands.CHIEF_INSPECT, request.toWire());
         return ChiefInspectResult.fromWire(result);
@@ -1187,6 +1192,11 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final EmptyResult setDividerVisible(SetDividerVisibleRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_DIVIDER_VISIBLE, request.toWire());
+        return EmptyResult.fromWire(result);
+    }
+
     public final Object setFrontendBrowserHistory(SetFrontendBrowserHistoryRequest request) throws CmuxException {
         Object result = execute(Commands.SET_FRONTEND_BROWSER_HISTORY, request.toWire());
         return Wire.immutableJson(result);
@@ -1294,6 +1304,21 @@ public abstract class GeneratedCmuxClient {
 
     public final Object setWorkspaceMetadata(SetWorkspaceMetadataRequest request) throws CmuxException {
         Object result = execute(Commands.SET_WORKSPACE_METADATA, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object shellRead(ShellReadRequest request) throws CmuxException {
+        Object result = execute(Commands.SHELL_READ, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object shellRun(ShellRunRequest request) throws CmuxException {
+        Object result = execute(Commands.SHELL_RUN, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object shellStop(ShellStopRequest request) throws CmuxException {
+        Object result = execute(Commands.SHELL_STOP, request.toWire());
         return Wire.immutableJson(result);
     }
 

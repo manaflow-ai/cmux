@@ -20,6 +20,14 @@
 //! `events/compacted.json` records the pass in two steps: written before the first rename, so a
 //! log that may hold nothing is never taken for a purged chat's (`has_records`), and marked
 //! complete after the last, so a pass a crash cut short is done again (`compacted_seq`).
+//!
+//! A cut (`CompactMode::Truncate`, a journal restore's) writes its target, `events/cut.json`
+//! ([`CUT`]), durably before its first rename, and removes it after the last: a crash or a
+//! failure between two renames leaves segments cut to different ends, and every later reader or
+//! append of the log finishes the cut to that target first ([`LocalStore::finish_cut_locked`]).
+//! Without it a log of records 1-50 and 201-350 (the cut of 51-350 stopped after the first
+//! segment) read as one whose recovery begins at 200, and a restore then skipped 51-200 (review
+//! of #37284 at b7496c3f, F2).
 
 use super::*;
 use compact_archive::Archive;
@@ -30,6 +38,8 @@ mod compact_archive;
 
 /// The record of a log's compaction, beside its segments.
 pub const MARKER: &str = "compacted.json";
+/// A cut's target while its segments are replaced, beside them.
+pub const CUT: &str = "cut.json";
 /// A string longer than this, in a raw line or a tool call record, is cut.
 const LONG: usize = 2048;
 /// How much of a cut string is kept.
@@ -45,6 +55,14 @@ pub struct Compaction {
     pub dropped: u64,
     /// Records whose long strings were cut.
     pub trimmed: u64,
+}
+
+/// What a cut leaves beside the segments until each is replaced ([`CUT`]).
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CutIntent {
+    /// Every record past it goes.
+    after: u64,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -70,6 +88,10 @@ pub enum CompactMode<'a> {
     /// `<archive>/<id>/<pass>/events/` first, so nothing is lost. Each pass has its own folder (its
     /// start, in Unix ms): a pass done again after a crash never replaces the first one's copies.
     Write { archive: Option<&'a Path> },
+    /// Write the log with every record past `after` left out, every other line as it is: a
+    /// journal restore takes back the seqs this machine's own recovery wrote past where the
+    /// owner's copy goes on (`hub/journal_restore.rs`). Nothing is compacted.
+    Truncate { after: u64 },
 }
 
 /// A log's compacted segments, written beside the old ones and not yet in place. Dropping it
@@ -77,6 +99,8 @@ pub enum CompactMode<'a> {
 pub struct Staged {
     pub stats: Compaction,
     last_seq: u64,
+    /// A truncation's (`CompactMode::Truncate`): its commit does not count as a compaction.
+    cut: Option<u64>,
     segments: Vec<StagedSegment>,
 }
 
@@ -91,7 +115,7 @@ struct StagedSegment {
 impl Drop for Staged {
     fn drop(&mut self) {
         for tmp in self.segments.iter().filter_map(|s| s.tmp.as_ref()) {
-            let _ = std::fs::remove_file(tmp);
+            let _ = crate::home_fs::remove_file(tmp);
         }
     }
 }
@@ -101,12 +125,59 @@ impl LocalStore {
         self.dir(id).join("events").join(MARKER)
     }
 
+    fn cut_intent(&self, id: &str) -> PathBuf {
+        self.dir(id).join("events").join(CUT)
+    }
+
+    /// Finishes a cut of `id`'s log a crash or a failure left between two of its renames
+    /// ([`CUT`]): every segment is cut again to the cut's target (a segment already cut is
+    /// unchanged by it), the compaction's record is marked complete as the commit would have,
+    /// and the target goes. Nothing when no cut is left. The caller holds the writers' lock, so
+    /// no record is appended meanwhile; every read and the first append of the log come here
+    /// first (`store.rs` `segments`, `append_line`).
+    pub(super) fn finish_cut_locked(&self, id: &str, writers: &mut Writers) -> Result<()> {
+        let path = self.cut_intent(id);
+        let text = match std::fs::read(&path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(e).with_context(|| format!("read {}", path.display())),
+        };
+        let intent: CutIntent = serde_json::from_slice(&text)
+            .with_context(|| format!("read the cut left in {}", path.display()))?;
+        tracing::warn!(session = %id, after = intent.after, "a cut of this log was left halfway; it is finished first");
+        if let Some(w) = writers.open.remove(id) {
+            w.close(id, &self.sync_failed);
+        }
+        let (segments, _) = self.list_segments(id)?;
+        if let Some(mut staged) =
+            self.stage_segments(id, segments, CompactMode::Truncate { after: intent.after })?
+        {
+            for segment in &mut staged.segments {
+                if let Some(tmp) = segment.tmp.take() {
+                    crate::home_fs::rename(&tmp, &segment.path)?;
+                }
+            }
+        }
+        sync_directory(&self.dir(id).join("events"))?;
+        if let Ok(text) = std::fs::read(self.marker(id))
+            && let Ok(mut marker) = serde_json::from_slice::<Marker>(&text)
+            && !marker.complete
+        {
+            marker.complete = true;
+            write_durably(&self.marker(id), &serde_json::to_vec_pretty(&marker)?)?;
+        }
+        crate::home_fs::remove_file(&path)?;
+        sync_directory(&self.dir(id).join("events"))?;
+        Ok(())
+    }
+
     /// When the log was last written, in ms: its newest segment's modification time. A record
     /// appended, a compaction put in place and a copy an import made all set it; a status write
     /// that logs nothing does not.
+    /// None for a cold-archived chat, which is not rehydrated to answer.
     pub(super) fn log_written_at(&self, id: &str) -> Option<u64> {
-        let (_, newest) = self.segments(id).ok()?.pop()?;
-        let at = std::fs::metadata(newest).ok()?.modified().ok()?;
+        let (_, newest) = self.segment_files(id).ok()?.pop()?;
+        let at = crate::home_fs::symlink_metadata(newest).ok()?.modified().ok()?;
         let ms = at.duration_since(std::time::UNIX_EPOCH).ok()?.as_millis();
         u64::try_from(ms).ok()
     }
@@ -121,18 +192,29 @@ impl LocalStore {
     /// None for a chat with no log.
     pub(super) fn stage_compaction(&self, id: &str, mode: CompactMode) -> Result<Option<Staged>> {
         let segments = self.segments(id)?;
+        self.stage_segments(id, segments, mode)
+    }
+
+    /// [`Self::stage_compaction`] of `segments`, the log's as listed.
+    fn stage_segments(
+        &self,
+        id: &str,
+        segments: Vec<(u32, PathBuf)>,
+        mode: CompactMode,
+    ) -> Result<Option<Staged>> {
         if segments.is_empty() {
             return Ok(None);
         }
-        let (write, archive) = match mode {
-            CompactMode::DryRun => (false, None),
-            CompactMode::Write { archive } => (true, archive),
+        let (write, archive, cut) = match mode {
+            CompactMode::DryRun => (false, None, None),
+            CompactMode::Write { archive } => (true, archive, None),
+            CompactMode::Truncate { after } => (true, None, Some(after)),
         };
         let archive = match archive {
             Some(root) => {
                 let kept = Archive::create(root, id, &now_ms().to_string())?;
                 let meta = self.dir(id).join("session.json");
-                if meta.exists() {
+                if crate::home_fs::try_exists_nofollow(&meta)? {
                     // A copy: the chat's own file may be written again in place.
                     kept.keep(&meta, false, true)?;
                 }
@@ -140,7 +222,8 @@ impl LocalStore {
             }
             None => None,
         };
-        let mut staged = Staged { stats: Compaction::default(), last_seq: 0, segments: Vec::new() };
+        let mut staged =
+            Staged { stats: Compaction::default(), last_seq: 0, cut, segments: Vec::new() };
         let mut line = Vec::new();
         let mut timing = Timing::default();
         for (_, path) in segments {
@@ -149,7 +232,7 @@ impl LocalStore {
             let tmp = write.then(|| path.with_extension("ndjson.compact"));
             let mut out = match &tmp {
                 Some(tmp) => {
-                    let _ = std::fs::remove_file(tmp);
+                    let _ = crate::home_fs::remove_file(tmp);
                     let file = open_private_append(tmp)?;
                     Some(std::io::BufWriter::with_capacity(256 * 1024, file))
                 }
@@ -167,6 +250,16 @@ impl LocalStore {
                 staged.stats.bytes_before += line.len() as u64;
                 if let Some(seq) = record_seq(&line) {
                     staged.last_seq = staged.last_seq.max(seq);
+                }
+                if let Some(after) = cut {
+                    // A line whose seq does not read stays, as compaction keeps it.
+                    if record_seq(&line).is_none_or(|seq| seq <= after) {
+                        staged.stats.bytes_after += line.len() as u64;
+                        if let Some(out) = out.as_mut() {
+                            out.write_all(&line)?;
+                        }
+                    }
+                    continue;
                 }
                 if let Some(record) = compact_line(&line, &mut timing, &mut staged.stats) {
                     staged.stats.bytes_after += record.len() as u64;
@@ -201,19 +294,23 @@ impl LocalStore {
         if staged.segments.iter().any(|s| s.tmp.is_none()) {
             return Ok(false);
         }
-        let mut marker = Marker {
-            last_seq: staged.last_seq,
-            at: now_ms(),
-            complete: false,
-            stats: staged.stats,
+        // A truncation compacted nothing: the marker keeps the last compaction's end (at most
+        // where the log ends now), so retention still compacts what came since.
+        let last_seq = match staged.cut {
+            Some(after) => self.compacted_seq(id).unwrap_or(0).min(after),
+            None => staged.last_seq,
         };
+        let mut marker = Marker { last_seq, at: now_ms(), complete: false, stats: staged.stats };
         {
             let mut writers = self.writers.lock_or_recover();
-            let now = self.segments(id)?;
-            let unchanged = now.len() == staged.segments.len()
+            // Listed as they are: a cut left halfway is a change (`stage_compaction` finished
+            // any before it read the log).
+            let (now, cut_pending) = self.list_segments(id)?;
+            let unchanged = !cut_pending
+                && now.len() == staged.segments.len()
                 && now.iter().zip(&staged.segments).all(|((_, path), s)| {
                     *path == s.path
-                        && std::fs::symlink_metadata(path).is_ok_and(|m| m.len() == s.len)
+                        && crate::home_fs::symlink_metadata(path).is_ok_and(|m| m.len() == s.len)
                 });
             if !unchanged {
                 return Ok(false);
@@ -223,19 +320,42 @@ impl LocalStore {
             // says complete, a later pass compacts the log again. Only a commit that goes ahead
             // writes it, so a refused one leaves the chat's folder as it was.
             write_durably(&self.marker(id), &serde_json::to_vec_pretty(&marker)?)?;
+            // A cut's target is on disk before its first rename (review of #37284 at b7496c3f,
+            // F2): a crash or a failure between two renames leaves segments cut to different
+            // ends, and the next read or append finishes the cut to it (`finish_cut_locked`).
+            // b7496c3f kept it nowhere: a restart read the half-cut log as it was.
+            let intent = staged.cut.filter(|_| !crate::hub::journal_restore::rules_of_b749());
+            if let Some(after) = intent {
+                write_durably(&self.cut_intent(id), &serde_json::to_vec(&CutIntent { after })?)?;
+            }
             // Its next append opens the compacted segment, not the old one's descriptor.
             if let Some(w) = writers.open.remove(id) {
                 w.close(id, &self.sync_failed);
             }
             // Every segment stays, an empty one too: a reader that listed the segments a moment
             // ago opens each by its name.
-            for segment in &mut staged.segments {
-                if let Some(tmp) = segment.tmp.take() {
-                    std::fs::rename(&tmp, &segment.path)?;
+            for (n, segment) in staged.segments.iter_mut().enumerate() {
+                // Tests only: a crash between two renames.
+                #[cfg(test)]
+                if n > 0 {
+                    between_segments(id);
                 }
+                #[cfg(not(test))]
+                let _ = n;
+                if let Some(tmp) = segment.tmp.take() {
+                    crate::home_fs::rename(&tmp, &segment.path)?;
+                }
+            }
+            sync_directory(&self.dir(id).join("events"))?;
+            if intent.is_some() {
+                crate::home_fs::remove_file(self.cut_intent(id))?;
             }
         }
         sync_directory(&self.dir(id).join("events"))?;
+        #[cfg(test)]
+        if fails_before_marker(id) {
+            anyhow::bail!("test: the compaction's marker fails after its segments are in place");
+        }
         marker.complete = true;
         write_durably(&self.marker(id), &serde_json::to_vec_pretty(&marker)?)?;
         Ok(true)
@@ -246,31 +366,31 @@ impl LocalStore {
 /// of the file or of its folder is an error (a [`SyncFailed`] for the folder's), not ignored: a
 /// compaction's record is what keeps a log that may hold nothing from passing for a purged chat's,
 /// and the journal store freezes on a failed sync of its files (#35905).
-fn write_durably(path: &Path, bytes: &[u8]) -> Result<()> {
+pub(super) fn write_durably(path: &Path, bytes: &[u8]) -> Result<()> {
     crate::config::refuse_lost_home(path)?;
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let tmp = path.with_extension(format!("tmp-{}-{n}", std::process::id()));
+    // Through the folder this daemon holds (`home_fs`): a home replaced after the check never
+    // gets the record.
     let written = (|| -> Result<()> {
-        let mut options = OpenOptions::new();
-        options.write(true).create(true).truncate(true);
+        let mut options = crate::home_fs::OpenOptions::new();
+        options.write(true).create(true).truncate(true).mode(0o600);
         #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
-        }
+        options.custom_flags(libc::O_NOFOLLOW);
         let mut file = options.open(&tmp).with_context(|| format!("write {}", tmp.display()))?;
         file.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
         file.sync_all().map_err(SyncFailed).with_context(|| format!("sync {}", tmp.display()))?;
         drop(file);
-        std::fs::rename(&tmp, path).with_context(|| format!("rename to {}", path.display()))?;
+        crate::home_fs::rename(&tmp, path)
+            .with_context(|| format!("rename to {}", path.display()))?;
         match path.parent() {
             Some(dir) => sync_directory(dir).with_context(|| format!("sync {}", dir.display())),
             None => Ok(()),
         }
     })();
     if written.is_err() {
-        let _ = std::fs::remove_file(&tmp);
+        let _ = crate::home_fs::remove_file(&tmp);
     }
     written
 }

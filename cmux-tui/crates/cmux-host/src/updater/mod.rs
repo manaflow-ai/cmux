@@ -6,7 +6,7 @@
 //!
 //! The `updater` role ([`role`]) checks the signed channel ([`channel`]) 30 s
 //! after `cmux host run` starts (a boot, or the restart of an update), on
-//! every resume, and every minute. When the channel names another
+//! every resume, and every 15 s. When the channel names another
 //! build than the current profile links, it:
 //!
 //! 1. waits until no acpmux session runs a turn or waits on a permission,
@@ -38,11 +38,16 @@
 //! work user's `~/.cmux/bin/cmux-tui` is not the store link (the Mac app's
 //! in-place `cmux link machine update` replaced it).
 //! `cmux host update status|check|guard` are the operator verbs ([`role::verb`]).
+//! `cmux host update adopt` is the one update from outside for a machine this
+//! does not run on (an image from before it, or a replaced work link): a Mac's
+//! carrier dial runs it over the exec route when the machine never registers
+//! on the relay ([`role::adopt`], cmuxterm-hq#7086).
 
 pub mod carrier;
 pub mod channel;
 #[cfg(unix)]
 pub mod gate;
+pub mod look;
 #[cfg(target_os = "linux")]
 pub mod role;
 pub mod store;
@@ -91,6 +96,10 @@ pub struct State {
     pub last: Option<String>,
     #[serde(default)]
     pub last_at: u64,
+    /// The last check and update run as codes, for the Cloud status report
+    /// ([`look`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub look: Option<look::Look>,
 }
 
 /// An update whose new build has not proved itself yet.
@@ -203,6 +212,81 @@ pub fn off_reason(paths: &Paths) -> Option<String> {
         Ok(target) if target == Path::new(CURRENT_CMUX_TUI) => None,
         Ok(target) => Some(format!("{WORK_CMUX_TUI_LINK} points at {}", target.display())),
         Err(_) => Some(format!("{WORK_CMUX_TUI_LINK} is not the store link")),
+    }
+}
+
+/// Where [`relink_work_link`] keeps the file the Mac app's in-place update left at
+/// [`WORK_CMUX_TUI_LINK`], beside it.
+pub const WORK_CMUX_TUI_KEPT: &str = "/home/cmux/.cmux/bin/cmux-tui.pre-adopt";
+
+/// What [`relink_work_link`] changed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Relinked {
+    /// The work link already pointed at [`CURRENT_CMUX_TUI`].
+    Unchanged,
+    /// A link elsewhere, or none, now points at [`CURRENT_CMUX_TUI`].
+    Linked,
+    /// A regular file there was kept at [`WORK_CMUX_TUI_KEPT`], and the link made.
+    KeptFile,
+}
+
+/// Points [`WORK_CMUX_TUI_LINK`] at [`CURRENT_CMUX_TUI`] again, so the work user's
+/// session daemon follows `/opt/cmux/current` and [`off_reason`] no longer finds the
+/// link replaced (`cmux host update adopt`). A regular file there (the Mac app's
+/// in-place `cmux link machine update`) is kept at [`WORK_CMUX_TUI_KEPT`]; a link
+/// elsewhere is replaced. The new link is made beside it and renamed over it, owned
+/// like its folder. When making it fails, a file it kept goes back first, so an error
+/// leaves the work link as it was.
+#[cfg(unix)]
+pub fn relink_work_link(paths: &Paths) -> io::Result<Relinked> {
+    use std::os::unix::fs::MetadataExt as _;
+    let link = paths.at(WORK_CMUX_TUI_LINK);
+    let kept = match fs::symlink_metadata(&link) {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            if fs::read_link(&link)? == Path::new(CURRENT_CMUX_TUI) {
+                return Ok(Relinked::Unchanged);
+            }
+            false
+        }
+        Ok(meta) if meta.is_file() => {
+            fs::rename(&link, paths.at(WORK_CMUX_TUI_KEPT))?;
+            true
+        }
+        Ok(_) => {
+            return Err(io::Error::other(format!("{WORK_CMUX_TUI_LINK} is not a file or a link")));
+        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => false,
+        Err(e) => return Err(e),
+    };
+    let made = (|| {
+        let dir = link.parent().ok_or_else(|| io::Error::other("the work link has no folder"))?;
+        fs::create_dir_all(dir)?;
+        let owner = fs::metadata(dir)?;
+        let part = dir.join(".cmux-tui.adopt-part");
+        let _ = fs::remove_file(&part);
+        std::os::unix::fs::symlink(CURRENT_CMUX_TUI, &part)?;
+        // Only root may give it away; a test's own folder already has its owner.
+        let _ = std::os::unix::fs::lchown(&part, Some(owner.uid()), Some(owner.gid()));
+        fs::rename(&part, &link)
+    })();
+    match made {
+        Ok(()) if kept => Ok(Relinked::KeptFile),
+        Ok(()) => Ok(Relinked::Linked),
+        Err(e) => {
+            if kept {
+                let _ = fs::rename(paths.at(WORK_CMUX_TUI_KEPT), &link);
+            }
+            Err(e)
+        }
+    }
+}
+
+/// Undoes [`relink_work_link`] when the flip after it failed: the file this run kept
+/// goes back (only that one: a `.pre-adopt` file from an earlier adopt stays).
+#[cfg(unix)]
+pub fn restore_work_link(paths: &Paths, relinked: Relinked) {
+    if relinked == Relinked::KeptFile {
+        let _ = fs::rename(paths.at(WORK_CMUX_TUI_KEPT), paths.at(WORK_CMUX_TUI_LINK));
     }
 }
 
