@@ -30,6 +30,14 @@ public final class ServerUpdateCoordinator {
     /// Counts handshakes taken in, so a view of ``settingsReport(socketPath:tailnetAddress:)`` updates
     /// when a server's build changes without its notice changing.
     public private(set) var handshakeRevision = 0
+    /// True from a handshake until the connection has held for ``offerHold``: a new update offer waits.
+    /// The handshake right after launch or a daemon handoff reported skew while the daemon settled,
+    /// and "Update ready" showed on every launch.
+    public private(set) var holdsOffers = true
+    /// How long a new handshake's connection holds before an update offer shows.
+    public static let offerHold: Duration = .seconds(10)
+    @ObservationIgnored private var offerHoldTask: Task<Void, Never>?
+    @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
     @ObservationIgnored private var reported: [Key: Reported] = [:]
     /// Notices already restarted once this launch: a restart that gained nothing is not offered again.
     @ObservationIgnored private var restartedOnce: Set<String> = []
@@ -46,12 +54,16 @@ public final class ServerUpdateCoordinator {
     ///   - restarter: Restarts a server after the person confirmed.
     ///   - snoozes: Where closed notices persist.
     ///   - now: The clock (tests pass a fixed date).
-    public init(policy: ServerSkewPolicy = ServerSkewPolicy(), restarter: any ServerRestarting,
-                snoozes: ServerUpdateSnoozeStore, now: @escaping () -> Date = { Date() }) {
+    ///   - clock: The clock of the offer hold (tests pass a manual clock).
+    public init<C: Clock & Sendable>(policy: ServerSkewPolicy = ServerSkewPolicy(), restarter: any ServerRestarting,
+                                     snoozes: ServerUpdateSnoozeStore, now: @escaping () -> Date = { Date() },
+                                     clock: C = ContinuousClock()) where C.Duration == Duration {
         self.policy = policy
         self.restarter = restarter
         self.snoozes = snoozes
         self.now = now
+        // wakeup-allow: the offer hold's one-shot deadline (holdOffers); the next handshake cancels it.
+        sleep = { try await clock.sleep(for: $0) }
     }
 
     /// Records what a server said and updates its notice. The same skew again keeps the one notice.
@@ -63,9 +75,23 @@ public final class ServerUpdateCoordinator {
         reported[key] = Reported(handshake: handshake, appCapabilities: appCapabilities, bundledBuild: bundledBuild,
                                  handingOff: handingOff)
         handshakeRevision += 1
+        holdOffers()
         let notice = handingOff ? nil
             : policy.notice(for: handshake, appCapabilities: appCapabilities, bundledBuild: bundledBuild)
         setNotice(notice, for: key)
+    }
+
+    /// Holds new offers for ``offerHold`` from now (one task; the next handshake starts it again).
+    private func holdOffers() {
+        holdsOffers = true
+        offerHoldTask?.cancel()
+        let sleep = sleep
+        offerHoldTask = Task { [weak self] in
+            // wakeup-allow: one-shot deadline of a handshake's offer hold; the next handshake cancels it.
+            do { try await sleep(Self.offerHold) } catch { return }
+            guard !Task.isCancelled else { return }
+            self?.holdsOffers = false
+        }
     }
 
     /// Whether `capability` is on: the server on `host` advertises it. A server not seen yet, or

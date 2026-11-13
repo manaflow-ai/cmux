@@ -17,8 +17,10 @@ workspace = true
 resolver = "2"
 members = [
     "crates/acpmux",
+    "crates/acpmux-core",
     "crates/cmux-tailnet",
     "crates/acpmux-build-id",
+    "crates/acpmux-book",
     "crates/cmux-coderouter",
     "crates/cmux-history",
     "crates/cmux-imessage",
@@ -69,6 +71,7 @@ members = [
     "crates/cmux-holder-v3",
     "crates/cmux-process",
     "crates/cmux-scope",
+    "crates/cmux-file-lock",
     "crates/cmux-remote-protocol",
     "crates/cmux-build-identity",
     "crates/cmux-remote",
@@ -129,10 +132,13 @@ members = [
     "crates/cmux-view-rows",
     "crates/acpmux-hot",
     "crates/cmux-command-class",
+    "crates/cmux-source-scan",
 ]
 default-members = [
     "crates/acpmux",
+    "crates/acpmux-core",
     "crates/acpmux-build-id",
+    "crates/acpmux-book",
     "crates/cmux-coderouter",
     "crates/cmux-cloud-cli",
     "crates/cmux-conversation",
@@ -172,6 +178,7 @@ default-members = [
     "crates/cmux-pty",
     "crates/cmux-process",
     "crates/cmux-scope",
+    "crates/cmux-file-lock",
     "crates/cmux-remote-protocol",
     "crates/cmux-build-identity",
     "crates/cmux-remote",
@@ -275,6 +282,7 @@ ghostty-vt-sys = { path = "crates/ghostty-vt-sys" }
 ghostty-vt = { path = "crates/ghostty-vt" }
 cmux-tui-core = { path = "crates/cmux-tui-core" }
 cmux-git = { path = "crates/cmux-git" }
+cmux-file-lock = { path = "crates/cmux-file-lock" }
 cmux-worktree-care = { path = "crates/cmux-worktree-care" }
 cmux-conductor-import = { path = "crates/cmux-conductor-import" }
 cmux-classic-import = { path = "crates/cmux-classic-import" }
