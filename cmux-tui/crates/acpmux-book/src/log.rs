@@ -79,6 +79,8 @@ const LOCK_TRIES: u32 = 100;
 const LOCK_WAIT: std::time::Duration = std::time::Duration::from_millis(2);
 /// The most bytes one [`Log::read_blob`] returns.
 pub const MAX_BLOB_READ: usize = 1024 * 1024;
+const UNDO_HEAD_LEN: usize = 16;
+const UNDO_ENTRY_LEN: usize = 28;
 
 /// The source places that fed a settled row. `file == 0` and `len == 0` mean the daemon made the
 /// row itself (for example a queued prompt or a notice).
@@ -258,6 +260,111 @@ struct Tail {
     len: u64,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct UndoHead {
+    edition: u32,
+    seg: u32,
+    off: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct UndoEntry {
+    row_id: u64,
+    entry: Entry,
+}
+
+fn undo_head_for(mark: Mark) -> UndoHead {
+    UndoHead { edition: mark.edition, seg: mark.seg, off: mark.off }
+}
+
+fn encode_undo_head(head: UndoHead, out: &mut [u8; UNDO_HEAD_LEN]) {
+    out[..4].copy_from_slice(&head.edition.to_le_bytes());
+    out[4..8].copy_from_slice(&head.seg.to_le_bytes());
+    out[8..16].copy_from_slice(&head.off.to_le_bytes());
+    let crc = crc32fast::hash(&out[..12]);
+    out[12..16].copy_from_slice(&crc.to_le_bytes());
+}
+
+fn decode_undo_head(bytes: &[u8]) -> Option<UndoHead> {
+    let edition = record::le_u32(bytes, 0)?;
+    let seg = record::le_u32(bytes, 4)?;
+    let off = record::le_u64(bytes, 8)?;
+    let crc = record::le_u32(bytes, 12)?;
+    (crc32fast::hash(bytes.get(..12)?) == crc).then_some(UndoHead { edition, seg, off })
+}
+
+fn encode_undo_entry(entry: UndoEntry, out: &mut [u8; UNDO_ENTRY_LEN]) {
+    out[..8].copy_from_slice(&entry.row_id.to_le_bytes());
+    out[8..12].copy_from_slice(&entry.entry.seg.to_le_bytes());
+    out[12..16].copy_from_slice(&entry.entry.off.to_le_bytes());
+    out[16..20].copy_from_slice(&entry.entry.len.to_le_bytes());
+    out[20..24].copy_from_slice(&entry.entry.rev.to_le_bytes());
+    let crc = crc32fast::hash(&out[..24]);
+    out[24..28].copy_from_slice(&crc.to_le_bytes());
+}
+
+fn decode_undo_entry(bytes: &[u8]) -> Option<UndoEntry> {
+    let crc = record::le_u32(bytes, 24)?;
+    if crc32fast::hash(bytes.get(..24)?) != crc {
+        return None;
+    }
+    Some(UndoEntry {
+        row_id: record::le_u64(bytes, 0)?,
+        entry: Entry {
+            seg: record::le_u32(bytes, 8)?,
+            off: record::le_u32(bytes, 12)?,
+            len: record::le_u32(bytes, 16)?,
+            rev: record::le_u32(bytes, 20)?,
+        },
+    })
+}
+
+fn read_undo(
+    file: &File,
+    expected: Option<UndoHead>,
+) -> Result<(Option<UndoHead>, Vec<UndoEntry>), Error> {
+    let len = file.metadata()?.len();
+    let clear = |file: &File| -> Result<(), Error> {
+        if file.metadata()?.len() != 0 {
+            file.set_len(0)?;
+            fsio::sync(file)?;
+        }
+        Ok(())
+    };
+    if len == 0 {
+        return Ok((None, Vec::new()));
+    }
+    let mut head_bytes = [0u8; UNDO_HEAD_LEN];
+    if len < UNDO_HEAD_LEN as u64 || fsio::read_at(file, &mut head_bytes, 0)? != head_bytes.len() {
+        clear(file)?;
+        return Ok((None, Vec::new()));
+    }
+    let Some(head) = decode_undo_head(&head_bytes) else {
+        clear(file)?;
+        return Ok((None, Vec::new()));
+    };
+    if expected != Some(head) {
+        clear(file)?;
+        return Ok((None, Vec::new()));
+    }
+    let mut entries = Vec::new();
+    let mut at = UNDO_HEAD_LEN as u64;
+    let mut bytes = [0u8; UNDO_ENTRY_LEN];
+    while at.saturating_add(UNDO_ENTRY_LEN as u64) <= len {
+        if fsio::read_at(file, &mut bytes, at)? != bytes.len() {
+            break;
+        }
+        let Some(entry) = decode_undo_entry(&bytes) else { break };
+        entries.push(entry);
+        at = at.saturating_add(UNDO_ENTRY_LEN as u64);
+    }
+    if at != len {
+        file.set_len(at)?;
+        fsio::sync(file)?;
+    }
+    Ok((Some(head), entries))
+}
+
 #[cfg(test)]
 struct FailAfter<'a> {
     file: &'a File,
@@ -290,6 +397,9 @@ pub struct Log {
     raw_map: File,
     raw_files: u32,
     raw_map_len: u64,
+    undo: File,
+    checkpoint_mark: UndoHead,
+    undo_head: Option<UndoHead>,
     options: Options,
     /// Held for the lock on it.
     _lock: File,
@@ -432,6 +542,12 @@ impl Log {
             .create(true)
             .truncate(false)
             .open(dir.join("raw.map"))?;
+        let undo = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(dir.join("rows.undo"))?;
         let lock = OpenOptions::new()
             .read(true)
             .write(true)
@@ -506,6 +622,7 @@ impl Log {
                 && mark.off >= SEGMENT_HEADER_LEN
         });
         let mut recovered = Recovered { checkpoint: saved.is_some(), ..Recovered::default() };
+        let saved_checkpoint = saved.as_ref().map(|(saved_mark, _, _)| undo_head_for(*saved_mark));
         let mark = match saved {
             Some((mark, state, _)) => {
                 recovered.state = state.to_vec();
@@ -526,6 +643,8 @@ impl Log {
             },
         };
         let (raw_files, raw_map_len) = recover_raw_map(&raw_map, mark.raw_files, mark.raw_map_len)?;
+        let checkpoint_mark = undo_head_for(mark);
+        let (undo_head, undo_entries) = read_undo(&undo, saved_checkpoint)?;
         let checkpoint_open_rows = saved.map_or(&[][..], |(_, _, ids)| ids);
         let rebuild = !recovered.checkpoint;
         let mut rows = RowIndex::open(&dir.join("rows.idx"), rebuild)?;
@@ -633,6 +752,18 @@ impl Log {
         // Repair the explicitly checkpointed open rows plus the new-id tail. Mapping growth
         // contributes at most one fixed 64-KB slab, independent of the book's history.
         if recovered.checkpoint {
+            for undo in &undo_entries {
+                if !found_rows.contains(&undo.row_id)
+                    && rows.get(undo.row_id).is_some_and(|entry| {
+                        entry.seg > checkpoint_mark.seg
+                            || (entry.seg == checkpoint_mark.seg
+                                && u64::from(entry.off) >= checkpoint_mark.off)
+                    })
+                {
+                    rewritten = rewritten.saturating_add(rows.set(undo.row_id, undo.entry)?);
+                    rewrites = rewrites.saturating_add(1);
+                }
+            }
             for id in checkpoint_open_rows.chunks_exact(8) {
                 let row_id = record::le_u64(id, 0).ok_or(Error::Corrupt("bad open row id"))?;
                 if !found_rows.contains(&row_id) && rows.get(row_id).is_some() {
@@ -679,6 +810,9 @@ impl Log {
             raw_map,
             raw_files,
             raw_map_len,
+            undo,
+            checkpoint_mark,
+            undo_head,
             options,
             _lock: lock,
             tail,
@@ -889,6 +1023,7 @@ impl Log {
             return Err(Error::Stopped);
         }
         let mut seen = std::collections::BTreeSet::new();
+        let mut previous = Vec::with_capacity(patches.len());
         for patch in patches {
             let Some(entry) = self.settled(patch.row_id)? else {
                 return Err(Error::NotSettled { row_id: patch.row_id });
@@ -904,6 +1039,7 @@ impl Log {
                 return Err(Error::InvalidInput("a patch batch repeats a row"));
             }
             self.validate_record(patch.raw, patch.text)?;
+            previous.push(UndoEntry { row_id: patch.row_id, entry });
         }
         if patches.is_empty() {
             return Ok(());
@@ -913,8 +1049,10 @@ impl Log {
             for patch in patches {
                 entries.push(self.append_record(patch.row_id, patch.rev, patch.raw, patch.text)?);
             }
+            self.append_undo(&previous)?;
             // Even raw-backed patches must be durable before overwriting an older entry.
             self.sync()?;
+            fsio::sync(&self.undo)?;
             for (patch, (seq, entry)) in patches.iter().zip(entries) {
                 self.index_record(patch.row_id, seq, entry)?;
             }
@@ -924,6 +1062,25 @@ impl Log {
             self.broken = true;
         }
         result
+    }
+
+    fn append_undo(&mut self, entries: &[UndoEntry]) -> Result<(), Error> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+        if self.undo_head.is_none() {
+            let mut head = [0u8; UNDO_HEAD_LEN];
+            encode_undo_head(self.checkpoint_mark, &mut head);
+            self.undo.seek(SeekFrom::End(0))?;
+            self.undo.write_all(&head)?;
+            self.undo_head = Some(self.checkpoint_mark);
+        }
+        let mut bytes = [0u8; UNDO_ENTRY_LEN];
+        for entry in entries {
+            encode_undo_entry(*entry, &mut bytes);
+            self.undo.write_all(&bytes)?;
+        }
+        Ok(())
     }
 
     fn validate_record(&self, raw: RawRange, text: &[u8]) -> Result<u32, Error> {
@@ -1087,6 +1244,7 @@ impl Log {
             raw_files: self.raw_files,
             raw_map_len: self.raw_map_len,
         };
+        let checkpoint_mark = undo_head_for(mark);
         let bytes = checkpoint::encode(&mark, state, open_rows)?;
         self.sync()?;
         let rows_synced = match self.rows.sync() {
@@ -1105,6 +1263,10 @@ impl Log {
         };
         let synced = u64::from(rows_synced).saturating_add(u64::from(seqs_synced));
         fsio::write_atomic(&self.dir.join("checkpoint"), &bytes)?;
+        self.undo.set_len(0)?;
+        fsio::sync(&self.undo)?;
+        self.checkpoint_mark = checkpoint_mark;
+        self.undo_head = None;
         self.edition = edition;
         self.stats.syncs = self.stats.syncs.saturating_add(synced).saturating_add(1);
         self.stats.bytes_written = self.stats.bytes_written.saturating_add(bytes.len() as u64);
