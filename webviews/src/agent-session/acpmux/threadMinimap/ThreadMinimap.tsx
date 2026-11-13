@@ -29,8 +29,8 @@ import {
 import { RAIL_SCROLLS_ATTRIBUTE } from "./railWheel";
 import { wheelPixels } from "../wheelPassThrough";
 import { PreviewCard } from "./PreviewCard";
-import { RAIL_ACCESSIBILITY_ID, railEdge, useRailSide } from "./railSide";
-import { ContextMenu } from "../../../ui/ContextMenu";
+import { RAIL_ACCESSIBILITY_ID, useRailSide } from "./railSide";
+import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { ScrollMap } from "./ScrollMap";
 import { threadMinimapLayout } from "./layout.experiment";
 import { threadMinimapHeight, railHeightConfig } from "./height.experiment";
@@ -50,7 +50,9 @@ import {
   LANDING_OFFSET,
   MIN_PROMPTS,
   minimapTurns,
+  filterTurns,
   railFade,
+  railFadeReach,
   railFades,
   railClearHeight,
   railHeight,
@@ -72,18 +74,31 @@ import {
   type MinimapTick as MinimapTickRow,
   type MinimapTurn,
   type MinimapTurns,
+  type RailFilter,
   type RowsChange,
   WAVE_SHAPES,
+  replyMore,
 } from "./model";
+import { type Anchor, type TickRef, tickIndex, prependedBy } from "./threadMinimapModel";
+import { railEdge } from "./railSide";
+import { focusCameFromKey } from "../../../ui/focusModality";
+
+/// The rail menu's filter items (model.ts `RailFilter`).
+const RAIL_FILTER_LABEL = {
+  all: "minimap.filterAll",
+  mine: "minimap.filterMine",
+  agents: "minimap.filterAgents",
+} as const;
 
 /// How long a step's scroll counts as under way for the next step, so repeats keep stepping.
 const STEP_PENDING_MS = STEP_MS + 150;
 /// A pointer that moves this far after pressing a row scrubs instead of clicking.
 const SCRUB_SLOP = 3;
-/// Whether `node` holds focus the keyboard gave it (`:focus-visible`), not a click's.
+/// Whether `node` holds focus a navigation key gave it, not a click's; still true once a pointer
+/// move has taken its ring away, so the rail keeps the keyboard (focusCameFromKey).
 function keyboardFocused(node: HTMLElement): boolean {
   try {
-    return node.matches(":focus-visible");
+    return focusCameFromKey(node);
   } catch {
     return false;
   }
@@ -116,40 +131,6 @@ const EMPTY_EARLIER: readonly AcpmuxRow[] = [];
 /// A row the rail's state names: the index the state holds for it, and its prompt's key.
 type KeyedRow = { index: number; key: string };
 
-/// The band's first turn at the last commit: its tick (key and row id) and row, where its prompt was
-/// in the layout, and where its row drew in the rail; and the first tick's, which older turns change.
-type Anchor = { tick: TickRef; first: TickRef; index: number; layoutTop: number; y: number };
-
-/// A tick as the rail's state remembers it: its key and its prompt's row id.
-type TickRef = Pick<MinimapTickRow, "key" | "id"> & Pick<Partial<MinimapTickRow>, "members">;
-
-/// The index of the tick `ref` names in `ticks`, or -1: by its row first, then by its key. The row
-/// id holds where older turns arrive (a repeated key can move to an older echo, model.ts ticksOf);
-/// the key holds where acpmux's echo replaces this pane's row for a send (a new row, one promptId).
-export function tickIndex(ticks: readonly TickRef[] | RailRows<MinimapTickRow>, ref: TickRef, from = 0): number {
-  if (ticks instanceof RailRows) {
-    const pending = ticks.keyIndex(ref.key);
-    if (pending !== undefined && pending < ticks.pendingCount && pending >= from && ticks.at(pending)!.id === ref.id)
-      return pending;
-    from = Math.max(from, ticks.pendingCount);
-  }
-  for (let index = from; index < ticks.length; index += 1) if (ticks.at(index)!.id === ref.id) return index;
-  // A tick folded into a run of other chats' messages since (model.ts `foldIncoming`) is that run's.
-  for (let index = from; index < ticks.length; index += 1) if (ticks.at(index)!.members?.includes(ref.id)) return index;
-  for (let index = from; index < ticks.length; index += 1) if (ticks.at(index)!.key === ref.key) return index;
-  return -1;
-}
-
-/// How many turns arrived above `anchor`'s since it was taken (undefined: none, or it is gone).
-export function prependedBy(
-  anchor: Anchor | undefined,
-  ticks: readonly MinimapTickRow[] | RailRows<MinimapTickRow>,
-): number | undefined {
-  if (!anchor || !ticks.length || tickIndex(ticks, anchor.first) === 0) return undefined;
-  const at = tickIndex(ticks, anchor.tick, anchor.index);
-  return at < 0 ? undefined : at - anchor.index;
-}
-
 /// The prompt row's element, when the virtualized transcript has it mounted.
 function mountedRow(scroller: HTMLElement, id: string): HTMLElement | undefined {
   for (const node of scroller.querySelectorAll<HTMLElement>(".acpmux-row")) if (node.dataset.rowId === id) return node;
@@ -173,6 +154,7 @@ export function ThreadMinimap({
   scroller,
   scrollTop,
   viewportHeight,
+  latestShadowReach = 0,
   foot,
   railBox,
   scrolls,
@@ -200,6 +182,9 @@ export function ThreadMinimap({
   scroller: React.RefObject<HTMLElement | null>;
   scrollTop: number;
   viewportHeight: number;
+  /// How far the reader is from the latest-message starting point, normalized to the transcript's
+  /// edge-fade ramp. The rail uses this only for its bottom shadow; its own list fade remains separate.
+  latestShadowReach?: number;
   /// Where the transcript's mask ends its view (the bottom stack's top), when it is above
   /// `viewportHeight`: the rail keeps its rows above the mask's bottom band (model.ts railRoom).
   foot?: number;
@@ -257,15 +242,23 @@ export function ThreadMinimap({
     lastTurns.current = read;
   }, [read]);
   const loadedTurns = read.loadedTurns ?? read.turns.filter((turn) => turn.index >= 0);
-  const pendingCount = read.pendingCount ?? 0;
-  const loadedStart = (read.loadedStart ?? 0) + pendingCount;
+  /// Whose prompts the rail shows (model.ts `RailFilter`), picked from its right-click menu.
+  const [filter, setFilter] = useState<RailFilter>("all");
   // A run of other chats' messages next to each other draws as one tick (model.ts `foldIncoming`):
   // the rail's jumps, hover, keys and bookmarks all read the folded lists. The full-height map keeps
-  // a mark per prompt (`loadedTurns`).
-  const named = useMemo(
-    () => (incomingLook.fold ? foldIncoming(read.turns, read.ticks, read.loadedStart ?? 0) : read),
-    [incomingLook.fold, read],
-  );
+  // a mark per prompt (`loadedTurns`). A filtered rail draws each prompt it keeps as its own tick, and
+  // falls back to every prompt when the filter would leave none, so the rail and its menu stay.
+  const named = useMemo(() => {
+    const start = read.loadedStart ?? 0;
+    // The full-height map draws every loaded turn and finds its jump in these lists: it never filters.
+    const kept = filter === "all" || full ? undefined : filterTurns(read.turns, read.ticks, start, filter);
+    if (kept?.ticks.length) return { ...kept, filtered: true };
+    const folded = incomingLook.fold ? foldIncoming(read.turns, read.ticks, start) : read;
+    return { turns: folded.turns, ticks: folded.ticks, loadedStart: start, filtered: false };
+  }, [filter, full, incomingLook.fold, read]);
+  // Prompts known only by count have no sender yet: a filtered rail draws none of them.
+  const pendingCount = named.filtered ? 0 : (read.pendingCount ?? 0);
+  const loadedStart = named.loadedStart + pendingCount;
   const turns = useMemo(() => turnRows(named.turns, pendingCount, sessionId), [named.turns, pendingCount, sessionId]);
   const ticks = useMemo(() => tickRows(named.ticks, pendingCount, sessionId), [named.ticks, pendingCount, sessionId]);
   /// The row under the pointer, or the one a scrub is on.
@@ -432,7 +425,20 @@ export function ThreadMinimap({
   // Its edge (railSide.ts): on the right it is the same rail mirrored, `placement.left` in from the
   // pane's right edge (past the VS Code minimap's `reserve` when that is on), with its hover strip and
   // card on that side.
-  const { side, menu } = useRailSide();
+  const { side, menu: sideMenu } = useRailSide();
+  // Right-click: whose prompts it shows, then which edge it sits on. Only other agents' messages is
+  // offered while the chat has one.
+  const hasIncoming = read.ticks.some((tick) => tick.from !== undefined);
+  const menu: ContextMenuItem[] = [
+    ...(["all", "mine", "agents"] as const).map((each) => ({
+      id: `rail-filter-${each}`,
+      label: t(RAIL_FILTER_LABEL[each]),
+      checked: filter === each,
+      disabled: each === "agents" && !hasIncoming,
+      onSelect: () => setFilter(each),
+    })),
+    ...sideMenu.map((item, at) => (at === 0 ? { ...item, separatorBefore: true } : item)),
+  ];
   const placement = useRailPlacement(scroller, width, columnWidth, side);
   const edge = placement.reserve + placement.left;
   const [cardFocus, setCardFocus] = useState(false);
@@ -470,6 +476,7 @@ export function ThreadMinimap({
     shown,
     hovered,
     loadedStart,
+    filtered: named.filtered,
   });
   useLayoutEffect(() => {
     live.current = {
@@ -484,6 +491,7 @@ export function ThreadMinimap({
       shown,
       hovered,
       loadedStart,
+      filtered: named.filtered,
     };
   });
 
@@ -516,25 +524,42 @@ export function ThreadMinimap({
   useEffect(() => {
     const node = scroller.current;
     if (!node) return;
-    const scrolled = () => {
+    const place = () => {
+      frame = undefined;
       const { turns: all, tops, total, viewportHeight: height, onScreen: drawn, sessionId: session } = live.current;
-      domTop.current = { sessionId: session, top: layoutScrollTop(node) };
+      const top = layoutScrollTop(node);
+      domTop.current = { sessionId: session, top };
       restoring.current = undefined;
       // The full-height map moves its own bar; no band to draw here.
       if (!live.current.shown) return;
-      const next = visibleTurns(all, tops, total, layoutScrollTop(node), height, live.current.loadedStart);
-      // Synchronously: a scroll event or a motion's frame callback is outside React's batch, which
-      // would draw the band after this frame paints. Only a scroll that moves the band renders.
+      const next = visibleTurns(all, tops, total, top, height, live.current.loadedStart);
+      // Synchronously: a frame callback is outside React's batch, which would draw the band after
+      // this frame paints. Only a scroll that moves the band renders.
       if (next.first !== drawn.first || next.last !== drawn.last) flushSync(() => setBandMoves((count) => count + 1));
+    };
+    // One read a frame, in the frame's callbacks, never one per scroll event: a trackpad sends
+    // several a frame, and each read of the offset there laid the transcript out again (Leo,
+    // 2026-11-11: "scrolling up is slow and it layout shift and everythng lag"). Asked in the event,
+    // this callback comes before the transcript's own (scrollPacer.ts, asked by its later handler),
+    // so the band is drawn before the rows that frame mounts. A motion's frame callback has already
+    // run its frame's callbacks: it places at once.
+    let frame: number | undefined;
+    const scrolled = () => {
+      if (frame === undefined) frame = requestAnimationFrame(place);
+    };
+    const moved = () => {
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      place();
     };
     // Captured, so it runs before the transcript's own scroll handler and that one's render finds the
     // band already drawn. A wheel glide or jump (scrollMotion.ts) writes the offset in a frame
     // callback, whose scroll event comes a frame late: it announces its write in that frame too.
     node.addEventListener("scroll", scrolled, { capture: true, passive: true });
-    node.addEventListener(MOTION_SCROLL_EVENT, scrolled);
+    node.addEventListener(MOTION_SCROLL_EVENT, moved);
     return () => {
+      if (frame !== undefined) cancelAnimationFrame(frame);
       node.removeEventListener("scroll", scrolled, { capture: true });
-      node.removeEventListener(MOTION_SCROLL_EVENT, scrolled);
+      node.removeEventListener(MOTION_SCROLL_EVENT, moved);
     };
   }, [scroller]);
 
@@ -847,18 +872,29 @@ export function ThreadMinimap({
     /// own prompt when that is above the view and matches, else to the match before it.
     const target = (by: -1 | 1, matches: (index: number) => boolean) => {
       const node = scroller.current;
-      const { turns: all, ticks: keys, tops, total } = live.current;
+      const { turns: all, ticks: keys, tops, total, filtered } = live.current;
       if (!node || !all.length) return undefined;
       const stepping =
         pending.tick !== undefined && performance.now() < pending.until ? tickIndex(keys, pending.tick) : -1;
       const top = Math.min(layoutScrollTop(node), Math.max(0, total - node.clientHeight));
-      let reading = Math.max(0, all.pendingCount - 1);
+      // A filtered rail's first kept prompt can lie below the view (model.ts filterTurns): with none
+      // at or above the view's top, forward goes to it (-1), and back has nowhere to go. Unfiltered,
+      // that is only the chat's top, where the first prompt (under its date line) is the one read.
+      const first = all.at(all.pendingCount);
+      const below = filtered && first !== undefined && turnScrollTop(first, tops) > top + LANDING_OFFSET;
+      let reading = below ? -1 : Math.max(0, all.pendingCount - 1);
       if (stepping >= 0) reading = stepping;
       else
         for (let index = all.pendingCount; index < all.length; index += 1)
           if (turnScrollTop(all.at(index)!, tops) <= top + 1) reading = index;
       const start =
-        by > 0 || stepping >= 0 || turnScrollTop(all.at(reading)!, tops) >= top - 1 ? reading + by : reading;
+        reading < 0
+          ? by > 0
+            ? 0
+            : -1
+          : by > 0 || stepping >= 0 || turnScrollTop(all.at(reading)!, tops) >= top - 1
+            ? reading + by
+            : reading;
       for (let index = start; index >= 0 && index < all.length; index += by) if (matches(index)) return index;
       return undefined;
     };
@@ -1226,6 +1262,7 @@ export function ThreadMinimap({
       event.currentTarget.releasePointerCapture(state.pointer);
   };
   const fades = railFades(onScreen, turns.length, height, listTop, rowPitch);
+  const fadeReach = railFadeReach(turns.length, height, listTop, rowPitch);
   const inTickContent = (event: React.PointerEvent<HTMLElement>, node: HTMLElement) => {
     const y = event.clientY - node.getBoundingClientRect().top + node.scrollTop;
     return y >= 0 && y < turns.length * rowPitch;
@@ -1237,7 +1274,18 @@ export function ThreadMinimap({
   /// The card centers itself on its row and keeps inside the view (PreviewCard `place`).
   const cardCenter = cardRow === undefined ? 0 : railTop + cardRow * rowPitch + rowPitch / 2 - listTop;
   return (
-    <div className="acpmux-minimap" style={{ "--acpmux-rail-left": `${placement.left}px` } as React.CSSProperties}>
+    <div
+      className="acpmux-minimap"
+      // The scroller's mask reads the side from here, its own child (conversation.css): a `:has()`
+      // that looked deeper would be checked again for every node a streamed chunk inserts.
+      data-side={side}
+      style={
+        {
+          "--acpmux-rail-left": `${placement.left}px`,
+          "--acpmux-minimap-latest-shadow-reach": latestShadowReach,
+        } as React.CSSProperties
+      }
+    >
       {/* Right-clicking the rail (or its narrow-pane strip) moves it to the other edge. */}
       <ContextMenu items={menu}>
         <span
@@ -1269,6 +1317,7 @@ export function ThreadMinimap({
           id={RAIL_ACCESSIBILITY_ID}
           aria-label={t("minimap.label")}
           data-side={side}
+          data-shadow-variant="elevation"
           style={
             {
               ...railEdge(side, edge),
@@ -1285,6 +1334,8 @@ export function ThreadMinimap({
           data-occluded={!railVisible || undefined}
           // The `dimmed` gutter arm (gutter.experiment.ts) draws the occluded rail faint instead of hidden.
           data-dim={(placement.gutterArm === "dimmed" && !railVisible) || undefined}
+          // Whether a short gutter shortens the resting ticks (restTick.experiment.ts, threadMinimap.css).
+          data-rest-tick={placement.restTickArm === "squeeze" ? "squeeze" : undefined}
           // A dimming arm draws other chats' ticks a step under the person's at rest (incoming.experiment.ts).
           data-incoming-dim={incomingLook.dim !== false || undefined}
           data-scrubbing={scrubbing || undefined}
@@ -1329,6 +1380,9 @@ export function ThreadMinimap({
             style={
               {
                 "--acpmux-minimap-fade": `${railFade(height)}px`,
+                // Each edge's depth as the list leaves that end (model.ts railFadeReach); not inherited.
+                "--acpmux-minimap-fade-top-reach": fadeReach.top,
+                "--acpmux-minimap-fade-bottom-reach": fadeReach.bottom,
                 "--acpmux-minimap-pitch": `${rowPitch}px`,
                 // The ticks' entrance staggers down the rows in the rail's room (threadMinimap.css). Each
                 // tick keeps its own place from its mount (Tick), so a scroll changes nothing the list's
@@ -1465,6 +1519,7 @@ export function ThreadMinimap({
           row={cardRow}
           from={cardTurn.from}
           reply={cardTurn.reply}
+          more={() => replyMore(cardTurn)}
           metadata={cardTurn.metadata}
           bookmark={marks.can(cardTurn) ? { marked: cardMarked, toggle: () => marks.toggle(cardTurn) } : undefined}
           onPointerLeave={(event) => {

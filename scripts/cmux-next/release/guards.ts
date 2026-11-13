@@ -13,11 +13,18 @@ export class Refused extends Error {}
  * owner). Refuses another role, and refuses when pscale cannot name the owner of a staging or
  * production branch (fail closed).
  */
-export const requireOwner = async (provider: BranchProvider, tree: Tree, target: Target, sql: Sql, log: (l: string) => void, ownerPgRole?: string | null) => {
+export const requireOwner = async (provider: BranchProvider, tree: Tree, target: Target, sql: Sql, log: (l: string) => void, ownerPgRole?: string | null, setRole = false) => {
   const who = (await sql.query<{ u: string; s: string }>("SELECT current_user AS u, session_user::text AS s"))[0]
   const current = who?.u
   // A login that only acts as the owner (SET ROLE, options=-c role=...) keeps its own, wider rights.
-  if (who && who.s !== who.u) throw new Refused(`the connection logs in as ${who.s} (session_user) and acts as ${who.u}; log in as the owner itself`)
+  // --set-role (staging and development only, a SQL owner only): db-release.ts itself ran SET ROLE to the
+  // owner on this session, so objects and the tracking table still belong to the owner; the login is a
+  // short-lived admin role (staging-owner.ts), so the owner's own password is never needed or reset.
+  if (who && who.s !== who.u) {
+    if (!(setRole && ownerPgRole && target !== "production" && who.u === ownerPgRole))
+      throw new Refused(`the connection logs in as ${who.s} (session_user) and acts as ${who.u}; log in as the owner itself`)
+    log(`session ${who.s} acts as the owner ${who.u} through SET ROLE (--set-role, ${target})`)
+  }
   if (ownerPgRole) {
     // A SQL owner role (no PlanetScale record): named in trees.ts, checked directly.
     log(`connected as ${current} (owner ${ownerPgRole})`)

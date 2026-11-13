@@ -41,7 +41,16 @@ for attempt in 1 2 3 4 5; do
   fi
   mkdir -p "$work/rolls"
   if [ -f "$work/$file" ]; then current="$work/$file"; else current=/dev/null; fi
-  jq -s '(.[0] // {}) * .[1]' "$current" "$patch" > "$work/$file.next"
+  # The first record is the patch itself ($cur is [] when there is no file). Objects merge key by key at every
+  # depth, so rollback.deploys keeps each attempt; a null in the patch never erases what is recorded (a re-run of
+  # a settle that writes "rollback": null keeps the rollback it already recorded).
+  jq -n --slurpfile cur "$current" --slurpfile patch "$patch" '
+    def merge($a; $b):
+      if ($a | type) == "object" and ($b | type) == "object" then
+        reduce ($b | keys_unsorted[]) as $k ($a; .[$k] = merge($a[$k]; $b[$k]))
+      elif $b == null then $a
+      else $b end;
+    merge($cur[0] // {}; $patch[0])' > "$work/$file.next"
   mv "$work/$file.next" "$work/$file"
   git -C "$work" add "$file"
   if git -C "$work" diff --cached --quiet; then exit 0; fi

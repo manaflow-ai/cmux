@@ -31,17 +31,17 @@ struct CloudIdlePauseTests {
 
     @Test func theRecordCarriesWhyItIsPausedAndItsIdleTimeout() throws {
         let data = Data(#"{"id":"vm-1","status":"paused","pauseReason":"idle","idlePauseMinutes":30}"#.utf8)
-        let machine = try JSONDecoder().decode(CloudMachine.self, from: data)
+        let machine = try CloudMachine.classic(data)
         #expect(machine.pauseReason == .idle)
         #expect(machine.idlePauseMinutes == 30)
-        let user = try JSONDecoder().decode(CloudMachine.self, from: Data(#"{"id":"vm-2","status":"paused","pauseReason":"user","idlePauseMinutes":0}"#.utf8))
+        let user = try CloudMachine.classic(Data(#"{"id":"vm-2","status":"paused","pauseReason":"user","idlePauseMinutes":0}"#.utf8))
         #expect(user.pauseReason == .user)
         #expect(user.idlePauseMinutes == 0)
     }
 
     @Test func theRecordCarriesIdlePauseDiagnosticsForMachineStatus() throws {
         let data = Data(#"{"id":"vm-diag","status":"running","idlePause":{"minutes":30,"lastCheckedAt":1700000000000,"idleSince":1699998000000,"lastApiActivityAt":1699999000000,"privateAddressKnown":true,"lastDecision":{"at":1700000000000,"outcome":"idle","reason":"idle","run":{"checked":8,"elapsedMs":120}}}}"#.utf8)
-        let machine = try JSONDecoder().decode(CloudMachine.self, from: data)
+        let machine = try CloudMachine.classic(data)
         let idle = try #require(machine.idlePause)
         #expect(idle.minutes == 30)
         #expect(idle.lastCheckedAt == 1_700_000_000_000)
@@ -54,17 +54,17 @@ struct CloudIdlePauseTests {
         #expect(idle.lastDecision?.run.checked == 8)
         #expect(idle.lastDecision?.run.elapsedMs == 120)
 
-        let fields = CloudHandlers.idlePauseFields(idle)
-        #expect(fields["minutes"] == .int(30))
-        #expect(fields["private_address_known"] == .bool(true))
-        #expect(fields["last_checked_at"] == .int(1_700_000_000_000))
-        #expect(fields["last_decision"] != .null)
-
         let services = MachineIconTests.services()
         let session = MachineIconTests.cloudMachine(services, id: "vm-diag")
         session.machine = machine
         let stats = try JSONDecoder().decode(CloudMachineStats.self, from: Data(#"{"state":"running"}"#.utf8))
-        let text = CloudHandlers.describe(session, stats, now: Date(timeIntervalSince1970: 0))
+        let status = CloudHandlers.status(session, stats, now: Date(timeIntervalSince1970: 0))
+        guard case .object(let idleFields)? = status.fields["idle_pause"] else { Issue.record("no idle_pause"); return }
+        #expect(idleFields["minutes"] == .int(30))
+        #expect(idleFields["private_address_known"] == .bool(true))
+        #expect(idleFields["last_checked_at"] == .int(1_700_000_000_000))
+        #expect(idleFields["last_decision"] != .null)
+        let text = status.text
         #expect(text.contains("idle pause: 30 minutes"))
         #expect(text.contains("idle pause decision: idle (idle)"))
 
@@ -86,20 +86,20 @@ struct CloudIdlePauseTests {
         let session = MachineIconTests.cloudMachine(services, id: "vm-failed")
         session.machine = machine
         let stats = try JSONDecoder().decode(CloudMachineStats.self, from: Data(#"{"state":"failed"}"#.utf8))
-        let fields = CloudHandlers.statusFields(session, stats, now: Date(timeIntervalSince1970: 0))
+        let fields = CloudHandlers.status(session, stats, now: Date(timeIntervalSince1970: 0)).fields
         #expect(fields["error"] == .object(["code": .string("cloud.provider.unavailable"), "message": .string("VM API: HTTP 503")]))
-        let text = CloudHandlers.describe(session, stats, now: Date(timeIntervalSince1970: 0))
+        let text = CloudHandlers.status(session, stats, now: Date(timeIntervalSince1970: 0)).text
         #expect(text.contains("error: cloud.provider.unavailable: VM API: HTTP 503"))
 
         let healthy = MachineIconTests.cloudMachine(services, id: "vm-ok")
-        #expect(CloudHandlers.statusFields(healthy, stats)["error"] == nil)
+        #expect(CloudHandlers.status(healthy, stats).fields["error"] == nil)
     }
 
     @Test func anOlderServerOrAnUnknownReasonDecodesAsNone() throws {
-        let old = try JSONDecoder().decode(CloudMachine.self, from: Data(#"{"id":"vm-old","status":"paused"}"#.utf8))
+        let old = try CloudMachine.classic(Data(#"{"id":"vm-old","status":"paused"}"#.utf8))
         #expect(old.pauseReason == nil)
         #expect(old.idlePauseMinutes == nil)
-        let odd = try JSONDecoder().decode(CloudMachine.self, from: Data(#"{"id":"vm-odd","status":"paused","pauseReason":"billing","idlePauseMinutes":"x"}"#.utf8))
+        let odd = try CloudMachine.classic(Data(#"{"id":"vm-odd","status":"paused","pauseReason":"billing","idlePauseMinutes":"x"}"#.utf8))
         #expect(odd.pauseReason == nil)
         #expect(odd.idlePauseMinutes == nil)
     }

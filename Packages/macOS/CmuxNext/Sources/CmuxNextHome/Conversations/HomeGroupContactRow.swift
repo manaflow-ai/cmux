@@ -1,5 +1,6 @@
 import CmuxHomeCore
 import CmuxNextDesign
+import CmuxNextHomeModel
 import SwiftUI
 
 /// One person Add People offers: a check, the name and where they come from (team or contact).

@@ -1,6 +1,7 @@
 #if os(iOS)
 import AVKit
 import CmuxMobileDesign
+import CmuxSpinner
 import PDFKit
 import QuickLook
 import SwiftUI
@@ -74,7 +75,7 @@ public struct ArtifactPreview: View {
         Group {
             switch content {
             case nil:
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                CmuxSpinner().frame(maxWidth: .infinity, maxHeight: .infinity)
                     .accessibilityIdentifier("artifact.loading")
             case .failure(let error):
                 // Never a blank page: what the Mac said, and a way to try again.
@@ -218,7 +219,7 @@ public struct ArtifactPreview: View {
             ZoomableImage(image: decodedImage, label: "Image, \(artifact.name)", onDismissDrag: onClose.map { close in
                 { translation, ended in
                     if ended {
-                        if translation > 120 { close() } else { withAnimation(.cmuxMobileSnap) { dismissDrag = 0 } }
+                        if translation > 120 { close() } else { withAnimation(.cmuxMobileSnap.unlessReduceMotion) { dismissDrag = 0 } }
                     } else {
                         dismissDrag = max(0, translation)
                     }

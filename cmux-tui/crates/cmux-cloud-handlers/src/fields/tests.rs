@@ -131,11 +131,15 @@ fn the_created_answer_carries_bootstrap_repo_and_machine_config() {
         "machine": {"id": "vm-3", "title": "lane-vm-3", "status": "running", "idlePauseMinutes": 0},
         "workspaceId": "ws-1", "scriptKind": "lane",
         "bootstrap": {"status": "started", "statusFile": "/b/status.json", "log": "/b/log"},
-        "repo": {"spec": "manaflow-ai/cmux", "url": "https://github.com/manaflow-ai/cmux.git", "directory": "cmux"},
         "machineConfig": {"status": "failed", "reason": "bad toml", "statusFile": "/c/status.json", "log": "/c/log"},
     }))
     .unwrap();
-    let fields = created(&lane_request(), &made);
+    let request = NewMachine {
+        repo: Some(crate::repo::parse("manaflow-ai/cmux").unwrap()),
+        machine_config_path: Some("/Users/me/m.toml".into()),
+        ..lane_request()
+    };
+    let fields = created(&request, &made);
     assert_eq!(fields["machine_id"], json!("vm-3"));
     assert_eq!(fields["workspace_id"], json!("ws-1"));
     assert_eq!(fields["target"], json!("machine:vm-3"));
@@ -146,7 +150,7 @@ fn the_created_answer_carries_bootstrap_repo_and_machine_config() {
     );
     assert_eq!(
         fields["repo"],
-        json!({"spec": "manaflow-ai/cmux", "url": "https://github.com/manaflow-ai/cmux.git", "dir": "~/cmux", "check": check})
+        json!({"spec": "manaflow-ai/cmux", "url": "https://github.com/manaflow-ai/cmux.git", "dir": "~/work/cmux", "check": check})
     );
     assert_eq!(
         fields["machine_config"],
@@ -161,15 +165,20 @@ fn the_created_answer_carries_bootstrap_repo_and_machine_config() {
 
 #[test]
 fn a_create_with_no_script_says_none() {
-    let made: Created = serde_json::from_value(
-        json!({"machine": {"id": "vm-4", "title": "t", "status": "running"},
-        "repo": {"spec": "a/b", "url": "u", "directory": "b"}}),
-    )
+    let made: Created = serde_json::from_value(json!({
+        "machine": {"id": "vm-4", "title": "t", "status": "running"},
+        // A config outcome the request never asked for is not answered.
+        "machineConfig": {"status": "applied", "statusFile": "/c/status.json", "log": "/c/log"},
+    }))
     .unwrap();
-    let fields = created(&NewMachine::default(), &made);
+    let request =
+        NewMachine { repo: Some(crate::repo::parse("a/b").unwrap()), ..NewMachine::default() };
+    let fields = created(&request, &made);
     assert_eq!(fields["bootstrap"], json!({"status": "none"}));
     assert_eq!(fields["repo"]["check"], json!("none"));
+    assert_eq!(fields["repo"]["url"], json!("https://github.com/a/b.git"));
     assert!(!fields.contains_key("machine_config"));
+    assert!(!created(&NewMachine::default(), &made).contains_key("repo"));
 }
 
 #[test]
@@ -192,7 +201,8 @@ fn the_handoff_names_the_attach_and_inspect_verbs() {
 fn idle() -> IdlePause {
     serde_json::from_value(json!({"minutes": 30, "lastCheckedAt": 1_700_000_000_000_i64, "idleSince": 1_699_998_000_000_i64,
         "lastApiActivityAt": 1_699_999_000_000_i64, "privateAddressKnown": true,
-        "lastDecision": {"at": 1_700_000_000_000_i64, "outcome": "idle", "reason": "idle", "checked": 8, "elapsedMs": 120}}))
+        "lastDecision": {"at": 1_700_000_000_000_i64, "outcome": "idle", "reason": "idle",
+                         "run": {"checked": 8, "elapsedMs": 120}}}))
     .unwrap()
 }
 

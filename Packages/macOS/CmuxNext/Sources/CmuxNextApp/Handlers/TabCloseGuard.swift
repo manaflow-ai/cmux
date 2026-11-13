@@ -1,10 +1,11 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBridge
-import CmuxNextFocus
 import CmuxNextDaemon
+import CmuxNextFocus
 import CmuxNextSettings
 import CmuxNextTabs
+import CmuxNextWindowRules
 
 /// The one question a user's tab close can ask (#17501, as classic #17430).
 /// A closed terminal ends after the daemon's reap grace, so a close asks
@@ -22,7 +23,7 @@ enum TabCloseGuard {
     /// `parts`: the panes the tabs leave. When each keeps a tab or can show itself leaving (`showPaneClose`), the tabs (and a pane
     /// they empty) leave in this turn, terminals alive (`HiddenTabClose`); `close` gets that hide to lift as it closes (no flash).
     static func close(_ tabs: [TabModel], on daemon: DaemonService, services: AppServices, window: NSWindow?,
-                      leaving parts: [(pane: PaneController, ids: [StripTabID])] = [],
+                      leaving parts: [(pane: PaneController, ids: [StripTabID])] = [], keeping: (pane: PaneController, id: StripTabID)? = nil,
                       close: @escaping @MainActor (_ asked: RunningPrograms, _ hidden: HiddenTabClose?) -> Void) {
         guard CloseUndoToasts.isUserClose, window != nil, asks(tabs, services: services) else { return close([:], nil) }
         // A second close of tabs this close is already asking about (a double click on a close button) is the same close.
@@ -46,7 +47,7 @@ enum TabCloseGuard {
                                                         panes: zip(parts, emptied).map { part, emptied in
             let pane = part.pane, selected = pane.stripModel.selectedID, focused = pane.isFocusedInWorkspace
             return { @MainActor restored in
-                pane.apply(pane.snapshot())
+                pane.apply(pane.snapshot()); if !restored, let keeping, keeping.pane === pane, pane.stripModel.tab(keeping.id) != nil { pane.select(keeping.id) } // the kept tab shows in this turn (cmux-ad i7)
                 if emptied, !restored { _ = pane.showPaneClose() }
                 if restored, !pane.stripModel.tabs.isEmpty, let workspace = pane.workspace, workspace.layoutModel.withdrawPaneClose(pane.layoutPaneID) {
                     workspace.applyCurrent()
@@ -113,20 +114,13 @@ enum TabCloseGuard {
     /// setting on), before any terminal is asked what it runs.
     static func asks(_ tabs: [TabModel], services: AppServices) -> Bool { reads(tabs, services: services) != nil }
 
-    /// The warnings and the closing live terminals' working agents and others (a read asks those); nil: nothing asks.
-    private static func reads(_ tabs: [TabModel], services: AppServices) -> (warnTab: Bool, warnAgent: Bool, agents: [String], others: [TabModel])? {
+    /// The warnings, and what closing `tabs` reads first (cmux-window-rules `close::reads`); nil: nothing asks.
+    private static func reads(_ tabs: [TabModel], services: AppServices) -> (warnings: WindowRules.Warnings, reads: WindowRules.Reads)? {
         let snapshot = services.settings?.snapshot
-        let warnTab = snapshot?.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback
-        let warnAgent = snapshot?.warnBeforeClosingAgentSession ?? CmuxConfigSnapshot.closeWarningFallback
-        let terminals = tabs.filter { $0.kind == .pty && !$0.dead }
-        guard warnTab || warnAgent, !terminals.isEmpty else { return nil }
-        // A terminal with a working agent is that agent's question, never the program one.
-        return (warnTab, warnAgent, terminals.compactMap(workingAgent), terminals.filter { workingAgent($0) == nil })
-    }
-
-    private static func question(_ tabs: [TabModel], _ reads: (warnTab: Bool, warnAgent: Bool, agents: [String], others: [TabModel]), _ answers: [SurfaceID: ProcessAnswer], confirmed: Bool) -> DestructiveConfirmation.Prompt? {
-        let unanswered = confirmed ? reads.others.filter { answers[$0.surface] == .noAnswer }.map(\.displayTitle) : [] // named apart: a title is no program
-        return CloseWarning.of(agents: reads.agents, programs: answers.programNames, unanswered: unanswered, warnTab: reads.warnTab, warnAgent: reads.warnAgent).map { prompt($0, closing: tabs) }
+        let warnings = WindowRules.Warnings(warnTab: snapshot?.warnBeforeClosingTab ?? CmuxConfigSnapshot.warnBeforeClosingTabDefault,
+                                            warnAgent: snapshot?.warnBeforeClosingAgentSession ?? CmuxConfigSnapshot.warnBeforeClosingAgentSessionDefault)
+        let facts = tabs.map { WindowRules.ClosingTab($0, agentAtWork: $0.agent.map { $0.state == .working || $0.state == .blocked } ?? false) }
+        return WindowRules().closeReadsFailingClosed(facts, warnings).map { (warnings, $0) }
     }
 
     /// The question for closing `tabs` (a tab, a selection, a tab group), or nil to close at once (only a working
@@ -135,34 +129,29 @@ enum TabCloseGuard {
     /// closes it without the question (lead, #31875).
     static func promptAndAnswers(closing tabs: [TabModel], on daemon: DaemonService, services: AppServices,
                                  confirmed: Bool = false) async -> (prompt: DestructiveConfirmation.Prompt?, asked: RunningPrograms) {
-        guard let reads = reads(tabs, services: services) else { return (nil, [:]) }
-        let answers = reads.warnTab ? await daemon.processAnswers(of: reads.others) : [:]
-        return (question(tabs, reads, answers, confirmed: confirmed), RunningPrograms(answers, of: reads.others, unansweredRunsTitle: confirmed))
+        guard let (warnings, reads) = reads(tabs, services: services) else { return (nil, [:]) }
+        let others = reads.others.filter(tabs.indices.contains).map { tabs[$0] }
+        let answers = warnings.warnTab ? await daemon.processAnswers(of: others) : [:]
+        let asked = others.compactMap { tab in answers[tab.surface].map { answer -> WindowRules.TerminalAnswer in
+            switch answer {
+            case .program(let program): .init(title: tab.displayTitle, answered: true, program: program)
+            case .noAnswer: .init(title: tab.displayTitle, answered: false, program: nil)
+            }
+        } }
+        let warning = WindowRules().closeWarningFailingClosed(agents: reads.agents, answers: asked, unansweredAsks: confirmed, warnings, titles: others.map(\.displayTitle))
+        return (warning.map { prompt($0, closing: tabs) }, RunningPrograms(answers, of: others, unansweredRunsTitle: confirmed))
     }
 
-    static func prompt(_ warning: CloseWarning, closing tabs: [TabModel]) -> DestructiveConfirmation.Prompt {
-        let title = tabs.count == 1 ? ConfirmationStrings.closeTitle(tabs[0].title) : ConfirmationStrings.closeTabsTitle(tabs.count)
+    static func prompt(_ warning: WindowRules.Warning, closing tabs: [TabModel]) -> DestructiveConfirmation.Prompt {
+        let title = tabs.count == 1 ? ConfirmationStrings.closeTitle(tabs[0].titleText) : ConfirmationStrings.closeTabsTitle(tabs.count)
         switch warning {
         case .agent(let agent):
-            return .init(title: title, body: ConfirmationStrings.agentStillWorking(agent),
+            return .init(title: title, body: ConfirmationStrings.agentStillWorking(agent ?? ConfirmationStrings.theAgent),
                          button: ConfirmationStrings.close, suppresses: CmuxConfigSnapshot.warnBeforeClosingAgentSessionPath)
         case .programs(let programs, let unanswered):
             let body = [programs.isEmpty ? nil : ConfirmationStrings.stillRunning(programs.joined(separator: ", ")),
                         unanswered.isEmpty ? nil : ConfirmationStrings.noAnswer(unanswered.joined(separator: ", "))].compactMap { $0 }
             return .init(title: title, body: body.joined(separator: " "), button: ConfirmationStrings.close, suppresses: CmuxConfigSnapshot.warnBeforeClosingTabPath)
         }
-    }
-
-    /// The display name of an agent working (or waiting on a permission
-    /// answer) in `tab`'s terminal, else nil.
-    static func workingAgent(_ tab: TabModel) -> String? {
-        guard let status = tab.agent, status.state == .working || status.state == .blocked else { return nil }
-        return displayName(status.agent)
-    }
-
-    /// "claude" reads "Claude"; an unnamed agent reads "The agent".
-    static func displayName(_ agent: String?) -> String {
-        guard let agent, let first = agent.first else { return ConfirmationStrings.theAgent }
-        return first.uppercased() + agent.dropFirst()
     }
 }

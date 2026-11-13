@@ -88,7 +88,7 @@ async fn a_watch_list_is_asked_for_without_tools_from_the_start() {
             .expect("the link connects instead of waiting out the handshake deadline")
             .expect("the link stays open");
         match notice {
-            PeerNotice::Sessions(rows) => listed = Some(rows),
+            PeerNotice::Sessions(rows) => listed = Some(crate::peer::parse_rows(&rows)),
             PeerNotice::Connected => break,
             _ => {}
         }
@@ -135,7 +135,7 @@ async fn a_paged_watch_list_is_read_whole_before_the_link_connects() {
             .expect("the link connects")
             .expect("the link stays open");
         match notice {
-            PeerNotice::Sessions(rows) => listed = Some(rows),
+            PeerNotice::Sessions(rows) => listed = Some(crate::peer::parse_rows(&rows)),
             PeerNotice::Connected => break,
             _ => {}
         }
@@ -259,12 +259,12 @@ async fn a_change_during_a_paged_watch_list_comes_after_the_whole_list() {
         .iter()
         .enumerate()
         .filter_map(|(at, n)| match n {
-            PeerNotice::Sessions(rows) => Some((at, rows)),
+            PeerNotice::Sessions(rows) => Some((at, crate::peer::parse_rows(rows))),
             _ => None,
         })
         .collect();
     assert_eq!(lists.len(), 1, "one list, published whole: {seen:?}");
-    let (list_at, rows) = lists[0];
+    let (list_at, rows) = (lists[0].0, &lists[0].1);
     let ids: Vec<&str> = rows.iter().map(|r| r["sessionId"].as_str().unwrap()).collect();
     assert_eq!(ids, ["a", "b"]);
     let changed_at = seen
@@ -327,7 +327,7 @@ async fn a_request_of_a_gone_link_takes_no_page_of_the_watch_list() {
             .expect("the link connects")
             .expect("the link stays open");
         match notice {
-            PeerNotice::Sessions(rows) => listed = Some(rows),
+            PeerNotice::Sessions(rows) => listed = Some(crate::peer::parse_rows(&rows)),
             PeerNotice::Connected => break,
             _ => {}
         }
@@ -421,7 +421,7 @@ async fn a_watch_list_too_large_from_an_old_peer_is_read_in_pages_of_rows() {
             .expect("the link connects instead of failing on a list too large")
             .expect("the link stays open");
         match notice {
-            PeerNotice::Sessions(rows) => lists.push(rows),
+            PeerNotice::Sessions(rows) => lists.push(crate::peer::parse_rows(&rows)),
             PeerNotice::Connected => break,
             _ => {}
         }
@@ -457,6 +457,16 @@ impl OldPacer {
     fn spend(&mut self, at: tokio::time::Instant, cost: Duration) {
         self.free = self.free.max(at) + cost;
     }
+}
+
+/// These stand-in peers build each list in their read loop, so they read no ping meanwhile;
+/// a real peer's connection reader answers pings while its handlers work. They get the long
+/// keepalive, so these tests time the handshake, not the silence budget.
+fn deaf_to_pings(mut peer: Arc<Peer>) -> Arc<Peer> {
+    let timings = &mut Arc::get_mut(&mut peer).expect("only this test holds it").timings;
+    timings.ping_every = Duration::from_secs(20);
+    timings.ping_misses = 4;
+    peer
 }
 
 /// A pre-#28182 peer (as [`old_peer`]) that paces its lists like c230bb58a's
@@ -526,6 +536,9 @@ fn paced_old_peer(
     })
 }
 
+/// How long a paced link may go without a notice (on the paused clock) before its test fails.
+const LINK_WAIT: Duration = Duration::from_secs(3600);
+
 /// Builds c230bb58a's list guard runs back to back (`BURST`) before its pace holds.
 const OLD_BURST: u32 = 4;
 
@@ -560,8 +573,13 @@ async fn link_to_paced_old_peer(
     let mut listed = None;
     let outcome = loop {
         tokio::select! {
-            notice = notices.recv() => match notice.expect("the link stays open").2 {
-                PeerNotice::Sessions(rows) => listed = Some(rows),
+            // Bounded: the clock is paused, so a link that stops sending fails here at once.
+            notice = tokio::time::timeout(LINK_WAIT, notices.recv()) => match notice
+                .expect("a notice from the paced link within LINK_WAIT")
+                .expect("the link stays open")
+                .2
+            {
+                PeerNotice::Sessions(rows) => listed = Some(crate::peer::parse_rows(&rows)),
                 PeerNotice::Connected => break Ok((started.elapsed(), listed.take().unwrap_or_default())),
                 _ => {}
             },
@@ -588,7 +606,7 @@ async fn link_to_paced_old_peer(
 #[tokio::test(start_paused = true)]
 async fn an_old_peer_that_paces_its_lists_links_inside_the_handshake_deadline() {
     let (tx, mut notices) = mpsc::channel(64);
-    let peer = Peer::new("cosmic", "ws://127.0.0.1:9", None, None, tx);
+    let peer = deaf_to_pings(Peer::new("cosmic", "ws://127.0.0.1:9", None, None, tx));
     let asked = Arc::new(Asked::default());
     let (took, rows) = link_to_paced_old_peer(&peer, &mut notices, asked.clone())
         .await
@@ -610,7 +628,7 @@ async fn an_old_peer_that_paces_its_lists_links_inside_the_handshake_deadline() 
 #[tokio::test(start_paused = true)]
 async fn a_peer_whose_list_needed_pages_of_rows_is_read_in_them_at_once_next_time() {
     let (tx, mut notices) = mpsc::channel(64);
-    let peer = Peer::new("cosmic", "ws://127.0.0.1:9", None, None, tx);
+    let peer = deaf_to_pings(Peer::new("cosmic", "ws://127.0.0.1:9", None, None, tx));
     let first = Arc::new(Asked::default());
     link_to_paced_old_peer(&peer, &mut notices, first.clone()).await.expect("the first link");
     assert_eq!(first.whole.load(Ordering::SeqCst), 1, "one whole list, without tools");
@@ -658,7 +676,7 @@ fn slow_pages_peer(
 #[tokio::test(start_paused = true)]
 async fn a_paged_watch_list_slower_than_the_deadline_in_all_still_links() {
     let (tx, mut notices) = mpsc::channel(64);
-    let peer = Peer::new("web", "ws://10.0.0.9:9", None, None, tx);
+    let peer = deaf_to_pings(Peer::new("web", "ws://10.0.0.9:9", None, None, tx));
     let (ours, theirs) = tokio::io::duplex(1 << 16);
     let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
     let server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
@@ -674,7 +692,7 @@ async fn a_paged_watch_list_slower_than_the_deadline_in_all_still_links() {
             .expect("the link connects")
             .expect("the link stays open");
         match notice {
-            PeerNotice::Sessions(rows) => listed = Some(rows),
+            PeerNotice::Sessions(rows) => listed = Some(crate::peer::parse_rows(&rows)),
             PeerNotice::Connected => break,
             _ => {}
         }
@@ -689,7 +707,7 @@ async fn a_paged_watch_list_slower_than_the_deadline_in_all_still_links() {
 #[tokio::test(start_paused = true)]
 async fn a_paged_watch_list_is_cut_at_the_handshake_cap() {
     let (tx, mut notices) = mpsc::channel(64);
-    let peer = Peer::new("web", "ws://10.0.0.9:9", None, None, tx);
+    let peer = deaf_to_pings(Peer::new("web", "ws://10.0.0.9:9", None, None, tx));
     let (ours, theirs) = tokio::io::duplex(1 << 16);
     let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
     let server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;

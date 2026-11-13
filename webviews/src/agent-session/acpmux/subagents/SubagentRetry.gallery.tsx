@@ -10,7 +10,7 @@ import { componentEntry } from "../../../gallery/format";
 import { minutesAgo } from "../../../gallery/clock";
 import type { Play } from "../../../gallery/play";
 import type { AcpmuxRow } from "../model";
-import type { RetryAffordance } from "./SubagentDoneLine";
+import type { RetryAffordance } from "./subagentDoneLineModel";
 import type { Subagent } from "./subagentFold";
 import { failedLineLook } from "./failedLine.experiment";
 
@@ -89,7 +89,8 @@ export default componentEntry<Props>({
   ],
   experiment: { definition: failedLineLook, script: [{ name: "Leo's three failed lines", run: async () => {} }] },
   load: async () => {
-    const { SubagentDoneLine, RetryAffordanceContext } = await import("./SubagentDoneLine");
+    const { SubagentDoneLine } = await import("./SubagentDoneLine");
+    const { RetryAffordanceContext } = await import("./subagentDoneLineModel");
     const { TurnActionsContext } = await import("../conversation/turnActions");
     const { SUBAGENT_DONE } = await import("./subagentRows");
     const restartSubagent = () => {};

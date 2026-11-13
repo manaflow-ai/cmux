@@ -362,7 +362,7 @@ impl Hub {
             return Err(super::super::queue::closing_error());
         }
         if session.moving().is_some() {
-            return Err(super::super::queue::moving_error());
+            return Err(super::super::queue::moving_error(session));
         }
         if session.meta().watching.is_some() {
             return Err(super::super::watch::read_only());
@@ -442,7 +442,7 @@ impl Hub {
                 prompt_id: digest_id.clone(),
                 turn_id: turn_id.clone(),
                 client: client.to_owned(),
-                preview: short_text(&text, 200),
+                preview: short_text(super::inbox::relay_body(&text), 200),
                 queued_at: now_ms(),
                 withdraw: Arc::new(Notify::new()),
                 run: Arc::new(run),
@@ -475,7 +475,6 @@ impl Hub {
             });
         }
         let order: Vec<String> = queue.iter().map(|q| q.prompt_id.clone()).collect();
-        drop(queue);
 
         // The digest is logged before the originals leave, so the log never loses them.
         // It holds the queue's new order too, so a stop before the `queue_order` record below keeps
@@ -496,6 +495,8 @@ impl Hub {
             // A stored permit: its waiting task answers from `joined` (`queue_slot`).
             q.withdraw.notify_one();
         }
+        // Its records went in under the lock that changed the queue (`queue.rs` `QUEUE_KINDS`).
+        drop(queue);
         session.queue_moved.notify_waiters();
 
         let (hub, s, who) = (self.clone(), session.clone(), client.to_owned());

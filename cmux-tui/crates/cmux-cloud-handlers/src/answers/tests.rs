@@ -85,20 +85,11 @@ fn domains_publications_and_keys_have_their_lines() {
 }
 
 #[test]
-fn networks_and_firewall_rules_have_their_lines() {
+fn networks_have_their_lines() {
     let networks = found(
         json!({"kind": "networks", "items": [{"id": "n1", "scope": "team", "cidr": "10.0.0.0/24"}, {"id": "n2", "scope": "user"}]}),
     );
     assert_eq!(networks.text.as_deref(), Some("n1 (team) 10.0.0.0/24\nn2 (user) "));
-    let rules = found(
-        json!({"kind": "firewallRules", "items": [{"id": "r1", "description": "lan", "action": "allow"}, {"id": "r2", "action": "deny"}]}),
-    );
-    assert_eq!(rules.text.as_deref(), Some("r1: lan\nr2: deny"));
-    let rule = found(json!({"kind": "firewallRule", "rule": {"id": "r2", "action": "deny"}}));
-    assert_eq!(
-        (rule.text.as_deref(), rule.fields["action"].clone()),
-        (Some("r2: deny"), json!("deny"))
-    );
 }
 
 #[test]
@@ -117,10 +108,11 @@ fn a_forward_record_becomes_its_local_url() {
         Value::Object(forward_fields(&record)),
         json!({"machine_id": "vm-1", "port": 3000, "local_port": 52011, "url": "http://127.0.0.1:52011/", "state": "open"})
     );
-    assert_eq!(forward(&record).unwrap().text.as_deref(), Some("http://127.0.0.1:52011/"));
+    let names = PortNames { name: "dev box".into(), id: "vm-1".into(), port: Some(3000) };
+    assert_eq!(forward(&record, &names).unwrap().text.as_deref(), Some("http://127.0.0.1:52011/"));
     assert_eq!(
-        forward(&json!({"port": 3000})).unwrap_err(),
-        Said::with("portFailed", ["no local port"])
+        forward(&json!({"port": 3000}), &names).unwrap_err(),
+        Said::with("portFailed", ["dev box", "vm-1", "3000", "no local port"])
     );
     let listed =
         found(json!({"kind": "portList", "machineId": "vm-1", "forwards": [record, {"port": 9}]}));
@@ -130,33 +122,30 @@ fn a_forward_record_becomes_its_local_url() {
 }
 
 #[test]
-fn previews_list_each_port_and_the_unavailable_ones() {
-    let answer = previews(&json!({"machine": "vm-1", "listening": [3000, 5173],
-        "previews": [{"port": 3000, "url": "https://p.dev/", "origin": "https://p.dev", "expiresAt": 1.5e12}],
-        "unavailable": [{"port": 5173, "code": "preview.not_http"}]}));
-    assert_eq!(answer.text.as_deref(), Some("3000 → https://p.dev/"));
+fn a_machine_link_without_a_port_is_its_address() {
+    let names = PortNames { name: "dev box".into(), id: "vm-1".into(), port: None };
+    let bare = machine_link(&names, Some("10.0.0.7"), false, None).unwrap();
+    assert_eq!(bare.text.as_deref(), Some("10.0.0.7"));
+    assert_eq!(bare.fields["address"], json!("10.0.0.7"));
     assert_eq!(
-        Value::Object(answer.fields),
-        json!({"machine_id": "vm-1", "ports": "3000,5173", "listening": [3000, 5173],
-               "previews": [{"port": 3000, "url": "https://p.dev/", "origin": "https://p.dev", "expiresAt": 1.5e12}],
-               "unavailable": [{"port": 5173, "code": "preview.not_http"}]})
+        machine_link(&names, None, false, None).unwrap().text.as_deref(),
+        Some("machine:vm-1")
     );
-    let empty = previews(&json!({"machine": "vm-1"}));
-    assert_eq!((empty.text, empty.copyable), (None, false));
 }
 
 #[test]
-fn a_machine_link_without_a_port_is_its_address() {
-    let bare = machine_link("vm-1", Some("10.0.0.7"), None, None);
-    assert_eq!(bare.text.as_deref(), Some("10.0.0.7"));
-    assert_eq!(bare.fields["address"], json!("10.0.0.7"));
-    assert_eq!(machine_link("vm-1", None, None, None).text.as_deref(), Some("machine:vm-1"));
-    let ported = machine_link("vm-1", Some("10.0.0.7"), Some(3000), None);
-    assert_eq!(ported.text, None);
-    assert_eq!(ported.fields["private_url"], json!("http://10.0.0.7:3000"));
+fn a_machine_link_with_a_port_is_its_share_link_or_no_link() {
+    let names = PortNames { name: "dev box".into(), id: "vm-1".into(), port: Some(3000) };
+    let no_link = Said::with("portNoLink", ["dev box", "vm-1", "3000"]);
     let link =
         ShareLink { url: "https://share.cmux.dev/l/1".into(), link_id: "l1".into(), expires_at: 9 };
-    let linked = machine_link("vm-1", Some("10.0.0.7"), Some(3000), Some(&link));
+    // A provider that opens no port links, before and after a link was made.
+    assert_eq!(machine_link_port(&names, false), Err(no_link.clone()));
+    assert_eq!(machine_link(&names, Some("10.0.0.7"), false, Some(&link)), Err(no_link.clone()));
+    assert_eq!(machine_link_port(&names, true), Ok(()));
+    // No link to give is refused, never an empty answer.
+    assert_eq!(machine_link(&names, Some("10.0.0.7"), true, None), Err(no_link));
+    let linked = machine_link(&names, Some("10.0.0.7"), true, Some(&link)).unwrap();
     assert_eq!(linked.text.as_deref(), Some("https://share.cmux.dev/l/1"));
     assert_eq!(
         Value::Object(linked.fields),
@@ -176,10 +165,21 @@ fn only_a_plain_https_share_link_is_handed_out() {
         "https:///x",
         "share.cmux.dev",
         "https://a b/",
+        "https://[::1",
+        "https://[::1]x/",
+        "https://[zz]/",
+        "https://host:80a/",
+        "https://host:/x",
+        "https://[::1]:/x",
+        "https://ho^st/",
+        "https://share.cmux.dev/%zz",
+        "https://share.cmux.dev/<x>",
     ] {
         assert!(!share_link_ok(bad), "{bad}");
     }
     assert!(share_link_ok("https://share.cmux.dev/a@b"), "an @ in the path is not a user");
+    assert!(share_link_ok("https://[::1]:8443/l"));
+    assert!(share_link_ok("https://share.cmux.dev:443/l%20x"));
 }
 
 #[test]

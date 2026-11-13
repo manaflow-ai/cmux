@@ -16,6 +16,9 @@ public import Foundation
 /// - `"ghostty"`: a Ghostty theme block (a string or a list of lines: `background = #1a1b26`,
 ///   `palette = 4=#7aa2f7`), read as Ghostty theme files are (`ThemeFileColors`).
 ///
+/// A background picture may be relative (`"file:harbor.jpg"`, `"folder:walls"`) or start at `~`: it
+/// resolves against the themes folder, so a theme and its pictures move together as one folder.
+///
 /// Contrast is guarded: in any theme the file colors, a foreground under 4.5:1 on its background is
 /// replaced by the app theme contract's text color (`AppTheme.derive`), so neither the terminal nor
 /// the chrome paints it as written, and a `.correctedValue` diagnostic at `appearance.themeFile` says
@@ -40,24 +43,28 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
     /// Look keys that are no part of a look: the theme file itself, the star list and its rotation,
     /// per-machine and per-display maps, and the saved custom densities.
     static let excludedKeys: Set<String> = [
-        ThemeFileSetting.path.joined(separator: "."), "appearance.favoriteThemes", "appearance.rotateFavoriteThemes",
+        ThemeFileSetting.configPath.joined(separator: "."), "appearance.favoriteThemes", "appearance.rotateFavoriteThemes",
         "appearance.machineColors", "appearance.displayBackgrounds", "appearance.displayBackgroundRotations",
         "appearance.customDensities",
     ]
     static let lookPrefixes = ["appearance.", "ui.animation", "ui.calm", "ui.paneAnimations", "ui.reducedBackgrounds",
                                "browser.omnibar.glass", "app.uiScale"]
+    /// Look keys outside those prefixes: the terminal font and the sidebar's shape and edges.
+    static let lookKeys: Set<String> = ["terminal.fontFamily", "terminal.fontSize", "sidebar.style", "sidebar.border",
+                                        "sidebar.borderWidth", "sidebar.sectionLook"]
 
     /// Whether a theme file may set `descriptor`: a look setting an agent may set too.
     public static func isLook(_ descriptor: SettingDescriptor) -> Bool {
         let id = descriptor.id
         return SettingsSchema.agentSettableKeys.contains(id) && !excludedKeys.contains(id)
-            && lookPrefixes.contains { id.hasPrefix($0) }
+            && (lookKeys.contains(id) || lookPrefixes.contains { id.hasPrefix($0) })
     }
 
-    /// Reads `name`'s file: its text, or nil when there is none. File I/O.
-    public static func source(named name: String, configDirectory: URL) -> Result<String, any Error>? {
-        let url = ThemeFileSetting.url(named: name, configDirectory: configDirectory)
-        guard FileManager.checked.fileExists(atPath: url.path) else { return nil }
+    /// Reads `name`'s file, the user's or else the one cmux ships (`ThemeFileSetting.bundledFolder`): its
+    /// text, or nil when there is none. File I/O.
+    public static func source(named name: String, configDirectory: URL,
+                              bundled: URL? = ThemeFileSetting.bundledFolder) -> Result<String, any Error>? {
+        guard let url = ThemeFileSetting.readableURL(named: name, configDirectory: configDirectory, bundled: bundled) else { return nil }
         return Result {
             let data = try Data(blockingContentsOf: url)
             guard data.count <= ThemeFileSetting.maximumBytes else { throw TooLarge() }
@@ -70,10 +77,11 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
     }
 
     /// The file `name` read from `source` (nil: no file), over `base` (the settings it applies over:
-    /// the terminal theme its colors edit and the edits it keeps).
-    public init(name: String, source: Result<String, any Error>?, base: JSONValue) {
+    /// the terminal theme its colors edit and the edits it keeps). A relative picture resolves against
+    /// `folder`, the themes folder (nil leaves it relative, which the schema refuses).
+    public init(name: String, source: Result<String, any Error>?, base: JSONValue, folder: URL? = nil) {
         self.name = name
-        var reader = Reader(file: "\(ThemeFileSetting.folderName)/\(name).\(ThemeFileSetting.fileExtension)")
+        var reader = Reader(file: "\(ThemeFileSetting.folderName)/\(name).\(ThemeFileSetting.fileExtension)", folder: folder)
         isLoaded = reader.read(source, base: base)
         isUnparsable = reader.isUnparsable
         values = reader.values.sorted { $0.path.lexicographicallyPrecedes($1.path) }
@@ -97,6 +105,7 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
 
     private struct Reader {
         let file: String
+        let folder: URL?
         var values: [(path: [String], value: JSONValue)] = []
         var diagnostics: [SettingsDiagnostic] = []
         var corrected: [String] = []
@@ -137,14 +146,27 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
             }
         }
 
-        private mutating func take(_ descriptor: SettingDescriptor, _ value: JSONValue) {
+        private mutating func take(_ descriptor: SettingDescriptor, _ written: JSONValue) {
             guard ThemeFileOverlay.isLook(descriptor) else {
-                return refuse(descriptor.id, value, "a theme file sets only look settings")
+                return refuse(descriptor.id, written, "a theme file sets only look settings")
             }
+            let value = descriptor.path == BackdropSelectionSetting.configPath ? picture(written) : written
             guard descriptor.accepts(value) else { return refuse(descriptor.id, value, OmnibarSettingsSchema.expectation(descriptor)) }
             // A key written twice (nested and dotted) keeps the later one in key order.
             values.removeAll { $0.path == descriptor.path }
             values.append((descriptor.path, value))
+        }
+
+        /// A `file:` or `folder:` background relative to the themes folder, or at `~`, as an absolute
+        /// path; any other value as written.
+        private func picture(_ value: JSONValue) -> JSONValue {
+            guard let raw = value.stringValue,
+                  let prefix = ["file:", "folder:"].first(where: { raw.hasPrefix($0) }) else { return value }
+            let path = String(raw.dropFirst(prefix.count))
+            guard !path.isEmpty, !path.hasPrefix("/") else { return value }
+            if path == "~" || path.hasPrefix("~/") { return .string(prefix + NSString(string: path).expandingTildeInPath) }
+            guard let folder else { return value }
+            return .string(prefix + folder.appending(path: path).standardizedFileURL.path)
         }
 
         /// The file is there but does not parse: one `.unreadableFile` notice of the file whatever the
@@ -158,7 +180,7 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
         /// (missing, unreadable) is `path` "": cmux-next.json's `appearance.themeFile` names it.
         private mutating func refuse(_ path: String, _ value: JSONValue?, _ message: String) {
             guard !path.isEmpty else {
-                return diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: ThemeFileSetting.path.joined(separator: "."), message: message))
+                return diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: ThemeFileSetting.configPath.joined(separator: "."), message: message))
             }
             diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: path, message: message, file: file, value: value?.compactText))
         }
@@ -166,7 +188,7 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
         /// `colors` and `ghostty` as `appearance.themeEdits` of the terminal theme the file (or `base`)
         /// names, over `base`'s edits; then the contrast guard over every theme the file colors.
         private mutating func readColors(_ members: [String: JSONValue], base: JSONValue) {
-            let editsPath = ThemeEditsSetting().configPath
+            let editsPath = ThemeEditsSetting.configPath
             let ownEdits = values.first { $0.path == editsPath }?.value.objectValue ?? [:]
             var colors: [String: String] = [:]
             if let ghostty = members["ghostty"] { readGhostty(ghostty, into: &colors) }
@@ -174,7 +196,7 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
             var themes = Set(ownEdits.keys.compactMap { key in key.lastIndex(of: "/").map { String(key[..<$0]) } })
             var edits = (base.value(at: editsPath)?.objectValue ?? [:]).merging(ownEdits) { $1 }
             if !colors.isEmpty {
-                let themePath = AppThemeSetting().configPath
+                let themePath = AppThemeSetting.configPath
                 let theme = values.first { $0.path == themePath }?.value.stringValue ?? base.value(at: themePath)?.stringValue
                 if let theme, let spec = ThemeSpec(theme) {
                     for name in Set([spec.light, spec.dark]) {
@@ -238,7 +260,7 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
             let fixed = AppTheme.hex(AppTheme.derive(background: background, foreground: foreground, palette: (0..<16).map { color(String($0)) })[.text])
             let ratio = (foreground.contrast(with: background) * 10).rounded() / 10
             diagnostics.append(SettingsDiagnostic(
-                kind: .correctedValue, path: ThemeFileSetting.path.joined(separator: "."),
+                kind: .correctedValue, path: ThemeFileSetting.configPath.joined(separator: "."),
                 message: "\(theme)'s foreground \(written) is \(ratio):1 on its background, so cmux shows \(fixed) (4.5:1 or more)",
                 file: file, value: JSONValue.string(written).compactText))
             edits[ThemeEditsSetting.key(theme: theme, token: "foreground")] = .string(fixed)

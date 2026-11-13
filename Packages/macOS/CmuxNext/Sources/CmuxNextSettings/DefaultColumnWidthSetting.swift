@@ -5,11 +5,6 @@
 /// column widths as viewport fractions, so a fixed width would change on
 /// every window resize.
 public nonisolated enum DefaultColumnWidthSetting {
-    public static let configPath = ["layout", "defaultColumnWidth"]
-    public static let fallback = 2.0 / 3.0
-    /// The daemon's column width range (`set-viewport-pane-width`).
-    public static let range: ClosedRange<Double> = 0.1...1.0
-
     /// A missing key is the default with no diagnostic; a bad value is the
     /// default plus a diagnostic.
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> Double {

@@ -166,6 +166,10 @@ pub struct CFace {
     pub last_activity_ms: u64,
     /// 0...1, NaN while indeterminate.
     pub progress_value: f64,
+    /// The chat Copy Agent Identifier copies (`front_chat`): the front tab's,
+    /// else the first chat.
+    pub front_chat: u32,
+    pub reserved2: u32,
 }
 
 #[repr(C)]
@@ -438,6 +442,8 @@ impl Faces {
                 status_line,
                 last_activity_ms: face.last_activity_ms,
                 progress_value: face.progress.and_then(|bar| bar.value).unwrap_or(f64::NAN),
+                front_chat: index(face.front_chat),
+                reserved2: 0,
             });
         }
         Ok(())

@@ -1,41 +1,50 @@
 public import AppKit
-public import SwiftUI
 
-/// An `NSHostingView` around `AppSceneView` for AppKit hosts (the sidebar
-/// section provider wants an `NSView` plus a height for a width).
-public final class AppSceneHostingView: NSHostingView<AnyView> {
+/// The AppKit host of one mounted scene (a sidebar section, a Session Info section, an app pane): an
+/// `NSView` plus a height for a width. The scene draws in AppKit (``AppSceneNativeView``, with the
+/// sidebar's own row tokens and the theme), whatever nodes it uses.
+public final class AppSceneHostingView: NSView {
     public let model: AppSceneModel
-    private let sceneAppearance = AppSceneAppearance(useSidebarBackground: true)
-    /// Measures heights for a width without laying out this view.
-    private let measurer: NSHostingController<AnyView>
+    /// Runs when the content's height may have changed (a new scene, a status change).
+    public var onContentSizeChange: (() -> Void)?
+    private let native: AppSceneNativeView
 
+    /// - Parameters:
+    ///   - model: The mount's scene.
+    ///   - bundleDirectory: The app bundle's folder, where `Image` nodes read their files.
     public init(model: AppSceneModel, bundleDirectory: URL?) {
         self.model = model
-        let root = AnyView(AppSceneThemedRoot(appearance: sceneAppearance) { AppSceneView(model: model, bundleDirectory: bundleDirectory) })
-        measurer = NSHostingController(rootView: root)
-        super.init(rootView: root)
-        sizingOptions = [.intrinsicContentSize]
+        native = AppSceneNativeView(model: model, bundleDirectory: bundleDirectory)
+        super.init(frame: .zero)
+        native.onContentSizeChange = { [weak self] in
+            self?.invalidateIntrinsicContentSize()
+            self?.onContentSizeChange?()
+        }
+        native.autoresizingMask = [.width, .height]
+        addSubview(native)
     }
-
-    public override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        sceneAppearance.update(from: self)
-    }
-
-    public override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        sceneAppearance.update(from: self)
-    }
-
-    @available(*, unavailable)
-    @MainActor required init(rootView: AnyView) { fatalError("init(rootView:) is not supported") }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    public nonisolated override var isFlipped: Bool { true }
+
+    /// Brings a scene change applied in this main-actor turn onto the screen now (a host that lays
+    /// out right after applying ops, before the observation's next turn).
+    public override func layoutSubtreeIfNeeded() {
+        native.redrawIfNeeded()
+        super.layoutSubtreeIfNeeded()
+    }
+
+    public override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: preferredHeight(width: bounds.width))
+    }
+
     /// The scene's height when laid out `width` points wide.
-    public func preferredHeight(width: CGFloat) -> CGFloat {
-        let size = measurer.sizeThatFits(in: NSSize(width: width, height: .greatestFiniteMagnitude))
-        return ceil(size.height)
+    public func preferredHeight(width: CGFloat) -> CGFloat { native.preferredHeight(width: width) }
+
+    public override func layout() {
+        super.layout()
+        native.frame = bounds
     }
 }

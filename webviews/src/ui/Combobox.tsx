@@ -81,6 +81,10 @@ export interface ComboboxProps {
    * 2026-11-04: "opening the project picker lags like shit since we have so many") opens in a
    * frame. `estimate` is a row's height in pixels before it is measured. */
   virtualRows?: { estimate: number };
+  /** The line shown when there are no suggestions ("No matches"). It is Base UI's live Empty part
+   * (`role="status"`, polite), so a screen reader hears it as the list empties. */
+  empty?: ReactNode;
+  emptyClassName?: string;
   /** Declarative native rows. When the host is available the web list is not mounted. */
   native?: {
     model: NativePopupDescription;
@@ -118,6 +122,8 @@ export function Combobox({
   onHighlight,
   native,
   virtualRows,
+  empty,
+  emptyClassName,
 }: ComboboxProps) {
   const container = usePortalContainer();
   // A popup list with no room above or below its field: past the window's edge (popupHost.ts).
@@ -277,7 +283,10 @@ export function Combobox({
   const deliberatelyHighlighted = useRef(false);
   const virtualized = hasPinned && virtualRows !== undefined;
   const virtualizer = useRef<Virtualizer<HTMLElement, Element> | null>(null);
+  // Whether the list has opened on its current row (or the person typed first, which moves the list).
+  const revealedCurrent = useRef(false);
   const changeQuery = (next: string) => {
+    revealedCurrent.current = true;
     if (native) setNativeSessionOpen(true);
     // Base UI resets a plain list's scroller on typing; a virtualized one is ours to reset.
     if (virtualized) virtualizer.current?.scrollToOffset(0);
@@ -301,6 +310,26 @@ export function Combobox({
     ? enabledSuggestions.length - availableSuggestions.filter((item) => pinnedSet.has(item)).length
     : 0;
   const disabledSuggestions = suggestions.filter((item) => isItemDisabled?.(item) && !pinnedSet.has(item));
+  // The list opens scrolled to its current row, not its top (Leo, 2026-11-12, on the theme picker:
+  // "shouldn't the opened thing be jumped already to the proper place?"). Once per mount, when the
+  // current row first renders (suggestions may arrive late); the highlight stays where it was, so a
+  // previewing picker previews nothing until the person moves. A list that always highlights its
+  // first row stays at its top: Return must never pick a row scrolled out of sight.
+  useLayoutEffect(() => {
+    if (revealedCurrent.current || !isItemCurrent || autoHighlight === "always") return;
+    const index = enabledSuggestions.findIndex((item) => isItemCurrent(item));
+    if (index < 0) return;
+    if (virtualized) {
+      revealedCurrent.current = true;
+      if (index < scrollingCount) virtualizer.current?.scrollToIndex(index, { align: "center" });
+      return;
+    }
+    const list = listRef.current;
+    const row = list?.querySelector<HTMLElement>('[aria-current="true"]');
+    if (!list || !row) return;
+    revealedCurrent.current = true;
+    revealRow(row, list);
+  });
   const update = (next: string) => {
     setValue(next);
     onQuery(next);
@@ -519,15 +548,47 @@ export function Combobox({
         ) : (
           <Autocomplete.Portal container={container}>
             <Autocomplete.Positioner className="ui-positioner" sideOffset={2} align="start">
-              <Autocomplete.Popup ref={host ? setPopup : undefined} className="ui-popup ui-glass ui-combobox-popup">
+              <Autocomplete.Popup
+                ref={host ? setPopup : undefined}
+                className="ui-popup ui-glass ui-combobox-popup"
+                data-host-glass="menu"
+                data-host-glass-cover=""
+              >
                 {list}
               </Autocomplete.Popup>
             </Autocomplete.Positioner>
           </Autocomplete.Portal>
         ))}
+      {empty !== undefined && (
+        // Mounted for as long as the field is, so the live region exists before its text arrives;
+        // Base UI renders the children only while no item is left.
+        <Autocomplete.Empty className={cx("ui-combobox-empty", emptyClassName)}>
+          {suggestions.length === 0 ? empty : null}
+        </Autocomplete.Empty>
+      )}
     </Autocomplete.Root>
   );
   return rootClassName ? <div className={rootClassName}>{root}</div> : root;
+}
+
+/// Centers `row` in the nearest scroller between it and `list` (the list itself, or a pinned list's
+/// ScrollArea viewport) when it is not already wholly in view. Only that scroller moves, never the
+/// page behind the popup (`scrollIntoView` would scroll every ancestor). A popup laid out after this
+/// commit has no height yet: try again on the next frames.
+export function revealRow(row: HTMLElement, list: HTMLElement, framesLeft = 3): void {
+  let scroller: HTMLElement | null = row.parentElement;
+  while (scroller && scroller !== list && scroller.scrollHeight <= scroller.clientHeight) {
+    scroller = scroller.parentElement;
+  }
+  if (!scroller) return;
+  if (scroller.clientHeight === 0) {
+    if (framesLeft > 0) requestAnimationFrame(() => revealRow(row, list, framesLeft - 1));
+    return;
+  }
+  const view = scroller.getBoundingClientRect();
+  const box = row.getBoundingClientRect();
+  if (box.top >= view.top && box.bottom <= view.bottom) return;
+  scroller.scrollTop += box.top - view.top - (scroller.clientHeight - box.height) / 2;
 }
 
 /// The scrolling rows of a virtualized pinned list: only those near the scroller's viewport mount,

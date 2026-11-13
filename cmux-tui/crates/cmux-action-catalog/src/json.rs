@@ -67,6 +67,7 @@ fn argument(value: &Argument, locale: usize) -> Value {
         "isTargetName": value.is_target_name,
         "isTargetDescription": value.is_target_description,
         "isSuppliedByTarget": value.is_supplied_by_target,
+        "isAskedInPalette": value.asked_in_palette,
     })
 }
 
@@ -118,6 +119,7 @@ pub fn action(value: &Action, locale: usize) -> Value {
         "id": value.id,
         "group": value.group,
         "title": text(&value.title, locale),
+        "hint": opt(value.hint.as_ref(), |t| text(t, locale)),
         "description": value.description,
         "keywords": value.keywords,
         "defaultShortcut": opt(value.default_shortcut.as_ref(), shortcut),
@@ -137,6 +139,8 @@ pub fn action(value: &Action, locale: usize) -> Value {
         "requires": value.requires,
         "arguments": value.arguments.iter().map(|a| argument(a, locale)).collect::<Vec<_>>(),
         "targets": value.targets,
+        "paletteTarget": value.palette_target,
+        "paletteTargetSource": value.palette_target_source,
         "cliName": value.cli_name,
         "mainMenu": value.main_menu,
         "isDebugOnly": value.is_debug_only,

@@ -27,6 +27,36 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
     /// key: a subagent has no acpmux session to keep it, so the page's wake state does. A quit keeps
     /// each one's text in a file of its own (``AgentPaneRelaunchWake``), so it has no size limit.
     public var subagentDrafts: [String: SubagentDraft]?
+    /// The composer holds a typed draft or chips (webviews Composer.tsx `wakeState`). Only a release
+    /// that `agents.hiddenChats.discard` alone makes keeps such a page (``keepReason(_:hasHandshake:keepsDraft:)``).
+    public var holdsDraft: Bool?
+    /// An edit only the page holds, outside the kept composer (a queued message being edited; webviews
+    /// webSwap.ts `pageEditHold`). Kept like ``holdsDraft``, by an `agents.hiddenChats.discard` release only.
+    public var holdsEdits: Bool?
+    /// The transcript's open folds (tool cards, thoughts, "Worked for", subagent groups), handed back so
+    /// a page built again opens them as they were (webviews conversation/wakeFolds.ts, bounded there).
+    public var folds: Folds?
+
+    /// The shown chat's open folds by id, as the page keeps them (App.tsx `expanded`, `openedGroups`, `viewToggles`).
+    public nonisolated struct Folds: Codable, Sendable, Equatable {
+        /// The chat they belong to: a page built on another chat leaves them.
+        public var session: String?
+        /// The open folds.
+        public var expanded: [String]?
+        /// The subagent groups that opened on their own once (one the reader closed stays closed).
+        public var opened: [String]?
+        /// The "Worked for" folds toggled in the Thinking and Verbose views, by view.
+        public var viewToggles: [String: [String]]?
+
+        public init(session: String? = nil, expanded: [String]? = nil, opened: [String]? = nil, viewToggles: [String: [String]]? = nil) {
+            (self.session, self.expanded, self.opened, self.viewToggles) = (session, expanded, opened, viewToggles)
+        }
+
+        /// Nothing open, nothing toggled.
+        public var isEmpty: Bool {
+            (expanded ?? []).isEmpty && (opened ?? []).isEmpty && (viewToggles ?? [:]).values.allSatisfy(\.isEmpty)
+        }
+    }
 
     /// A subagent's unsent prompt as text, its pasted chips in their places, with when it was kept
     /// (ms since 1970), which decides between two pages' copies. An empty text is a cleared draft.
@@ -68,7 +98,8 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
 
     public init(attachments: [Attachment]? = nil, shell: Bool? = nil, shellText: String? = nil,
                 scrollAnchor: AgentPaneScrollAnchor? = nil, atLatest: Bool? = nil, holdsPrompts: Bool? = nil,
-                holdsPageState: Bool? = nil, subagentDrafts: [String: SubagentDraft]? = nil) {
+                holdsPageState: Bool? = nil, subagentDrafts: [String: SubagentDraft]? = nil,
+                holdsDraft: Bool? = nil, holdsEdits: Bool? = nil, folds: Folds? = nil) {
         self.attachments = attachments
         self.shell = shell
         self.shellText = shellText
@@ -77,12 +108,15 @@ public nonisolated struct AgentPaneWakeState: Codable, Sendable, Equatable {
         self.holdsPrompts = holdsPrompts
         self.holdsPageState = holdsPageState
         self.subagentDrafts = subagentDrafts
+        self.holdsDraft = holdsDraft
+        self.holdsEdits = holdsEdits
+        self.folds = folds
     }
 
     /// Nothing to hand back.
     public var isEmpty: Bool {
         (attachments ?? []).isEmpty && shell != true && scrollAnchor == nil && atLatest != true
-            && holdsPrompts != true && holdsPageState != true && (subagentDrafts ?? [:]).isEmpty
+            && holdsPrompts != true && holdsPageState != true && (subagentDrafts ?? [:]).isEmpty && folds?.isEmpty != false
     }
 
     /// The page's `pane.wakeState` answer; empty when the page has no such action (an older page)
@@ -136,8 +170,9 @@ extension AgentPaneWakeState {
 
     /// Why a hidden page asked for its wake state (`wake`, nil when it did not answer in time) stays
     /// instead of being let go, for the log; nil when it may go. A kept page is asked again after
-    /// the planner's `keptRecheck`.
-    public static func keepReason(_ wake: AgentPaneWakeState?, hasHandshake: Bool) -> String? {
+    /// the planner's `keptRecheck`. `keepsDraft`: the release comes from `agents.hiddenChats.discard`
+    /// alone, so a composer holding a draft keeps the page too.
+    public static func keepReason(_ wake: AgentPaneWakeState?, hasHandshake: Bool, keepsDraft: Bool = false) -> String? {
         // A connected page that did not say what it holds (a large attachment still encoding)
         // stays: letting it go would drop its chips.
         if wake == nil, hasHandshake { return "no wake state in time" }
@@ -146,6 +181,8 @@ extension AgentPaneWakeState {
         // prompts have.
         if wake?.holdsPrompts == true { return "holds prompts for a trust answer" }
         if wake?.holdsPageState == true { return "holds page state" }
+        if keepsDraft, wake?.holdsDraft == true { return "holds a draft" }
+        if keepsDraft, wake?.holdsEdits == true { return "holds an unsaved edit" }
         return nil
     }
 

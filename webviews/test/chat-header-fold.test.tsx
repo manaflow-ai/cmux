@@ -8,6 +8,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 // Base UI's menus read these window globals.
@@ -41,12 +42,9 @@ beforeAll(() => {
   doc = window.document;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const labels = () =>
@@ -111,7 +109,8 @@ test("the header shows Changes, Terminal and Browser; New tab, Files and Split D
 
 test("a hidden Changes or Preview folds into the chat menu while it applies; the rows read the state as the menu opens", async () => {
   const { createRoot } = await import("react-dom/client");
-  const { ChatHeaderTools, HEADER_ACTIONS } = await import("../src/agent-session/acpmux/header/ChatHeaderTools");
+  const { ChatHeaderTools } = await import("../src/agent-session/acpmux/header/ChatHeaderTools");
+  const { HEADER_ACTIONS } = await import("../src/agent-session/acpmux/header/chatHeaderToolsModel");
   const { configureQuickActions } = await import("../src/agent-session/acpmux/header/quickActions");
   const { setHeaderState } = await import("../src/agent-session/acpmux/header/headerState");
   const { openPicker } = await import("../src/agent-session/acpmux/pickerOpeners");

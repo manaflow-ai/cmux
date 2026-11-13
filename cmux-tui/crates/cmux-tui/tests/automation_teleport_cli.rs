@@ -290,6 +290,34 @@ fn teleport_refusals_keep_the_automation_here_and_firing() {
     env.json(&["automation", "create", "Shell job", "--command", "make", "--daily", "09:00"]);
     env.json(&["automation", "create", "Odd", "--prompt", "x", "--every", "7m"]);
     env.json(&["automation", "create", "Refused", "--prompt", "x", "--daily", "08:00"]);
+    env.json(&[
+        "automation",
+        "create",
+        "Capped",
+        "--prompt",
+        "x",
+        "--daily",
+        "07:00",
+        "--max-runs",
+        "2",
+    ]);
+    env.json(&[
+        "automation",
+        "create",
+        "Cooled",
+        "--prompt",
+        "x",
+        "--daily",
+        "06:00",
+        "--cooldown",
+        "1h",
+    ]);
+
+    // Cloud keeps no guardrails yet: a move would drop them, so it is refused.
+    for name in ["Capped", "Cooled"] {
+        let out = env.run(&["automation", "teleport", name, "--to", "cloud"]);
+        assert_eq!(out.status.code(), Some(2), "{name}: {}", text(&out.stderr));
+    }
 
     let shell = env.run(&["automation", "teleport", "Shell job", "--to", "cloud"]);
     assert_eq!(shell.status.code(), Some(2), "{}", text(&shell.stderr));
@@ -312,7 +340,7 @@ fn teleport_refusals_keep_the_automation_here_and_firing() {
     assert_eq!(app.op("automation.import").len(), 1);
     let list = env.json(&["automation", "list"]);
     let all = list["automations"].as_array().unwrap();
-    assert_eq!(all.len(), 3, "{list}");
+    assert_eq!(all.len(), 5, "{list}");
     assert!(all.iter().all(|a| a["handoff"].is_null()), "no fence is left: {list}");
 }
 

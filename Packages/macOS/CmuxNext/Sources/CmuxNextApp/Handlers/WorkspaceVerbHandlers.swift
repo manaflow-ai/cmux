@@ -4,6 +4,7 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextSidebar
+import CmuxNextWindowRules
 
 /// Workspace verbs that create or place workspaces and move between them
 /// (REWRITE.md round 3, "Workspace verbs"). Placement goes through the
@@ -31,8 +32,8 @@ enum WorkspaceVerbHandlers {
         registry.bind("workspace.newInNewGroup", run: { invocation in
             let name = invocation["name"]?.stringValue ?? ""
             let byUser = invocation.origin == .user
-            // The group forms in one write at `workspaces.newPlacement` (first under `top`, the default; last
-            // under `bottom`), not at the row's daemon slot first (no slide, cx-f6i7); no reorder races it.
+            // The group forms in one write at `workspaces.newPlacement` (last only under `bottom`, else
+            // first), not at the row's daemon slot first (no slide, cx-f6i7); no reorder races it.
             let index = NewWorkspacePlacements.newGroupIndex(context.services)
             try create(context, invocation, anchorFree: nil) { id, bridge in
                 guard let bridge = bridge as? SidebarBridge else { return }
@@ -250,13 +251,11 @@ enum WorkspaceVerbHandlers {
     }
 
     /// The directory of the workspace's focused terminal, else its first one.
-    static func directory(of workspace: WorkspaceModel, _ context: AppActionContext) -> String? {
-        let terminals = workspace.screens.flatMap(\.panes).flatMap(\.tabs).filter { $0.kind == .pty }
-        if let window = context.activeWindow, window.state.workspaceID == workspace.id, let pane = window.focusedPane,
-           let selected = pane.stripModel.selectedID, let tab = terminals.first(where: { $0.id == selected.rawValue }), let cwd = tab.cwd {
-            return cwd
-        }
-        return terminals.lazy.compactMap(\.cwd).first
+    static func directory(of workspace: WorkspaceModel, _ context: AppActionContext, terminalsOnly: Bool = true) -> String? {
+        let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs).map { WindowRules.DirectoryTab(id: $0.id, cwd: $0.cwd, terminal: $0.kind == .pty) }
+        let window = context.activeWindow
+        let selected = window?.state.workspaceID == workspace.id ? window?.focusedPane?.stripModel.selectedID?.rawValue : nil
+        return WindowRules().directory(tabs, selected: selected, terminalsOnly: terminalsOnly)
     }
 
     // MARK: Close, select, sort, collapse
@@ -289,6 +288,7 @@ enum WorkspaceVerbHandlers {
                     bridge.model.apply(.reorder([id], to: DropPosition(section: section.id, group: group, index: index)))
                 }
                 bridge.place(moving, at: DropPosition(section: section.id, group: group, index: 0), in: before)
+                bridge.rows.show() // the optimistic order leaves also when the placement changed no row (a sorted group, a refused move)
             }
         }
     }

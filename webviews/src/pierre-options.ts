@@ -157,6 +157,11 @@ export function codeViewUnsafeCSS(): string {
       user-select: text;
       cursor: text;
     }
+    /* The page's selection (desktop.css), which does not reach into this shadow root: the fill fit
+       to the surface under it (ui/adaptiveSelection.ts), else the Ghostty config's color. */
+    ::selection {
+      background-color: var(--cmux-selection-fill, var(--cmux-text-selection, Highlight));
+    }
     /* A line listener (Cmd-click opens the file, openFile.ts) makes Pierre show a pointer on
        every line; the text cursor stays, since a plain click selects text. */
     [data-interactive-lines] [data-line] {

@@ -2,6 +2,7 @@
 import CmuxMobileDesign
 import CmuxMobileDiff
 import CmuxMobileMarkdown
+import CmuxSpinner
 import SwiftUI
 
 /// Opens the diff viewer (`fileID` nil = the file list).
@@ -96,7 +97,7 @@ struct ToolRowView: View {
             }
             Spacer(minLength: 4)
             if call.isRunning {
-                ProgressView().controlSize(.mini)
+                CmuxSpinner().controlSize(.mini)
             } else {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 11, weight: .semibold))
@@ -110,11 +111,41 @@ struct ToolRowView: View {
     }
 }
 
-/// Expanded output: a code card; bash shows `$ command` first; capped at 12 lines.
+/// Expanded output: a code card; bash shows `$ command` first; capped at 12 lines. An output
+/// the Mac sent cut (a page's oversized one) shows its head and reads the rest as it opens.
 struct ToolOutputView: View {
     let call: ACPToolCall
+    @Environment(\.loadFullToolOutput) private var loadFull
+    /// The whole output's read failed (link down, an older source): a tap asks again.
+    @State private var loadFailed = false
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            card
+            if call.outputCut != nil {
+                if loadFailed {
+                    Button("Couldn't load the full output. Try Again") {
+                        loadFailed = false
+                        Task { loadFailed = !(await loadFull(call)) }
+                    }
+                    .font(.footnote)
+                    .padding(.leading, 26)
+                } else {
+                    Text("Loading the full output…")
+                        .font(.footnote)
+                        .foregroundStyle(.tertiary)
+                        .padding(.leading, 26)
+                }
+            }
+        }
+        .task(id: call.outputCut) {
+            guard call.outputCut != nil else { return }
+            loadFailed = !(await loadFull(call))
+        }
+    }
+
+    @ViewBuilder
+    private var card: some View {
         let output = call.outputText
         if call.kind == .execute {
             let command = call.command.map { "$ \($0)\n" } ?? ""
@@ -311,7 +342,7 @@ struct DiffSnippet: View {
             Text(added ? "Created" : "Edited").font(.footnote.weight(.medium))
             Text((path as NSString).lastPathComponent).font(.footnote.monospaced().weight(.medium)).foregroundStyle(.primary).lineLimit(1)
             Spacer(minLength: 4)
-            ProgressView().controlSize(.mini)
+            CmuxSpinner().controlSize(.mini)
         }
         .foregroundStyle(.secondary)
         .padding(.horizontal, 16)
@@ -373,7 +404,7 @@ struct DiffSnippet: View {
             .trailingOverflowFade()
             if preview.remaining > 0 {
                 Button(preview.remaining == 1 ? "Show 1 more line" : "Show \(preview.remaining) more lines") {
-                    withAnimation(.cmuxMobileSmooth) {
+                    withAnimation(.cmuxMobileSmooth.unlessReduceMotion) {
                         if let disclosures { disclosures.set("diff-\(call.id)", true) } else { localShowAll = true }
                     }
                 }

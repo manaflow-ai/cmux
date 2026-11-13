@@ -7,6 +7,7 @@ import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -27,12 +28,9 @@ beforeAll(() => {
   host = window.document.querySelector<HTMLElement>("#root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 async function render(items: object[]) {
@@ -45,9 +43,10 @@ async function render(items: object[]) {
   );
 }
 
-// Far past the old 60-character cap.
+// Far past the old 60-character cap; a program the verb table does not name (commandActions.ts), so
+// its row draws the line.
 const CP =
-  "cp /private/tmp/claude-501/-Users-leoli-Projects/scratch/transcript-parity/ellipsis/before.png /Users/leoli/Projects/cmux-tp-ellipsis.noindex/docs/media/after.png";
+  "rsync /private/tmp/claude-501/-Users-leoli-Projects/scratch/transcript-parity/ellipsis/before.png /Users/leoli/Projects/cmux-tp-ellipsis.noindex/docs/media/after.png";
 const shell = (id: string, command: string, extra: object = {}) => ({
   kind: "tool",
   text: "Run",

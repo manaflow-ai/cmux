@@ -182,9 +182,10 @@ fn a_port_is_one_through_65535() {
     for bad in [json!(0), json!(65_536), json!("3000"), json!(3000.5)] {
         assert_eq!(port(&args(json!({"port": bad}))), Err(Said::key("invalidPort")));
     }
+    let names = PortNames { name: "dev box".into(), id: "vm-1".into(), port: None };
     assert_eq!(
-        named_port(&args(json!({})), "open-browser"),
-        Err(Said::with("portInvalid", ["open-browser"]))
+        named_port(&args(json!({})), "open-browser", &names),
+        Err(Said::with("portInvalid", ["dev box", "vm-1", "open-browser"]))
     );
 }
 
@@ -206,24 +207,25 @@ fn a_machine_workspace_flag_needs_its_id() {
 #[test]
 fn an_id_argument_names_what_is_missing() {
     assert_eq!(
-        id_argument(&args(json!({"path": " net-1 "})), "networkIDRequired"),
-        Ok("net-1".into())
+        id_argument(&args(json!({"path": " pub-1 "})), "publicationRequired"),
+        Ok("pub-1".into())
     );
     assert_eq!(
-        id_argument(&args(json!({"path": ""})), "ruleIDRequired"),
-        Err(Said::key("ruleIDRequired"))
+        id_argument(&args(json!({"path": ""})), "publicationRequired"),
+        Err(Said::key("publicationRequired"))
     );
 }
 
 #[test]
 fn a_browser_path_is_slash_when_absent_and_never_has_spaces() {
-    assert_eq!(browser_path(&args(json!({}))), Ok("/".into()));
-    assert_eq!(browser_path(&args(json!({"path": "  "}))), Ok("/".into()));
-    assert_eq!(browser_path(&args(json!({"path": "/docs?x=1"}))), Ok("/docs?x=1".into()));
+    let names = PortNames { name: "dev box".into(), id: "vm-1".into(), port: Some(3000) };
+    assert_eq!(browser_path(&args(json!({})), &names), Ok("/".into()));
+    assert_eq!(browser_path(&args(json!({"path": "  "})), &names), Ok("/".into()));
+    assert_eq!(browser_path(&args(json!({"path": "/docs?x=1"})), &names), Ok("/docs?x=1".into()));
     for bad in ["docs", "/a b", "/a\u{7}", &format!("/{}", "a".repeat(2048))] {
         assert_eq!(
-            browser_path(&args(json!({"path": bad}))),
-            Err(Said::key("portPathInvalid")),
+            browser_path(&args(json!({"path": bad})), &names),
+            Err(Said::with("portPathInvalid", ["dev box", "vm-1", "3000"])),
             "{bad}"
         );
     }
@@ -232,25 +234,41 @@ fn a_browser_path_is_slash_when_absent_and_never_has_spaces() {
 #[test]
 fn the_needed_text_arguments() {
     assert_eq!(
-        needed(&args(json!({"publicKey": " ssh-ed25519 AAA "})), "publicKey"),
+        needed(
+            &args(json!({"publicKey": " ssh-ed25519 AAA "})),
+            "publicKey",
+            &PortNames::default()
+        ),
         Ok(" ssh-ed25519 AAA ".into())
     );
     assert_eq!(
-        needed(&args(json!({"publicKey": " "})), "publicKey"),
+        needed(&args(json!({"publicKey": " "})), "publicKey", &PortNames::default()),
         Err(Said::key("publicKeyRequired"))
     );
-    assert_eq!(needed(&args(json!({"contents": ""})), "contents"), Ok(String::new()));
-    assert_eq!(needed(&args(json!({})), "contents"), Err(Said::key("fileContentsRequired")));
     assert_eq!(
-        needed(&args(json!({"snapshot": ""})), "snapshot"),
+        needed(&args(json!({"contents": ""})), "contents", &PortNames::default()),
+        Ok(String::new())
+    );
+    assert_eq!(
+        needed(&args(json!({})), "contents", &PortNames::default()),
+        Err(Said::key("fileContentsRequired"))
+    );
+    assert_eq!(
+        needed(&args(json!({"snapshot": ""})), "snapshot", &PortNames::default()),
         Err(Said::key("snapshotRequired"))
     );
-    assert_eq!(needed(&args(json!({"key": " k1 "})), "key"), Ok("k1".into()));
     assert_eq!(
-        needed(&args(json!({})), "linkId"),
-        Err(Said::with("portFailed", ["linkId is required"]))
+        needed(&args(json!({"key": " k1 "})), "key", &PortNames::default()),
+        Ok("k1".into())
     );
-    assert_eq!(needed(&args(json!({})), "tunnelKey"), Err(Said::key("tunnelKeyRequired")));
+    assert_eq!(
+        needed(
+            &args(json!({})),
+            "linkId",
+            &PortNames { name: "box".into(), id: "vm-1".into(), port: Some(3000) }
+        ),
+        Err(Said::with("portFailed", ["box", "vm-1", "3000", "linkId is required"]))
+    );
 }
 
 #[test]
@@ -267,27 +285,34 @@ fn provision_api_takes_a_port_and_an_optional_key_name() {
 }
 
 #[test]
-fn a_firewall_rule_is_a_json_object() {
-    let rule = firewall_rule(&args(
-        json!({"path": r#"{"source":{"cidr":"10.0.0.0/8"},"description":"lan"}"#}),
-    ))
-    .unwrap();
-    assert_eq!(rule.source, json!({"cidr": "10.0.0.0/8"}));
-    assert_eq!(rule.destination, json!({}));
-    assert_eq!(rule.description.as_deref(), Some("lan"));
-    for bad in [
-        json!("[1]"),
-        json!("not json"),
-        json!(true),
-        json!(r#"{"source":"bad"}"#),
-        json!(r#"{"destination":[1]}"#),
-    ] {
-        assert_eq!(firewall_rule(&args(json!({"path": bad}))), Err(Said::key("ruleJSONRequired")));
-    }
-}
-
-#[test]
 fn the_command_is_trimmed_and_required() {
     assert_eq!(command(&args(json!({"command": " ls -la\n"}))), Ok("ls -la".into()));
     assert_eq!(command(&args(json!({"command": "\n"}))), Err(Said::key("commandRequired")));
+}
+
+#[test]
+fn a_resize_takes_a_size_or_a_disk_in_four_gib_steps() {
+    let names = "large, medium, small, xlarge";
+    let resized = resize(&args(json!({"size": "xlarge", "disk": " 64 "}))).unwrap();
+    assert_eq!(
+        resized,
+        Resize {
+            size: Some("xlarge".into()),
+            cpu: Some(16),
+            memory_mb: Some(24_576),
+            disk_gib: Some(64),
+            storage_mb: Some(65_536),
+        }
+    );
+    assert_eq!(resize(&args(json!({"disk": 8}))).unwrap().size, None);
+    assert_eq!(resize(&args(json!({"size": "huge"}))), Err(Said::with("sizeMustBeOneOf", [names])));
+    assert_eq!(resize(&args(json!({"size": true}))), Err(Said::with("sizeMustBeOneOf", [names])));
+    for bad in [json!(true), json!(2), json!(6), json!(260), json!("x"), json!(8.5)] {
+        assert_eq!(
+            resize(&args(json!({"disk": bad}))),
+            Err(Said::with("resizeNeedsSizeOrDisk", [names])),
+            "{bad}"
+        );
+    }
+    assert_eq!(resize(&args(json!({}))), Err(Said::with("resizeNeedsSizeOrDisk", [names])));
 }

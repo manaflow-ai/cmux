@@ -61,14 +61,55 @@ public final class TabStripView: NSView {
     /// A separate pane-type chooser beside +; the plus keeps its default-tab action.
     public var showsNewTabMenuButton = false {
         didSet {
-            newTabMenuButton.isHidden = !showsNewTabMenuButton || !model.showsNewTabButton
+            newTabMenuButton.isHidden = !showsTypeChooser || !model.showsNewTabButton
             applyTokens(animated: false)
         }
     }
+    /// The trailing controls' look (`TabTunables.trailingButtons`), applied with the design tokens.
+    public internal(set) var trailingButtons = TabTunables.trailingButtons.value
+    /// The pane-type ⌄ shows: the pane asks for it and the trailing look keeps it.
+    var showsTypeChooser: Bool { showsNewTabMenuButton && trailingButtons.showsTypeChooser }
+    /// The room between the last tab and the + (Lucas 2026-11-11: the split +'s fill touched the last
+    /// tab; then 2 px less, so 2 pt at Default).
+    var newTabLeadingGap: CGFloat { Metrics.space1 }
     var newTabControlsWidth: CGFloat {
-        metrics.newTabButtonWidth + (showsNewTabMenuButton ? Metrics.smallIconSize + Metrics.space2 : 0)
+        guard showsTypeChooser else { return metrics.newTabButtonWidth }
+        // Circles: the ⌄ takes the +'s square, so both circles are one diameter. Split: classic's narrower segment.
+        switch trailingButtons {
+        case .circles: return metrics.newTabButtonWidth * 2
+        case .split: return metrics.newTabButtonWidth + TabTrailingButtons.splitChevronWidth(plusWidth: metrics.newTabButtonWidth)
+        case .plates, .glyphs, .merged: return metrics.newTabButtonWidth + Metrics.smallIconSize + Metrics.space2
+        }
     }
     var windowControlsInset: CGFloat = 0
+    /// The tabs' top the last layout applied (``computeTabTop()``); a move in the window that changes it lays out again.
+    var appliedTabTop: CGFloat?
+    /// Called after the strip's pane moved in the window (``updateWindowControlsAvoidance()``): the pane's toolbar
+    /// re-checks its own place on the top row's line.
+    public var onMovedInWindow: (() -> Void)?
+    /// The flush corner: the selected tab is the first, on the leading edge (`TabStripView+CornerFlush`).
+    var leadsWithSelection = false
+    /// The flush corner's state reached the window root since it was turned on.
+    var reportedCornerFlush = false
+    /// A pane's tab row, the one the flush corner runs into the card; false for the workspace's screen
+    /// bar, which is no pane's top row: it neither reports to the flush chrome nor grows a foot.
+    public let isPaneTabRow: Bool
+    /// The frame in the window the flush chrome last read, so a move (a canvas pan, a widened window)
+    /// reports again with the strip's fresh place.
+    var reportedCornerFrame: CGRect?
+    /// The selected folder tab's bounds (in the strip) the flush chrome last read, so a selection or a
+    /// reflow that moves the folder reports again and the shade's hole under it follows.
+    var reportedFolderFrame: CGRect?
+    /// The strip is on the card's top row (the flush chrome's ``setRunsIntoCard(_:)``), so its selected
+    /// tab may run into the card; true until the chrome first says otherwise.
+    var runsIntoCard = true
+    /// The strip is inside the card while the top row's tabs are folders (``setTonedInCard(_:)``): it tones its own
+    /// row (``inCardTone``) and its selected tab is a folder into the content below it.
+    var tonedInCard = false
+    /// The toned strip's shade and tab-row divider, made on first use (`TabStripView+CornerFlush`).
+    var inCardTone: (shade: CAShapeLayer, divider: CAShapeLayer)?
+    /// What ``inCardTone`` was last drawn from: a chrome redraw that changes none of it redraws nothing.
+    var inCardToneDrawn: InCardToneKey?
 
     /// Builds right-click menus from the App's action registry. With no
     /// provider (or a nil menu for a chip), right-clicking a chip opens the
@@ -187,13 +228,6 @@ public final class TabStripView: NSView {
     var pressedAudioID: TabID?
     /// The tab whose speaker the pointer is on: its fill and the strip's tooltip.
     var audioHoveredID: TabID?
-    /// A press on a zoomed pane's indicator (`TabCell.zoomButtonRect`): its release there restores the layout.
-    var pressedZoomID: TabID?
-    /// The tab whose zoom indicator the pointer is on: its fill and the strip's tooltip.
-    var zoomHoveredID: TabID?
-    /// The tab whose zoom indicator the click sequence began on: its remaining presses do not
-    /// activate the tab or another button that moves into the indicator's old slot.
-    var zoomClickedID: TabID?
     var middlePressID: TabID?
     var pressedNewTab = false
     /// Press-and-hold on + opens the new tab menu (`TabNewTabHold`).
@@ -238,7 +272,8 @@ public final class TabStripView: NSView {
     static let placeholderID = TabID("__cmux.tabs.drop-placeholder__")
     // MARK: - Init
 
-    public init(model: TabStripModel, background: Background = .none) {
+    public init(model: TabStripModel, background: Background = .none, isPaneTabRow: Bool = true) {
+        self.isPaneTabRow = isPaneTabRow
         self.model = model
         super.init(frame: CGRect(x: 0, y: 0, width: 600, height: Self.preferredHeight))
         wantsLayer = true
@@ -265,7 +300,7 @@ public final class TabStripView: NSView {
         contentView.addSubview(tabsClip)
         contentView.addSubview(newTabButton)
         contentView.addSubview(newTabMenuButton)
-        newTabMenuButton.isHidden = !showsNewTabMenuButton || !model.showsNewTabButton
+        newTabMenuButton.isHidden = !showsTypeChooser || !model.showsNewTabButton
         newTabMenuButton.onPress = { [weak self] in
             guard let self else { return }
             showNewTabMenu(anchor: newTabMenuButton)
@@ -274,6 +309,15 @@ public final class TabStripView: NSView {
             guard let self else { return }
             if opensNewTabMenuOnPress { showNewTabMenu() }
             else { model.send(.newTab(after: nil)) }
+        }
+        // The split look's two segments tint together: either one under the pointer gives the other its soft fill.
+        newTabButton.onHoverChange = { [weak self, weak newTabMenuButton] hovering in
+            newTabMenuButton?.siblingHovered = hovering
+            self?.updateChooserReveal()
+        }
+        newTabMenuButton.onHoverChange = { [weak self, weak newTabButton] hovering in
+            newTabButton?.siblingHovered = hovering
+            self?.updateChooserReveal()
         }
         newTabButton.onAccessibilityFocus = { [weak self, weak newTabButton] focused in
             guard let newTabButton else { return }
@@ -404,11 +448,14 @@ public final class TabStripView: NSView {
     public override func viewDidHide() {
         super.viewDidHide()
         syncShown(false)
+        // The flush corner's tab row draws only while no shown pane hides its strip (vertical tabs hide it).
+        if isPaneTabRow, CornerFlush.current.isOn { CornerFlushChrome.stripDidChange(self) }
     }
 
     public override func viewDidUnhide() {
         super.viewDidUnhide()
         syncShown()
+        if isPaneTabRow, CornerFlush.current.isOn { CornerFlushChrome.stripDidChange(self) }
     }
 
     /// The window-wide fan-outs (hover-card hit tests, main and occlusion changes) reach only a
@@ -476,11 +523,35 @@ public final class TabStripView: NSView {
         }
         for band in groups.bands.values { band.themeScope = scope }
         applyPinnedDividerColor()
+        updateInCardTone()
+        hoverCard.themeChanged()
+    }
+
+    /// Debug `tabs.chevronOnHover` (on by default, Lucas 2026-11-12): the ⌄ shows only while the + or the ⌄ is under
+    /// the pointer or a new-tab menu is open. It keeps its slot (alpha, not hidden), so nothing moves as it shows.
+    func updateChooserReveal() {
+        let reveal = Self.revealsChooser(onHoverOnly: TabTunables.chevronOnHover.value,
+                                         plusHovered: newTabButton.isHovered, chooserHovered: newTabMenuButton.isHovered,
+                                         menuOpen: newTabButton.isMenuOpen || newTabMenuButton.isHighlighted,
+                                         accessibilityFocused: !accessibilityFocusedElements.isEmpty)
+        newTabMenuButton.alphaValue = reveal ? 1 : 0
+    }
+
+    /// Whether the ⌄ shows (``updateChooserReveal``): always, unless it shows only on hover.
+    nonisolated static func revealsChooser(onHoverOnly: Bool, plusHovered: Bool, chooserHovered: Bool, menuOpen: Bool,
+                                          accessibilityFocused: Bool = false) -> Bool {
+        !onHoverOnly || plusHovered || chooserHovered || menuOpen || accessibilityFocused
     }
 
     func applyTokens(animated: Bool) {
         metrics = customMetrics ?? TabStripMetrics()
         if opensNewTabMenuOnPress { metrics.newTabButtonWidth += Metrics.space4 }
+        trailingButtons = TabTunables.trailingButtons.value
+        newTabButton.hoverStyle = trailingButtons.hoverStyle
+        newTabButton.splitSegment = showsTypeChooser && trailingButtons == .split
+        newTabMenuButton.style = trailingButtons
+        newTabMenuButton.isHidden = !showsTypeChooser || !model.showsNewTabButton
+        updateChooserReveal()
         hoverCard.tokensChanged()
         geometryDidChange()
         let font = Typography.tabTitle
@@ -507,9 +578,12 @@ public final class TabStripView: NSView {
         glassView?.frame = bounds
         if glassView == nil { contentView.frame = bounds }
         let padding = metrics.stripHorizontalPadding
+        // The flush corner (`chrome.cornerFlush`): the first tab starts on the pane's leading edge.
+        let leading = CornerFlush.current.isOn ? 0 : padding
         windowControlsInset = computeWindowControlsInset()
-        let viewport = max(0, bounds.width - 2 * padding - windowControlsInset - (model.showsNewTabButton ? newTabControlsWidth : 0))
-        tabsClip.frame = CGRect(x: padding + windowControlsInset, y: 0, width: viewport, height: bounds.height)
+        appliedTabTop = computeTabTop()
+        let viewport = max(0, bounds.width - leading - padding - windowControlsInset - (model.showsNewTabButton ? newTabLeadingGap + newTabControlsWidth : 0))
+        tabsClip.frame = CGRect(x: leading + windowControlsInset, y: 0, width: viewport, height: bounds.height)
         if viewport != lastViewportWidth {
             // FRAME OWNER S1: the width is the pane's of this frame tick (a window resize, a split, a pane spring), so the tabs
             // take it at once, with no move of their own; a close in flight keeps its own move and its closing tab (cx-y2uf5).
@@ -541,13 +615,11 @@ public final class TabStripView: NSView {
         closingWatch.updateTracking()
     }
 
-    /// Movement snaps: Reduce Motion or `ui.animationSpeed` "off".
-    var reduceMotion: Bool { !Motion.tabs.animatesMovement }
+    /// Movement snaps: Reduce Motion, `ui.animationSpeed` "off" or a live resize of the strip's window.
+    var reduceMotion: Bool { !Motion.tabs.animatesMovement(in: window) }
 
     var viewportWidth: CGFloat { tabsClip.bounds.width }
 
-    /// Tabs are vertically centered in whatever height the strip gets.
-    var tabTop: CGFloat {
-        metrics.tabTop(stripHeight: bounds.height, scale: window?.backingScaleFactor ?? 2)
-    }
+    /// The tabs' top as the last layout applied it (``computeTabTop()``), so every frame drawn between layouts agrees.
+    var tabTop: CGFloat { appliedTabTop ?? computeTabTop() }
 }

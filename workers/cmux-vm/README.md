@@ -192,7 +192,10 @@ billing integration, operator reconciliation/cancellation of abandoned intents,
 and live-provider validation remain separate work.
 
 Every create and fork needs billing (`Entitlements`, 402) and a quota slot
-(`TenantMayCreate`, 429; default 20 live VMs, `TENANT_VM_QUOTAS` overrides).
+(`TenantMayCreate`, 429). A production product tenant has no machine-count
+cap: its machines are metered and cmux-platform's team spending cap is the stop.
+Dev/test tenants (every tenant off production) keep 20 live VMs, paused ones
+too; a `TENANT_VM_QUOTAS` entry holds any one tenant to its own number.
 Snapshot captures have the same durable send boundary, with separate quota and
 public snapshot IDs. A key permanently identifies one capture: use a new key
 for a new point in time. Omitted-key requests are separate captures, and retained
@@ -404,8 +407,9 @@ production's `VM_BOOT_IMAGES`):
    deploy or product smoke that isn't green, or a create that booted another
    image, lands `cmux-vm: image rollback <id> ...`, which takes the image out of
    both lists, so the entry before it boots again. A failed, cancelled or timed
-   out deploy all roll back; only a tip whose first image is no longer this one
-   (a newer roll or rollback commit owns production) skips it.
+   out deploy all roll back. The image leaves the lists even when a newer roll
+   already sits above it, so that roll's own rollback can never bring it back;
+   only an image already gone from both lists needs nothing.
 5. The rollback's own deploy is settled too: its product create must boot the
    entry now first. If not, `image-roll-settle` dispatches `deploy-production`
    again, at most 3 production deploys in all, then records `rollback_failed`

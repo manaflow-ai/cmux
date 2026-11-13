@@ -1,4 +1,5 @@
-//! `RecordHead::read`: the head of a line the daemon wrote, and None for any other (`store.rs`).
+//! `RecordHead::read`: the head of a line the daemon wrote, and None for any other
+//! (`store/log_line.rs`).
 
 use super::*;
 

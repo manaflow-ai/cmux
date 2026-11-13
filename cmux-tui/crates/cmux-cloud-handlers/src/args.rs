@@ -74,9 +74,34 @@ pub fn port(args: &Args) -> Checked<u16> {
         .ok_or_else(|| Said::key("invalidPort"))
 }
 
-/// `--port` of the port verbs, refused with the machine named and the command to run.
-pub fn named_port(args: &Args, verb: &str) -> Checked<u16> {
-    port(args).map_err(|_| Said::with("portInvalid", [verb]))
+/// The machine and port a Cloud port message names: the machine's name for the reader, its id
+/// for the next command (`--target machine:<id>`), and the port (`<port>` when none was given).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PortNames {
+    pub name: String,
+    pub id: String,
+    pub port: Option<u16>,
+}
+
+impl PortNames {
+    /// The message's values in order: name, id, port.
+    pub fn values(&self) -> [String; 3] {
+        let port = self.port.map_or_else(|| "<port>".to_owned(), |port| port.to_string());
+        [self.name.clone(), self.id.clone(), port]
+    }
+
+    /// `key` with name, id, port and then `more`.
+    pub fn said(&self, key: &'static str, more: &[&str]) -> Said {
+        let values = self.values().into_iter().chain(more.iter().map(|&value| value.to_owned()));
+        Said::with(key, values.collect::<Vec<_>>())
+    }
+}
+
+/// `--port` of the port verbs, refused with the machine named and the command to run
+/// (`portInvalid`: name, id, verb).
+pub fn named_port(args: &Args, verb: &str, names: &PortNames) -> Checked<u16> {
+    port(args).map_err(|_| Said::with("portInvalid", [names.name.as_str(), &names.id, verb]))
 }
 
 /// `cloud set-idle-pause --minutes`: `off` (0) or one of `choices`, as text or a number.
@@ -107,13 +132,14 @@ pub fn machine_workspace(args: &Args, machine: &str) -> Checked<Option<String>> 
     required(args, "workspace", Said::with("machineWorkspaceRequired", [machine])).map(Some)
 }
 
-/// The network, rule or publication id these actions take in `--path`; `missing` names which.
+/// The publication id an action takes in `--path`; `missing` names it.
 pub fn id_argument(args: &Args, missing: &'static str) -> Checked<String> {
     required(args, "path", Said::key(missing))
 }
 
-/// `cloud open-browser --path`: where the tab opens on the port, `/` when absent.
-pub fn browser_path(args: &Args) -> Checked<String> {
+/// `cloud open-browser --path`: where the tab opens on the port, `/` when absent; refused as
+/// `portPathInvalid` with the machine and port named.
+pub fn browser_path(args: &Args, names: &PortNames) -> Checked<String> {
     let path = text(args, "path").map(trim_spaces).unwrap_or("");
     if path.is_empty() {
         return Ok("/".to_owned());
@@ -121,12 +147,13 @@ pub fn browser_path(args: &Args) -> Checked<String> {
     let ok = path.starts_with('/')
         && path.len() <= 2048
         && !path.chars().any(|c| c.is_whitespace() || c.is_control());
-    if ok { Ok(path.to_owned()) } else { Err(Said::key("portPathInvalid")) }
+    if ok { Ok(path.to_owned()) } else { Err(names.said("portPathInvalid", &[])) }
 }
 
 /// One text argument the action needs, by `check`: `publicKey` (scp), `contents` (file-write),
-/// `snapshot`, `linkId` (preview-revoke), `key` (api-key-revoke), `tunnelKey` (tunnel-rotate-key).
-pub fn needed(args: &Args, check: &str) -> Checked<String> {
+/// `snapshot`, `linkId` (preview-revoke), `key` (api-key-revoke).
+/// A missing `linkId` is refused as `portFailed` with the machine and port in `names`.
+pub fn needed(args: &Args, check: &str, names: &PortNames) -> Checked<String> {
     let raw = |name: &str, missing: Said| text(args, name).map(str::to_owned).ok_or(missing);
     match check {
         // Sent as given; only a blank one refuses.
@@ -135,14 +162,13 @@ pub fn needed(args: &Args, check: &str) -> Checked<String> {
             _ => Err(Said::key("publicKeyRequired")),
         },
         "contents" => raw("contents", Said::key("fileContentsRequired")),
-        "tunnelKey" => raw("publicKey", Said::key("tunnelKeyRequired")),
         "snapshot" => match text(args, "snapshot") {
             Some(id) if !id.is_empty() => Ok(id.to_owned()),
             _ => Err(Said::key("snapshotRequired")),
         },
         "linkId" => match text(args, "linkId") {
             Some(id) if !id.is_empty() => Ok(id.to_owned()),
-            _ => Err(Said::with("portFailed", ["linkId is required"])),
+            _ => Err(names.said("portFailed", &["linkId is required"])),
         },
         "key" => required(args, "key", Said::key("apiKeyRequired")),
         _ => Err(Said::text(format!("unknown argument check {check}"))),
@@ -175,30 +201,6 @@ pub fn apply_machine_config(args: &Args, home: &str) -> Checked<Option<String>> 
     }
 }
 
-/// `cloud firewall-create --path JSON`: the rule's `source` and `destination` (objects, `{}`
-/// when absent) and its `description`.
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub struct FirewallRule {
-    pub source: Value,
-    pub destination: Value,
-    pub description: Option<String>,
-}
-
-pub fn firewall_rule(args: &Args) -> Checked<FirewallRule> {
-    let refused = || Said::key("ruleJSONRequired");
-    let rule: Value =
-        text(args, "path").and_then(|json| serde_json::from_str(json).ok()).ok_or_else(refused)?;
-    let rule = rule.as_object().ok_or_else(refused)?;
-    // An endpoint is an object (its fields are the API model's, which the app decodes); `{}` when absent.
-    let side = |name: &str| match rule.get(name) {
-        None => Ok(Value::Object(Map::new())),
-        Some(endpoint @ Value::Object(_)) => Ok(endpoint.clone()),
-        Some(_) => Err(refused()),
-    };
-    let description = rule.get("description").and_then(Value::as_str).map(str::to_owned);
-    Ok(FirewallRule { source: side("source")?, destination: side("destination")?, description })
-}
-
 /// `cloud new-machine --size` -> (vCPUs, MiB) as the server's size ladder makes them from the
 /// memory a create sends (the smallest row with that memory), so the answer says what the machine
 /// gets. `resize-machine` sets vCPUs itself.
@@ -213,6 +215,52 @@ pub fn create_size(size: &str) -> Option<(i64, i64)> {
 fn size_choices() -> Said {
     let names: Vec<&str> = CREATE_SIZES.iter().map(|(name, ..)| *name).collect();
     Said::with("sizeMustBeOneOf", [names.join(", ")])
+}
+
+/// `cloud resize-machine`'s sizes, name -> (vCPUs, MiB); Pro allows up to 24 GiB.
+pub const RESIZE_SIZES: [(&str, i64, i64); 4] =
+    [("large", 8, 16_384), ("medium", 4, 8_192), ("small", 2, 4_096), ("xlarge", 16, 24_576)];
+
+/// `--disk` bounds in GiB (the route's `VM_DISK_MB_MAX`); it takes 4 GiB steps.
+pub const DISK_GIB: std::ops::RangeInclusive<i64> = 4..=256;
+
+/// A checked `cloud resize-machine`: the size (with its vCPUs and MiB) and the disk, at least one.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Resize {
+    pub size: Option<String>,
+    pub cpu: Option<i64>,
+    pub memory_mb: Option<i64>,
+    pub disk_gib: Option<i64>,
+    pub storage_mb: Option<i64>,
+}
+
+/// `cloud resize-machine --size`, `--disk`: a size from [`RESIZE_SIZES`] (else
+/// `sizeMustBeOneOf`), a disk in [`DISK_GIB`] in 4 GiB steps, as a number or text (else
+/// `resizeNeedsSizeOrDisk`, as is neither given). A bare flag arrives as `true` and is refused.
+pub fn resize(args: &Args) -> Checked<Resize> {
+    let names = RESIZE_SIZES.iter().map(|(name, ..)| *name).collect::<Vec<_>>().join(", ");
+    let mut request = Resize::default();
+    if args.contains_key("size") {
+        let (size, cpu, memory) = text(args, "size")
+            .and_then(|size| RESIZE_SIZES.iter().find(|(name, ..)| *name == size))
+            .ok_or_else(|| Said::with("sizeMustBeOneOf", [names.clone()]))?;
+        request.size = Some((*size).to_owned());
+        request.cpu = Some(*cpu);
+        request.memory_mb = Some(*memory);
+    }
+    if args.contains_key("disk") {
+        let disk = int(args, "disk")
+            .or_else(|| text(args, "disk").and_then(|disk| trim_spaces(disk).parse::<i64>().ok()))
+            .filter(|disk| DISK_GIB.contains(disk) && disk % 4 == 0)
+            .ok_or_else(|| Said::with("resizeNeedsSizeOrDisk", [names.clone()]))?;
+        request.disk_gib = Some(disk);
+        request.storage_mb = disk.checked_mul(1024);
+    }
+    if request.size.is_none() && request.disk_gib.is_none() {
+        return Err(Said::with("resizeNeedsSizeOrDisk", [names]));
+    }
+    Ok(request)
 }
 
 /// A machine name the create sends as given: 1 to 64 of `A-Z a-z 0-9 . _ -`, not starting

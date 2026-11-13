@@ -311,8 +311,8 @@ final class CEFLayerHosting {
     /// The hosted page's window is headless and off screen (``cmux_browser_set_detached_hosting``): a resize of the
     /// view moves no window. Only during a resize motion of the view (``resizeMotion(active:)``, a window live resize).
     private(set) var isDetached = false
-    /// Resize motions of the view that have begun and not ended: a person's divider drag or a key resize of its pane,
-    /// told by each tab container of the pane (``CEFTabContentView``).
+    /// Resize motions of the view that have begun and not ended: a person's divider drag of its pane, told by each tab
+    /// container of the pane (``CEFTabContentView``). A key resize keeps the page attached (``CEFTabContentView/holdPage(for:)``).
     private(set) var motionHolders = 0
     /// The page held the keys when this motion began, so it stays a page window through it: detaching the key window
     /// would order it out and move the keys (an AppKit key change, the #24913 stall class). Decided once a motion.
@@ -331,7 +331,7 @@ final class CEFLayerHosting {
     var inResizeMotion: Bool { inLiveResize || motionHolders > 0 }
 
     /// A resize motion of the view's pane began (`true`) or landed (`false`): a person's divider drag, from the press
-    /// to the landing, or a key resize, from its first press to the landing. Every frame of it resizes or moves the
+    /// to the landing (a key resize keeps the page attached, RESIZE P0 5). Every frame of it resizes or moves the
     /// page, so for its length a hosted page that does not hold the keys is detached: its window leaves the parent
     /// window and turns headless, and the fork's per-frame tracker update records the frame in the process with no
     /// WindowServer `setFrame`, child-window order, mask or mouse routing. The page still lays out at every size.
@@ -398,9 +398,17 @@ final class CEFLayerHosting {
         }
         // A dropped tick (its window closed in the hold) counts as the frame, so no page stays detached until an ask,
         // but grants nothing: SetFocus would order a closed window's page front. The tab keeps its ask for its next show.
+        // A view that left that window for another before it closed (a hidden tab an agent drove sits in the agent
+        // render window; a click on the tab moves it to its pane) shows in the other one: the wait moves there, and the
+        // hold's end grants the kept ask. With the drop taken as the frame, the tab kept its ask and no key reached it.
+        let waited = view?.window
         let client = FrameClient(owner: "cef.first-frame-attach", isAnimation: false,
                                  scheduler: { [weak view] in view.map(FrameScheduler.forView) ?? .app },
                                  dropped: { [weak self] in
+                                     if let self, let now = self.view?.window, now !== waited {
+                                         self.shownFrame = nil
+                                         return self.runAfterFrameShown(block)
+                                     }
                                      self?.afterFirstFrame = nil
                                      shown()
                                  }) { _ in

@@ -260,6 +260,8 @@ struct SidebarUniformRowSpacingTests {
         #expect(spacing > 0)
         let lastPin = h.inList(try h.pinnedRow(Self.pins[1]))
         let header = try #require(h.list.displayed.row(for: .group(Self.group)), "no group header")
+        // The row under the pins is the group's header: no list heading sits between them
+        // (https://github.com/manaflow-ai/cmux/issues/42373). The gap is the row spacing.
         #expect(abs(header.y - lastPin.maxY - spacing) < 0.5,
                 "under the pins: \(header.y - lastPin.maxY) pt, the row spacing is \(spacing) pt")
         let (w2, w3, w4) = try (h.inList(h.workspaceRow("w2")), h.inList(h.workspaceRow("w3")), h.inList(h.workspaceRow("w4")))
@@ -274,6 +276,7 @@ struct SidebarUniformRowSpacingTests {
         let h = Harness()
         defer { h.window.close() }
         let pinned = try h.pinnedRow(Self.pins[0])
+        // The harness's pins answer no workspace: a missing workspace keeps its pin (#38061).
         let ink = try #require(pinned.pinInkFrame, "the pinned workspace row draws no pin")
         let pin = h.list.convert(ink, from: pinned)
         let pinnedFrame = h.inList(pinned)
@@ -281,9 +284,9 @@ struct SidebarUniformRowSpacingTests {
         // An unpinned row's leading slot: its icon, or where its title starts without one.
         let content = h.list.convert(unpinned.icon.frame, from: unpinned)
         let unpinnedFrame = h.inList(unpinned)
-        // The pin's ink starts where an unpinned row's icon column (or its text-only title) starts: the row inset
-        // (Lawrence msg 19643, "left alignment here is bad").
-        #expect(abs(pin.minX - content.minX) < 0.5, "the pin's ink starts at \(pin.minX), an unpinned row's icon column at \(content.minX)")
+        // The pin's ink starts where an unpinned row's icon column (or its text-only title) starts, the row inset
+        // (https://github.com/manaflow-ai/cmux/issues/38061; Lawrence 2026-11-09, "home/pin icons not left aligned").
+        #expect(abs(pin.minX - content.minX) <= 0.5, "the pin's ink starts at \(pin.minX), the icon column at \(content.minX)")
         #expect(abs((pin.midY - pinnedFrame.midY) - (content.midY - unpinnedFrame.midY)) < 0.5,
                 "the pin sits \(pin.midY - pinnedFrame.midY) pt off its row's middle, an unpinned row's content \(content.midY - unpinnedFrame.midY) pt")
         // A pinned row takes the band's row: an unpinned row's height, except at Expanded, where it is Comfortable's

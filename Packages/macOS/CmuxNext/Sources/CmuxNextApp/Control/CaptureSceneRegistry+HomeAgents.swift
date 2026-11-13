@@ -3,7 +3,7 @@ import AppKit
 import CmuxHomeCore
 import CmuxNextActions
 import CmuxNextDaemon
-import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextSettings
 
 /// One agent `home-chief` adds to the Your agents list beside the waiting

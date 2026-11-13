@@ -33,14 +33,6 @@ fn only_a_person_may_mean_the_machine_in_view() {
 }
 
 #[test]
-fn attachable_needs_a_settled_machine_that_answers_or_has_no_app_link() {
-    assert!(attachable(false, true, true));
-    assert!(attachable(false, false, false));
-    assert!(!attachable(false, false, true));
-    assert!(!attachable(true, true, true));
-}
-
-#[test]
 fn new_cloud_workspace_routes() {
     assert_eq!(new_workspace(true, true, false, false), NewWorkspace::Workspace);
     assert_eq!(new_workspace(true, false, true, true), NewWorkspace::Connecting);
@@ -110,51 +102,14 @@ fn a_plan_refusal_names_the_plan_and_its_code() {
     assert_eq!((declined.reason, declined.refusal), (Said::key("createDeclined"), true));
 }
 
-fn desktop_of(value: Value) -> Result<Desktop, Said> {
-    desktop(&serde_json::from_value(value).unwrap())
-}
-
 #[test]
-fn open_desktop_picks_its_viewer() {
-    let unavailable = Err(Said::with("desktopUnavailable", ["box"]));
-    assert_eq!(
-        desktop_of(
-            json!({"title": "box", "defaultViewer": "rd", "allows": false, "capability": true})
-        ),
-        unavailable
-    );
-    assert_eq!(
-        desktop_of(
-            json!({"title": "box", "defaultViewer": "rd", "allows": true, "capability": true})
-        ),
-        Ok(Desktop::Rd)
-    );
-    assert_eq!(
-        desktop_of(json!({"title": "box", "defaultViewer": "rd", "allows": true})),
-        unavailable
-    );
-    assert_eq!(
-        desktop_of(
-            json!({"title": "box", "defaultViewer": "web", "allows": true, "reachable": true})
-        ),
-        Ok(Desktop::Web)
-    );
-    assert_eq!(
-        desktop_of(json!({"title": "box", "defaultViewer": "web", "allows": true})),
-        unavailable
-    );
-    assert_eq!(
-        desktop_of(
-            json!({"title": "box", "viewer": "native", "defaultViewer": "rd", "allows": true, "reachable": true, "nativeAvailable": true})
-        ),
-        Ok(Desktop::Native)
-    );
-    assert_eq!(
-        desktop_of(
-            json!({"title": "box", "viewer": "native", "defaultViewer": "rd", "allows": true, "reachable": true})
-        ),
-        unavailable
-    );
+fn a_returned_machine_wins_over_a_failed_or_gone_phase() {
+    for state in ["failed", "gone"] {
+        let made = run(json!({"state": state, "reason": "late", "creationId": "c-1",
+            "machine": {"id": "vm-1", "title": "box", "status": "running"}}))
+        .unwrap();
+        assert_eq!(made["machine_id"], json!("vm-1"), "{state}");
+    }
 }
 
 #[test]
@@ -194,33 +149,195 @@ fn a_team_switch_takes_an_id_or_a_name() {
 
 #[test]
 fn set_up_github_says_the_app_or_the_fallback_and_why() {
-    assert_eq!(github_confirm(true, true, Some("x")), vec![Said::key("gitHubAppConfirmBody")]);
-    assert_eq!(github_confirm(false, true, None), vec![Said::key("gitHubAppConfirmNoIdentity")]);
+    let named = Said::with("gitHubAppConfirmBody", ["Ada", "—"]);
+    assert_eq!(github_confirm(Some("Ada"), None, GitHubApp::Ready), vec![named]);
     assert_eq!(
-        github_confirm(true, false, Some("the App is not installed")),
+        github_confirm(None, None, GitHubApp::Ready),
+        vec![Said::key("gitHubAppConfirmNoIdentity")]
+    );
+    assert_eq!(
+        github_confirm(Some("Ada"), Some("ada@x.dev"), GitHubApp::NotConnected),
         vec![
-            Said::with("gitHubFallback", ["the App is not installed"]),
-            Said::key("gitHubConfirmBody")
+            Said::key("gitHubFallbackNotConnected"),
+            Said::with("gitHubConfirmBody", ["Ada", "ada@x.dev"])
         ]
     );
-    assert_eq!(github_confirm(false, false, None), vec![Said::key("gitHubConfirmNoIdentity")]);
-}
-
-#[test]
-fn the_cloud_deletes_ask_first() {
-    assert_eq!(confirmation("cloudKillMachine"), Some("killMachine"));
-    assert_eq!(confirmation("palette.cloud.deleteSnapshot"), Some("deleteSnapshot"));
-    assert_eq!(confirmation("cloudFileRemove"), Some("removeFile"));
-    assert_eq!(confirmation("cloudFirewallDelete"), Some("deleteFirewallRule"));
-    assert_eq!(confirmation("cloudPauseMachine"), None);
+    assert_eq!(
+        github_confirm(None, None, GitHubApp::NotConfigured),
+        vec![Said::key("gitHubFallbackNotConfigured"), Said::key("gitHubConfirmNoIdentity")]
+    );
+    assert_eq!(
+        github_confirm(None, Some("ada@x.dev"), GitHubApp::Unknown),
+        vec![
+            Said::key("gitHubFallbackUnknown"),
+            Said::with("gitHubConfirmBody", ["—", "ada@x.dev"])
+        ]
+    );
 }
 
 #[test]
 fn a_port_failure_names_the_limit_or_the_detail() {
-    assert_eq!(port_failure(Some("cmux.cloud.port_limit"), "x"), Said::key("portLimit"));
+    let names = PortNames { name: "dev box".into(), id: "vm-1".into(), port: Some(3000) };
     assert_eq!(
-        port_failure(Some("other"), " The link is down... \n"),
-        Said::with("portFailed", ["The link is down"])
+        port_failure(Some("cmux.cloud.port_limit"), "x", &names),
+        Said::with("portLimit", ["dev box", "vm-1", "3000"])
+    );
+    assert_eq!(
+        port_failure(Some("other"), " The link is down... \n", &names),
+        Said::with("portFailed", ["dev box", "vm-1", "3000", "The link is down"])
     );
     assert_eq!(detail("no route."), "no route");
+}
+
+#[test]
+fn palette_desktop_targets_prioritize_capable_machines_and_inline_fixes() {
+    let machines: Vec<PaletteMachine> = serde_json::from_value(json!([
+        {"id": "no-desktop", "title": "Shell", "status": "running", "desktop": false},
+        {"id": "paused", "title": "Paused", "status": "paused", "desktop": true},
+        {"id": "ready", "title": "Ready", "status": "running", "desktop": true},
+        {"id": "starting", "title": "Booting", "status": "starting", "desktop": true}
+    ]))
+    .unwrap();
+    assert_eq!(
+        palette_targets(true, &machines),
+        vec![
+            PaletteTargetRow {
+                id: "ready".into(),
+                title: "Ready".into(),
+                state: PaletteTargetState::Ready,
+                intent: Some(PaletteTargetIntent::Choose)
+            },
+            PaletteTargetRow {
+                id: "paused".into(),
+                title: "Paused".into(),
+                state: PaletteTargetState::Resume,
+                intent: Some(PaletteTargetIntent::Choose)
+            },
+            PaletteTargetRow {
+                id: "starting".into(),
+                title: "Booting".into(),
+                state: PaletteTargetState::Starting,
+                intent: None
+            },
+            PaletteTargetRow {
+                id: "no-desktop".into(),
+                title: "Shell".into(),
+                state: PaletteTargetState::DesktopUnavailable,
+                intent: Some(PaletteTargetIntent::StartDesktop)
+            },
+        ]
+    );
+}
+
+#[test]
+fn palette_desktop_setup_preserves_each_running_machine_target() {
+    for status in ["running", "ready", "connected", "active", " Running "] {
+        let machines = vec![PaletteMachine {
+            id: "existing-machine".into(),
+            title: "My machine".into(),
+            status: status.into(),
+            desktop: false,
+        }];
+        let rows = serde_json::to_value(palette_targets(true, &machines)).unwrap();
+        assert_eq!(rows[0]["id"], "existing-machine", "{status}");
+        assert_eq!(rows[0]["intent"], "startDesktop", "{status}");
+        assert_eq!(rows[0]["state"], "desktopUnavailable", "{status}");
+        assert_eq!(palette_targets(false, &machines)[0].intent, Some(PaletteTargetIntent::Choose));
+    }
+}
+
+#[test]
+fn palette_desktop_starting_state_wins_over_missing_capability() {
+    let machines: Vec<PaletteMachine> = serde_json::from_value(json!([
+        {"id": "booting", "title": "", "status": "provisioning", "desktop": false}
+    ]))
+    .unwrap();
+    let row = &palette_targets(true, &machines)[0];
+    assert_eq!(row.state, PaletteTargetState::Starting);
+    assert_eq!(row.intent, None);
+    assert!(row.title.is_empty(), "native code supplies the localized fallback title");
+}
+
+#[test]
+fn palette_desktop_paused_machine_resumes_and_sets_up_the_same_target() {
+    for status in ["paused", "suspended", " Paused "] {
+        for desktop in [false, true] {
+            let machines = vec![PaletteMachine {
+                id: "paused-machine".into(),
+                title: "Paused".into(),
+                status: status.into(),
+                desktop,
+            }];
+            let row = &palette_targets(true, &machines)[0];
+            assert_eq!(row.id, "paused-machine");
+            assert_eq!(row.state, PaletteTargetState::Resume);
+            assert_eq!(
+                row.intent,
+                Some(if desktop {
+                    PaletteTargetIntent::Choose
+                } else {
+                    PaletteTargetIntent::StartDesktop
+                })
+            );
+        }
+    }
+}
+
+#[test]
+fn palette_desktop_transition_states_do_not_offer_recovery() {
+    for status in ["pausing", " Pausing "] {
+        let machines = vec![PaletteMachine {
+            id: "pausing-machine".into(),
+            title: "Pausing".into(),
+            status: status.into(),
+            desktop: false,
+        }];
+        let row = &palette_targets(true, &machines)[0];
+        assert_eq!(row.id, "pausing-machine");
+        assert_eq!(row.state, PaletteTargetState::Resume);
+        assert_eq!(row.intent, None);
+    }
+    let machines = vec![PaletteMachine {
+        id: "deleting-machine".into(),
+        title: "Deleting".into(),
+        status: "deleting".into(),
+        desktop: false,
+    }];
+    let row = &palette_targets(true, &machines)[0];
+    assert_eq!(row.state, PaletteTargetState::Unavailable);
+    assert_eq!(row.intent, None);
+    assert_eq!(palette_targets(false, &machines)[0].intent, Some(PaletteTargetIntent::Choose));
+}
+
+#[test]
+fn unavailable_desktopless_machine_offers_desktop_recovery() {
+    let machines: Vec<PaletteMachine> = serde_json::from_value(json!([
+        {"id": "offline", "title": "Offline", "status": "offline", "desktop": false}
+    ]))
+    .unwrap();
+    let row = &palette_targets(true, &machines)[0];
+    assert_eq!(row.state, PaletteTargetState::Unavailable);
+    assert_eq!(row.intent, Some(PaletteTargetIntent::CreateDesktop));
+}
+
+#[test]
+fn palette_targets_keep_generic_machine_rows_actionable_and_offer_create_when_empty() {
+    let machines: Vec<PaletteMachine> = serde_json::from_value(json!([
+        {"id": "unknown", "title": "", "status": "offline", "desktop": false},
+        {"id": "paused", "title": "Paused", "status": "paused", "desktop": false},
+        {"id": "ready", "title": "Ready", "status": "running", "desktop": false}
+    ]))
+    .unwrap();
+    assert_eq!(palette_targets(false, &machines)[0].id, "ready");
+    assert_eq!(palette_targets(false, &machines)[0].intent, Some(PaletteTargetIntent::Choose));
+    assert_eq!(palette_targets(false, &machines)[1].intent, Some(PaletteTargetIntent::Choose));
+    assert_eq!(
+        palette_targets(true, &[]),
+        vec![PaletteTargetRow {
+            id: "create-desktop".into(),
+            title: String::new(),
+            state: PaletteTargetState::Empty,
+            intent: Some(PaletteTargetIntent::CreateDesktop)
+        }]
+    );
 }

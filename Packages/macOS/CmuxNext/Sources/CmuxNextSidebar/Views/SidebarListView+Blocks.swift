@@ -49,8 +49,8 @@ struct SidebarListBlocks: Equatable {
     var appHeights: [LayoutSectionID: CGFloat]
 
     /// Section `id` without `hiding` and with a gap at `gap` (an index among the items left), as wide as the first hidden item.
-    /// `joinsAbove`: a block drawn right before it, so the two keep one band's spacing (a section gap and its line between
-    /// them, the band's padding only at the run's top). A block has no bottom padding in the list: the list puts its row
+    /// `joinsAbove`: a block drawn right before it, so the two keep one band's spacing (the list's row gap between them,
+    /// or a section gap and its line in a lines look; the band's padding only at the run's top). A block has no bottom padding in the list: the list puts its row
     /// spacing (or the next block's top edge) under the last item, so the rows under the pins follow as rows follow
     /// rows (Leo 2026-10-21).
     func content(_ id: String, hiding: Set<String>, gap: Int?, joinsAbove: Bool = false) -> SidebarRegionView.Content? {
@@ -65,7 +65,11 @@ struct SidebarListBlocks: Equatable {
             section.items.insert(slot, at: min(max(0, gap), section.items.count))
         }
         var edges = metrics
-        if joinsAbove { (edges.topPadding, edges.leadingSeparator) = (metrics.sectionGap, true) }
+        // A look with no line between sections (Quiet, the default) keeps the list's one row gap at the seam, so
+        // Home to the first pin steps as pin to pin does (Lawrence 2026-11-11); a lines look keeps the gap its line needs.
+        if joinsAbove {
+            (edges.topPadding, edges.leadingSeparator) = look.separatesSections ? (metrics.sectionGap, true) : (metrics.rowGap, false)
+        }
         edges.bottomPadding = 0
         return SidebarRegionView.Content(sections: [section], infos: infos, collapsed: collapsed, look: look, metrics: edges,
                                          drawsLines: drawsLines, appHeights: appHeights)
@@ -94,11 +98,14 @@ final class SidebarBlockRowView: SidebarRowView {
     func springShow(_ content: SidebarRegionView.Content, width: CGFloat) {
         region.springShow(content, width: width)
         region.frame = NSRect(x: 0, y: 0, width: width, height: region.layoutResult.height)
+        region.realizeItems()
     }
 
     func show(_ content: SidebarRegionView.Content, width: CGFloat, animated: Bool) {
         region.show(content, width: width, animated: animated)
         region.frame = NSRect(x: 0, y: 0, width: width, height: region.layoutResult.height)
+        // The same content at a new slot (a recycled block, the rows above it changed) shows the items now in reach.
+        region.realizeItems()
     }
 
     override func updateLayer() {}
@@ -231,7 +238,9 @@ extension SidebarListViewComponents {
             drag.docAcceptance = keepingFixed(doc.begin([id.rawValue]))
             self.drag = drag
             setHovered(nil)
+            SidebarEmptyZones.keepPinned(self, drag)
             showDragLayout() // the tile's slot closes on the drag's spring
+            SidebarEmptyZones.begin(self, drag)
         }
         updateDrag(windowPoint: event.locationInWindow)
         return true

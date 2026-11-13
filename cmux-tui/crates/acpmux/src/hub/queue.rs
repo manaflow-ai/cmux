@@ -42,7 +42,7 @@ pub enum Withdrawn {
     /// Not in the queue: it started, ended or was already removed.
     NotWaiting,
     /// Kept: asked for another agent's message only, and it is not one (the person's own, or
-    /// an agent's message the person edited, which makes it theirs).
+    /// an agent's message the person edited, which keeps its sender but is no longer only theirs).
     NotFromAgent,
 }
 
@@ -97,7 +97,29 @@ impl QueuedPrompt {
     pub(super) fn aside(&self) -> bool {
         self.held || self.awaiting_owner
     }
+
+    /// Another agent's message, or acpmux's inbox notice of such messages (`inbox.rs`): no
+    /// prompt of the person's, so a failed turn's hold lets it go by itself (`digest.rs`
+    /// `retry_held_agent_messages`) and never waits for the person's Resume. A notice held
+    /// as the person's prompt sat under "Paused after an error" until Resume (Leo, 2026-11-05:
+    /// "Why is the thing still queued? ... don't show these kinds of things").
+    pub(super) fn goes_in_by_itself(&self) -> bool {
+        self.run.agent.is_some() || super::inbox::is_notice(self.run.provenance.as_ref())
+    }
+
+    /// Whether a failed turn's hold of it waits for the person's Resume (`queue_paused`). Another
+    /// agent's message or a notice never does, unless a person's Stop holds it (`cancel.rs`).
+    /// The person's own prompt goes in again by itself after the hold's wait (`digest.rs`
+    /// `retry_held_agent_messages`), [`PERSON_RETRIES`] times, so a chat whose turn failed keeps
+    /// draining (Leo, 2026-11-05: "Don't have it work this kind of way"); after those it waits.
+    pub(super) fn waits_for_resume(&self, stop_held: bool) -> bool {
+        if self.goes_in_by_itself() { stop_held } else { self.retries >= PERSON_RETRIES }
+    }
 }
+
+/// How many times failed turns' holds let the person's own queued prompt go by themselves before
+/// it waits for their Resume: a chat that keeps failing is not sent their prompts over and over.
+pub(super) const PERSON_RETRIES: usize = 3;
 
 /// A queued prompt and the rules it runs under.
 #[derive(Debug, Clone)]
@@ -109,7 +131,8 @@ pub(super) struct PromptRun {
     pub(super) control: Control,
     pub(super) cloud_mobile: bool,
     pub(super) trust_gate: bool,
-    /// Who sent it (`prompt_provenance.rs`); an edit drops it.
+    /// Who sent it (`prompt_provenance.rs`); an edit keeps it and adds its editor
+    /// (`prompt_provenance::edited_by`).
     pub(super) provenance: Option<Value>,
     /// Another agent's name when it is that agent's message, `None` when it is the person's
     /// (`digest.rs`); an edit makes it the person's.
@@ -182,9 +205,15 @@ pub(super) enum Wait<'a> {
 }
 
 /// What a prompt, or a change to the queue or the draft, gets while the chat is being moved to
-/// another daemon (`transfer_out.rs`).
-pub(super) fn moving_error() -> RpcError {
-    RpcError::new(-32000, "transfer.moving: this chat is being moved to another daemon")
+/// another daemon (`transfer_out.rs`). One whose move committed keeps its move's mark for good
+/// (`MOVED_AWAY` after a restart), and answers where it went: no move of it is under way.
+pub(super) fn moving_error(session: &Session) -> RpcError {
+    match session.read_meta(|m| m.moved_to.clone()) {
+        Some(to) => super::transfer_out::moved_error(&to),
+        None => {
+            RpcError::new(-32000, "transfer.moving: this chat is being moved to another daemon")
+        }
+    }
 }
 
 /// What a withdrawn prompt's `session/prompt` answers: no turn ran.
@@ -237,7 +266,7 @@ fn approved_rules(run: PromptRun, approval: Option<&Value>) -> PromptRun {
 
 /// Whether a prompt waits in the chat's queue that a failed turn does not hold, read under the
 /// queue's lock.
-fn queue_waits(session: &Session) -> bool {
+pub(super) fn queue_waits(session: &Session) -> bool {
     let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     queue.iter().any(|q| !q.aside())
 }
@@ -275,7 +304,7 @@ impl Hub {
             Some((turn_id, Some(waits))) => (turn_id, Some(waits)),
             Some((turn_id, None)) => return Err(Ok(withdrawn_reply(p.prompt_id, &turn_id))),
             // A chat being moved takes no prompt: its new daemon does (`transfer_out.rs`).
-            None if session.moving().is_some() => return Err(Err(moving_error())),
+            None if session.moving().is_some() => return Err(Err(moving_error(session))),
             // A watched chat takes no prompt until it is taken over (`watch.rs`).
             None if session.meta().watching.is_some() => {
                 return Err(Err(super::watch::read_only()));
@@ -307,8 +336,20 @@ impl Hub {
                 // queues and is accepted at once instead of waiting unanswered for the lock
                 // (fuzz row g, g1). Nothing is awaited under it.
                 let awaiting_owner = crate::author::awaits_owner(p.provenance);
-                let waiting = {
+                let waiting = loop {
+                    // A journal restore holds the chat (`journal_restore.rs`): it is admitted
+                    // once the restore settled, never between its check and its settle.
+                    let done = session.restore_done.notified();
+                    tokio::pin!(done);
+                    done.as_mut().enable();
+                    if session.restoring.load(Ordering::SeqCst) {
+                        done.await;
+                        continue;
+                    }
                     let _admit = session.admit.lock().unwrap_or_else(|e| e.into_inner());
+                    if session.restoring.load(Ordering::SeqCst) {
+                        continue;
+                    }
                     // Prompts a failed turn holds (`pause_queue`) or that wait for the owner do
                     // not hold up a new one. A prompt that waits for the owner (its provenance's
                     // `approval`, `author.rs`) always queues.
@@ -327,7 +368,7 @@ impl Hub {
                         return Err(Err(super::auto_resume::retry_turn::busy()));
                     }
                     session.queued.fetch_add(1, Ordering::SeqCst);
-                    waiting
+                    break waiting;
                 };
                 let withdraw = if waiting {
                     let (waits, position) =
@@ -355,7 +396,14 @@ impl Hub {
                     // not show one yet) still makes it busy; a prompt that comes later waits
                     // behind it.
                     let guard = session.turn_lock.try_lock().ok();
-                    match guard.filter(|_| session.turn().is_none() && !queue_waits(session)) {
+                    // A restore that holds the chat makes it busy too (review of #37284 at
+                    // 4dcbe192, F3).
+                    let free = |_: &_| {
+                        session.turn().is_none()
+                            && !queue_waits(session)
+                            && (!self.restore_holds(session) || self.at_4dcb())
+                    };
+                    match guard.filter(free) {
                         Some(guard) => ClaimedTurn::new(session, guard),
                         None => {
                             session.queued.fetch_sub(1, Ordering::SeqCst);
@@ -363,7 +411,21 @@ impl Hub {
                         }
                     }
                 } else {
-                    let guard = session.turn_lock.lock().await;
+                    // A restore that took the lock first and holds the chat (between its tries
+                    // too) may have come after this prompt's admission (review of #37284 at
+                    // 4dcbe192, F3): it waits until the restore ends or lapses, as an admission
+                    // does, and never runs into the seqs the restore needs.
+                    let guard = loop {
+                        let done = session.restore_done.notified();
+                        tokio::pin!(done);
+                        done.as_mut().enable();
+                        let guard = session.turn_lock.lock().await;
+                        if !self.restore_holds(session) || self.at_4dcb() {
+                            break guard;
+                        }
+                        drop(guard);
+                        done.await;
+                    };
                     // `waiting` was read before the lock: a prompt the owner approved (or a
                     // resumed one) since then waits in the queue ahead of this one and keeps its
                     // place (`queue_approve.rs`). This one queues behind it, never claiming the
@@ -388,7 +450,7 @@ impl Hub {
                 }
                 // A move began while it waited for the lock (`transfer_out.rs`): it runs nowhere.
                 if session.moving().is_some() {
-                    return Err(Err(moving_error()));
+                    return Err(Err(moving_error(session)));
                 }
                 // A turn whose task takes the lock after it runs (the turn its agent ran on into
                 // as the one before ended, `carried_turn.rs`; one recovered from a host): this
@@ -670,6 +732,8 @@ impl Hub {
         if let Some(display_parts) = p.display_parts {
             queued.set("displayParts", display_parts.clone());
         }
+        // Its provenance first: `mark_pasted` reads it to leave a daemon-made prompt unnoted.
+        let mut queued = crate::prompt_provenance::marked(queued, p.provenance);
         super::session::mark_pasted(&mut queued, p.blocks);
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         // Check and insert under one lock: simultaneous prompts cannot all reserve the last
@@ -726,7 +790,7 @@ impl Hub {
                 prompt_id: p.prompt_id.to_owned(),
                 turn_id: turn_id.to_owned(),
                 client: p.client.to_owned(),
-                preview: short_text(p.text, 200),
+                preview: short_text(super::inbox::relay_body(p.text), 200),
                 queued_at: now_ms(),
                 withdraw: withdraw.clone(),
                 run: Arc::new(PromptRun {
@@ -770,12 +834,7 @@ impl Hub {
                 seam();
             }
         }
-        self.append(
-            session,
-            "mux",
-            "queued",
-            crate::prompt_provenance::marked(queued, p.provenance),
-        );
+        self.append(session, "mux", "queued", queued);
         if ahead {
             self.append(
                 session,
@@ -819,6 +878,10 @@ impl Hub {
             let freed = self.run_slots_changed();
             tokio::pin!(freed);
             freed.as_mut().enable();
+            // Enabled before `restoring` is read, so a restore that ends in between is not missed.
+            let done = session.restore_done.notified();
+            tokio::pin!(done);
+            done.as_mut().enable();
             let steer = session
                 .queue
                 .lock()
@@ -834,6 +897,16 @@ impl Hub {
                 () = withdraw.notified() => return Wait::Withdrawn,
                 () = moved.as_mut() => continue,
             };
+            // A journal restore holds the chat for its whole try and the hold between tries
+            // (`journal_restore.rs`, review of #37284 at 91b1343d, F2): a prompt that waited
+            // before it began takes no turn until it ends or lapses, as a new one is admitted.
+            if self.restore_holds(session) {
+                drop(guard);
+                tokio::select! {
+                    () = done.as_mut() => continue,
+                    () = withdraw.notified() => return Wait::Withdrawn,
+                }
+            }
             // Prompts a failed turn holds, or that wait for the owner, wait wherever they are; the
             // first other one is next. Read with the lock held: the turn that just ended may have
             // held this one.
@@ -887,23 +960,47 @@ impl Hub {
     }
 
     /// A failed turn holds the prompts that waited behind it: they were written for a turn that
-    /// went well. The person's wait until a client resumes them (`resume_queue`) or sends one now
-    /// (`put_next`); a prompt sent meanwhile runs ahead of them. Agent messages go in again by
-    /// themselves (`digest.rs` `retry_held_agent_messages`).
+    /// went well. They go in again by themselves after the hold's wait (`digest.rs`
+    /// `retry_held_agent_messages`), or sooner when a client resumes them (`resume_queue`) or sends
+    /// one now (`put_next`); a prompt sent meanwhile runs ahead of them. The person's wait for
+    /// Resume only once failed turns let them go [`PERSON_RETRIES`] times, or at once while the
+    /// person's Retry After Errors is off.
     pub(super) fn pause_queue(self: &Arc<Self>, session: &Arc<Session>, turn_id: &str) {
+        // Retry After Errors off (`autoResumeDelaysMs: []`, or `agents.autoRetry.enabled` false):
+        // the person's prompts wait for their Resume at once. Read before the queue's lock.
+        let retry_off = {
+            let configured =
+                self.config.try_read().ok().and_then(|c| c.auto_resume_delays_ms.clone());
+            super::auto_resume::effective_delays(configured).is_empty()
+        };
         let held: Vec<String> = {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            queue
+            let stop_held = session.stop_hold.load(Ordering::SeqCst) != 0;
+            let mut retrying = Vec::new();
+            let held: Vec<String> = queue
                 .iter_mut()
                 .filter(|q| !q.held && !q.sent_now)
                 .map(|q| {
                     q.held = true;
+                    if retry_off && !q.goes_in_by_itself() {
+                        q.retries = q.retries.max(PERSON_RETRIES);
+                    }
+                    if !q.waits_for_resume(stop_held) {
+                        retrying.push(q.prompt_id.clone());
+                    }
                     q.prompt_id.clone()
                 })
-                .collect()
+                .collect();
+            // Logged under the lock that held them (`QUEUE_KINDS`). `retrying`: the held ones
+            // that go in again by themselves, so a client says the queue is paused only for the
+            // person's (`Session::queue_paused`).
+            if !held.is_empty() {
+                let msg = json!({"turnId": turn_id, "held": held, "retrying": retrying});
+                self.append(session, "mux", "queue_paused", msg);
+            }
+            held
         };
         if !held.is_empty() {
-            self.append(session, "mux", "queue_paused", json!({"turnId": turn_id, "held": held}));
             self.retry_held_agent_messages(session);
         }
     }
@@ -917,11 +1014,11 @@ impl Hub {
         for q in queue.iter_mut() {
             resumed |= std::mem::take(&mut q.held);
         }
-        drop(queue);
         if resumed {
             session.queue_moved.notify_waiters();
             self.append(session, "mux", "queue_resumed", json!({"queued": session.queued()}));
         }
+        drop(queue);
         resumed
     }
 
@@ -936,13 +1033,12 @@ impl Hub {
         let stop_held = session.stop_hold.load(Ordering::SeqCst) != 0;
         for q in queue.iter_mut() {
             if ids.contains(&q.prompt_id)
-                && !(stop_held && q.run.agent.is_some())
+                && !(stop_held && q.goes_in_by_itself())
                 && std::mem::take(&mut q.held)
             {
                 released.push(q.prompt_id.clone());
             }
         }
-        drop(queue);
         let resumed = !released.is_empty();
         if resumed {
             session.queue_moved.notify_waiters();
@@ -955,6 +1051,7 @@ impl Hub {
                 json!({"queued": session.queued(), "promptIds": released}),
             );
         }
+        drop(queue);
         resumed
     }
 
@@ -967,7 +1064,7 @@ impl Hub {
         prompt_id: &str,
         editor: crate::author::Editor<'_>,
     ) -> Result<bool, RpcError> {
-        let order: Vec<String> = {
+        {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let Some(from) = queue.iter().position(|q| q.prompt_id == prompt_id) else {
                 return Ok(false);
@@ -981,11 +1078,11 @@ impl Hub {
             let mut q = queue.remove(from);
             (q.held, q.sent_now) = (false, true);
             queue.insert(0, q);
-            queue.iter().map(|q| q.prompt_id.clone()).collect()
-        };
+            let order: Vec<String> = queue.iter().map(|q| q.prompt_id.clone()).collect();
+            let msg = json!({"promptId": prompt_id, "order": order, "next": true});
+            self.append(session, "mux", "queue_order", msg);
+        }
         session.queue_moved.notify_waiters();
-        let msg = json!({"promptId": prompt_id, "order": order, "next": true});
-        self.append(session, "mux", "queue_order", msg);
         Ok(true)
     }
 
@@ -1010,15 +1107,16 @@ impl Hub {
                 return Ok(None);
             }
             session.queued.fetch_sub(1, Ordering::SeqCst);
-            queue.remove(i).run
+            let run = queue.remove(i).run;
+            self.append(
+                session,
+                "mux",
+                "dequeued",
+                json!({"promptId": prompt_id, "turnId": turn_id, "queued": session.queued()}),
+            );
+            run
         };
         session.queue_moved.notify_waiters();
-        self.append(
-            session,
-            "mux",
-            "dequeued",
-            json!({"promptId": prompt_id, "turnId": turn_id, "queued": session.queued()}),
-        );
         Ok(Some(run))
     }
 
@@ -1034,7 +1132,7 @@ impl Hub {
         from_agents_only: bool,
     ) -> Result<Withdrawn, RpcError> {
         if session.moving().is_some() {
-            return Err(moving_error());
+            return Err(moving_error(session));
         }
         self.remove_queued_by(session, prompt_id, None, editor, from_agents_only)
     }
@@ -1067,24 +1165,39 @@ impl Hub {
         editor: crate::author::Editor<'_>,
         from_agents_only: bool,
     ) -> Result<Withdrawn, RpcError> {
-        let (removed, mut ledger) = {
-            let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            let Some(i) = queue.iter().position(|q| q.prompt_id == prompt_id) else {
-                return Ok(Withdrawn::NotWaiting);
-            };
-            let Some(item) = queue.get(i) else { return Ok(Withdrawn::NotWaiting) };
-            // Who may change it first: a filtered removal tells no one else whose prompt it is.
-            crate::author::may_change(editor, item.sender())?;
-            if from_agents_only && item.run.agent.is_none() {
-                return Ok(Withdrawn::NotFromAgent);
-            }
-            // Pin the identity before it leaves the queue: its runner may settle it meanwhile.
-            let ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
-            session.queued.fetch_sub(1, Ordering::SeqCst);
-            (queue.remove(i), ledger)
+        // Taken out and logged under one lock (`QUEUE_KINDS`): a change and its record are one
+        // step, so nothing rebuilt from the log between them loses it (`log_load.rs`).
+        let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(i) = queue.iter().position(|q| q.prompt_id == prompt_id) else {
+            return Ok(Withdrawn::NotWaiting);
         };
+        let Some(item) = queue.get(i) else { return Ok(Withdrawn::NotWaiting) };
+        // Who may change it first: a filtered removal tells no one else whose prompt it is.
+        crate::author::may_change(editor, item.sender())?;
+        if from_agents_only && item.run.agent.is_none() {
+            return Ok(Withdrawn::NotFromAgent);
+        }
+        // Pin the identity before it leaves the queue: its runner may settle it meanwhile.
+        let mut ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
+        session.queued.fetch_sub(1, Ordering::SeqCst);
+        let removed = queue.remove(i);
         let why = reason.map_or_else(|| json!({}), |reason| json!({"reason": reason}));
-        self.settle_removed(session, removed, &mut ledger, why);
+        if self.at_b749() {
+            self.settle_removed(session, removed, &mut ledger, why);
+        } else {
+            // A removal a restore's hold could not keep on disk is put back and refused (review
+            // of #37284 at b7496c3f, F1): b7496c3f answered it removed, and after a crash the
+            // prompt waited again and ran.
+            let msg = removed_record(session, &removed, why);
+            if let Err(e) = self.append_answered(session, "mux", "queue_removed", msg) {
+                session.queued.fetch_add(1, Ordering::SeqCst);
+                queue.insert(i, removed);
+                return Err(e);
+            }
+            self.settle_removed_logged(session, removed, &mut ledger);
+        }
+        drop(ledger);
+        drop(queue);
         Ok(Withdrawn::Removed)
     }
 
@@ -1098,14 +1211,20 @@ impl Hub {
         ledger: &mut PromptLedger,
         why: Value,
     ) {
-        let prompt_id = removed.prompt_id.as_str();
-        let mut msg =
-            json!({"promptId": prompt_id, "turnId": removed.turn_id, "queued": session.queued()});
-        if let (Some(msg), Value::Object(why)) = (msg.as_object_mut(), why) {
-            msg.extend(why);
-        }
+        let msg = removed_record(session, &removed, why);
         self.append(session, "mux", "queue_removed", msg);
         // Finish the best-effort append before settlement can evict the retry identity.
+        self.settle_removed_logged(session, removed, ledger);
+    }
+
+    /// [`Self::settle_removed`] once its record is appended.
+    fn settle_removed_logged(
+        &self,
+        session: &Arc<Session>,
+        removed: QueuedPrompt,
+        ledger: &mut PromptLedger,
+    ) {
+        let prompt_id = removed.prompt_id.as_str();
         if removed.restored {
             let answer = if removed.declined.load(Ordering::SeqCst) {
                 Err(queue_approve::declined_error(prompt_id, &removed.turn_id))
@@ -1181,32 +1300,50 @@ impl Hub {
             if pending || self.logged_prompt(session, &prompt_id).is_some() {
                 continue;
             }
-            let Some(blocks) = self.logged_prompt_blocks(session, &e.msg) else {
+            let Some(queued) = self.queued_copy(session, &e.msg, &turn_id) else {
                 tracing::warn!(session = %session.id, prompt = %prompt_id, "an unstarted prompt cannot be rebuilt; a resend runs it");
                 continue;
             };
-            let mut queued = json!({
-                "text": field("text"),
-                "client": e.msg.get("client").cloned().unwrap_or(json!("acpmux")),
-                "position": 0,
-                "promptId": prompt_id,
-                "turnId": turn_id,
-                "prompt": blocks,
-                // Checked again: the folder's trust may have changed across the restart.
-                "trustGate": true,
-                "restored": "unstarted",
-            });
-            for k in ["control", "cloudMobile", "images", "inlineParts", "pasted", "_meta"] {
-                if let Some(v) = e.msg.get(k) {
-                    queued.set(k, v.clone());
-                }
-            }
             let (record, stored) = self.append_logged(session, "mux", "queued", queued, None);
             if stored {
                 copies.push(record);
             }
         }
         copies
+    }
+
+    /// The `queued` record that puts the prompt logged as `msg` (its `user_message`) back at the
+    /// head of the queue under turn `turn_id`, with what it came with that its run checks again
+    /// (`requeue_unstarted`, `unread_steer.rs`). None when its blocks cannot be rebuilt (hidden
+    /// context, a document).
+    pub(super) fn queued_copy(
+        &self,
+        session: &Session,
+        msg: &Value,
+        turn_id: &str,
+    ) -> Option<Value> {
+        let field = |k: &str| msg.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
+        let blocks = self.logged_prompt_blocks(session, msg)?;
+        let mut queued = json!({
+            "text": field("text"),
+            "client": msg.get("client").cloned().unwrap_or(json!("acpmux")),
+            "position": 0,
+            "promptId": field("promptId"),
+            "turnId": turn_id,
+            "prompt": blocks,
+            // Gated as it came: a prompt from the CLI's unix socket never was, so a restart
+            // does not hold it on a trust question nobody asked (cmux#37231). The gated ones
+            // are checked again, since the folder's trust may have changed across the
+            // restart, as is one from a log from before `user_message` recorded its gate.
+            "trustGate": msg.get("trustGate").and_then(Value::as_bool).unwrap_or(true),
+            "restored": "unstarted",
+        });
+        for k in ["control", "cloudMobile", "images", "inlineParts", "pasted", "_meta"] {
+            if let Some(v) = msg.get(k) {
+                queued.set(k, v.clone());
+            }
+        }
+        Some(queued)
     }
 
     pub(super) fn restore_queue(&self, session: &Arc<Session>) {
@@ -1227,6 +1364,9 @@ impl Hub {
         let mut waiting = queue_waiting::Waiting::default();
         let mut order = queue_waiting::Order::default();
         let mut held: std::collections::HashSet<String> = Default::default();
+        // Of those, the ones whose hold let them go by themselves (`queue_paused` `retrying`): a
+        // record without the field, from an older daemon, held every prompt for Resume.
+        let mut retrying: std::collections::HashSet<String> = Default::default();
         // The revision the owner approved, by the queued prompt's turn id (`queue_approve.rs`):
         // its incarnation, never its client-chosen prompt id, which a later prompt may reuse.
         let mut approved: HashMap<String, Value> = Default::default();
@@ -1240,8 +1380,9 @@ impl Hub {
         let mut direct = unstarted_prompt::Unstarted::default();
         let mut digests = queue_waiting::Digests::default();
         let mut branch = session.meta().git_branch;
+        // And what was changed here but is not in the journal yet (`kept_unstored`).
         let scanned =
-            self.store.scan_kinds(&session.id, Self::QUEUE_KINDS, &mut |e: EventRecord| {
+            self.scan_kinds_and_kept(session, Self::QUEUE_KINDS, &mut |e: EventRecord| {
                 for (prompt_id, turn_id) in unstarted.read(&e, &waiting, &mut order) {
                     waiting.remove_turn(Some(&turn_id));
                     order.remove(&prompt_id);
@@ -1325,9 +1466,8 @@ impl Hub {
                             approved.insert(turn.to_owned(), e.msg.clone());
                         }
                     }
-                    // An edit (`queue_edit.rs`): the prompt and its rules replace the queued ones,
-                    // and it has no `_meta.provenance` (the person rewrote it), unless the edit
-                    // kept a person's own (`author.rs`).
+                    // An edit (`queue_edit.rs`): the prompt and its rules replace the queued ones;
+                    // its `_meta.provenance` keeps its sender and names its editor (`editedBy`).
                     "queue_updated" => {
                         // A revision never goes back: a log from before edits were logged under
                         // the queue lock may hold an older edit after a newer one, and the newer
@@ -1378,9 +1518,17 @@ impl Hub {
                         }
                     }
                     "queue_paused" => {
-                        let ids = e.msg.get("held").and_then(Value::as_array);
-                        let ids = ids.into_iter().flatten().filter_map(Value::as_str);
-                        held.extend(ids.map(str::to_owned));
+                        let ids = |k: &str| {
+                            let ids = e.msg.get(k).and_then(Value::as_array).into_iter().flatten();
+                            ids.filter_map(Value::as_str).map(str::to_owned).collect::<Vec<_>>()
+                        };
+                        let (now_held, now_retrying) = (ids("held"), ids("retrying"));
+                        // The newest hold of each says whether it retries.
+                        for id in &now_held {
+                            retrying.remove(id);
+                        }
+                        held.extend(now_held);
+                        retrying.extend(now_retrying);
                     }
                     // `resume_held` names the prompts it resumed; `resume_queue` resumes them all.
                     "queue_resumed" => match e.msg.get("promptIds").and_then(Value::as_array) {
@@ -1496,11 +1644,17 @@ impl Hub {
             restored.push((prompt_id.clone(), turn_id.clone()));
             let display_parts = e.msg.get("displayParts").cloned();
             let size = super::queue_admission::content_bytes(&blocks, display_parts.as_ref());
+            // The person's prompt a hold kept for Resume waits for it again (`waits_for_resume`); an
+            // older daemon's hold names none that retry, and its agent messages and notices still do.
+            let waits_for_resume = held.contains(&prompt_id)
+                && !retrying.contains(&prompt_id)
+                && agent.is_none()
+                && !super::inbox::is_notice(provenance.as_ref());
             queue.push(QueuedPrompt {
                 prompt_id: prompt_id.clone(),
                 turn_id,
                 client: field("client"),
-                preview: short_text(&text, 200),
+                preview: short_text(super::inbox::relay_body(&text), 200),
                 queued_at: e.at,
                 withdraw: Arc::new(Notify::new()),
                 run: Arc::new(approved_rules(
@@ -1526,6 +1680,7 @@ impl Hub {
                 restored: true,
                 resume: true,
                 steer: false,
+                retries: if waits_for_resume { PERSON_RETRIES } else { 0 },
                 held: held.contains(&prompt_id),
                 awaiting_owner,
                 revision,
@@ -1533,7 +1688,6 @@ impl Hub {
                 sent_now: false,
                 joined: Arc::new(StdMutex::new(None)),
                 requeued: e.msg.get("requeued") == Some(&Value::Bool(true)),
-                retries: 0,
             });
             restored_any = true;
             session.queued.fetch_add(1, Ordering::SeqCst);
@@ -1686,4 +1840,14 @@ pub(super) fn closing(session: &Session) -> bool {
 pub(super) fn closing_error() -> RpcError {
     RpcError::invalid_params("the session is closing or closed: it takes no prompt")
         .with_data(json!({"reason": "session.closing", "closing": true}))
+}
+
+/// The `queue_removed` record of `removed`, with the fields of `why`.
+fn removed_record(session: &Session, removed: &QueuedPrompt, why: Value) -> Value {
+    let mut msg = json!({"promptId": removed.prompt_id, "turnId": removed.turn_id,
+                         "queued": session.queued()});
+    if let (Some(msg), Value::Object(why)) = (msg.as_object_mut(), why) {
+        msg.extend(why);
+    }
+    msg
 }

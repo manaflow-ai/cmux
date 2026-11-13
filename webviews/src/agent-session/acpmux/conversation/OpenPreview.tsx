@@ -1,6 +1,7 @@
 // The code card's Open (cx-ncc.63): an HTML, SVG or Markdown fence opens in the side panel beside the
 // chat (ArtifactPanel.tsx). Apart from the panel, so the code card does not import the panel that
 // draws code cards.
+import { cornerAction } from "./cornerActions";
 import { useContext } from "react";
 import { useT } from "../i18n";
 import { ArtifactContext, artifactKind, type Artifact } from "./artifactPreview";
@@ -25,7 +26,7 @@ export function OpenPreview({
   return (
     <button
       type="button"
-      className="cv-codeblock__action"
+      className={cornerAction()}
       aria-label={t("artifact.open")}
       title={t("artifact.open")}
       onClick={() => {

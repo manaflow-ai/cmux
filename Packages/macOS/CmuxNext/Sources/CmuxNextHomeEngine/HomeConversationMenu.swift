@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxHomeCore
 public import CmuxNextActions
 import CmuxNextHome
+import CmuxNextHomeModel
 
 /// One item of a Home menu: a catalog action with the registry's own title and the arguments it
 /// runs with. The native list's row menu and the React Messages page (`cmux.home.messages.menu`)
@@ -30,14 +31,10 @@ public struct HomeMenuEntry: Hashable, Sendable {
         self.init(action: ActionID(rawValue: action), title: "", arguments: textArguments.mapValues(ActionValue.string))
     }
 
-    /// Runs it as the person's choice. Delete Conversation (`home.hideConversation`) asks first, as
-    /// Messages does (`HomeListActions.confirmDelete`), in `window`.
+    /// Runs it as the person's choice. Delete Conversation (`home.hideConversation`) runs at once and offers Undo.
     @MainActor
     public func perform(in registry: ActionRegistry, window: NSWindow?) {
-        let run: @MainActor @Sendable () -> Void = { [action, arguments] in
-            _ = registry.perform(action, invocation: ActionInvocation(arguments: arguments, origin: .user))
-        }
-        if action == "home.hideConversation" { HomeListActions.confirmDelete(in: window, run) } else { run() }
+        _ = registry.perform(action, invocation: ActionInvocation(arguments: arguments, origin: .user))
     }
 }
 

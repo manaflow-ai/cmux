@@ -3,6 +3,7 @@ public import CmuxNextAgentPane
 public import CmuxNextBridge
 public import CmuxNextDaemon
 public import CmuxNextDaemonService
+public import CmuxNextLayout
 public import CmuxNextSidebar
 import Foundation
 
@@ -42,6 +43,16 @@ public struct WorkspaceSpawn: Sendable {
     /// the terminal; `WorkspaceHandlers.createAndShow`): a failure fails the create, which closes the
     /// workspace while it is still empty and releases its window's claim.
     public var onFirstTerminal: (@Sendable (DaemonConnection, CreateTerminalResult) async throws -> Void)?
+    /// The workspace's only tab is this browser tab, made by the create itself on a daemon that serves
+    /// `workspace-first-tab-v1` (one request, no terminal at any point); ``onBrowserTab`` then works on
+    /// the tab. An older daemon gets the terminal and ``onFirstTerminal``.
+    public var firstBrowser: WorkspaceFirstBrowserTab?
+    /// The browser tabs after ``firstBrowser``, in order, each sent to the new workspace itself (no terminal hosts them).
+    public var moreBrowsers: [WorkspaceFirstBrowserTab] = []
+    /// Whether the tabs of ``moreBrowsers`` stay in the background (`activate: false`); nil: the daemon has no such field.
+    public var moreBrowsersActivate: Bool?
+    /// Work on each browser tab the create made (its index: 0 is ``firstBrowser``); a failure is the create's.
+    public var onBrowserTab: (@Sendable (DaemonConnection, Int, NewFrontendBrowserTabRequest.Response) async throws -> Void)?
 
     public init(cwd: String? = nil, name: String? = nil, command: String? = nil, env: [String: String] = [:], keep: Bool = false,
                 profile: ProfileID? = nil, newTabPage: Bool = false, key: WorkspaceKey? = nil) {
@@ -71,6 +82,27 @@ public struct WorkspaceSpawn: Sendable {
             env = object.compactMapValues { $0 as? String }
         }
         opensNewTabPage = invocation.origin == .user && command == nil
+    }
+
+    /// One read of the placement `setting` for the create of `key` into `window`: tells the close-selection `rule` of
+    /// the relation the create starts (``closeRelation(setting:)``), before the window can show it, and returns
+    /// ``placement(setting:)``. A second read of the setting is a second walk of the sidebar's rows.
+    @MainActor
+    public func placement(setting: NewWorkspaceDefaultSlot, opening key: String, in window: String?,
+                          tells rule: WindowCloseSelection) -> (row: NewWorkspaceDefaultSlot?, rule: NewWorkspaceDefaultSlot?) {
+        if let window { rule.expect(key, in: window, relation: closeRelation(setting: setting)) }
+        return placement(setting: setting)
+    }
+
+    /// The close-selection relation this create into a window starts (plans/cmux-next/close-focus.md, "One
+    /// close-selection rule"). Rust decides (`WindowCloseSelection.relation`) from the facts given here: the
+    /// create opens the New Tab page (a duplicate, a template, a move, a session transfer, an import and a
+    /// command workspace never do), its run is the person's and may change the view, and the `setting` puts the
+    /// new row after the current one. Only a person's own New Workspace gets one: `.task` after the current row
+    /// (it lasts as a link tab's relation does), `.quick` at the top or the end (the quick look-up).
+    public func closeRelation(setting: NewWorkspaceDefaultSlot) -> WindowCloseSelection.Relation {
+        WindowCloseSelection.relation(opensNewTabPage: opensNewTabPage, personsAction: ActionRunScope.isPersonsAction(),
+                                      mayChangeView: ActionRunScope.viewChangeAllowed(), afterCurrent: setting.placesAfterCurrent)
     }
 
     /// A plain Cmd-N: the New Tab page with nothing of its own (no key, chat, session, command, browser profile or
@@ -109,13 +141,16 @@ public struct WorkspaceSpawn: Sendable {
         (opensNewTabPage || firstChat != nil || firstSession != nil) && command == nil && browserProfile == nil && (cwd == nil || local)
     }
 
-    /// The default slot of this create's sidebar row and the rule its daemon places it by, from the window's
-    /// `workspaces.newPlacement` rule `byDefault` (nil for a create with a slot of its own): a create that does not
-    /// place itself from the window's current workspace loses that anchor (except `afterCurrent`), and only a create
-    /// placed by the setting gives the daemon a rule.
-    public func placement(byDefault: NewWorkspaceDefaultSlot?) -> (row: NewWorkspaceDefaultSlot?, rule: NewWorkspaceDefaultSlot?) {
-        let row = byDefault?.anchored(fromCurrent: placesFromCurrent && placesBySetting)
-        return (row, placesBySetting ? row : nil)
+    /// The default slot of this create's sidebar row and the rule it is placed by, from the window's
+    /// `workspaces.newPlacement` rule `setting`: a create that does not place itself from the window's current
+    /// workspace loses that anchor (except `afterCurrent`), and only a create placed by the setting gets a rule. A
+    /// create with a slot of its own shows its row there (no default row) and keeps the rule only as the fallback for
+    /// a slot whose anchor closed during the create: never the daemon's place, which can be the sidebar's end (Leo
+    /// 2026-11-06).
+    public func placement(setting: NewWorkspaceDefaultSlot) -> (row: NewWorkspaceDefaultSlot?, rule: NewWorkspaceDefaultSlot?) {
+        let anchored = setting.anchored(fromCurrent: placesFromCurrent && placesBySetting)
+        let row: NewWorkspaceDefaultSlot? = if case .none = slot { anchored } else { nil }
+        return (row, placesBySetting ? anchored : nil)
     }
 
     /// What a new workspace's first terminal starts with (``TerminalStart``). On this Mac (`local`) it gets the app's

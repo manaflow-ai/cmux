@@ -26,6 +26,9 @@ pub(super) enum Delivery {
     /// (`session_banner`), as `systemMessage`, which the person sees and the
     /// model does not. It carries no agent messages.
     SessionBanner,
+    /// The Codex shim's `SessionStart`: where the agent runs, as
+    /// `additionalContext` (session_context.rs). It carries no agent messages.
+    SessionContext,
 }
 
 impl Delivery {
@@ -48,6 +51,7 @@ impl Delivery {
             Self::PromptContext { via } => via,
             Self::ContinueTurn => "codex.stop",
             Self::SessionBanner => "claude.session-start",
+            Self::SessionContext => "codex.session-start",
         }
     }
 
@@ -62,6 +66,7 @@ impl Delivery {
             }),
             (Self::ContinueTurn, Some(text)) => json!({"decision": "block", "reason": text}),
             (Self::SessionBanner, Some(text)) => json!({"systemMessage": text}),
+            (Self::SessionContext, text) => session_context::output(text),
         }
     }
 }
@@ -160,52 +165,93 @@ fn acknowledge_delivered(socket: &Path, terminal: &str, deadline: Instant) -> an
 }
 
 /// One `cmux.protocol/2` request on its own connection.
-fn request(
+pub(super) fn request(
     socket: &Path,
     operation: &str,
-    mut params: Value,
+    params: Value,
     mutation: bool,
     deadline: Instant,
 ) -> anyhow::Result<Value> {
-    let (request_id, idempotency_key) = random_identifiers()?;
-    params.set("machine", json!("current"));
-    params.set("session", json!("current"));
-    let mut request = json!({
-        "protocol": "cmux.protocol/2",
-        "type": "request",
-        "id": request_id,
-        "operation": operation,
-        "params": params,
-    });
-    if mutation {
-        request.set("idempotency_key", Value::String(idempotency_key));
+    Connection::open(socket, deadline)?.request(operation, params, mutation)
+}
+
+/// One connection to the session that carries `cmux.protocol/2` requests one
+/// after the other, all before one deadline. A hook that reads more than one
+/// record uses one of these: the daemon has a limit of connections, and a
+/// connection for each record is refused when many agents start at one time.
+pub(super) struct Connection {
+    /// `None` when the connection cannot carry a request: a write or a read
+    /// on it failed, the daemon refused it, or a reply was not the answer to
+    /// its request.
+    stream: Option<BufReader<Box<dyn transport::Stream>>>,
+    deadline: Instant,
+}
+
+impl Connection {
+    pub(super) fn open(socket: &Path, deadline: Instant) -> anyhow::Result<Self> {
+        let stream = connect_before(socket, deadline).map_err(attempt_error)?;
+        Ok(Self { stream: Some(BufReader::new(stream)), deadline })
     }
-    let mut encoded = serde_json::to_vec(&request)?;
-    encoded.push(b'\n');
-    let attempt = || -> Result<Vec<u8>, AppendAttemptError> {
-        let mut stream = connect_before(socket, deadline)?;
-        // Bound the read before writing: read_before
-        // only shrinks this bound, since macOS refuses the option once the
-        // daemon has answered and closed.
-        stream
-            .set_read_timeout(Some(remaining_before(deadline)?))
-            .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
-        write_before(&mut *stream, &encoded, deadline)?;
-        read_before(stream, deadline)
-    };
-    let response = attempt().map_err(|error| match error {
+
+    /// Sends one request and returns its result. A request that the session
+    /// answers with an error leaves the connection open for the next one.
+    pub(super) fn request(
+        &mut self,
+        operation: &str,
+        mut params: Value,
+        mutation: bool,
+    ) -> anyhow::Result<Value> {
+        let (request_id, idempotency_key) = random_identifiers()?;
+        params.set("machine", json!("current"));
+        params.set("session", json!("current"));
+        let mut request = json!({
+            "protocol": "cmux.protocol/2",
+            "type": "request",
+            "id": request_id,
+            "operation": operation,
+            "params": params,
+        });
+        if mutation {
+            request.set("idempotency_key", Value::String(idempotency_key));
+        }
+        let mut encoded = serde_json::to_vec(&request)?;
+        encoded.push(b'\n');
+        // The stream comes back only after the answer to this request: each
+        // early return below leaves the connection closed.
+        let Some(mut stream) = self.stream.take() else {
+            bail!("{operation} was not sent: the connection is closed");
+        };
+        let deadline = self.deadline;
+        let mut attempt = || -> Result<Vec<u8>, AppendAttemptError> {
+            // Bound the read before writing: read_before
+            // only shrinks this bound, since macOS refuses the option once the
+            // daemon has answered and closed.
+            stream
+                .get_ref()
+                .set_read_timeout(Some(remaining_before(deadline)?))
+                .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
+            write_before(&mut **stream.get_mut(), &encoded, deadline)?;
+            read_before(&mut stream, deadline)
+        };
+        let response = attempt().map_err(attempt_error)?;
+        let response: Value = serde_json::from_slice(&response)?;
+        if let Some(busy) = journal_append::busy_line(&response) {
+            bail!("{operation} was refused: {busy}");
+        }
+        if response["id"].as_str() != Some(request_id.as_str()) {
+            bail!("{operation} returned a mismatched request id");
+        }
+        self.stream = Some(stream);
+        if response["ok"] != true {
+            bail!("{operation} failed: {}", response["error"]["message"]);
+        }
+        let result = response["result"].clone();
+        Ok(if mutation { result["value"].clone() } else { result })
+    }
+}
+
+fn attempt_error(error: AppendAttemptError) -> anyhow::Error {
+    match error {
         AppendAttemptError::Retryable(error) | AppendAttemptError::Fatal(error) => error,
-    })?;
-    let response: Value = serde_json::from_slice(&response)?;
-    if let Some(busy) = journal_append::busy_line(&response) {
-        bail!("{operation} was refused: {busy}");
     }
-    if response["id"].as_str() != Some(request_id.as_str()) {
-        bail!("{operation} returned a mismatched request id");
-    }
-    if response["ok"] != true {
-        bail!("{operation} failed: {}", response["error"]["message"]);
-    }
-    let result = response["result"].clone();
-    Ok(if mutation { result["value"].clone() } else { result })
 }

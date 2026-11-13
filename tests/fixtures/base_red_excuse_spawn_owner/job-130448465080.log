@@ -1,0 +1,62 @@
+﻿2026-11-11T09:50:10.0338459Z Current runner version: '2.338.2'
+2026-11-11T09:50:10.4688118Z ##[group]Run '/setup.sh'
+2026-11-11T09:50:10.6781959Z ##[group]Run actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+2026-11-11T09:50:22.0583825Z ##[group]Run scripts/ci/reset-stale-submodules.sh
+2026-11-11T09:50:22.1102898Z ##[group]Run set -euo pipefail
+2026-11-11T09:50:23.7396768Z ##[group]Run python3 tests/test_asc_developer_id_app.py
+2026-11-11T09:50:23.7868282Z ##[group]Run python3 tests/test_cmux_tui_republish_same_commit.py
+2026-11-11T09:50:34.5580509Z ##[group]Run python3 tests/test_verify_cmux_tui_hosted.py
+2026-11-11T09:51:06.0037743Z ##[group]Run python3 tests/test_crash_ratchet_compare.py
+2026-11-11T09:51:09.0598911Z ##[group]Run python3 tests/test_spawn_owner_ratchet.py
+2026-11-11T09:51:09.0599146Z [36;1mpython3 tests/test_spawn_owner_ratchet.py[0m
+2026-11-11T09:51:09.0612644Z shell: /usr/bin/bash -e {0}
+2026-11-11T09:51:09.0612774Z env:
+2026-11-11T09:51:09.0612884Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T09:51:09.0613071Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T09:51:09.0613573Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T09:51:09.0613707Z ##[endgroup]
+2026-11-11T09:51:10.1841269Z ........F.
+2026-11-11T09:51:10.1841466Z ======================================================================
+2026-11-11T09:51:10.1841799Z FAIL: test_the_committed_baseline_holds_on_this_tree (__main__.SpawnOwnerRatchet.test_the_committed_baseline_holds_on_this_tree)
+2026-11-11T09:51:10.1842191Z ----------------------------------------------------------------------
+2026-11-11T09:51:10.1842382Z Traceback (most recent call last):
+2026-11-11T09:51:10.1842676Z   File "/home/runner/_work/cmux/cmux/tests/test_spawn_owner_ratchet.py", line 158, in test_the_committed_baseline_holds_on_this_tree
+2026-11-11T09:51:10.1843008Z     self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+2026-11-11T09:51:10.1843369Z AssertionError: 1 != 0 : check-spawn-owner: cmux-tui/crates/acpmux/src/hub/remote_table_bench.rs has 1 spawn line(s) with no owner (a new file).
+2026-11-11T09:51:10.1847207Z   cmux-tui/crates/acpmux/src/hub/remote_table_bench.rs:68: std::thread::spawn(move || {
+2026-11-11T09:51:10.1847856Z next: spawn the task with its owner's `Scope::spawn` / `spawn_named` / `spawn_until_cancelled` (cmux-scope; the owner closes it), or start the process with `cmux_process::Command` and keep its `Child` (it ends with its owner; `Child::detach(reason)` when it must outlive it).
+2026-11-11T09:51:10.1848511Z 
+2026-11-11T09:51:10.1848523Z 
+2026-11-11T09:51:10.1848661Z ----------------------------------------------------------------------
+2026-11-11T09:51:10.1848850Z Ran 10 tests in 1.098s
+2026-11-11T09:51:10.1848945Z 
+2026-11-11T09:51:10.1854217Z FAILED (failures=1)
+2026-11-11T09:51:10.1900182Z ##[error]Process completed with exit code 1.
+2026-11-11T09:51:10.2209525Z ##[group]Run python3 tests/test_app_crate_licenses.py
+2026-11-11T09:51:10.2578361Z ##[group]Run python3 tests/test_check_objc_selectors_step.py
+2026-11-11T09:51:25.9433012Z ##[group]Run python3 tests/test_ci_package_lane_prebuild.py
+2026-11-11T09:51:26.1901187Z ##[group]Run python3 -I tests/test_ios_sim_runtime.py
+2026-11-11T09:51:26.3007200Z ##[group]Run python3 -I tests/test_ios_ffi_cache.py
+2026-11-11T09:51:28.5980769Z ##[group]Run python3 -I tests/test_ios_chief_benchmark_route.py
+2026-11-11T09:51:29.2320853Z ##[group]Run python3 -I tests/test_ios_appstore_listing_text.py
+2026-11-11T09:51:29.3837149Z ##[group]Run python3 -I tests/test_asc_review_package.py
+2026-11-11T09:51:33.6732412Z ##[group]Run python3 scripts/ci/display_suites.py --check
+2026-11-11T09:51:52.4737440Z ##[group]Run python3 tests/test_swiftpm_test_product.py
+2026-11-11T09:51:53.1207777Z ##[group]Run python3 tests/test_compile_string_catalogs.py
+2026-11-11T09:51:54.0885155Z ##[group]Run python3 tests/test_cmux_next_dev_daily_notify_cli.py
+2026-11-11T09:51:54.6939721Z ##[group]Run python3 tests/test_publish_cmux_tui_tree.py
+2026-11-11T09:51:55.8806603Z ##[group]Run python3 tests/test_cmux_next_media_publish_windows.py
+2026-11-11T09:51:55.9543519Z ##[group]Run python3 tests/test_list_macho_candidates.py
+2026-11-11T09:51:55.9953203Z ##[group]Run python3 tests/test_ci_macos_stubs.py
+2026-11-11T09:51:56.0717424Z ##[group]Run ./.github/actions/setup-cmux-tui-rust
+2026-11-11T09:51:56.4320028Z ##[group]Run set -euo pipefail
+2026-11-11T09:51:56.4474234Z ##[group]Run if [[ -n "$REQUESTED_PYTHON_COMMAND" ]]; then
+2026-11-11T09:52:01.9740531Z ##[group]Run bash "$GITHUB_ACTION_PATH/../runner-cargo-home/runner-cargo-home.sh"
+2026-11-11T09:52:01.9870767Z ##[group]Run python3 tests/test_tailnet_build_delivery.py
+2026-11-11T09:52:02.9163502Z ##[group]Run python3 tests/test_browser_host_release_package.py
+2026-11-11T09:52:03.0021389Z ##[group]Run python3 tests/test_install_zig_ci_reviewed_version.py
+2026-11-11T09:52:03.1657834Z ##[group]Run python3 tests/test_normalize_pbxproj.py
+2026-11-11T09:52:04.0724080Z ##[group]Run python3 tests/test_web_validation.py
+2026-11-11T09:52:06.7976276Z ##[group]Run python3 tests/test_ci_tip_test_compile.py
+2026-11-11T09:52:09.0704117Z Post job cleanup.
+2026-11-11T09:52:09.1792557Z ##[group]Run '/job_completed.sh'

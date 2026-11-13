@@ -13,7 +13,7 @@ use futures_util::StreamExt;
 use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::codec::{FramedRead, LinesCodec, LinesCodecError};
 
@@ -42,14 +42,26 @@ pub(super) async fn serve_stream(
     stream: crate::local_stream::Stream,
     peer: Option<cmux_link::app_caller::PeerToken>,
     provisioner: bool,
+    socket_peer: crate::sender_harness::SocketPeer,
+    v2: Option<std::sync::Arc<acpmux_core::life::V2>>,
 ) {
+    let daemon_id = hub.run_id();
     let (rd, wr) = crate::local_stream::split(stream);
     let (in_tx, in_rx) = mpsc::channel::<String>(INBOUND_LINES);
     let (out_tx, out_rx) = mpsc::channel::<String>(4096);
     let (last_tx, last_rx) = oneshot::channel();
     let limits = Limits { line: MAX_LINE_BYTES, small: SMALL_LINE_BYTES };
-    tokio::spawn(read_lines(rd, in_tx, last_tx, limits));
-    tokio::spawn(write_lines(wr, out_rx, last_rx));
+    let reader_v2 = v2.clone();
+    let reader =
+        tokio::spawn(
+            async move { read_lines(rd, in_tx, last_tx, limits, reader_v2.as_deref()).await },
+        );
+    let may_upgrade = v2.is_some();
+    let writer = tokio::spawn(async move {
+        let wr = write_lines(wr, out_rx, last_rx).await;
+        // With v2 disabled, the task drops its write half just as v1 always did.
+        may_upgrade.then_some(wr)
+    });
     serve_connection_from(
         hub,
         in_rx,
@@ -58,10 +70,76 @@ pub(super) async fn serve_stream(
         ConnAuth::LocalSocket,
         peer,
         provisioner,
+        socket_peer,
+        None,
+        None,
         None,
         None,
     )
     .await;
+    if let Some(v2) = v2
+        && let Ok(Some(upgrade)) = reader.await
+        && let Ok(Some(wr)) = writer.await
+    {
+        let _ = upgrade.serve(wr, &v2, daemon_id).await;
+    }
+}
+
+struct Upgrade<R> {
+    reader: tokio::io::Chain<std::io::Cursor<Vec<u8>>, R>,
+    id: Value,
+    surfaces: Vec<String>,
+}
+
+impl<R: AsyncRead + Unpin> Upgrade<R> {
+    async fn serve<W: AsyncWrite + Unpin>(
+        self,
+        mut writer: W,
+        v2: &acpmux_core::life::V2,
+        daemon_id: String,
+    ) -> Result<(), acpmux_core::conn::ConnError> {
+        // The v1 connection has ended, but its upgraded client is still here.
+        let _client = crate::daemon::unused_exit::client();
+        let reply = Message::ok(
+            self.id,
+            json!({
+                "protocol": 2, "surfaces": self.surfaces, "upgrade": true,
+            }),
+        );
+        writer.write_all(reply.to_line().as_bytes()).await?;
+        let source = Arc::new(acpmux_core::conn::HubSource::new(v2.hub()));
+        acpmux_core::conn::run(self.reader, writer, source, daemon_id, &self.surfaces).await
+    }
+}
+
+fn v2_upgrade(line: &str, v2: &acpmux_core::life::V2) -> Option<(Value, Vec<String>)> {
+    let Message::Request { id, method, params: Some(params) } = Message::parse(line).ok()? else {
+        return None;
+    };
+    if method != crate::rpc::method::MUX_V2
+        || params.get("protocol").and_then(Value::as_u64) != Some(2)
+    {
+        return None;
+    }
+    let requested = params
+        .get("surfaces")?
+        .as_array()?
+        .iter()
+        .map(Value::as_str)
+        .collect::<Option<Vec<_>>>()?;
+    if !requested.iter().all(|surface| matches!(*surface, "list" | "chat"))
+        || !v2.allows_surfaces(&requested)
+    {
+        return None;
+    }
+    Some((
+        id,
+        ["list", "chat"]
+            .into_iter()
+            .filter(|surface| requested.contains(surface))
+            .map(str::to_owned)
+            .collect(),
+    ))
 }
 
 /// Hands each line `rd` reads to `in_tx`, holding at most `limits.line` bytes of one (and the
@@ -75,11 +153,29 @@ async fn read_lines<R: AsyncRead + Unpin>(
     in_tx: mpsc::Sender<String>,
     last: oneshot::Sender<String>,
     limits: Limits,
-) {
+    v2: Option<&acpmux_core::life::V2>,
+) -> Option<Upgrade<R>> {
     let max = limits.line;
     // The codec counts a line's `\r` with it and strips it after, so it holds one byte more.
     let mut lines = FramedRead::new(rd, LinesCodec::new_with_max_length(max.saturating_add(1)));
+    let mut first = true;
     while let Some(line) = lines.next().await {
+        // An HTTP request (a WebSocket upgrade, perhaps with the Cloud carrier's header) is for
+        // the carrier socket, never this one (`carrier.rs`): no header here names anyone.
+        let is_first = std::mem::take(&mut first);
+        if is_first
+            && let Ok(line) = &line
+            && http_request_line(line)
+        {
+            tracing::warn!("closing a socket connection that sent an HTTP request");
+            let error = RpcError::new(
+                -32600,
+                "this is acpmux's JSON-RPC socket; HTTP and WebSocket upgrades are refused here",
+            )
+            .with_data(json!({"reason": super::carrier::WRONG_SOCKET}));
+            let _ = last.send(Message::err(Value::Null, error).to_line());
+            break;
+        }
         let line = match line {
             Ok(line) if line.len() <= max => line,
             Ok(_) | Err(LinesCodecError::MaxLineLengthExceeded) => {
@@ -98,6 +194,17 @@ async fn read_lines<R: AsyncRead + Unpin>(
             // Not UTF-8, or the socket failed.
             Err(LinesCodecError::Io(_)) => break,
         };
+        // Only the first request of a fresh local socket can upgrade. Trigger
+        // admission is itself a v1 request, so an admitted trigger cannot reach
+        // this branch; later upgrades use the normal v1 method-not-found path.
+        if is_first && let Some((id, surfaces)) = v2.and_then(|v2| v2_upgrade(&line, v2)) {
+            let parts = lines.into_parts();
+            return Some(Upgrade {
+                reader: std::io::Cursor::new(parts.read_buf.to_vec()).chain(parts.io),
+                id,
+                surfaces,
+            });
+        }
         let sent = if line.len() > limits.small {
             // All the queue's room: every line before it was taken.
             match in_tx.reserve_many(in_tx.max_capacity()).await {
@@ -111,6 +218,18 @@ async fn read_lines<R: AsyncRead + Unpin>(
             break;
         }
     }
+    None
+}
+
+/// Whether `line` is an HTTP request line (`GET /path HTTP/1.1`), which no JSON-RPC line is.
+fn http_request_line(line: &str) -> bool {
+    let line = line.trim_end_matches('\r');
+    let mut parts = line.split(' ');
+    matches!(
+        (parts.next(), parts.next(), parts.next(), parts.next()),
+        (Some(m), Some(_), Some(v), None)
+            if m.bytes().all(|b| b.is_ascii_uppercase()) && !m.is_empty() && v.starts_with("HTTP/")
+    )
 }
 
 /// Writes each line `out_rx` gives to `wr` until the queue closes, or until a `last` line comes:
@@ -123,7 +242,7 @@ async fn write_lines<W: AsyncWrite + Unpin>(
     mut wr: W,
     mut out_rx: mpsc::Receiver<String>,
     last: oneshot::Receiver<String>,
-) {
+) -> W {
     let last = async move {
         match last.await {
             Ok(line) => line,
@@ -160,6 +279,7 @@ async fn write_lines<W: AsyncWrite + Unpin>(
             }
         }
     }
+    wr
 }
 
 #[cfg(test)]

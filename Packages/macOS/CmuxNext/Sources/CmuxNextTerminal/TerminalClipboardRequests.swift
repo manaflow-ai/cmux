@@ -60,6 +60,10 @@ final class TerminalClipboardRequests {
         guard let surface = view?.surface else { return GHOSTTY_CLIPBOARD_READ_UNSUPPORTED }
         let pasteboard = TerminalPasteboard.pasteboard(location)
         let imagePaste = location == .standard && userPasteInProgress
+        if imagePaste, wantsText, view?.session?.handOffFilePaste(pasteboard) == true {
+            Self.complete(surface, text: "", available: ["text/plain"], state: state, confirmed: false)
+            return GHOSTTY_CLIPBOARD_READ_STARTED
+        }
         let text: String? = if imagePaste, wantsText {
             TerminalPasteboard.pasteTextSavingImage(from: pasteboard)
         } else if imagePaste, TerminalPasteboard.pasteText(from: pasteboard) == nil,
@@ -192,7 +196,7 @@ final class TerminalClipboardRequests {
     /// Ghostty's paste confirmation does: Return presses Allow. A program's OSC 52 request
     /// gives Allow no key: the program picks the moment that dialog opens, so a Return typed
     /// for the terminal must never hand the clipboard over (as in the clipboard-read broker
-    /// dialog). No dialog opens with the keyboard on a button (`CmuxDialogView.focusInitial`),
+    /// dialog). No dialog opens with the keyboard on a button (the overlay page's dialog focuses its first text field or the card),
     /// so a typed Space presses neither.
     static func spec(for kind: TerminalClipboardRequestKind, preview text: String) -> CmuxDialogSpec {
         let title: String

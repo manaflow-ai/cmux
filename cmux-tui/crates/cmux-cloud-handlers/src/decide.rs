@@ -5,6 +5,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use crate::args::PortNames;
 use crate::fields::{self, Machine};
 use crate::{Fields, Said};
 
@@ -53,12 +54,6 @@ pub fn machine(lookup: &Lookup) -> Result<Pick, Said> {
         return Ok(Pick::Active);
     }
     if lookup.cloud_count == 1 { Ok(Pick::Only) } else { Err(Said::key("noMachine")) }
-}
-
-/// Whether a machine can take an attach now or after a resume: not changing state, and either
-/// answering or with no app link (a legacy machine may be paused behind a stale record).
-pub fn attachable(changing: bool, connected: bool, has_app_link: bool) -> bool {
-    !changing && (connected || !has_app_link)
 }
 
 /// What New Cloud Workspace does.
@@ -187,6 +182,10 @@ pub struct Failure {
 /// creation's id, or the failure. A refusal a paid plan lifts names the plan, so a CLI or agent
 /// can start that plan's checkout (`cmux billing checkout --plan`).
 pub fn settled(settled: &Settled) -> Result<Fields, Failure> {
+    // A machine the server returned is made, whatever phase raced it (as `creation` decides).
+    if let Some(machine) = &settled.machine {
+        return Ok(fields::created_machine(machine, settled.workspace_id.as_deref()));
+    }
     match settled.state {
         Some(Creation::Failed) => {
             let reason = settled.reason.as_deref().unwrap_or("");
@@ -206,67 +205,143 @@ pub fn settled(settled: &Settled) -> Result<Fields, Failure> {
         Some(Creation::Gone) => {
             Err(Failure { reason: Said::key("createDeclined"), code: None, refusal: true })
         }
-        _ => Ok(match &settled.machine {
-            Some(machine) => fields::created_machine(machine, settled.workspace_id.as_deref()),
-            None => {
-                match json!({"pending": true, "status": "creating", "creation_id": settled.creation_id})
-                {
-                    Value::Object(map) => map,
-                    _ => Fields::new(),
-                }
-            }
-        }),
+        _ => Ok(
+            match json!({"pending": true, "status": "creating", "creation_id": settled.creation_id})
+            {
+                Value::Object(map) => map,
+                _ => Fields::new(),
+            },
+        ),
     }
+}
+
+/// A Cloud machine row supplied to the palette target picker.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PaletteMachine {
+    pub id: String,
+    pub title: String,
+    pub status: String,
+    /// Whether the machine advertises the desktop service.
+    pub desktop: bool,
+}
+
+/// The machine state shown by the shared palette target picker.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PaletteTargetState {
+    Ready,
+    Resume,
+    DesktopUnavailable,
+    Starting,
+    Unavailable,
+    Empty,
+}
+
+/// The inline action offered by a target row. The app supplies localized labels and performs it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PaletteTargetIntent {
+    Choose,
+    StartDesktop,
+    CreateDesktop,
+}
+
+/// One row returned to a palette target picker.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PaletteTargetRow {
+    pub id: String,
+    pub title: String,
+    pub state: PaletteTargetState,
+    pub intent: Option<PaletteTargetIntent>,
+}
+
+fn palette_status(
+    status: &str,
+    desktop: bool,
+    wants_desktop: bool,
+) -> (PaletteTargetState, Option<PaletteTargetIntent>) {
+    let status = status.trim().to_ascii_lowercase();
+    match status.as_str() {
+        // These are in-flight transitions. Keep the row visible with its transition state,
+        // but do not offer setup/recovery until the Cloud control plane settles it.
+        "pausing" => (
+            PaletteTargetState::Resume,
+            if wants_desktop { None } else { Some(PaletteTargetIntent::Choose) },
+        ),
+        "paused" | "suspended" => {
+            if wants_desktop && !desktop {
+                (PaletteTargetState::Resume, Some(PaletteTargetIntent::StartDesktop))
+            } else {
+                (PaletteTargetState::Resume, Some(PaletteTargetIntent::Choose))
+            }
+        }
+        "starting" | "creating" | "provisioning" | "resuming" | "booting" => {
+            (PaletteTargetState::Starting, (!wants_desktop).then_some(PaletteTargetIntent::Choose))
+        }
+        "running" | "ready" | "connected" | "active" => {
+            if wants_desktop && !desktop {
+                (PaletteTargetState::DesktopUnavailable, Some(PaletteTargetIntent::StartDesktop))
+            } else {
+                (PaletteTargetState::Ready, Some(PaletteTargetIntent::Choose))
+            }
+        }
+        "deleting" => (
+            PaletteTargetState::Unavailable,
+            if wants_desktop { None } else { Some(PaletteTargetIntent::Choose) },
+        ),
+        _ => (
+            PaletteTargetState::Unavailable,
+            if wants_desktop && !desktop {
+                Some(PaletteTargetIntent::CreateDesktop)
+            } else {
+                (!wants_desktop).then_some(PaletteTargetIntent::Choose)
+            },
+        ),
+    }
+}
+
+/// Build stable, GUI-ready rows for a machine target picker.
+///
+/// Machines advertising a desktop always precede machines without that capability. Within each
+/// capability group rows are ordered by actionability (ready, resume, starting, unavailable)
+/// while preserving the inventory order for ties. The empty desktop case offers the create path.
+pub fn palette_targets(wants_desktop: bool, machines: &[PaletteMachine]) -> Vec<PaletteTargetRow> {
+    if wants_desktop && machines.is_empty() {
+        return vec![PaletteTargetRow {
+            id: "create-desktop".into(),
+            title: String::new(),
+            state: PaletteTargetState::Empty,
+            intent: Some(PaletteTargetIntent::CreateDesktop),
+        }];
+    }
+    let mut rows: Vec<(usize, PaletteTargetRow, bool, u8)> = machines
+        .iter()
+        .enumerate()
+        .map(|(index, machine)| {
+            let (state, intent) = palette_status(&machine.status, machine.desktop, wants_desktop);
+            let actionability = match state {
+                PaletteTargetState::Ready => 0,
+                PaletteTargetState::Resume => 1,
+                PaletteTargetState::Starting => 2,
+                PaletteTargetState::DesktopUnavailable => 3,
+                PaletteTargetState::Unavailable | PaletteTargetState::Empty => 4,
+            };
+            let title = machine.title.trim();
+            (
+                index,
+                PaletteTargetRow { id: machine.id.clone(), title: title.to_owned(), state, intent },
+                machine.desktop,
+                actionability,
+            )
+        })
+        .collect();
+    rows.sort_by_key(|(index, _, desktop, actionability)| (!*desktop, *actionability, *index));
+    rows.into_iter().map(|(_, row, _, _)| row).collect()
 }
 
 /// How Open Desktop shows a machine's desktop.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum Desktop {
-    /// The remote view pane on the machine's `cmux-rd` host, watching the agent.
-    Rd,
-    /// The pane on the app's own VNC client (development builds).
-    Native,
-    /// The noVNC page in a Chromium tab.
-    Web,
-}
-
-/// The facts of an Open Desktop.
-#[derive(Clone, Debug, Default, Deserialize)]
-#[serde(rename_all = "camelCase", default)]
-pub struct DesktopFacts {
-    /// `--viewer`, else the machine's default.
-    pub viewer: Option<String>,
-    pub default_viewer: String,
-    /// The machine allows a desktop at all.
-    pub allows: bool,
-    /// Its capabilities declare `desktop` (the rd host).
-    pub capability: bool,
-    /// It has a private IPv4 address and a desktop URL that names it.
-    pub reachable: bool,
-    /// This build has the native viewer.
-    pub native_available: bool,
-    pub title: String,
-}
-
-pub fn desktop(facts: &DesktopFacts) -> Result<Desktop, Said> {
-    let refused = || Said::with("desktopUnavailable", [facts.title.clone()]);
-    if !facts.allows {
-        return Err(refused());
-    }
-    let viewer = facts.viewer.as_deref().unwrap_or(&facts.default_viewer);
-    if viewer == "rd" {
-        return if facts.capability { Ok(Desktop::Rd) } else { Err(refused()) };
-    }
-    if !facts.reachable {
-        return Err(refused());
-    }
-    if viewer == "native" {
-        return if facts.native_available { Ok(Desktop::Native) } else { Err(refused()) };
-    }
-    Ok(Desktop::Web)
-}
-
 /// A Cloud machine's state, as the diagnostics summary reads it.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -323,32 +398,34 @@ pub fn team(
     Ok((Some(team.id.as_str()) != active).then(|| team.id.clone()))
 }
 
-/// What Set Up GitHub's question says: the App's helper, else the machine's own sign-in with the
-/// fallback's reason first. The parts are the app's strings, said in order.
-pub fn github_confirm(named: bool, app_ready: bool, fallback_reason: Option<&str>) -> Vec<Said> {
-    if app_ready {
-        return vec![Said::key(if named {
-            "gitHubAppConfirmBody"
-        } else {
-            "gitHubAppConfirmNoIdentity"
-        })];
-    }
-    let mut parts: Vec<Said> =
-        fallback_reason.map(|why| Said::with("gitHubFallback", [why])).into_iter().collect();
-    parts.push(Said::key(if named { "gitHubConfirmBody" } else { "gitHubConfirmNoIdentity" }));
-    parts
+/// Why Set Up GitHub will not use the App, as the GitHub App check answered (`ready` is none).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum GitHubApp {
+    Ready,
+    NotConnected,
+    NotConfigured,
+    Unknown,
 }
 
-/// The question a destructive Cloud action asks before it runs (its title, body and button are
-/// the app's strings `<prompt>Title`, `<prompt>Body`, `<prompt>Button`); none for any other action.
-pub fn confirmation(action: &str) -> Option<&'static str> {
-    match action {
-        "cloudKillMachine" => Some("killMachine"),
-        "palette.cloud.deleteSnapshot" => Some("deleteSnapshot"),
-        "cloudFileRemove" => Some("removeFile"),
-        "cloudFirewallDelete" => Some("deleteFirewallRule"),
-        _ => None,
-    }
+/// What Set Up GitHub's question says: the App's helper, else the machine's own sign-in with the
+/// fallback's reason first. The parts are the app's strings, said in order; the bodies name the
+/// machine's git identity (`—` for a missing name or email).
+pub fn github_confirm(name: Option<&str>, email: Option<&str>, app: GitHubApp) -> Vec<Said> {
+    let named = name.is_some() || email.is_some();
+    let identity = [name.unwrap_or("—"), email.unwrap_or("—")];
+    let body = |key: &'static str, bare: &'static str| {
+        if named { Said::with(key, identity) } else { Said::key(bare) }
+    };
+    let reason = match app {
+        GitHubApp::Ready => {
+            return vec![body("gitHubAppConfirmBody", "gitHubAppConfirmNoIdentity")];
+        }
+        GitHubApp::NotConnected => "gitHubFallbackNotConnected",
+        GitHubApp::NotConfigured => "gitHubFallbackNotConfigured",
+        GitHubApp::Unknown => "gitHubFallbackUnknown",
+    };
+    vec![Said::key(reason), body("gitHubConfirmBody", "gitHubConfirmNoIdentity")]
 }
 
 /// An error's own words, without a trailing period (it sits inside a sentence).
@@ -356,11 +433,12 @@ pub fn detail(text: &str) -> String {
     text.trim().trim_end_matches('.').to_owned()
 }
 
-/// The refusal of a failed port op: the plan's forward limit, else what failed.
-pub fn port_failure(code: Option<&str>, text: &str) -> Said {
+/// The refusal of a failed port op, with the machine and port named: the plan's forward limit
+/// (`portLimit`), else what failed (`portFailed`, its detail last).
+pub fn port_failure(code: Option<&str>, text: &str, names: &PortNames) -> Said {
     match code {
-        Some("cmux.cloud.port_limit") => Said::key("portLimit"),
-        _ => Said::with("portFailed", [detail(text)]),
+        Some("cmux.cloud.port_limit") => names.said("portLimit", &[]),
+        _ => names.said("portFailed", &[&detail(text)]),
     }
 }
 

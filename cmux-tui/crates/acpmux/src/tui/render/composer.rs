@@ -75,7 +75,7 @@ pub(super) fn draw_composer(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
             let hint = if app.on_draft() {
                 "Ask anything. Enter starts the session"
             } else if app.selected_supports_steer() {
-                "Ask anything. Ctrl-s steers a running turn"
+                "Ask anything. Enter steers a running turn, Ctrl-s queues"
             } else {
                 "Ask anything"
             };
@@ -311,6 +311,7 @@ pub(crate) fn policy_label(policy: &str) -> (String, bool) {
         "approve-edits" => ("Edits allowed".into(), false),
         "approve-reads" => ("Reads allowed".into(), false),
         "deny-all" => ("Read-only".into(), false),
+        "review" => ("Review (reads only)".into(), false),
         _ => ("Ask before acting".into(), false),
     }
 }
@@ -326,6 +327,9 @@ fn policy_visual(policy: &str, c: Chrome) -> (String, Style) {
             ("◉ Reads allowed".into(), Style::default().fg(c.prompt_button_accent_fg))
         }
         "deny-all" => ("⊘ Read-only".into(), Style::default().fg(c.error_fg)),
+        "review" => {
+            ("◎ Review (reads only)".into(), Style::default().fg(c.prompt_button_accent_fg))
+        }
         _ => ("? Ask before acting".into(), Style::default().fg(c.attention_fg)),
     }
 }

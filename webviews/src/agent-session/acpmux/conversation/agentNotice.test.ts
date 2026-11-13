@@ -68,7 +68,11 @@ test("a notice is never a lane report or an inbox notice, whatever its text says
 test("a notice provenance with fields that do not read is its sender's message, not the person's", () => {
   for (const notice of [undefined, { sender: "x", severity: "boom", title: "t" }, { severity: "fire" }]) {
     const read = incomingPrompt("Body.", { _meta: { provenance: { ...provenance, notice } } });
-    expect(read).toEqual({ kind: "message", message: { name: "base-red-watch", text: "Body.", raw: "Body." } });
+    // It only named itself (`--from`): the line marks it unverified (senderIdentity.ts).
+    expect(read).toEqual({
+      kind: "message",
+      message: { name: "base-red-watch", text: "Body.", raw: "Body.", unverified: true },
+    });
   }
   // A non-https link and an over-long label are dropped, the notice kept.
   const read = incomingPrompt("Body.", {
@@ -86,7 +90,16 @@ test("an unknown future provenance kind from an agent is its message, never the 
   for (const from of ["fromAgent", "acp:s-9"]) {
     expect(
       incomingPrompt("Rolled back.", { _meta: { provenance: { kind: "nightly_page", from, fromName: "rollback" } } }),
-    ).toEqual({ kind: "message", message: { name: "rollback", text: "Rolled back.", raw: "Rolled back." } });
+    ).toEqual({
+      kind: "message",
+      // A sender that only named itself (`fromAgent`) is marked unverified; a chat here is not.
+      message: {
+        name: "rollback",
+        text: "Rolled back.",
+        raw: "Rolled back.",
+        ...(from === "fromAgent" && { unverified: true }),
+      },
+    });
   }
   // A person's kinds and a kind with no sender stay the person's.
   expect(

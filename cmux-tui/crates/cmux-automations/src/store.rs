@@ -7,6 +7,7 @@
 //!   auto_…/state.json         the schedule cursor (atomic replace)
 //!   auto_…/runs.jsonl         run history, append-only, locked while appending
 //!   auto_…/logs/run_….log     each run's output
+//!   auto_…/logs/watch.log     a watch command's stderr
 //!   auto_…/moved.json         a tombstone: it moved away (teleport) and never fires
 //!   .imports/tp_….json        imported handoffs (import is idempotent by handoff id)
 //!   .deleted/auto_…-<time>/   deleted automations, history kept
@@ -70,6 +71,10 @@ impl From<std::io::Error> for StoreError {
 pub struct AutomationState {
     /// Every scheduled time up to here has a run row (or was paused over).
     pub handled_through: i64,
+    /// Watch events dropped by the guardrails since the last run started;
+    /// the next run's prompt says how many.
+    #[serde(default)]
+    pub dropped: u64,
 }
 
 /// How long `moved` lists a tombstone, in milliseconds (30 days).
@@ -83,10 +88,18 @@ pub struct Store {
     home: String,
 }
 
-/// The machine's runner lock; held until dropped.
+/// The machine's runner lock; held until dropped. The drop unlocks before the
+/// file closes: a child another thread forked meanwhile shares the open file
+/// until it execs, and a close alone would leave the lock held in that copy.
 #[derive(Debug)]
 pub struct RunnerLock {
-    _file: File,
+    file: File,
+}
+
+impl Drop for RunnerLock {
+    fn drop(&mut self) {
+        let _ = self.file.unlock();
+    }
 }
 
 impl RunnerLock {
@@ -97,7 +110,7 @@ impl RunnerLock {
         // std's lock is flock on Unix (as runners before it took) and
         // LockFileEx on Windows.
         match file.try_lock() {
-            Ok(()) => Ok(Some(RunnerLock { _file: file })),
+            Ok(()) => Ok(Some(RunnerLock { file })),
             Err(fs::TryLockError::WouldBlock) => Ok(None),
             Err(fs::TryLockError::Error(e)) => Err(e.into()),
         }
@@ -189,6 +202,11 @@ impl Store {
         self.root.join(id)
     }
 
+    /// The stderr of an automation's watch command.
+    pub fn watch_log_path(&self, automation: &str) -> PathBuf {
+        self.dir(automation).join("logs").join("watch.log")
+    }
+
     /// The output file of one run.
     pub fn log_path(&self, automation: &str, run: &str) -> PathBuf {
         self.dir(automation).join("logs").join(format!("{run}.log"))
@@ -249,6 +267,7 @@ impl Store {
             body: spec.body,
             catch_up: spec.catch_up,
             timeout_seconds: spec.timeout_seconds,
+            gate: spec.gate,
             created_at: now,
             updated_at: now,
             home: self.home.clone(),
@@ -282,6 +301,7 @@ impl Store {
             body: spec.body,
             catch_up: spec.catch_up,
             timeout_seconds: spec.timeout_seconds,
+            gate: spec.gate,
             updated_at: now,
             ..old
         };
@@ -569,13 +589,36 @@ impl Store {
         }
     }
 
-    /// Move the schedule cursor.
-    pub fn set_handled_through(&self, id: &str, t: i64) -> Result<(), StoreError> {
+    fn put_state(&self, id: &str, state: &AutomationState) -> Result<(), StoreError> {
         create_private_dir(&self.dir(id))?;
-        let json = serde_json::to_vec(&AutomationState { handled_through: t })
-            .map_err(|e| StoreError::Io(e.to_string()))?;
+        let json = serde_json::to_vec(state).map_err(|e| StoreError::Io(e.to_string()))?;
         write_atomic(&self.dir(id).join("state.json"), &json)?;
         Ok(())
+    }
+
+    /// Move the schedule cursor.
+    pub fn set_handled_through(&self, id: &str, t: i64) -> Result<(), StoreError> {
+        let state = AutomationState { handled_through: t, ..self.state(id)? };
+        self.put_state(id, &state)
+    }
+
+    /// Count one more dropped watch event. Only the runner writes state, so
+    /// the read and the write do not race.
+    pub fn add_dropped(&self, id: &str) -> Result<u64, StoreError> {
+        let mut state = self.state(id)?;
+        state.dropped = state.dropped.saturating_add(1);
+        self.put_state(id, &state)?;
+        Ok(state.dropped)
+    }
+
+    /// The dropped count, reset to zero (a run is starting).
+    pub fn take_dropped(&self, id: &str) -> Result<u64, StoreError> {
+        let mut state = self.state(id)?;
+        let n = std::mem::take(&mut state.dropped);
+        if n > 0 {
+            self.put_state(id, &state)?;
+        }
+        Ok(n)
     }
 
     fn runs_file(&self, id: &str) -> std::io::Result<File> {
@@ -658,4 +701,65 @@ pub(crate) fn moving(a: &Automation, h: &Handoff) -> StoreError {
         "\"{}\" is moving to {} (handoff {}); finish it with `cmux automation teleport {} --to {}`, or cancel it with `--abort`",
         a.name, h.to, h.id, a.id, h.to
     ))
+}
+
+#[cfg(all(test, unix))]
+mod runner_lock_tests {
+    use super::*;
+
+    /// A forked child that keeps a copy of every descriptor of this process, the way a child that
+    /// another thread forks keeps them until it execs; dropping this kills and reaps it.
+    ///
+    /// Fork safety: a test binary runs many threads, so the child of `fork` may make only
+    /// async-signal-safe calls. It calls `pause` in a loop and nothing else: it never returns
+    /// from [`Keeper::fork`], allocates, takes a lock, unwinds or calls `_exit` or `exit` itself.
+    /// The parent's drop ends it with SIGKILL (from outside the child) and reaps it with
+    /// `waitpid`.
+    struct Keeper(libc::pid_t);
+
+    impl Keeper {
+        fn fork() -> Keeper {
+            // SAFETY: the child runs only async-signal-safe `pause` until SIGKILL ends it.
+            let child = unsafe { libc::fork() };
+            assert!(child >= 0, "fork failed");
+            if child == 0 {
+                loop {
+                    // SAFETY: as above.
+                    unsafe { libc::pause() };
+                }
+            }
+            Keeper(child)
+        }
+    }
+
+    impl Drop for Keeper {
+        fn drop(&mut self) {
+            let mut status = 0;
+            // SAFETY: `self.0` is this test's own child and `status` outlives the call.
+            unsafe {
+                libc::kill(self.0, libc::SIGKILL);
+                libc::waitpid(self.0, &mut status, 0);
+            }
+        }
+    }
+
+    /// A runner lock let go (the `cmux automation` probe takes one and drops it at once) is free,
+    /// also while a child forked meanwhile keeps its descriptor: else the next probe reports a
+    /// runner that does not exist and the next runner start exits as "runner is running".
+    #[test]
+    fn a_dropped_runner_lock_is_free_while_a_forked_child_keeps_its_descriptor() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-automations-runner-lock-{}-{:?}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default()
+        ));
+        let store = Store::open(&root).unwrap();
+        let lock = RunnerLock::acquire(&store).unwrap().expect("a free runner lock");
+        let keeper = Keeper::fork();
+        drop(lock);
+        let again = RunnerLock::acquire(&store).unwrap();
+        drop(keeper);
+        let _ = fs::remove_dir_all(&root);
+        assert!(again.is_some(), "a dropped runner lock stayed held through a forked child's copy");
+    }
 }

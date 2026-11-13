@@ -13,7 +13,7 @@ enum HibernationHandlers {
         registry.bind("browser.hibernation.off", run: { _ in set(.off, context) })
         registry.bind("browser.hibernation.moderate", run: { _ in set(.moderate, context) })
         registry.bind("browser.hibernation.aggressive", run: { _ in set(.aggressive, context) })
-        for radius in BrowserHibernationSetting.neighborRadiusRange {
+        for radius in BrowserHibernationSetting.neighborRadii {
             registry.bind(ActionID(rawValue: "browser.keepNeighborTabsAwake.\(radius)"), run: { _ in setNeighbors(radius, context) })
         }
         registry.bind("hibernateTab", invoke: { invocation in
