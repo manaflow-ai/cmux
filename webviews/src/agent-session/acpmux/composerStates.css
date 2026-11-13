@@ -87,6 +87,50 @@
 :root[data-cmux-see-through] .acpmux-shell {
   --acpmux-composer-surface: color-mix(in srgb, var(--acpmux-composer-solid) 60%, transparent);
 }
+/* All cards in the bottom stack use the input's material. Extra text washes on individual
+   cards otherwise change the wallpaper's tint at every seam. */
+.acpmux-shell {
+  --acpmux-stack-tint: color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-glass-popover-tint), transparent);
+  --acpmux-stack-backdrop: var(--ds-glass-popover-blur);
+}
+:root[data-cmux-see-through] .acpmux-shell {
+  --acpmux-stack-tint: color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-glass-popover-art-tint), transparent);
+  --acpmux-stack-backdrop: var(--glass-material-backdrop);
+}
+:root[data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency]) .acpmux-shell {
+  --acpmux-stack-tint: var(--glass-tint);
+  --acpmux-stack-backdrop: var(--glass-backdrop);
+}
+:root[data-reduce-transparency] .acpmux-shell {
+  /* glass-opaque-allow: the shared Reduce Transparency fill */
+  --acpmux-stack-tint: var(--acpmux-composer-solid);
+  --acpmux-stack-backdrop: none;
+}
+@media (prefers-reduced-transparency: reduce) {
+  :root .acpmux-shell,
+  :root[data-cmux-see-through] .acpmux-shell,
+  :root[data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency]) .acpmux-shell {
+    /* glass-opaque-allow: the shared Reduce Transparency fill */
+    --acpmux-stack-tint: var(--acpmux-composer-solid);
+    --acpmux-stack-backdrop: none;
+  }
+}
+/* Register each stack card with the shared glass renderer, including Lens and Spectrum.
+   The transcript is masked beneath the dock, so these cards need no Chromium text underlay. */
+.acpmux-stack-material {
+  --glass-tint: var(--acpmux-stack-tint);
+  --glass-backdrop: var(--acpmux-stack-backdrop);
+  /* glass-opaque-allow: the Reduce Transparency fill only */
+  --glass-opaque: var(--acpmux-composer-solid);
+  --glass-underlay: 0%;
+  --acpmux-stack-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
+}
+@media not (prefers-reduced-transparency: reduce) {
+  :root:not([data-reduce-transparency]):not([data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]))
+    .acpmux-stack-material {
+    --acpmux-stack-shadow: var(--glass-material-rim), inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
+  }
+}
 /* The card and the queued prompts are the liquid glass (.ui-glass, ui/glass/glass.css;
    plans/cmux-next/glass-lens-DESIGN.md "Surfaces"), with these tokens set on the composer so the
    strip, the queue and the card take one material:
@@ -116,13 +160,12 @@
    tint (50%), under the same blur.
    Lens and Spectrum keep the liquid glass's own tint and frost; Reduce Transparency the solid
    surface (glass.css). The queued prompts keep the stack's tokens above. */
-:root:not([data-cmux-see-through]) .acpmux-composer > :is(.acpmux-composer-box, .acpmux-composer-strip),
 :root:not([data-cmux-see-through]) .nt-composer > .nt-box {
   --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-glass-popover-tint), transparent);
   --glass-backdrop: var(--ds-glass-popover-blur);
 }
 :root[data-cmux-see-through]:not([data-glass="lens"], [data-glass="spectrum"])
-  :is(.acpmux-composer > :is(.acpmux-composer-box, .acpmux-composer-strip), .nt-composer > .nt-box) {
+  .nt-composer > .nt-box {
   --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-glass-popover-art-tint), transparent);
   --glass-backdrop: var(--ds-glass-popover-blur);
 }
@@ -131,12 +174,18 @@
   /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
   --glass-opaque: var(--acpmux-composer-solid);
 }
-:root[data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]) .acpmux-shell {
+:root[data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency]) .acpmux-shell {
   --acpmux-composer-rim:
     inset 0 var(--cmux-hairline, 0.5px) 0 0 var(--glass-specular),
     inset 0 calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--glass-shade),
     inset var(--cmux-hairline, 0.5px) 0 0 0 var(--glass-fringe-red),
     inset calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 0 var(--glass-fringe-cyan);
+}
+:root:not([data-cmux-see-through]) .acpmux-composer > :is(.acpmux-composer-box, .acpmux-composer-strip),
+:root[data-cmux-see-through]:not([data-glass="lens"], [data-glass="spectrum"])
+  .acpmux-composer > :is(.acpmux-composer-box, .acpmux-composer-strip) {
+  --glass-tint: var(--acpmux-stack-tint);
+  --glass-backdrop: var(--acpmux-stack-backdrop);
 }
 /* The strip has no glass class of its own (ComposerContext also draws the New Tab's plain strip):
    it takes the same fill and the same frost. */
@@ -287,7 +336,8 @@
    light theme keeps them: white light on a near-white card is the faint highlight it should be,
    and halving it would uncover the dark hairline along the top instead. The glass's tint, frost
    and depth are unchanged, and appearance.borders none (--glass-rim 0) still clears the light.
-   Other glass surfaces keep the shared material (glass.css). */
+   The stack's other cards take the same light; glass elsewhere keeps the shared material. */
+.acpmux-stack-material,
 .acpmux-composer > .acpmux-composer-box.ui-glass-material {
   --acpmux-composer-glint: 0.5;
   --glass-material-specular: light-dark(

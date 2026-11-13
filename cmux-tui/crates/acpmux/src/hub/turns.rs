@@ -1891,11 +1891,12 @@ impl Hub {
             self.end_trigger_background(session, turn_id);
         }
         self.reset_stream(session);
-        // Nobody showing it: the sidebar dot and `wait --until done` see it. While work it
-        // started still runs (a background subagent, a working sub-session) the task is not
-        // done: the dot waits for that work to end (`work_below.rs`, manaflow-ai/cmux#25563).
-        if !trigger && !self.shown(session) {
-            self.mark_unread_unless_work_below(session);
+        // Nobody attending it (not shown, or shown to a person who is away, `seen.rs`): the
+        // sidebar dot and `wait --until done` see it. While work it started still runs (a
+        // background subagent, a working sub-session) the task is not done: the dot waits for
+        // that work to end (`work_below.rs`, manaflow-ai/cmux#25563).
+        if !trigger {
+            self.note_turn_end(session);
         }
         if session.status() != SessionStatus::Closed {
             let alive = child.is_alive().await;
@@ -2623,6 +2624,8 @@ impl Hub {
                 list_seq: 0,
             });
             drop(sessions);
+            // Its parent's row and the rows below it read it (#42091 F1).
+            self.note_rows_reading(session);
         }
         Ok(())
     }
