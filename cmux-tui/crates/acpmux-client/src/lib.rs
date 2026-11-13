@@ -782,7 +782,7 @@ mod tests {
         client.subscribe(Sub::new("s", "list")).unwrap();
         let frame = Frame::json(
             FrameKind::Window,
-            &serde_json::json!({"sid":"s","cursor":1,"rows":[],"edition":1}),
+            &serde_json::json!({"sid":"s","cursor":1,"rows":[],"hasBefore":false,"hasAfter":false,"edition":1}),
         )
         .unwrap()
         .encode();
@@ -844,7 +844,7 @@ mod tests {
         .encode();
         let window = Frame::json(
             FrameKind::Window,
-            &serde_json::json!({"sid":"s","cursor":1,"rows":[],"edition":1}),
+            &serde_json::json!({"sid":"s","cursor":1,"rows":[],"hasBefore":false,"hasAfter":false,"edition":1}),
         )
         .unwrap()
         .encode();
