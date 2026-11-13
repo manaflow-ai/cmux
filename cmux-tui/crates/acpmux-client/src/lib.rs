@@ -1931,6 +1931,178 @@ tail"#;
         assert!(matches!(client.next_change(), Some(Change::Summary { .. })));
     }
 
+    fn receive_changes(
+        client: &mut Client<Value>,
+        kind: FrameKind,
+        value: Value,
+    ) -> Vec<Change<Value>> {
+        let bytes = Frame::json(kind, &value).unwrap().encode();
+        assert_eq!(client.received(&bytes), bytes.len());
+        std::iter::from_fn(|| client.next_change()).collect()
+    }
+
+    fn take_pages(client: &mut Client<Value>) -> Vec<Value> {
+        std::iter::from_fn(|| client.take_send())
+            .map(|bytes| Frame::from_encoded(&bytes).unwrap().decode_json::<Value>().unwrap())
+            .filter(|request| request.get("method").and_then(Value::as_str) == Some("page"))
+            .collect()
+    }
+
+    fn mirror_window(client: &mut Client<Value>) {
+        let changes = receive_changes(
+            client,
+            FrameKind::Window,
+            serde_json::json!({
+                "sid":"m","cursor":1,"rows":[],"hasBefore":false,"hasAfter":false,"edition":1
+            }),
+        );
+        assert!(matches!(changes.as_slice(), [Change::Window(_)]));
+    }
+
+    fn mirror_page_error(client: &mut Client<Value>) {
+        let changes = receive_changes(
+            client,
+            FrameKind::Error,
+            serde_json::json!({
+                "method":"page","sid":"m","code":"request_failed"
+            }),
+        );
+        assert!(matches!(changes.as_slice(), [Change::Error { .. }]));
+    }
+
+    fn finish_empty_walk(client: &mut Client<Value>) {
+        let changes = receive_changes(
+            client,
+            FrameKind::Page,
+            serde_json::json!({
+                "sid":"m","rows":[],"hasBefore":false,"hasAfter":false
+            }),
+        );
+        assert!(matches!(changes.as_slice(), [Change::Whole { .. }]));
+    }
+
+    #[test]
+    fn live_subscription_without_mirror_delivers_closing_summary() {
+        let mut client = ready_mirror();
+        let mut sub = Sub::new("plain", "list");
+        sub.view = Some(wire::ListView::Live);
+        client.subscribe(sub).unwrap();
+        let summary =
+            serde_json::json!({"chatId":"a","origin":"local","lastActivity":2,"state":"closed"});
+        let changes = receive_changes(
+            &mut client,
+            FrameKind::Delta,
+            serde_json::json!({
+                "sid":"plain","ops":[{"op":"summary","seq":2,"summary":summary}]
+            }),
+        );
+        assert!(matches!(changes.as_slice(), [Change::Summary { sid, summary: row, .. }]
+            if sid == "plain" && row == &summary));
+    }
+
+    #[test]
+    fn mirror_read_errors_allow_exactly_two_requests_per_window() {
+        let mut client = ready_mirror();
+        for _ in 0..3 {
+            mirror_window(&mut client);
+            assert_eq!(take_pages(&mut client).len(), 1);
+            mirror_page_error(&mut client);
+            assert_eq!(take_pages(&mut client).len(), 1);
+            mirror_page_error(&mut client);
+            assert!(take_pages(&mut client).is_empty());
+            // Ordinary changes are not page progress and cannot restart reads.
+            let changes = receive_changes(
+                &mut client,
+                FrameKind::Delta,
+                serde_json::json!({"sid":"m","ops":[]}),
+            );
+            assert!(changes.is_empty());
+            assert!(take_pages(&mut client).is_empty());
+        }
+    }
+
+    #[test]
+    fn mirror_read_success_between_errors_allows_immediate_head_walk() {
+        let mut client = ready_mirror();
+        mirror_window(&mut client);
+        assert_eq!(take_pages(&mut client).len(), 1);
+        mirror_page_error(&mut client);
+        assert_eq!(take_pages(&mut client).len(), 1);
+        let changes = receive_changes(
+            &mut client,
+            FrameKind::Page,
+            serde_json::json!({
+                "sid":"m","rows":[],"hasBefore":false,"hasAfter":true,
+                "afterKey":{"chatId":"a","origin":"local","lastActivity":1}
+            }),
+        );
+        assert!(changes.is_empty());
+        assert_eq!(take_pages(&mut client).len(), 1);
+        mirror_page_error(&mut client);
+        let retry = take_pages(&mut client);
+        assert_eq!(retry.len(), 1);
+        assert!(retry.first().unwrap().pointer("/params/after").is_none());
+        mirror_page_error(&mut client);
+        assert!(take_pages(&mut client).is_empty());
+    }
+
+    #[test]
+    fn mirror_read_stop_preserves_wanted_until_window_or_want() {
+        for next_window in [true, false] {
+            let mut client = ready_mirror();
+            mirror_window(&mut client);
+            assert_eq!(take_pages(&mut client).len(), 1);
+            let key =
+                ListKey { last_activity: 1, chat_id: "wanted".into(), origin: "local".into() };
+            client.want("m", [key]).unwrap();
+            assert!(take_pages(&mut client).is_empty());
+            mirror_page_error(&mut client);
+            assert_eq!(take_pages(&mut client).len(), 1);
+            mirror_page_error(&mut client);
+            assert!(take_pages(&mut client).is_empty());
+            if next_window {
+                mirror_window(&mut client);
+                assert_eq!(take_pages(&mut client).len(), 1);
+                finish_empty_walk(&mut client);
+            } else {
+                client.want("m", std::iter::empty()).unwrap();
+            }
+            let wanted = take_pages(&mut client);
+            assert_eq!(wanted.len(), 1);
+            assert_eq!(
+                wanted.first().unwrap().pointer("/params/keys/0/chatId"),
+                Some(&Value::String("wanted".into()))
+            );
+        }
+    }
+
+    #[test]
+    fn mirror_wanted_error_retries_from_head_then_stops_without_progress() {
+        let mut client = ready_mirror();
+        mirror_window(&mut client);
+        assert_eq!(take_pages(&mut client).len(), 1);
+        finish_empty_walk(&mut client);
+        let key = ListKey { last_activity: 1, chat_id: "wanted".into(), origin: "local".into() };
+        client.want("m", [key]).unwrap();
+        assert_eq!(take_pages(&mut client).len(), 1);
+        mirror_page_error(&mut client);
+        let retry = take_pages(&mut client);
+        assert_eq!(retry.len(), 1);
+        assert!(retry.first().unwrap().pointer("/params/keys").is_none());
+        mirror_page_error(&mut client);
+        assert!(take_pages(&mut client).is_empty());
+        client.want("m", std::iter::empty()).unwrap();
+        let wanted = take_pages(&mut client);
+        assert_eq!(wanted.len(), 1);
+        assert_eq!(
+            wanted.first().unwrap().pointer("/params/keys/0/chatId"),
+            Some(&Value::String("wanted".into()))
+        );
+        // Explicit want permits a read, not a fresh automatic retry allowance.
+        mirror_page_error(&mut client);
+        assert!(take_pages(&mut client).is_empty());
+    }
+
     #[test]
     fn mirror_request_can_select_v1_rows() {
         let mut client = Client::<Value>::connected_v2();
