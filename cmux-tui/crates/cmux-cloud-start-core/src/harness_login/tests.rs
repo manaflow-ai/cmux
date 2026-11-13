@@ -39,6 +39,26 @@ fn warm_readiness_requires_a_verified_login_on_an_owned_spare() {
     }
 }
 
+#[test]
+fn warm_readiness_requires_successful_raw_probe_output() {
+    for word in ["cached", "session"] {
+        for exit_code in [0, 1, 124] {
+            let input = Inputs {
+                machine_probe: Some(crate::machine_login::Probe { exit_code, stdout: word.into() }),
+                ..owner()
+            };
+            assert_eq!(decide(&input).warm_verified, exit_code == 0);
+        }
+    }
+    for word in ["working", "", "unknown", "rejected"] {
+        let input = Inputs {
+            machine_probe: Some(crate::machine_login::Probe { exit_code: 0, stdout: word.into() }),
+            ..owner()
+        };
+        assert!(!decide(&input).warm_verified);
+    }
+}
+
 fn cached(mut d: Inputs) -> Inputs {
     d.cached = true;
     d
