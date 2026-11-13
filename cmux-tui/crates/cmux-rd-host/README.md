@@ -73,6 +73,23 @@ The current passive `bench`/WebRTC test viewers do not present windows, so this
 observer must be paired with a real renderer before comparing them to Apple.
 Native compilation and unit tests alone do not validate presentation latency.
 
+For passive presented-frame samples, use the source marker mode with an explicit start signal:
+
+```
+cmux-rd observe --mode passive --pid VIEWER_PID --window CGWINDOW_ID \
+  --marker-origin X,Y --cell-size N --start-file /tmp/scene-ready \
+  --duration-s 10 --interval-ms 1000
+```
+
+The observer decodes the marker on every complete ScreenCaptureKit callback into a bounded queue,
+reports callback count separately from distinct marker counters, accepts counter gaps as dropped
+frames, and reports repeats, invalid samples, and queue overflow. Its `cmux.presented-marker-series/2`
+receipt measures the compositor display timestamp to callback arrival boundary and requires the exact
+visible PID/window geometry. `host_identity_verified` remains false: a source nonce or equivalent
+scene handshake is required to bind a marker to a requested remote host. Because the observer seeds a
+baseline before the start-file signal, `first_changed_marker_ms` is change-after-signal timing;
+`session_ttff_ms` remains null until an external session-start timestamp and source identity are bound.
+
 This crate is its own Cargo workspace (excluded from the cmux-tui workspace) because it
 builds C code: openh264 from source (bench builds), and x264 only with `--features x264`. Build it on Linux (a Testbox or a
 VM), never on a Mac: `cargo build --release`.

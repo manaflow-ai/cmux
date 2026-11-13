@@ -18,6 +18,9 @@ use std::sync::mpsc::{sync_channel, SyncSender};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
+#[cfg(feature = "bench")]
+const PRESENTED_QUEUE_CAPACITY: usize = 4096;
+
 /// The largest picture the viewer's H.264 level (5.2) decodes at 60 fps. A larger display is
 /// scaled down on the GPU by ScreenCaptureKit, keeping its aspect ratio.
 const MAX_SIZE: (f64, f64) = (3840.0, 2160.0);
@@ -96,12 +99,45 @@ impl PixelBuffer {
     }
 }
 
-#[derive(Default)]
 struct Shared {
     newest: Option<PixelBuffer>,
     /// The newest frame's display time and its arrival here, on the protocol clock in µs.
     newest_times: Option<(u64, u64)>,
     dirty: Vec<Rect>,
+    #[cfg(feature = "bench")]
+    presented: crate::observe::PresentedSampleQueue,
+    #[cfg(feature = "bench")]
+    callback_count: u64,
+}
+
+impl Default for Shared {
+    fn default() -> Self {
+        Self {
+            newest: None,
+            newest_times: None,
+            dirty: Vec::new(),
+            #[cfg(feature = "bench")]
+            presented: crate::observe::PresentedSampleQueue::with_capacity(
+                PRESENTED_QUEUE_CAPACITY,
+            ),
+            #[cfg(feature = "bench")]
+            callback_count: 0,
+        }
+    }
+}
+
+#[cfg(feature = "bench")]
+#[derive(Clone, Copy)]
+pub struct MarkerConfig {
+    pub origin: (usize, usize),
+    pub cell: usize,
+}
+
+#[cfg(feature = "bench")]
+pub struct PresentedBatch {
+    pub samples: Vec<crate::observe::PresentedMarkerSample>,
+    pub callback_count: u64,
+    pub queue_overflow: bool,
 }
 
 /// One end of the wake pipe, closed on drop.
@@ -129,6 +165,8 @@ struct Sink {
     /// Stream pixels per display point, and the stream size.
     scale: f64,
     size: (u32, u32),
+    #[cfg(feature = "bench")]
+    marker: Option<MarkerConfig>,
 }
 
 /// The live output objects (by address) and their sinks.
@@ -409,9 +447,6 @@ extern "C" fn did_output(
             return;
         }
         let buffer = cm::CMSampleBufferGetImageBuffer(sample);
-        if buffer.is_null() {
-            return;
-        }
         let mut rects = Vec::new();
         let dirty = cf::CFDictionaryGetValue(info, sck::SCStreamFrameInfoDirtyRects());
         if !dirty.is_null() {
@@ -431,15 +466,33 @@ extern "C" fn did_output(
         // The display time is in mach absolute time: its age now, taken off the protocol clock.
         let shown = number(info, sck::SCStreamFrameInfoDisplayTime())
             .map(|display| arrived.saturating_sub(mach_age_us(display as u64)));
+        let frame = (!buffer.is_null()).then(|| PixelBuffer(Retained::retain(buffer.cast_const())));
+        #[cfg(feature = "bench")]
+        let counter = sink.marker.and_then(|marker| {
+            frame.as_ref().and_then(|pixels| pixels.marker(marker.origin, marker.cell))
+        });
         {
             let mut shared = sink.shared.lock().unwrap_or_else(|p| p.into_inner());
-            shared.newest = Some(PixelBuffer(Retained::retain(buffer.cast_const())));
-            shared.newest_times = shown.map(|shown| (shown, arrived));
-            // A complete frame with no dirty rectangles still changed something.
-            if rects.is_empty() {
-                rects.push(Rect { x: 0, y: 0, width: sink.size.0, height: sink.size.1 });
+            #[cfg(feature = "bench")]
+            {
+                shared.callback_count += 1;
+                if sink.marker.is_some() {
+                    shared.presented.push(crate::observe::PresentedMarkerSample {
+                        counter,
+                        display_us: shown,
+                        arrived_us: arrived,
+                    });
+                }
             }
-            shared.dirty.append(&mut rects);
+            if let Some(frame) = frame {
+                shared.newest = Some(frame);
+                shared.newest_times = shown.map(|shown| (shown, arrived));
+                // A complete frame with no dirty rectangles still changed something.
+                if rects.is_empty() {
+                    rects.push(Rect { x: 0, y: 0, width: sink.size.0, height: sink.size.1 });
+                }
+                shared.dirty.append(&mut rects);
+            }
         }
     }
     sink.wake.wake();
@@ -492,14 +545,42 @@ extern "C" fn capture_stopped(block: *mut Block<SyncSender<()>>, _error: Id) {
 
 impl Capture {
     pub fn start(which: &str, fps: u32, max_width: Option<u32>) -> Res<Self> {
+        Self::start_with_marker(which, fps, max_width, None)
+    }
+
+    #[cfg(feature = "bench")]
+    pub fn start_observing(
+        which: &str,
+        fps: u32,
+        max_width: Option<u32>,
+        marker: MarkerConfig,
+    ) -> Res<Self> {
+        Self::start_with_marker(which, fps, max_width, Some(marker))
+    }
+
+    fn start_with_marker(
+        which: &str,
+        fps: u32,
+        max_width: Option<u32>,
+        #[cfg(feature = "bench")] marker: Option<MarkerConfig>,
+        #[cfg(not(feature = "bench"))] marker: Option<()>,
+    ) -> Res<Self> {
         let (content, displays) = shareable_displays()?;
         let picked = pick(&displays, which);
-        let result = picked.and_then(|(display, id)| Self::stream(display, id, fps, max_width));
+        let result =
+            picked.and_then(|(display, id)| Self::stream(display, id, fps, max_width, marker));
         release_all(content, &displays);
         result
     }
 
-    fn stream(display: Id, id: u32, fps: u32, max_width: Option<u32>) -> Res<Self> {
+    fn stream(
+        display: Id,
+        id: u32,
+        fps: u32,
+        max_width: Option<u32>,
+        #[cfg(feature = "bench")] marker: Option<MarkerConfig>,
+        #[cfg(not(feature = "bench"))] marker: Option<()>,
+    ) -> Res<Self> {
         let _pool = AutoreleasePool::new();
         // SAFETY: a display id from ScreenCaptureKit.
         let frame = unsafe { cg::CGDisplayBounds(id) };
@@ -579,7 +660,14 @@ impl Capture {
                 return Err("ScreenCaptureKit did not make a stream".into());
             }
             let shared = Arc::new(Mutex::new(Shared::default()));
-            let sink = Arc::new(Sink { shared: shared.clone(), wake: wake_write, scale, size });
+            let sink = Arc::new(Sink {
+                shared: shared.clone(),
+                wake: wake_write,
+                scale,
+                size,
+                #[cfg(feature = "bench")]
+                marker,
+            });
             sinks().lock().unwrap_or_else(|p| p.into_inner()).push((output as usize, sink));
             let mut error: Id = null_mut();
             let added = msg::<
@@ -663,6 +751,17 @@ impl Capture {
     pub fn newest(&self) -> Option<(PixelBuffer, Option<(u64, u64)>)> {
         let shared = self.shared.lock().unwrap_or_else(|p| p.into_inner());
         shared.newest.clone().map(|frame| (frame, shared.newest_times))
+    }
+
+    #[cfg(feature = "bench")]
+    pub fn take_presented(&self) -> PresentedBatch {
+        self.clear_wakes();
+        let mut shared = self.shared.lock().unwrap_or_else(|p| p.into_inner());
+        PresentedBatch {
+            samples: shared.presented.take(),
+            callback_count: shared.callback_count,
+            queue_overflow: shared.presented.overflowed(),
+        }
     }
 }
 

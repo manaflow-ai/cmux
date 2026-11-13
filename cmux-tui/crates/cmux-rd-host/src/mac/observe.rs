@@ -11,6 +11,7 @@ use crate::fdwait::wait_readable;
 use crate::observe::{self, Window};
 use crate::Res;
 use cmux_encode::framework;
+use std::fs;
 use std::ptr;
 use std::time::Duration;
 
@@ -101,6 +102,17 @@ fn guard_target(window: u32, pid: i32, points: &[(f64, f64)]) -> Res<()> {
     Ok(())
 }
 
+fn target_geometry(window: u32, pid: i32, points: &[(f64, f64)]) -> Res<[f64; 4]> {
+    let list = windows()?;
+    if !observe::unobscured(&list, window, pid, points) {
+        return Err("selected window/PID is not the unobscured visible viewer pane".into());
+    }
+    list.into_iter()
+        .find(|candidate| candidate.id == window && candidate.pid == pid)
+        .map(|candidate| candidate.rect)
+        .ok_or_else(|| "selected viewer window disappeared".into())
+}
+
 struct Event(CGEventRef);
 impl Drop for Event {
     fn drop(&mut self) {
@@ -175,7 +187,199 @@ fn await_counter<T>(
     }
 }
 
+fn await_presented_marker(
+    capture: &Capture,
+    timeout_ms: u64,
+) -> Res<observe::PresentedMarkerSample> {
+    let deadline = now_ns() + timeout_ms * 1_000_000;
+    loop {
+        let batch = capture.take_presented();
+        if batch.queue_overflow {
+            return Err("presented-marker callback queue overflowed; no FPS result is valid".into());
+        }
+        if let Some(sample) = batch
+            .samples
+            .into_iter()
+            .rev()
+            .find(|sample| sample.counter.is_some() && sample.display_us.is_some())
+        {
+            return Ok(sample);
+        }
+        let left = deadline.saturating_sub(now_ns());
+        if left == 0 {
+            return Err(
+                "no valid source marker arrived; remote frame identity is unverified".into()
+            );
+        }
+        wait_readable(&[capture.fd()], Some(left))?;
+    }
+}
+
+fn wait_start_file(path: &str, timeout_ms: u64) -> Res<u64> {
+    let deadline = now_ns() + timeout_ms * 1_000_000;
+    loop {
+        if fs::metadata(path).is_ok() {
+            return Ok(now_ns() / 1000);
+        }
+        if now_ns() >= deadline {
+            return Err(format!("start signal file did not appear: {path}").into());
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+fn run_passive(opts: &Opts) -> Res<()> {
+    let pid = opts.num_or::<i32>("pid", 0)?;
+    let window = opts.num_or::<u32>("window", 0)?;
+    let cell = opts.num_or::<usize>("cell-size", 0)?;
+    let origin = pair(opts, "marker-origin")?;
+    let duration_s = opts.num_or::<u64>("duration-s", 10)?;
+    let interval_ms = opts.num_or::<u64>("interval-ms", 1000)?;
+    let start_timeout_ms = opts.num_or::<u64>("start-timeout-ms", 30_000)?;
+    let start_file = opts.get("start-file").ok_or("passive mode requires --start-file PATH")?;
+    if pid <= 0
+        || window == 0
+        || !(2..=1024).contains(&cell)
+        || duration_s == 0
+        || !(10..=60_000).contains(&interval_ms)
+        || start_timeout_ms == 0
+    {
+        return Err("passive mode needs --pid >0, --window >0, --cell-size 2..1024, --duration-s >0, --interval-ms 10..60000".into());
+    }
+    sys::load()?;
+    window_api::available()?;
+    let display = opts.str_or("display", "main");
+    let fps = super::capture::refresh_fps(&display);
+    let capture = Capture::start_observing(
+        &display,
+        fps,
+        None,
+        super::capture::MarkerConfig { origin, cell },
+    )?;
+    let (width, height) = capture.size();
+    let fits = origin.0.checked_add(cell * 20).is_some_and(|x| x <= width as usize)
+        && origin.1.checked_add(cell).is_some_and(|y| y <= height as usize);
+    if !fits {
+        return Err("marker lies outside capture dimensions".into());
+    }
+    let bounds = capture.bounds();
+    let point = |x: usize, y: usize| {
+        (
+            bounds.x + x as f64 * bounds.width / width as f64,
+            bounds.y + y as f64 * bounds.height / height as f64,
+        )
+    };
+    let points: Vec<_> =
+        (0..20).map(|i| point(origin.0 + i * cell + cell / 2, origin.1 + cell / 2)).collect();
+    let geometry = target_geometry(window, pid, &points)?;
+    let baseline_sample = await_presented_marker(&capture, 3000)?;
+    let baseline = baseline_sample.counter.ok_or("baseline marker is invalid")?;
+    let before_start = capture.take_presented();
+    if before_start.queue_overflow {
+        return Err("presented-marker callback queue overflowed before start".into());
+    }
+    let callback_base = before_start.callback_count;
+    let start_us = wait_start_file(start_file, start_timeout_ms)?;
+    let mut series = observe::PresentedSeries::with_baseline(Some(baseline));
+    let mut interval = observe::PresentedSeries::with_baseline(Some(baseline));
+    let mut intervals = Vec::new();
+    let duration_us = duration_s.saturating_mul(1_000_000);
+    let interval_us = interval_ms.saturating_mul(1000);
+    let mut next_boundary = start_us + interval_us;
+    let end_us = start_us + duration_us;
+    let mut callback_at_boundary = callback_base;
+    while now_ns() / 1000 < end_us {
+        let now_us = now_ns() / 1000;
+        let wait_us = next_boundary.saturating_sub(now_us).min(end_us.saturating_sub(now_us));
+        if wait_us > 0 {
+            wait_readable(&[capture.fd()], Some(wait_us * 1000))?;
+        }
+        let batch = capture.take_presented();
+        if batch.queue_overflow {
+            return Err("presented-marker callback queue overflowed; no FPS result is valid".into());
+        }
+        for sample in batch.samples {
+            if sample.arrived_us >= start_us {
+                series.ingest(sample);
+                interval.ingest(sample);
+            }
+        }
+        let now_us = now_ns() / 1000;
+        if now_us >= next_boundary || now_us >= end_us {
+            let boundary = now_us.min(end_us);
+            let interval_start = boundary.saturating_sub(interval_us);
+            let elapsed_s = (boundary.saturating_sub(interval_start)) as f64 / 1_000_000.0;
+            let presented_frames = interval.presented_frames;
+            intervals.push(serde_json::json!({
+                "start_us": interval_start,
+                "end_us": boundary,
+                "presented_frames": presented_frames,
+                "presented_fps": if elapsed_s > 0.0 { presented_frames as f64 / elapsed_s } else { 0.0 },
+                "first_counter": interval.first_counter,
+                "last_counter": interval.last_counter,
+                "first_display_us": interval.first_display_us,
+                "last_display_us": interval.last_display_us,
+                "first_arrived_us": interval.first_arrived_us,
+                "last_arrived_us": interval.last_arrived_us,
+                "gaps": interval.gaps,
+                "repeated": interval.repeated,
+                "invalid_samples": interval.invalid,
+                "callback_count": batch.callback_count.saturating_sub(callback_at_boundary),
+            }));
+            callback_at_boundary = batch.callback_count;
+            interval = observe::PresentedSeries::with_baseline(series.last_counter);
+            next_boundary = boundary.saturating_add(interval_us);
+        }
+        if now_us >= end_us {
+            break;
+        }
+    }
+    let geometry_after = target_geometry(window, pid, &points)?;
+    if geometry_after != geometry {
+        return Err("selected viewer window geometry changed during passive observation".into());
+    }
+    let first_arrived = series.first_arrived_us.ok_or("no valid remote marker after start")?;
+    println!(
+        "{}",
+        serde_json::json!({
+            "schema": "cmux.presented-marker-series/2",
+            "complete": true,
+            "method": "callback-time source marker with ScreenCaptureKit display timestamp; excludes decoder completion, physical scanout, and pixel response",
+            "marker_observed": true,
+            "host_identity_verified": false,
+            "requires_real_visible_window": true,
+            "pid": pid,
+            "window": window,
+            "window_geometry_points": geometry,
+            "display": display,
+            "capture_pixels": [width, height],
+            "capture_fps_requested": fps,
+            "marker_origin_pixels": [origin.0, origin.1],
+            "cell_size_pixels": cell,
+            "start_signal_file": start_file,
+            "start_us": start_us,
+            "start_signal_observed_us": start_us,
+            "first_changed_marker_ms": (first_arrived.saturating_sub(start_us) as f64) / 1000.0,
+            "session_ttff_ms": serde_json::Value::Null,
+            "first_marker_display_us": series.first_display_us,
+            "duration_s": duration_s,
+            "interval_ms": interval_ms,
+            "presented_frames": series.presented_frames,
+            "first_counter": series.first_counter,
+            "last_counter": series.last_counter,
+            "gaps": series.gaps,
+            "repeated": series.repeated,
+            "invalid_samples": series.invalid,
+            "intervals": intervals,
+        })
+    );
+    Ok(())
+}
+
 pub fn run(opts: &Opts) -> Res<()> {
+    if opts.str_or("mode", "active") == "passive" {
+        return run_passive(opts);
+    }
     let pid = opts.num_or::<i32>("pid", 0)?;
     let window = opts.num_or::<u32>("window", 0)?;
     let samples = opts.num_or::<usize>("samples", 200)?;
