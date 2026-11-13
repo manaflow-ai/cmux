@@ -4,7 +4,7 @@ import type { Frame, Page } from "playwright";
 /// (https://github.com/manaflow-ai/cmux/issues/28875), one line too (Leo, 2026-11-07: a click on a lone
 /// subagent expands the hat rather than opening it): a click on the header opens it, and the fold's
 /// motion is finished and settled so what the test reads is the open list.
-export async function openRunningTray(page: Page | Frame): Promise<void> {
+export async function openRunningTray(page: Page | Frame, { ended = true }: { ended?: boolean } = {}): Promise<void> {
   const head = page.locator('.acpmux-running-tray__head[aria-expanded="false"]');
   if ((await head.count()) > 0) await head.first().click();
   await page.waitForFunction(() => {
@@ -24,4 +24,14 @@ export async function openRunningTray(page: Page | Frame): Promise<void> {
     const fold = document.querySelector<HTMLElement>(".acpmux-running-tray__fold");
     return !fold || fold.style.overflow === "";
   });
+  // What ended is one "N finished" line under what runs (SubagentTray.tsx `EndedFold`): open it too, so
+  // a test reads every line. `ended: false` leaves it folded.
+  if (ended) {
+    const fold = page.locator('.acpmux-running-tray [data-ended-fold] > button[aria-expanded="false"]');
+    if ((await fold.count()) > 0) await fold.first().click();
+    await page.evaluate(() => {
+      for (const animation of document.getAnimations())
+        if (Number.isFinite(animation.effect?.getComputedTiming().endTime as number)) animation.finish();
+    });
+  }
 }

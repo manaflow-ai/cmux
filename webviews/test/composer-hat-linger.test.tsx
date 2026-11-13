@@ -295,6 +295,9 @@ describe("composer hat: review follow-ups", () => {
       await act(async () => host.querySelector<HTMLButtonElement>('[data-stage="finish"]')!.click());
       const head = host.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
       await act(async () => head.click());
+      // Its subagents still run: what ended is the "N finished" line, opened to read the command's.
+      const ended = host.querySelector<HTMLButtonElement>("[data-ended-fold] > button");
+      if (ended) await act(async () => ended.click());
       const done = host.querySelector<HTMLElement>('.acpmux-agent-line[data-status="done"]');
       expect(done).not.toBeNull();
       expect(done!.textContent).toContain("6m 4s");

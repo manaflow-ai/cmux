@@ -134,6 +134,13 @@ async function render(
   };
 }
 
+/// Opens the "N finished · N failed" line (SubagentTray.tsx `EndedFold`) so the ended lines under it
+/// draw; what ended is folded into it while anything runs (Leo, 2026-11-12).
+async function openEnded(root: ParentNode) {
+  const fold = root.querySelector<HTMLButtonElement>("[data-ended-fold] > button");
+  if (fold && fold.getAttribute("aria-expanded") !== "true") await act(async () => fold.click());
+}
+
 describe("the transcript keeps no running card", () => {
   const transcript = (agents: Subagent[]) => [
     row("u1", "user", 0, { text: "Review it" }),
@@ -723,6 +730,7 @@ describe("the tray", () => {
       { open: true },
     );
     try {
+      await openEnded(root);
       const lines = [...root.querySelectorAll<HTMLElement>(".acpmux-running-tray .acpmux-agent-line")];
       const running = lines.find((line) => line.dataset.status === "running")!;
       const finished = lines.find((line) => line.dataset.status === "done")!;
@@ -1011,6 +1019,7 @@ describe("a tray line says what it is and what a click does", () => {
     try {
       const head = root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head");
       if (head && head.getAttribute("aria-expanded") !== "true") await act(async () => head.click());
+      await openEnded(root);
       const lines = [...root.querySelectorAll<HTMLElement>(".acpmux-running-tray__list .acpmux-agent-line")];
       expect(lines).toHaveLength(2);
       for (const line of lines) {
@@ -1145,12 +1154,19 @@ describe("the tray tells the truth", () => {
       const head = root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
       // Two harness subagents, two chats it started (one waiting) and one command: five rows.
       // A chat that waits on the person is counted as waiting, never as running; a chat it started is
-      // a session. What ended counts after what runs, its failures apart in the danger colour.
+      // a session. What ended is the list's own "2 finished · 2 failed" line, not a count up here
+      // (Leo, 2026-11-12); its failures stay, in the danger colour, before the commands, which go
+      // first when the row is full.
       if (head.getAttribute("aria-expanded") !== "true") await act(async () => head.click());
       expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe(
-        "2 subagents running · 1 session · 1 waiting · 1 server · 2 done",
+        "2 subagents running · 1 session · 1 waiting · 2 failed · 1 server",
       );
-      expect(head.querySelector(".acpmux-running-tray__failed")?.textContent).toBe("· 2 failed");
+      expect(head.querySelector(".acpmux-running-tray__failed")?.textContent).toBe(" · 2 failed");
+      const fold = root.querySelector<HTMLButtonElement>("[data-ended-fold] > button")!;
+      expect(fold.textContent).toBe("2 finished· 2 failed");
+      expect(fold.getAttribute("aria-expanded")).toBe("false");
+      expect(root.querySelectorAll("li[data-finished]").length).toBe(0);
+      await openEnded(root);
       const lines = liveLines(root);
       expect(lines.length).toBe(5);
       // The chat waiting on the person leads (trayAttention.ts), so the list's height cap never
@@ -1429,7 +1445,10 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
         "acpmux-running-tray__rim",
       ]);
       expect([...tray.children[1]!.children].map((child) => child.className)).toEqual(["acpmux-running-tray__list"]);
-      expect(list.querySelectorAll("li").length).toBe(118);
+      // What runs, then what ended as one line; it opens to all 116 ended lines.
+      expect(list.querySelectorAll("li").length).toBe(3);
+      await openEnded(tray);
+      expect(list.querySelectorAll("li").length).toBe(119);
       // Scrolling the list to its end leaves the header mounted, first, and the same node.
       const head = tray.querySelector<HTMLElement>(".acpmux-running-tray__head")!;
       list.scrollTop = 118 * 28;
@@ -1469,10 +1488,9 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
       expect(dom.window.document.activeElement).toBe(head);
       expect(head.getAttribute("aria-expanded")).toBe("true");
       expect(head.getAttribute("aria-controls")).toBe(root.querySelector(".acpmux-running-tray__list")!.id);
-      // The one that ended counts after what runs (trayHeadKinds.ts).
-      expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe(
-        "1 subagent running · 1 subagent done",
-      );
+      // The one that ended is the list's "1 finished" line, not a count in the header.
+      expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe("1 subagent running");
+      expect(root.querySelector("[data-ended-fold]")?.textContent).toBe("1 finished");
       await act(async () => head.click());
       expect(root.querySelectorAll(".acpmux-agent-line").length).toBe(0);
       expect(root.querySelector(".acpmux-running-tray__head")).toBe(head);

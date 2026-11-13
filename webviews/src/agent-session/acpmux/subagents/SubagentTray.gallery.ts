@@ -350,6 +350,7 @@ const scrollPanel = async (ctx: PlayContext) => {
     await ctx.click({ selector: ".acpmux-running-tray__head" });
     await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__list"));
   }
+  await openEnded(ctx);
   if (ctx.document.querySelector(".acpmux-running-tray__finished")) throw new Error("the tray has no View all");
   await ctx.scroll({ selector: ".acpmux-running-tray__list" }, "bottom");
   headInView(ctx);
@@ -375,6 +376,14 @@ const openTray = async (ctx: PlayContext) => {
   if (!head || head.getAttribute("aria-expanded") === "true") return;
   await ctx.click({ selector: ".acpmux-running-tray__head" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__list"));
+  await openEnded(ctx);
+};
+
+/** Opens the "N finished" line (SubagentTray.tsx `EndedFold`) so the ended lines under it draw. */
+const openEnded = async (ctx: PlayContext) => {
+  const fold = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray [data-ended-fold] > button");
+  if (!fold || fold.getAttribute("aria-expanded") === "true") return;
+  await ctx.click({ selector: ".acpmux-running-tray [data-ended-fold] > button" });
 };
 
 /** Opens the tray, waits for its live `count` lines, and checks no group card is left in the
@@ -667,6 +676,7 @@ export default agentPaneEntry({
       ),
       play: async (ctx) => {
         await openTray(ctx);
+        await openEnded(ctx);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray li[data-finished]"));
         const shell = ctx.document.querySelector<HTMLElement>(".acpmux-shell")!;
         shell.style.width = "300px";
@@ -1195,15 +1205,19 @@ export default agentPaneEntry({
       })(),
     },
     "counts-equal-rows": {
-      note: "What Leo called lying, told straight: the header counts what runs kind by kind (2 subagents, 2 sessions it started, a test run and a build), then the 3 that ended in the list, and equals the rows under it. A command reads as what it does, not its cd prefix; a chat says what its turn does now. What ended stays visible as bounded status cards.",
+      note: 'What Leo called lying, told straight: the header counts what runs kind by kind (2 subagents, 2 sessions it started, a test run and a build), and the 3 that ended are the list\'s one "3 finished" line, which opens to them. A command reads as what it does, not its cd prefix; a chat says what its turn does now. What ended stays visible as bounded status cards.',
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
         await ctx.click({ selector: ".acpmux-running-tray__head" });
+        await ctx.waitFor(
+          () => ctx.document.querySelector(".acpmux-running-tray [data-ended-fold]")?.textContent === "3 finished",
+        );
+        await openEnded(ctx);
         await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray li[data-finished]").length === 3);
         const title = ctx.find({ selector: ".acpmux-running-tray__title" }).textContent;
-        // Kind by kind (trayHeadKinds.ts): the chats it started read as sessions, and what ended in
-        // the list counts after what runs.
-        if (title !== "2 subagents running · 2 sessions · 1 test run · 1 build · 3 done")
+        // Kind by kind (trayHeadKinds.ts): the chats it started read as sessions; what ended is the
+        // list's own "3 finished" line (Leo, 2026-11-12).
+        if (title !== "2 subagents running · 2 sessions · 1 test run · 1 build")
           throw new Error(`the header must count the rows: ${title}`);
       },
       snapshot: countsChats(false),

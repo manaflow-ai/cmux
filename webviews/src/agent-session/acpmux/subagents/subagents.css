@@ -2411,6 +2411,93 @@ button.cv-subagent > :last-child {
   align-self: stretch;
 }
 
+/* ---------- Room for words (Leo, 2026-11-12: "why are there ellipses going so fast? Like they get
+   truncated and cut off so soon") ---------- */
+/* The header's counts, one part each (SubagentTray.tsx `HeadParts`): one line that wraps whole parts
+   onto a second line it never shows, so the last counts go whole and no word is cut. It takes the
+   row's free width up to the time. The first part alone may still cut, in a very narrow hat. */
+.acpmux-running-tray__head > .acpmux-running-tray__parts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  align-self: center;
+  max-height: 1lh;
+  text-overflow: clip;
+}
+.acpmux-running-tray__part {
+  display: inline-flex;
+  flex: none;
+  align-items: baseline;
+  white-space: nowrap;
+}
+.acpmux-running-tray__part:first-child {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.acpmux-running-tray__part > .acpmux-tick {
+  min-width: 0;
+}
+.acpmux-running-tray__part-sep {
+  white-space: pre;
+}
+/* In the parts the failures' count is one part like the rest, its separator in its colour. */
+.acpmux-running-tray__parts > .acpmux-running-tray__failed {
+  margin-inline-start: 0;
+}
+/* A line's title runs to the time and cuts only when it alone overflows; what it does now (and "via
+   its parent") take the rest of the row and cut at its edge. The step was one atomic box after the
+   title, so the row's ellipsis replaced all of it at once: "Base reds: clippy + #41472…" with half the
+   row empty. A line whose step or progress sits on its own line below keeps the block layout. */
+.acpmux-running-tray .acpmux-agent-line__button > .acpmux-summary-text:not(:has(> .acpmux-agent-line__latest, > .acpmux-agent-line__progress)) {
+  display: flex;
+  align-items: baseline;
+}
+.acpmux-running-tray .acpmux-agent-line__button > .acpmux-summary-text > :is(.acpmux-agent-line__kind, .acpmux-agent-line__kind-icon, .acpmux-agent-line__stats) {
+  flex: none;
+}
+.acpmux-running-tray .acpmux-agent-line__button > .acpmux-summary-text > :is(.acpmux-summary-agent__name, .acpmux-summary-agent__kind) {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* They give way long before the title does. */
+.acpmux-running-tray .acpmux-agent-line__button > .acpmux-summary-text > :is(.acpmux-agent-line__latest-inline, .acpmux-agent-line__via) {
+  flex: 0 1000 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- What ended, as one line (SubagentTray.tsx `EndedFold`) ----------
+   Under what runs: "3 finished · 1 failed" in the lines' columns, its mark in the icon column, its
+   chevron where the lines' end, quiet like the header's meta; it opens to the ended lines under it. */
+.acpmux-running-tray .acpmux-running-tray__ended {
+  padding-inline: var(--acpmux-tray-inset) calc(var(--acpmux-tray-inset) + var(--acpmux-tray-gutter, 0px));
+  height: var(--ui-row-height, 28px);
+  color: var(--agent-muted);
+}
+.acpmux-running-tray__ended .acpmux-lineage__icon {
+  width: 14px;
+}
+.acpmux-running-tray__ended .acpmux-lineage__icon[data-state="failed"] {
+  color: var(--agent-status-failure);
+}
+.acpmux-running-tray__ended-text {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: baseline;
+  gap: var(--ds-space-1, 4px);
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-running-tray__ended-text > .acpmux-running-tray__failed {
+  margin-inline-start: 0;
+}
+.acpmux-running-tray__ended:hover {
+  color: var(--agent-text);
+}
 /* The hat's top rim drags (trayResize.ts; Leo, 2026-11-12: "you have this glass rim, but you can't
    drag up the composer hat area"): a band along the top edge, inside the hat's clip, with the
    resize cursor. The tuck chevron comes later in the hat and keeps the middle of the band. */

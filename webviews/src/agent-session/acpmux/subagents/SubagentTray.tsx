@@ -56,6 +56,11 @@
 // the strip: "why is that even highlighted in the first place? you can click on it to go
 // somewhere? is that a command or a subagent?")
 //
+// What ended folds into one line under what runs, "3 finished · 1 failed", which opens to their lines
+// (`EndedFold`; Leo, 2026-11-12: "if these failed, I don't know why they still show up ... I feel like
+// there are just way too many right now"): the open list shows what still runs. A lone ended item
+// keeps its own line, which its header names.
+//
 // It moves with the transcript (Leo 2026-10-26: "Like why is this not animating and, like,
 // following along with the exact same things as everything else?"; trayMotion.tsx): it eases in as
 // a new message does, leaves on a kept snapshot, its list opens and folds on the shared fold
@@ -122,7 +127,7 @@ import { trayHeadLook } from "./trayHead.experiment";
 import { trayFoldHeadLook } from "./trayFoldHead.experiment";
 import { trayOpenLook } from "./trayOpen.experiment";
 import { trayHeadKindsLook } from "./trayHeadKinds.experiment";
-import { trayHead } from "./trayHeadKinds";
+import { trayHead, endedCounts, type TrayHeadPart } from "./trayHeadKinds";
 import { COMMAND_KIND_ICON, commandKind } from "./trayCommandKinds";
 import { KIND_LINE_SEPARATOR, trayKindLineLook } from "./trayKindLine.experiment";
 import { traySurfaceLook } from "./traySurface.experiment";
@@ -274,6 +279,8 @@ export const SubagentTray = memo(function SubagentTray({
   const hatHeight = useHatHeight();
   // The lines open in place (TrayLineDetail.tsx): a click on a line expands it, never navigates.
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
+  // The "N finished · N failed" line's lines are shown (`EndedFold`): folded until the person opens it.
+  const [endedOpen, setEndedOpen] = useState(false);
   const toggleLine = useCallback(
     (key: string) =>
       setExpanded((current) => {
@@ -514,7 +521,23 @@ export const SubagentTray = memo(function SubagentTray({
   const [runStart, setRunStart] = useState<number | undefined>(undefined);
   const since = runSince(runStart, items);
   if (since !== runStart) setRunStart(since);
-  const ordered = useMemo(() => attentionFirst(items, finished, waiting), [items, finished, waiting]);
+  // What ended folds into one line once there is more than the one item a lone header names: the list
+  // shows what runs, then "3 finished · 1 failed", and the ended lines only once that line is opened.
+  const foldsEnded = finished.length > 0 && items.length > 0;
+  const ordered = useMemo(
+    () =>
+      foldsEnded
+        ? [
+            ...attentionFirst(items, NO_ITEMS, waiting),
+            ...(endedOpen ? attentionFirst(NO_ITEMS, finished, waiting) : []),
+          ]
+        : attentionFirst(items, finished, waiting),
+    [items, finished, waiting, foldsEnded, endedOpen],
+  );
+  const endedTally = useMemo(
+    () => (foldsEnded ? endedCounts(finished, waiting) : undefined),
+    [foldsEnded, finished, waiting],
+  );
   // The badge look picks which subagents show their family mark (foreignHarness): read here, so a
   // change of the setting draws them again.
   const senderBadge = useSenderIconLook().badge;
@@ -584,25 +607,50 @@ export const SubagentTray = memo(function SubagentTray({
   const drawn = fold.present ? withLeaving(ordered, leaving) : NO_DRAWN;
   drawnCards.current = drawn;
   let firstFinished = true;
-  const cards = drawn.map(({ key, card: { item, finished: ended }, leaving: going }) => {
+  const rows = drawn.map(({ key, card: { item, finished: ended }, leaving: going }) => {
     const first = ended && !going && firstFinished;
     if (ended && !going) firstFinished = false;
-    return (
-      <TrayRow
-        key={key}
-        rowKey={key}
-        enters={arrived.has(key)}
-        leaving={going}
-        entered={played}
-        gone={gone}
-        look={rowMotion}
-        finished={ended}
-        first={first}
-      >
-        {line(item)}
-      </TrayRow>
-    );
+    return {
+      ended,
+      node: (
+        <TrayRow
+          key={key}
+          rowKey={key}
+          enters={arrived.has(key)}
+          leaving={going}
+          entered={played}
+          gone={gone}
+          look={rowMotion}
+          finished={ended}
+          first={first}
+        >
+          {line(item)}
+        </TrayRow>
+      ),
+    };
   });
+  // What runs, then the ended line, then (opened) what ended.
+  const cards = endedTally
+    ? [
+        ...rows.filter((row) => !row.ended).map((row) => row.node),
+        <EndedFold
+          key="ended-fold"
+          t={t}
+          finished={endedTally.finished}
+          failed={endedTally.failed}
+          open={endedOpen}
+          onToggle={() => setEndedOpen((current) => !current)}
+        />,
+        ...rows.filter((row) => row.ended).map((row) => row.node),
+      ]
+    : rows.map((row) => row.node);
+  // The counts as whole parts (trayHeadKinds.ts `parts`): the row drops the last ones that do not fit,
+  // never a word cut in half. A lone item keeps its one sliding title, open or folded, so its expand
+  // stays one transition (Leo, 2026-11-08: "things don't balance out").
+  const countParts = !lone && !named && items.length + finished.length > 0;
+  const headParts: readonly TrayHeadPart[] = countParts
+    ? [...(planText ? [{ key: "plan", text: planText }] : []), ...counts.parts]
+    : NO_PARTS;
   // The header's click: it opens the panel (the `header` arm) or expands and folds the hat in place.
   const toggle = () => {
     if (opensPanel === "header") {
@@ -780,7 +828,11 @@ export const SubagentTray = memo(function SubagentTray({
           )}
           {/* Its words slide as a status line hands over: a new name joining, the lone item's task (Leo,
               2026-11-07); its counts roll in place (trayMotion.tsx `Tick`). */}
-          <Tick className="acpmux-summary-text acpmux-running-tray__title" text={headText} steadyCounts slide />
+          {countParts ? (
+            <HeadParts parts={headParts} />
+          ) : (
+            <Tick className="acpmux-summary-text acpmux-running-tray__title" text={headText} steadyCounts slide />
+          )}
           {/* Kept while the hat is open, faded out in place (subagents.css), so it never leaves or comes
               back at once; it gives way to the counts first, so its room costs them nothing. */}
           {loneEnd?.latest && loneEnd.latest !== loneEnd.title && (
@@ -793,7 +845,7 @@ export const SubagentTray = memo(function SubagentTray({
           {loneHead?.agent && <LoneProgress agent={loneHead.agent} fallback={loneHead.progress} />}
           {/* Open (or in the counts arm), what ended failed, in the danger colour, and a subagent of
               another model family by its harness's mark, as its line draws it. */}
-          {!named && !loneEnd && counts.failed > 0 && (
+          {!countParts && !named && !loneEnd && counts.failed > 0 && (
             <span className="acpmux-running-tray__failed">
               {title && <span aria-hidden="true">· </span>}
               {t("summary.subagents.failed", { n: counts.failed })}
@@ -1153,6 +1205,83 @@ export const SubagentTray = memo(function SubagentTray({
     );
   }
 });
+
+/// The header's counts, one part each (trayHeadKinds.ts `parts`), most telling first, in a row of one
+/// line that wraps the parts that do not fit onto a second line it never shows: the last counts go
+/// whole, never cut with an ellipsis mid-word (Leo, 2026-11-12: "why are there ellipses going so fast?
+/// Like they get truncated and cut off so soon"). Each part's number rolls in place as it did
+/// (trayMotion.tsx `Tick`); the failures' count is in the danger colour. Every part stays in the
+/// header's accessible name.
+function HeadParts({ parts }: { parts: readonly TrayHeadPart[] }) {
+  return (
+    <span className="acpmux-summary-text acpmux-running-tray__title acpmux-running-tray__parts" data-head-parts>
+      {parts.map((part, index) => (
+        <span
+          key={part.key}
+          className={
+            part.failed ? "acpmux-running-tray__part acpmux-running-tray__failed" : "acpmux-running-tray__part"
+          }
+          data-part={part.key}
+        >
+          {index > 0 && (
+            <span className="acpmux-running-tray__part-sep" aria-hidden="true">
+              {" · "}
+            </span>
+          )}
+          <Tick text={part.text} steadyCounts slide={part.key === "plan"} />
+        </span>
+      ))}
+    </span>
+  );
+}
+const NO_PARTS: readonly TrayHeadPart[] = [];
+
+/// What ended, as one line under what runs: "3 finished · 1 failed", its failures in the danger colour,
+/// and a chevron that opens it to the ended lines under it and folds them back. It is a line of the
+/// list, in the lines' columns: its mark in the icon column, its words in the text column, its chevron
+/// where every line's ends.
+function EndedFold({
+  t,
+  finished,
+  failed,
+  open,
+  onToggle,
+}: {
+  t: Translate;
+  finished: number;
+  failed: number;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <li data-ended-fold>
+      <button
+        type="button"
+        className="acpmux-summary-row acpmux-summary-link acpmux-running-tray__ended"
+        aria-expanded={open}
+        onClick={onToggle}
+      >
+        <span className="acpmux-lineage__icon" data-state={failed > 0 ? "failed" : "done"} aria-hidden="true">
+          <Icon name={failed > 0 ? "status.error" : "status.complete"} size={ROW_ICON} row />
+        </span>
+        <span className="acpmux-summary-text acpmux-running-tray__ended-text">
+          {finished > 0 && <Tick text={t("backgroundTasks.finished", { n: finished })} steadyCounts />}
+          {failed > 0 && (
+            <span className="acpmux-running-tray__failed">
+              {finished > 0 && <span aria-hidden="true">· </span>}
+              <Tick text={t("summary.subagents.failed", { n: failed })} steadyCounts />
+            </span>
+          )}
+        </span>
+        <span className="acpmux-running-tray__status">
+          <span className="acpmux-running-tray__chevron" data-open={open || undefined}>
+            <Icon name="disclosure.expanded" size={ROW_ICON} row />
+          </span>
+        </span>
+      </button>
+    </li>
+  );
+}
 
 /// A subagent's state needs no word on its line when its glyph says it: done, or running under the
 /// spinner. Waiting, failed, stopped and a retry keep theirs.

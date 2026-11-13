@@ -134,8 +134,13 @@ function columns(ctx: PlayContext): void {
   const tray = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray")!;
   const lines = [...tray.querySelectorAll<HTMLElement>(".acpmux-running-tray__list .acpmux-agent-line")];
   const list = tray.querySelector<HTMLElement>(".acpmux-running-tray__list")!;
-  // Under 400px (the tray's container query) each line takes two rows, so five of them scroll.
-  if (lines.length <= 5 && tray.getBoundingClientRect().width > 400 && list.scrollHeight > list.clientHeight + 0.5)
+  // Under 400px (the tray's container query) each line takes two rows, so five of them scroll. The
+  // "N finished" line is a row of the list too (SubagentTray.tsx `EndedFold`).
+  if (
+    list.children.length <= 5 &&
+    tray.getBoundingClientRect().width > 400 &&
+    list.scrollHeight > list.clientHeight + 0.5
+  )
     throw new Error(`five lines overflow the list by ${list.scrollHeight - list.clientHeight}px`);
   const near = (a: number, b: number, what: string) => {
     if (Math.abs(a - b) > 0.5) throw new Error(`${what}: ${a} vs ${b}`);
@@ -182,21 +187,20 @@ export default agentPaneEntry({
   },
   variants: {
     "leo-tray": {
-      note: 'Leo\'s tray (2026-11-03): four background commands and a finished subagent, open. Every time ends on one x (the done line\'s "Done · 29m 21s" no longer runs into the empty Stop column), the Stop squares and the chevrons each sit in one column with the header\'s, and the header says "1 build · 2 waits · 1 command · 1 subagent done", its commands counted by what they do.',
+      note: 'Leo\'s tray (2026-11-03): four background commands and a finished subagent, open. Every time ends on one x (the done line\'s "Done · 29m 21s" no longer runs into the empty Stop column), the Stop squares and the chevrons each sit in one column with the header\'s, and the header says "1 build · 2 waits · 1 command", its commands counted by what they do; the finished subagent is the list\'s "1 finished" line.',
       play: async (ctx) => {
-        await open(ctx, 5);
+        await open(ctx, 4);
         columns(ctx);
-        if (title(ctx) !== "1 build · 2 waits · 1 command · 1 subagent done")
-          throw new Error(`unexpected header: ${title(ctx)}`);
+        if (title(ctx) !== "1 build · 2 waits · 1 command") throw new Error(`unexpected header: ${title(ctx)}`);
       },
       snapshot: leoTray,
     },
     mixed: {
-      note: "Every kind: two subagents running (one Codex, by its mark: in the header's stacked marks, or after the counts when the stack has no room for it), a session the agent started, a test run and a server, a subagent done and one stopped. The columns hold on every line.",
+      note: "Every kind: two subagents running (one Codex, by its mark: in the header's stacked marks, or after the counts when the stack has no room for it), a session the agent started, a test run and a server, a subagent done and one stopped, both on the list's one \"2 finished\" line. The columns hold on every line.",
       play: async (ctx) => {
-        await open(ctx, 7);
+        await open(ctx, 5);
         columns(ctx);
-        if (title(ctx) !== "2 subagents running · 1 session · 1 test run · 1 server · 1 subagent done · 1 stopped")
+        if (title(ctx) !== "2 subagents running · 1 session · 1 test run · 1 server")
           throw new Error(`unexpected header: ${title(ctx)}`);
         // A failed line leaves the hat (runningTray.ts `endedInFailure`): no failure count is left to read.
         if (ctx.document.querySelector(".acpmux-running-tray__failed"))
