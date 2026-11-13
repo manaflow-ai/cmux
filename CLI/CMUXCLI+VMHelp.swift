@@ -4,6 +4,50 @@ import Foundation
 // MARK: - `cmux vm <verb> --help`
 
 extension CMUXCLI {
+    /// Resolve a user-facing machine selector to the canonical provider id.
+    ///
+    /// VM lifecycle endpoints are keyed by id, while `vm ls` also shows the
+    /// mutable display name and the stable generated slug. Exact ids always
+    /// win. A label/slug is accepted only when it identifies one machine;
+    /// ambiguous labels fail closed so a lifecycle action cannot hit the wrong
+    /// VM.
+    static func resolveVMMachineID(
+        selector: String,
+        from listResponse: [String: Any]
+    ) throws -> String {
+        let machines = (listResponse["vms"] as? [[String: Any]])
+            ?? (listResponse["machines"] as? [[String: Any]])
+            ?? []
+        let exactIDs = machines.compactMap { machine -> String? in
+            guard let id = machine["id"] as? String, id == selector else { return nil }
+            return id
+        }
+        if let exactID = exactIDs.first {
+            return exactID
+        }
+
+        var labelMatches = Set<String>()
+        for machine in machines {
+            guard let id = machine["id"] as? String, !id.isEmpty else { continue }
+            if machine["displayName"] as? String == selector || machine["slug"] as? String == selector {
+                labelMatches.insert(id)
+            }
+        }
+        if labelMatches.count == 1, let machineID = labelMatches.first {
+            return machineID
+        }
+        if labelMatches.count > 1 {
+            throw CLIError(message: "vm: '\(selector)' matches multiple machines; use a machine id from `cmux vm ls`.")
+        }
+        return selector
+    }
+
+    static func isVMMachineNotFound(_ error: CLIError) -> Bool {
+        error.vmBackendCode == "vm_not_found"
+            || error.vmBackendHTTPStatus == 404
+            || error.v2Code == "vm_not_found"
+    }
+
     /// Usage for the verbs that carry their own option list. `cmux vm <verb> --help`
     /// and `-h` print this instead of the `cmux vm` overview, without a socket, so an
     /// agent can read a verb's flags before the app is running. Verbs not listed here
@@ -353,13 +397,11 @@ extension CMUXCLI {
         let machines = (listResponse["vms"] as? [[String: Any]])
             ?? (listResponse["machines"] as? [[String: Any]])
             ?? []
-        // `vm resize` accepts either the provider id or the user-facing slug.
-        // Always forward the canonical id to the mutation when the list found
-        // a slug match; the server's resize endpoint is keyed by id.
-        let machine = machines.first {
-            ($0["id"] as? String) == vmId || ($0["slug"] as? String) == vmId
-        }
-        let machineID = (machine?["id"] as? String) ?? vmId
+        // `vm resize` accepts the provider id or either user-facing machine name.
+        // Always forward the canonical id to the mutation; the server's resize
+        // endpoint is keyed by id.
+        let machineID = try Self.resolveVMMachineID(selector: vmId, from: listResponse)
+        let machine = machines.first { ($0["id"] as? String) == machineID }
         let (resizeLimits, planID) = try Self.cloudVMResizeLimits(from: limits)
         let status = (machine?["status"] as? String)?.lowercased()
         let reservation = machine?["resourceReservation"] as? [String: Any]
