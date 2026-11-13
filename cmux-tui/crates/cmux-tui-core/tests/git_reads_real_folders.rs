@@ -6,7 +6,10 @@
 //!   link at any part of one of these paths is refused with one problem text, and no text of
 //!   the file behind the link is in the reply.
 //!   Its `run` gives the state and the output of a worktree's setup from two files of the
-//!   worktree's git folder: a link in the place of one of them is not read.
+//!   worktree's git folder: a link in the place of one of them is not read. The same holds
+//!   for the setup's lock there, and for the ports file and its lock in the repository's
+//!   shared git folder: no port and no lock state come from a link, and no file is made
+//!   through one. A named pipe in the place of one of these files is not read either.
 //! - `git.diff` counts the lines of each untracked file that git lists. It counts no line of
 //!   a file below a link, also when the link took a folder's place after git's listing.
 //! - `git.files.search` and `git.files.list` say of a listed name if it is a folder (a
@@ -22,13 +25,15 @@
 
 use cmux_tui_core::{Mux, SurfaceOptions, server};
 use serde_json::{Value, json};
+use std::fs::OpenOptions;
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::thread::JoinHandle;
 use std::time::Duration;
 
 /// What the daemon says of a recipe file that it did not read because of a link.
@@ -411,6 +416,152 @@ fn git_worktree_setup_gives_no_state_of_a_link_in_the_place_of_the_setup_status(
     std::os::unix::fs::symlink(outside.join("status"), git_dir.join("cmux-setup.json")).unwrap();
     let run = Client::of_a_new_daemon().setup_run(&worktree);
     assert_eq!(run["state"], "none", "the state of a file behind a link: {run}");
+}
+
+/// Makes a named pipe at `path`.
+fn named_pipe(path: &Path) {
+    let made = Command::new("mkfifo").arg(path).status().expect("mkfifo runs");
+    assert!(made.success(), "mkfifo {}", path.display());
+}
+
+/// Gives `text` to the first reader that opens the named pipe `path`, then closes the pipe:
+/// a reader that waits for the pipe's other end gets the text and its end.
+fn writer_of(path: &Path, text: String) -> JoinHandle<()> {
+    let path = path.to_path_buf();
+    std::thread::spawn(move || {
+        // The open waits for a reader. A reader that is gone before the write gets nothing.
+        if let Ok(mut pipe) = OpenOptions::new().write(true).open(path) {
+            let _ = pipe.write_all(text.as_bytes());
+        }
+    })
+}
+
+/// Lets the writer of the named pipe `path` come to its end, also when nobody read the pipe.
+fn ended(writer: JoinHandle<()>, path: &Path) {
+    // An open for a read that does not wait: the writer's open has its reader now.
+    let reader = OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK).open(path).unwrap();
+    writer.join().unwrap();
+    drop(reader);
+}
+
+#[test]
+fn git_worktree_setup_reads_no_recipe_file_that_is_a_named_pipe() {
+    let repo = fresh_repository();
+    std::fs::create_dir(repo.join(".cmux")).unwrap();
+    named_pipe(&repo.join(".cmux/worktree.toml"));
+    let recipe = Client::of_a_new_daemon().recipe(&repo);
+    assert_eq!(recipe["problems"], json!([".cmux/worktree.toml: not a regular file"]), "{recipe}");
+}
+
+#[test]
+fn git_worktree_setup_gives_no_state_of_a_named_pipe_in_the_place_of_the_setup_status() {
+    let (worktree, git_dir) = linked_worktree();
+    let status = git_dir.join("cmux-setup.json");
+    named_pipe(&status);
+    let writer = writer_of(&status, ENDED.to_string());
+    let run = Client::of_a_new_daemon().setup_run(&worktree);
+    ended(writer, &status);
+    assert_eq!(run["state"], "none", "the state of a file that is not a regular file: {run}");
+}
+
+/// The shared git folder of the repository that has the worktree's git folder `git_dir`.
+fn shared_git_folder(git_dir: &Path) -> PathBuf {
+    git_dir.parent().and_then(Path::parent).unwrap().to_path_buf()
+}
+
+/// The text of a ports file that gives `port` to `worktree`.
+fn ports_text(worktree: &Path, port: u16) -> String {
+    let mut ports = serde_json::Map::new();
+    let folder = std::fs::canonicalize(worktree).unwrap();
+    ports.insert(folder.to_string_lossy().into_owned(), json!(port));
+    Value::Object(ports).to_string()
+}
+
+#[test]
+fn git_worktree_setup_gives_the_port_of_the_ports_file_in_the_shared_git_folder() {
+    let (worktree, git_dir) = linked_worktree();
+    let ports = shared_git_folder(&git_dir).join("cmux-worktree-ports.json");
+    std::fs::write(ports, ports_text(&worktree, 4310)).unwrap();
+    let run = Client::of_a_new_daemon().setup_run(&worktree);
+    assert_eq!(run["port"], 4310, "{run}");
+}
+
+#[test]
+fn git_worktree_setup_gives_no_port_of_a_link_in_the_place_of_the_ports_file() {
+    let (worktree, git_dir) = linked_worktree();
+    let outside = outside_folder("ports", ports_text(&worktree, 4310).as_bytes());
+    let ports = shared_git_folder(&git_dir).join("cmux-worktree-ports.json");
+    std::os::unix::fs::symlink(outside.join("ports"), ports).unwrap();
+    let run = Client::of_a_new_daemon().setup_run(&worktree);
+    assert_eq!(run["port"], Value::Null, "a number of a file behind a link: {run}");
+}
+
+#[test]
+fn git_worktree_setup_gives_no_port_of_a_named_pipe_in_the_place_of_the_ports_file() {
+    let (worktree, git_dir) = linked_worktree();
+    let ports = shared_git_folder(&git_dir).join("cmux-worktree-ports.json");
+    named_pipe(&ports);
+    let writer = writer_of(&ports, ports_text(&worktree, 4310));
+    let run = Client::of_a_new_daemon().setup_run(&worktree);
+    ended(writer, &ports);
+    assert_eq!(run["port"], Value::Null, "a number of a file that is not a regular file: {run}");
+}
+
+#[test]
+fn git_worktree_setup_makes_no_file_through_a_link_in_the_place_of_the_ports_lock() {
+    let (worktree, git_dir) = linked_worktree();
+    let outside = outside_folder("other", b"outside\n");
+    let lock = shared_git_folder(&git_dir).join("cmux-worktree-ports.lock");
+    std::os::unix::fs::symlink(outside.join("made"), lock).unwrap();
+    let run = Client::of_a_new_daemon().setup_run(&worktree);
+    assert_eq!(run["state"], "none", "{run}");
+    let made = std::fs::symlink_metadata(outside.join("made")).is_ok();
+    assert!(!made, "the read made a file where the link points");
+}
+
+/// The status file of a setup that runs.
+const RUNS: &str = r#"{"state":"running","started_ms":1}"#;
+
+#[test]
+fn git_worktree_setup_says_running_while_the_setup_lock_in_the_git_folder_is_held() {
+    let (worktree, git_dir) = linked_worktree();
+    std::fs::write(git_dir.join("cmux-setup.json"), RUNS).unwrap();
+    std::fs::write(git_dir.join("cmux-setup.lock"), "").unwrap();
+    let mut client = Client::of_a_new_daemon();
+    let free = client.setup_run(&worktree);
+    assert_eq!(free["state"], "interrupted", "nobody holds the lock: {free}");
+
+    let holder = std::fs::File::open(git_dir.join("cmux-setup.lock")).unwrap();
+    holder.lock().unwrap();
+    let held = client.setup_run(&worktree);
+    assert_eq!(held["state"], "running", "a run holds the lock: {held}");
+}
+
+#[test]
+fn git_worktree_setup_takes_no_lock_state_of_a_link_in_the_place_of_the_setup_lock() {
+    let (worktree, git_dir) = linked_worktree();
+    let outside = outside_folder("lock", b"");
+    std::fs::write(git_dir.join("cmux-setup.json"), RUNS).unwrap();
+    std::os::unix::fs::symlink(outside.join("lock"), git_dir.join("cmux-setup.lock")).unwrap();
+    // The file behind the link is locked: its state is not the setup's.
+    let holder = std::fs::File::open(outside.join("lock")).unwrap();
+    holder.lock().unwrap();
+    let run = Client::of_a_new_daemon().setup_run(&worktree);
+    assert_eq!(run["state"], "interrupted", "the lock state of a file behind a link: {run}");
+}
+
+#[test]
+fn git_worktree_setup_takes_no_lock_state_of_a_named_pipe_in_the_place_of_the_setup_lock() {
+    let (worktree, git_dir) = linked_worktree();
+    let lock = git_dir.join("cmux-setup.lock");
+    std::fs::write(git_dir.join("cmux-setup.json"), RUNS).unwrap();
+    named_pipe(&lock);
+    // The two ends of the pipe are open here, so no open of it waits. Where a pipe takes a
+    // lock, this one is held; where it takes none, a look at its lock fails.
+    let holder = OpenOptions::new().read(true).write(true).open(&lock).unwrap();
+    let locked = holder.lock().is_ok();
+    let run = Client::of_a_new_daemon().setup_run(&worktree);
+    assert_eq!(run["state"], "interrupted", "the lock state of a pipe (locked: {locked}): {run}");
 }
 
 #[test]
