@@ -60,7 +60,22 @@ export function hasLiveLine(rows: readonly AcpmuxRow[]): boolean {
 /// nothing folds (a fold there left copies of the rows that went, the edited prompt's among them,
 /// over the new transcript).
 export function endsTurn(before: readonly AcpmuxRow[] | undefined, after: readonly AcpmuxRow[]): boolean {
-  if (before === undefined || before === after || !hasLiveLine(before) || hasLiveLine(after)) return false;
+  if (before === undefined || before === after || !hasLiveLine(before)) return false;
+  if (hasLiveLine(after)) {
+    let worked: string | undefined;
+    for (let index = after.length - 1; index >= 0 && index >= after.length - LINE_TAIL; index -= 1) {
+      if (after[index]!.kind === "user" && !isLineRow(after[index]!)) break;
+      if (after[index]!.kind === WORKED) {
+        worked = after[index]!.id;
+        break;
+      }
+    }
+    if (worked === undefined) return false;
+    for (let index = before.length - 1; index >= 0 && index >= before.length - LINE_TAIL; index -= 1)
+      if (before[index]!.id === worked) return false;
+    const working = `${WORKING}-${worked.slice(WORKED.length + 1)}`;
+    if (!before.some((row) => row.kind === WORKING && row.id === working)) return false;
+  }
   let prompt: string | undefined;
   for (let index = before.length - 1; index >= 0 && prompt === undefined; index -= 1)
     // The prompt, not a line another agent's message or the inbox drew (model.ts `isLineRow`): such a
