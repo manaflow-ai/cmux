@@ -156,6 +156,23 @@ def test_7zip_exit_2_passes_only_for_refused_links(tmp: Path) -> None:
         tool.subprocess.run, tool.shutil.which = real_run, real_which
 
 
+def test_requests_name_their_user_agent(tmp: Path) -> None:
+    # The file server refuses Python's default User-Agent with 403 (2026-11-12).
+    seen = []
+    real = tool.urllib.request.urlopen
+
+    def fake(req, timeout=None):
+        seen.append(req.get_header("User-agent"))
+        raise SystemExit("stop")
+
+    tool.urllib.request.urlopen = fake
+    try:
+        refused(tool.download, "https://example.invalid/x.dmg", tmp / "x.dmg", 10)
+    finally:
+        tool.urllib.request.urlopen = real
+    assert seen == [tool.USER_AGENT] and not seen[0].startswith("Python-urllib"), seen
+
+
 def main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

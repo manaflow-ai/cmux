@@ -209,6 +209,9 @@ public final class AgentChatStore {
     @ObservationIgnored private var sourceHasEarlier = false
     /// An older page is being read (``loadEarlier()``).
     public private(set) var isLoadingEarlier = false
+    /// The main actor's time spent putting older pages in, in all (the scroll-up bench reads it
+    /// per frame: a page that lands costs the frame it lands in).
+    @ObservationIgnored public private(set) var earlierApplyTime: Duration = .zero
     /// The source is still reading the chat's history from the Mac
     /// (``AgentSessionSource/loadsHistory``, then ``AgentSessionEvent/historyLoading(_:)``). With no
     /// turns yet the chat shows a loading state, never the empty new-chat screen; with turns it
@@ -1057,6 +1060,8 @@ public final class AgentChatStore {
         case .historyLoading(let loading):
             if isLoadingHistory != loading { isLoadingHistory = loading }
         case .earlierPage(let events, let hasEarlier):
+            let start = ContinuousClock.now
+            defer { earlierApplyTime += start.duration(to: .now) }
             isLoadingEarlier = false
             sourceHasEarlier = hasEarlier
             refreshEarlierHistory()
@@ -1091,8 +1096,16 @@ public final class AgentChatStore {
             // The transcript already showed it run: only its reply was lost.
             guard !seenPromptIDs.contains(promptID) else { break }
             clientError = reason
-            returnedDraft = ReturnedDraft(text: text, attachments: attachments, promptID: promptID)
-            resendable = (text, attachments, promptID)
+            if let earlier = returnedDraft {
+                // Several messages came back before the composer took the first: none is lost.
+                // Joined, they are a new message (no single id runs them all once).
+                returnedDraft = ReturnedDraft(text: [earlier.text, text].filter { !$0.isEmpty }.joined(separator: "\n\n"),
+                                              attachments: earlier.attachments + attachments, promptID: promptID)
+                resendable = nil
+            } else {
+                returnedDraft = ReturnedDraft(text: text, attachments: attachments, promptID: promptID)
+                resendable = (text, attachments, promptID)
+            }
         case .subagent(let change):
             applySubagent(change)
         case .batch(let events):
@@ -1110,6 +1123,19 @@ public final class AgentChatStore {
     }
 
     public func subagent(_ id: String) -> AgentSubagent? { subagents.first { $0.id == id } }
+
+    /// How far ahead of the reader older history is read: within this many screens of the
+    /// oldest turn shown, the page before it is asked for (the desktop's transcript reads six
+    /// viewports ahead; a phone's screen holds less, and its source holds one more page ahead).
+    public static let readAheadScreens: Double = 4
+
+    /// The reader is `screensAbove` screens below the oldest turn shown (the list's scroll, each
+    /// step): within ``readAheadScreens``, the page before it is asked for, long before the top
+    /// shows. The source reads one more ahead, so the next ask is answered at once.
+    public func readAhead(screensAbove: Double) {
+        guard screensAbove < Self.readAheadScreens, hasEarlierHistory, !isLoadingEarlier else { return }
+        loadEarlier()
+    }
 
     /// The reader reached the oldest turn shown: the source reads the page before it.
     public func loadEarlier() {
@@ -1223,6 +1249,8 @@ public final class AgentChatStore {
 
     /// A page of spilled turns (newest first) goes back in front of the shown ones.
     private func restoreSpilled(_ page: [AgentTurn]) {
+        let start = ContinuousClock.now
+        defer { earlierApplyTime += start.duration(to: .now) }
         isLoadingEarlier = false
         turnsOnDisk = page.isEmpty ? 0 : max(0, turnsOnDisk - page.count)
         spilledTurnIDs.subtract(page.map(\.id))
