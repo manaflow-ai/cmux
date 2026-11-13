@@ -661,7 +661,7 @@ mod tests {
         let actor = ChatActor::spawn(file_config(&dir));
         actor.handle.wake().unwrap();
         actor.join();
-        assert!(CheckpointHead::read(dir.path()).unwrap().is_some());
+        assert!(acpmux_book::log::CheckpointHead::read(dir.path()).unwrap().is_some());
     }
 
     #[test]
@@ -683,7 +683,7 @@ mod tests {
         let rebuilt = ChatActor::spawn(config);
         rebuilt.handle.wake().unwrap();
         rebuilt.join();
-        assert!(CheckpointHead::read(dir.path()).unwrap().is_some());
+        assert!(acpmux_book::log::CheckpointHead::read(dir.path()).unwrap().is_some());
     }
 }
 
