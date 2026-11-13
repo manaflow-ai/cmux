@@ -28,26 +28,31 @@ def artifact(id_: int, name: str, created: str, *, run: int = 77, expired: bool 
 
 
 class ModeTests(unittest.TestCase):
-    def test_a_pattern_takes_the_newest_unexpired_artifact_of_each_matching_name_across_pages(self) -> None:
-        first = [artifact(i, f"filler-{i}", "2026-11-12T00:00:00Z") for i in range(97)] + [
+    def test_a_pattern_takes_the_newest_unexpired_artifact_of_each_matching_name(self) -> None:
+        listed = [
             artifact(200, "cmux-nightly-variant-arm64", "2026-11-12T01:00:00Z"),
             artifact(201, "cmux-nightly-variant-arm64", "2026-11-12T02:00:00Z"),
             artifact(202, "cmux-nightly-variant-x86_64", "2026-11-12T03:00:00Z", expired=True),
+            artifact(300, "cmux-nightly-variant-universal", "2026-11-12T01:00:00Z"),
+            artifact(301, "cmux-nightly-tested-arm64", "2026-11-12T01:00:00Z"),
         ]
-        second = [artifact(300, "cmux-nightly-variant-universal", "2026-11-12T01:00:00Z"),
-                  artifact(301, "cmux-nightly-tested-arm64", "2026-11-12T01:00:00Z")]
         paths = []
 
         def api_json(path: str, token: str) -> dict:
             paths.append(path)
-            return {"artifacts": first if path.endswith("page=1") else second}
+            return {"total_count": len(listed), "artifacts": listed}
 
         with mock.patch.object(download, "api_json", api_json):
             found = download.find_artifacts("o/r", "77", "cmux-nightly-variant-*", "t")
         self.assertEqual([(a["name"], a["id"]) for a in found],
                          [("cmux-nightly-variant-arm64", 201), ("cmux-nightly-variant-universal", 300)])
-        self.assertEqual(paths, ["/repos/o/r/actions/runs/77/artifacts?per_page=100&page=1",
-                                 "/repos/o/r/actions/runs/77/artifacts?per_page=100&page=2"])
+        self.assertEqual(paths, ["/repos/o/r/actions/runs/77/artifacts?per_page=100"])
+
+    def test_a_run_with_more_artifacts_than_one_listing_fails_so_download_artifact_takes_over(self) -> None:
+        listed = [artifact(i, f"cmux-nightly-variant-{i}", "1") for i in range(100)]
+        with mock.patch.object(download, "api_json", lambda path, token: {"total_count": 101, "artifacts": listed}):
+            with self.assertRaisesRegex(SystemExit, "101 artifacts"):
+                download.find_artifacts("o/r", "77", "cmux-nightly-variant-*", "t")
 
     def test_a_pattern_that_matches_nothing_fails_so_download_artifact_takes_over(self) -> None:
         with mock.patch.object(download, "api_json", lambda path, token: {"artifacts": []}):

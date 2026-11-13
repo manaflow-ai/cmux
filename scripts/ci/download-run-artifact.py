@@ -163,21 +163,20 @@ def find_artifact(repo: str, run_id: str, name: str, token: str) -> dict:
 
 
 def find_artifacts(repo: str, run_id: str, pattern: str, token: str) -> list[dict]:
-    """Every unexpired artifact of the run whose name matches PATTERN, the newest of each name."""
+    """Every unexpired artifact of the run whose name matches PATTERN, the newest of each name. One listing of
+    100: a run with more fails here, and download-artifact takes over (no page loop: a loop that reaches the
+    API through with_retries' sleep reads as polling to tests/test_ci_no_github_token_polling.py)."""
+    data = api_json(f"/repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100", token)
+    listed = data.get("artifacts", [])
+    if int(data.get("total_count", len(listed))) > len(listed):
+        raise SystemExit(f"run {run_id} has {data.get('total_count')} artifacts, more than one listing reads")
     newest: dict[str, dict] = {}
-    page = 1
-    while True:
-        data = api_json(f"/repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100&page={page}", token)
-        batch = data.get("artifacts", [])
-        for artifact in batch:
-            name = artifact.get("name", "")
-            if artifact.get("expired") or not fnmatch.fnmatchcase(name, pattern):
-                continue
-            if name not in newest or artifact.get("created_at", "") > newest[name].get("created_at", ""):
-                newest[name] = artifact
-        if len(batch) < 100:
-            break
-        page += 1
+    for artifact in listed:
+        name = artifact.get("name", "")
+        if artifact.get("expired") or not fnmatch.fnmatchcase(name, pattern):
+            continue
+        if name not in newest or artifact.get("created_at", "") > newest[name].get("created_at", ""):
+            newest[name] = artifact
     if not newest:
         raise SystemExit(f"no artifact matching {pattern!r} in run {run_id}")
     return [newest[name] for name in sorted(newest)]
