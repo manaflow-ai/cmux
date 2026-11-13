@@ -245,7 +245,7 @@ fn router_exits_when_its_daemon_is_killed() {
     // SIGKILL: no shutdown path runs; only the owner FIFO can stop the router.
     daemon.kill().unwrap();
     daemon.wait().unwrap();
-    held.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    cmux_unix_socket::read_timeout_or_ended(&held, Duration::from_secs(10)).unwrap();
     let mut rest = Vec::new();
     held.read_to_end(&mut rest).expect("the router closed its admin connection in time");
     // EOF: the router process closed its sockets. Its new parent reaps it.

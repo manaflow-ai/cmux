@@ -70,7 +70,7 @@ const READ_HANG_GUARD: Duration = Duration::from_secs(60);
 
 fn connect(entry: &Entry) -> (UnixStream, BufReader<UnixStream>) {
     let stream = UnixStream::connect(entry.server.path()).unwrap();
-    stream.set_read_timeout(Some(READ_HANG_GUARD)).unwrap();
+    cmux_unix_socket::read_timeout_or_ended(&stream, READ_HANG_GUARD).unwrap();
     let reader = BufReader::new(stream.try_clone().unwrap());
     (stream, reader)
 }

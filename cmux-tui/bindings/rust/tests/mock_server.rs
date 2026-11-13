@@ -97,6 +97,26 @@ fn failure(stream: &mut UnixStream, request: &Value, code: &str, message: &str, 
     .unwrap();
 }
 
+/// A read timeout for a mock server's connection whose client can have
+/// closed first. macOS refuses SO_RCVTIMEO on a socket whose peer closed
+/// (`EINVAL`); such a socket gives what is left and then the end, with no
+/// wait. A look that does not block tells that case from a refusal on a
+/// connection that is open, which is a fault of the test. Call it only where
+/// one thread uses the connection: the look sets the nonblocking flag of the
+/// socket for its time. (This crate does not depend on cmux-unix-socket,
+/// whose `read_timeout_or_ended` the workspace's other tests use.)
+fn read_timeout_or_ended(reader: &mut BufReader<UnixStream>, timeout: Duration) {
+    let Err(refused) = reader.get_ref().set_read_timeout(Some(timeout)) else {
+        return;
+    };
+    reader.get_ref().set_nonblocking(true).unwrap();
+    let look = reader.fill_buf().map(<[u8]>::len);
+    reader.get_ref().set_nonblocking(false).unwrap();
+    if let Err(error) = look {
+        panic!("a read timeout was refused ({refused}) and the connection has not ended: {error}");
+    }
+}
+
 fn assert_connection_closed_without_request(reader: &mut BufReader<UnixStream>, context: &str) {
     if reader.get_ref().set_read_timeout(Some(Duration::from_millis(500))).is_err() {
         // macOS can reject SO_RCVTIMEO after the peer has already shut down
@@ -794,7 +814,7 @@ fn indeterminate_mutations_preserve_recovery_details_and_are_never_retried() {
         )
         .unwrap();
 
-        stream.set_read_timeout(Some(Duration::from_millis(200))).unwrap();
+        read_timeout_or_ended(&mut reader, Duration::from_millis(200));
         let mut possible_retry = String::new();
         match reader.read_line(&mut possible_retry) {
             Ok(0) => {}
@@ -1852,7 +1872,7 @@ fn cancel_discards_unread_items_and_waits_for_response_and_end() {
         .unwrap();
         success(&mut stream, &cancel, json!({}));
 
-        stream.set_read_timeout(Some(Duration::from_millis(200))).unwrap();
+        read_timeout_or_ended(&mut reader, Duration::from_millis(200));
         let mut possible_second_cancel = String::new();
         match reader.read_line(&mut possible_second_cancel) {
             Ok(0) => {}

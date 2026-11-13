@@ -8,6 +8,10 @@
 //! Tests must not put sockets under `$TMPDIR`: on macOS it is a
 //! `/var/folders/...` path of about 50 bytes. [`short_test_dir`] (feature
 //! `test-support`) gives a short directory under the canonical `/tmp`.
+//!
+//! Tests must not unwrap `set_read_timeout` on a socket whose peer can have
+//! closed first: macOS refuses the call there. [`read_timeout_or_ended`]
+//! (feature `test-support`) takes that refusal as the end of the socket.
 
 // The crash ratchet keeps this crate at zero production panics
 // (plans/cmux-next/crash-elimination.md section 6).
