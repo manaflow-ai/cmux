@@ -557,6 +557,7 @@ impl Role for UpdaterRole {
 pub(super) fn start_hold(paths: &Paths, now_ms: u64, offset_ns: i128) -> bool {
     if Gate::new(paths).take_own_flip(now_ms, offset_ns) {
         log("the restart after this machine's own update: no start hold");
+        let _ = std::fs::remove_file(paths.at(super::gate::GATE_FILE));
         return true;
     }
     super::gate::hold_connects(paths, now_ms, HoldKind::Resume);
