@@ -58,6 +58,21 @@ struct PageSharedAssetsTests {
         #expect(FirstPartyPages.shippedIDs.contains("cmux.github"))
     }
 
+    @Test func everyPageMountsOnlyTheSharedReactRuntime() throws {
+        let pages = URL(fileURLWithPath: "/fixture/pages", isDirectory: true)
+        let root = pages.appendingPathComponent("settings", isDirectory: true)
+        let runtime = URL(fileURLWithPath: "/fixture/webviews-app/__runtime", isDirectory: true)
+        let url = try #require(URL(string: "cmux-page://cmux.settings/__runtime/react.js"))
+        #expect(PageSchemeHandler.route(for: url, page: .settings, root: root, runtimeRoot: runtime)
+            == .file(runtime.appendingPathComponent("react.js")))
+        for address in ["cmux-page://cmux.settings/__runtime/nested/react.js",
+                        "cmux-page://cmux.settings/__runtime/../private.js",
+                        "cmux-page://cmux.settings/__runtime/private.json"] {
+            let url = try #require(URL(string: address))
+            #expect(PageSchemeHandler.route(for: url, page: .settings, root: root, runtimeRoot: runtime) == nil)
+        }
+    }
+
     @Test @MainActor func readsSharedCodeAndRefusesSymlinkEscapes() async throws {
         let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)

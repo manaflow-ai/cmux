@@ -24,17 +24,17 @@ WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 cd "$ROOT/webviews"
 [ -d node_modules ] || bun install --frozen-lockfile >/dev/null
 # esbuild writes the CSS the page imports (the shared desktop layer, then styles.css) to app.css.
-metafile_args=""
+if [ -n "$REPORT_DIR" ]; then mkdir -p "$REPORT_DIR"; fi
 if [ -n "$REPORT_DIR" ]; then
-  mkdir -p "$REPORT_DIR"
-  metafile_args="--metafile=$REPORT_DIR/agent-activity.json"
+  bun scripts/agent-activity/bundle.mjs src/agent-activity/main.tsx "$WORK/app.js" "$REPORT_DIR/agent-activity.json"
+else
+  bun scripts/agent-activity/bundle.mjs src/agent-activity/main.tsx "$WORK/app.js"
 fi
-bun x esbuild src/agent-activity/main.tsx --bundle --format=esm --platform=browser --target=es2022 --minify --outfile="$WORK/app.js" $metafile_args
 [ -s "$WORK/app.css" ] || { echo "error: the Activity bundle has no CSS" >&2; exit 1; }
 cp "$WORK/app.css" "$WORK/styles.css"
 # FOCUS-RING: the focus-ring gate on esbuild's CSS, as the Vite build does (postcss.config.mjs).
 bun scripts/postcss/gate-css.mjs "$WORK/styles.css"
-CSP="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src ws://127.0.0.1:* ws://localhost:*"
+CSP="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src ws://127.0.0.1:* ws://localhost:*"
 {
   printf '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8" />\n<meta http-equiv="Content-Security-Policy" content="%s" />\n<meta name="viewport" content="width=device-width, initial-scale=1" />\n<title>Agent Activity</title>\n<style>\n' "$CSP"
   cat "$WORK/styles.css"

@@ -10,6 +10,7 @@ import { artifactRuntimePlugin } from "../agent-pane/artifactRuntimePlugin.mjs";
 import { tailwindPlugin } from "../agent-pane/tailwindCompile.mjs";
 import { createJsonParsePlugin } from "../agent-pane/jsonParsePlugin.mjs";
 import { katexStylePlugin } from "../agent-pane/katexStylePlugin.mjs";
+import { sharedReactExternalPlugin } from "../shared-react-runtime.mjs";
 
 const [outdir, ...pages] = process.argv.slice(2);
 if (!outdir || !pages.length) throw new Error("usage: bundle.mjs OUTDIR PAGE...");
@@ -35,6 +36,7 @@ const result = await build({
   logLevel: "warning",
   metafile: true,
   plugins: [
+    sharedReactExternalPlugin(),
     reactCompilerPlugin({
       mode,
       srcRoot,
@@ -66,7 +68,13 @@ for (const page of pages) {
     loader: { ".png": "dataurl", ".woff2": "dataurl" },
     alias: { shiki: path.join(srcRoot, page === "github" ? "pages/github/shiki" : "agent-session/acpmux/shiki") },
     logLevel: "warning",
-    plugins: [artifactRuntimePlugin(), tailwindPlugin, jsonParseSettingsPagePlugin, katexStylePlugin({ split: false })],
+    plugins: [
+      sharedReactExternalPlugin(),
+      artifactRuntimePlugin(),
+      tailwindPlugin,
+      jsonParseSettingsPagePlugin,
+      katexStylePlugin({ split: false }),
+    ],
   });
   const css = styles.outputFiles.find((file) => file.path.endsWith(".css"));
   await writeFile(path.join(outdir, page, "app.css"), css?.contents ?? "");

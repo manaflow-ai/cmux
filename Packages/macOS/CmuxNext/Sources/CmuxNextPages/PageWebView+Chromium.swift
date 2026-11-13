@@ -438,6 +438,12 @@ extension PageWebView {
     /// server, then the overlay, then a web update, then the bundle, with the policy that source
     /// needs (a dev server's lets the page's HMR socket connect).
     func chromiumResource(_ url: URL, range: String? = nil) async -> PageChromiumResponse {
+        // The shim routes the app-level React runtime as a generated resource so every page origin
+        // can use the same physical file. It follows the active web update like other page files.
+        if url.path.split(separator: "/", omittingEmptySubsequences: true).first == "__runtime" {
+            return await PageSchemeHandler.liveChromiumResponse(to: url, range: range, page: descriptor,
+                                                                root: Self.servedRoot(for: descriptor), dynamicSource: nil)
+        }
         guard let request = PageSchemeHandler.dynamicRequest(for: url, page: descriptor) else {
             return await PageSchemeHandler.liveChromiumResponse(to: url, range: range, page: descriptor,
                                                                 root: Self.servedRoot(for: descriptor), dynamicSource: dynamicResources)

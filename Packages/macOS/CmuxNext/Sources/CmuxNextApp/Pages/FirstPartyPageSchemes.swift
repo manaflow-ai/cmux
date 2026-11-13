@@ -98,8 +98,7 @@ enum FirstPartyPageSchemes {
         var out: [String: CEFPageSchemes.Entry] = [:]
         for (id, root) in accepted(roots: roots, bundleResources: bundleResources) {
             guard let page = descriptors.first(where: { $0.id == id }) else { continue }
-            out[id] = CEFPageSchemes.Entry(root: root, csp: page.csp.header, dynamicPrefixes: page.dynamicPrefixes.union(["__shared"]).sorted(),
-                                           entry: page.entry)
+            out[id] = CEFPageSchemes.Entry(root: root, csp: page.csp.header, dynamicPrefixes: page.dynamicPrefixes.union(["__shared", "__runtime"]).sorted(), entry: page.entry)
         }
         return out
     }

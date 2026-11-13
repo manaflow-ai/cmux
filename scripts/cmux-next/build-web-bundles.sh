@@ -189,6 +189,9 @@ else
   "$ROOT/scripts/cmux-next/build-agent-activity-web.sh" --out "$(out "$ACTIVITY")"
   "$ROOT/scripts/build-webviews-app.sh" --skip-checks --out "$(out "$APP")"
 fi
+# Every web origin mounts these import-compatible React facades from the same app resource tree.
+# Build this after Vite, whose emptyOutDir would otherwise remove the runtime directory.
+(cd "$ROOT/webviews" && bun scripts/shared-react-runtime.mjs "$(out "$APP")/__runtime")
 # In-tree, the committed page was checked above.
 if [ -n "$OUT_ROOT" ]; then
   if [ -n "$REPORT_DIR" ]; then
