@@ -153,7 +153,13 @@ export function EvidenceViewer({
             <dd>{proves.length ? proves.map((p) => axesLabel(p.axes)).join(", ") : "nothing linked"}</dd>
           </dl>
           <div className="ab-dialog-actions">
-            <DialogButton dialogKey="escape" onClick={onClose}>
+            <DialogButton
+              dialogKey="escape"
+              className="ui-button ui-btn"
+              data-size="md"
+              data-variant="subtle"
+              onClick={onClose}
+            >
               Close
             </DialogButton>
           </div>

@@ -19,7 +19,7 @@ export default componentEntry<AgentBoardProps>({
     "prototypes/agent-board/parts.tsx",
   ],
   load: () => import("./AgentBoard").then((module) => module.AgentBoard),
-  styles: () => import("./agent-board.css"),
+  styles: () => Promise.all([import("../../ui/ui.css"), import("../../ui/controls.css"), import("./agent-board.css")]),
   height: 860,
   widths: { narrow: 390, normal: 1180, wide: 1500 },
   variants: {

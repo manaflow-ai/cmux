@@ -277,7 +277,13 @@ export function AgentBoard({
             <li>It records each capability, decision and state, with evidence.</li>
             <li>Review it here; filter to what needs you.</li>
           </ol>
-          <button type="button" className="ab-secondary" onClick={() => setMode("off")}>
+          <button
+            type="button"
+            className="ui-button ui-btn"
+            data-variant="subtle"
+            data-size="md"
+            onClick={() => setMode("off")}
+          >
             Turn Off
           </button>
         </section>

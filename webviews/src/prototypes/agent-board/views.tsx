@@ -111,11 +111,13 @@ export function LedgerView({ board, needsYou, onOpen }: ViewProps) {
                             <StatusMark status={p.status} /> {STATUS_LABEL[p.status]}
                           </td>
                           <td>
-                            {evidenceOf(board, p).map((e) => (
-                              <EvidenceChip key={e.id} board={board} evidence={e} onOpen={onOpen} />
-                            ))}
-                            {p.note && <span className="ab-note">{p.note}</span>}
-                            {!p.note && !p.evidence?.length && <span className="ab-muted">None yet</span>}
+                            <div className="ab-evidence-cell">
+                              {evidenceOf(board, p).map((e) => (
+                                <EvidenceChip key={e.id} board={board} evidence={e} onOpen={onOpen} />
+                              ))}
+                              {p.note && <span className="ab-note">{p.note}</span>}
+                              {!p.note && !p.evidence?.length && <span className="ab-muted">None yet</span>}
+                            </div>
                           </td>
                         </tr>
                       ))}

@@ -58,6 +58,15 @@ const invites = jsonl([
   },
   {
     kind: "evidence",
+    id: "ev-card-empty",
+    type: "screenshot",
+    path: "/tmp/agent-board-demo/invite-card-empty.png",
+    caption: "No link yet: Create link button only",
+    sha: OLD,
+    for: ["perm-card-empty"],
+  },
+  {
+    kind: "evidence",
     id: "ev-card-light",
     type: "screenshot",
     path: "/tmp/agent-board-demo/invite-card-light.png",
@@ -73,15 +82,6 @@ const invites = jsonl([
     caption: "Same card in dark mode",
     sha: SHA,
     for: ["perm-card-mac-dark"],
-  },
-  {
-    kind: "evidence",
-    id: "ev-card-empty",
-    type: "screenshot",
-    path: "/tmp/agent-board-demo/invite-card-empty.png",
-    caption: "No link yet: Create link button only",
-    sha: OLD,
-    for: ["perm-card-empty"],
   },
   {
     kind: "evidence",

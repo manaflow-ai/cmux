@@ -9,7 +9,7 @@ export const SKILL_BODY_TOKENS = 1200;
 
 export function Onboarding({ confirming, onConfirm }: { confirming?: boolean; onConfirm(): void }) {
   const [open, setOpen] = useState(Boolean(confirming));
-  const turnOn = useRef<HTMLButtonElement>(null);
+  const confirm = useRef<HTMLButtonElement>(null);
   return (
     <section className="ab-onboard" aria-labelledby="ab-onboard-title">
       <div className="ab-onboard-copy">
@@ -53,7 +53,13 @@ export function Onboarding({ confirming, onConfirm }: { confirming?: boolean; on
           </p>
         </div>
         <div className="ab-onboard-actions">
-          <button ref={turnOn} type="button" className="ab-primary" onClick={() => setOpen(true)}>
+          <button
+            type="button"
+            className="ui-button ui-btn ab-cta"
+            data-variant="solid"
+            data-size="md"
+            onClick={() => setOpen(true)}
+          >
             Turn on Agent Board
           </button>
           <span className="ab-hint">
@@ -62,7 +68,13 @@ export function Onboarding({ confirming, onConfirm }: { confirming?: boolean; on
         </div>
       </div>
       <BoardPreview />
-      <Dialog open={open} onOpenChange={setOpen} className="ab-dialog" label="Turn on Agent Board">
+      <Dialog
+        open={open}
+        onOpenChange={setOpen}
+        className="ab-dialog"
+        label="Turn on Agent Board"
+        initialFocus={confirm}
+      >
         <form
           onSubmit={(event) => {
             event.preventDefault();
@@ -76,10 +88,23 @@ export function Onboarding({ confirming, onConfirm }: { confirming?: boolean; on
             evidence. Sessions already running stay as they are. To turn it off, set agents.board.enabled to false.
           </DialogDescription>
           <div className="ab-dialog-actions">
-            <DialogButton dialogKey="escape" onClick={() => setOpen(false)}>
+            <DialogButton
+              dialogKey="escape"
+              className="ui-button ui-btn"
+              data-size="md"
+              data-variant="subtle"
+              onClick={() => setOpen(false)}
+            >
               Cancel
             </DialogButton>
-            <DialogButton dialogKey="return" type="submit" className="ab-dialog-default">
+            <DialogButton
+              ref={confirm}
+              dialogKey="return"
+              type="submit"
+              className="ui-button ui-btn"
+              data-size="md"
+              data-variant="solid"
+            >
               Turn On
             </DialogButton>
           </div>
