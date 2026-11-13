@@ -552,7 +552,7 @@ async fn source_window_is_exact_when_a_summary_changes_after_first_offer() {
     .unwrap();
     let delta: DeltaFrame<Summary> =
         Frame::from_encoded(&next.bytes).unwrap().decode_json().unwrap();
-    assert!(matches!(delta.ops.as_slice(), [crate::wire::DeltaOp::Summary { seq: 2, .. }]));
+    assert!(matches!(delta.ops.as_slice(), [DeltaOp::Summary { seq: 2, .. }]));
     source.end("s");
     source.close().await;
 }
