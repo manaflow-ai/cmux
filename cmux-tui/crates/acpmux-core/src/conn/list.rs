@@ -140,7 +140,7 @@ struct Delivery {
 
 fn open(hub: &Hub, sub: &Sub) -> Result<Delivery, ConnError> {
     let subscription = hub.subscribe(sub)?;
-    if sub.edition.is_none_or(|edition| edition == 0)
+    if sub.edition.is_none_or(|edition| edition == 0 || edition == hub.snapshot().edition())
         && let Some(cursor) = sub.cursor
         && let Some(target) = hub.resume_target(cursor.0)?
     {
@@ -186,7 +186,7 @@ fn event_frame(sid: &str, item: ListItem, mode: Mode) -> Result<(Frame, Cursor, 
         ListItem::Summary(event) => {
             (event.seq, DeltaOp::Summary { seq: event.seq, summary: (*event.summary).clone() })
         }
-        ListItem::Gone { seq, chat_id } => (seq, DeltaOp::Gone { seq, chat_id }),
+        ListItem::Gone { seq, origin, chat_id } => (seq, DeltaOp::Gone { seq, origin, chat_id }),
         ListItem::Lagged { .. } => {
             return Err(ConnError::InvalidRequest("list cursor expired".into()));
         }
