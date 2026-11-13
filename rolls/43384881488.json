@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43384881488",
+  "recorded_at": "2026-11-13T07:28:11Z",
+  "reason": "cmux-tui 0461b61f2489 changes the image's cmux-tui (pinned d33b7e7101f7)",
+  "dry_run": false,
+  "cmux_tui": "0461b61f2489798c32e768b71540a9b08a99817d",
+  "fixes": [
+    {
+      "sha": "0461b61f2489798c32e768b71540a9b08a99817d",
+      "mergedAt": "2026-11-13T00:52:57-06:00",
+      "subject": "fix(cmux-tui): a status exit during a session shutdown is a host loss; its tab stays"
+    },
+    {
+      "sha": "83a33d7e53c96fdde1d871e1123d724884fef74b",
+      "mergedAt": "2026-11-13T00:52:56-06:00",
+      "subject": "test(cmux-tui): red: a shell that ends with a status during a restart closes its tab"
+    },
+    {
+      "sha": "dc3a709536c6d01de2ce9e5cece321aacc19049d",
+      "mergedAt": "2026-11-13T00:45:46-06:00",
+      "subject": "cmux-tui-core: five lock looks and holds unlock before they close"
+    },
+    {
+      "sha": "093a3cac0c5e89caa7e0641e0b02a224be89d3d8",
+      "mergedAt": "2026-11-13T00:45:46-06:00",
+      "subject": "cmux-tui-core tests: five lock looks and holds leave no lock while a forked child keeps their descriptors (red)"
+    },
+    {
+      "sha": "faadefc3554a39c413382009caab80440dceaaae",
+      "mergedAt": "2026-11-12T22:45:14-08:00",
+      "subject": "acpmux: every reader's outbound queue is bounded in bytes; a refused event is not broadcast (rework stage 3) (#41873)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T07:28:11Z",
+    "snapshot_id": "sh-c3468d11d27048f28046a3517f201583",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43384881488): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "233d0be35ad5732d7a4d1636bf76f9f17cebbd11",
+    "image": "cloud-native-auto-0461b61f-43384881488-1",
+    "revision": "ci-43384881488-1",
+    "at": "2026-11-13T07:28:11Z"
+  },
+  "rolled_back": false
+}
