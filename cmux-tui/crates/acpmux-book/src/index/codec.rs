@@ -16,6 +16,7 @@ struct TextRef<'a> {
     unread: u32,
     workspace: &'a Option<String>,
     pinned: bool,
+    peer_form: &'a Option<Box<RawValue>>,
     extra: &'a RawValue,
 }
 
@@ -29,6 +30,7 @@ struct Text {
     unread: u32,
     workspace: Option<String>,
     pinned: bool,
+    peer_form: Option<Box<RawValue>>,
     extra: Box<RawValue>,
 }
 
@@ -41,6 +43,7 @@ fn text(summary: &Summary) -> TextRef<'_> {
         unread: summary.unread,
         workspace: &summary.workspace,
         pinned: summary.pinned,
+        peer_form: &summary.peer_form,
         extra: &summary.extra,
     }
 }
@@ -212,6 +215,7 @@ pub(super) fn decode(mut input: &[u8]) -> io::Result<LogRecord> {
         summary.unread = text.unread;
         summary.workspace = text.workspace;
         summary.pinned = text.pinned;
+        summary.peer_form = text.peer_form;
         summary.extra = text.extra;
         summary.validate()?;
     } else if !input.is_empty() {
@@ -296,4 +300,27 @@ pub(super) fn encode_origin(seq: u64, record: &OriginRecord) -> io::Result<Vec<u
 
 pub(super) fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pre_peer_form_records_still_decode() {
+        // Fields of 5b's length-prefixed record, followed by its text object.
+        let mut bytes = 7u64.to_le_bytes().to_vec();
+        bytes.push(0);
+        key(&mut bytes, &RowKey::new("local", "old")).unwrap();
+        bytes.push(0);
+        bytes.extend_from_slice(br#"{"title":"old","harness":"claude","state":"closed","lastActivity":42,"unread":0,"workspace":null,"pinned":false,"extra":{"name":"old"}}"#);
+        let row = match decode(&bytes).unwrap() {
+            LogRecord::Row(row) => row,
+            LogRecord::Origin(_) => panic!("expected a row record"),
+        };
+        assert_eq!(row.seq, 7);
+        assert_eq!(row.summary.chat_id, "old");
+        assert!(row.summary.peer_form.is_none());
+        assert_eq!(row.summary.extra.get(), r#"{"name":"old"}"#);
+    }
 }
