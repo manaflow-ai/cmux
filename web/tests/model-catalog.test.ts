@@ -101,6 +101,25 @@ describe("projectCatalog", () => {
     expect(catalog.providers.anthropic).toEqual({ name: "Anthropic" });
   });
 
+  test("new release families keep their names and order after catalog regeneration", () => {
+    const models = [
+      { id: "gemini-3.1-pro-preview", name: "Gemini 3.1 Pro Preview", family: "gemini-pro", release_date: "2026-02-19" },
+      { id: "gemini-4-hydrogen", name: "Gemini 4 Hydrogen", family: "gemini-hydrogen", release_date: "2026-11-12" },
+      { id: "gemini-4-carbon", name: "Gemini 4 Carbon", family: "gemini-carbon", release_date: "2026-11-10" },
+    ];
+    const projected = projectCatalog({
+      ...feed,
+      google: { id: "google", name: "Google", models: Object.fromEntries(models.map((model) => [model.id, model])) },
+    }, NOW);
+    const menu = harness(projected, "gemini");
+    expect(menu.models.map(({ id, shortName, family }) => ({ id, shortName, family }))).toEqual([
+      { id: "gemini-4-carbon", shortName: "4 Carbon", family: "Carbon" },
+      { id: "gemini-4-hydrogen", shortName: "4 Hydrogen", family: "Hydrogen" },
+      { id: "gemini-3.1-pro-preview", shortName: "3.1 Pro Preview", family: "Pro" },
+    ]);
+    expect(menu.defaultModel).toBe("gemini-3.1-pro-preview");
+  });
+
   test("the AI Gateway lists gateway ids grouped by provider, only for included providers", () => {
     const gateway = harness(catalog, "vercel-ai-gateway");
     expect(gateway.models.map((model) => [model.id, model.ref, model.family, model.provider])).toEqual([
