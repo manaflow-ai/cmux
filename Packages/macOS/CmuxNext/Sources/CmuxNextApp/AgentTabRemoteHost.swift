@@ -38,9 +38,9 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     /// The machine's daemon relays a chat's own sign-in (`agent-session-login-v1`) and opens its side
     /// chats there (`agent-session-side-v1`): a new chat's page offers Sign in and New side chat.
     var servesLogin = false, servesSide = false
-    /// A Cloud machine's link owner answer (``CloudMachineLinks/ownerLink``), read at each trust call
-    /// and never kept. Nil for a machine that is not a Cloud machine.
-    var ownerLink: AgentSessionAttachClient.OwnerLink?
+    /// A Cloud machine's link owner answer (``CloudMachineLinks/ownerLink``), read at each trust call, never kept; nil off
+    /// Cloud. `credentialCheck`: run as each page connection opens, on the tab's surface (``RemoteAcpmuxWire/Attached``).
+    var ownerLink: AgentSessionAttachClient.OwnerLink?, credentialCheck: (@Sendable (_ surface: UInt64) async -> Void)?
     /// Brings the machine's daemon to this app's build now and answers whether an update turn ran
     /// (``DaemonUpdatePolicy/updateNow(_:)``); nil where the app cannot. A start that the machine's
     /// older daemon refused (``AgentRemoteStartRefusal/olderDaemonCodes``, which says which) runs it, then tries once
@@ -91,11 +91,11 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
             return try answer.get()
         }
         if let session {
-            route = AgentPaneRemoteRoute(machine: machine, hostID: hostID, approvals: approvals) { [surface, session, endpoint, reconnect, personName, machineSignIn = cloudMachineID == nil] in
+            route = AgentPaneRemoteRoute(machine: machine, hostID: hostID, approvals: approvals) { [surface, session, endpoint, reconnect, personName, machineSignIn = cloudMachineID == nil, credentialCheck] in
                 let client = AgentSessionAttachClient(surface: surface, mode: mode, reconnect: reconnect, personName: personName, endpoint: endpoint)
                 let cloudRepository = AgentSessionAttachClient.forwardingCloudRepository(surface: surface, reconnect: reconnect, endpoint: endpoint)
                 return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client, mode: mode), session: session, host: hostID, linksAlias: linksHost, trust: mode == .attach && servesTrust ? ask : nil, ownerCloud: mode == .attach ? ownerCloud : nil, cloudRepository: cloudRepository,
-                                        machineSignIn: machineSignIn)
+                                        machineSignIn: machineSignIn, attached: credentialCheck.map { check in { await check(surface) } })
             }
         } else if let start, mode == .attach {
             // A new chat: nothing runs on that machine until the page's first send (cx-k21v). The

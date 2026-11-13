@@ -181,9 +181,10 @@ struct CloudAgentCredentialRefresherTests {
             return Data(#"{"family":"claude","kind":"claude-token","env":{"CLAUDE_CODE_OAUTH_TOKEN":"sk-ant-oat01-abc"},"expires_at":null}"#.utf8)
         }
         let refusal = CloudAgentCredentials.Failure.unavailable(connection: "refused")
-        #expect(try await credentials.launchCredential(connection: nil, family: "claude", refusal: refusal) == nil, "no choice: the machine's own route")
+        let mismatch = CloudAgentCredentials.Failure.unavailable(connection: "mismatch")
+        #expect(try await credentials.launchCredential(connection: nil, family: "claude", refusal: refusal, mismatch: mismatch) == nil, "no choice: the machine's own route")
         #expect(asked.isEmpty)
-        let launch = try #require(try await credentials.launchCredential(connection: "route-claude", family: "claude", refusal: refusal))
+        let launch = try #require(try await credentials.launchCredential(connection: "route-claude", family: "claude", refusal: refusal, mismatch: mismatch))
         #expect(asked == ["route-claude"])
         #expect(launch.env == ["CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-abc"] && launch.family == "claude" && !launch.refreshes)
         #expect(launch.launch.connection == "route-claude" && launch.launch.expiresAt == nil)
@@ -193,25 +194,27 @@ struct CloudAgentCredentialRefresherTests {
         dump(launch, to: &dumped)
         dump(launch.launch, to: &dumped)
         #expect(!dumped.contains("sk-ant"), "the mirror names the variable only")
-        #expect(try await credentials.launchCredential(connection: "route-claude", family: "codex", refusal: refusal) == nil,
-                "switched to another agent after the choice: not this credential")
+        await #expect(throws: mismatch, "switched to another agent after the choice: refused, never the machine's own route") {
+            try await credentials.launchCredential(connection: "route-claude", family: "codex", refusal: refusal, mismatch: mismatch)
+        }
     }
 
     @Test func aChosenConnectionThatCannotBeReadRefusesTheStart() async {
         let credentials = CloudAgentCredentials { _ in Data(#"{"error":"nope"}"#.utf8) }
         let refusal = CloudAgentCredentials.Failure.unavailable(connection: "refused")
         await #expect(throws: refusal) {
-            try await credentials.launchCredential(connection: "gone", family: "codex", refusal: refusal)
+            try await credentials.launchCredential(connection: "gone", family: "codex", refusal: refusal, mismatch: refusal)
         }
         let noAcpmux = CloudAgentCredentials()
         await #expect(throws: refusal) {
-            try await noAcpmux.launchCredential(connection: "gone", family: nil, refusal: refusal)
+            try await noAcpmux.launchCredential(connection: "gone", family: nil, refusal: refusal, mismatch: refusal)
         }
     }
 
     @Test func aChatGPTStartIsKeptFreshAndItsMachineGoingStopsIt() async throws {
         let credentials = CloudAgentCredentials { _ in Self.codexReply() }
-        let launch = try #require(try await credentials.launchCredential(connection: "chatgpt-1", family: "codex", refusal: CloudAgentCredentials.Failure.unavailable(connection: "x")))
+        let launch = try #require(try await credentials.launchCredential(connection: "chatgpt-1", family: "codex", refusal: CloudAgentCredentials.Failure.unavailable(connection: "x"),
+                                                                             mismatch: CloudAgentCredentials.Failure.unavailable(connection: "y")))
         let id = try #require(credentials.started(chat: "tab-1", machine: "m1", on: launch) { _ in .delivered })
         #expect(credentials.refresher.isTracked(id) && credentials.trackedChats == 1)
         credentials.machineRemoved("m2")
@@ -246,6 +249,43 @@ struct CloudAgentCredentialRefresherTests {
         #expect(machine.pushes == [["CMUX_CHATGPT_ACCESS_TOKEN": "eyJ.fresh.sig"]])
         #expect(machine.credentials.first?.connection == "chatgpt-1")
         #expect(credentials.trackedChats == 1)
+    }
+
+    @Test func aClaudeTokenTheMachineLostIsSentAgainOnEachConnectionThatFindsItLost() async throws {
+        var reads = 0
+        let credentials = CloudAgentCredentials { _ in
+            reads += 1
+            return Data(#"{"family":"claude","kind":"claude-token","env":{"CLAUDE_CODE_OAUTH_TOKEN":"sk-ant-oat01-abc"},"expires_at":null}"#.utf8)
+        }
+        let machine = Machine()
+        let lost = AgentSessionAttachClient.CredentialStatus(connection: "claude-token", expiresAt: nil, chatgpt: false, lost: true)
+        let held = AgentSessionAttachClient.CredentialStatus(connection: "claude-token", expiresAt: nil, chatgpt: false, lost: false)
+        credentials.reattach(chat: "tab-1", machine: "m1", status: { lost }, push: machine.push)
+        await credentials.reattachesSettled()
+        #expect(machine.pushes == [["CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-abc"]], "a token that never expires is sent again too")
+        #expect(credentials.trackedChats == 0, "nothing to keep fresh")
+        // The next connection finds it held: nothing read, nothing sent.
+        credentials.reattach(chat: "tab-1", machine: "m1", status: { held }, push: machine.push)
+        await credentials.reattachesSettled()
+        #expect(reads == 1 && machine.pushes.count == 1)
+        // The machine's acpmux restarted again while this Mac stayed connected: the page's new
+        // connection finds it lost and it is sent again.
+        credentials.reattach(chat: "tab-1", machine: "m1", status: { lost }, push: machine.push)
+        await credentials.reattachesSettled()
+        #expect(machine.pushes.count == 2)
+    }
+
+    @Test func aKeptChatGPTChatWhoseMachineLostItIsSentAgainAndKeptOnce() async throws {
+        let credentials = CloudAgentCredentials { _ in Self.codexReply() }
+        let machine = Machine()
+        let launch = try #require(try await credentials.launchCredential(connection: "chatgpt-1", family: "codex", refusal: CloudAgentCredentials.Failure.unavailable(connection: "x"),
+                                                                         mismatch: CloudAgentCredentials.Failure.unavailable(connection: "y")))
+        credentials.started(chat: "tab-1", machine: "m1", on: launch, push: machine.push)
+        let lost = AgentSessionAttachClient.CredentialStatus(connection: "chatgpt-1", expiresAt: launch.expiresAt, chatgpt: true, lost: true)
+        credentials.reattach(chat: "tab-1", machine: "m1", status: { lost }, push: machine.push)
+        await credentials.reattachesSettled()
+        #expect(machine.pushes.count == 1, "kept fresh already, but the machine lost it: sent at once")
+        #expect(credentials.trackedChats == 1, "one refresh for the chat, not two")
     }
 
     @Test func aChatOnTheMachinesOwnRouteOrAnUnreadableStatusIsLeftAsItIs() async throws {

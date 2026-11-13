@@ -53,6 +53,10 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// (`agent-session-start-owner-cloud-v1`). Read at each `initialize`; the page then lets a
     /// Codex or opencode chat send (`ownerCloud`, remoteEditing.ts).
     public typealias OwnerCloud = @Sendable () async -> Bool
+    /// Runs once each time a chat's page connects through this wire (``open(onFrame:onClose:)``), not
+    /// awaited: the App reads whether its machine still holds the owner's model credential and sends
+    /// it again when that machine's acpmux lost it (`CloudAgentCredentials.reattach`).
+    public typealias Attached = @Sendable () async -> Void
     /// A one-shot Cloud repository request on the tab's owning daemon connection.
     public typealias CloudRepository = @Sendable (String, [String: any Sendable], Duration?) async throws -> Data
     public typealias CloudRepositoryStart = @Sendable (UInt64, String, [String: any Sendable], Duration?) async throws -> Data
@@ -92,6 +96,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     private let start: Start?
     private let trust: Trust?
     private let ownerCloud: OwnerCloud?
+    private let attached: Attached?
     /// A new chat's machine relays its sign-in (`agent-session-login-v1`, the host's own daemon
     /// read): its `initialize` names `agent_login` before the first send made a session, so the
     /// first failed turn already offers Sign in. A wire with a session asks its client instead.
@@ -112,8 +117,9 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// The wire of the chat `session` (its store record), through `client`.
     public init(client: any AgentSessionRemoteClient, session: String, host: String? = nil, linksAlias: String? = nil,
                 trust: Trust? = nil, ownerCloud: OwnerCloud? = nil, cloudRepository: CloudRepository? = nil,
-                cloudRepositoryStart: CloudRepositoryStart? = nil, machineSignIn: Bool = true) {
+                cloudRepositoryStart: CloudRepositoryStart? = nil, machineSignIn: Bool = true, attached: Attached? = nil) {
         start = nil
+        self.attached = attached
         servesLogin = false
         self.machineSignIn = machineSignIn
         servesSide = false
@@ -132,6 +138,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
                 cloudRepositoryStart: CloudRepositoryStart? = nil, servesLogin: Bool = false, servesSide: Bool = false,
                 machineSignIn: Bool = true) {
         self.start = start
+        attached = nil
         self.servesLogin = servesLogin && machineSignIn
         self.machineSignIn = machineSignIn
         self.servesSide = servesSide
@@ -150,6 +157,8 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             state.onFrame = onFrame
             state.onClose = onClose
         }
+        // task-owner: one credential check per page connection; it ends with its status read and push
+        if let attached { Task { await attached() } }
     }
 
     public func send(_ text: String, completion: @escaping @Sendable (Bool) -> Void) {

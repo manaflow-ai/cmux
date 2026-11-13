@@ -210,9 +210,37 @@ Delivery (`_acpmux/connections/credential {id}` -> `{ "family", "kind", "env": {
   the Mac is away past expiry, the chat says it needs this Mac to reconnect ChatGPT.
 - With no Cloud-serving connection for the family, the chat shows the Set up Cloud card
   (Continue with ChatGPT / Set up Claude / Add an API key / Open Settings) and starts by itself
-  once one is added. Without a credential the machine falls back to today's coderouter path.
+  once one is added. Without a credential the machine falls back to today's coderouter path,
+  except Codex on the owner's own VM with its own sign-in there (`~/.codex/auth.json`, `CODEX_API_KEY`
+  or the Mac broker's access file): acpmux's own mode (`codex_cloud_auth.rs`) runs it on that login
+  (`-c model_provider="openai"`), as Leo asked on 2026-11-10. Before lane F the image's managed Codex
+  layer pinned the cmux provider above `-c`, so such a login was never used; it no longer is pinned.
 - Organization: team shared keys (`team.agent_key.*`, served by the platform edge) stay listed;
   the team gateway row is removed from the page.
+
+Lane A, Revision 2 as implemented: `claude_token.add` makes route `claude-token[-N]` (route kind
+`claude-token`, secret reference only; an inline value is `route.secret_inline`). `serves_cloud` is
+true for `chatgpt-plan`, `claude-token` and `api-key` with provider anthropic or openai, else false.
+`credential` errors carry `data.reason` `connections.not_cloud`, `connections.secret_unresolved`,
+`connections.no_secret` or `chatgpt.<code>`; a `claude-token` or `chatgpt-plan` route never runs a
+chat on this Mac and cannot be a `route/default.set` default.
+
+Revision 2 on the machine and the start (lane F): the launch carries `credentials: {env, connection?,
+expires_at?}` (`agent-session-start-credentials-v1`, owner link only); `agent-session-credentials`
+-> `agent/credentials.update` replaces it, and `agent-session-credential-status` ->
+`agent/credentials.list` says whether a chat runs on one (`{connection, expires_at, chatgpt, lost}`,
+never a value). The image's managed layers (`/etc/claude-code/managed-settings.json`,
+`/etc/codex/managed_config.toml`) carry no model route, since they outrank the agent's own env
+(Claude Code) and `-c` (Codex `ConfigLayerSource::precedence`); the coderouter provider is the
+system Codex config. An image that still pins one refuses a credentialed start
+(`credentials.managed_route`). Tool subprocesses never see the credential:
+`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` for Claude, `shell_environment_policy.exclude` for Codex. A chat
+whose credential the machine's acpmux lost (a restart keeps only its reference), or whose ChatGPT
+token expired, fails its turn with `credentials.reconnect` ("needs your Mac") instead of running on
+coderouter; the owner's app sends it again on each page connection. The app never starts a chat
+set up on a connection without it: a daemon that takes no credential is updated and tried once
+more (`agent_session.credentials_unsupported`), and an agent of another family than the
+connection's is refused (`app.credential_mismatch`).
 
 Revision 2 in the app (lane D): `ModelsState.organization` has no `gateway`; `ModelConnection`
 carries `servesCloud` (acpmux `serves_cloud`) and kind `claude-token`. `{action:"claudeSetupToken"}`

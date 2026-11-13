@@ -42,15 +42,22 @@ public nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHost
     /// that daemon cannot take (`host_unverified`, a daemon without the caller's `vm_kind` word), and
     /// the app's own `folder_needed` for a chat with no folder on a machine whose cmux-tui predates
     /// no-folder starts (`agent-session-start-no-cwd-v1`; a current one starts it in `~/chats/<id>`).
+    /// A start on the owner's model connection whose daemon takes no credential
+    /// (`credentials_unsupported`) is updated too: it never starts on the machine's own route instead.
     /// `AgentTabRemoteHost.updateMachine` runs only while the link's owner answer says the machine is the caller's,
     /// so a teammate's machine is never retried (the app refuses that start before it is sent), and an
     /// SSH host, which has no update, keeps the folder refusal.
-    public static let olderDaemonCodes: Set<String> = [AgentSessionAttachError.teamMachine, "agent_session.host_unverified", appFolderNeeded]
+    public static let olderDaemonCodes: Set<String> = [AgentSessionAttachError.teamMachine, "agent_session.host_unverified", appFolderNeeded,
+                                                       AgentSessionAttachClient.credentialsUnsupported]
     public static func startUnsupported(machine: String) -> Self { Self(code: AgentSessionAttachClient.startUnsupported, machine: machine) }
     /// The model connection the Cloud start chose could not be read from this Mac's acpmux (signed out,
     /// removed, or acpmux not running): the chat does not start on another route in its place.
     public static let credentialUnavailableCode = "app.credential_unavailable"
     public static func credentialUnavailable(machine: String) -> Self { Self(code: credentialUnavailableCode, machine: machine) }
+    /// The agent was switched after the Cloud start chose a connection of another family: the chat
+    /// does not start on the machine's own route in its place.
+    public static let credentialMismatchCode = "app.credential_mismatch"
+    public static func credentialMismatch(machine: String) -> Self { Self(code: credentialMismatchCode, machine: machine) }
 
     public var userMessage: String { errorDescription ?? code }
 
@@ -97,6 +104,12 @@ public nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHost
         case Self.hostMismatchCode:
             RefusalStrings.format("handlers.refusal.agentRemoteStart.belongsTo",
                                   "This chat belongs to %@, so it does not run on this Mac.", machine)
+        case AgentSessionAttachClient.credentialsUnsupported:
+            RefusalStrings.format("handlers.refusal.agentRemoteStart.credentialsUnsupported",
+                                  "cmux on %@ can't run this chat on your model connection yet. Update cmux on that machine.", machine)
+        case Self.credentialMismatchCode:
+            RefusalStrings.format("handlers.refusal.agentRemoteStart.credentialMismatch",
+                                  "The model connection this chat was set up with does not run this agent on %@. Start a new chat for this agent.", machine)
         case Self.credentialUnavailableCode:
             RefusalStrings.format("handlers.refusal.agentRemoteStart.credentialUnavailable",
                                   "This Mac could not read the model connection for the chat on %@. Check it in Settings > Models, then send again.", machine)

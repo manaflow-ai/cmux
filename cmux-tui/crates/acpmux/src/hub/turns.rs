@@ -174,12 +174,6 @@ impl Hub {
         // behind adoption's recovered turn below.
         self.session_log(session).await;
         self.wait_adopted(session).await;
-        // A chat on the owner's credential whose token expired, or that this daemon lost with no
-        // agent still running on it, waits for the owner's Mac (`agent_credentials::blocked`).
-        let live = session.child.lock().await.is_some();
-        if let Some(refused) = self.credential_blocked(session, live) {
-            return Err(refused);
-        }
         // A watched Claude chat whose app still runs it takes the prompt into that app (`bridge.rs`).
         if let Some(answer) = self.bridged_prompt(session, &blocks, client, &mut opts).await {
             return answer;
@@ -1011,7 +1005,14 @@ impl Hub {
         self.wake_cause(session, "prompt");
         // Boxed: two starts and the fallback check inline overflowed a debug build's 2 MiB
         // worker stack (`fatal runtime error: stack overflow` in every prompt after #27484).
-        let mut started = Box::pin(self.child_for_since(session, stops)).await;
+        // A chat on the owner's credential whose token expired, or that this daemon lost with no
+        // agent still running on it, waits for the owner's Mac (`agent_credentials::blocked`): its
+        // turn fails with that reason after the prompt was accepted, so the page shows it at once.
+        let live = session.child.lock().await.is_some();
+        let mut started = match self.credential_blocked(session, live) {
+            Some(refused) => Err(refused),
+            None => Box::pin(self.child_for_since(session, stops)).await,
+        };
         // A failover left the chat on a profile that cannot start: back to the profile it came
         // from, which starts this turn (`fallback_start.rs`).
         if let Err(e) = &started
