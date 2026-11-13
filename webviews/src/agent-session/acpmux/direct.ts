@@ -499,6 +499,9 @@ const WINDOW_PARALLEL_PAGES = 16;
 const INDEXED_PAGE_RADIUS = 240;
 const INDEXED_PAGE_LIMIT = 400;
 const INDEXED_PAGE_CACHE_LIMIT = 5;
+/// Gap pages (`fillIndexedGaps`) merged per redraw after the first: each redraw refolds from the gap
+/// to the tail, so drawing every page would cost pages × (gap + tail) folds on a long gap.
+const INDEXED_GAP_PAGES_PER_DRAW = 4;
 
 /// Prompt rows that stand in for the turns between a directly fetched target page and the held
 /// tail. Keeping these rows in sequence order prevents the minimap from shrinking while pages warm.
@@ -14295,7 +14298,7 @@ export class AcpmuxDirectClient {
     const pageEnd = Math.max(...page.map((event) => event.seq));
     if (Number.isFinite(tailStart) && pageEnd + 1 < tailStart) {
       this.indexedGaps.unshift({ after: pageEnd, before: tailStart });
-      this.indexedGapFill ??= this.fillIndexedGaps().finally(() => (this.indexedGapFill = undefined));
+      this.startIndexedGapFill();
     }
     return true;
   }
@@ -14306,11 +14309,31 @@ export class AcpmuxDirectClient {
     this.indexedGaps = [];
   }
 
+  /// Runs `fillIndexedGaps` unless one is running. A fill that ended stale (another chat or held history
+  /// while its read was out) starts again for the gaps queued since; a failed read is read again on
+  /// LAG_RETRY_MS, and past its last step the gaps wait for the next jump.
+  private startIndexedGapFill(attempt = 0): void {
+    if (this.indexedGapFill || this.closed) return;
+    this.indexedGapFill = this.fillIndexedGaps().then((ended) => {
+      this.indexedGapFill = undefined;
+      if (this.closed || this.indexedGaps.length === 0) return;
+      if (ended === "stale") this.startIndexedGapFill();
+      else if (ended === "failed") {
+        const delay = LAG_RETRY_MS[attempt];
+        const generation = this.selectionGeneration;
+        if (delay !== undefined)
+          setTimeout(() => {
+            if (generation === this.selectionGeneration) this.startIndexedGapFill(attempt + 1);
+          }, delay);
+      }
+    });
+  }
+
   /// Reads each indexed gap forward, one page of at most OLDER_PAGE_BYTES at a time (a relayed
   /// daemon's socket never carries more than one), merging every page as it lands so the turns just
   /// below the reader's jump target draw first. A new jump's gap goes first; another chat, visit or
   /// held history (`clearIndexedHistory`) ends the fill.
-  private async fillIndexedGaps(): Promise<void> {
+  private async fillIndexedGaps(): Promise<"done" | "stale" | "failed"> {
     const sessionId = this.selectedSessionId;
     const generation = this.selectionGeneration;
     const epoch = this.historyEpoch;
@@ -14320,9 +14343,28 @@ export class AcpmuxDirectClient {
       this.selectedSessionId !== sessionId ||
       epoch !== this.historyEpoch;
     const kinds = ["transcript", ...(this.localOrigin ? PRESET_APPROVAL_KINDS : [])];
-    while (sessionId && !stale()) {
+    // Merged pages not yet drawn: the oldest seq among them, and how many.
+    let undrawnFrom = Number.POSITIVE_INFINITY;
+    let undrawn = 0;
+    let drawn = 0;
+    const draw = () => {
+      if (undrawn === 0) return;
+      this.rebuildKeepingLiveState(undrawnFrom - 1);
+      for (const [id, row] of this.indexedPlaceholders)
+        if (row.seq !== undefined && this.events[firstHeldFrom(this.events, row.seq)]?.seq === row.seq)
+          this.indexedPlaceholders.delete(id);
+      this.emit("history");
+      undrawnFrom = Number.POSITIVE_INFINITY;
+      undrawn = 0;
+      drawn += 1;
+    };
+    if (!sessionId) return "done";
+    while (!stale()) {
       const gap = this.indexedGaps[0];
-      if (!gap) return;
+      if (!gap) {
+        draw();
+        return "done";
+      }
       if (gap.after + 1 >= gap.before) {
         this.indexedGaps.shift();
         continue;
@@ -14339,10 +14381,11 @@ export class AcpmuxDirectClient {
           kinds,
         });
       } catch {
-        // The next jump or reconnect reads again; a failed read must not spin.
-        return;
+        if (stale()) return "stale";
+        draw();
+        return "failed";
       }
-      if (stale()) return;
+      if (stale()) return "stale";
       const read = records(result?.events);
       const page = read.filter((event) => event.seq > gap.after && event.seq < gap.before);
       const reachedTail = result?.hasMore !== true || read.some((event) => event.seq >= gap.before - 1);
@@ -14353,12 +14396,12 @@ export class AcpmuxDirectClient {
       gap.after = reachedTail ? gap.before - 1 : Math.max(...page.map((event) => event.seq));
       this.events = mergeEventRecords(this.events, page);
       this.sawPrompts(page);
-      this.rebuildKeepingLiveState(Math.min(...page.map((event) => event.seq)) - 1);
-      const held = new Set(page.map((event) => event.seq));
-      for (const [id, row] of this.indexedPlaceholders)
-        if (row.seq !== undefined && held.has(row.seq)) this.indexedPlaceholders.delete(id);
-      this.emit("history");
+      undrawnFrom = Math.min(undrawnFrom, page[0]!.seq);
+      undrawn += 1;
+      // The page just below the jump target draws at once; later ones in batches.
+      if (drawn === 0 || undrawn >= INDEXED_GAP_PAGES_PER_DRAW) draw();
     }
+    return "stale";
   }
 
   /// Pages history in until the record at `seq` is held: a click on the rail's tick of a prompt
