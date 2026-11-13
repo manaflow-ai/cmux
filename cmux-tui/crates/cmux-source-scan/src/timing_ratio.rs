@@ -275,7 +275,7 @@ const SPREAD_KIND: &str = "spread bound";
 const SORTS: [&str; 5] = ["sort", "sort_by", "sort_by_key", "sort_unstable", "sort_unstable_by"];
 
 /// The shape of [`KNOWN_MISSES`]: in a default-run test, an upper bound on a name taken from
-/// `let (a, b, ..) = f(..)`, where `f` is a local fn that sorts and returns a tuple of floats (a
+/// `let (a, b, ..) = f(..)` (the call under [`spread_init`]'s wrappers: `dbg!(f(..))`), where `f` is a local fn that sorts and returns a tuple of floats (a
 /// hand-rolled percentile helper, `fn spread(ms: &mut [f64]) -> (f64, f64, f64)`), in the test
 /// body or a wrapper macro's (`dbg!({ .. })`, read as [`scan_text`] reads one). Not a rule of the
 /// check: the count its ratchet holds.
@@ -346,10 +346,41 @@ impl SpreadScan<'_> {
     }
 }
 
+/// A `let`'s initializer with the wrappers that leave its value as it is taken off:
+/// `dbg!(..)`, parentheses, `&`/`&mut`/`*`, a `?`, and a `.clone()` or `.to_owned()` with no
+/// arguments, any number deep (`dbg!((spread(&mut gate)).clone())` is `spread(&mut gate)`).
+fn spread_init(e: &Expr) -> Expr {
+    let mut e = e.clone();
+    loop {
+        e = match e {
+            Expr::Paren(p) => *p.expr,
+            Expr::Group(g) => *g.expr,
+            Expr::Reference(r) => *r.expr,
+            Expr::Unary(u) if matches!(u.op, UnOp::Deref(_)) => *u.expr,
+            Expr::Try(t) => *t.expr,
+            Expr::MethodCall(m)
+                if m.args.is_empty()
+                    && m.turbofish.is_none()
+                    && (m.method == "clone" || m.method == "to_owned") =>
+            {
+                *m.receiver
+            }
+            other => match dbg_arg(&other) {
+                Some(arg) => arg,
+                None => return other,
+            },
+        };
+    }
+}
+
 impl<'ast> Visit<'ast> for SpreadScan<'_> {
     fn visit_local(&mut self, l: &'ast syn::Local) {
-        if let (Pat::Tuple(t), Some(init)) = (&l.pat, &l.init)
-            && let Expr::Call(call) = &*init.expr
+        let pat = match &l.pat {
+            Pat::Type(typed) => &*typed.pat,
+            pat => pat,
+        };
+        if let (Pat::Tuple(t), Some(init)) = (pat, &l.init)
+            && let Expr::Call(call) = &spread_init(&init.expr)
             && let Expr::Path(f) = &*call.func
             && f.path.segments.last().is_some_and(|s| self.is_spread_fn(&s.ident.to_string()))
         {
