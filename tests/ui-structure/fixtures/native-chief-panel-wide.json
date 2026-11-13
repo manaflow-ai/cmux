@@ -1,0 +1,449 @@
+{
+ "avatars": [],
+ "messages": [
+  {
+   "frame": [
+    759,
+    84.5,
+    256,
+    30
+   ],
+   "kind": "text",
+   "mine": true,
+   "sender": "You",
+   "tail": null,
+   "text": "Ship the nightly after the checks pass."
+  },
+  {
+   "frame": [
+    20,
+    122.5,
+    353,
+    30
+   ],
+   "kind": "text",
+   "mine": false,
+   "sender": "Chief",
+   "tail": null,
+   "text": "Two tests failed on the base branch; they are not ours."
+  },
+  {
+   "frame": [
+    20,
+    155.5,
+    398,
+    30
+   ],
+   "kind": "text",
+   "mine": false,
+   "sender": "Chief",
+   "tail": null,
+   "text": "I opened a draft PR with the plan. Want me to request review?"
+  },
+  {
+   "frame": [
+    20,
+    188.5,
+    502,
+    30
+   ],
+   "kind": "text",
+   "mine": false,
+   "sender": "Chief",
+   "tail": null,
+   "text": "Summary: the shell builds, sign-in works, Home renders from the mock source."
+  },
+  {
+   "frame": [
+    788,
+    226.5,
+    227,
+    30
+   ],
+   "kind": "text",
+   "mine": true,
+   "sender": "You",
+   "tail": null,
+   "text": "What is blocking the iOS archive?"
+  },
+  {
+   "frame": [
+    20,
+    264.5,
+    352,
+    30
+   ],
+   "kind": "text",
+   "mine": false,
+   "sender": "Chief",
+   "tail": null,
+   "text": "A user asked for variants. I prepared two list densities."
+  },
+  {
+   "frame": [
+    20,
+    297.5,
+    304,
+    30
+   ],
+   "kind": "text",
+   "mine": false,
+   "sender": "Chief",
+   "tail": null,
+   "text": "Done. The device install passed the auth gate."
+  },
+  {
+   "frame": [
+    20,
+    330.5,
+    300,
+    30
+   ],
+   "kind": "text",
+   "mine": false,
+   "sender": "Chief",
+   "tail": null,
+   "text": "Started three agents on the transport branch."
+  },
+  {
+   "frame": [
+    841,
+    368.5,
+    174,
+    30
+   ],
+   "kind": "text",
+   "mine": true,
+   "sender": "You",
+   "tail": null,
+   "text": "Looks good. Keep going."
+  },
+  {
+   "frame": [
+    20,
+    406.5,
+    353,
+    30
+   ],
+   "kind": "text",
+   "mine": false,
+   "sender": "Chief",
+   "tail": null,
+   "text": "Two tests failed on the base branch; they are not ours."
+  },
+  {
+   "frame": [
+    20,
+    439.5,
+    398,
+    30
+   ],
+   "kind": "text",
+   "mine": false,
+   "sender": "Chief",
+   "tail": null,
+   "text": "I opened a draft PR with the plan. Want me to request review?"
+  },
+  {
+   "frame": [
+    20,
+    472.5,
+    502,
+    30
+   ],
+   "kind": "text",
+   "mine": false,
+   "sender": "Chief",
+   "tail": null,
+   "text": "Summary: the shell builds, sign-in works, Home renders from the mock source."
+  },
+  {
+   "frame": [
+    820,
+    510.5,
+    195,
+    30
+   ],
+   "kind": "text",
+   "mine": true,
+   "sender": "You",
+   "tail": null,
+   "text": "Run the focused tests on CI."
+  },
+  {
+   "frame": [
+    20,
+    548.5,
+    352,
+    30
+   ],
+   "kind": "text",
+   "mine": false,
+   "sender": "Chief",
+   "tail": null,
+   "text": "A user asked for variants. I prepared two list densities."
+  },
+  {
+   "frame": [
+    20,
+    581.5,
+    304,
+    30
+   ],
+   "kind": "text",
+   "mine": false,
+   "sender": "Chief",
+   "tail": null,
+   "text": "Done. The device install passed the auth gate."
+  },
+  {
+   "frame": [
+    20,
+    614.5,
+    300,
+    30
+   ],
+   "kind": "text",
+   "mine": false,
+   "sender": "Chief",
+   "tail": null,
+   "text": "Started three agents on the transport branch."
+  },
+  {
+   "frame": [
+    945,
+    652.5,
+    70,
+    30
+   ],
+   "kind": "text",
+   "mine": true,
+   "sender": "You",
+   "tail": null,
+   "text": "Status?"
+  },
+  {
+   "frame": [
+    20,
+    690.5,
+    353,
+    30
+   ],
+   "kind": "text",
+   "mine": false,
+   "sender": "Chief",
+   "tail": null,
+   "text": "Two tests failed on the base branch; they are not ours."
+  },
+  {
+   "frame": [
+    20,
+    723.5,
+    398,
+    30
+   ],
+   "kind": "text",
+   "mine": false,
+   "sender": "Chief",
+   "tail": null,
+   "text": "I opened a draft PR with the plan. Want me to request review?"
+  },
+  {
+   "frame": [
+    20,
+    756.5,
+    502,
+    30
+   ],
+   "kind": "text",
+   "mine": false,
+   "sender": "Chief",
+   "tail": null,
+   "text": "Summary: the shell builds, sign-in works, Home renders from the mock source."
+  },
+  {
+   "frame": [
+    759,
+    794.5,
+    256,
+    30
+   ],
+   "kind": "text",
+   "mine": true,
+   "sender": "You",
+   "tail": null,
+   "text": "Ship the nightly after the checks pass."
+  },
+  {
+   "frame": [
+    20,
+    832.5,
+    352,
+    30
+   ],
+   "kind": "text",
+   "mine": false,
+   "sender": "Chief",
+   "tail": null,
+   "text": "A user asked for variants. I prepared two list densities."
+  },
+  {
+   "frame": [
+    20,
+    865.5,
+    304,
+    30
+   ],
+   "kind": "text",
+   "mine": false,
+   "sender": "Chief",
+   "tail": null,
+   "text": "Done. The device install passed the auth gate."
+  },
+  {
+   "frame": [
+    20,
+    898.5,
+    300,
+    30
+   ],
+   "kind": "text",
+   "mine": false,
+   "sender": "Chief",
+   "tail": null,
+   "text": "Started three agents on the transport branch."
+  },
+  {
+   "frame": [
+    788,
+    936.5,
+    227,
+    30
+   ],
+   "kind": "text",
+   "mine": true,
+   "sender": "You",
+   "tail": null,
+   "text": "What is blocking the iOS archive?"
+  },
+  {
+   "frame": [
+    20,
+    974.5,
+    353,
+    30
+   ],
+   "kind": "text",
+   "mine": false,
+   "sender": "Chief",
+   "tail": null,
+   "text": "Two tests failed on the base branch; they are not ours."
+  },
+  {
+   "frame": [
+    20,
+    1007.5,
+    398,
+    30
+   ],
+   "kind": "text",
+   "mine": false,
+   "sender": "Chief",
+   "tail": null,
+   "text": "I opened a draft PR with the plan. Want me to request review?"
+  },
+  {
+   "frame": [
+    20,
+    1040.5,
+    502,
+    30
+   ],
+   "kind": "text",
+   "mine": false,
+   "sender": "Chief",
+   "tail": null,
+   "text": "Summary: the shell builds, sign-in works, Home renders from the mock source."
+  },
+  {
+   "frame": [
+    841,
+    1078.5,
+    174,
+    30
+   ],
+   "kind": "text",
+   "mine": true,
+   "sender": "You",
+   "tail": null,
+   "text": "Looks good. Keep going."
+  },
+  {
+   "frame": [
+    20,
+    1128.5,
+    352,
+    30
+   ],
+   "kind": "text",
+   "mine": false,
+   "sender": "Chief",
+   "tail": null,
+   "text": "A user asked for variants. I prepared two list densities."
+  },
+  {
+   "frame": [
+    20,
+    1161.5,
+    304,
+    30
+   ],
+   "kind": "text",
+   "mine": false,
+   "sender": "Chief",
+   "tail": null,
+   "text": "Done. The device install passed the auth gate."
+  },
+  {
+   "frame": [
+    20,
+    1194.5,
+    300,
+    30
+   ],
+   "kind": "text",
+   "mine": false,
+   "sender": "Chief",
+   "tail": null,
+   "text": "Started three agents on the transport branch."
+  },
+  {
+   "frame": [
+    473,
+    1232.5,
+    542,
+    30
+   ],
+   "kind": "text",
+   "mine": true,
+   "sender": "You",
+   "tail": null,
+   "text": "\u27e8 a line of mine, long enough to wrap once the panel is narrow enough to make it wrap"
+  }
+ ],
+ "side_elements": [],
+ "source": "MessagesLab native transcript, chief-panel-wide (run 42840779981)",
+ "surface": "chief-panel",
+ "surface_frame": [
+  0,
+  0,
+  1035,
+  1320
+ ],
+ "thread_frame": [
+  0,
+  0,
+  1035,
+  1320
+ ]
+}

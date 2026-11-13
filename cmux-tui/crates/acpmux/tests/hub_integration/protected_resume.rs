@@ -218,6 +218,43 @@ async fn a_hidden_attach_keeps_the_hold_and_a_persons_prompt_lifts_it() {
     let _ = std::fs::remove_dir_all(&guarded);
 }
 
+/// `_acpmux/info` names a daemon start's hold for a person (`personHold`: the folder and why), so
+/// `session resume` and NOW say why a queue does not drain; opening the chat ends it.
+#[tokio::test]
+async fn info_names_the_hold_for_a_person_until_the_chat_is_opened() {
+    let dir = std::env::temp_dir().join(format!("acpmux-protected-info-{}", uuid::Uuid::now_v7()));
+    let (plain, guarded) = folders(&dir);
+    let store = dir.join("store");
+    std::fs::create_dir_all(&store).unwrap();
+    let hub = durable_hub(&store);
+    let mut c = Client::open(&hub);
+    let open = c.new_session(&plain).await;
+    let held = c.new_session(&guarded).await;
+    c.busy_with_queued(&held, "p-held").await;
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+
+    let hub = durable_hub(&store);
+    hub.resume_queues();
+    let mut c = Client::open(&hub);
+    let info = c.call("_acpmux/info", json!({"sessionId": held})).await;
+    let hold = &info["personHold"];
+    assert_eq!(hold["folder"], json!(guarded), "{info}");
+    let reason = hold["reason"].as_str().unwrap_or_default();
+    assert!(reason.contains("privacy-protected"), "{reason}");
+    let plain_info = c.call("_acpmux/info", json!({"sessionId": open})).await;
+    assert!(plain_info.get("personHold").is_none(), "{plain_info}");
+
+    c.call("_acpmux/attach", json!({"sessionId": held, "visible": true})).await;
+    c.wait_ran(&held, "p-held").await;
+    let info = c.call("_acpmux/info", json!({"sessionId": held})).await;
+    assert!(info.get("personHold").is_none(), "{info}");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&guarded);
+}
+
 /// A fleet machine runs every chat in its home folder, and no person opens them there. Off macOS
 /// no privacy prompt guards that folder, so a restart goes on with what its chats queued: before,
 /// an update's restart left every such queue waiting for a person who never came (Codex lanes held

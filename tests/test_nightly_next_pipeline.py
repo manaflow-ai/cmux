@@ -30,6 +30,9 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 TEXT = (ROOT / ".github" / "workflows" / "nightly.yml").read_text()
 DOC = yaml.safe_load(TEXT)
@@ -93,9 +96,8 @@ else:
 if not re.search(r"signStage && \(!unsignedResume", script):
     failures.append("decide must refuse a sign stage that is not an unsigned resume")
 
-# The push run builds only: the sign stage's roots skip there.
-for name in ("prepare-nightly-variant-primary", "prepare-nightly-variant", "find-nightly-next-recovery",
-             "await-nightly-tree-marker", "route-visual-gate-nightly"):
+# The push run builds and prepares: the sign stage's other roots skip there.
+for name in ("find-nightly-next-recovery", "await-nightly-tree-marker", "route-visual-gate-nightly"):
     if PIPELINE_OFF not in cond(name):
         failures.append(f"{name} must skip in a pipelined push run ({PIPELINE_OFF})")
 
@@ -104,12 +106,12 @@ if dispatch is None:
     failures.append("no dispatch-nightly-next-sign job hands the unsigned app to the sign stage")
 else:
     for job in ("decide", "resolve-nightly-cmux-tui-client", "build-nightly-app", "build-nightly-ghostty-cli-helper",
-                "build-nightly-remote-daemon"):
+                "build-nightly-remote-daemon", "prepare-nightly-variant"):
         if job not in needs("dispatch-nightly-next-sign"):
             failures.append(f"dispatch-nightly-next-sign must wait for {job}: the resume reads what it uploads")
         elif job != "decide" and f"needs.{job}.result == 'success'" not in cond("dispatch-nightly-next-sign"):
             failures.append(f"dispatch-nightly-next-sign dispatches only after {job} succeeded")
-    for job in ("prepare-nightly-variant", "pick-nightly-sign-runner", "build-sign-notarize-nightly", "publish-nightly",
+    for job in ("pick-nightly-sign-runner", "build-sign-notarize-nightly", "publish-nightly",
                 "sentry-dsyms-nightly", "check-nightly-webviews"):
         if job in needs("dispatch-nightly-next-sign"):
             failures.append(f"dispatch-nightly-next-sign must not wait for {job}")
@@ -126,7 +128,7 @@ else:
                         "and nightly_next_sign_stage")
     elif "--ref nightly-next" not in runs[0] or "while" in runs[0]:
         failures.append("dispatch-nightly-next-sign dispatches once on nightly-next, no loop")
-    runs_on = str(dispatch.get("runs-on", ""))
+    runs_on = workflow_jobs.single_runs_on(dispatch)
     if "blacksmith" in runs_on.lower() or "CI_NIGHTLY_MINI" not in runs_on:
         failures.append("dispatch-nightly-next-sign runs on the nightly mini")
 if TEXT.count("-f nightly_next_sign_stage=") != 1:
@@ -388,10 +390,12 @@ PUSH = {"github.event_name": "push", "github.ref": "refs/heads/nightly-next", "g
 # What decide outputs for a pipelined push (const pipeline: a publishing nightly-next push, no pause, no notary
 # test; a push takes no dispatch input), and resolve's outputs for a build the run goes on to dispatch.
 PIPELINED = {
-    "decide": {"pipeline": "true", "track": "nightly-next", "should_build": "true", "should_publish": "true",
+    "decide": {"pipeline": "true", "one_job": "false", "track": "nightly-next", "should_build": "true", "should_publish": "true",
                "no_publish": "false", "notary_test": "false", "notary_paused": "false", "continue_only": "false",
                "republish_run": "", "fast_build": "false", "build_only": "false"},
     "resolve-nightly-cmux-tui-client": {"already_published": "false", "superseded": "", "build_sha": SHA},
+    # A push run restores nothing (no resume step), so it has no prepared app of another run.
+    "build-nightly-app": {"prepared": ""},
 }
 # A producer the app build installs from beside it (the web bundles; build-nightly-app builds them itself when
 # they are not up yet), so it is part of the build stage though the dispatch does not wait for it.
@@ -431,8 +435,12 @@ SIGN = {**PUSH, "github.event_name": "workflow_dispatch", "inputs.nightly_next_s
 SIGN_OUTPUTS = {
     "decide": {**PIPELINED["decide"], "pipeline": "false"},
     "resolve-nightly-cmux-tui-client": PIPELINED["resolve-nightly-cmux-tui-client"],
-    # A sign run dispatches its tail (run_tail false, as checked above).
-    "published-build": {"run_tail": "false"},
+    # The push run prepared the app: the sign run's resume restored that prepared app (prepared).
+    "build-nightly-app": {"prepared": "true"},
+    # A sign run dispatches its tail (run_tail false, as checked above), and publishes its own new build.
+    "published-build": {"run_tail": "false", "cross_run": "", "track": "nightly-next", "publish_result": "success",
+                        "publish_refused": "false", "publish_tag_status": "updated", "publish_build_sha": SHA,
+                        "publish_already_published": "false", "sign_stage": "true"},
 }
 TAIL = {**PUSH, "github.event_name": "workflow_dispatch", "inputs.nightly_next_post_publish": '{"tail": true}'}
 try:
@@ -450,6 +458,182 @@ else:
         failures.append("the sign run's simulation must reach the signer and publish-nightly")
     if sign_results.get("sentry-dsyms-nightly") not in (None, "skipped"):
         failures.append("sentry-dsyms-nightly runs in the tail, not in the sign run, which holds the sign group")
+
+# A sign run starts at the signer: the push run prepared the app (prepare-nightly-variant ran there, and the
+# dispatch waited for it), and the sign run's resume restores that prepared app instead of the unsigned app, the
+# helper and the license trees, which only the preparation reads. It re-uploads only what this run's jobs read
+# (the prepared app, the daemon, the source archive). Measured 2026-11-12 (sign run 43282010692): 2.9 min of
+# preparation and its hops, and 2.0 min re-uploading the unsigned app, before the signer started.
+TAIL_SIGN = {**TAIL}
+TAIL_SIGN_OUTPUTS = {"published-build": {**SIGN_OUTPUTS["published-build"], "cross_run": "true", "run_tail": "true"}}
+try:
+    sign_results = simulate(dict(SIGN), SIGN_OUTPUTS)
+    tail_sign_results = simulate(dict(TAIL_SIGN), TAIL_SIGN_OUTPUTS)
+    legacy_sign = simulate(dict(SIGN), {**SIGN_OUTPUTS, "build-nightly-app": {"prepared": ""}})
+except ValueError as error:
+    failures.append(f"the sign run's `if:`s do not evaluate: {error}")
+else:
+    if push_results.get("prepare-nightly-variant-primary") != "success" \
+            or push_results.get("prepare-nightly-variant") != "success":
+        failures.append("a pipelined push run prepares the app before it dispatches the sign run")
+    if "needs.prepare-nightly-variant.result == 'success'" not in cond("dispatch-nightly-next-sign"):
+        failures.append("dispatch-nightly-next-sign dispatches only after prepare-nightly-variant succeeded")
+    if sign_results.get("prepare-nightly-variant-primary") != "skipped":
+        failures.append("a sign run whose push run prepared the app prepares nothing again")
+    if sign_results.get("prepare-nightly-variant") == "skipped" or sign_results.get("pick-nightly-sign-runner") == "skipped":
+        failures.append("a sign run with the push run's prepared app goes on to the sign runner pick")
+    if legacy_sign.get("prepare-nightly-variant-primary") == "skipped":
+        failures.append("a sign run of a push run that did not prepare (an older run) still prepares the app itself")
+    # The sign group frees at the feed: the dSYMs on R2 go to the tail run of a sign run, which the record names
+    # (sign_stage). The GitHub release stays in the sign run: the next sign run's decide reads its body
+    # (published_sha), the span of that build's release notes and PR comments.
+    if sign_results.get("keep-published-dsyms") != "skipped":
+        failures.append("keep-published-dsyms runs in a sign run's tail run, not in the sign run, which holds the sign group")
+    if tail_sign_results.get("keep-published-dsyms") == "skipped":
+        failures.append("keep-published-dsyms must run in the tail run of a sign run (published-build's sign_stage)")
+    if tail_sign_results.get("publish-nightly-next-github") != "skipped":
+        failures.append("publish-nightly-next-github stays in the sign run: the next decide reads the release body")
+    if sign_results.get("publish-nightly-next-github") == "skipped":
+        failures.append("publish-nightly-next-github runs in the sign run that published")
+    # A push loop run (pipeline off) keeps its dSYMs in the run, and its tail never keeps them again.
+    loop_tail = simulate(dict(TAIL), {"published-build": {**TAIL_SIGN_OUTPUTS["published-build"], "sign_stage": ""}})
+    if loop_tail.get("keep-published-dsyms") != "skipped":
+        failures.append("keep-published-dsyms runs in a tail run only for a sign run's build")
+
+build_app = JOBS["build-nightly-app"]
+resume_step = next((s for s in build_app.get("steps", []) if s.get("id") == "resume"), {})
+if "prepared-app" not in str((resume_step.get("env") or {}).get("NIGHTLY_NEXT_PREPARED_ARTIFACT", "")):
+    failures.append("the sign stage's resume names the push run's prepared app (NIGHTLY_NEXT_PREPARED_ARTIFACT)")
+if "steps.resume.outputs.prepared" not in str((build_app.get("outputs") or {}).get("prepared", "")):
+    failures.append("build-nightly-app outputs whether the resume restored a prepared app (prepared)")
+uploads = {str(s.get("name", "")): s for s in build_app.get("steps", []) if "upload-artifact" in str(s.get("uses", ""))}
+for artifact in ("cmux-nightly-unsigned-app", "cmux-nightly-ghostty-cli-helper", "cmux-next-license-trees"):
+    for name, step in uploads.items():
+        if name.startswith(f"Retain resumed {artifact}") and "steps.resume.outputs.prepared != 'true'" not in str(step.get("if", "")):
+            failures.append(f"{name!r}: only the preparation reads it, so a prepared resume does not re-upload it")
+prepared_uploads = [s for n, s in uploads.items() if n.startswith("Retain the resumed prepared app")]
+if not prepared_uploads or any("steps.resume.outputs.prepared == 'true'" not in str(s.get("if", "")) or
+                               "prepared-app" not in str((s.get("with") or {}).get("name", ""))
+                               for s in prepared_uploads):
+    failures.append("a prepared resume re-uploads the prepared app under the name the sign job downloads")
+
+# The resume's prepared mode: the push run's prepare-nightly-variant succeeded in that attempt, and its artifact is
+# digest-checked and from that run, as every other restored artifact.
+PREPARED = f"cmux-nightly-prepared-app-arm64-{SHA[:7]}"
+prep_jobs = [*jobs, dict(window, name="prepare-nightly-variant-primary (arm64)", started_at="2026-11-08T10:20:00Z",
+                         completed_at="2026-11-08T10:23:00Z"),
+             dict(window, name="prepare-nightly-variant (arm64)", started_at="2026-11-08T10:23:00Z",
+                  completed_at="2026-11-08T10:23:10Z")]
+prep_artifact = {"name": PREPARED, "expired": False, "created_at": "2026-11-08T10:22:00Z", "digest": "sha256:" + "1" * 64,
+                 "workflow_run": identity}
+
+
+def prepared(job_list, artifact_list, name=PREPARED, live_ok=True):
+    source = run if live_ok else {**run, "status": "completed", "conclusion": "success"}
+    try:
+        result = resume.validate(source, job_list, artifact_list, REPO, "7", "1", live_ok=live_ok, prepared=name)
+    except (SystemExit, TypeError):
+        return "refused"
+    return (result.get("prepared") or {}).get("name") or "legacy"
+
+
+if prepared(prep_jobs, [*artifacts, prep_artifact]) != PREPARED:
+    failures.append("a sign stage restores the push run's prepared app once prepare-nightly-variant succeeded")
+if prepared(jobs, artifacts) != "legacy":
+    failures.append("a push run that did not prepare (an older run) resumes as before, from the unsigned app")
+if prepared(prep_jobs, [*artifacts, prep_artifact], live_ok=False) != "legacy":
+    failures.append("only a sign stage reads the prepared app")
+if prepared(prep_jobs, artifacts) != "refused":
+    failures.append("a push run that prepared but has no prepared artifact is refused")
+if prepared(prep_jobs, [*artifacts, dict(prep_artifact, digest="")]) != "refused":
+    failures.append("a prepared artifact without a digest is refused")
+if prepared(prep_jobs, [*artifacts, dict(prep_artifact, workflow_run={**identity, "id": 8})]) != "refused":
+    failures.append("a prepared artifact of another run is refused")
+if prepared(prep_jobs, [*artifacts, dict(prep_artifact, created_at="2026-11-08T10:30:00Z")]) != "refused":
+    failures.append("a prepared artifact made outside the preparation jobs is refused")
+failed_prep = [*jobs, dict(prep_jobs[-1], conclusion="failure")]
+if prepared(failed_prep, [*artifacts, prep_artifact]) != "legacy":
+    failures.append("a preparation that did not succeed is never restored")
+if prepared(prep_jobs, [*artifacts, prep_artifact], name=f"cmux-nightly-prepared-app-arm64-{'b' * 7}") != "refused":
+    failures.append("the prepared app must be of the compiled source (its short sha)")
+
+# The record names a sign run (sign_stage), so its tail keeps the dSYMs; a record without it (an older run) is valid.
+spec = importlib.util.spec_from_file_location("published", ROOT / "scripts" / "ci" / "nightly_published_build.py")
+published = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(published)
+rec = published.record({}, "7", "1", SHA)
+if "sign_stage" not in rec:
+    failures.append("the published build's record says whether a sign run published it (sign_stage)")
+else:
+    if not published.valid(rec) or not published.valid({k: v for k, v in rec.items() if k != "sign_stage"}):
+        failures.append("a record with or without sign_stage is valid")
+pb_outputs = JOBS["published-build"].get("outputs") or {}
+if "steps.record.outputs.sign_stage" not in str(pb_outputs.get("sign_stage", "")):
+    failures.append("published-build outputs sign_stage")
+if "inputs.nightly_next_sign_stage" not in str(JOBS["dispatch-published-in"].get("env", {}).get("SIGN_STAGE", "")):
+    failures.append("dispatch-published-in packs whether this is a sign run (SIGN_STAGE)")
+
+# verify-signed-nightly read the signed app over one connection (4.4 min on 2026-11-12); a sign stage fetches it
+# over ranged HTTP first (digest-checked), the action download as the fallback.
+verify_steps = JOBS["verify-signed-nightly"].get("steps", [])
+fast = next((s for s in verify_steps if str(s.get("name", "")).startswith("Download signed app (parallel)")), None)
+if fast is None or "inputs.nightly_next_sign_stage != ''" not in str(fast.get("if", "")) or not fast.get("continue-on-error"):
+    failures.append("verify-signed-nightly downloads the signed app over ranged HTTP in a sign stage, best effort")
+elif "download-run-artifact.py" not in str(fast.get("run", "")):
+    failures.append("the ranged download is download-run-artifact.py, which checks the artifact's digest")
+
+# nightly-sign.yml (shadow) admits a run by the nightly-prepared-app notice of its prepare-nightly-variant job, or
+# of the primary leg it reused. A prepared resume skips the primary, so the fallback leg records the digest of the
+# restored prepared app, the tarball whose zip the resume checked against the push run's artifact digest.
+# By name, as tests/test_nightly_sign_shadow_workflow.py imports it: a load by path here made a second module object
+# of scripts/ci/nightly_sign_admit.py beside that one (tests/test_script_module_loads.py names it).
+sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+import nightly_sign_admit as admit  # noqa: E402
+import hashlib  # noqa: E402
+import os  # noqa: E402
+import subprocess  # noqa: E402
+import tempfile  # noqa: E402
+
+with tempfile.TemporaryDirectory() as tmp:
+    tarball = Path(tmp) / "prepared" / "cmux-prepared-app.tar.gz"
+    tarball.parent.mkdir()
+    tarball.write_bytes(b"prepared app")
+    if getattr(resume, "prepared_sha256", lambda _root: None)(Path(tmp)) != hashlib.sha256(b"prepared app").hexdigest():
+        failures.append("the resume reports the sha256 of the restored prepared tarball (prepared_sha256)")
+if "steps.resume.outputs.prepared_sha256" not in str((build_app.get("outputs") or {}).get("prepared_sha256", "")):
+    failures.append("build-nightly-app outputs the restored prepared app's sha256 (prepared_sha256)")
+reuse = next((s for s in JOBS["prepare-nightly-variant"].get("steps", []) if s.get("id") == "reuse"), {})
+reuse_env = {k: str(v) for k, v in (reuse.get("env") or {}).items()}
+if "needs.build-nightly-app.outputs.prepared_sha256" not in reuse_env.get("PREPARED_SHA256", ""):
+    failures.append("the fallback leg reads the restored prepared app's sha256 (PREPARED_SHA256)")
+
+
+def reuse_notices(**env):
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "out"
+        out.touch()
+        base = {"PATH": os.environ["PATH"], "GITHUB_OUTPUT": str(out), "NIGHTLY_VARIANT": "arm64",
+                "NIGHTLY_FAST_BUILD": "false", "NIGHTLY_SHOULD_PUBLISH": "true", "ARTIFACT": PREPARED,
+                "PRIMARY_RESULT": "skipped", "RESUMED_PREPARED": "true", "PREPARED_SHA256": "c" * 64}
+        done = subprocess.run(["bash", "-c", str(reuse.get("run", ""))], env={**base, **env}, capture_output=True,
+                              text=True, timeout=30)
+        notices = re.findall(rf"^::notice title={admit.DIGEST_TITLE}::(.*)$", done.stdout, re.M)
+        return done.returncode, notices, out.read_text()
+
+
+code, notices, outputs = reuse_notices()
+if code != 0 or "exists=true" not in outputs or len(notices) != 1:
+    failures.append(f"a prepared resume's fallback leg records one {admit.DIGEST_TITLE} digest (got {notices})")
+else:
+    match = admit.DIGEST_MESSAGE.match(notices[0])
+    if not match or match.groups() != ("arm64", PREPARED, "c" * 64, "true", "false"):
+        failures.append(f"the fallback leg's digest record is the one nightly_sign_admit parses: {notices[0]!r}")
+code, notices, _ = reuse_notices(PREPARED_SHA256="")
+if code == 0 or notices:
+    failures.append("a prepared resume without the restored app's sha256 fails the fallback leg, records nothing")
+code, notices, _ = reuse_notices(PRIMARY_RESULT="success", RESUMED_PREPARED="", PREPARED_SHA256="")
+if code != 0 or notices:
+    failures.append("after a primary success the fallback records nothing: the primary's record is the producer's")
 
 if failures:
     print("FAIL: nightly-next build and sign stages pipelined\n  " + "\n  ".join(failures))

@@ -246,7 +246,9 @@ impl Backoff {
 #[derive(Debug, Clone, Copy)]
 pub struct SleepWatch {
     wall_ms: u64,
-    mono: std::time::Instant,
+    /// Tokio's monotonic clock: the OS one at run time, and the paused one in a test, so a
+    /// test that moves time does not read as a sleep.
+    mono: tokio::time::Instant,
 }
 
 impl SleepWatch {
@@ -255,18 +257,18 @@ impl SleepWatch {
     /// A gap between the clocks under this is scheduling noise, not a sleep.
     pub const SLACK: Duration = Duration::from_secs(10);
 
-    pub fn new(wall_ms: u64, mono: std::time::Instant) -> Self {
+    pub fn new(wall_ms: u64, mono: tokio::time::Instant) -> Self {
         Self { wall_ms, mono }
     }
 
     /// From the clocks now.
     pub fn now() -> Self {
-        Self::new(crate::store::now_ms(), std::time::Instant::now())
+        Self::new(crate::store::now_ms(), tokio::time::Instant::now())
     }
 
     /// How long the computer slept since the last check, when it did; the watch then counts from
     /// now either way.
-    pub fn check_at(&mut self, wall_ms: u64, mono: std::time::Instant) -> Option<Duration> {
+    pub fn check_at(&mut self, wall_ms: u64, mono: tokio::time::Instant) -> Option<Duration> {
         let wall = Duration::from_millis(wall_ms.saturating_sub(self.wall_ms));
         let awake = mono.saturating_duration_since(self.mono);
         *self = Self::new(wall_ms, mono);
@@ -276,7 +278,7 @@ impl SleepWatch {
 
     /// ``check_at`` with the clocks now.
     pub fn check(&mut self) -> Option<Duration> {
-        self.check_at(crate::store::now_ms(), std::time::Instant::now())
+        self.check_at(crate::store::now_ms(), tokio::time::Instant::now())
     }
 }
 
@@ -390,11 +392,45 @@ impl<S: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for HeardStream<S> 
 
 /// A fresh jitter in `0.0..1.0` from the OS generator (0.5 if it fails).
 pub fn jitter() -> f64 {
+    #[cfg(test)]
+    if let Some(j) = test_jitter::next() {
+        return j;
+    }
     let mut b = [0u8; 4];
     if getrandom::fill(&mut b).is_err() {
         return 0.5;
     }
     f64::from(u32::from_le_bytes(b)) / (f64::from(u32::MAX) + 1.0)
+}
+
+/// A seeded jitter for this thread's tests, so a run replays draw for draw from its seed.
+#[cfg(test)]
+pub(crate) mod test_jitter {
+    use std::cell::Cell;
+
+    thread_local!(static STATE: Cell<Option<u64>> = const { Cell::new(None) });
+
+    /// `jitter` draws from SplitMix64 at `seed` on this thread from now on.
+    pub(crate) fn seed(seed: u64) {
+        STATE.with(|s| s.set(Some(seed)));
+    }
+
+    /// Back to the OS generator.
+    pub(crate) fn clear() {
+        STATE.with(|s| s.set(None));
+    }
+
+    pub(super) fn next() -> Option<f64> {
+        STATE.with(|s| {
+            let state = s.get()?.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            s.set(Some(state));
+            let mut z = state;
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            z ^= z >> 31;
+            Some((z >> 11) as f64 / (1u64 << 53) as f64)
+        })
+    }
 }
 
 /// What `host ls` shows for a peer (`state` in `_acpmux/peers`).
@@ -672,7 +708,7 @@ mod tests {
 
     #[test]
     fn a_sleep_is_the_wall_clock_running_ahead_of_the_monotonic_one() {
-        let start = std::time::Instant::now();
+        let start = tokio::time::Instant::now();
         let mut watch = SleepWatch::new(1_000_000, start);
         // Awake: both clocks moved 5 s.
         assert_eq!(watch.check_at(1_005_000, start + Duration::from_secs(5)), None);
@@ -702,7 +738,7 @@ mod tests {
 
     #[test]
     fn a_wall_clock_set_back_is_no_sleep() {
-        let start = std::time::Instant::now();
+        let start = tokio::time::Instant::now();
         let mut watch = SleepWatch::new(2_000_000, start);
         assert_eq!(watch.check_at(1_000_000, start + Duration::from_secs(5)), None);
         assert_eq!(watch.check_at(1_005_000, start + Duration::from_secs(10)), None);

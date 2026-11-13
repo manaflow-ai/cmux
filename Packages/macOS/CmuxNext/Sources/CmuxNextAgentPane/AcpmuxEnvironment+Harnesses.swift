@@ -93,7 +93,9 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
         // A miss is one completion of at most 30 s; a kept sentence answers at once.
         case .hunkSummary: .seconds(35)
         case .registry, .health, .models: .seconds(40)
-        case .list, .add, .remove, .restore, .reload, .secretSet, .icon, .accounts, .accountSet, .routeRemove, .routeDefaultSet: .seconds(10)
+        // An endpoint add may read its models (10 s), wait on the add lock and the Keychain store (60 s).
+        case .add: .seconds(90)
+        case .list, .remove, .restore, .reload, .secretSet, .icon, .accounts, .accountSet, .routeRemove, .routeDefaultSet: .seconds(10)
         case .routeAdd: .seconds(20)
         // The daemon's own limit for one read is 15 s, after a wait for a free read.
         case .accountUsage: .seconds(40)

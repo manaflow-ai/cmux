@@ -286,8 +286,46 @@ impl SessionPuts {
         self.bound
     }
 
-    pub(super) fn live_kept(&self) -> u64 {
-        self.live_kept
+    /// Live puts at or before the bound that stay and are still live with
+    /// the sealed journal ending at `archive_end`. Until the owner seals past
+    /// the archive end the live puts were read at, the count of that read;
+    /// after, the puts it sealed are in segments (staged or counted with
+    /// them), so the rest are read again: each one stays unless a later put
+    /// of its session drops it ([`Self::drops`]).
+    pub(super) fn live_kept_after(
+        &self,
+        source: &Connection,
+        archive_end: u64,
+    ) -> anyhow::Result<u64> {
+        if archive_end <= self.archive_end {
+            return Ok(self.live_kept);
+        }
+        if archive_end >= self.bound {
+            return Ok(0);
+        }
+        let mut statement = source.prepare(
+            "SELECT sequence, payload_json
+             FROM session_journal INDEXED BY session_journal_by_kind_sequence
+             WHERE kind = ?1 AND sequence > ?2 AND sequence <= ?3",
+        )?;
+        let mut rows = statement.query(params![
+            SESSION_PUT_KIND,
+            i64::try_from(archive_end)?,
+            i64::try_from(self.bound)?
+        ])?;
+        let mut kept = 0_u64;
+        while let Some(row) = rows.next()? {
+            let sequence = u64::try_from(row.get::<_, i64>(0)?)?;
+            let payload = row.get_ref(1)?.as_str()?;
+            let dropped = serde_json::from_str::<PutPayload>(payload)
+                .ok()
+                .and_then(Put::from_payload)
+                .is_some_and(|put| self.drops(sequence, &put));
+            if !dropped {
+                kept = kept.saturating_add(1);
+            }
+        }
+        Ok(kept)
     }
 
     /// True when the put at `sequence` is dropped because a later live put of
