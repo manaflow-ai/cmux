@@ -28,16 +28,22 @@ import UIKit
             window.addSubview(surface)
         }
 
-        /// What the terminal answers to `query`, once Ghostty parsed it.
-        func ask(_ query: String) async -> String {
-            replies.removeAll()
-            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-                surface.feed(Data(query.utf8), completion: { done.resume() })
+        /// Whether the terminal answers `query` with a reply containing `expected` within two
+        /// seconds: the query is asked again until then, because a config change reaches the
+        /// terminal through Ghostty's mailbox and a reply reaches the main thread asynchronously.
+        func answers(_ query: String, with expected: String) async -> Bool {
+            let deadline = ContinuousClock.now + .seconds(2)
+            while ContinuousClock.now < deadline {
+                replies.removeAll()
+                await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+                    surface.feed(Data(query.utf8), completion: { done.resume() })
+                }
+                for _ in 0..<20 {
+                    if String(decoding: replies, as: UTF8.self).contains(expected) { return true }
+                    try? await Task.sleep(for: .milliseconds(5))
+                }
             }
-            // The reply reaches the main thread in order before the completion; one more turn
-            // lets a reply written after the parse land.
-            await Task.yield()
-            return String(decoding: replies, as: UTF8.self)
+            return false
         }
     }
 
@@ -48,17 +54,17 @@ import UIKit
         let rig = Rig(macID: macID)
         try #require(rig.surface.surface != nil)
         #expect(rig.surface.hostTheme?.background == "#2b0b3f")
-        #expect(await rig.ask("\u{1B}]11;?\u{1B}\\").contains("rgb:2b2b/0b0b/3f3f"))
-        #expect(await rig.ask("\u{1B}]10;?\u{1B}\\").contains("rgb:f9f9/e7e7/9f9f"))
-        #expect(await rig.ask("\u{1B}]4;1;?\u{1B}\\").contains("rgb:ffff/3838/6464"))
+        #expect(await rig.answers("\u{1B}]11;?\u{1B}\\", with: "rgb:2b2b/0b0b/3f3f"))
+        #expect(await rig.answers("\u{1B}]10;?\u{1B}\\", with: "rgb:f9f9/e7e7/9f9f"))
+        #expect(await rig.answers("\u{1B}]4;1;?\u{1B}\\", with: "rgb:ffff/3838/6464"))
 
         // The Mac switches theme: the open terminal takes the new one, no relaunch.
         CmuxMobileTerminalThemes.shared.apply(Self.appearance(
             ["background = #fdf6e3", "foreground = #586e75", "palette = 1=#dc322f"]), macID: macID)
         #expect(rig.surface.hostTheme?.background == "#fdf6e3")
         #expect(rig.surface.backgroundColor == UIColor(red: 0xfd / 255, green: 0xf6 / 255, blue: 0xe3 / 255, alpha: 1))
-        #expect(await rig.ask("\u{1B}]11;?\u{1B}\\").contains("rgb:fdfd/f6f6/e3e3"))
-        #expect(await rig.ask("\u{1B}]4;1;?\u{1B}\\").contains("rgb:dcdc/3232/2f2f"))
+        #expect(await rig.answers("\u{1B}]11;?\u{1B}\\", with: "rgb:fdfd/f6f6/e3e3"))
+        #expect(await rig.answers("\u{1B}]4;1;?\u{1B}\\", with: "rgb:dcdc/3232/2f2f"))
     }
 
     /// Another Mac's theme change leaves this terminal as it is.
@@ -69,7 +75,7 @@ import UIKit
         CmuxMobileTerminalThemes.shared.apply(Self.appearance(["background = #ffffff", "foreground = #000000"]),
                                               macID: "other-\(UUID().uuidString)")
         #expect(rig.surface.hostTheme?.background == "#112233")
-        #expect(await rig.ask("\u{1B}]11;?\u{1B}\\").contains("rgb:1111/2222/3333"))
+        #expect(await rig.answers("\u{1B}]11;?\u{1B}\\", with: "rgb:1111/2222/3333"))
     }
 
     /// The phone's own settings for theme keys never survive the Mac's theme: each key the Mac

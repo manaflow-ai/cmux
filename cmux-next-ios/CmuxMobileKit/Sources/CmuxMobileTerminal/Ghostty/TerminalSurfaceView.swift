@@ -282,6 +282,11 @@ final class TerminalSurfaceView: UIView {
         let action = "set_font_size:\(size)"
         _ = action.withCString { ghostty_surface_binding_action(surface, $0, UInt(strlen($0))) }
         ghostty_surface_refresh(surface)
+        // A theme update still queued carries the old size: queue one with the new size after it.
+        if hostTheme != nil {
+            surfaceTheme = nil
+            applyHostTheme()
+        }
     }
 
     override func layoutSubviews() {
