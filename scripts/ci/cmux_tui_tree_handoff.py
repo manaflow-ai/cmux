@@ -19,8 +19,17 @@ blocked every publish):
   resets. One failed job that is not quota-only makes the run a real failure,
   and the hand-off goes ahead.
 
+The hand-off is never silent (2026-11-13: an owner's hand-off read "API rate
+limit exceeded for installation" on its first call, ended as a warning in a
+green job, and no run built the tree; the nightly that waited for it gave up):
+- when a call is refused for the rate limit and GH_TOKEN_SPARE holds another
+  token, the hand-off moves to that token for the rest of its calls; and
+- a hand-off that could not run exits 1 with an error annotation, and its
+  step fails the job.
+
 usage: cmux_tui_tree_handoff.py --repo OWNER/NAME --run-id ID --key KEY
 Needs GH_TOKEN with actions: write (job logs are read with actions access).
+GH_TOKEN_SPARE, optional: a second token with actions: write and its own rate limit.
 """
 from __future__ import annotations
 
@@ -88,7 +97,15 @@ def may_rerun(run: Mapping[str, Any]) -> tuple[bool, str]:
 
 
 def _gh(*args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["gh", *args], capture_output=True, text=True)
+    result = subprocess.run(["gh", *args], capture_output=True, text=True)
+    spare = os.environ.get("GH_TOKEN_SPARE")
+    if result.returncode != 0 and spare and spare != os.environ.get("GH_TOKEN") and RATE_LIMIT_TEXT.search(result.stderr):
+        # One switch for the whole hand-off: the spare token is now GH_TOKEN, so a second refusal is final.
+        print("::notice title=tree hand-off token::GH_TOKEN is rate limited; the hand-off continues on GH_TOKEN_SPARE")
+        os.environ["GH_TOKEN"] = spare
+        del os.environ["GH_TOKEN_SPARE"]
+        result = subprocess.run(["gh", *args], capture_output=True, text=True)
+    return result
 
 
 def _list(path: str, key: str) -> list[dict]:
@@ -159,8 +176,9 @@ def main(argv: list[str]) -> int:
         return 2
     try:
         handoff(args.repo, args.run_id, args.key)
-    except Exception as error:  # the step is continue-on-error: say why nothing was handed off
-        print(f"::warning::tree {args.key} was not handed off: {error}")
+    except Exception as error:  # the step fails its job: say why nothing was handed off, and the way out
+        print(f"::error title=tree not handed off::tree {args.key} was not handed off: {error}. "
+              "No run may build it now: dispatch cmux-tui-tree-request.yml with a commit of the tree.")
         return 1
     return 0
 
