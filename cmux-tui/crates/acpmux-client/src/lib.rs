@@ -855,6 +855,34 @@ mod tests {
     }
 
     #[test]
+    fn upgrade_requires_matching_id_and_true_result() {
+        let mut client = Client::<Value>::new(["list"]);
+        client.connected();
+        assert_eq!(
+            client.received(
+                br#"{"jsonrpc":"2.0","id":99,"result":{"upgrade":true}}
+"#
+            ),
+            0
+        );
+        assert!(matches!(client.next_change(), Some(Change::Error { .. })));
+
+        let mut client = Client::<Value>::new(["list"]);
+        client.connected();
+        let reply = br#"{"jsonrpc":"2.0","id":1,"result":{"upgrade":true}}
+"#;
+        assert_eq!(client.received(reply), reply.len());
+        assert!(!client.is_fallback());
+
+        let mut client = Client::<Value>::new(["list"]);
+        client.connected();
+        let reply = br#"{"jsonrpc":"2.0","id":1,"error":{"code":-32000}}
+tail"#;
+        assert_eq!(client.received(reply), reply.len());
+        assert_eq!(client.next_change(), Some(Change::Fallback(b"tail".to_vec())));
+    }
+
+    #[test]
     fn unknown_delta_op_advances_cursor_but_keeps_known_ops() {
         let mut client = Client::<Value>::connected_v2();
         let hello = Frame::json(
@@ -914,6 +942,60 @@ mod tests {
         let sub = String::from_utf8(client.take_send().unwrap()).unwrap();
         assert!(sub.contains("\"cursor\":7"));
         assert!(!sub.contains("\"anchor\""));
+    }
+
+    #[test]
+    fn reconnect_before_window_keeps_the_initial_anchor_request() {
+        let mut client = Client::<Value>::connected_v2();
+        let hello = Frame::json(
+            FrameKind::Hello,
+            &wire::HelloReply { daemon_id: "d".into(), limits: Limits::default() },
+        )
+        .unwrap()
+        .encode();
+        client.received(&hello);
+        client.subscribe(Sub::new("s", "list").around(Anchor::End, 10)).unwrap();
+        while client.take_send().is_some() {}
+        client.disconnected();
+        let _ = client.take_send();
+        client.received(&hello);
+        let request = String::from_utf8(client.take_send().unwrap()).unwrap();
+        assert!(request.contains("\"anchor\":\"end\""));
+        assert!(!request.contains("\"cursor\""));
+    }
+
+    #[test]
+    fn skip_counters_cover_unknown_kind_op_missing_seq_and_unheld_sid() {
+        let mut client = Client::<Value>::connected_v2();
+        let hello = Frame::json(
+            FrameKind::Hello,
+            &wire::HelloReply { daemon_id: "d".into(), limits: Limits::default() },
+        )
+        .unwrap()
+        .encode();
+        client.received(&hello);
+        client.subscribe(Sub::new("s", "list")).unwrap();
+        while client.take_send().is_some() {}
+        let unknown = Frame::new(FrameKind::Unknown(200), br#"{"sid":"s","seq":1}"#.to_vec())
+            .unwrap()
+            .encode();
+        client.received(&unknown);
+        let delta = Frame::json(
+            FrameKind::Delta,
+            &serde_json::json!({"sid":"s","ops":[{"op":"future","seq":2},{"op":"queue","bytes":1}]}),
+        )
+        .unwrap()
+        .encode();
+        client.received(&delta);
+        let unheld = Frame::json(FrameKind::Delta, &serde_json::json!({"sid":"old","ops":[]}))
+            .unwrap()
+            .encode();
+        client.received(&unheld);
+        let counters = client.skip_counters();
+        assert_eq!(counters.unknown_kind, 1);
+        assert_eq!(counters.unknown_op, 1);
+        assert_eq!(counters.missing_seq, 1);
+        assert_eq!(counters.unheld_sid, 1);
     }
 
     #[test]
