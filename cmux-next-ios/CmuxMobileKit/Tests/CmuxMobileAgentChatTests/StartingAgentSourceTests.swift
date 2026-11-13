@@ -52,3 +52,26 @@ import Testing
         #expect(reason == "The chat is still starting. Send again in a moment.")
     }
 }
+
+/// A New Task chat whose first message is on its way stays "starting" until the message shows
+/// (fourth verifier: a frame of "What should Fake do?" came between the two).
+@MainActor
+@Suite struct AwaitsFirstPromptTests {
+    final class Source: AgentSessionSource {
+        let summary = AgentSessionSummary(id: "t", name: "New session", harness: "claude", agentName: "Claude", cwd: "~/p",
+                                          workspaceTitle: "w", macName: "Mac")
+        var inFlight = true
+        var awaitsFirstPrompt: Bool { inFlight }
+        func events() -> AsyncStream<AgentSessionEvent> { AsyncStream { _ in } }
+        func send(_ intent: AgentClientIntent) {}
+    }
+
+    @Test func theChatStaysStartingUntilItsFirstSendEnds() {
+        let source = Source()
+        let store = AgentChatStore(source: source)
+        #expect(store.awaitsFirstPrompt)
+        // The send failed (or its turn ended): the chat is what it is, the composer has the draft.
+        source.inFlight = false
+        #expect(!store.awaitsFirstPrompt)
+    }
+}

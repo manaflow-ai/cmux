@@ -228,6 +228,27 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
                          { Self.nudgeUp(app, by: 0.3); return nil },
                          { C.tap(C.any(app, "taskComposer.model.claude"), "Claude Code's model menu") }])
             },
+            // A3: a tap on a model the account can't use leaves the model as it was.
+            Scene(group: g, id: "model-unavailable-tapped", args: Self.list + ["-cmux-mobile-task-catalog", "many"]) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Review the release branch") },
+                         { Self.nudgeUp(app, by: 0.3); return nil },
+                         { C.tap(C.any(app, "taskComposer.model.claude"), "Claude Code's model menu") },
+                         { C.tap(C.label(app, contains: "Opus Max"), "Opus Max") },
+                         { C.pause(1); return nil },
+                         { Self.check(!C.any(app, "taskComposer.model.claude").label.contains("Opus Max"), "Opus Max was chosen") }])
+            },
+            // A8: a folder picked, then Cancel: reopened, the folder is still the one picked.
+            Scene(group: g, id: "draft-folder-kept", args: Self.list) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Update the docs") },
+                         { app.swipeUp(); C.pause(0.6); return nil },
+                         { C.tap(C.any(app, "taskComposer.folder"), "folder picker") },
+                         { C.tap(app.buttons["web"].firstMatch, "web") },
+                         { C.pause(0.8); return nil },
+                         { C.tap(C.any(app, "taskComposer.cancel"), "Cancel") },
+                         { C.pause(1); return Self.openComposer(app) },
+                         { app.swipeUp(); C.pause(0.6); return nil },
+                         { Self.check(C.label(app, contains: "Development/web").exists, "the folder did not stay web") }])
+            },
             // A4: two Macs online: the Mac picker.
             Scene(group: g, id: "mac-picker", args: Self.list + ["-cmux-mobile-mock-second-mac"]) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Update the docs") },

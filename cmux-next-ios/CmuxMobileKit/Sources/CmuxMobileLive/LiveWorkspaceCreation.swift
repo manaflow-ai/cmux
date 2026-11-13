@@ -127,7 +127,9 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         guard let acpmux, acpmux.isReady else {
             throw WorkspaceCreationError("Agents on this Mac aren't connected.", isForPerson: true)
         }
+        acpmux.beginFirstPrompt(session)
         Task {
+            defer { acpmux.endFirstPrompt(session) }
             let blocks = await Task.detached(priority: .userInitiated) { Self.taskPromptBlocks(task) }.value
             do {
                 _ = try await acpmux.request("session/prompt", .object([
@@ -136,16 +138,20 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
                         "promptId": .string(UUID().uuidString), "steer": .bool(false), "resend": .bool(false),
                     ])]),
                 ]))
-            } catch let error as LinkError where error.code == "offline" {
-                // No connection: nothing left the phone.
-                failed(.notSent(AcpmuxSessionSource.message(error)))
-            } catch let error as LinkError {
-                // The link dropped after the request left: the Mac may have it.
-                failed(.uncertain(AcpmuxSessionSource.message(error)))
             } catch {
-                failed(.refused(AcpmuxSessionSource.message(error)))
+                failed(Self.deliveryFailure(error))
             }
         }
+    }
+
+    /// What a failed first send means for the person: never sent (no connection: it can go again
+    /// from the chat's composer), refused by the agent (its own answer, acpmux's RPC error), else
+    /// unknown (a dropped link, a failed write, a cancel: the Mac may have it).
+    nonisolated static func deliveryFailure(_ error: any Error) -> TaskDeliveryFailure {
+        let reason = AcpmuxSessionSource.message(error)
+        if let link = error as? LinkError, link.code == "offline" { return .notSent(reason) }
+        if error is AcpmuxConnection.RPCError { return .refused(reason) }
+        return .uncertain(reason)
     }
 
     /// ACP content for a task, as the chat's own Send builds it (``AcpmuxSessionSource/promptBlocks``):

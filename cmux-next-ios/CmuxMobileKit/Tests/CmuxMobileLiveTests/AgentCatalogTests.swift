@@ -1,5 +1,6 @@
 import CmuxMobileAgentChat
 import CmuxMobileModel
+import CmuxMobileTransport
 import Foundation
 import Testing
 @testable import CmuxMobileLive
@@ -271,5 +272,15 @@ import Testing
         #expect(blocks[0]["type"]?.stringValue == "text" && blocks[0]["text"]?.stringValue == "Match this")
         #expect(blocks[1]["type"]?.stringValue == "image" && blocks[1]["mimeType"]?.stringValue == "image/png")
         #expect(blocks[1]["data"]?.stringValue == png.data.base64EncodedString())
+    }
+}
+
+/// What a failed first send means (fourth verifier: a write failure or a cancel read as the
+/// agent's refusal): only acpmux's RPC error is the agent's answer.
+@Suite struct TaskDeliveryFailureTests {
+    @Test func onlyTheAgentsAnswerIsARefusal() {
+        if case .notSent = LiveWorkspaceCreationBackend.deliveryFailure(LinkError(code: "offline", message: "x")) {} else { Issue.record("offline") }
+        if case .uncertain = LiveWorkspaceCreationBackend.deliveryFailure(LinkError(code: "timeout", message: "x")) {} else { Issue.record("timeout") }
+        if case .uncertain = LiveWorkspaceCreationBackend.deliveryFailure(CancellationError()) {} else { Issue.record("cancel") }
     }
 }

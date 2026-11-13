@@ -213,6 +213,10 @@ public final class AgentChatStore {
     /// turns yet the chat shows a loading state, never the empty new-chat screen; with turns it
     /// shows them (kept from before) and says it is updating.
     public private(set) var isLoadingHistory = false
+    /// The first message this phone is sending has not shown in the transcript yet (New Task):
+    /// the chat still says it is starting. Read live: the source's note goes once the send ends.
+    public var awaitsFirstPrompt: Bool { !hasTurns && source.awaitsFirstPrompt }
+
     /// The Mac is starting this chat (``AgentSessionSource/isStarting`` when the store was made):
     /// read once, so its loading state says so until the history comes, whatever the source
     /// notes meanwhile (the hub forgets a started session when its history attaches).

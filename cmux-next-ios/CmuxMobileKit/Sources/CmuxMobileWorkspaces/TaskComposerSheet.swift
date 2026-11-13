@@ -32,7 +32,9 @@ struct TaskComposerSheet: View {
         case failed(String)
     }
 
-    private var draft: TaskDraft { creator.taskDraft }
+    /// What Start sent, shown while the sheet closes (the composer's draft is cleared at once).
+    @State private var sent: TaskDraft?
+    private var draft: TaskDraft { sent ?? creator.taskDraft }
     private var mac: MacDevice? { creator.taskMac(for: draft) }
     private var folders: [String] { mac.map { creator.taskFolders(on: $0.id) } ?? [] }
     private var folder: String? { mac.flatMap { creator.taskFolder(for: draft, on: $0.id) } }
@@ -112,7 +114,7 @@ struct TaskComposerSheet: View {
 
     private var promptSection: some View {
         Section {
-            TextField("Describe the task…", text: $creator.taskDraft.prompt, axis: .vertical)
+            TextField("Describe the task…", text: field(\.prompt), axis: .vertical)
                 .lineLimit(4...12)
                 .focused($promptFocused)
                 .accessibilityIdentifier("taskComposer.prompt")
@@ -307,7 +309,7 @@ struct TaskComposerSheet: View {
                 }
                 .accessibilityIdentifier("taskComposer.folder")
             }
-            TextField(text: $creator.taskDraft.name, prompt: Text(draft.title)) {
+            TextField(text: field(\.name), prompt: Text(draft.title)) {
                 Label("Name", systemImage: "character.cursor.ibeam")
             }
             .textInputAutocapitalization(.never)
@@ -355,6 +357,11 @@ struct TaskComposerSheet: View {
         creator.taskDraft.picks = picks
     }
 
+    /// A text field of the draft: reads what the sheet shows, writes the composer's draft.
+    private func field(_ key: WritableKeyPath<TaskDraft, String>) -> Binding<String> {
+        Binding(get: { draft[keyPath: key] }, set: { if sent == nil { creator.taskDraft[keyPath: key] = $0 } })
+    }
+
     private func remove(_ image: TaskImage) {
         creator.taskDraft.images.removeAll { $0.id == image.id }
     }
@@ -371,8 +378,10 @@ struct TaskComposerSheet: View {
             if pick.model == nil, let harness = catalog.harness(pick.harness) { pick.model = Self.defaultModel(harness, catalog) }
             return pick
         }
+        sent = draft
         let made = creator.startTask(task)
         guard !made.isEmpty else {
+            sent = nil
             theme.haptics.warning()
             return
         }

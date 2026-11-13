@@ -36,6 +36,12 @@ public final class AcpmuxHub {
 
     func forgetStartedHere(_ sessionID: String) { startedHere.removeAll { $0 == sessionID } }
 
+    /// Sessions whose first message this phone is sending (New Task), until that send ends
+    /// (its turn finished, or it failed). Observed: the chat leaves its starting state with it.
+    private(set) var firstPromptsInFlight: Set<String> = []
+    func beginFirstPrompt(_ sessionID: String) { firstPromptsInFlight.insert(sessionID) }
+    func endFirstPrompt(_ sessionID: String) { firstPromptsInFlight.remove(sessionID) }
+
     /// Notes a session this phone started (`session/new`); the newest 32 are kept.
     func noteStartedHere(_ sessionID: String) {
         startedHere.removeAll { $0 == sessionID }
@@ -506,6 +512,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     private var attached = false
     /// The phone started this session moments ago (``AcpmuxHub/noteStartedHere(_:)``).
     public var isStarting: Bool { hub?.startedHere.contains(sessionID) == true }
+    public var awaitsFirstPrompt: Bool { hub?.firstPromptsInFlight.contains(sessionID) == true }
     private var attaching = false
     /// Records that arrive while attaching are applied after the attach page.
     private var held: [JSONValue] = []

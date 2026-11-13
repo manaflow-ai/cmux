@@ -575,8 +575,9 @@ struct AgentChatEmptyState: View {
     let store: AgentChatStore
 
     var body: some View {
-        if store.isLoadingHistory, !store.hasTurns {
-            // An existing chat whose history is on its way: never the new-chat prompt.
+        if store.isLoadingHistory && !store.hasTurns || store.awaitsFirstPrompt {
+            // An existing chat whose history is on its way, or a new one whose first message
+            // (New Task's) is on its way: never the new-chat prompt.
             AgentChatLoadingState(store: store)
         } else if store.isNewChat {
             VStack(spacing: 12) {
@@ -608,7 +609,7 @@ struct AgentChatLoadingState: View {
             CmuxSpinner()
             Text(store.summary.status == .disconnected
                  ? "Connecting to \(store.summary.macName)…"
-                 : store.isStarting ? Self.startingText(store.summary) : "Loading chat…")
+                 : store.isStarting || store.awaitsFirstPrompt ? Self.startingText(store.summary) : "Loading chat…")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
