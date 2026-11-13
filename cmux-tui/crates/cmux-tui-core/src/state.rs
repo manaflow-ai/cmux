@@ -96,6 +96,8 @@ mod mixed_order_tests;
 #[cfg(test)]
 mod new_group_top_tests;
 #[cfg(test)]
+mod new_workspace_default_top_tests;
+#[cfg(test)]
 mod new_workspace_top_tests;
 pub(crate) mod palette_usage;
 pub(crate) mod palette_usage_ops;
@@ -114,6 +116,8 @@ pub(crate) mod project_watch;
 pub(crate) mod projects;
 pub(crate) mod projects_ops;
 pub(crate) mod projects_store;
+#[cfg(test)]
+mod remote_adopt_top_tests;
 pub(crate) mod remote_terminal_tabs;
 pub(crate) mod remote_terminal_tabs_store;
 #[cfg(test)]
