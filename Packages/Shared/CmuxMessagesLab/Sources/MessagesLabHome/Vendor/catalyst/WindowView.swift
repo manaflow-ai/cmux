@@ -432,9 +432,13 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     @discardableResult private func rowsForScale() -> Bool {
         let derived: [RowSpec] = model.rows.compactMap { $0.ghost ? nil : $0.spec }
         let near = messagesNearViewport(margin: 2 * cvHeight)
-        let width = derived.first?.width ?? bounds.width
-        let measured = RowBuilder.rewidth(derived, messages: store.state.conversation.messages, width: width, exact: near,
-                                          scale: renderScale) ?? derived
+        // cmux: the width this view's rows were derived for (`rowsWidth`), not the first row's: after a width pass near
+        // the viewport the first row can be at an older width (`staleWidthRows`), and every row, the ones on screen
+        // too, then came out at that older width.
+        let width = rowsWidth > 0 ? rowsWidth : (derived.first?.width ?? bounds.width)
+        let rewidthed = RowBuilder.rewidth(derived, messages: store.state.conversation.messages, width: width, exact: near,
+                                           scale: renderScale)
+        let measured = rewidthed ?? derived
         var changed = measured != derived
         let specs: [RowSpec] = measured.map { r in
             guard case let .threadPreview(pv) = r.kind, r.height != pv.height(scale: renderScale) else { return r }
@@ -449,6 +453,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         widthDerived = nil
         let anchor = visibleAnchor()
         model.set(specs, at: clock(), ghosts: true)
+        if rewidthed != nil { staleWidthRows = false } // cmux: every row was measured again, at this view's width
         collection.reloadData()
         _ = layout.rebaseIfNeeded(force: true)
         layout.invalidateLayout()
@@ -658,7 +663,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             // cmux: and with no fading row the pass measures only the rows near the viewport (`widthPassNearViewport`),
             // whatever the state: it runs now too.
             if widthChanged, !captureMode, widthFrameScheduler != nil, widthPassInFrame, bounds.width > rowsWidth,
-               widthPassCostInFrame >= MessagesWindowView.widthPassFrameBudget, model.hasGhosts, !widthRowsCheap(store.state) {
+               widthPassCostInFrame >= MessagesWindowView.widthPassFrameBudget, model.hasGhosts || widthPassNearRefused /* cmux */, !widthRowsCheap(store.state) {
                 MessagesWindowView.widthPassesDeferred += 1
                 widthPassPending = true
             } else {
@@ -678,6 +683,9 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         _ = layout.rebaseIfNeeded(force: true)
         layout.invalidateLayout()
         restore(anchor, widthPass: ranWidthPass)
+        // cmux: one large step to a wider pane (the rows the pass measured became so much shorter that others came in),
+        // or a taller view at the same width before the width rests: no row in reach stays at an older width.
+        measureStaleRowsInReach(anchor: anchor, passRan: ranWidthPass)
         RowCell.flushReflow()
         // The frame's pass cost: the pass and the layout, restore and bitmap reflow it caused.
         if let t0 = passStart { if widthPassInFrame { widthPassCostInFrame += CACurrentMediaTime() - t0 }; passStart = nil }
@@ -723,6 +731,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         _ = layout.rebaseIfNeeded(force: true)
         layout.invalidateLayout()
         restore(anchor, widthPass: true)
+        measureStaleRowsInReach(anchor: anchor, passRan: true) // cmux
         RowCell.flushReflow()
         widthPassCostInFrame = CACurrentMediaTime() - t0
         onWidthPass()
@@ -732,7 +741,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     var onWidthPass: () -> Void = {}
 
     /// The transcript's rows at the current width.
-    private func widthPass(changed widthChanged: Bool) {
+    /// cmux: `everyRow`: not the pass near the viewport (`measureStaleRowsInReach`'s second pass).
+    private func widthPass(changed widthChanged: Bool, everyRow: Bool = false) {
         MessagesWindowView.widthPasses += 1
         ownWidthPasses += 1
         rowsWidth = bounds.width
@@ -746,9 +756,12 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         if widthChanged { RowCell.beginReflow() }
         // cmux: a width change measures the rows near the viewport only; the pass below (every loaded row) is for a
         // first layout and for a model with fading rows.
-        if widthChanged, widthPassNearViewport(st) { return }
+        if widthChanged, !everyRow {
+            widthPassNearRefused = !widthPassNearViewport(st)
+            if !widthPassNearRefused { return }
+        }
         staleWidthRows = false // cmux: the pass below sets every row
-        let near = widthChanged ? messagesNearViewport(margin: 2 * cvHeight) : nil
+        let near = widthChanged ? messagesNearViewport(margin: 2 * cvHeight) : nil // cmux: moved below the pass near the viewport
         // The near messages are measured on all cores first (MeasureCache is thread safe, as
         // measureWindow's off-main pass relies on): the row derivation below then finds them
         // in the cache. On main they were the largest part of each divider-drag step.
@@ -839,24 +852,52 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         return places
     }
 
-    /// cmux: after a scroll, while rows outside the last width pass's reach are at an older width
-    /// (`staleWidthRows`): the rows now within two screens of the viewport are measured at this width, and the first
-    /// visible row keeps its place. Nothing when each of them is at this width already.
+    /// cmux: the last pass near the viewport was refused (a row there names no loaded message: my bubble before the
+    /// store has it), so the pass over every loaded row ran. Such a pass waits for the frame's tick as before
+    /// cmux#42345 (`layoutSubviews`), like the pass of a model with a fading row.
+    private var widthPassNearRefused = false
+
+    /// cmux: after a scroll, or an action that moved the transcript (a send from a scrolled-up Home goes to its
+    /// newest row), while rows outside the last width pass's reach are at an older width (`staleWidthRows`): the rows
+    /// near the viewport are measured at this width. Scrolled up, the first visible row keeps its place; at the
+    /// newest row the transcript stays there.
     private func remeasureStaleRows() {
-        guard staleWidthRows, rowsWidth == bounds.width, model.count > 0 else { return }
-        let y = collection.contentOffset.y - layout.rowsTop, margin = 2 * cvHeight
-        let span = model.range(y - margin, y + cvHeight + margin)
-        guard model.rows.slice(span.lowerBound, span.upperBound).contains(where: { $0.spec.width != rowsWidth }) else { return }
-        let anchor = visibleAnchor()
-        RowCell.beginReflow()
-        let measured = widthPassNearViewport(store.state)
-        if measured {
+        guard staleRowsInReach(), measureStaleRowsInReach(anchor: visibleAnchor()) else { return }
+        RowCell.flushReflow()
+        lastScrollOffset = collection.contentOffset.y
+        onWidthPass()
+    }
+
+    /// cmux: a row at an older width never shows. Called after each write of the offset and each size change while
+    /// `staleWidthRows` is set. When a row in reach (`staleRowsInReach`) is at an older width: first the pass near
+    /// the viewport as it is now (`passRan`: the caller's pass of this turn did that already, for the viewport and
+    /// the heights of before it); then, when a row in reach is still at an older width (the measured rows became so
+    /// much shorter that others came in: one large step to a wider pane), the pass over every loaded row, which is
+    /// the pass of before cmux#42345. With a fading row in the model the first pass is that one already. `anchor`
+    /// keeps its place (nil: the newest row). True when a pass ran; the caller ends the reflow (`RowCell.flushReflow`).
+    @discardableResult private func measureStaleRowsInReach(anchor: (key: String, y: CGFloat)?, passRan: Bool = false) -> Bool {
+        guard staleRowsInReach() else { return false }
+        for everyRow in passRan ? [true] : [false, true] {
+            widthPass(changed: true, everyRow: everyRow)
             _ = layout.rebaseIfNeeded(force: true)
             layout.invalidateLayout()
             restore(anchor, widthPass: true)
+            guard staleRowsInReach() else { break }
         }
-        RowCell.flushReflow()
-        if measured { lastScrollOffset = collection.contentOffset.y; onWidthPass() }
+        return true
+    }
+
+    /// cmux: a row where the list holds cells is at an older width than this view's rows (`staleWidthRows`, then a
+    /// read of those rows only). The reach is one screen above and below the viewport (the scroll prefetcher's lead
+    /// is at most a screen, Recycler.swift) or the recycler's overscan of a slide when that is more. A pass near the
+    /// viewport measures two screens each way, so in a drag the pass of one frame does not ask for a second one.
+    private func staleRowsInReach() -> Bool {
+        guard staleWidthRows, rowsWidth == bounds.width, model.count > 0 else { return false }
+        let recycler = collection as? RowRecycler
+        let reach = max(cvHeight, recycler?.overscanTop ?? 0, recycler?.overscanBottom ?? 0)
+        let y = collection.contentOffset.y - layout.rowsTop
+        let span = model.range(y - reach, y + cvHeight + reach)
+        return model.rows.slice(span.lowerBound, span.upperBound).contains { !$0.ghost && $0.spec.width != rowsWidth }
     }
 
     /// The last rows derived for a width change and what they were derived from. The messages
@@ -1138,6 +1179,9 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     }
     func commit(_ action: Action, at t: Double, old: AppState, new state: AppState) {
         if case .setScroll = action { return }
+        // cmux: last of all (after the flags of this commit are off): an action that moved the transcript to rows a
+        // width pass near the viewport did not reach (a send from a scrolled-up Home, before the width rests).
+        defer { remeasureStaleRows() }
         // Ask 11: the final message takes its streaming bubble's rows before the rows are compared (HostHooks.swift).
         if case let .streamEnd(id, m?) = action { renameStreamRows(StreamBubble.messageID(id), to: m.id) }
         defer { hostSelectionAfter(action) } // HostHooks.swift (ask 10): nothing runs without the hook but an id compare
@@ -2456,6 +2500,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         refreshVisibleCells()
         updateThumb()
         CATransaction.commit()
+        remeasureStaleRows() // cmux: the newest rows, when the last width pass was near a viewport far from them
     }
 
     /// Show message `index` of the window under the header.
