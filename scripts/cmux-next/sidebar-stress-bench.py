@@ -24,7 +24,7 @@ Traces go to OUT/traces/*.trace; OUT/results.json holds every number and the top
 Usage (nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA):
   sidebar-stress-bench.py --app "$NX_APP" --tag "$NX_APP_TAG" --out "$NX_ARTIFACTS/stress" [--sizes 100,500,1000]
 """
-import argparse, glob, json, math, os, shutil, socket, statistics, subprocess, sys, tempfile, time
+import argparse, glob, json, math, os, re, shutil, socket, statistics, subprocess, sys, tempfile, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -528,6 +528,30 @@ def scenario_switch(pid, size, count=24):
     return {"clicks": count, "click_to_idle_ms": percentiles(lat), "noop_rpc_ms": noop_ms(), "frames": stats,
             "selected_after": selected[:3], "trace": os.path.relpath(tr.path, OUT), "profile": main_thread_profile(tr.path)}
 
+
+def switch_target(name):
+    """Makes the workspace `name` and gives its id. The CLI prints what it made as a record (rows of `key value`),
+    never a bare id: the id is the record's `value.workspace_id` row, as tab-switch-matrix.py reads it. The whole
+    record went to the app as the id before (2026-10-21 to 2026-11-13), and every call that named it answered
+    `not_found`. The id is given when the app lists the workspace: the CLI's answer can come before that."""
+    done = cli("workspace", "create", "--name", name)
+    found = re.search(r"value\.workspace_id\s+(\S+)", done.stdout)
+    if not found:
+        sys.exit(f"switch matrix: `workspace create --name {name}` gave no value.workspace_id: {(done.stdout + done.stderr).strip()[-300:]}")
+    ref = found.group(1)
+    if not wait(lambda: any(w.get("id") == ref for w in topology().get("workspaces") or []), 30):
+        sys.exit(f"switch matrix: the app does not list workspace {name} ({ref}) 30 s after the CLI made it")
+    return ref
+
+
+def accepted(what, reply):
+    """`reply` to a call that sets up a measured cell (select a workspace, open its page, move its row). An error
+    answer stops the run with that answer: the cell would measure another workspace under this cell's name."""
+    if isinstance(reply, dict) and reply.get("error"):
+        sys.exit(f"switch matrix: {what}: the app answered {json.dumps(reply['error'], default=str)[:400]}")
+    return reply
+
+
 def switch_targets():
     """Two terminal and two Chromium workspaces at the top of the sidebar (Cmd-1..4), made once:
     positions 1-2 Chromium (a page each), 3-4 terminal (a shell each)."""
@@ -535,21 +559,19 @@ def switch_targets():
         return made["switch_targets"]
     refs = {}
     for name in ("sw term b", "sw term a"):
-        refs[name] = cli("workspace", "create", "--name", name).stdout.strip() or name
+        refs[name] = switch_target(name)
     for index, name in enumerate(("sw chromium b", "sw chromium a")):
-        refs[name] = cli("workspace", "create", "--name", name).stdout.strip() or name
+        refs[name] = switch_target(name)
         path = os.path.join(SCRATCH, f"switch-page-{index}.html")
         open(path, "w").write("<!doctype html><title>p</title><body style='font:14px system-ui'>" +
                               "".join(f"<p>row {i} <b>bold</b> <code>code</code></p>" for i in range(400)) + "</body>")
-        action("goToWorkspace", {"workspace": refs[name]}, focus=True)
+        accepted(f"goToWorkspace {name}", action("goToWorkspace", {"workspace": refs[name]}, focus=True))
         time.sleep(0.5)
-        reply = action("openBrowser.chromium", {"url": "file://" + path}, focus=True)
-        if isinstance(reply, dict) and reply.get("error"):
-            note(f"switch matrix: openBrowser.chromium: {reply['error']}")
+        accepted(f"openBrowser.chromium in {name}", action("openBrowser.chromium", {"url": "file://" + path}, focus=True))
         time.sleep(2)
     # Move to top in reverse so the order is chromium a, chromium b, term a, term b.
     for name in ("sw term b", "sw term a", "sw chromium b", "sw chromium a"):
-        action("palette.moveWorkspaceToTop", target={"kind": "workspace", "id": refs[name]})
+        accepted(f"palette.moveWorkspaceToTop {name}", action("palette.moveWorkspaceToTop", target={"kind": "workspace", "id": refs[name]}))
         time.sleep(0.3)
     made["switch_targets"] = refs
     time.sleep(2)
@@ -582,7 +604,10 @@ def scenario_switch_matrix(pid, size):
     for kind, (a, b, first) in pairs.items():
         for how in ("click", "cmd_digit", "next_prev"):
             lat, longest, wrong = [], [], 0
-            action("goToWorkspace", {"workspace": refs[a]}, focus=True)
+            selected = action("goToWorkspace", {"workspace": refs[a]}, focus=True)
+            if isinstance(selected, dict) and selected.get("error"):
+                tr.__exit__(None, None, None)  # the recorder ends before the run stops
+            accepted(f"{kind} {how}: goToWorkspace {a}", selected)
             time.sleep(0.6)
             if timed:
                 rpc("debug.workspace_switch", {"action": "start"})
