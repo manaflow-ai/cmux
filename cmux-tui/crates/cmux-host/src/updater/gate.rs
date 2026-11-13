@@ -25,6 +25,16 @@
 //! spare refresh) skips a resume hold ([`Honor::AllButResume`]); a file from
 //! before the kinds reads as connect holds only.
 //!
+//! An update's flip also leaves an own-flip mark in the file
+//! ([`Inside::flip_restart_queued`]): when it was queued, and
+//! `realtime - boottime` then. The restarted service's updater takes it once
+//! at its start ([`Gate::take_own_flip`]) and, when it is that restart, takes
+//! no start hold: the machine is the one that just flipped, neither new nor
+//! claimed, and a bind or new carrier session still takes its own connect
+//! hold. A mark older than [`RESTART_PENDING_FOR`], from the future, or from
+//! before a reboot or a snapshot restore (`realtime - boottime` moved) is no
+//! such restart, and the start holds as a cold start does.
+//!
 //! When the files can't be opened (not root, no state dir) the gate runs
 //! without them, as it must on a machine without the updater.
 
@@ -36,12 +46,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::Paths;
 
-/// No flip or restart this long after the role starts (a boot or an update's
-/// restart), a bind or a resume: a new or claimed machine's first link comes
-/// up then, and a restart kills it before its hello (nightly 8d8fc7a,
-/// 2026-11-06: a spare claimed at 21:28:35 restarted at 21:28:41 and its
-/// first dial never came back). Past it, a chat that started holds the update
-/// as busy, so the update waits for an idle machine.
+/// No flip or restart this long after the role starts (a boot, or a restart
+/// that is not the one an update's own flip queued: [`Gate::take_own_flip`]),
+/// a bind or a resume: a new or claimed machine's first link comes up then,
+/// and a restart kills it before its hello (nightly 8d8fc7a, 2026-11-06: a
+/// spare claimed at 21:28:35 restarted at 21:28:41 and its first dial never
+/// came back). Past it, a chat that started holds the update as busy, so the
+/// update waits for an idle machine.
 pub const CONNECT_HOLD: Duration = Duration::from_secs(5 * 60);
 /// How long a queued restart of the service may stay pending.
 pub const RESTART_PENDING_FOR: Duration = Duration::from_secs(120);
@@ -62,6 +73,18 @@ struct GateState {
     connect_until_ms: Option<u64>,
     #[serde(default)]
     restart_pending_until_ms: Option<u64>,
+    /// The last update flip's mark, until the next start takes it. A build
+    /// from before it drops it when it writes the file: a cold start then.
+    #[serde(default)]
+    own_flip: Option<OwnFlip>,
+}
+
+/// An update's flip queued the service's restart at `at_ms`, with
+/// `realtime - boottime` at `offset_ns` (a reboot or a restore moves it).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct OwnFlip {
+    at_ms: u64,
+    offset_ns: i64,
 }
 
 impl GateState {
@@ -82,8 +105,8 @@ impl GateState {
 /// What started a connect hold.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HoldKind {
-    /// The machine's own wake: the role's start (a boot or an update's
-    /// restart), a resume or a snapshot restore. A person's link may follow,
+    /// The machine's own wake: the role's start (a boot, or a restart other
+    /// than the own flip's), a resume or a snapshot restore. A person's link may follow,
     /// and it takes its own connect hold (a bind, a new carrier session).
     Resume,
     /// A person's link coming up: a bind, a `Bound` or a new carrier session.
@@ -142,9 +165,15 @@ impl Inside<'_> {
         let _ = self.gate.write(&state);
     }
 
-    /// [`Inside::restart_queued`] for an update's flip (red: no mark yet).
-    pub fn flip_restart_queued(&self, now_ms: u64, _offset_ns: i128) {
-        self.restart_queued(now_ms);
+    /// [`Inside::restart_queued`] for an update's flip, which also marks the
+    /// restart as this updater's own ([`Gate::take_own_flip`]); `offset_ns`
+    /// is `realtime - boottime` now. A rollback's restart leaves no mark.
+    pub fn flip_restart_queued(&self, now_ms: u64, offset_ns: i128) {
+        let mut state = self.gate.read();
+        state.restart_pending_until_ms = Some(now_ms.saturating_add(ms(RESTART_PENDING_FOR)));
+        state.own_flip =
+            i64::try_from(offset_ns).ok().map(|offset_ns| OwnFlip { at_ms: now_ms, offset_ns });
+        let _ = self.gate.write(&state);
     }
 
     /// Starts or extends a connect hold under the flock already held (a new
@@ -264,6 +293,24 @@ impl Gate {
             Honor::Nothing => {}
         }
         Ok(act(&Inside { gate: self, skipped }))
+    }
+
+    /// Takes the own-flip mark ([`Inside::flip_restart_queued`]), so only one
+    /// start ever reads it: whether this start, at `now_ms` with
+    /// `realtime - boottime` at `offset_ns`, is the restart an update's flip
+    /// queued at most [`RESTART_PENDING_FOR`] ago, with no reboot or restore
+    /// since. Anything else (no mark, an old one, one from the future, a
+    /// moved offset, a mark this start can't remove) is a cold start.
+    pub fn take_own_flip(&self, now_ms: u64, offset_ns: i128) -> bool {
+        let _lock = self.lock();
+        let mut state = self.read();
+        let Some(mark) = state.own_flip.take() else { return false };
+        if self.write(&state).is_err() {
+            return false;
+        }
+        let age = now_ms.checked_sub(mark.at_ms);
+        age.is_some_and(|age| age <= ms(RESTART_PENDING_FOR))
+            && !super::role::restored_between(Some(i128::from(mark.offset_ns)), offset_ns)
     }
 
     /// The service started: no restart of it is pending any more.
