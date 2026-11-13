@@ -412,10 +412,7 @@ impl WorkspaceRegistry {
     /// (a shared borrow): a fold that is behind the journal still holds the workspace whole,
     /// because each record that it has yet to fold states its own values. A commit path may
     /// read this; it does not read the `complete` flag.
-    pub(crate) fn workspace_is_whole(
-        &self,
-        workspace: &crate::resource::WorkspacePublicId,
-    ) -> bool {
+    pub(crate) fn workspace_is_whole(&self, workspace: &WorkspacePublicId) -> bool {
         self.public_fold.as_ref().is_some_and(|fold| fold.whole.contains(workspace.as_str()))
     }
 
@@ -427,7 +424,7 @@ impl WorkspaceRegistry {
     pub(crate) fn mark_workspaces_whole(
         &mut self,
         revision: u64,
-        workspaces: &[crate::resource::WorkspacePublicId],
+        workspaces: &[WorkspacePublicId],
     ) {
         if workspaces.is_empty() {
             return;
