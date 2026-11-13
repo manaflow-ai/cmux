@@ -40,17 +40,17 @@ await requireBrowserLane("hover-time-placement.browser.test.ts", async () => {
           const port = (vite.httpServer!.address() as { port: number }).port;
           await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { variant, width, height: 620 })}`);
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-          await page.locator(".cv-worked").first().hover();
+          await page.locator(".cv-worked-row .cv-worked").first().hover();
           await page.waitForFunction(
             () => {
-              const time = document.querySelector(".cv-turn-time");
+              const time = document.querySelector(".cv-worked-row .cv-turn-time");
               return time && getComputedStyle(time).opacity === "1";
             },
             undefined,
             { timeout: 5_000 },
           );
           const geometry = await page.evaluate(() => {
-            const worked = document.querySelector(".cv-worked")!;
+            const worked = document.querySelector(".cv-worked-row .cv-worked")!;
             const box = (node: Element) => {
               const r = node.getBoundingClientRect();
               return { x: r.x, y: r.y, right: r.right, bottom: r.bottom, width: r.width, height: r.height };
@@ -75,8 +75,8 @@ await requireBrowserLane("hover-time-placement.browser.test.ts", async () => {
           expect(time.bottom).toBeLessThanOrEqual(geometry.row.bottom);
           expect(time.bottom).toBeLessThan(geometry.next.y);
           expect(time.right).toBeLessThanOrEqual(width);
-          await page.locator(".cv-worked").first().click();
-          expect(await page.locator(".cv-worked").first().getAttribute("aria-expanded")).toBe("true");
+          await page.locator(".cv-worked-row .cv-worked").first().click();
+          expect(await page.locator(".cv-worked-row .cv-worked").first().getAttribute("aria-expanded")).toBe("true");
           const expanded = await page.locator(".cv-worked-row .cv-turn-time").boundingBox();
           expect(expanded!.x).toBe(time.x);
           expect(expanded!.y).toBe(time.y);
