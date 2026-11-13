@@ -108,7 +108,19 @@ public enum MacHomeReply: Equatable, Sendable {
     }
 
     /// A reply line, or the owner's (or the host's) refusal as `LinkError` `refused`.
+    ///
+    /// The whole read runs in an autorelease pool, as each row does (``MacHomeRow/pooled(wire:)``):
+    /// what parsing and bridging the reply leave autoreleased goes when the read returns, not
+    /// when the task that read it ends.
     public init(line: Data) throws {
+        #if canImport(ObjectiveC)
+        self = try autoreleasepool { try Self.parse(line) }
+        #else
+        self = try Self.parse(line)
+        #endif
+    }
+
+    private static func parse(_ line: Data) throws -> MacHomeReply {
         guard let reply = try JSONSerialization.jsonObject(with: line) as? [String: Any] else {
             throw LinkError(code: "bad_reply", message: "bad reply to home-inbox")
         }
@@ -117,7 +129,7 @@ public enum MacHomeReply: Equatable, Sendable {
             let text = (error as? [String: Any])?["message"] as? String ?? error as? String ?? "home-inbox failed"
             throw LinkError(code: "refused", message: text)
         }
-        self.init(homeInbox: reply["data"] as? [String: Any] ?? [:])
+        return MacHomeReply(homeInbox: reply["data"] as? [String: Any] ?? [:])
     }
 
     /// The rows this reply carries, in the owner's order.

@@ -454,7 +454,7 @@ public final class MacHomeFeed {
             }
             wire["pinned"] = index < 4
             wire["pin_position"] = index
-            return MacHomeRow(wire: wire)
+            return MacHomeRow.pooled(wire: wire)
         }, complete: true)
         self.macID = macID
     }
