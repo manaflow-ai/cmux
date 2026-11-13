@@ -24,23 +24,34 @@ pub struct Finding {
 
 /// Reads the `[[package]]` entries of a Cargo.lock (any lock format version).
 pub fn parse_lock(text: &str) -> Vec<Package> {
-    let mut out = Vec::new();
-    let mut current: Option<(Option<String>, Option<String>, Option<String>)> = None;
-    let mut flush = |cur: &mut Option<(Option<String>, Option<String>, Option<String>)>| {
-        if let Some((Some(name), Some(version), source)) = cur.take() {
+    #[derive(Default)]
+    struct Entry {
+        name: Option<String>,
+        version: Option<String>,
+        source: Option<String>,
+    }
+    fn flush(entry: Option<Entry>, out: &mut Vec<Package>) {
+        if let Some(Entry {
+            name: Some(name),
+            version: Some(version),
+            source,
+        }) = entry
+        {
             out.push(Package {
                 name,
                 version,
                 source,
             });
         }
-    };
+    }
+    let mut out = Vec::new();
+    let mut current: Option<Entry> = None;
     for raw in text.lines() {
         let line = raw.trim();
         if line.starts_with('[') {
-            flush(&mut current);
+            flush(current.take(), &mut out);
             if line == "[[package]]" {
-                current = Some((None, None, None));
+                current = Some(Entry::default());
             }
             continue;
         }
@@ -55,13 +66,13 @@ pub fn parse_lock(text: &str) -> Vec<Package> {
             continue;
         };
         match key.trim() {
-            "name" => cur.0 = Some(value.to_string()),
-            "version" => cur.1 = Some(value.to_string()),
-            "source" => cur.2 = Some(value.to_string()),
+            "name" => cur.name = Some(value.to_string()),
+            "version" => cur.version = Some(value.to_string()),
+            "source" => cur.source = Some(value.to_string()),
             _ => {}
         }
     }
-    flush(&mut current);
+    flush(current, &mut out);
     out
 }
 
