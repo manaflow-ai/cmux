@@ -145,6 +145,25 @@ const OWNER_ONLY: libc::c_uint = 0o600;
 #[cfg(unix)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Stamp {
+    meta: Meta,
+    /// The bytes read, hashed. An edit of the same size saved in place within one tick of the
+    /// file system's clock leaves every field of [`Meta`] as it was (Linux dates a write from a
+    /// coarse clock, a few milliseconds a tick), so only the bytes show it.
+    sha256: [u8; 32],
+}
+
+#[cfg(unix)]
+impl Stamp {
+    fn of(st: &libc::stat, bytes: &[u8]) -> Self {
+        use sha2::Digest as _;
+        Self { meta: Meta::of(st), sha256: sha2::Sha256::digest(bytes).into() }
+    }
+}
+
+/// A file's identity, size and modification time.
+#[cfg(unix)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Meta {
     dev: libc::dev_t,
     ino: libc::ino_t,
     size: libc::off_t,
@@ -153,7 +172,7 @@ pub(crate) struct Stamp {
 }
 
 #[cfg(unix)]
-impl Stamp {
+impl Meta {
     fn of(st: &libc::stat) -> Self {
         Self {
             dev: st.st_dev,
@@ -220,7 +239,8 @@ pub(crate) fn read_whole_beneath(
     if u64::try_from(bytes.len()).ok() != Some(size) {
         return Err(format!("{rel} changed while it was read; try again"));
     }
-    Ok(Some((bytes, Stamp::of(&st))))
+    let stamp = Stamp::of(&st, &bytes);
+    Ok(Some((bytes, stamp)))
 }
 
 /// Replaces `rel` beneath `root` with `bytes` all at once (`memory_inbox.rs`): written to a new
@@ -247,8 +267,8 @@ pub(crate) fn replace_beneath(
     let found = unsafe {
         libc::fstatat(dir.as_raw_fd(), name.as_ptr(), &mut st, libc::AT_SYMLINK_NOFOLLOW)
     } == 0;
-    let now = found.then(|| Stamp::of(&st));
-    if now != read {
+    let now = found.then(|| Meta::of(&st));
+    if now != read.map(|read| read.meta) {
         return Err(format!("{rel} changed while it was being edited; try again"));
     }
     let mode = if found {
@@ -301,7 +321,7 @@ pub(crate) fn replace_beneath(
         drop_tmp();
         return Err(format!("{rel}: {e}"));
     }
-    let ours = Stamp::of(&st);
+    let ours = Meta::of(&st);
     #[cfg(test)]
     swap_hook(&name, "before");
     let changed = || format!("{rel} changed while it was being edited; try again");
@@ -315,7 +335,7 @@ pub(crate) fn replace_beneath(
     let at_tmp = |st: &mut libc::stat| {
         // SAFETY: as above.
         (unsafe { libc::fstatat(dirfd, tmp.as_ptr(), st, libc::AT_SYMLINK_NOFOLLOW) } == 0)
-            .then(|| Stamp::of(st))
+            .then(|| Meta::of(st))
     };
     match read {
         // No file was read: made only while there is still none.
@@ -335,7 +355,7 @@ pub(crate) fn replace_beneath(
         // version saved over ours between the two swaps stays under the temporary name.
         Some(read) => match rename(dirfd, &tmp, &name, Rename::Exchange) {
             Ok(()) => {
-                if at_tmp(&mut st) == Some(read) {
+                if swapped_out_is(dirfd, &tmp, &read) {
                     drop_tmp();
                     return Ok(());
                 }
@@ -356,6 +376,43 @@ pub(crate) fn replace_beneath(
             }
         },
     }
+}
+
+/// Whether the file at `tmp` in `dir` (the one a replace swapped out) is still the file as `read`:
+/// the same file, size and time, and the same bytes. Anything it cannot read is not.
+#[cfg(unix)]
+fn swapped_out_is(dir: std::os::fd::RawFd, tmp: &std::ffi::CStr, read: &Stamp) -> bool {
+    use std::os::fd::{AsRawFd as _, FromRawFd as _};
+    // SAFETY: `dir` is open and `tmp` is NUL-terminated; O_NONBLOCK keeps a fifo from blocking.
+    let fd = unsafe {
+        libc::openat(
+            dir,
+            tmp.as_ptr(),
+            libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
+        )
+    };
+    if fd < 0 {
+        return false;
+    }
+    // SAFETY: `fd` was just opened and nothing else owns it.
+    let file = unsafe { std::fs::File::from_raw_fd(fd) };
+    // SAFETY: a zeroed `stat` is a valid out-parameter.
+    let mut st: libc::stat = unsafe { std::mem::zeroed() };
+    // SAFETY: `file` is open and `st` is writable.
+    if unsafe { libc::fstat(file.as_raw_fd(), &mut st) } != 0 || Meta::of(&st) != read.meta {
+        return false;
+    }
+    let size = u64::try_from(st.st_size).unwrap_or(u64::MAX);
+    let mut bytes = Vec::new();
+    if std::io::Read::read_to_end(
+        &mut std::io::Read::take(&file, size.saturating_add(1)),
+        &mut bytes,
+    )
+    .is_err()
+    {
+        return false;
+    }
+    Stamp::of(&st, &bytes) == *read
 }
 
 /// How [`rename`] treats a file already at the new name.

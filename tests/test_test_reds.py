@@ -1833,6 +1833,44 @@ class EscapesEndAtTheirFirstTerminator(unittest.TestCase):
         self.assertEqual(reds.read(text).failed, {"a::new", "a::old"})
 
 
+# Every line boundary str.splitlines() splits on, the one split every log reader uses (log_lines, lines_of,
+# step_owners): written out here, not read from the code under test, so the tests below check the code against it.
+SPLITLINES_BOUNDARIES = ("\n", "\r", "\r\n", "\v", "\f", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029")
+
+
+class EscapesEndAtEveryLineBoundary(unittest.TestCase):
+    r"""The follow-up review of cmux#41390, F1 (test_reds.py:68): "an OSC body runs across a bare \r, so
+    `\x1b]0;title\rtest new ... FAILED\n` loses the failure that log_lines() sees (it uses splitlines()). Cached logs
+    keep raw CRs, and this excuses a head with a new failure. Make plain() end every escape at exactly the line
+    boundaries the reader uses: one shared definition, splitlines' set (\n, \r, \r\n, \v, \f, \x1c-\x1e, \x85, U+2028,
+    U+2029), used by both.\""""
+
+    def test_the_shared_boundaries_are_exactly_what_splitlines_splits_on(self):
+        splits = {chr(point) for point in range(0x110000) if len(f"a{chr(point)}b".splitlines()) == 2}
+        self.assertEqual(splits, {b for b in SPLITLINES_BOUNDARIES if len(b) == 1})
+        self.assertEqual(set(reds.LINE_BOUNDARIES), splits)
+
+    def test_a_title_before_any_boundary_keeps_the_failure_after_it(self):
+        for boundary in SPLITLINES_BOUNDARIES:
+            for title in ("\x1b]0;title", "\x1b]8;;https://example.invalid/x"):
+                with self.subTest(boundary=repr(boundary), title=repr(title)):
+                    text = f"running 1 test\n{title}{boundary}test a::new ... FAILED\ntest result: FAILED. 0 passed; " \
+                           "1 failed; 0 ignored; 0 measured; 0 filtered out\n"
+                    self.assertIn("test a::new ... FAILED", reds.log_lines(reds.plain(text)))
+                    self.assertEqual(len(reds.plain(text).splitlines()), len(text.splitlines()))
+                    self.assertEqual(reds.read(reds.plain(text)).failed, {"a::new"})
+
+    def test_a_new_failure_behind_a_title_and_a_bare_cr_is_the_heads_own(self):
+        # The review's case through the judge: the base fails a::old; the head fails it and a::new, printed after a
+        # title that a bare CR ends. Read raw (as a cached log keeps it), the new failure is the head's own.
+        summary = "test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out"
+        base = log("running 2 tests", "test a::old ... FAILED", summary.replace("2 failed", "1 failed"))
+        head = log("running 2 tests", "test a::old ... FAILED", "\x1b]0;title\rtest a::new ... FAILED", summary)
+        verdict = reds.classify(reds.plain(head), reds.plain(base), "cargo test", "feat-cmux-next run 1")
+        self.assertTrue(verdict.own, verdict.reasons)
+        self.assertIn("a::new", " ".join(verdict.reasons))
+
+
 class BunFileOwnershipStaysInItsStep(unittest.TestCase):
     """cmux#41382's review F2 (test_reds.py:806): "The fallback takes file ownership from earlier steps. A passing
     a.test.ts in step 1 plus a headerless failure and FAIL a.test.ts in step 2 creates a spurious unnamed failure, so
@@ -1859,6 +1897,25 @@ class BunFileOwnershipStaysInItsStep(unittest.TestCase):
         found = reds.read(job)
         self.assertEqual(found.unnamed, ["FAIL test/a.test.ts (exit 1)"])
         self.assertEqual([r for r in found.records if r[2] == "unnamed"], [(2, 1, "unnamed", "FAIL test/a.test.ts (exit 1)")])
+
+    def test_a_headerless_failure_and_its_fail_line_in_one_step_are_that_steps_named_failure(self):
+        # dep-fleet-6: "Add a headerless same-step FAIL row": the step's `(fail)` names the failure its own `FAIL file`
+        # closes, so the failure is that step's, named, and the marker is no unnamed failure.
+        job = log(*step("bun one"), *self.HEADERLESS, self.ERROR)
+        found = reds.read(job)
+        self.assertEqual((found.failed, found.unnamed, found.truncated), ({"a > bad"}, [], []))
+        self.assertEqual(found.records, [(1, 1, "failed", "a > bad")])
+        self.assertFalse(reds.classify(job, job, "web / tests").own)
+
+    def test_a_passing_step_then_a_headerless_failure_and_its_fail_line_in_the_next(self):
+        # The mirror: the earlier step passed (no `##[error]`, the next step followed), so none of its lines are read,
+        # and the next step's headerless failure is its own and named.
+        job = log(*step("bun one"), *self.PASSING_RUN, *step("bun two"), *self.HEADERLESS, self.ERROR)
+        found = reds.read(job)
+        self.assertEqual((found.failed, found.unnamed, found.truncated), ({"a > bad"}, [], []))
+        self.assertEqual(found.records, [(1, 1, "failed", "a > bad")])
+        self.assertEqual(reds.red_steps(job)[1:], [reds.lines_of(log(*self.HEADERLESS, self.ERROR))])
+        self.assertFalse(reds.classify(job, job, "web / tests").own)
 
 
 def growth(call, small, large, repeats=3, min_seconds=0.005):
@@ -1917,6 +1974,7 @@ def rewrite_case(seed: int) -> dict:
     expected_unnamed: list[list] = []
     failure_lines: list[str] = []
     never: set = set()
+    shapes: list[str] = []  # each step's: "passed", or its bun kind ("headerless" when a run of it printed no header)
     ERROR = "##[error]Process completed with exit code 1."
 
     def noisy(text: str) -> str:
@@ -1939,10 +1997,18 @@ def rewrite_case(seed: int) -> dict:
         closing = None
         for text in lines:
             made += noise_lines()
+            if rng.random() < 0.2:
+                # An escape the line's own text follows across a line boundary, any of splitlines' (a bare CR from a
+                # progress bar, a form feed, U+2028, ...): the reader splits there, so the line after it is the log's.
+                opener = rng.choice(("\x1b]0;title", "\x1b]0;title\x07", "\x1b]8;;https://example.invalid/x",
+                                     "\x1b[31m", ""))
+                before = opener + rng.choice(SPLITLINES_BOUNDARIES)
+            else:
+                before = ""
             if closing is None and rng.random() < 0.15:
                 made.append("\x1b]0;opening title")
                 closing = rng.randint(1, 3)
-            made.append(noisy(text))
+            made.append(before + noisy(text))
             if closing is not None:
                 closing -= 1
                 if closing == 0:
@@ -1966,6 +2032,7 @@ def rewrite_case(seed: int) -> dict:
                       " 0 pass", " 2 fail"]
             never |= {f"tests::passing_{tag}", f"test/a.test.ts > a > passing_{tag}"}
             out += output(lines)
+            shapes.append("passed")
             continue
         for block in range(rng.randint(1, 3)):
             runner = rng.choice(("cargo", "pytest", "swift"))
@@ -1988,10 +2055,14 @@ def rewrite_case(seed: int) -> dict:
             failure_lines.append(shown)
         # One kind of bun run per step, so which file a `FAIL file` line closes is never ambiguous within the step.
         kind = rng.choice(("none", "named", "named", "pass", "silent"))
+        shapes.append(kind)
         if kind == "named":
             for run in range(rng.randint(1, 2)):
                 title = f"a > {tag}_bun_{run}"
                 headed = rng.random() < 0.5
+                if not headed:
+                    # A headerless failure and the `FAIL file` that closes it, in one step: that step's, named.
+                    shapes[-1] = "headerless"
                 shown = f"(fail) {title} [1.00ms]"
                 lines += ["bun test v1.3.0", *(["test/a.test.ts:"] if headed else []), "error: boom", shown,
                           " 0 pass", " 1 fail", *([] if headed else ["FAIL test/a.test.ts (exit 1)"])]
@@ -2008,7 +2079,7 @@ def rewrite_case(seed: int) -> dict:
         expected_failed.append(names)
         expected_unnamed.append(unnamed)
     return {"raw": log(*out), "failed": expected_failed, "unnamed": expected_unnamed, "lines": failure_lines,
-            "never": never}
+            "never": never, "shapes": shapes}
 
 
 def rewrite_violations(seed: int) -> list[str]:
@@ -2060,6 +2131,13 @@ class LogRewritesKeepEveryFailure(unittest.TestCase):
         for piece in ("\x1b]0;opening title", "\x1b]0;never closed", "\x1b\\", "\x07", "\x1b[31m",
                       "passing_", "FAIL test/a.test.ts", "(pass) a > ok"):
             self.assertIn(piece, raw)
+        for boundary in SPLITLINES_BOUNDARIES:  # an escape ended by each of the reader's line boundaries
+            self.assertIn("\x1b]0;title" + boundary, raw, repr(boundary))
+        # dep-fleet-6's headerless same-step FAIL row, both ways: a step that opens the log with it, and one after a
+        # passing step.
+        shapes = [rewrite_case(seed)["shapes"] for seed in range(200)]
+        self.assertTrue(any(shape[0] == "headerless" for shape in shapes))
+        self.assertTrue(any(("passed", "headerless") == pair for shape in shapes for pair in zip(shape, shape[1:])))
 
 
 class ReadOncePerLog(unittest.TestCase):
