@@ -5616,7 +5616,7 @@ function TranscriptView({
   useEffect(() => () => clearTimeout(olderRecheck.current), []);
   useEffect(() => {
     olderAhead.reset();
-  }, [sessionKey]);
+  }, [olderAhead, sessionKey]);
   // A wheel up with the view already at the loaded rows' top moves nothing, so no scroll event says the reader
   // wants more: it asks itself, unless an ask is still out.
   const onWheel = (event: React.WheelEvent<HTMLDivElement>) => {
