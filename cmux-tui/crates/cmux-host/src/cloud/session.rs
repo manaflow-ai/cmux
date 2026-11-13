@@ -607,6 +607,32 @@ mod tests {
         assert!(s.daemon_identified(&running, 60_000).is_empty(), "reported once");
     }
 
+    /// The lead (2026-11-13): "machine id and updater outcome (seen, held with reason, busy
+    /// with reason, swapped) in sawBuild, so the slow mode gets read instead of inferred." The
+    /// first report after an update's restart carries the updater's swap; a later check that
+    /// finds the same thing makes no report, a new outcome does.
+    #[test]
+    fn the_report_carries_the_updaters_block_and_goes_when_its_outcome_changes() {
+        let baked = DaemonInfo { version: "0.1.0+bbbbbbbbbbbb".into(), capabilities: vec![] };
+        let swapped = json!({"outcome": "swapped", "at": 1_000, "seen_at": 500, "waited": "busy:turn",
+                             "swapped": {"commit": "bbbbbbbbbbbb", "at": 1_000}});
+        let mut s = Session::new("vm_m0000000000000000001", baked, 3_600_000)
+            .with_updater(Some(swapped.clone()));
+        let start = s.start(0);
+        assert_eq!(start.len(), 1);
+        assert_eq!(start[0].params["updater"], swapped);
+        s.answered(&start[0], &ok(), 0, 0.5);
+
+        let mut later = swapped.clone();
+        later["at"] = json!(16_000);
+        assert!(s.updater(Some(later), 20_000).is_empty(), "only its time moved");
+        let current = json!({"outcome": "current", "at": 46_000, "seen_at": 500, "waited": "busy:turn",
+                             "swapped": {"commit": "bbbbbbbbbbbb", "at": 1_000}});
+        let r = s.updater(Some(current.clone()), 50_000);
+        assert_eq!(r.len(), 1, "a new outcome is reported");
+        assert_eq!(r[0].params["updater"], current);
+    }
+
     fn acp_from(daemon: &str, turns: u64) -> String {
         json!({"acp_activity": {"turns": turns, "daemon": daemon}}).to_string()
     }
