@@ -416,10 +416,11 @@ pub fn terminal_chat_toggle(facts: &ToggleFacts) -> TerminalChatToggle {
     }
     // A hand-off ends at its deadline or when its terminal closed: a second
     // Toggle meanwhile must not resume the session twice.
-    if let Some(hand_off) = &facts.hand_off {
-        if facts.now < hand_off.deadline && (hand_off.tab.is_none() || facts.hand_off_open) {
-            return TerminalChatToggle::HandingOff { tab: hand_off.tab.clone() };
-        }
+    if let Some(hand_off) = &facts.hand_off
+        && facts.now < hand_off.deadline
+        && (hand_off.tab.is_none() || facts.hand_off_open)
+    {
+        return TerminalChatToggle::HandingOff { tab: hand_off.tab.clone() };
     }
     if facts.busy {
         return TerminalChatToggle::Busy;

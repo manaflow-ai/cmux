@@ -249,7 +249,7 @@ fn toggle_from_a_chat_shows_its_terminal_or_hands_the_session_to_a_new_one() {
         terminal_chat_toggle(&ToggleFacts { hand_off: Some(stopping.clone()), ..chat.clone() }),
         TerminalChatToggle::HandingOff { tab: None }
     );
-    let open = ToggleFacts { hand_off: Some(handed.clone()), hand_off_open: true, ..chat.clone() };
+    let open = ToggleFacts { hand_off: Some(handed), hand_off_open: true, ..chat.clone() };
     assert_eq!(
         terminal_chat_toggle(&open),
         TerminalChatToggle::HandingOff { tab: Some("t-2".into()) }
