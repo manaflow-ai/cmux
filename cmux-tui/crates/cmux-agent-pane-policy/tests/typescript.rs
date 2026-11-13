@@ -285,13 +285,30 @@ fn the_page_sends_only_known_params() {
         let text = read(&dir, file);
         for call in ["this.request(", "this.typed("] {
             for (at, _) in text.match_indices(call) {
-                let rest = &text[at + call.len()..];
-                let Some(method) = rest.strip_prefix('"').and_then(|body| body.split('"').next())
-                else {
-                    continue;
+                // The formatter puts a long call's method on its own line.
+                let rest = text[at + call.len()..].trim_start();
+                // A literal method, or a constant direct.ts names (`PREWARM_METHOD`, `FORK_OP`, ...).
+                let (method, args) = if let Some(body) = rest.strip_prefix('"') {
+                    let method = body.split('"').next().unwrap_or_default().to_owned();
+                    let args = &body[method.len() + 1..];
+                    (method, args)
+                } else {
+                    let name: String = rest
+                        .chars()
+                        .take_while(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || *c == '_')
+                        .collect();
+                    let Some(method) = (!name.is_empty())
+                        .then(|| {
+                            quoted_after(&direct, &format!("const {name} =")).into_iter().next()
+                        })
+                        .flatten()
+                    else {
+                        continue;
+                    };
+                    (method, &rest[name.len()..])
                 };
-                let args = rest[method.len() + 2..].trim_start();
-                let Some(args) = args.strip_prefix(',') else { continue };
+                let method = method.as_str();
+                let Some(args) = args.trim_start().strip_prefix(',') else { continue };
                 // `file.search` goes to the socket only in mock mode (the allowlist test above).
                 if method == "file.search" || !args.trim_start().starts_with('{') {
                     continue;
