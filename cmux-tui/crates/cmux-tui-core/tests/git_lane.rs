@@ -57,6 +57,14 @@ const WAITING_RUNS: usize = 512;
 /// The equal reads that join one that waits: `git_lane::SHARED_READS`.
 const SHARED_READS: usize = 64;
 
+/// The git child that one `git.status` of a branch runs one time, and no
+/// other read here: the `for-each-ref` of HEAD's branch (`cmux_git::head`).
+/// A `git.status` runs no `git status`.
+const STATUS_RUN: &str = "for-each-ref";
+
+/// The first git child of each git read: the look for the top level.
+const FIRST_RUN: &str = "--show-toplevel";
+
 /// The longest a step of a test waits for something that must come.
 const LONG: Duration = Duration::from_secs(60);
 
@@ -178,6 +186,12 @@ impl Gate {
     fn runs_of(&self, word: &str) -> usize {
         let log = std::fs::read_to_string(self.dir.join("log")).unwrap_or_default();
         log.lines().filter(|line| line.split(' ').any(|argument| argument == word)).count()
+    }
+
+    /// The `git.status` reads of the repository that ran git: each runs one
+    /// [`STATUS_RUN`], which no other read of these tests runs.
+    fn status_runs(&self) -> usize {
+        self.runs_of(STATUS_RUN)
     }
 
     /// Waits until a git run waits at the gate.
@@ -643,11 +657,11 @@ fn git_lane_equal_queued_reads_share_one_git_run() {
         assert_eq!(reply["ok"], true, "the held read {id} failed: {reply}");
     }
     eprintln!(
-        "git-lane: 5 equal git.status that waited: {} git status runs",
-        gate.runs_of("status")
+        "git-lane: 5 equal git.status that waited: {} runs of git for them",
+        gate.status_runs()
     );
     assert!(results.iter().all(|result| result == &results[0]), "{results:?}");
-    assert_eq!(gate.runs_of("status"), 1, "git status runs for 5 equal reads that waited");
+    assert_eq!(gate.status_runs(), 1, "runs of git for 5 equal git.status that waited");
 }
 
 /// One run takes a bounded count of equal reads: [`SHARED_READS`] join the
@@ -684,16 +698,16 @@ fn git_lane_equal_reads_above_the_bound_of_one_run_get_a_second_run() {
             .count()
     };
     let (answered_one, answered) = (answered_of('r'), answered_of('s'));
-    let (runs_one, runs) = (full_gate.runs_of("status"), gate.runs_of("status"));
+    let (runs_one, runs) = (full_gate.status_runs(), gate.status_runs());
     eprintln!(
         "git-lane: {ONE_RUN} equal git.status that waited: {answered_one} answered, {runs_one} \
-         git status runs; {EQUAL} equal git.status that waited: {answered} answered, {runs} git \
-         status runs, closed by the daemon: {closed}"
+         runs of git for them; {EQUAL} equal git.status that waited: {answered} answered, {runs} \
+         runs of git for them, closed by the daemon: {closed}"
     );
     assert_eq!(answered_one, ONE_RUN, "equal git.status of one run that got their answer");
-    assert_eq!(runs_one, 1, "git status runs for the {ONE_RUN} equal reads that one run takes");
+    assert_eq!(runs_one, 1, "runs of git for the {ONE_RUN} equal git.status that one run takes");
     assert_eq!(answered, EQUAL, "equal git.status that got their answer");
-    assert_eq!(runs, 2, "git status runs: one for the first {ONE_RUN} reads, one more");
+    assert_eq!(runs, 2, "runs of git: one for the first {ONE_RUN} git.status, one more");
 }
 
 /// A mutation keeps its place in its connection's order: it starts after the
@@ -813,7 +827,8 @@ fn git_lane_a_client_that_closed_leaves_while_its_git_read_waits_and_the_read_st
     // started before it.
     app.send("after", "git.status", json!({"path": held_repo}));
     app.reply(&json!("after"));
-    let runs = gate.runs_of("status");
+    // No other read is in that repository, so its first child is the status's.
+    let runs = gate.runs_of(FIRST_RUN);
     eprintln!(
         "git-lane: a client that closed with a git.status that waits: left in {GONE:?}: {left} \
          (looked for {stayed:?}, {places_held} git runs held then); git runs of its status: {runs}"
@@ -1331,7 +1346,7 @@ fn git_lane_copies_that_wait_for_a_connection_that_does_not_read_hold_no_place()
     assert_eq!(status["ok"], true, "the git.status of another connection: {status}");
     let own_asked = Instant::now();
     slow.send("own-status", "git.status", json!({"path": own}));
-    wait_for("the git.status of the slow connection in git", || own_gate.runs_of("status") > 0);
+    wait_for("the git.status of the slow connection in git", || own_gate.runs_of(FIRST_RUN) > 0);
     let own_status = own_asked.elapsed();
     // The last git child of a `git.status` asks for the common directory.
     // After it the reply goes to the queue, while copies still wait there.
