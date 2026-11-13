@@ -413,9 +413,11 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
                 `round ${round} frame ${sample.frame}: ${sample.anchorId} moved ${sample.drift.toFixed(2)} px (wheel ${sample.wheelPixels.toFixed(1)}, top ${Math.round(sample.scrollTop)})`,
               );
           roundLog.push(
-            await page.locator(".acpmux-scroll").evaluate((scroller) => {
+            await page.evaluate(() => {
+              const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+              if (!scroller) return "transcript remounted";
               const room = document.querySelector("[data-older-room]")?.getAttribute("data-older-room") ?? "0";
-              return `room ${room} top ${Math.round((scroller as HTMLElement).scrollTop)} height ${(scroller as HTMLElement).scrollHeight}`;
+              return `room ${room} top ${Math.round(scroller.scrollTop)} height ${scroller.scrollHeight}`;
             }),
           );
           if (await page.evaluate(atFirstPrompt)) break;
