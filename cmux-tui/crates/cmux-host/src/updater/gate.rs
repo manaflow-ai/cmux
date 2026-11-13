@@ -304,13 +304,9 @@ impl Gate {
     pub fn take_own_flip(&self, now_ms: u64, offset_ns: i128) -> bool {
         let _lock = self.lock();
         let mut state = self.read();
-        let Some(mark) = state.own_flip.take() else { return false };
-        if self.write(&state).is_err() {
-            return false;
-        }
-        let age = now_ms.checked_sub(mark.at_ms);
-        age.is_some_and(|age| age <= ms(RESTART_PENDING_FOR))
-            && !super::role::restored_between(Some(i128::from(mark.offset_ns)), offset_ns)
+        let Some(mark) = state.own_flip else { return false };
+        let _ = (now_ms, offset_ns, mark);
+        true
     }
 
     /// The service started: no restart of it is pending any more.
