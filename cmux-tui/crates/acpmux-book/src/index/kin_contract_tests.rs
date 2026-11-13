@@ -188,7 +188,7 @@ fn forks_are_rowkey_ranges_and_family_and_forks_are_distinct_answers() {
         .unwrap();
     assert_eq!(ids(&after_departed), ["fork-b"]);
 
-    let (_dir, cold_index) = cold(&[first.clone(), second.clone(), row("not-a-fork", 3)]);
+    let (_dir, cold_index) = cold(&[first, second, row("not-a-fork", 3)]);
     let mut cold_filter = ListFilter::forks(root.key());
     cold_filter.cold = true;
     let cold_page = cold_index
@@ -212,8 +212,7 @@ fn forks_are_rowkey_ranges_and_family_and_forks_are_distinct_answers() {
         filter.folder = Some(FolderKey::new("local", "one"));
         filter
     });
-    let mut cold_alone = ListFilter::default();
-    cold_alone.cold = true;
+    let cold_alone = ListFilter { cold: true, ..ListFilter::default() };
     assert!(
         SummaryIndex::new()
             .read_page(None, ReadSide::After, false, 2, 4096, Some(&cold_alone))
@@ -316,7 +315,7 @@ fn hot_and_cold_pages_are_separate_and_signal_remaining_cold_rows() {
     assert!(!last.has_after);
     assert!(last.cold_unread, "a nonempty snapshot remains after the hot last page");
 
-    let mut cold_filter = filter.clone();
+    let mut cold_filter = filter;
     cold_filter.cold = true;
     let cold_page =
         index.read_page(None, ReadSide::After, false, 10, 256 * 1024, Some(&cold_filter)).unwrap();
@@ -372,7 +371,7 @@ fn folder_ranges_are_exclusive_in_both_directions_and_honor_departed_anchors() {
     let mut oldest = row("oldest", 10);
     oldest.folder = Some("one".to_owned());
     let mut index = SummaryIndex::new();
-    for (seq, row) in [newest.clone(), middle.clone(), oldest.clone()].into_iter().enumerate() {
+    for (seq, row) in [newest, middle.clone(), oldest].into_iter().enumerate() {
         index = index.apply(seq as u64 + 1, row);
     }
     let filter = ListFilter::folder(FolderKey::new("local", "one"));
