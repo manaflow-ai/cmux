@@ -11243,7 +11243,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                         ? `${shownSessionId}:subagent:${subagentView}`
                                                                         : shownSessionId
                                                                     }
-                                                                    sessionGeneration={shownEntry?.createdAt}
                                                                     canLoadOlder={
                                                                       workflowTranscript.rows
                                                                         ? workflowTranscript.canLoadOlder
