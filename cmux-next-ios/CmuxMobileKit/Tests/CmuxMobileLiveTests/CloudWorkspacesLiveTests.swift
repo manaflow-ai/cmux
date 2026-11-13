@@ -323,18 +323,26 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         live.applyCloudMachines([machine(.running)])
         await settle { store.macDataPhase(vm) == .live }
         let old = try #require(live.sessions[vm])
+        // An open terminal page: started as a screen starts it, attached on the old session.
         let terminal = try #require(live.terminalSession(tabID: "s1", programName: "zsh", macID: vm))
+        var states: [TerminalConnectionState] = []
+        terminal.start { event in
+            if case .connection(let state) = event { states.append(state) }
+        }
+        await settle { terminal.connectionState == .attached }
+        let attachedBefore = states.count
         // Retry replaces the machine's session.
         live.retryCloud(vm)
-        await settle { live.sessions[vm] !== old && live.sessions[vm]?.servedLink != nil && store.macDataPhase(vm) == .live }
+        await settle { live.sessions[vm] !== old && live.sessions[vm]?.servedLink != nil }
         let new = try #require(live.sessions[vm])
-        #expect(new !== old)
         #expect(new.terminals.contains { $0.session === terminal }, "the new session adopted the open terminal")
-        // Its channels open on the new session's link.
-        let before = cloud.services(vm).count
-        terminal.reconnect()
-        await settle { cloud.services(vm).count > before }
-        #expect(cloud.dials(vm) == 2)
+        // It left the gone session's link, then attached again through the new carrier (the second dial).
+        await settle {
+            let after = states.dropFirst(attachedBefore)
+            return after.contains { $0 != .attached } && after.last == .attached && cloud.dials(vm) == 2
+        }
+        #expect(terminal.connectionState == .attached)
+        terminal.stop()
     }
 
     /// The carrier drops (the relay or the daemon ended the session): the link reports it at
