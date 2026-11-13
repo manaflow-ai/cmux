@@ -420,17 +420,23 @@ fn read_source(state: &mut ActorState) -> Result<(), ChatError> {
         let line = line?;
         let bytes = chunk.bytes().get(line.bytes.clone()).ok_or(ChatError::Closed)?;
         let bytes = bytes.strip_suffix(b"\n").unwrap_or(bytes);
-        apply_line(state, bytes, line.start)?;
+        let span = line.end.saturating_sub(line.start);
+        apply_line(state, bytes, line.start, span)?;
         state.raw_place = line.end;
     }
     Ok(())
 }
 
-fn apply_line(state: &mut ActorState, bytes: &[u8], base_offset: u64) -> Result<(), ChatError> {
+fn apply_line(
+    state: &mut ActorState,
+    bytes: &[u8],
+    base_offset: u64,
+    span: u64,
+) -> Result<(), ChatError> {
     let file = state.log.append_raw_file(bytes)?;
     state.raw_file = file;
     state.raw_place = base_offset.saturating_add(bytes.len() as u64).saturating_add(1);
-    apply_ops(state, bytes, file, base_offset, true)
+    apply_ops(state, bytes, file, base_offset, span, true)
 }
 
 fn apply_replayed_line(
@@ -441,7 +447,7 @@ fn apply_replayed_line(
 ) -> Result<(), ChatError> {
     state.raw_file = file;
     state.raw_place = base_offset.saturating_add(bytes.len() as u64).saturating_add(1);
-    apply_ops(state, bytes, file, base_offset, false)
+    apply_ops(state, bytes, file, base_offset, bytes.len() as u64 + 1, false)
 }
 
 fn apply_ops(
@@ -449,10 +455,12 @@ fn apply_ops(
     bytes: &[u8],
     file: u32,
     base_offset: u64,
+    span: u64,
     checkpoint_now: bool,
 ) -> Result<(), ChatError> {
     let before = state.log.last_seq();
-    let ops = translate::translate(&mut state.translate, state.config.harness, bytes)?;
+    let ops =
+        translate::translate(&mut state.translate, state.config.harness, base_offset, span, bytes)?;
     for op in ops {
         let raw = RawRange {
             file,
@@ -472,6 +480,7 @@ fn apply_ops(
                         let bytes = bytes.get(range.offset..end).ok_or(ChatError::Closed)?;
                         std::str::from_utf8(bytes).map_err(|_| ChatError::Closed)?.to_owned()
                     }
+                    BodySource::Raw { place, span } => raw_body_value(state, *place, *span)?,
                 };
                 let key = body_key(field);
                 let body =
@@ -479,6 +488,7 @@ fn apply_ops(
                 state.blobs.set(body, key, &value, append)?;
                 state.raw_ranges.entry(id).or_insert(raw);
             }
+            Change::Queue(_) => {}
         }
     }
     state.settled_since_checkpoint = state
@@ -492,6 +502,29 @@ fn apply_ops(
         checkpoint(state)?;
     }
     Ok(())
+}
+
+fn raw_body_value(state: &mut ActorState, place: u64, span: u64) -> Result<String, ChatError> {
+    let chunk = state.source.read_chunk(place)?;
+    if chunk.stamp != state.source_stamp {
+        return Err(ChatError::SourceChanged);
+    }
+    for line in chunk.lines() {
+        let line = line?;
+        if line.start != place {
+            continue;
+        }
+        if line.end.saturating_sub(line.start) != span {
+            return Err(ChatError::Closed);
+        }
+        let bytes = chunk.bytes().get(line.bytes).ok_or(ChatError::Closed)?;
+        let bytes = bytes.strip_suffix(b"\n").unwrap_or(bytes);
+        let value: serde_json::Value =
+            serde_json::from_slice(bytes).map_err(|_| ChatError::Closed)?;
+        let text = value.get("msg").and_then(|msg| msg.get("text")).ok_or(ChatError::Closed)?;
+        return serde_json::to_string(text).map_err(|_| ChatError::Closed);
+    }
+    Err(ChatError::Closed)
 }
 
 fn settle_or_open(state: &mut ActorState, row: OwnedRow, raw: RawRange) -> Result<(), ChatError> {
