@@ -97,8 +97,7 @@ impl HubWriter {
             }
             return;
         }
-        if self.hydration.is_some()
-            || self.compaction.is_some()
+        if self.compaction.is_some()
             || self.maintenance.is_some()
             || !self.retry_log.is_empty()
             || !self.origins.retry.is_empty()
@@ -249,6 +248,13 @@ impl HubWriter {
             }
         }
         self.published.store(Arc::new(next));
+        // Installation may finish startup through this captured hot-row
+        // stream instead of the original snapshot iterator. Publish readiness
+        // only after its last missing live row is installed.
+        let waiting = *self.hydrated.borrow() != disk::HydrationState::Ready;
+        if work.missing_hot.is_empty() && waiting {
+            self.hydrated.send_replace(disk::HydrationState::Ready);
+        }
         // The current root can still own paths removed by this batch. Drop it
         // before the worker returns free pages, so the measurement includes them.
         drop(current);

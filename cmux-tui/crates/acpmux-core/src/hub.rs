@@ -75,7 +75,7 @@ enum UpdateKey {
 
 #[derive(Default)]
 struct Pending {
-    rows: HashMap<RowKey, PendingUpdate>,
+    rows: HashMap<(RowKey, Source), PendingUpdate>,
     controls: std::collections::BTreeMap<UpdateKey, PendingUpdate>,
 }
 
@@ -118,7 +118,15 @@ impl UpdateQueue {
         }
         match key {
             UpdateKey::Row(key) => {
-                pending.rows.insert(key, update);
+                let source = match &update {
+                    PendingUpdate::Summary { source, .. } | PendingUpdate::Gone { source } => {
+                        *source
+                    }
+                    _ => return Err(HubError::WriterGone),
+                };
+                // A rejected producer must not coalesce away the owner's
+                // pending value before the writer can enforce ownership.
+                pending.rows.insert((key, source), update);
             }
             key => {
                 if !pending.controls.contains_key(&key) && pending.controls.len() >= 512 {
@@ -151,11 +159,9 @@ impl UpdateQueue {
             batch.push(control);
         }
         let keys: Vec<_> = pending.rows.keys().take(limit - batch.len()).cloned().collect();
-        batch.extend(
-            keys.into_iter().filter_map(|key| {
-                pending.rows.remove(&key).map(|value| (UpdateKey::Row(key), value))
-            }),
-        );
+        batch.extend(keys.into_iter().filter_map(|key| {
+            pending.rows.remove(&key).map(|value| (UpdateKey::Row(key.0), value))
+        }));
         batch
     }
 }

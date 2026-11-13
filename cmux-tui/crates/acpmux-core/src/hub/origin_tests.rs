@@ -198,6 +198,48 @@ fn queued_wrong_source_submit_and_remove_leave_the_index_unchanged() {
 }
 
 #[test]
+fn a_wrong_producer_cannot_overwrite_the_owners_same_key_pending_update() {
+    for takeover in [false, true] {
+        for wrong_remove in [false, true] {
+            let (hub, mut writer) = Hub::new(SummaryIndex::new());
+            seed(&mut writer, if takeover { 500 } else { 1 });
+            let (owner, wrong) = if takeover {
+                writer.origin("peer", OriginState::Removed, 2).unwrap();
+                hub.takeover("peer", Source::Mirror).unwrap();
+                hub.origin("peer", OriginState::Connected, 3).unwrap();
+                (Source::Mirror, Source::V1)
+            } else {
+                (Source::V1, Source::Mirror)
+            };
+            let refused = refused_source_submits();
+            let mut rightful = remote("same-key", 4);
+            rightful.title = "rightful pending row".into();
+            hub.submit_from(owner, rightful.clone()).unwrap();
+            if wrong_remove {
+                hub.remove_from(wrong, "peer", "same-key").unwrap();
+            } else {
+                let mut invalid = rightful.clone();
+                invalid.title = "wrong producer overwrote queue slot".into();
+                hub.submit_from(wrong, invalid).unwrap();
+            }
+            // Both producers arrive before the writer can check ownership.
+            // During removal, the queued takeover also precedes the held rows.
+            writer.process_batch();
+            drive(&mut writer, 8);
+            assert!(refused_source_submits() > refused);
+            let snapshot = hub.snapshot();
+            let row = snapshot.get_row(&rightful.key()).unwrap();
+            assert_eq!(row.title, rightful.title);
+            assert_eq!(row.last_activity, rightful.last_activity);
+            if takeover {
+                assert_eq!(snapshot.len(), 1);
+                assert_eq!(snapshot.origin("peer").unwrap().state, OriginState::Connected);
+            }
+        }
+    }
+}
+
+#[test]
 fn removing_500_rows_publishes_one_op_then_cleans_two_bounded_batches() {
     let (hub, mut writer) = Hub::new(SummaryIndex::new());
     seed(&mut writer, 500);
@@ -794,7 +836,7 @@ async fn remote_marks_can_wait_for_bounded_startup_hydration() {
 }
 
 #[tokio::test]
-async fn requested_compaction_waits_for_startup_hydration_and_releases_waiters() {
+async fn compaction_finishes_the_startup_hot_read_and_releases_waiters() {
     let directory = tempfile::tempdir().unwrap();
     let mut index = SummaryIndex::new();
     for n in 0..600 {
@@ -802,29 +844,23 @@ async fn requested_compaction_waits_for_startup_hydration_and_releases_waiters()
     }
     SortedSnapshot::write(directory.path().join("index.snap"), &index).unwrap();
     let (hub, mut writer) = Hub::open(directory.path(), 101, || 7).unwrap();
-    writer.apply(Summary::new("local-change")).unwrap();
     writer.next_compaction = Some(std::time::Instant::now());
-    writer.maybe_compact();
-    assert!(writer.compaction.is_none(), "compaction started before any hydration turn");
-    for _ in 0..2 {
-        writer.process_batch();
-        assert!(writer.hydration.is_some());
-        assert!(matches!(*hub.hydrated.borrow(), disk::HydrationState::Loading));
-        assert!(writer.compaction.is_none(), "compaction started during partial hydration");
-    }
     writer.process_batch();
+    assert!(writer.hydration.is_some());
+    assert!(writer.compaction.is_some());
+    assert!(matches!(*hub.hydrated.borrow(), disk::HydrationState::Loading));
+    writer.finish_compaction(true).await;
+    writer.install_compaction();
     assert!(writer.hydration.is_none());
+    writer.maintain_compaction();
+    assert!(matches!(*hub.hydrated.borrow(), disk::HydrationState::Loading));
+    writer.maintain_compaction();
     tokio::time::timeout(std::time::Duration::from_secs(1), hub.wait_hydrated())
         .await
         .unwrap()
         .unwrap();
-    assert!(writer.compaction.is_some(), "the requested compaction must resume after hydration");
     assert_eq!(hub.snapshot().iter().filter(|row| row.origin == "peer").count(), 600);
     writer.finish_compaction(true).await;
-    writer.install_compaction();
-    drive(&mut writer, 4);
-    writer.finish_compaction(true).await;
-    assert_eq!(hub.snapshot().iter().filter(|row| row.origin == "peer").count(), 600);
 }
 
 #[tokio::test]
