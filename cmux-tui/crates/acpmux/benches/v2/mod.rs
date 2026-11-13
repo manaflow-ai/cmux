@@ -121,6 +121,18 @@ pub const GATE_ROWS: &[GateRow] = &[
         god_max: None,
     },
     GateRow {
+        pr: "3a3",
+        name: "v2.pr03a3.actor_line",
+        done_when: "One settled line through the actor at 40 rows and 2M rows: best p95 1.2x, aggregate p95 2x.",
+        measured: false,
+    },
+    GateRow {
+        pr: "3a3",
+        name: "v2.pr03a3.checkpoint_open",
+        done_when: "Open at the checkpoint reads no row suffix; at 40 rows and 2M rows best p95 1.2x, aggregate p95 2x.",
+        measured: false,
+    },
+    GateRow {
         pr: "3a",
         name: "v2.pr03a.source_read_bounds",
         done_when: "A 1 GB growth reads one chunk and holds reads one byte at 40 rows and 2M rows. A 10 MB line appended in 100 pieces is read once when its newline arrives.",

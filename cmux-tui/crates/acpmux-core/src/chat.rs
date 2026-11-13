@@ -14,8 +14,9 @@ use acpmux_book::translate::{self, BodyField, BodySource, Change, Harness, Owned
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::Read;
-use std::path::PathBuf;
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -65,7 +66,7 @@ pub struct ChatConfig {
     pub harness: Harness,
     pub log_options: Options,
     pub boot_id: u64,
-    pub source_stamp: u64,
+    pub supervision: crate::life::Policy,
     pub source_factory: SourceFactory,
     pub edition_random: Arc<dyn Fn() -> u32 + Send + Sync>,
 }
@@ -78,7 +79,7 @@ impl ChatConfig {
             harness,
             log_options: Options::default(),
             boot_id: 0,
-            source_stamp: 1,
+            supervision: crate::life::Policy::default(),
             source_factory: Arc::new(|| Ok(Box::new(EmptySource))),
             edition_random: Arc::new(system_random_edition),
         }
@@ -179,9 +180,14 @@ pub struct ChatHandle {
     tx: SyncSender<Request>,
     queued: Arc<Mutex<usize>>,
     health: tokio::sync::watch::Receiver<crate::life::Health>,
+    failures: Arc<AtomicU64>,
 }
 
 impl ChatHandle {
+    pub fn failures(&self) -> u64 {
+        self.failures.load(Ordering::Relaxed)
+    }
+
     fn send(&self, request: Request) -> Result<(), ChatError> {
         if *self.health.borrow() == crate::life::Health::Failed {
             return Err(ChatError::Failed);
@@ -226,6 +232,8 @@ impl ChatHandle {
 pub struct ChatActor {
     pub handle: ChatHandle,
     join: Option<JoinHandle<()>>,
+    stop: Arc<AtomicBool>,
+    stopped: Arc<tokio::sync::Notify>,
 }
 
 impl ChatActor {
@@ -233,9 +241,19 @@ impl ChatActor {
     /// runtime worker. A panic reopens from the checkpoint.
     pub fn spawn(config: ChatConfig) -> Self {
         let (tx, rx) = sync_channel(256);
+        let stop = Arc::new(AtomicBool::new(false));
+        let stopped = Arc::new(tokio::sync::Notify::new());
+        let worker_stop = stop.clone();
+        let worker_stopped = stopped.clone();
         let queued = Arc::new(Mutex::new(0));
         let (health, health_receiver) = tokio::sync::watch::channel(crate::life::Health::Starting);
-        let handle = ChatHandle { tx, queued: queued.clone(), health: health_receiver };
+        let failures = Arc::new(AtomicU64::new(0));
+        let handle = ChatHandle {
+            tx,
+            queued: queued.clone(),
+            health: health_receiver,
+            failures: failures.clone(),
+        };
         let join = thread::Builder::new()
             .name(format!("acpmux-chat-{}", config.id))
             .spawn(move || {
@@ -249,37 +267,58 @@ impl ChatActor {
                     };
                 let scope = cmux_scope::Scope::new("acpmux-chat");
                 let receiver = Arc::new(Mutex::new(rx));
-                let _ = runtime.block_on(crate::life::supervise(
+                let actor_health = health.clone();
+                let policy = config.supervision;
+                let supervisor = crate::life::supervise(
                     &scope,
                     move || {
                         let receiver = receiver.clone();
                         let config = config.clone();
                         let queued = queued.clone();
+                        let stop = worker_stop.clone();
+                        let health = actor_health.clone();
+                        let failures = failures.clone();
                         async move {
                             match tokio::task::spawn_blocking(move || {
-                                run_supervised(config, receiver, queued)
+                                run_supervised(config, receiver, queued, &stop, &health)
                             })
                             .await
                             {
-                                Ok(result) => result,
+                                Ok(result) => {
+                                    if result.is_err() {
+                                        failures.fetch_add(1, Ordering::Relaxed);
+                                    }
+                                    result
+                                }
                                 Err(error) if error.is_panic() => {
+                                    failures.fetch_add(1, Ordering::Relaxed);
                                     std::panic::resume_unwind(error.into_panic())
                                 }
                                 Err(_) => Err(ChatError::Closed),
                             }
                         }
                     },
-                    crate::life::Policy::default(),
+                    policy,
                     health,
-                ));
+                );
+                runtime.block_on(async {
+                    tokio::select! {
+                        _ = supervisor => {},
+                        _ = worker_stopped.notified() => {},
+                    }
+                });
                 let _ = runtime.block_on(scope.close(Duration::from_secs(1)));
             })
             .ok();
-        Self { handle, join }
+        Self { handle, join, stop, stopped }
     }
 
     pub fn join(mut self) {
-        let _ = self.handle.close();
+        self.stop.store(true, Ordering::Release);
+        // Wake both the blocking mailbox and a supervisor in retry backoff. Neither
+        // depends on the failed actor accepting another user request.
+        let _ = self.handle.tx.try_send(Request::Wake);
+        self.stopped.notify_one();
         if let Some(join) = self.join.take() {
             let _ = join.join();
         }
@@ -307,6 +346,7 @@ struct ActorState {
     last_used: Instant,
     last_checkpoint: Instant,
     settled_since_checkpoint: u32,
+    replay_remaining: u64,
     recovery: Recovery,
 }
 
@@ -314,49 +354,66 @@ fn run_supervised(
     config: ChatConfig,
     receiver: Arc<Mutex<Receiver<Request>>>,
     queued: Arc<Mutex<usize>>,
+    stop: &AtomicBool,
+    health: &tokio::sync::watch::Sender<crate::life::Health>,
 ) -> Result<(), ChatError> {
-    let mut busy_started = Instant::now();
+    let receiver = receiver.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut rebuild = false;
     loop {
-        let mut state = match open_state(config.clone()) {
-            Ok(state) => {
-                busy_started = Instant::now();
-                state
+        let mut state = if rebuild || suffix(&config.book, ".new").exists() {
+            match rebuild_from_raw(config.clone(), &receiver, &queued, stop)? {
+                Some(state) => state,
+                None => return Ok(()),
             }
-            Err(ChatError::Book(BookError::Rebuild(_))) => {
-                let state = rebuild_from_raw(config.clone())?;
-                busy_started = Instant::now();
-                state
-            }
-            Err(ChatError::Book(BookError::Busy)) => {
-                if busy_started.elapsed() >= Duration::from_secs(1) {
-                    return Err(ChatError::Book(BookError::Busy));
+        } else {
+            match retry_busy(|| open_state(config.clone())) {
+                Ok(state) => state,
+                Err(error) if damaged(&error) => {
+                    rebuild = true;
+                    continue;
                 }
-                thread::sleep(Duration::from_millis(10));
-                continue;
+                Err(error) => return Err(error),
             }
-            Err(error) => return Err(error),
         };
-        let run = {
-            let receiver = receiver.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-            run_once(&mut state, &receiver, &queued)
-        };
-        match run {
+        rebuild = false;
+        match run_once(&mut state, &receiver, &queued, stop, health) {
             Ok(true) => return Ok(()),
-            Ok(false) => continue,
-            Err(ChatError::Book(BookError::CorruptRow { .. })) => {
-                drop(state);
-                let mut rebuilt = rebuild_from_raw(config)?;
-                rebuilt.recovery = Recovery::Rebuild;
-                let receiver = receiver.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-                return run_once(&mut rebuilt, &receiver, &queued).map(|_| ());
-            }
-            Err(ChatError::SourceChanged) => continue,
+            Ok(false) => {}
+            Err(error) if damaged(&error) => rebuild = true,
+            Err(ChatError::SourceChanged) => {}
             Err(error) => return Err(error),
         }
     }
 }
 
+fn damaged(error: &ChatError) -> bool {
+    matches!(
+        error,
+        ChatError::Book(
+            BookError::Rebuild(_) | BookError::Corrupt(_) | BookError::CorruptRow { .. }
+        )
+    )
+}
+
+fn retry_busy<T>(mut open: impl FnMut() -> Result<T, ChatError>) -> Result<T, ChatError> {
+    let started = Instant::now();
+    loop {
+        match open() {
+            Err(ChatError::Book(BookError::Busy)) if started.elapsed() < Duration::from_secs(1) => {
+                thread::sleep(Duration::from_millis(10));
+            }
+            result => return result,
+        }
+    }
+}
+
 fn open_state(config: ChatConfig) -> Result<ActorState, ChatError> {
+    let old = suffix(&config.book, ".old");
+    if old.exists() && log::saved_checkpoint(&config.book)?.is_some_and(|saved| saved.edition != 0)
+    {
+        fs::remove_dir_all(old)?;
+        sync_parent(&config.book)?;
+    }
     let source_cell = RefCell::new((config.source_factory)()?);
     let source_stamp = source_cell.borrow().stamp();
     let opened = Log::open_with_raw_holds(&config.book, config.log_options, |_, place| {
@@ -370,60 +427,223 @@ fn open_state(config: ChatConfig) -> Result<ActorState, ChatError> {
     open_state_from_log(config, log, recovered, rebuilt_edition, source, source_stamp)
 }
 
-fn rebuild_from_raw(config: ChatConfig) -> Result<ActorState, ChatError> {
-    let previous =
-        log::CheckpointHead::read(&config.book).map_err(ChatError::Book)?.map(|head| head.edition);
-    let mut new_config = config.clone();
-    new_config.book = config.book.with_extension("new");
-    let source_cell = RefCell::new((new_config.source_factory)()?);
-    let source_stamp = source_cell.borrow().stamp();
-    let (log, recovered) = match Log::open(&new_config.book, new_config.log_options) {
-        Ok(opened) => opened,
-        Err(BookError::Rebuild(_)) => {
-            let _ = fs::remove_dir_all(&new_config.book);
-            Log::open(&new_config.book, new_config.log_options).map_err(ChatError::Book)?
+#[inline]
+fn rebuild_point(_point: &str) {
+    #[cfg(test)]
+    tests::rebuild_point(_point);
+}
+
+fn suffix(book: &Path, suffix: &str) -> PathBuf {
+    let mut path = book.as_os_str().to_os_string();
+    path.push(suffix);
+    PathBuf::from(path)
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct RebuildBasis {
+    edition: Option<u32>,
+    stamp: u64,
+    identity: Vec<u8>,
+    keep: bool,
+}
+
+fn sync_parent(path: &Path) -> Result<(), ChatError> {
+    if let Some(parent) = path.parent() {
+        fs::File::open(parent)?.sync_all()?;
+    }
+    Ok(())
+}
+
+fn same_file(left: &Path, right: &Path) -> std::io::Result<bool> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let (left, right) = (fs::metadata(left)?, fs::metadata(right)?);
+        Ok(left.dev() == right.dev() && left.ino() == right.ino())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (left, right);
+        Ok(false)
+    }
+}
+
+fn save_basis(book: &Path, basis: &RebuildBasis) -> Result<(), ChatError> {
+    let path = book.join("rebuild");
+    let temporary = book.join("rebuild.tmp");
+    let mut file = fs::File::create(&temporary)?;
+    file.write_all(&serde_json::to_vec(basis).map_err(std::io::Error::other)?)?;
+    file.sync_all()?;
+    fs::rename(temporary, &path)?;
+    sync_parent(&path)
+}
+
+// The final synced checkpoint is the commit record. A restart after either rename
+// finishes the same swap without translating or choosing an edition a second time.
+fn finish_swap(config: &ChatConfig, new_book: &Path) -> Result<(), ChatError> {
+    let old_book = suffix(&config.book, ".old");
+    if config.book.exists() {
+        if old_book.exists() {
+            fs::remove_dir_all(&old_book)?;
         }
-        Err(error) => return Err(error.into()),
-    };
-    let source = source_cell.into_inner();
-    let mut state = open_state_from_log(new_config, log, recovered, None, source, source_stamp)?;
-    loop {
-        if read_source(&mut state)? {
-            break;
+        fs::rename(&config.book, &old_book)?;
+        sync_parent(&config.book)?;
+    }
+    rebuild_point("old-renamed");
+    fs::rename(new_book, &config.book)?;
+    sync_parent(&config.book)?;
+    rebuild_point("new-renamed");
+    if old_book.exists() {
+        fs::remove_dir_all(&old_book)?;
+        sync_parent(&old_book)?;
+    }
+    Ok(())
+}
+
+fn rebuild_from_raw(
+    config: ChatConfig,
+    rx: &Receiver<Request>,
+    queued: &Arc<Mutex<usize>>,
+    stop: &AtomicBool,
+) -> Result<Option<ActorState>, ChatError> {
+    let new_book = suffix(&config.book, ".new");
+    if log::saved_checkpoint(&new_book)?.is_some_and(|saved| saved.edition != 0) {
+        finish_swap(&config, &new_book)?;
+        return retry_busy(|| open_state(config.clone())).map(Some);
+    }
+    let mut source = (config.source_factory)()?;
+    let source_stamp = source.stamp();
+    let previous = log::CheckpointHead::read(&config.book)?.map(|head| head.edition);
+    let old = log::saved_checkpoint(&config.book)?
+        .and_then(|saved| Checkpoint::from_recovered(&saved).ok());
+    let mut keep = old.as_ref().is_some_and(|saved| {
+        saved.translator_version == translate::VERSION
+            && saved.boot_id == config.boot_id
+            && saved.cursors.iter().all(|cursor| cursor.stamp == source_stamp)
+    });
+    if let Some(saved) = &old {
+        for cursor in &saved.cursors {
+            keep &= source.holds(cursor.place)?;
         }
     }
-    state.edition = next_edition(previous, || (config.edition_random)());
-    checkpoint(&mut state)?;
-    let new_book = state.config.book.clone();
-    // Raw can be colocated with the derived book. Keep its original inode at the
-    // replacement path before renaming; the next source open must still find it.
-    if let Some(raw) = state.source.file_path() {
+    fs::create_dir_all(&new_book)?;
+    let mut basis = match fs::read(new_book.join("rebuild")) {
+        Ok(bytes) => {
+            serde_json::from_slice::<RebuildBasis>(&bytes).map_err(std::io::Error::other)?
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => RebuildBasis {
+            edition: previous,
+            stamp: source_stamp,
+            identity: source.identity().to_vec(),
+            keep,
+        },
+        Err(error) => return Err(error.into()),
+    };
+    if basis.identity != source.identity() {
+        // A new source inode invalidates a partial rebuild, even at the same byte
+        // length and stamp. Its old raw link must never replace the current file.
+        fs::remove_dir_all(&new_book)?;
+        fs::create_dir_all(&new_book)?;
+        basis.identity = source.identity().to_vec();
+        basis.keep = false;
+    }
+    basis.keep &= keep && basis.stamp == source_stamp;
+    save_basis(&new_book, &basis)?;
+    rebuild_point("basis");
+    let mut new_config = config.clone();
+    new_config.book = new_book.clone();
+    let mut state = restart_staging(&new_config, &mut basis)?;
+    rebuild_point("opened");
+    loop {
+        match read_source(&mut state) {
+            Ok(at_end) => {
+                rebuild_point("chunk");
+                if stop.load(Ordering::Acquire) {
+                    checkpoint(&mut state)?;
+                    return Ok(None);
+                }
+                match rx.try_recv() {
+                    Ok(request) => {
+                        if !handle_request(&mut state, request, queued)? {
+                            return Ok(None);
+                        }
+                    }
+                    Err(mpsc::TryRecvError::Empty) => {}
+                    Err(mpsc::TryRecvError::Disconnected) => return Ok(None),
+                }
+                if at_end {
+                    break;
+                }
+            }
+            Err(ChatError::SourceChanged) => {
+                basis.keep = false;
+                save_basis(&new_book, &basis)?;
+                drop(state);
+                state = restart_staging(&new_config, &mut basis)?;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    rebuild_point("caught-up");
+    // A colocated raw file is linked into the replacement before committing it. Both
+    // names refer to the original inode; removing the derived old book cannot remove raw.
+    if let Some(raw) = state.source.file_path()
+        && config.book.exists()
+    {
         let served = config.book.canonicalize()?;
         if let Ok(relative) = raw.strip_prefix(&served) {
             let linked = new_book.join(relative);
+            if linked.exists() && !same_file(raw, &linked)? {
+                fs::remove_file(&linked)?;
+            }
             if !linked.exists() {
                 if let Some(parent) = linked.parent() {
                     fs::create_dir_all(parent)?;
                 }
                 fs::hard_link(raw, &linked)?;
-                if let Some(parent) = linked.parent() {
-                    fs::File::open(parent)?.sync_all()?;
-                }
+                sync_parent(&linked)?;
             }
         }
     }
+    rebuild_point("raw-linked");
+    let current = log::CheckpointHead::read(&config.book)?.map(|head| head.edition);
+    state.edition = if basis.keep && current == basis.edition {
+        current
+            .filter(|edition| *edition != 0)
+            .unwrap_or_else(|| next_edition(None, || (config.edition_random)()))
+    } else {
+        next_edition(current, || (config.edition_random)())
+    };
+    rebuild_point("edition-chosen");
+    checkpoint(&mut state)?;
+    rebuild_point("committed");
     drop(state);
-    if config.book.exists() {
-        let mut backup = config.book.with_extension("old");
-        let mut suffix = 1u32;
-        while backup.exists() {
-            backup = config.book.with_extension(format!("old-{suffix}"));
-            suffix = suffix.saturating_add(1);
+    rebuild_point("closed");
+    finish_swap(&config, &new_book)?;
+    retry_busy(|| open_state(config.clone())).map(Some)
+}
+
+fn restart_staging(config: &ChatConfig, basis: &mut RebuildBasis) -> Result<ActorState, ChatError> {
+    match retry_busy(|| open_staging_state(config.clone())) {
+        Ok(state) => Ok(state),
+        Err(error) if damaged(&error) => {
+            basis.keep = false;
+            fs::remove_dir_all(&config.book)?;
+            fs::create_dir_all(&config.book)?;
+            save_basis(&config.book, basis)?;
+            retry_busy(|| open_staging_state(config.clone()))
         }
-        fs::rename(&config.book, &backup)?;
+        Err(error) => Err(error),
     }
-    fs::rename(new_book, &config.book)?;
-    open_state(config)
+}
+
+fn open_staging_state(config: ChatConfig) -> Result<ActorState, ChatError> {
+    let source = RefCell::new((config.source_factory)()?);
+    let stamp = source.borrow().stamp();
+    let (log, recovered) = Log::open_staging(&config.book, config.log_options, |_, place| {
+        source.borrow_mut().holds(place)
+    })?;
+    open_state_from_log(config, log, recovered, Some(0), source.into_inner(), stamp)
 }
 
 fn open_state_from_log(
@@ -439,9 +659,23 @@ fn open_state_from_log(
     } else {
         None
     };
+    if let Some(saved) = &saved_checkpoint
+        && saved.translator_version != translate::VERSION
+    {
+        return Err(BookError::Rebuild("translator version changed").into());
+    }
+    let mut source = source;
+    if let Some(saved) = &saved_checkpoint {
+        for cursor in &saved.cursors {
+            if !source.holds(cursor.place)? {
+                return Err(BookError::Rebuild("checkpoint source cursor is gone").into());
+            }
+        }
+    }
     let translate = match saved_checkpoint.as_ref() {
         Some(checkpoint) if !checkpoint.translator.is_empty() => {
-            State::restore(&checkpoint.translator)?
+            State::restore(&checkpoint.translator)
+                .map_err(|_| BookError::Rebuild("translator checkpoint is damaged"))?
         }
         _ => State::default(),
     };
@@ -462,6 +696,7 @@ fn open_state_from_log(
         &bodies.values().cloned().collect::<Vec<_>>(),
         saved_checkpoint.as_ref().map_or(0, |c| c.last_row),
     )?;
+    let boot_id = saved_checkpoint.as_ref().map_or(config.boot_id, |c| c.boot_id);
     let mut actor = ActorState {
         config,
         log,
@@ -475,12 +710,13 @@ fn open_state_from_log(
         edition: rebuilt_edition.unwrap_or_else(|| {
             saved_checkpoint.as_ref().map_or(recovered.edition.max(1), |c| c.edition)
         }),
-        boot_id: saved_checkpoint.as_ref().map_or(0, |c| c.boot_id),
+        boot_id,
         source_stamp,
         source,
         last_used: Instant::now(),
         last_checkpoint: Instant::now(),
         settled_since_checkpoint: 0,
+        replay_remaining: recovered.replayed,
         recovery: if rebuilt_edition.is_some() {
             Recovery::Rebuild
         } else if recovered.checkpoint {
@@ -499,10 +735,15 @@ fn open_state_from_log(
             .map(|checkpoint| checkpoint.open.iter().map(|open| open.body.row).collect::<Vec<_>>())
             .unwrap_or_default();
         actor.log.cut_to_checkpoint(&open_rows)?;
-        actor.edition = next_edition(Some(actor.edition), || (actor.config.edition_random)());
+        actor.edition = if rebuilt_edition == Some(0) {
+            0
+        } else {
+            next_edition(Some(actor.edition), || (actor.config.edition_random)())
+        };
         actor.boot_id = actor.config.boot_id;
+        actor.replay_remaining = 0;
     }
-    if rebuilt_edition.is_some() || recovered.replayed != 0 || stamp_changed {
+    if stamp_changed || (!recovered.checkpoint && rebuilt_edition.is_some()) {
         checkpoint(&mut actor)?;
     }
     Ok(actor)
@@ -512,13 +753,22 @@ fn run_once(
     state: &mut ActorState,
     rx: &Receiver<Request>,
     queued: &Arc<Mutex<usize>>,
+    stop: &AtomicBool,
+    health: &tokio::sync::watch::Sender<crate::life::Health>,
 ) -> Result<bool, ChatError> {
     loop {
+        if stop.load(Ordering::Acquire) {
+            checkpoint(state)?;
+            return Ok(true);
+        }
         let at_end = read_source(state)?;
+        if *health.borrow() != crate::life::Health::Running {
+            health.send_replace(crate::life::Health::Running);
+        }
         if !at_end {
             match rx.try_recv() {
                 Ok(request) => {
-                    if !handle_request(state, request, queued) {
+                    if !handle_request(state, request, queued)? {
                         return Ok(true);
                     }
                 }
@@ -531,31 +781,36 @@ fn run_once(
             Ok(request) => request,
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 if state.translate.open_rows().next().is_none() {
-                    let _ = checkpoint(state);
+                    checkpoint(state)?;
                     return Ok(true);
                 }
                 continue;
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(true),
         };
-        if !handle_request(state, request, queued) {
+        if !handle_request(state, request, queued)? {
             return Ok(true);
         }
     }
 }
 
-fn handle_request(state: &mut ActorState, request: Request, queued: &Arc<Mutex<usize>>) -> bool {
+fn handle_request(
+    state: &mut ActorState,
+    request: Request,
+    queued: &Arc<Mutex<usize>>,
+) -> Result<bool, ChatError> {
     let bytes = request.bytes();
     if let Ok(mut queued) = queued.lock() {
         *queued = queued.saturating_sub(bytes);
     }
     state.last_used = Instant::now();
     match request {
-        Request::Wake => true,
+        Request::Wake => Ok(true),
         Request::Close { reply } => {
             let result = checkpoint(state);
+            let failed = result.is_err();
             let _ = reply.send(result);
-            false
+            if failed { Err(ChatError::Failed) } else { Ok(false) }
         }
     }
 }
@@ -600,14 +855,26 @@ fn apply_ops(
     span: u64,
     checkpoint_now: bool,
 ) -> Result<(), ChatError> {
-    let before = state.log.last_seq();
+    let mut changed = false;
+    let before = state.translate.counters();
     let ops =
         translate::translate(&mut state.translate, state.config.harness, base_offset, span, bytes)?;
+    let after = state.translate.counters();
+    if after.invalid_records != before.invalid_records || after.line_errors != before.line_errors {
+        return Err(translate::Error::InvalidRecord("raw line did not translate").into());
+    }
     for op in ops {
+        changed |= matches!(&op.change, Change::Row(row) if !row.open)
+            || matches!(&op.change, Change::Patch(_));
+        if matches!(&op.change, Change::Row(row) if !row.open) {
+            state.settled_since_checkpoint = state.settled_since_checkpoint.saturating_add(1);
+        }
         let raw = RawRange {
             file,
-            off: base_offset.saturating_add(op.raw.offset as u64),
-            len: u32::try_from(op.raw.length).map_err(|_| ChatError::Closed)?,
+            // The log stores source places, not offsets into the encoded JSON.
+            // Include the whole line end (the newline for files); places may have gaps.
+            off: base_offset,
+            len: u32::try_from(span).unwrap_or(u32::MAX),
         };
         match op.change {
             Change::Row(row) => settle_or_open(state, row, raw)?,
@@ -633,11 +900,10 @@ fn apply_ops(
             Change::Queue(_) => {}
         }
     }
-    state.settled_since_checkpoint = state
-        .settled_since_checkpoint
-        .saturating_add(state.log.last_seq().saturating_sub(before) as u32);
     if checkpoint_now
-        && (state.translate.open_rows().next().is_none()
+        && changed
+        && state.replay_remaining == 0
+        && (!state.translate.in_turn()
             || state.settled_since_checkpoint >= 256
             || state.last_checkpoint.elapsed() >= Duration::from_secs(1))
     {
@@ -677,6 +943,9 @@ fn merge_row_fields(
     if hidden_settle && row.fields.get("hidden").is_some_and(|value| value == "true") {
         let body = Body::new(row.id).map_err(ChatError::Book)?;
         state.bodies.insert(row.id, body);
+        let body = state.bodies.get_mut(&row.id).ok_or(ChatError::Closed)?;
+        state.blobs.set(body, "hidden", "true", false)?;
+        return Ok(());
     }
     let body = state.bodies.entry(row.id).or_insert(Body::new(row.id).map_err(ChatError::Book)?);
     for (field, value) in &row.fields {
@@ -712,6 +981,7 @@ fn settle_or_open(state: &mut ActorState, row: OwnedRow, raw: RawRange) -> Resul
     let seq = match state.log.append_settled(row.id, row.rev, raw, &encoded) {
         Ok(seq) => seq,
         Err(BookError::AlreadySettled { .. }) | Err(BookError::StaleRev { .. }) => {
+            state.replay_remaining = state.replay_remaining.saturating_sub(1);
             state.log.last_seq()
         }
         Err(error) => return Err(error.into()),
@@ -721,9 +991,7 @@ fn settle_or_open(state: &mut ActorState, row: OwnedRow, raw: RawRange) -> Resul
     {
         // The replay after a checkpoint cuts the derived index first. It must append this
         // group again even when the record itself already settled before the kill.
-        if state.folds.append(row.id, last).is_ok() {
-            let _ = state.folds.sync();
-        }
+        state.folds.append(row.id, last)?;
     }
     state.bodies.remove(&row.id);
     state.raw_ranges.remove(&row.id);
@@ -746,9 +1014,11 @@ fn patch(state: &mut ActorState, row: OwnedRow, raw: RawRange) -> Result<(), Cha
     state.blobs.write_body(&patch_body, &mut body_text)?;
     let body_text = std::str::from_utf8(&body_text).map_err(|_| ChatError::Closed)?;
     row.as_row(body_text).encode(None, &mut encoded).map_err(|_| ChatError::Closed)?;
+    state.source.sync_through(state.raw_place)?;
     let seq = match state.log.patch(row.id, row.rev, raw, &encoded) {
         Ok(seq) => seq,
         Err(BookError::StaleRev { .. }) | Err(BookError::AlreadySettled { .. }) => {
+            state.replay_remaining = state.replay_remaining.saturating_sub(1);
             state.log.last_seq()
         }
         Err(error) => return Err(error.into()),
@@ -770,8 +1040,13 @@ fn body_key(field: BodyField) -> &'static str {
 }
 
 fn checkpoint(state: &mut ActorState) -> Result<(), ChatError> {
+    if state.replay_remaining != 0 {
+        // The log is ahead of translator state after a kill. Keep the old checkpoint
+        // until raw replay accounts for those records; its open bodies are authoritative.
+        return Ok(());
+    }
     let mut checkpoint = Checkpoint::new(translate::VERSION);
-    checkpoint.edition = state.edition.max(1);
+    checkpoint.edition = state.edition;
     checkpoint.boot_id = state.boot_id;
     checkpoint.translator = state.translate.checkpoint()?;
     checkpoint.last_row = state.translate.last_row_id();
@@ -810,67 +1085,4 @@ fn checkpoint(state: &mut ActorState) -> Result<(), ChatError> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn file_config(dir: &tempfile::TempDir) -> ChatConfig {
-        let source_path = dir.path().join("source.ndjson");
-        fs::write(
-            &source_path,
-            br#"{"kind":"prompt","id":"p1","text":"hello"}
-"#,
-        )
-        .unwrap();
-        let source_path = Arc::new(source_path);
-        ChatConfig::new("chat", dir.path(), Harness::V1).with_source_factory(Arc::new(move || {
-            source::FileSource::open(&source_path)
-                .map(|source| Box::new(source) as Box<dyn source::RawSource>)
-        }))
-    }
-
-    #[test]
-    fn actor_books_a_line_from_the_source() {
-        let dir = tempfile::tempdir().unwrap();
-        let actor = ChatActor::spawn(file_config(&dir));
-        actor.handle.wake().unwrap();
-        actor.join();
-        assert!(log::CheckpointHead::read(dir.path()).unwrap().is_some());
-    }
-
-    #[test]
-    fn actor_rebuilds_from_raw_after_a_damaged_checkpoint() {
-        let dir = tempfile::tempdir().unwrap();
-        let config = file_config(&dir);
-        let actor = ChatActor::spawn(config.clone());
-        actor.handle.wake().unwrap();
-        actor.join();
-
-        let checkpoint = dir.path().join("checkpoint");
-        let mut bytes = fs::read(&checkpoint).unwrap();
-        let last = bytes.len().saturating_sub(1);
-        if let Some(byte) = bytes.get_mut(last) {
-            *byte ^= 1;
-        }
-        fs::write(checkpoint, bytes).unwrap();
-
-        let raw_before = fs::read(dir.path().join("source.ndjson")).unwrap();
-        let rebuilt = ChatActor::spawn(config);
-        rebuilt.handle.wake().unwrap();
-        rebuilt.join();
-        assert_eq!(fs::read(dir.path().join("source.ndjson")).unwrap(), raw_before);
-        assert!(log::CheckpointHead::read(dir.path()).unwrap().is_some());
-        let (_log, recovered) = Log::open(dir.path(), Options::default()).unwrap();
-        assert!(recovered.checkpoint);
-        let _ = Checkpoint::from_recovered(&recovered).unwrap();
-    }
-
-    #[test]
-    fn failed_health_rejects_new_mailbox_requests() {
-        let (tx, _rx) = sync_channel(1);
-        let queued = Arc::new(Mutex::new(0));
-        let (health, health_receiver) = tokio::sync::watch::channel(crate::life::Health::Starting);
-        health.send_replace(crate::life::Health::Failed);
-        let handle = ChatHandle { tx, queued, health: health_receiver };
-        assert!(matches!(handle.wake(), Err(ChatError::Failed)));
-    }
-}
+mod tests;
