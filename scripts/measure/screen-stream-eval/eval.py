@@ -11,7 +11,7 @@ Schema (SCHEMA below; README.md): results.json is
 and each TARGET is
   {"ok", "errors": [...],
    "latency": {"key"|"pointer": {"p50_ms", "p95_ms", "n", "lost"}},
-   "kbps": {"idle"|"typing"|"scroll": number}, "fps": {same},
+    "kbps": {"idle"|"typing"|"scroll"|"video": number}, "fps": {same},
    "ocr": {"cer", "host_cer_vs_truth", "viewer_cer_vs_truth", ...},
    "split": {"key"|"pointer": {"encode_ms", "transport_ms", "decode_ms", "input_to_capture_ms", "method",
                                 [rd: "input_to_capture_parts": {"render_ms"|"sck_ms"|"pickup_ms"|"gate_ms"|"encode_ms": {"n", "p50", "p95"}}]},
@@ -28,13 +28,15 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import statistics
 import sys
 from pathlib import Path
 
-SCHEMA = "cmux.screen-stream-eval/1"
-SCENARIOS = ["idle", "typing", "scroll", "ocr"]
-WINDOW_PHASES = ["idle", "typing", "scroll"]
+SCHEMA = "cmux.screen-stream-eval/2"
+SCENARIOS = ["idle", "typing", "scroll", "video", "ocr"]
+REQUIRED_WINDOW_PHASES = ["idle", "typing", "scroll"]
+WINDOW_PHASES = [*REQUIRED_WINDOW_PHASES, "video"]
 # Seconds dropped at the start of each phase, so one phase's tail does not count in the next.
 PHASE_GUARD_MS = 1000
 
@@ -89,6 +91,34 @@ def phase_numbers(series: list[dict], phases: dict[str, dict]) -> tuple[dict, di
 OCR_FIELDS = ["cer", "host_cer_vs_truth", "viewer_cer_vs_truth", "host_chars", "viewer_chars", "truth_chars", "host_image", "viewer_image"]
 
 
+def video_error(request, media, phase) -> str | None:
+    """Bind a video phase to the requested prebuilt clip; source counts are not viewer FPS."""
+    if (not isinstance(request, dict) or not isinstance(request.get("sha256"), str)
+            or not re.fullmatch(r"[0-9a-f]{64}", request["sha256"])
+            or request.get("duration_s") != 20):
+        return "invalid video-requested.json (expected SHA256 and duration_s=20)"
+    if not isinstance(media, dict) or not isinstance(phase, dict):
+        return "missing video media or phase receipt"
+    if media.get("sha256") != request["sha256"]:
+        return "video media does not match requested SHA256"
+    for field in ("width", "height", "presented_frames"):
+        if type(media.get(field)) is not int or media[field] <= 0:
+            return f"invalid source video {field}"
+    for field in ("nominal_fps", "duration_s"):
+        value = media.get(field)
+        if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
+            return f"invalid source video {field}"
+    if media["duration_s"] < request["duration_s"]:
+        return "source video is shorter than requested phase"
+    for field in ("start_unix_ms", "end_unix_ms"):
+        value = media.get(field)
+        if type(value) not in (int, float) or not math.isfinite(value) or value != phase.get(field):
+            return "video media timestamps do not match phase"
+    if media["end_unix_ms"] - media["start_unix_ms"] < request["duration_s"] * 1000:
+        return "video phase ended before requested duration"
+    return None
+
+
 def empty_target(errors: list[str]) -> dict:
     """A target with every schema field present and null: what a run that measured nothing reports."""
     return {
@@ -99,7 +129,7 @@ def empty_target(errors: list[str]) -> dict:
         "ocr": dict.fromkeys(OCR_FIELDS),
         "split": {**{k: {"input_to_capture_ms": None, "encode_ms": None, "transport_ms": None, "decode_ms": None, "method": None}
                      for k in ("key", "pointer")}, "typing": {"encode_ms": None, "decode_ms": None}},
-        "extra": {"first_frame_ms": None, "cpu_pct": None},
+        "extra": {"first_frame_ms": None, "cpu_pct": None, "video_requested": None, "video_complete": False},
     }
 
 
@@ -122,6 +152,8 @@ def target(name: str, folder: Path, out: Path) -> None:
     reps = sorted(int(f.stem.split("-")[1]) for f in folder.glob("window-*.json") if f.stem.split("-")[1].isdigit())
     reps = sorted(set(reps) | {int(f.stem.split("-")[1]) for f in folder.glob("ocr-*.json") if f.stem.split("-")[1].isdigit()})
     per_rep, ocrs, extras = [], [], []
+    video_requested = (folder / "video-requested.json").exists()
+    video_request = load(folder / "video-requested.json") if video_requested else None
     for rep in reps:
         window = load(folder / f"window-{rep}.json") or {}
         phases = {}
@@ -130,9 +162,17 @@ def target(name: str, folder: Path, out: Path) -> None:
                 if line.strip():
                     row = json.loads(line)
                     phases[row["phase"]] = row
+        media = load(folder / f"video-media-{rep}.json") if video_requested else None
+        video_failure = video_error(video_request, media, phases.get("video")) if video_requested else None
+        if video_failure:
+            errors.append(f"video {rep}: {video_failure}")
+        # A timestamped phase without the pinned media receipt cannot supply video numbers.
+        if not video_requested or video_failure:
+            phases.pop("video", None)
         kbps, fps, sampled_fps, encode, decode = phase_numbers(window.get("series") or [], phases)
         ocr = load(folder / f"ocr-{rep}.json")
-        missing = [k for k in WINDOW_PHASES if fps[k] is None and sampled_fps[k] is None]
+        required = WINDOW_PHASES if video_requested else REQUIRED_WINDOW_PHASES
+        missing = [k for k in required if fps[k] is None and sampled_fps[k] is None]
         if missing:
             errors.append(f"window {rep}: no frame or sampled-change numbers for {missing} (phases logged: {sorted(phases)})")
         if ocr is None:
@@ -141,6 +181,7 @@ def target(name: str, folder: Path, out: Path) -> None:
             ocrs.append(ocr)
         extras.append(window.get("extra") or {})
         per_rep.append({"repeat": rep, "kbps": kbps, "fps": fps, "sampled_fps": sampled_fps, "typing_encode_ms": encode.get("typing"),
+                        "video_media": media, "video_valid": video_requested and not video_failure and "video" not in missing,
                         "typing_decode_ms": decode.get("typing"), "ocr_cer": (ocr or {}).get("cer"),
                         "ocr": {k: (ocr or {}).get(k) for k in OCR_FIELDS},
                         **{f"window_{k}": v for k, v in (window.get("extra") or {}).items()}})
@@ -175,11 +216,16 @@ def target(name: str, folder: Path, out: Path) -> None:
     cpu_values = (e.get("cpu_pct") if isinstance(e.get("cpu_pct"), (int, float)) else None
                   for e in extras)
     result["extra"] = {**metadata,
+                        "video_requested": video_requested,
+                        "video_complete": bool(per_rep) and all(r["video_valid"] for r in per_rep),
                         "first_frame_ms": median_of(e.get("first_frame_ms") for e in extras),
                         "cpu_pct": median_of(cpu_values),
                         "process_cpu_pct": median_of(e.get("process_cpu_pct") for e in extras),
                         "repeats": per_rep}
     result["sampled_fps"] = {k: median_of(r["sampled_fps"][k] for r in per_rep) for k in WINDOW_PHASES}
+    if not result["extra"]["video_complete"]:
+        for field in ("kbps", "fps", "sampled_fps"):
+            result[field]["video"] = None
     result["ok"] = not errors
     out.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
 
@@ -235,7 +281,7 @@ def summary(results_path: Path, out: Path, previous_path: Path | None) -> None:
         for kind, label in (("key", "Key"), ("pointer", "Pointer (click)")):
             lines.append(f"| {label} glass-to-glass p50 / p95 | {cell('latency', kind, 'p50_ms')} / {cell('latency', kind, 'p95_ms')}"
                          f" (n {get(t, 'latency', kind, 'n') or 0}, lost {get(t, 'latency', kind, 'lost') or 0}) |")
-        for phase, label in (("idle", "idle 30 s"), ("typing", "typing burst"), ("scroll", "scrolling 5k lines")):
+        for phase, label in (("idle", "idle 30 s"), ("typing", "typing burst"), ("scroll", "scrolling 5k lines"), ("video", "pinned video 20 s")):
             lines.append(f"| kbps, {label} | {cell('kbps', phase, unit='', digits=0)} at {cell('fps', phase, unit=' fps')} |")
         lines.append(f"| Text OCR error (13 pt code, viewer vs host screenshot) | {cell('ocr', 'cer', unit='%', digits=2)}"
                      f" (host OCR vs drawn text {fmt(get(t, 'ocr', 'host_cer_vs_truth'), '%', 2)}) |")
