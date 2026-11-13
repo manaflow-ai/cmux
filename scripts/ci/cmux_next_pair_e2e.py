@@ -106,12 +106,21 @@ def takes_pair_url_env():
 
 def dev_credential():
     """(email, password) of the DEBUG dev account, from the environment (`CMUX_UITEST_STACK_EMAIL` /
-    `CMUX_UITEST_STACK_PASSWORD`, the names the app reads); the source holds no credential."""
-    email = os.environ.get("CMUX_UITEST_STACK_EMAIL", "")
-    password = os.environ.get("CMUX_UITEST_STACK_PASSWORD", "")
-    if not email or not password:
-        raise SystemExit("DEBUG dev credential: set CMUX_UITEST_STACK_EMAIL and CMUX_UITEST_STACK_PASSWORD")
-    return email, password
+    `CMUX_UITEST_STACK_PASSWORD`, the names the app reads), else from the CI auth profile
+    (`~/.secrets/cmuxterm-dev.env`, which ios-e2e.yml materializes from the existing dogfood secrets
+    under those same names); the source holds no credential."""
+    keys = ("CMUX_UITEST_STACK_EMAIL", "CMUX_UITEST_STACK_PASSWORD")
+    found = {k: os.environ.get(k, "") for k in keys}
+    profile = os.path.expanduser("~/.secrets/cmuxterm-dev.env")
+    if not all(found.values()) and os.path.isfile(profile):
+        for line in open(profile):
+            k, sep, v = line.rstrip("\n").partition("=")
+            if sep and k in keys and not found[k]:
+                found[k] = v
+    if not all(found.values()):
+        raise SystemExit("DEBUG dev credential: set CMUX_UITEST_STACK_EMAIL and CMUX_UITEST_STACK_PASSWORD "
+                         "(or provide ~/.secrets/cmuxterm-dev.env)")
+    return found[keys[0]], found[keys[1]]
 
 
 def machine_id(bundle_id):
