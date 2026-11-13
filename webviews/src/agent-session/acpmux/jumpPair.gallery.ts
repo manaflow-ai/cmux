@@ -6,7 +6,8 @@
 // variants park the reader mid-chat below an unread "New" line, so the disc points up over real prose;
 // the `-up` variants leave them at the latest message, the line far above, where it points up too; the
 // `-latest` ones park above the line, where nothing unseen lies above and it is Jump to latest;
-// `single` (#42056) never turns up; `frosted-image` over a wallpaper. `pair`, `up` and `latest` pin no arm, so View Compare arms draws
+// `single` (#42056) never turns up; `frosted-image` over a wallpaper. Jump up is off by default
+// (jumpUp.experiment.ts, #42247), so every variant that parks under the line turns it on. `pair`, `up` and `latest` pin no arm, so View Compare arms draws
 // them once per look side by side; the other variants pin one look each. Light and dark:
 // ?colorScheme=light / dark.
 import { agentPaneEntry } from "../../gallery/format";
@@ -126,6 +127,7 @@ export default agentPaneEntry({
       note: "The disc pointing up in the app's look (the experiment's arm, frosted by default); View Compare arms puts every look side by side.",
       snapshot,
       play: park,
+      experiments: { [jumpUpButton.id]: "on" },
     },
     up: {
       note: "Jump up at the latest message, the New line far above, in the app's look; View Compare arms puts every look side by side.",
@@ -154,37 +156,37 @@ export default agentPaneEntry({
       note: "Selected (ships): a 32 px frosted disc at the composer's glass level; the words under it frost, nothing bends.",
       snapshot,
       play: park,
-      ...look("frosted"),
+      ...look("frosted", true),
     },
     labeled: {
       note: "Labeled: the same glass as short rounded rectangles with the arrow and its words, the Needs you pill's shape.",
       snapshot,
       play: park,
-      ...look("labeled"),
+      ...look("labeled", true),
     },
     stacked: {
       note: "Stacked: frosted rounded squares in the Needs you pill's radius, a hairline apart, one compact column.",
       snapshot,
       play: park,
-      ...look("stacked"),
+      ...look("stacked", true),
     },
     single: {
       note: 'Single: the frosted disc never turns up; it is Jump to latest alone (Leo, 2026-11-12: "maybe a bit extra?").',
       snapshot,
       play: parkSingle,
-      ...look("single"),
+      ...look("single", true),
     },
     lens: {
       note: "Before: the fisheye lens disc; the words under it magnify and bend behind the arrow.",
       snapshot,
       play: park,
-      ...look("lens"),
+      ...look("lens", true),
     },
     "frosted-image": {
       note: "The shipped look over a wallpaper: still glass, the art shows through the frost.",
       snapshot,
       play: overImage,
-      ...look("frosted"),
+      ...look("frosted", true),
     },
   },
 });
