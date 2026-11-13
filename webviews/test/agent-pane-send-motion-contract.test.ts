@@ -117,6 +117,7 @@ await requireBrowserLane("agent-pane-send-motion-contract.test.ts", async () => 
   type Opened = { page: Page; frames?: Frames120; close(): Promise<void> };
   /// The chat at its latest row, at rest: Chromium on the 120 Hz clock, WebKit on its own.
   async function open(name: string, pane: NonNullable<typeof idle>, ready: string): Promise<Opened> {
+    const t0 = Date.now();
     const viewport = { width: 980, height: 700 };
     let page: Page;
     let frames: Frames120 | undefined;
@@ -124,6 +125,9 @@ await requireBrowserLane("agent-pane-send-motion-contract.test.ts", async () => 
       frames = await open120Hz(pane.address().replace("/#", "/?clock=frames#"), { viewport, clock: "frames" });
       page = frames.page;
     } else page = await browsers.get(name)!.newPage({ viewport });
+    page.on("console", (m) => {
+      if (m.text().startsWith("DIAG")) console.log(`${m.text()} wall ${Date.now() - t0}`);
+    });
     await installPaintedFrames(page);
     await installMotionRecorder(page);
     if (!frames) await page.goto(pane.address());
@@ -166,6 +170,18 @@ await requireBrowserLane("agent-pane-send-motion-contract.test.ts", async () => 
                   Number.isFinite(animation.effect?.getComputedTiming().endTime ?? Number.POSITIVE_INFINITY),
               );
             still = now === last && !running ? still + 1 : 0;
+            if (frames % 60 === 0 || frames >= 900)
+              console.log(
+                `DIAG settle frame ${frames} at ${Math.round(performance.now())} still ${still} now ${now} last ${last} running ${document
+                  .getAnimations()
+                  .filter(
+                    (a) =>
+                      a.playState === "running" &&
+                      Number.isFinite(a.effect?.getComputedTiming().endTime ?? Number.POSITIVE_INFINITY),
+                  )
+                  .map((a) => `${(a as CSSAnimation).animationName ?? a.constructor.name}@${((a.effect as KeyframeEffect | null)?.target as Element | null)?.className}`)
+                  .join(",")}`,
+              );
             last = now;
             if (still < 12 && frames < 900) return true;
             resolve();
