@@ -428,7 +428,7 @@ class Workflow(unittest.TestCase):
         runs_on = re.search(r"^    runs-on: (.+)$", job, re.MULTILINE).group(1)
         self.assertIn("pick-nightly-app-runner", re.search(r"^    needs: (.+)$", job, re.MULTILINE).group(1))
         self.assertIn("needs.pick-nightly-app-runner.outputs.trusted != 'false' && fromJSON(", runs_on)
-        self.assertIn("|| needs.pick-nightly-app-runner.outputs.cloud || 'blacksmith-12vcpu-macos-26' }}", runs_on)
+        self.assertIn("|| needs.pick-nightly-app-runner.outputs.cloud || 'blacksmith-6vcpu-macos-26' }}", runs_on)
         # A failed or skipped picker never skips the build.
         self.assertRegex(re.search(r"^    if: (.+)$", job, re.MULTILINE).group(1), r"^\"!cancelled\(\) && needs\.decide\.result == 'success'")
 

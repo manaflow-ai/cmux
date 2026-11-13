@@ -145,10 +145,10 @@
       ]
     },
     "macos_26_large": {
-      "why": "macOS 26 work that needs the 12 vCPU, 48 GB SKU",
+      "why": "macOS 26 work that wants the 12 vCPU, 48 GB SKU (release, the nightly app, seeds). 6 vCPU leads: the 12 vCPU label starves behind 6 vCPU jobs in Blacksmith's shared macOS vCPU pool and ran nothing from 2026-11-08 16:44Z to 11-09 10:24Z (jobs queued up to 282 min) while 6 vCPU ran 6 to 14. Led by 12 vCPU, the pool went back to it each time a dead mark expired (DEAD_TTL). 12 vCPU stays the fallback when 6 vCPU stalls",
       "members": [
-        "blacksmith-12vcpu-macos-26",
-        "blacksmith-6vcpu-macos-26"
+        "blacksmith-6vcpu-macos-26",
+        "blacksmith-12vcpu-macos-26"
       ]
     },
     "macos_latest": {
