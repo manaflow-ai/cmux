@@ -250,11 +250,13 @@ impl HubWriter {
             );
         }
         if self.sources.load().get(origin) == Some(&source) {
+            self.origins.ended.remove(origin);
             return Ok(());
         }
         let mut sources = self.sources.load_full().as_ref().clone();
         sources.insert(origin.into(), source);
         self.sources.store(Arc::new(sources));
+        self.origins.ended.remove(origin);
         Ok(())
     }
 
