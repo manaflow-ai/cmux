@@ -9,15 +9,18 @@
 //!
 //! Wanted: one context read is ONE connection to the daemon, and a start
 //! text never says that no other agent runs when the daemon did not answer
-//! the list of the agents.
+//! the list of the agents. A terminal's short request (a hook, a typed
+//! command) is served while other terminals hold long connections.
 //!
 //! Each test starts a real headless daemon and runs the real command with
 //! the environment that the daemon gives a terminal. The tests assert counts
 //! and texts; every time limit here is a liveness bound of the test.
 #![cfg(unix)]
 
+use std::ffi::CString;
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader, Write};
+use std::os::unix::ffi::OsStrExt as _;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -27,6 +30,9 @@ use serde_json::{Value, json};
 
 /// The sentence of a start text for a session with no other agent.
 const NO_OTHER_AGENT: &str = "No other agent runs in this session now.";
+/// The connections that the daemon serves for its terminals at one time
+/// (`MAX_TERMINAL_CONNECTIONS`, `cmux-tui-core` `server/bounded_outbound.rs`).
+const TERMINAL_LANE: usize = 48;
 
 fn test_timeout(timeout: Duration) -> Duration {
     let scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
@@ -233,6 +239,26 @@ impl Control {
         }
     }
 
+    /// How many requests named `name` the daemon handled (`server-stats`
+    /// section `commands`), from each kind of client.
+    fn handled(&mut self, name: &str) -> u64 {
+        let stats = self.request(json!({"cmd": "server-stats", "include": ["commands"]}));
+        let rows = stats["commands"]["rows"]
+            .as_array()
+            .unwrap_or_else(|| panic!("setup: server-stats has no commands.rows: {stats}"));
+        rows.iter().filter(|row| row["name"] == name).filter_map(|row| row["count"].as_u64()).sum()
+    }
+
+    /// A terminal in a new workspace that runs `script`.
+    fn run_in_terminal(&mut self, name: &str, script: &str) {
+        self.request(json!({
+            "cmd": "run",
+            "argv": ["/bin/sh", "-c", script],
+            "new_workspace": true,
+            "name": name,
+        }));
+    }
+
     /// A terminal in a new workspace that stays open; its id.
     fn start_terminal(&mut self, dir: &Path) -> String {
         let id_file = dir.join("terminal-id");
@@ -362,4 +388,241 @@ fn agent_start_context_refused_list_is_not_known_and_never_no_other_agent() {
         "the text must say that the other agents are not known: {text}"
     );
     drop(held);
+}
+
+/// A barrier for a terminal: it reads this FIFO to its end, and the end
+/// comes when the test closes its own end.
+struct Gate {
+    writer: fs::File,
+}
+
+impl Gate {
+    fn new(dir: &Path, name: &str) -> Self {
+        let path = dir.join(name);
+        let c_path = CString::new(path.as_os_str().as_bytes()).unwrap();
+        // SAFETY: `c_path` is a valid C string that lives across the call.
+        let made = unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) };
+        assert_eq!(made, 0, "setup: mkfifo {}: {}", path.display(), io::Error::last_os_error());
+        // Open for reading and writing: this open does not wait for a
+        // reader, and the terminal's open for reading does not wait either.
+        let writer = fs::OpenOptions::new().read(true).write(true).open(&path).unwrap();
+        Self { writer }
+    }
+
+    /// Lets the terminal behind the gate go on.
+    fn open(self) {
+        drop(self.writer);
+    }
+}
+
+/// The program of a terminal that holds one long connection: the session's
+/// event stream, as `cmux terminal wait`, an MCP watch and a nested cmux do.
+fn long_holder_script(dir: &Path, index: usize) -> String {
+    format!(
+        "exec '{tui}' --json session current events >/dev/null 2>'{dir}/held/{index}.err'",
+        tui = env!("CARGO_BIN_EXE_cmux-tui"),
+        dir = dir.display(),
+    )
+}
+
+/// The program of the terminal that makes the three short requests of an
+/// agent, each behind its own gate: the context hook of an agent start, the
+/// hook of a prompt, and a typed command. It writes the time before and
+/// after each one (`date +%s%N`; where `date` has no nanoseconds the test
+/// takes the times of the two files).
+fn probe_script(dir: &Path) -> String {
+    let start = r#"{"hook_event_name":"SessionStart","source":"startup","cwd":"/tmp"}"#;
+    let prompt = concat!(
+        r#"{"hook_event_name":"UserPromptSubmit","cwd":"/tmp","prompt":"go on","#,
+        r#""session_id":"00000000-0000-4000-8000-000000000049"}"#
+    );
+    format!(
+        "D='{dir}/probe'; \
+         mark() {{ date +%s%N >\"$D/$1.part\" 2>/dev/null; mv \"$D/$1.part\" \"$D/$1\"; }}; \
+         exec 3<\"$D/gate-context\" 4<\"$D/gate-prompt\" 5<\"$D/gate-typed\"; \
+         printf '%s' \"$CMUX_TUI_TERMINAL_ID\" >\"$D/terminal.part\"; \
+         mv \"$D/terminal.part\" \"$D/terminal\"; \
+         /bin/cat <&3 >/dev/null; mark context.start; \
+         printf '%s' '{start}' | '{tui}' agent session-context \
+            >\"$D/context.out\" 2>\"$D/context.err\"; echo $? >\"$D/context.rc\"; \
+         mark context.end; \
+         /bin/cat <&4 >/dev/null; mark prompt.start; \
+         printf '%s' '{prompt}' | '{hook}' claude UserPromptSubmit \
+            >\"$D/prompt.out\" 2>\"$D/prompt.err\"; echo $? >\"$D/prompt.rc\"; \
+         mark prompt.end; \
+         /bin/cat <&5 >/dev/null; mark typed.start; \
+         '{tui}' --json terminal \"$CMUX_TUI_TERMINAL_ID\" show \
+            >\"$D/typed.out\" 2>\"$D/typed.err\"; echo $? >\"$D/typed.rc\"; \
+         mark typed.end; \
+         exec /bin/cat",
+        dir = dir.display(),
+        tui = env!("CARGO_BIN_EXE_cmux-tui"),
+        hook = env!("CARGO_BIN_EXE_cmux-tui-hook"),
+    )
+}
+
+/// The moment that the probe's terminal wrote in `mark`.
+fn marked_at(probe: &Path, mark: &str) -> Duration {
+    let path = probe.join(mark);
+    let written = fs::read_to_string(&path).unwrap_or_default();
+    match written.trim().parse::<u64>() {
+        Ok(nanoseconds) => Duration::from_nanos(nanoseconds),
+        Err(_) => fs::metadata(&path)
+            .and_then(|file| file.modified())
+            .ok()
+            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+            .unwrap_or_else(|| panic!("setup: no time for {}", path.display())),
+    }
+}
+
+/// What one short request of the probe's terminal gave.
+struct Short {
+    name: &'static str,
+    /// From the moment before the command to the moment after it.
+    wait: Duration,
+    exit: Option<i32>,
+    printed: String,
+    error: String,
+    /// The connections that the daemon admitted and refused in that time.
+    admitted: u64,
+    refused: u64,
+}
+
+impl Short {
+    /// Opens `gate` and waits for the end of the request `name`.
+    fn run(daemon: &Daemon, control: &mut Control, gate: Gate, name: &'static str) -> Self {
+        let probe = daemon.dir.join("probe");
+        let before = control.connections();
+        gate.open();
+        let end = format!("{name}.end");
+        let ended = wait_until(test_timeout(Duration::from_secs(60)), || probe.join(&end).exists());
+        let after = control.connections();
+        let file = |suffix: &str| {
+            fs::read_to_string(probe.join(format!("{name}.{suffix}"))).unwrap_or_default()
+        };
+        assert!(ended, "the {name} request did not end: stderr {:?}", file("err"));
+        let wait =
+            marked_at(&probe, &end).saturating_sub(marked_at(&probe, &format!("{name}.start")));
+        let short = Self {
+            name,
+            wait,
+            exit: file("rc").trim().parse().ok(),
+            printed: file("out"),
+            error: file("err"),
+            admitted: after.accepted - before.accepted,
+            refused: after.refused - before.refused,
+        };
+        eprintln!("agent start long holders: {}", short.shown());
+        short
+    }
+
+    fn shown(&self) -> String {
+        let cut = |text: &str| text.trim().chars().take(600).collect::<String>();
+        format!(
+            "{}: waited {:.1} ms, exit {:?}, the daemon admitted {} and refused {} connections; \
+             printed {:?}; stderr {:?}",
+            self.name,
+            self.wait.as_secs_f64() * 1000.0,
+            self.exit,
+            self.admitted,
+            self.refused,
+            cut(&self.printed),
+            cut(&self.error),
+        )
+    }
+}
+
+/// 48 terminals each hold one long connection (the session's event stream),
+/// as agents do that wait for a terminal, watch through MCP or run a nested
+/// cmux. A short request from another terminal must still be served: the
+/// daemon counted a long connection in the same 48 places as a hook that ends
+/// in milliseconds, so 48 long holders made every hook and every typed
+/// command of every other terminal fail until one of them closed.
+#[test]
+fn agent_start_long_holders_leave_room_for_a_hook_and_a_typed_command() {
+    let daemon = Daemon::start("long");
+    let mut control = Control::open(&daemon.socket);
+    for folder in ["held", "probe"] {
+        fs::create_dir_all(daemon.dir.join(folder)).unwrap();
+    }
+    let probe = daemon.dir.join("probe");
+    let context_gate = Gate::new(&probe, "gate-context");
+    let prompt_gate = Gate::new(&probe, "gate-prompt");
+    let typed_gate = Gate::new(&probe, "gate-typed");
+    control.run_in_terminal("probe", &probe_script(&daemon.dir));
+    let ready =
+        wait_until(test_timeout(Duration::from_secs(30)), || probe.join("terminal").exists());
+    assert!(ready, "setup: the probe's terminal did not start");
+    let terminal = fs::read_to_string(probe.join("terminal")).unwrap();
+    assert!(terminal.starts_with("term_"), "setup: the probe's terminal id is {terminal:?}");
+
+    for index in 0..TERMINAL_LANE {
+        control.run_in_terminal(&format!("h{index}"), &long_holder_script(&daemon.dir, index));
+    }
+    // Each holder has its stream: the daemon handled its `session.events`.
+    let wanted = u64::try_from(TERMINAL_LANE).unwrap();
+    let held = wait_until(test_timeout(Duration::from_secs(60)), || {
+        control.handled("session.events") >= wanted
+    });
+    let first_error = (0..TERMINAL_LANE)
+        .map(|index| daemon.dir.join("held").join(format!("{index}.err")))
+        .filter_map(|path| fs::read_to_string(path).ok())
+        .find(|error| !error.trim().is_empty())
+        .unwrap_or_default();
+    let streams = control.handled("session.events");
+    assert!(
+        held,
+        "setup: the daemon opened {streams} of the {wanted} event streams; a holder said {first_error:?}"
+    );
+    let before = control.connections();
+    eprintln!(
+        "agent start long holders: {streams} event streams are open from {TERMINAL_LANE} \
+         terminals; the daemon counts {} of {} connections; it refused {} so far",
+        before.active, before.limit, before.refused
+    );
+    assert_eq!(before.refused, 0, "setup: the daemon refused a holder: {first_error:?}");
+
+    let context = Short::run(&daemon, &mut control, context_gate, "context");
+    let prompt = Short::run(&daemon, &mut control, prompt_gate, "prompt");
+    let typed = Short::run(&daemon, &mut control, typed_gate, "typed");
+
+    // The holders still hold: no short request got its place from one that left.
+    let still = control.connections();
+    eprintln!(
+        "agent start long holders: after the three requests the daemon counts {} of {} \
+         connections and refused {}",
+        still.active, still.limit, still.refused
+    );
+    let text = serde_json::from_str::<Value>(&context.printed)
+        .ok()
+        .and_then(|output| {
+            output
+                .pointer("/hookSpecificOutput/additionalContext")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
+        .unwrap_or_default();
+    for short in [&context, &prompt, &typed] {
+        assert_eq!(
+            short.refused,
+            0,
+            "the daemon refused a short request of a terminal while {TERMINAL_LANE} other \
+             terminals hold a long connection: {}",
+            short.shown()
+        );
+        assert_eq!(short.exit, Some(0), "{}", short.shown());
+        assert!(short.admitted >= 1, "setup: the request made no connection: {}", short.shown());
+    }
+    assert!(
+        text.contains(&format!("terminal {terminal}."))
+            && !text.contains("unknown")
+            && !text.contains("not known"),
+        "the start text must name each place and the other agents: {}",
+        context.shown()
+    );
+    assert!(
+        typed.printed.contains(&terminal),
+        "the typed command must print its terminal: {}",
+        typed.shown()
+    );
 }
