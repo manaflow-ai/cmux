@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43490037806",
+  "recorded_at": "2026-11-13T19:28:59Z",
+  "reason": "cmux-tui 48672eed34ca changes the image's cmux-tui (pinned b32812893a83)",
+  "dry_run": false,
+  "cmux_tui": "48672eed34ca9faf3f60f2d7f927471983235ee7",
+  "fixes": [
+    {
+      "sha": "3c72a63d07d229c404d639b1d011aeec4bc050e9",
+      "mergedAt": "2026-11-13T10:43:09-08:00",
+      "subject": "v2 5d: persist origins and bound remote row lifecycle (#42608)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T19:28:59Z",
+    "snapshot_id": "sh-7ea2d2f284214708b77dbcd884a84617",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43490037806): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "d0412f277d3a51116fa62d958e061f7e1cf4c3dc",
+    "image": "cloud-native-auto-48672eed-43490037806-1",
+    "revision": "ci-43490037806-1",
+    "at": "2026-11-13T19:28:59Z"
+  },
+  "rolled_back": false
+}
