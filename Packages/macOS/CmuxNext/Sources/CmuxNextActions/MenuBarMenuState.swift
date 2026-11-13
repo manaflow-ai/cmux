@@ -79,15 +79,20 @@ public nonisolated struct MenuBarMenuState: Sendable, Hashable {
             public var acting: Bool
             /// The person stopped its Computer Use (the menu's Stop); Resume lets it act again.
             public var stopped: Bool
+            /// Its live preview (`computerUse.livePreview`): true while it may show, false once the
+            /// person hid it; nil when no preview applies (the setting is off, or the session names
+            /// no terminal or chat).
+            public var livePreview: Bool?
 
             public init(id: String, agent: String? = nil, appName: String? = nil, bundleID: String? = nil, acting: Bool = false,
-                        stopped: Bool = false) {
+                        stopped: Bool = false, livePreview: Bool? = nil) {
                 self.id = id
                 self.agent = agent
                 self.appName = appName
                 self.bundleID = bundleID
                 self.acting = acting
                 self.stopped = stopped
+                self.livePreview = livePreview
             }
         }
 

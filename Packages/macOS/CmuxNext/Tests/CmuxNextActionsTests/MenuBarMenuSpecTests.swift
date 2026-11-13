@@ -236,6 +236,26 @@ struct MenuBarMenuSpecTests {
         #expect(sub[1] == .command(.computerUseResume("s1"), title: "Resume", symbol: "play.circle"))
     }
 
+    /// A session with a live preview gets Live Preview: Hide while it may show and Live Preview:
+    /// Show once the person hid it; a session without one (the setting off) gets neither.
+    @Test func aSessionWithALivePreviewOffersShowOrHide() throws {
+        let state = MenuBarMenuState(computerUse: .init(sessions: [
+            .init(id: "s1", agent: "Claude Code", appName: "Notes", livePreview: true),
+            .init(id: "s2", agent: "Codex", livePreview: false),
+            .init(id: "s3", agent: "Gemini"),
+        ]))
+        guard case .computerUse(_, _, let sub) = MenuBarMenuSpec().items(for: state, isBound: Self.everything)[0] else {
+            throw CancellationError()
+        }
+        #expect(sub.contains(.command(.computerUseLivePreview("s1", show: false), title: "Live Preview: Hide", symbol: "pip.exit")))
+        #expect(sub.contains(.command(.computerUseLivePreview("s2", show: true), title: "Live Preview: Show", symbol: "pip.enter")))
+        #expect(!Self.ids(sub).contains { $0.contains("computerUseLivePreview(\"s3\"") })
+        #expect(Self.ids(Array(sub.prefix(5))) == [
+            "info:Claude Code in Notes", "computerUseStop@s1", "command:computerUseShowCursor(\"s1\")", "computerUseFocus@s1",
+            "command:computerUseLivePreview(\"s1\", show: false)",
+        ])
+    }
+
     /// The builder: native section headers, chat rows that run their command with the harness
     /// mark, and the Computer Use row with the driven app as its badge and a submenu.
     @Test func builderMakesChatAndComputerUseRows() throws {

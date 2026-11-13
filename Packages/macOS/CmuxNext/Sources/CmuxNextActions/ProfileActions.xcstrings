@@ -9834,6 +9834,270 @@
           }
         }
       }
+    },
+    "menu.menuBar.computerUse.hideLivePreview" : {
+      "comment" : "Menu bar > Computer Use: hides this agent's live preview of the window it uses, in its terminal or chat.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Preview: Hide"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "المعاينة المباشرة: إخفاء"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pregled uživo: sakrij"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live-forhåndsvisning: Skjul"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live-Vorschau: Ausblenden"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vista previa en vivo: ocultar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aperçu en direct : masquer"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anteprima dal vivo: nascondi"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ライブプレビュー：非表示"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ការមើលជាមុនផ្ទាល់៖ លាក់"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "실시간 미리보기: 숨기기"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Direkte forhåndsvisning: Skjul"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Podgląd na żywo: ukryj"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prévia ao vivo: ocultar"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Живой предпросмотр: скрыть"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ตัวอย่างสด: ซ่อน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Canlı önizleme: Gizle"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Живий перегляд: сховати"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Xem trước trực tiếp: Ẩn"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "实时预览：隐藏"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "即時預覽：隱藏"
+          }
+        }
+      }
+    },
+    "menu.menuBar.computerUse.showLivePreview" : {
+      "comment" : "Menu bar > Computer Use: shows this agent's live preview of the window it uses again, in its terminal or chat.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live Preview: Show"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "المعاينة المباشرة: إظهار"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pregled uživo: prikaži"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live-forhåndsvisning: Vis"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Live-Vorschau: Einblenden"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vista previa en vivo: mostrar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aperçu en direct : afficher"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anteprima dal vivo: mostra"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ライブプレビュー：表示"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ការមើលជាមុនផ្ទាល់៖ បង្ហាញ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "실시간 미리보기: 보기"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Direkte forhåndsvisning: Vis"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Podgląd na żywo: pokaż"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prévia ao vivo: mostrar"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Живой предпросмотр: показать"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ตัวอย่างสด: แสดง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Canlı önizleme: Göster"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Живий перегляд: показати"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Xem trước trực tiếp: Hiện"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "实时预览：显示"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "即時預覽：顯示"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

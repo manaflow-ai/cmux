@@ -135,6 +135,8 @@ public final class MenuBarExtra: NSObject, NSMenuDelegate {
             host.menuBarResumeComputerUse(session)
         case .computerUseShowCursor(let session):
             host.menuBarShowComputerUseCursor(session)
+        case .computerUseLivePreview(let session, let show):
+            host.menuBarSetComputerUseLivePreview(session, show: show)
         }
     }
 

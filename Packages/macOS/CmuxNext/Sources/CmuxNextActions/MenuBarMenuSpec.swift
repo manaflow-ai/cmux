@@ -43,6 +43,8 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
         case computerUseResume(String)
         /// Rings the session's agent cursor where it is, so the person finds it.
         case computerUseShowCursor(String)
+        /// Shows (`show`) or hides the session's live preview in its terminal or chat.
+        case computerUseLivePreview(String, show: Bool)
     }
 
     /// The most Computer Use sessions the row's submenu names.
@@ -188,7 +190,8 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
         return .computerUse(app: newest.appName, bundleID: newest.bundleID, items: items)
     }
 
-    /// One session's line and its rows: Stop or Resume, Show Cursor, Show Window.
+    /// One session's line and its rows: Stop or Resume, Show Cursor, Show Window, and Live Preview:
+    /// Show or Hide while the session has a preview.
     private static func sessionRows(_ session: MenuBarMenuState.ComputerUse.Session) -> [Item] {
         let line = sessionLine(session)
         let symbol = session.stopped ? "stop.circle" : session.acting ? "cursorarrow.motionlines" : "cursorarrow"
@@ -198,13 +201,21 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
         let stopOrResume: Item = session.stopped
             ? .command(.computerUseResume(session.id), title: text("menu.menuBar.computerUse.resume", "Resume"), symbol: "play.circle")
             : .sessionAction("computerUseStop", session: session.id, title: text("menu.menuBar.computerUse.stop", "Stop"), symbol: "stop.circle")
-        return [
+        var rows: [Item] = [
             .info(title, symbol: symbol, avatar: false),
             stopOrResume,
             .command(.computerUseShowCursor(session.id), title: text("menu.menuBar.computerUse.showCursor", "Show Cursor"), symbol: "scope"),
             .sessionAction("computerUseFocus", session: session.id, title: text("menu.menuBar.computerUse.showWindow", "Show Window"),
                            symbol: "macwindow"),
         ]
+        if let shown = session.livePreview {
+            rows.append(shown
+                ? .command(.computerUseLivePreview(session.id, show: false),
+                           title: text("menu.menuBar.computerUse.hideLivePreview", "Live Preview: Hide"), symbol: "pip.exit")
+                : .command(.computerUseLivePreview(session.id, show: true),
+                           title: text("menu.menuBar.computerUse.showLivePreview", "Live Preview: Show"), symbol: "pip.enter"))
+        }
+        return rows
     }
 
     /// "Claude Code in Notes", or the one of them the worker knows.

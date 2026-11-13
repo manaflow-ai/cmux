@@ -35,4 +35,6 @@ public protocol MenuBarExtraHost: AnyObject {
     func menuBarResumeComputerUse(_ session: String)
     /// Rings Computer Use session `session`'s agent cursor where it is (the menu's Show Cursor).
     func menuBarShowComputerUseCursor(_ session: String)
+    /// Shows or hides Computer Use session `session`'s live preview (the menu's Live Preview row).
+    func menuBarSetComputerUseLivePreview(_ session: String, show: Bool)
 }
