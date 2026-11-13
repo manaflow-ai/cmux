@@ -40,6 +40,7 @@ use serde_json::{Value, json};
 use super::Shape;
 use crate::JournalSubject;
 use crate::workspace_registry::WorkspaceRegistry;
+use crate::workspace_registry::open_guard::sidecar_path;
 use crate::workspace_registry::output_cleanup::{
     StageControl, StageOutcome, previous_path, stage_registry,
 };
@@ -237,6 +238,13 @@ impl SparseReport {
 }
 
 impl Shape {
+    /// Reads the size of the registry's log and keeps the largest.
+    pub(super) fn note_log(&mut self) {
+        let registry = super::super::registry_path(&self.state_root, &self.options.session);
+        let bytes = std::fs::metadata(sidecar_path(&registry, "-wal")).map_or(0, |log| log.len());
+        self.counters.log_peak_bytes = self.counters.log_peak_bytes.max(bytes);
+    }
+
     /// Writes the sparse part and runs the first output cleanup on it (the
     /// module doc). `None` without [`super::ShapeOptions::sparse_head`]. The
     /// registry is open again at the end.
@@ -260,6 +268,7 @@ impl Shape {
             self.append(BURST_RECORDS)?;
             let stop = if burst + 1 == bursts { target } else { first + span * (burst + 1) };
             self.removed_rows(burst, stop, &mut report)?;
+            self.note_log();
             if self.options.progress && (burst + 1).is_multiple_of(10_000) {
                 eprintln!("synth: sparse part, burst {} of {bursts}", burst + 1);
             }

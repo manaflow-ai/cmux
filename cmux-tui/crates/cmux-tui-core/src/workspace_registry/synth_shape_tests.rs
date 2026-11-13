@@ -114,6 +114,13 @@ fn a_registry_with_a_sparse_part_has_holes_at_low_sequences_and_opens() {
     assert!(sparse.pruned_ranges >= 1_000, "{json}");
     assert!(sparse.bytes_after < sparse.bytes_before, "{json}");
     assert_eq!(sparse.stretched_to, 0, "{json}");
+    // Tests build such a registry at one time in the same temporary folder:
+    // the generator's log stays below the size at which a daemon cuts its own.
+    assert!(
+        report.log_peak_bytes <= crate::workspace_registry::wal_durability::WAL_SIZE_LIMIT_BYTES,
+        "the generator's log reached {} bytes: {json}",
+        report.log_peak_bytes
+    );
 
     // The file holds the record target; the head is above it by the holes.
     let head = number(&json, "journal_head");

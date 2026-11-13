@@ -237,6 +237,8 @@ pub struct ShapeReport {
     pub rested_through: u64,
     /// The sparse part, when the options ask for one.
     pub sparse: Option<SparseReport>,
+    /// The largest size of the registry's log that the generator saw.
+    pub log_peak_bytes: u64,
     /// Highest sequence in a sealed segment.
     pub sealed_through: u64,
     pub segments_sealed: u64,
@@ -262,6 +264,7 @@ impl ShapeReport {
                     "sealed_through": self.sealed_through,
                     "segments_sealed": self.segments_sealed,
                     "segments_backdated": self.segments_backdated,
+                    "log_peak_bytes": self.log_peak_bytes,
                 }),
             );
             if let Some(sparse) = &self.sparse {
@@ -375,6 +378,7 @@ pub fn generate_shape(state_root: &Path, options: &ShapeOptions) -> anyhow::Resu
         progress_rows: shape.counters.progress_rows,
         session_puts: shape.writer.written.session_puts,
         ingress_rows: shape.counters.ingress_rows,
+        log_peak_bytes: shape.counters.log_peak_bytes,
         rested_agents: options.rested_agents as u64,
         rested_through,
         sparse,
@@ -435,6 +439,8 @@ struct Counters {
     subject_rows: u64,
     /// Turns of the lane round for the other `agent.*` kinds.
     other_turns: u64,
+    /// The largest size of the registry's log (`Shape::note_log`).
+    log_peak_bytes: u64,
 }
 
 #[derive(Clone, Copy)]
@@ -567,6 +573,7 @@ impl Shape {
             if self.counters.rows.is_multiple_of(CHECKPOINT_ROWS) {
                 self.checkpoint()?;
             }
+            self.note_log();
             if self.options.progress && self.counters.rows.is_multiple_of(50_000) {
                 eprintln!(
                     "synth: {} rows ({} left in this step, {:.1} s)",
