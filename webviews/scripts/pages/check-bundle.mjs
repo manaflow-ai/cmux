@@ -203,6 +203,7 @@ const timing = {
   p95Ms: percentile(0.95),
   maxMs: openTimes.at(-1) ?? null,
 };
+await writeFile(path.join(output, "timing.json"), JSON.stringify(timing, null, 2) + "\n");
 console.log(JSON.stringify({ timing }));
 if (
   receipts.length !== expectedPages.size ||

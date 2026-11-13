@@ -17,7 +17,10 @@ from pathlib import Path
 from typing import Any
 
 
-EXPORT_STAR = re.compile(r"\bexport\s*\*\s+from\s*[\"']")
+EXPORT_STAR = re.compile(r"\bexport\s*\*\s+from\s*[\"']([^\"']+)[\"']")
+JS_COMMENTS_AND_STRINGS = re.compile(
+    r"//[^\n]*|/\*[\s\S]*?\*/|(['\"`])(?:\\.|(?!\1)[^\\])*\1"
+)
 
 
 def package_name(path: str) -> str | None:
@@ -45,12 +48,36 @@ def package_instance(path: str) -> str | None:
     return prefix + marker + "/".join(parts[:count])
 
 
-def resolve_input(path: str, metafile: Path) -> Path:
+def resolve_input(path: str, metafile: Path, source_root: Path | None) -> Path:
     candidate = Path(path)
-    return candidate if candidate.is_absolute() else (metafile.parent / candidate).resolve()
+    if candidate.is_absolute():
+        return candidate
+    # esbuild paths are relative to the process working directory, while the
+    # metafile is commonly copied to a separate report directory. Callers pass
+    # that working directory explicitly so source inspection remains accurate.
+    return ((source_root or metafile.parent) / candidate).resolve()
 
 
-def load_bundle(name: str, metafile: Path, bundle_dir: Path | None) -> dict[str, Any]:
+def clean_javascript(text: str) -> str:
+    """Remove comments and literals before checking for CommonJS syntax."""
+    return JS_COMMENTS_AND_STRINGS.sub("", text)
+
+
+def resolve_export(source: Path, specifier: str) -> Path | None:
+    target = (source.parent / specifier).resolve()
+    candidates = [target]
+    if not target.suffix:
+        candidates.extend(target.with_suffix(ext) for ext in (".ts", ".tsx", ".js", ".jsx", ".mjs", ".mts", ".json"))
+        candidates.extend(target / f"index{ext}" for ext in (".ts", ".tsx", ".js", ".jsx", ".mjs", ".mts"))
+    return next((candidate for candidate in candidates if candidate.is_file()), None)
+
+
+def load_bundle(
+    name: str,
+    metafile: Path,
+    bundle_dir: Path | None,
+    source_root: Path | None = None,
+) -> dict[str, Any]:
     raw = json.loads(metafile.read_text(encoding="utf-8"))
     outputs = raw.get("outputs", {})
     source_inputs = raw.get("inputs", {})
@@ -78,9 +105,11 @@ def load_bundle(name: str, metafile: Path, bundle_dir: Path | None) -> dict[str,
     commonjs = []
     barrels = []
     dev_inputs = []
+    source_paths = {}
+    source_texts = {}
     for row in modules.values():
         path = row["path"]
-        source = None if "\x00" in path else resolve_input(path, metafile)
+        source = None if "\x00" in path else resolve_input(path, metafile, source_root)
         text = ""
         try:
             if source is not None and source.is_file():
@@ -90,11 +119,20 @@ def load_bundle(name: str, metafile: Path, bundle_dir: Path | None) -> dict[str,
                     text = source.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             pass
+        if source is not None:
+            source_paths[path] = source
+            source_texts[path] = text
         row["ratio"] = round(row["reachableBytes"] / row["sourceBytes"], 4) if row["sourceBytes"] else 0
         row["package"] = package_name(path)
         row["packageInstance"] = package_instance(path)
         row["barrel"] = len(EXPORT_STAR.findall(text))
-        row["commonjs"] = path.endswith(('.cjs', '.cts')) or "require(" in text
+        source_record = source_inputs.get(path, {})
+        row["commonjs"] = (
+            source_record.get("format") == "cjs"
+            or any(edge.get("kind") == "require-call" for edge in source_record.get("imports", []))
+            or path.endswith((".cjs", ".cts"))
+            or any(token in clean_javascript(text) for token in ("require(", "module.exports", "exports."))
+        )
         if row["barrel"]:
             barrels.append(row)
         if row["commonjs"]:
@@ -103,6 +141,34 @@ def load_bundle(name: str, metafile: Path, bundle_dir: Path | None) -> dict[str,
         if "/gallery/" in lowered or ".test." in lowered or "/fixtures/" in lowered:
             dev_inputs.append(row)
         rows.append(row)
+    rows_by_source = {source_paths[row["path"]]: row for row in rows if row["path"] in source_paths}
+    for row in rows:
+        row["barrelReachableBytes"] = 0
+        row["barrelRatio"] = 0
+        if not row["barrel"] or row["path"] not in source_paths:
+            continue
+        source = source_paths[row["path"]]
+        pending = [source]
+        seen = set()
+        descendants = {}
+        while pending:
+            current = pending.pop()
+            if current in seen:
+                continue
+            seen.add(current)
+            current_path = next((path for path, candidate in source_paths.items() if candidate == current), None)
+            if current_path is None:
+                continue
+            current_row = rows_by_source.get(current)
+            if current_row is not None:
+                descendants[current] = current_row
+            for specifier in EXPORT_STAR.findall(source_texts.get(current_path, "")):
+                child = resolve_export(current, specifier)
+                if child is not None and child in rows_by_source:
+                    pending.append(child)
+        row["barrelReachableBytes"] = sum(item["reachableBytes"] for item in descendants.values())
+        source_bytes = sum(item["sourceBytes"] for item in descendants.values())
+        row["barrelRatio"] = round(row["barrelReachableBytes"] / source_bytes, 4) if source_bytes else 0
     shipped = 0
     if bundle_dir and bundle_dir.is_dir():
         shipped = sum(p.stat().st_size for p in bundle_dir.rglob("*") if p.is_file())
@@ -129,7 +195,7 @@ def render_markdown(report: dict[str, Any]) -> str:
     for bundle in report["bundles"]:
         for row in bundle["modules"][:20]:
             flags = []
-            if row["barrel"] and row["reachableBytes"] > 50 * 1024 and row["ratio"] >= 0.95:
+            if row["barrel"] and row["barrelReachableBytes"] > 50 * 1024 and row["barrelRatio"] >= 0.95:
                 flags.append(f"barrel({row['barrel']})")
             if row["commonjs"]:
                 flags.append("commonjs")
@@ -149,6 +215,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--metafile", action="append", required=True, metavar="NAME=PATH")
     parser.add_argument("--bundle-dir", action="append", default=[], metavar="NAME=PATH")
+    parser.add_argument(
+        "--source-root",
+        action="append",
+        default=[],
+        metavar="NAME=PATH",
+        help="working directory used when the bundle's metafile recorded relative input paths",
+    )
     parser.add_argument("--json", required=True, type=Path)
     parser.add_argument("--markdown", type=Path)
     parser.add_argument(
@@ -161,10 +234,14 @@ def main() -> int:
     for item in args.bundle_dir:
         name, path = item.split("=", 1)
         dirs[name] = Path(path)
+    source_roots = {}
+    for item in args.source_root:
+        name, path = item.split("=", 1)
+        source_roots[name] = Path(path)
     bundles = []
     for item in args.metafile:
         name, path = item.split("=", 1)
-        bundles.append(load_bundle(name, Path(path), dirs.get(name)))
+        bundles.append(load_bundle(name, Path(path), dirs.get(name), source_roots.get(name)))
 
     package_bundles: dict[str, set[str]] = defaultdict(set)
     package_paths: dict[str, set[str]] = defaultdict(set)
@@ -180,8 +257,8 @@ def main() -> int:
                     package_instances[row["package"]].add(row["packageInstance"])
                     bundle_instances[(bundle["name"], row["package"])].add(row["packageInstance"])
         for row in bundle["barrels"]:
-            if row["barrel"] and row["reachableBytes"] > 50 * 1024 and row["ratio"] >= 0.95:
-                findings.append(f"non-shaken barrel in {bundle['name']}: {row['path']} contributes {row['reachableBytes']:,} bytes ({row['barrel']} export-star re-exports)")
+            if row["barrel"] and row["barrelReachableBytes"] > 50 * 1024 and row["barrelRatio"] >= 0.95:
+                findings.append(f"non-shaken barrel graph in {bundle['name']}: {row['path']} contributes {row['barrelReachableBytes']:,} bytes ({row['barrel']} export-star re-exports)")
         if bundle["commonjs"]:
             findings.append(f"CommonJS inputs in {bundle['name']}: {len(bundle['commonjs'])}")
         if bundle["devInputs"]:

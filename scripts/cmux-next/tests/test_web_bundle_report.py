@@ -56,6 +56,33 @@ class WebBundleReportTests(unittest.TestCase):
             bundle = MODULE.load_bundle("one", metafile, root)
             self.assertEqual(bundle["modules"][0]["sourceBytes"], 200_000)
 
+    def test_relative_inputs_use_metafile_source_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source_root = root / "checkout" / "webviews"
+            source_root.mkdir(parents=True)
+            source = source_root / "src/barrel.ts"
+            source.parent.mkdir(parents=True)
+            source.write_text("export * from './child';\n", encoding="utf-8")
+            metafile = root / "reports/pages.json"
+            metafile.parent.mkdir()
+            metafile.write_text(
+                json.dumps(
+                    {
+                        "inputs": {"src/barrel.ts": {"bytes": 200}},
+                        "outputs": {
+                            "entry.js": {
+                                "bytes": 100,
+                                "inputs": {"src/barrel.ts": {"bytesInOutput": 100}},
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            bundle = MODULE.load_bundle("pages", metafile, root, source_root)
+            self.assertEqual(bundle["barrels"][0]["barrel"], 1)
+
     def test_duplicate_react_groups_by_bundle(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -73,13 +100,61 @@ class WebBundleReportTests(unittest.TestCase):
             dev = root / "src/gallery/example.test.ts"
             cjs.parent.mkdir(parents=True, exist_ok=True)
             dev.parent.mkdir(parents=True, exist_ok=True)
-            cjs.write_text("module.exports = require('x');", encoding="utf-8")
+            cjs.write_text("// require('comment')\nconst text = 'require('; module.exports = {};", encoding="utf-8")
             dev.write_text("export const fixture = true;", encoding="utf-8")
             metafile = root / "bundle.json"
             metafile.write_text(json.dumps({"outputs": {"entry.js": {"bytes": 30, "inputs": {str(cjs): {"bytes": 20, "bytesInOutput": 20}, str(dev): {"bytes": 10, "bytesInOutput": 10}}}}}), encoding="utf-8")
             bundle = MODULE.load_bundle("bundle", metafile, root)
             self.assertEqual(len(bundle["commonjs"]), 1)
             self.assertEqual(len(bundle["devInputs"]), 1)
+
+    def test_commonjs_metadata_format_is_marked_without_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            metafile = root / "bundle.json"
+            metafile.write_text(
+                json.dumps(
+                    {
+                        "inputs": {"generated.js": {"bytes": 100, "format": "cjs", "imports": []}},
+                        "outputs": {"entry.js": {"bytes": 100, "inputs": {"generated.js": {"bytesInOutput": 100}}}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            bundle = MODULE.load_bundle("bundle", metafile, root)
+            self.assertEqual(len(bundle["commonjs"]), 1)
+
+    def test_barrel_graph_includes_exported_child_bytes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            barrel = root / "barrel.ts"
+            child = root / "child.ts"
+            barrel.write_text("export * from './child';\n", encoding="utf-8")
+            child.write_text("export const value = 'x'.repeat(100_000);\n", encoding="utf-8")
+            metafile = root / "bundle.json"
+            metafile.write_text(
+                json.dumps(
+                    {
+                        "inputs": {
+                            "barrel.ts": {"bytes": barrel.stat().st_size},
+                            "child.ts": {"bytes": child.stat().st_size},
+                        },
+                        "outputs": {
+                            "entry.js": {
+                                "bytes": 100_000,
+                                "inputs": {
+                                    "barrel.ts": {"bytesInOutput": 0},
+                                    "child.ts": {"bytesInOutput": 100_000},
+                                },
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            bundle = MODULE.load_bundle("bundle", metafile, root)
+            self.assertEqual(bundle["barrels"][0]["barrel"], 1)
+            self.assertEqual(bundle["barrels"][0]["barrelReachableBytes"], 100_000)
 
 
 if __name__ == "__main__":

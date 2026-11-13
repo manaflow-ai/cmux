@@ -159,7 +159,7 @@ bun install --frozen-lockfile >/dev/null
 bun scripts/pages/gen-strings.mjs
 cd "$ROOT"
 
-if [ -z "$OUT_ROOT" ] && [ "$MODE" = build ] && current; then
+if [ -z "$OUT_ROOT" ] && [ -z "$REPORT_DIR" ] && [ "$MODE" = build ] && current; then
   echo "web bundles are current ($(cut -c1-12 "$STAMP"))"
   exit 0
 fi
