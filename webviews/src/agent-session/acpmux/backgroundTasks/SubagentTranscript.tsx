@@ -159,20 +159,19 @@ export function SubagentTranscript({
   // (rows replaced), the distance from the bottom holds instead. `settled` once the rows are in: the
   // next render applies it and lets go.
   const held = useRef<Hold | undefined>(undefined);
+  // Scrolled up, the row the reader is on and its edge, taken from their scrolling once a frame: the
+  // place a replacement of the rows keeps (`replaced`), read from the rows drawn before it.
+  const place = useRef<Hold | undefined>(undefined);
+  const placeFrame = useRef(0);
+  // Rows removed: the window is taken again before the paint (the layout effect below), around the
+  // reader's row when they were scrolled up.
+  const [replaced, setReplaced] = useState(false);
   const [seen, setSeen] = useState({ rows, units });
   if (rows !== seen.rows || units !== seen.units) {
     const before = seen;
     setSeen({ rows, units });
-    if (rowsRemoved(before.rows, rows)) {
-      // Scrolled up, the row the reader is on stays in view when it is among the new rows: the window
-      // is taken around it and its edge held, never the newest window, which sent the reader to the
-      // bottom (Leo, 2026-11-12: "IT JUST [...] SENDS ME TO THE BOTTOM").
-      const view = scroller.current;
-      const hold = view && !atBottom.current ? capture(view, true) : undefined;
-      const unit = hold?.id === undefined ? undefined : unitHolding(units, hold.id);
-      if (hold && unit !== undefined) held.current = hold;
-      setRange(windowRange(units, unit));
-    } else if (before.units.length > 0 && blocksMoved(before.units, units))
+    if (rowsRemoved(before.rows, rows)) setReplaced(true);
+    else if (before.units.length > 0 && blocksMoved(before.units, units))
       setRange((current) => sameRange(current, carryRange(before.units, units, current)));
   }
   const placed = useRef(false);
@@ -203,6 +202,21 @@ export function SubagentTranscript({
     }
     if (atBottom.current && last === undefined) view.scrollTop = view.scrollHeight;
   });
+
+  // The rows were replaced (a fresh page). Scrolled up, the row the reader is on stays in view when it
+  // is among the new rows: the window is taken around it and its edge held, never the newest window,
+  // which sent the reader to the bottom (Leo, 2026-11-12: "IT JUST [...] SENDS ME TO THE BOTTOM").
+  // After the effect above, so the frame drawn with the old window restores nothing.
+  useLayoutEffect(() => {
+    if (!replaced) return;
+    setReplaced(false);
+    const hold = atBottom.current ? undefined : place.current;
+    const unit = hold?.id === undefined ? undefined : unitHolding(units, hold.id);
+    if (hold && unit !== undefined) held.current = { ...hold, settled: true };
+    setRange(windowRange(units, unit));
+  }, [replaced, units]);
+
+  useEffect(() => () => cancelAnimationFrame(placeFrame.current), []);
 
   // Rows streaming in keep the mounted units bounded. Following the newest row, once a window's worth
   // has streamed in under the reader, the units above the newest window unmount (the top sentinel
@@ -274,6 +288,11 @@ export function SubagentTranscript({
       onScroll={(event) => {
         const view = event.currentTarget;
         atBottom.current = view.scrollHeight - view.scrollTop - view.clientHeight <= BOTTOM_SLACK;
+        if (atBottom.current || placeFrame.current !== 0) return;
+        placeFrame.current = requestAnimationFrame(() => {
+          placeFrame.current = 0;
+          place.current = capture(view, true);
+        });
       }}
     >
       {notice && <p className="acpmux-bg__notice">{notice}</p>}

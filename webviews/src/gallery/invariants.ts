@@ -126,6 +126,8 @@ function labelOf(element: Element): string {
 function leadingIcon(row: Element): Element | null {
   const box = row.getBoundingClientRect();
   for (const icon of row.querySelectorAll("svg, .cv-spinner")) {
+    // The edited-files card's artwork centres beside its title and counts, not one text line.
+    if (icon.closest(".acpmux-edited-icon")) continue;
     const rect = icon.getBoundingClientRect();
     if (!visible(rect) || rect.width > 24 || rect.height > 24 || rect.width < 6) continue;
     return rect.left - box.left <= 40 ? icon : null;

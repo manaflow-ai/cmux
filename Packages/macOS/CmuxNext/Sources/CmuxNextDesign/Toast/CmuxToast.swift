@@ -27,6 +27,10 @@ public nonisolated struct CmuxToast: Equatable, Sendable {
         public static func details(_ title: String) -> Action { Action(title: title, revealsDetails: true) }
     }
 
+    /// The id of a refused action's toast: one refusal (a close the daemon refused, a split with no
+    /// room) replaces the last, so one failure never shows twice.
+    public static let refusalID = "refusal"
+
     /// A new toast with the same id replaces the one showing.
     public var id: String
     public var message: String

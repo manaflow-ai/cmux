@@ -561,19 +561,30 @@ class BrokerGraphqlFieldsTests(unittest.TestCase):
         return queries
 
     def classifier_queries(self):
-        """Each classifier file's module-level `NAME_QUERY` literals (adjacent literals joined), by name."""
+        """Each classifier file's module-level `NAME_QUERY` strings, by name: literals and f-strings joined as Python
+        joins them, each `{value}` of an f-string read as `0` (a page size or count, never a field name). A `_QUERY`
+        this can't read fails the test, so a query is never skipped unread (cmux#42173 review F1)."""
         import ast
+
+        def text(node):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                return node.value
+            if isinstance(node, ast.JoinedStr):
+                return "".join(text(part) if isinstance(part, ast.Constant) else "0" for part in node.values)
+            if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+                left, right = text(node.left), text(node.right)
+                return None if left is None or right is None else left + right
+            return None
+
         found = {}
         for name in self.CLASSIFIER_FILES:
             for node in ast.parse((ROOT / "scripts/ci" / name).read_text()).body:
                 if (isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)
-                        and node.targets[0].id.endswith("_QUERY")):
-                    try:
-                        value = ast.literal_eval(node.value)
-                    except ValueError:
-                        continue
-                    if isinstance(value, str):
-                        found[f"{name}:{node.targets[0].id}"] = value
+                        and node.targets[0].id.endswith("_QUERY")
+                        and not (isinstance(node.value, ast.Constant) and not isinstance(node.value.value, str))):
+                    value = text(node.value)
+                    self.assertIsNotNone(value, f"{name}: {node.targets[0].id} is not a string this scan can read")
+                    found[f"{name}:{node.targets[0].id}"] = value
         return found
 
     def test_the_parser_reads_root_fields_fields_and_skips_aliases_arguments_and_types(self):
@@ -592,7 +603,7 @@ class BrokerGraphqlFieldsTests(unittest.TestCase):
 
     def test_every_classifier_graphql_query_selects_only_fields_the_broker_accepts(self):
         queries = self.classifier_queries()
-        self.assertGreaterEqual(len(queries), 3, "the scan found too few classifier queries; its pattern is stale")
+        self.assertGreaterEqual(len(queries), 4, "the scan found too few classifier queries; its pattern is stale")
         refused = {key: broker_refused_fields(query) for key, query in queries.items()
                    if key.partition(":")[2] not in self.CLASSIFIER_REFUSED_ON_PURPOSE and broker_refused_fields(query)}
         self.assertEqual({}, refused, "the lane broker refuses these fields; allow them in cmuxterm-hq "

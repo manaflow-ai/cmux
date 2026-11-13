@@ -11,20 +11,16 @@
 // finish offers Restart, which asks the chat to run it again with its prompt (restart.ts), in the
 // hover row's buttons (conversation/MessageActions.tsx). The line keeps the transcript's one row
 // grammar (design/chat-transcript.md "One row grammar"): the icon and the sentence, then the
-// trailing column, its duration, then the chevron, so the duration and the chevron line up with
-// the rows around it (Leo 2026-10-29: "this ui isn't consistent :(").
+// trailing column and its duration. Completed status lines have no chevron; their name opens
+// the agent and its full report.
 //
 // While acpmux waits to retry it (retryState.ts), the line reads "Retrying (2/4) after a capacity
 // error" with the turning ring. A failed one offers Retry, inline and in its ⋯ menu: acpmux runs
 // it again, or, where acpmux cannot, the line asks the chat's agent to ("Ask parent to retry").
 // A refusal leaves a short note after the line until the row next changes.
 //
-// A finished line whose subagent left a report (its final reply, `result`, else its last message)
-// offers it under the line (Leo, 2026-11-03, on parallel agents in the running tray: "Tray only,
-// richer"): a chevron right after the line's words opens the report, in the transcript's Markdown
-// and capped as an opened tool output is. On such a line a click anywhere opens and closes the
-// report, and only the agent's name, a link chip, opens the agent's view (Lucas, 2026-11-08). How
-// it is offered is an experiment (doneReport.experiment.ts).
+// The saved report-disclosure look keeps its inline Markdown report. Its row toggles the report;
+// the agent name opens the agent's view (doneReport.experiment.ts).
 import { useContext, useId, useLayoutEffect, useRef, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
@@ -60,6 +56,7 @@ import { doneReportLook } from "./doneReport.experiment";
 import { RetryAffordanceContext, DoneReportLookContext, doneReport, shortReason } from "./subagentDoneLineModel";
 import { useWholeReport, type WholeReport } from "./wholeReport";
 import { WholeReportBody } from "./WholeReportBody";
+import "./SubagentDoneLine.css";
 
 const DONE_LABEL: Record<string, StringKey> = {
   completed: "subagents.ended.completed",
@@ -115,7 +112,7 @@ function DoneLine({
   const [note, setNote] = useState<{ version: number; key?: RetryNote; busy?: boolean }>();
   // How a failed line reads (failedLine.experiment.ts): the quiet grid by default.
   const [failedLook] = useState(() => experimentArm(failedLineLook));
-  // How the line offers its report (doneReport.experiment.ts): a chevron that opens it by default.
+  // Completed lines are compact by default; explicit report looks keep their existing behavior.
   const [reportArm] = useState(() => experimentArm(doneReportLook));
   const reportLook = useContext(DoneReportLookContext) ?? reportArm;
   const [reportOpen, setReportOpen] = useState(false);
@@ -146,7 +143,9 @@ function DoneLine({
     waiting || PLACEHOLDER_TASKS.has(agent.task ?? "")
       ? subagentDisplayName(t, agent, childName)
       : subagentTaskLabel(t, agent, childName);
-  const label = t(DONE_LABEL[agent.state] ?? DONE_LABEL.completed!, { name });
+  const compact = reportLook === "compact" && agent.state === "completed" && !waiting;
+  const labelKey = compact ? "subagents.finishedLine" : (DONE_LABEL[agent.state] ?? DONE_LABEL.completed!);
+  const label = t(labelKey, { name });
   const reasonKey = agent.state === "cancelled" && agent.stopReason ? STOP_REASON_LABEL[agent.stopReason] : undefined;
   // Its own time once ended; none when its start and end were stamped at one moment.
   const time = spanDuration(t, elapsed(agent, agent.endedAt ?? row.at));
@@ -167,7 +166,7 @@ function DoneLine({
       ];
   // Why it failed, as acpmux recorded it, last: the line cuts it first.
   const parts = [...head, ...(error && !waiting ? [error] : [])];
-  const [before, after = ""] = t(DONE_LABEL[agent.state] ?? DONE_LABEL.completed!, { name: "\u0000" }).split("\u0000");
+  const [before, after = ""] = t(labelKey, { name: "\u0000" }).split("\u0000");
   // The duration is the trailing column's, never part of the sentence; the tooltip and the
   // button's name still read the whole line with it.
   const whole = (waiting ? parts : [...head, ...(time ? [time] : []), ...(error ? [error] : [])]).join(" · ");
@@ -178,6 +177,7 @@ function DoneLine({
   // columns up from row to row: mark | title | short reason | Retry | time.
   const failed = agent.state === "failed" && !waiting;
   const report = waiting ? undefined : doneReport(agent);
+  const localReport = !open && compact && report !== undefined;
   const disclose = report !== undefined && reportLook === "disclosure";
   const preview = report !== undefined && reportLook === "preview";
   const look = failed ? failedLook : undefined;
@@ -271,7 +271,11 @@ function DoneLine({
     <div className="cv-tools">
       <TranscriptActivityRowShell
         className="cv-tool cv-subagent-done-row"
-        attributes={{ "data-state": waiting ? "retrying" : agent.state, ...(look && { "data-look": look }) }}
+        attributes={{
+          "data-state": waiting ? "retrying" : agent.state,
+          ...(look && { "data-look": look }),
+          ...(compact && { "data-report-look": "compact" }),
+        }}
       >
         {/* No control itself: only its name opens the view (the chip below). */}
         <div
@@ -307,7 +311,16 @@ function DoneLine({
             /* tooltip-allow: the line is cut at the pane's width; its whole text, the failure included */
             <span className="cv-tool__text cv-agent-activity__sentence" title={whole}>
               {!waiting && before}
-              <AgentTag name={name} ariaLabel={openLabel} onClick={open && (() => open(agent.id))} />
+              <AgentTag
+                name={name}
+                ariaLabel={localReport ? name : openLabel}
+                onClick={localReport ? () => setReportOpen((value) => !value) : open && (() => open(agent.id))}
+                attributes={
+                  localReport
+                    ? { "aria-expanded": String(reportOpen), "aria-controls": reportOpen ? reportId : undefined }
+                    : undefined
+                }
+              />
               {!waiting && after}
               {/* Its own box, cut before the chip (subagents.css): the reason and failure go first. */}
               {parts.length > 1 && (
@@ -347,24 +360,7 @@ function DoneLine({
           <ReactionMark reaction={agent.reaction} />
           {!waiting && time && <span className="cv-command__meta cv-subagent-done__time">{time}</span>}
         </span>
-        {disclose ? (
-          // A line with a report: the chevron after its words is its own control, the report's
-          // disclosure; the line's button still opens the view. It opens on the click, no fade.
-          <button
-            type="button"
-            className="cv-tool__chevron cv-subagent-done__chevron cv-subagent-done__disclose"
-            aria-expanded={reportOpen}
-            aria-controls={reportOpen ? reportId : undefined}
-            aria-label={t(reportOpen ? "subagents.report.hide" : "subagents.report.show")}
-            title={t(reportOpen ? "subagents.report.hide" : "subagents.report.show")}
-            onClick={() => setReportOpen((value) => !value)}
-          >
-            <ChevronRight size={14} className={`cv-rotor${reportOpen ? " is-open" : ""}`} />
-          </button>
-        ) : (
-          /* The chevron only marks that the name opens; the chip is the one control, and the
-             chevron lights with it. Its column holds on a line that opens nothing, so the columns
-             still line up. */
+        {agent.state !== "completed" && (
           <span
             className={`cv-tool__chevron cv-subagent-done__chevron cv-agent-activity__chevron${open ? "" : " is-idle"}`}
             aria-hidden
@@ -373,13 +369,9 @@ function DoneLine({
           </span>
         )}
       </TranscriptActivityRowShell>
-      {disclose && reportOpen && shownReport && (
+      {localReport && reportOpen && shownReport && (
         <div id={reportId} className="cv-subagent-done__report">
-          <WholeReportBody
-            report={shownReport}
-            className="cv-subagent-done__markdown selectable"
-            onOpenView={open && (() => open(agent.id))}
-          />
+          <WholeReportBody report={shownReport} className="cv-subagent-done__markdown selectable" />
         </div>
       )}
       {preview && shownReport && <ReportPreview report={shownReport} onOpenView={open && (() => open(agent.id))} />}

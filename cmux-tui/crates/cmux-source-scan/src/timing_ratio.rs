@@ -47,7 +47,7 @@ use syn::visit::{self, Visit};
 use syn::{Attribute, BinOp, Block, Expr, ExprBinary, Member, Pat, ReturnType, Type, UnOp};
 
 use crate::nextest::{FileTests, Layout, TestId};
-use crate::source::{has_ident, rel_path, rust_files, snippet};
+use crate::source::{has_ident, read_source, rel_path, rust_files, snippet};
 
 const NOT_WALL_CLOCK: &str = "not wall-clock:";
 const ASSERT_MACROS: [&str; 9] = [
@@ -139,9 +139,19 @@ pub struct Scan {
 }
 
 /// Every finding under `roots` (files or directories; default `checkout`/cmux-tui/crates), paths
-/// from `checkout`. Err for a missing checkout or scan root, a root with no `.rs` file, or a
-/// nextest.toml that does not parse: no scan is not a clean scan.
+/// from `checkout`. Err for a missing checkout or scan root, a root with no `.rs` file, a
+/// nextest.toml that does not parse, or a directory, source file, Cargo.toml or nextest config
+/// it could not read (named): no scan is not a clean scan.
 pub fn scan(checkout: &Path, roots: &[PathBuf]) -> Result<Scan, String> {
+    scan_with(checkout, roots, scan_text)
+}
+
+/// The judge of one file [`scan_with`] runs: [`scan_text`] or [`spread_bounds`].
+pub type Judge =
+    fn(&str, &str, &dyn Fn(&TestId) -> bool, &FileTests) -> Result<Vec<Finding>, syn::Error>;
+
+/// [`scan`] with another judge of each file, on the same walk, layout and nextest reading.
+pub fn scan_with(checkout: &Path, roots: &[PathBuf], judge: Judge) -> Result<Scan, String> {
     if !checkout.is_dir() {
         return Err(format!("{}: no such checkout", checkout.display()));
     }
@@ -154,16 +164,14 @@ pub fn scan(checkout: &Path, roots: &[PathBuf]) -> Result<Scan, String> {
         let Ok(root) = root.canonicalize() else {
             return Err(format!("{}: scan root does not exist", root.display()));
         };
-        let files = rust_files(&root);
+        let files = rust_files(&root).map_err(|e| e.to_string())?;
         if files.is_empty() {
             return Err(format!("{}: scan root holds no .rs file", root.display()));
         }
         for path in files {
             out.files += 1;
-            let Ok(text) = std::fs::read_to_string(&path) else {
-                continue;
-            };
-            let tests = layout.file_tests(&path, &checkout);
+            let text = read_source(&path).map_err(|e| e.to_string())?;
+            let tests = layout.file_tests(&path, &checkout).map_err(|e| e.to_string())?;
             if matches!(tests, FileTests::NotRun) {
                 continue;
             }
@@ -172,7 +180,7 @@ pub fn scan(checkout: &Path, roots: &[PathBuf]) -> Result<Scan, String> {
                 .map_err(|e| format!("nextest config above {}: {e}", path.display()))?;
             let beside = |t: &TestId| profiles.as_ref().is_none_or(|p| p.runs_beside_others(t));
             let rel = rel_path(&checkout, &path);
-            match scan_text(&rel, &text, &beside, &tests) {
+            match judge(&rel, &text, &beside, &tests) {
                 Ok(found) => out.found.extend(found),
                 Err(error) => out.unparsed.push(format!("{rel}: {error}")),
             }
@@ -226,6 +234,133 @@ pub fn scan_text(
         }
     }
     Ok(found)
+}
+
+/// A shape the check is known to miss: `site` is `PATH TEST COMPARISON` (the path from the
+/// checkout, the test, the comparison [`spread_bounds`] names), `row` a file of that shape. [`scan_text`] finds nothing
+/// in `row` and [`spread_bounds`] finds it there; acpmux's `source_scan_smoke` holds both, and
+/// holds [`spread_bounds`] over cmux-tui/crates to exactly the sites with `in_tree`, so a fix that
+/// catches the shape, or a new instance of it, fails there until this list changes with it.
+/// `in_tree` is false once `site` is no default-run instance (its test went to a group nextest
+/// runs alone, or away): the row still guards the shape.
+#[derive(Debug, Clone, Copy)]
+pub struct KnownMiss {
+    pub site: &'static str,
+    pub why: &'static str,
+    pub row: &'static str,
+    pub in_tree: bool,
+}
+
+pub const KNOWN_MISSES: &[KnownMiss] = &[KnownMiss {
+    site: "cmux-tui/crates/acpmux/tests/start_mode.rs \
+           the_policy_gate_round_trip_under_approve_all_is_measured g50 < 500.0",
+    why: "milliseconds parsed from a JSON log (`hook[\"ms\"].as_f64()`), then a median taken by a \
+          local fn that sorts them: no clock is read, and `g50` is no percentile word",
+    row: include_str!("timing_ratio_known_miss_start_mode.txt"),
+    // Not in the tree since cmux-tui/.config/nextest.toml put the test in the timing-alone group:
+    // the check skips a test nextest runs alone, so the site is no miss there any more.
+    in_tree: false,
+}];
+
+const SPREAD_KIND: &str = "spread bound";
+const SORTS: [&str; 5] = ["sort", "sort_by", "sort_by_key", "sort_unstable", "sort_unstable_by"];
+
+/// The shape of [`KNOWN_MISSES`]: in a default-run test, an upper bound on a name taken from
+/// `let (a, b, ..) = f(..)`, where `f` is a local fn that sorts and returns a tuple of floats (a
+/// hand-rolled percentile helper, `fn spread(ms: &mut [f64]) -> (f64, f64, f64)`). Not a rule of
+/// the check: the count its ratchet holds.
+pub fn spread_bounds(
+    rel: &str,
+    text: &str,
+    beside: &dyn Fn(&TestId) -> bool,
+    tests: &FileTests,
+) -> Result<Vec<Finding>, syn::Error> {
+    if !text.contains("test") || !text.contains("sort") {
+        return Ok(Vec::new());
+    }
+    let file = syn::parse_file(text)?;
+    let mut items = Items::default();
+    items.visit_file(&file);
+    if items.spread_fns.is_empty() {
+        return Ok(Vec::new());
+    }
+    let lines: Vec<&str> = text.lines().collect();
+    let mut found = Vec::new();
+    for test in &items.tests {
+        if !beside(&tests.id(&test.mods, &test.name)) {
+            continue;
+        }
+        let mut body =
+            SpreadScan { spread_fns: &items.spread_fns, names: HashSet::new(), found: Vec::new() };
+        body.visit_block(&test.block);
+        for span in body.found {
+            found.push(Finding {
+                rel: rel.to_string(),
+                line: span.start().line,
+                kind: SPREAD_KIND,
+                test: test.name.clone(),
+                text: snippet(&lines, span),
+            });
+        }
+    }
+    Ok(found)
+}
+
+struct SpreadScan<'a> {
+    spread_fns: &'a HashSet<String>,
+    names: HashSet<String>,
+    found: Vec<Span>,
+}
+
+impl SpreadScan<'_> {
+    fn spread_name(&self, e: &Expr) -> bool {
+        matches!(e, Expr::Path(p) if p.path.get_ident().is_some_and(|i| self.names.contains(&i.to_string())))
+    }
+}
+
+impl<'ast> Visit<'ast> for SpreadScan<'_> {
+    fn visit_local(&mut self, l: &'ast syn::Local) {
+        if let (Pat::Tuple(t), Some(init)) = (&l.pat, &l.init)
+            && let Expr::Call(call) = &*init.expr
+            && let Expr::Path(f) = &*call.func
+            && f.path
+                .segments
+                .last()
+                .is_some_and(|s| self.spread_fns.contains(&s.ident.to_string()))
+        {
+            for elem in &t.elems {
+                if let Pat::Ident(i) = elem {
+                    self.names.insert(i.ident.to_string());
+                }
+            }
+        }
+        visit::visit_local(self, l);
+    }
+    fn visit_macro(&mut self, mac: &'ast syn::Macro) {
+        if !ASSERT_MACROS.contains(&macro_name(mac).as_str()) {
+            return;
+        }
+        let Ok(args) = mac.parse_body_with(lenient_exprs) else {
+            return;
+        };
+        let conds = if ["assert", "debug_assert", "prop_assert"].contains(&macro_name(mac).as_str())
+        {
+            1
+        } else {
+            2
+        };
+        for cond in args.iter().take(conds) {
+            for cmp in comparisons(cond) {
+                let bounded = match cmp.op {
+                    BinOp::Lt(_) | BinOp::Le(_) => &cmp.left,
+                    _ => &cmp.right,
+                };
+                if self.spread_name(bounded) {
+                    self.found.push(cmp.span());
+                }
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -882,6 +1017,8 @@ struct Items {
     consts: HashSet<String>,
     /// Local fns whose value is a timing: None when all of it is, else which tuple positions are.
     clock_fns: HashMap<String, Option<Vec<bool>>>,
+    /// Local fns that sort and return a tuple of floats ([`spread_bounds`]).
+    spread_fns: HashSet<String>,
 }
 
 /// Whether an attribute's tokens set `start_paused = true` (tokio's paused clock), at any depth.
@@ -929,6 +1066,14 @@ impl Items {
         let ReturnType::Type(_, ty) = &sig.output else {
             return;
         };
+        if let Type::Tuple(t) = &**ty
+            && t.elems
+                .iter()
+                .any(|e| ["f64", "f32"].iter().any(|f| has_ident(e.to_token_stream(), f)))
+            && SORTS.iter().any(|m| has_ident(block.to_token_stream(), m))
+        {
+            self.spread_fns.insert(sig.ident.to_string());
+        }
         if !has_ident(ty.to_token_stream(), "Duration") || !reads_clock(block.to_token_stream()) {
             return;
         }

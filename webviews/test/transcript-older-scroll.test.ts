@@ -123,7 +123,7 @@ await requireBrowserLane("transcript-older-scroll.test.ts", async () => {
     const { port } = vite!.httpServer!.address() as { port: number };
     const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
     await installPaintedFrames(page);
-    await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-older-scroll.html?latency=60`);
+    await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-older-scroll.html?latency=60&rail`);
     await page.waitForFunction(() => document.querySelectorAll(".acpmux-row").length > 5);
     await page.evaluate(() => (document.documentElement.dataset.agentMotion = "off"));
     for (let frame = 0; frame < 10; frame += 1) await page.evaluate(() => window.cmuxPaintFrame());
