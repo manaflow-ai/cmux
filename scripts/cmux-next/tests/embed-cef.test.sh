@@ -6,7 +6,8 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/scripts" "$TMP/build/app.app/Contents/Frameworks"
-cp "$ROOT/scripts/cmux-next/embed-cef.sh" "$ROOT/scripts/cmux-next/cef-locale-allowlist.sh" "$ROOT/scripts/cmux-next/bundle-ublock.sh" "$TMP/scripts/"
+cp "$ROOT/scripts/cmux-next/embed-cef.sh" "$ROOT/scripts/cmux-next/cef-locale-allowlist.sh" "$ROOT/scripts/cmux-next/bundle-ublock.sh" \
+  "$ROOT/scripts/cmux-next/cef-pak-drop.py" "$TMP/scripts/"
 cat > "$TMP/scripts/ensure-cef.sh" <<'STUB'
 #!/usr/bin/env bash
 echo "stub ensure-cef args=[$*]" >&2
@@ -34,6 +35,24 @@ else
   dist="$TMP/dist"; fw="$dist/Chromium Embedded Framework.framework"
   mkdir -p "$fw/Libraries" "$fw/Resources" "$TMP/cache" "$TMP/bin"
   : > "$fw/Chromium Embedded Framework"
+  # resources.pak (format 5) with one intro sound and one other resource; the
+  # artifact's header names the sound, so the embedded pak keeps only the other.
+  # en.lproj/locale.pak with an AI assistant string, which the embed empties, and a
+  # tab title, which it keeps. The framework binary is empty here, so the
+  # WebUI pages are left as they are, with a warning.
+  mkdir -p "$dist/include" "$fw/Resources/en.lproj"
+  printf '#define IDR_INTRO_SOUND_LOGO_FLAC 7\n' > "$dist/include/cef_pack_resources.h"
+  printf '#define IDS_GLIC_TITLE 5\n#define IDS_DEFAULT_TAB_TITLE 6\n' > "$dist/include/cef_pack_strings.h"
+  write_pak='import struct, sys
+data = [(int(rid), body.encode()) for rid, body in (arg.split("=", 1) for arg in sys.argv[2:])]
+off = 12 + 6 * (len(data) + 1)
+out = struct.pack("<IB3xHH", 5, 1, len(data), 0)
+for rid, body in data:
+    out += struct.pack("<HI", rid, off); off += len(body)
+out += struct.pack("<HI", 0, off) + b"".join(b for _, b in data)
+open(sys.argv[1], "wb").write(out)'
+  /usr/bin/python3 -c "$write_pak" "$fw/Resources/resources.pak" 7=fLaC-sound 8=kept
+  /usr/bin/python3 -c "$write_pak" "$fw/Resources/en.lproj/locale.pak" 5=gemini-text 6=untitled-text
   printf 'static int hidden_helper(int x) { return x * 3; }\nint vk_icdGetInstanceProcAddr(int x) { return hidden_helper(x); }\n' > "$TMP/lib.c"
   if [[ "$(uname)" == Darwin ]]; then
     cc -g -dynamiclib -o "$fw/Libraries/libvk_swiftshader.dylib" "$TMP/lib.c"
@@ -59,6 +78,14 @@ STUB
     PRODUCT_NAME=app PRODUCT_BUNDLE_IDENTIFIER=test.app DERIVED_FILE_DIR="$TMP/derived" CMUX_NEXT_SKIP_UBLOCK=1 \
     /bin/bash "$TMP/scripts/embed-cef.sh" 2>&1) || { printf 'embed-cef.sh failed:\n%s\n' "$out" >&2; exit 1; }
   lib="$TMP/build/app.app/Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A/Libraries/libvk_swiftshader.dylib"
+  pak="$TMP/build/app.app/Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A/Resources/resources.pak"
+  if grep -q 'fLaC-sound' "$pak" || ! grep -q kept "$pak"; then
+    echo 'embedded resources.pak still has the intro sound, or lost the other resource' >&2; exit 1
+  fi
+  locale="$TMP/build/app.app/Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A/Resources/en.lproj/locale.pak"
+  if grep -q gemini-text "$locale" || ! grep -q untitled-text "$locale"; then
+    echo 'embedded locale.pak still has the AI assistant string, or lost the tab title' >&2; exit 1
+  fi
   syms=$(nm -a "$lib")
   grep -qE ' T _?vk_icdGetInstanceProcAddr$' <<<"$syms" || { printf 'the exported symbol is gone:\n%s\n' "$syms" >&2; exit 1; }
   # Apple's strip leaves one marker stab (radr://5614542) that says the file was stripped.

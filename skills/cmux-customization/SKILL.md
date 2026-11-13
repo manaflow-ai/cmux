@@ -47,17 +47,19 @@ Key surface: `actions`, named entries with `type: "command"` (`command`) or `typ
    test -f ~/.config/cmux/cmux-next.json && sed -n '1,220p' ~/.config/cmux/cmux-next.json
    ```
 
-2. Back up the file when it exists.
+2. Open a draft instead of making a backup copy. cmux keeps every applied setup as a numbered generation, so what was there is one step away.
 
    ```bash
-   stamp="$(date +%Y%m%d-%H%M%S)"
-   test -f ~/.config/cmux/cmux-next.json && cp -p ~/.config/cmux/cmux-next.json ~/.config/cmux/cmux-next.json."$stamp".bak
+   cmux customize brief 'what the person asked for, in their words'
    ```
+
+   It prints where each part lives (settings, shortcuts, themes, their own views, the chat stylesheet, automations) and which files the person edited by hand since your last turn: read those again before writing. From an MCP client the same thing is the `customize_ask` tool. Every save you make shows in their cmux window at once; that is the preview.
 
 3. For app settings, use `cmux settings set <key> <value>` and read it back with `cmux settings get <key>`. Never hand-write a settings key: the app ignores a value its build refuses and keeps the default.
 4. For actions, edit the JSONC by hand and preserve unrelated sections.
 5. Run `cmux settings validate`; it must report no problems. It checks schema values only: an unknown action id, an unsupported chord or a removed key shows only in the app's toast and on the Settings row. Then `cmux settings reload-configuration` (the app also reloads on save). A refused value also shows a toast in the app that names the key, the value and why ([cmux-settings](../cmux-settings/SKILL.md#when-the-app-ignores-a-value)).
 6. Verify the configured entrypoint exists: confirm the action ID and where it should appear.
+7. Run `cmux customize check` (or `customize_check`) and fix every problem it lists, each with a file and a line, until there are none. Then stop: do not run `cmux customize apply` or `discard` unless the person says so. Tell them what changed on screen and that it is a preview they can apply, refine by asking again, or discard. After an apply, `cmux customize rollback` goes back one generation and `cmux customize save NAME` keeps the setup as one file they can share.
 
 For viewer changes, verify the exact path or command state from the matrix. If
 the requested viewer or knob is absent from the schema, explain that it is not
@@ -173,6 +175,10 @@ install click.
   Put it back on purpose with `cmux apps place 'local/customize#cmux.section/1' --region bottom`.
 - `implements["cmux.session.info.section/1"]` is its one Session Info section; its
   render function gets `{ session_id, cwd, branch?, harness? }` as its argument.
+- Show or hide it in one step: Toggle Custom Sidebar (Cmd+Shift+P, Ctrl+Opt+Cmd+B, the
+  sidebar's right-click Options menu, or `cmux sidebar toggle-custom`). It flips the app's
+  hidden flag, which cmux keeps across relaunches; with no customize folder it writes the
+  starter template and the view appears.
 - Scopes: read scopes (`integration:github:read`) are granted at install. Others
   (`actions:run`, `net:<host>`) need the person to turn them on in Settings > Apps.
 - Script errors: `cmux raw command --request-json '{"cmd":"apps-logs","app":"local/customize"}'`.
@@ -202,7 +208,10 @@ The worked example, as copy-paste files, and the recipe for adding a view:
 To make a button run the person's own command, read the current workspace,
 follow changes or open a pane of their own, start from a folder in
 [templates/](templates/) (`starter`, `sidebar-section`, `command-button`,
-`pane`, `threads`: the agent chats as a thread list, from `agent_chat.list`). A button runs a `cmux-next.json` action with
+`pane`, `threads`: the agent chats as a thread list, from `agent_chat.list`;
+`clock-weather`, `my-prs` and `design-links`: a time and weather widget, your PRs
+in the order you keep, Figma and other links opened in a cmux tab). For "what could I
+make?", start from [references/ideas.md](references/ideas.md). A button runs a `cmux-next.json` action with
 `cmux.actions.run("cmuxConfig.<name>")` from a click, once the person turns on
 `actions:run`. What an extension can call, what is missing, and how to install
 a template: [references/extensions.md](references/extensions.md).

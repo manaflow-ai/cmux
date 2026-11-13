@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d9919749eba6a974d79187821103b072f09779bb74209f7ade6d1da7b3f2ca73. */
+/* cmux-tui mux protocol 12, IR 59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -1087,6 +1087,29 @@ export type SendExpectAgent = {
   "session"?: (string) | null;
 };
 
+export type ServerStatsCommandConnections = {
+  "accepted": bigint;
+  "kind": string;
+  "refused": bigint;
+};
+
+export type ServerStatsCommandRow = {
+  "count": bigint;
+  "hist": Array<bigint>;
+  "kind": string;
+  "max_ns": bigint;
+  "name": string;
+  "total_ns": bigint;
+};
+
+export type ServerStatsCommands = {
+  "connections": Array<ServerStatsCommandConnections>;
+  "hist_bounds_ns": Array<bigint>;
+  "name_limit": bigint;
+  "names": bigint;
+  "rows": Array<ServerStatsCommandRow>;
+};
+
 export type ServerStatsConnections = {
   "accepted": bigint;
   "active": bigint;
@@ -1171,6 +1194,27 @@ export type ServerStatsHookQueue = {
   "queued_events": bigint;
   "reset_dropped_events": bigint;
   "undeliverable_events": bigint;
+};
+
+export type ServerStatsJournalFollower = {
+  "client": bigint;
+  "connected_ms": bigint;
+  "keeps_hook_rows": boolean;
+  "keeps_report_rows": boolean;
+  "kinds": Array<string>;
+  "left_ms": (bigint) | null;
+  "max_sensitivity": (string) | null;
+  "remote": boolean;
+  "stream_id": string;
+};
+
+export type ServerStatsJournalFollowers = {
+  "followers": Array<ServerStatsJournalFollower>;
+  "grace_ms": bigint;
+  "hook_rows_kept": boolean;
+  "journal_hook_keeps_rows": (boolean) | null;
+  "keep_all_ms": bigint;
+  "report_rows_kept": boolean;
 };
 
 export type ServerStatsJournalWriter = {
@@ -1266,9 +1310,11 @@ export type ServerStatsResourceProjection = {
 };
 
 export type ServerStatsResult = {
+  "commands"?: ServerStatsCommands;
   "connections": ServerStatsConnections;
   "disk"?: ServerStatsDisk;
   "hook_queue"?: ServerStatsHookQueue;
+  "journal_followers"?: ServerStatsJournalFollowers;
   "journal_writer": (ServerStatsJournalWriter) | null;
   "locks"?: ServerStatsLocks;
   "registry_lock": ServerStatsRegistryLock;
@@ -1790,10 +1836,26 @@ export type Workspace = {
   "short_id"?: string;
 };
 
+export type WorkspaceFirstTab = ({ "kind": "browser" } & {
+  "activate"?: boolean;
+  "cols"?: (number) | null;
+  "engine": string;
+  "favicon_url"?: (string) | null;
+  "idempotency_key"?: (string) | null;
+  "kind": "browser";
+  "owner"?: (string) | null;
+  "profile_id"?: (string) | null;
+  "rows"?: (number) | null;
+  "title"?: (string) | null;
+  "url": string;
+});
+
 export type WorkspaceMutationResult = {
   "changed"?: boolean;
   /** close-workspace with end_terminals and report_closed_ids: the closed.list groups the close stored, oldest first; closed.reopen of each restores exactly what it closed. */
   "closed_ids"?: Array<string>;
+  /** create-workspace with first_tab (workspace-first-tab-v1): the new-frontend-browser-tab reply for the workspace's first tab. */
+  "first_tab"?: JsonValue;
   "generation": string;
   "index": bigint;
   "key": string;

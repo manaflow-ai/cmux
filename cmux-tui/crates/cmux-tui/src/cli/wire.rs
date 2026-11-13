@@ -839,10 +839,14 @@ pub(super) fn read_envelope(
     reader: &mut BufReader<Box<dyn transport::Stream>>,
     allow_timeout: bool,
 ) -> Result<Option<Value>, String> {
+    // A read timeout may come in the middle of a line: the bytes read
+    // before it stay here and the next read finishes the line.
+    let mut bytes = Vec::new();
     loop {
-        let mut bytes = Vec::new();
-        match reader.by_ref().take((RESPONSE_LIMIT + 2) as u64).read_until(b'\n', &mut bytes) {
-            Ok(0) => return Ok(None),
+        let limit = (RESPONSE_LIMIT + 2).saturating_sub(bytes.len()) as u64;
+        match reader.by_ref().take(limit).read_until(b'\n', &mut bytes) {
+            Ok(0) if bytes.is_empty() => return Ok(None),
+            Ok(0) => return Err("transport closed with a partial JSON line".into()),
             Ok(_) => {}
             Err(error)
                 if allow_timeout

@@ -5,6 +5,9 @@
 
 use std::path::{Path, PathBuf};
 
+use cmux_json::JsonSet as _;
+use serde_json::Value;
+
 use crate::cache::{read_cache, write_cache};
 use crate::domains::Domains;
 use crate::fsio::{publish, read_source, resolve_symlinks, write_atomic};
@@ -25,6 +28,7 @@ pub struct ApplyResult {
 
 pub struct ConfigStore {
     state: State,
+    /// Absolute: `settings.snapshot` reports it as `path`.
     config_path: PathBuf,
     /// Read while `config_path` does not exist (classic `cmux.json`); the
     /// first write then creates `config_path` from that text.
@@ -37,12 +41,17 @@ impl ConfigStore {
     /// Reads cmux.json and the managed values. The revision continues from
     /// the cold-start cache (one more when the effective settings changed
     /// while no owner ran), so clients never see a revision go back.
+    ///
+    /// A relative `config_path` is taken from the current directory once,
+    /// here (no symlink is followed), so the owner keeps one file and
+    /// [`ConfigStore::snapshot_json`] can name it.
     pub fn open(
         config_path: PathBuf,
         seed_path: Option<PathBuf>,
         state_dir: Option<PathBuf>,
         reader: Box<dyn ManagedReader>,
     ) -> ConfigStore {
+        let config_path = std::path::absolute(&config_path).unwrap_or(config_path);
         let schema = Schema::embedded();
         let cached = state_dir.as_deref().and_then(read_cache);
         let file = read_settings(&config_path, seed_path.as_deref());
@@ -68,11 +77,23 @@ impl ConfigStore {
         &self.config_path
     }
 
+    /// The `settings.snapshot` answer: the state's snapshot and `path`, the
+    /// absolute path of the settings file this owner reads and writes (the
+    /// configured path, not a symlink's target). A client with a settings
+    /// file of its own (the Mac app) compares the two before it sends a
+    /// write: an owner started on another file would change that file.
+    pub fn snapshot_json(&self) -> Value {
+        let mut snapshot = self.state.snapshot().to_json();
+        snapshot.set("path", Value::String(self.config_path.to_string_lossy().into_owned()));
+        snapshot
+    }
+
     /// Runs `op`: refresh from disk (write ops), reduce, publish, adopt.
     pub fn apply(&mut self, op: Op) -> ApplyResult {
         let mut changes = Vec::new();
         let team_before = self.state.team().clone();
-        let writes = matches!(op, Op::Set { .. } | Op::Reset { .. } | Op::ResetAll { .. });
+        let writes =
+            matches!(op, Op::Set { .. } | Op::Reset { .. } | Op::ResetAll { .. } | Op::Edit { .. });
         // Daemons of other sessions may own the same file: hold its advisory
         // lock across refresh, reduce and publish so no update is lost.
         let _lock = if writes { lock_config(&self.config_path) } else { None };
@@ -175,7 +196,7 @@ fn read_settings(config_path: &Path, seed_path: Option<&Path>) -> FileRead {
 /// The saved team layer, limited to the catalog of this build.
 fn read_team_policy(state_dir: &Path, schema: &Schema) -> Option<TeamPolicyLayer> {
     let text = std::fs::read_to_string(team_policy_path(state_dir)).ok()?;
-    let document: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let document: Value = serde_json::from_str(&text).ok()?;
     TeamPolicyLayer::from_device_policy(&document, schema)
 }
 
@@ -187,7 +208,7 @@ fn read_team_policy(state_dir: &Path, schema: &Schema) -> Option<TeamPolicyLayer
 /// around its own writes of the settings file, until those writes are
 /// `settings.*` ops: Swift `SettingsFileLock` in `CmuxNextSettings`. Change
 /// the lock kind or the file name in both places.
-pub(crate) fn lock_config(config_path: &Path) -> Option<std::fs::File> {
+pub(crate) fn lock_config(config_path: &Path) -> Option<ConfigLock> {
     // Beside the configured path, not a symlink's target: a dotfiles repo
     // never gets a lock file.
     let directory = config_path.parent().filter(|dir| !dir.as_os_str().is_empty())?;
@@ -200,5 +221,28 @@ pub(crate) fn lock_config(config_path: &Path) -> Option<std::fs::File> {
         .open(directory.join(format!(".{name}.lock")))
         .ok()?;
     file.lock().ok()?;
-    Some(file)
+    Some(ConfigLock(file))
 }
+
+/// [`lock_config`]'s lock, held until dropped. The drop unlocks before the
+/// file closes: a child another thread started meanwhile keeps a copy of the
+/// open file until it execs or exits, and a close alone would leave the lock
+/// held in that copy.
+pub(crate) struct ConfigLock(std::fs::File);
+
+impl std::ops::Deref for ConfigLock {
+    type Target = std::fs::File;
+    fn deref(&self) -> &std::fs::File {
+        &self.0
+    }
+}
+
+impl Drop for ConfigLock {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
+#[cfg(all(test, unix))]
+#[path = "owner_lock_tests.rs"]
+mod lock_tests;

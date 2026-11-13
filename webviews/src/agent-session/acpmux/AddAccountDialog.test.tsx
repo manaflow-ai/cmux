@@ -1,6 +1,7 @@
 // Add account asks for no id or folder (Leo, 2026-11-05, on the old sheet's raw Account ID and Login
 // folder fields): it offers the ways to add and fills in the rest.
 import { afterEach, expect, test } from "bun:test";
+import { settleReact } from "../../../test/support/domTeardown";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -27,12 +28,16 @@ const KEYS = [
   "IS_REACT_ACT_ENVIRONMENT",
 ];
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
-  for (const [key, value] of saved) scope[key] = value;
+  for (const [key, value] of saved) {
+    if (value === undefined) delete scope[key];
+    else scope[key] = value;
+  }
   saved.clear();
 });
 
@@ -41,7 +46,7 @@ async function render(family: string, added: NewChatAccount[], existing: string[
     url: "http://localhost/",
     pretendToBeVisual: true,
   });
-  for (const key of KEYS) saved.set(key, scope[key]);
+  for (const key of KEYS) if (!saved.has(key)) saved.set(key, scope[key]);
   const w = dom.window as unknown as Record<string, unknown>;
   Object.assign(scope, {
     window: dom.window,

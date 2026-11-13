@@ -21,8 +21,13 @@ Detectors (all line/regex heuristics, never an AST):
 
 - assert-on-duration: an assertion comparing a wall-clock duration expression
   (elapsed_ms, perf_counter, DispatchTime.now, CACurrentMediaTime,
-  .uptimeNanoseconds, monotonic(), a *_ms variable) against a numeric literal.
-  This is the "assert on latency" ban.
+  .uptimeNanoseconds, monotonic(), a *_ms variable, a `clock.now - start`)
+  against a numeric literal or a Swift Duration literal (`.milliseconds(1000)`).
+  This is the "assert on latency" ban. It also follows a name: `took =
+  time.perf_counter() - started` then `self.assertLess(took, 0.5)` on a later
+  line of the same function (Python by indentation; Swift, JS and TS by
+  braces). A ratio of two timings (the n-vs-4n scaling check), a bound of 0,
+  and a timing that only reaches a log line or a message are not flagged.
 - live-network-host: a hardcoded external URL/host driving real network from a
   test (public domain or public IP). Loopback, data:, and 0.0.0.0 are allowed.
 - fixed-port-bind: binding/connecting a fixed non-zero port literal for a real
@@ -31,6 +36,15 @@ Detectors (all line/regex heuristics, never an AST):
   lines) by an assertion, where the sleep is NOT a loop body (i.e. not a poll).
   This is the "sleep as synchronization" ban. Deadline-bounded polls and
   scenario-pacing sleeps with no trailing assert are allowed.
+- wall-clock-window (JS/TS): the distance between two time stamps compared
+  against a named millisecond constant (`now.t - now.input <= INPUT_MS`,
+  `Date.now() - start < LEAVE_MS`). The window decides what a test counts
+  (whose motion a frame is, how long to watch), not how long anything took,
+  so assert-on-duration never sees it: it sits outside the assertion and its
+  bound is a constant, not a literal. A busy runner stretches the gaps
+  between frames and events past the window. Order by events instead (the
+  input the page saw, a frame that holds still, a signal the page emits). A
+  fake clock (`time.now()`, `clock.now()`) is allowed.
 - yield-count-poll (Swift): `for _ in 0..<N { ... await Task.yield() ... }`
   (N a literal or a named bound such as a `maxYields` parameter) that
   exits on a condition (`break`/`return`) and carries no deadline. N
@@ -38,6 +52,108 @@ Detectors (all line/regex heuristics, never an AST):
   when the runner is busy and turns a slow pass into a failure. Loops that
   already check a deadline, drain yields with no condition, or exit only on
   cancellation are allowed.
+- git-temp-repo-maintenance: a test that makes git repositories in a
+  temporary directory without turning off git's auto maintenance. Since git
+  2.47, commit, fetch and clone start `git maintenance run --auto --detach`,
+  which can still be writing into `.git` when the test removes the directory
+  ("OSError: [Errno 39] Directory not empty: '.git'"). A Python test imports
+  tests/git_fixture_env.py; a shell test sources
+  scripts/cmux-next/tests/lib/git-fixture.sh (or sets maintenance.auto=false).
+  This one is file-level and also scans GIT_FIXTURE_ONLY_ROOTS, as do the
+  next two.
+- git-fixture-env-dropped: in such a Python test, a whole child environment
+  (a dict with PATH or HOME, or a copy of os.environ) built without the
+  opt-out: it neither spreads os.environ nor goes through
+  git_fixture_env.fixture_env / without_auto_maintenance, or it filters GIT_*
+  out of os.environ. Git then runs with auto maintenance on.
+- git-bare-repo-unmanaged: a test that makes a bare repository (`git init
+  --bare`, `git clone --bare` or `--mirror`) without the helper
+  (git_fixture_env.init_repo / clone_repo, shell git_fixture_init /
+  git_fixture_clone). Git clears GIT_CONFIG_COUNT before receive-pack, so only
+  the bare repository's own config turns maintenance off for a local push.
+- predictable-tmp-path: a test (tests/, scripts/**/tests/) or a git hook
+  helper (scripts/git-hooks/) writes to, assigns, or joins a fixed name under
+  /tmp, /var/tmp, $TMPDIR, ${TMPDIR:-/tmp} or tempfile.gettempdir(). Another
+  user on the host can precreate or swap that path: cmux#40871's
+  lib/git-fixture.sh took ${TMPDIR:-/tmp}/cmux-git-fixture-$UID-v1.gitconfig,
+  and a file planted there with core.hooksPath ran a hook in every fixture
+  repo. Make the path with mktemp -d / tempfile.mkdtemp instead.
+- exit-trap-reraise-order: an EXIT trap under scripts/cmux-next/tests (its action, the function it names, or the
+    variable it expands) that puts the saved status back with a subshell `(exit "$s")` or a status-returning call
+    while errexit may still be on, or that runs a cleanup step after re-raising. Under `set -e` the status restore
+    ends the trap there, so the caller's cleanup never runs and a failing test leaks its temp repos (cmux#41195 F1).
+    Run every cleanup first, then `exit "$s"`; restore $? with a function's `return` only after `set +e`.
+    The script is read as commands in the order bash runs them (tests/shell_tree.py): an action word that expands
+    when the trap is set ("$a") takes the value assigned before it, one left for exit time ('$a') the last one; a
+    function name in any quoting, or through a variable, is that function's body. This holds for `trap` and
+    git_fixture_trap_exit alike; an action it cannot resolve (an unassigned or substituted variable), or a file
+    the parser cannot read, fails the rule (Codex F1 on cmux#41677; review of cmux#41794).
+- git-fixture-exit-trap: a shell test that sources
+  scripts/cmux-next/tests/lib/git-fixture.sh and then sets `trap ... EXIT`
+  itself. That replaces the helper's EXIT trap, so its private
+  GIT_CONFIG_GLOBAL folder is never removed (Codex F2 on cmux#40939:
+  web-bundles-readonly-sources.test.sh's `trap cleanup EXIT`). Call
+  `git_fixture_trap_exit CMD` instead; it runs CMD after the helper's cleanup.
+- git-write-without-fixture: a test (tests/, tests_v2/, scripts/**/tests/)
+  that runs a writing git command (init, commit, clone, fetch, push, ...)
+  through subprocess or the shell without loading tests/git_fixture_env.py
+  or scripts/cmux-next/tests/lib/git-fixture.sh. Loading is code: a Python
+  import or loader call (spec_from_file_location, run_path, ...) naming
+  git_fixture_env, or a shell `source`/`.` command; a child script in a
+  Python string that loads it covers the writes in that string. A comment,
+  docstring, echo, string or here-document naming the helper loads nothing
+  (Codex F2 on cmux#41447); git-temp-repo-maintenance and
+  git-fixture-exit-trap read loads the same way. Shell is read through
+  tests/shell_tree.py's command tree, never a regex over text: a source,
+  a git command or a `git -c maintenance.auto=false` is a command, and an
+  echo's arguments, a string or a here-document body (any delimiter) is
+  none. A Python loader is a stdlib one or a function of the file's own
+  that calls one (json.loads is none); a child script covers its own span,
+  not the rest of its line (review of cmux#41794). A load or an opt-out
+  counts only where the parser shows it runs (reviews of cmux#41835 and
+  hq#9831): a source in this shell (not behind env, nice or exec), a git
+  invocation (a subprocess argv starting with git, or a git wrapper), an
+  env passed on with GIT_CONFIG_KEY_n=maintenance.auto and
+  GIT_CONFIG_VALUE_n off, a string a shell runs, an assignment in
+  assignment position; a function's body runs where it is called, never
+  where it is defined. The helper is the one
+  place a fixture's git environment is built: it drops what an inherited
+  GIT_DIR, GIT_INDEX_FILE, GIT_CONFIG and friends point at (a test run from
+  a git hook would otherwise commit into the hook's repository) and turns
+  auto maintenance off. Unlike git-temp-repo-maintenance, a temp folder is
+  not required and setting maintenance.auto by hand does not count.
+- wall-clock-expiry (Rust): a test sets something to expire a few seconds
+  or less ahead on the real clock (`now_ms() + 50`, under 10 s) and then waits
+  the expiry out on that clock: a `while ... now_ms()` loop, or a sleep at the
+  test's own level at least as long as the expiry is ahead. The setup and the
+  first check before the wait race the same clock: on a loaded runner the
+  thing had expired before the test first looked at it (cmux#41466,
+  activity_batch_does_not_keep_expired_parent_relationship). Move a test clock
+  past the expiry instead (`store::test_clock::advance`, tokio's start_paused,
+  a ManualClock); a test that uses one is not flagged.
+- flock-released-by-close (Rust): a test takes `flock(f.as_raw_fd(),
+  LOCK_EX)`, frees it only by closing (`drop(f)`, no `LOCK_UN`), and checks at
+  once that the lock is free. A test on another thread that starts a process
+  copies every open descriptor into the child until its exec closes them, and
+  a flock belongs to the open file, so the close leaves the copy holding it
+  for that moment (cmux#41466,
+  a_held_lock_is_alive_a_free_one_is_dead_and_none_is_no_proof). Unlock with
+  `flock(f.as_raw_fd(), LOCK_UN)` before the drop.
+- exec-of-a-file-written-in-process (Rust): a test writes a program itself
+  (`fs::copy(src, &p)`, `fs::write(&p, ...)`) and then runs it
+  (`Command::new(&p)`). While this process holds the write descriptor, a test
+  on another thread that starts a process hands a copy of it to that child
+  until its exec, and running the program then fails with ETXTBSY ("Text file
+  busy"; agent_host::tree's exe_still_names_a_program_whose_file_was_replaced).
+  Have a child write it (`cp`, or `sh -c 'cat >"$1"'` as
+  cmux-tui's test_exec::write_executable does); a hard link writes nothing.
+  Rust files are scanned under RUST_ROOTS, and only their test code: a
+  `*_tests.rs`, `tests.rs` or `tests/` file whole, any other file from its first
+  `#[cfg(test)]` on. They get only these three rules.
+- isolated-import (--strict only): a Python test, run as `python3 -I`, fails to
+  import a module that sits beside it or in tests/ (-I puts no script folder on
+  sys.path). Each changed test file, and each that loads git_fixture_env, is
+  loaded with `python3 -I` without running its tests.
 
 Usage:
     check-test-determinism.py                 # scan, print findings, exit 0
@@ -52,6 +168,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import pathlib
 import re
 import sys
@@ -63,19 +180,37 @@ from typing import Iterable, Optional
 # Configuration
 # ---------------------------------------------------------------------------
 
+# Rust trees: scanned for their `.rs` test code only, and only for RUST_RULES.
+RUST_ROOTS: tuple[str, ...] = (
+    "cmux-tui/crates",
+    "cmux-next-ios/rust",
+    "first-party-apps/cloud",
+)
+
 DEFAULT_ROOTS: tuple[str, ...] = (
     "Packages",
+    "cmux-next-ios",
     "tests",
     "tests_v2",
     "web/tests",
     "webviews/test",
+    *RUST_ROOTS,
 )
+
+# Scanned only for GIT_FIXTURE_RULES: the other rules were never applied there.
+GIT_FIXTURE_ONLY_ROOTS: tuple[str, ...] = ("scripts/cmux-next/tests",)
+# Scanned only for predictable-tmp-path, beside tests/ and GIT_FIXTURE_ONLY_ROOTS: every other scripts/**/tests
+# folder (found at run time) and the git hook helpers, whose files have no suffix.
+PREDICTABLE_TMP_EXTRA_GLOB = "scripts/**/tests"
+GIT_HOOKS_ROOT = "scripts/git-hooks"
 
 DEFAULT_ALLOWLIST = ".github/test-determinism-allowlist.txt"
 
-# Only files that look like test code are scanned. Packages/ is broad, so we
-# additionally require a Tests path segment for files under it.
-SCANNED_SUFFIXES = (".swift", ".py", ".sh", ".ts", ".tsx", ".js", ".mjs")
+# Only files that look like test code are scanned. Packages/ and cmux-next-ios/
+# are broad (sources and tests side by side), so we additionally require a Tests
+# path segment for files under them.
+TESTS_SEGMENT_ROOTS = ("Packages", "cmux-next-ios")
+SCANNED_SUFFIXES = (".swift", ".py", ".sh", ".ts", ".tsx", ".js", ".mjs", ".rs")
 
 IGNORED_PATH_PARTS = (
     "/.build/",
@@ -93,6 +228,18 @@ RULE_LIVE_NETWORK_HOST = "live-network-host"
 RULE_FIXED_PORT_BIND = "fixed-port-bind"
 RULE_SLEEP_THEN_ASSERT = "sleep-then-assert"
 RULE_YIELD_COUNT_POLL = "yield-count-poll"
+RULE_WALL_CLOCK_WINDOW = "wall-clock-window"
+RULE_GIT_TEMP_REPO_MAINTENANCE = "git-temp-repo-maintenance"
+RULE_GIT_FIXTURE_ENV_DROPPED = "git-fixture-env-dropped"
+RULE_GIT_BARE_REPO_UNMANAGED = "git-bare-repo-unmanaged"
+RULE_ISOLATED_IMPORT = "isolated-import"
+RULE_PREDICTABLE_TMP_PATH = "predictable-tmp-path"
+RULE_GIT_FIXTURE_EXIT_TRAP = "git-fixture-exit-trap"
+RULE_GIT_WRITE_WITHOUT_FIXTURE = "git-write-without-fixture"
+RULE_WALL_CLOCK_EXPIRY = "wall-clock-expiry"
+RULE_FLOCK_RELEASED_BY_CLOSE = "flock-released-by-close"
+RULE_EXEC_OF_FILE_WRITTEN_IN_PROCESS = "exec-of-a-file-written-in-process"
+RULE_EXIT_TRAP_RERAISE_ORDER = "exit-trap-reraise-order"
 
 ALL_RULES = (
     RULE_ASSERT_ON_DURATION,
@@ -100,6 +247,28 @@ ALL_RULES = (
     RULE_FIXED_PORT_BIND,
     RULE_SLEEP_THEN_ASSERT,
     RULE_YIELD_COUNT_POLL,
+    RULE_WALL_CLOCK_WINDOW,
+    RULE_GIT_TEMP_REPO_MAINTENANCE,
+    RULE_GIT_FIXTURE_ENV_DROPPED,
+    RULE_GIT_BARE_REPO_UNMANAGED,
+    RULE_ISOLATED_IMPORT,
+    RULE_PREDICTABLE_TMP_PATH,
+    RULE_GIT_FIXTURE_EXIT_TRAP,
+    RULE_GIT_WRITE_WITHOUT_FIXTURE,
+    RULE_WALL_CLOCK_EXPIRY,
+    RULE_FLOCK_RELEASED_BY_CLOSE,
+    RULE_EXEC_OF_FILE_WRITTEN_IN_PROCESS,
+    RULE_EXIT_TRAP_RERAISE_ORDER,
+)
+RUST_RULES = (RULE_WALL_CLOCK_EXPIRY, RULE_FLOCK_RELEASED_BY_CLOSE, RULE_EXEC_OF_FILE_WRITTEN_IN_PROCESS)
+GIT_FIXTURE_RULES = (
+    RULE_GIT_TEMP_REPO_MAINTENANCE,
+    RULE_GIT_FIXTURE_ENV_DROPPED,
+    RULE_GIT_BARE_REPO_UNMANAGED,
+    RULE_PREDICTABLE_TMP_PATH,
+    RULE_GIT_FIXTURE_EXIT_TRAP,
+    RULE_EXIT_TRAP_RERAISE_ORDER,
+    RULE_GIT_WRITE_WITHOUT_FIXTURE,
 )
 
 # ---------------------------------------------------------------------------
@@ -224,6 +393,7 @@ _DURATION_TOKEN = re.compile(
   | \b(?=\w*[a-z])\w*_ms\b              # measured ms var; ALL-CAPS T0_MS excluded
   | \b(?=\w*[a-z])\w*[Mm]illis\w*\b
   | \b(?=\w*[a-z])\w*[Nn]anos\w*\b
+  | \.now(?:\(\))?\s*-\s*\w        # a clock reading minus a start: clock.now - start, Date.now() - t0
     """
 )
 
@@ -237,6 +407,9 @@ _DURATION_COMPARE = re.compile(
     r"""(?x)
     \d[\d_]*(?:\.\d+)?\s*(?:<=|>=|<|>)(?![=>])        # 250 < x
   | (?<![<>=!])(?:<=|>=|<|>)(?![=>])\s*\d[\d_]*(?:\.\d+)?  # x < 250
+  # A Swift Duration literal: clock.now - start < .milliseconds(1000), .seconds(1) > d
+  | (?<![<>=!])(?:<=|>=|<|>)(?![=>])\s*\.(?:nanoseconds|microseconds|milliseconds|seconds)\s*\(\s*\d
+  | \.(?:nanoseconds|microseconds|milliseconds|seconds)\s*\(\s*\d[\d_.]*\s*\)\s*(?:<=|>=|<|>)(?![=>])
     """
 )
 
@@ -3553,6 +3726,241 @@ def detect_assert_on_duration(line: str, path_suffix: str = "") -> bool:
     return has_threshold_compare or has_relational_assert
 
 
+# ---------------------------------------------------------------------------
+# assert-on-duration through a name: a clock difference stored on one line and bounded on a later one
+# ---------------------------------------------------------------------------
+
+# A call that reads a clock. Python, Swift and JavaScript/TypeScript (the scanned languages).
+_CLOCK_READ = re.compile(
+    r"""(?x)
+    \b(?:time\.)?(?:perf_counter|monotonic|process_time|thread_time)(?:_ns)?\s*\(
+  | \btime\.time(?:_ns)?\s*\(
+  | \b(?:loop|get_running_loop\(\)|get_event_loop\(\))\.time\s*\(
+  | \bdatetime\.(?:datetime\.)?(?:now|utcnow)\s*\(
+  | \bDate\.now\s*\(
+  | \bperformance\.now\s*\(
+  | \bprocess\.hrtime(?:\.bigint)?\s*\(
+  | \bnew\s+Date\s*\(\s*\)
+  | DispatchTime\.now\s*\(
+  | \bCACurrentMediaTime\s*\(
+  | \bCFAbsoluteTimeGetCurrent\s*\(
+  | \bmach_absolute_time\s*\(
+  | \bProcessInfo\.processInfo\.systemUptime\b
+  | \bDate\s*\(\s*\)
+  | \b(?:Continuous|Suspending)Clock\s*\(\s*\)\.now\b
+  | [Cc]lock\.now\b                  # clock.now, ContinuousClock.now, testClock.now
+    """
+)
+# A clock difference in one call, with no `-`: Date().timeIntervalSince(t0), t0.timeIntervalSinceNow,
+# start.duration(to: .now), process.hrtime(start).
+_CLOCK_DIFFERENCE_CALL = re.compile(
+    r"""(?x)
+    \.timeIntervalSince(?:Now\b|\s*\()
+  | \.duration\s*\(\s*to\s*:
+  | \bprocess\.hrtime\s*\(\s*\w
+    """
+)
+# Literal text one of the two patterns above needs: a cheap test that a file reads no clock at all.
+_CLOCK_KEYS = (
+    "perf_counter", "monotonic", "process_time", "thread_time", "time(", "time_ns(", "now", "hrtime", "Date",
+    "CACurrentMediaTime", "CFAbsoluteTimeGetCurrent", "mach_absolute_time", "systemUptime", "timeIntervalSince",
+    "duration",
+)
+_PY_ASSIGNMENT = re.compile(r"^\s*([A-Za-z_]\w*)\s*(?::\s*[\w\[\]., |]+)?=(?!=)\s*(\S.*)$")
+_BRACE_ASSIGNMENT = re.compile(r"^\s*(?:(?:let|var|const)\s+)?([A-Za-z_]\w*)\s*(?::\s*[^=]+)?=(?![=>])\s*(\S.*)$")
+_ONE_LINE_STRING = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|`(?:\\.|[^`\\])*`')
+_BRACES = re.compile(r"[{}]")
+_PY_DEF = re.compile(r"^(\s*)(?:async\s+)?def\s")
+_RELATIONAL_HELPER = re.compile(
+    r"\b(?:XCTAssert(?:LessThan|GreaterThan)\w*|assert(?:Less|Greater)\w*|toBe(?:LessThan|GreaterThan)\w*)\s*\("
+)
+_ASSERT_OPENING = re.compile(r"(?:#expect|#require|\bXCTAssert\w*|\bself\.assert\w*|\bassert\w*|\bexpect)\s*\(")
+_RELATIONAL_OPERATOR = re.compile(r"(?<![<>=!\-])(?:<=|>=|<|>)(?![=>])")
+_ABSOLUTE_BOUND = re.compile(r"(?<![\w.$])\d[\d_]*(?:\.\d+)?|\.(?:nanoseconds|microseconds|milliseconds|seconds)\s*\(")
+
+
+def _top_level_args(text: str, start: int) -> tuple[list[str], int]:
+    """The comma-separated arguments of the call whose `(` is at START, and the index after its `)`.
+
+    A string literal is skipped whole, its interpolations with it: an argument that starts with one is a message.
+    """
+    args: list[str] = []
+    depth = 0
+    arg_start = start + 1
+    index = start
+    while index < len(text):
+        character = text[index]
+        if character in "\"'`":
+            end = index + 1
+            while end < len(text) and text[end] != character:
+                end += 2 if text[end] == "\\" else 1
+            index = end + 1
+            continue
+        if character in "([{":
+            depth += 1
+        elif character in ")]}":
+            depth -= 1
+            if depth == 0:
+                args.append(text[arg_start:index])
+                return args, index + 1
+        elif character == "," and depth == 1:
+            args.append(text[arg_start:index])
+            arg_start = index + 1
+        index += 1
+    args.append(text[arg_start:])
+    return args, len(text)
+
+
+def _is_message(arg: str) -> bool:
+    return bool(re.match(r"\s*(?:[A-Za-z]{1,2})?[\"'`]", arg))
+
+
+def _names_in(text: str, names: set[str]) -> set[str]:
+    return {word for word in re.findall(r"(?<![\w.])[A-Za-z_]\w*", text) if word in names}
+
+
+def _is_timing_ratio(side: str, timings: set[str]) -> bool:
+    """A timing divided by another timing (the scaling check): `took_4n / took_n`, `a / max(b, 1e-9)`."""
+    slash = side.find("/")
+    return slash >= 0 and bool(_names_in(side[slash + 1:], timings) or _CLOCK_READ.search(side[slash + 1:]))
+
+
+def _bounds_a_timing(side: str, other: str, timings: set[str]) -> bool:
+    return (
+        # A bound of 0 (`took > 0`, `toBeGreaterThan(0)`) checks that a timing was taken, not how long it was.
+        not re.fullmatch(r"[\s(]*0(?:\.0*)?[\s)]*", other)
+        and bool(_names_in(side, timings))
+        and not _is_timing_ratio(side, timings)
+        and not _names_in(other, timings)
+        and not _CLOCK_READ.search(other)
+    )
+
+
+def _asserts_absolute_bound_on(line: str, timings: set[str]) -> bool:
+    """Whether the assertion on LINE bounds one of TIMINGS (names holding a clock difference) by a fixed amount."""
+    if not timings or not _is_assertion_line(line) or not _names_in(line, timings):
+        return False
+    helper = _RELATIONAL_HELPER.search(line)
+    if helper:
+        args, after = _top_level_args(line, helper.end() - 1)
+        if helper.group(0).startswith("toBe"):
+            # expect(took).toBeLessThan(500): the operand is expect's argument.
+            opening = re.search(r"\bexpect\s*\(", line[: helper.start()])
+            if not opening:
+                return False
+            subject, _ = _top_level_args(line, opening.end() - 1)
+            operands = [subject[0], args[0]]
+        else:
+            operands = [arg for arg in args if not _is_message(arg)][:2]
+        if len(operands) != 2:
+            return False
+        first, second = operands
+        return _bounds_a_timing(first, second, timings) or _bounds_a_timing(second, first, timings)
+    opening = _ASSERT_OPENING.search(line)
+    if opening:
+        args, _ = _top_level_args(line, opening.end() - 1)
+        conditions = [arg for arg in args if not _is_message(arg)][:1]
+    else:
+        bare = re.search(r"\bassert\s+(.*)$", line)
+        if not bare:
+            return False
+        conditions = [_top_level_args("(" + bare.group(1) + ")", 0)[0][0]]
+    # Each clause of `a >= 0 && a <= waited` is its own comparison: the 0 bounds `a`, not `waited`.
+    clauses = [clause for condition in conditions for clause in re.split(r"&&|\|\||\band\b|\bor\b", condition)]
+    for condition in clauses:
+        for operator in _RELATIONAL_OPERATOR.finditer(condition):
+            left, right = condition[: operator.start()], condition[operator.end():]
+            if _bounds_a_timing(left, right, timings) and _ABSOLUTE_BOUND.search(right):
+                return True
+            if _bounds_a_timing(right, left, timings) and _ABSOLUTE_BOUND.search(left):
+                return True
+    return False
+
+
+def _classify_assignment(value: str, timings: set[str], readings: set[str]) -> Optional[str]:
+    """'timing' for a clock difference, 'reading' for a bare clock reading, None for anything else."""
+    if not (timings or readings) and not any(key in value for key in _CLOCK_KEYS):
+        return None
+    if _is_timing_ratio(value, timings | readings):
+        return None
+    if _CLOCK_DIFFERENCE_CALL.search(value):
+        return "timing"
+    minus = re.search(r"(?<![-=<>*/+eE])-(?![->=])", value)
+    if minus:
+        left = value[: minus.start()]
+        right = value[minus.end():]
+        if re.search(r"\btimedelta\b|\b(?:weeks|days|hours|minutes|seconds)\s*=", right):
+            return None  # datetime.now() - timedelta(hours=1) is an instant, not a duration
+        # A clock reading minus a name (a start), not a timestamp moved by a constant: Date.now() + h - 1_000.
+        if (_CLOCK_READ.search(left) or _names_in(left, readings)) and "+" not in left and re.search(r"[A-Za-z]", right):
+            return "timing"
+        if _names_in(left, timings):
+            return "timing"
+        return None
+    if _names_in(value, timings) and re.search(r"[*/]\s*[\d(]|^\s*\(*\s*\w+\s*\)*\s*[*/]", value):
+        return "timing"  # (took) * 1000, took / 1e6: still the same duration
+    if _CLOCK_READ.search(value) and not re.search(r"[-+*/]", value):
+        return "reading"
+    return None
+
+
+def detect_assert_on_duration_through_name(code_lines: list[str], path_suffix: str) -> list[int]:
+    """Lines bounding a name that holds a clock difference assigned earlier in the same function.
+
+    `took = time.perf_counter() - started` then `self.assertLess(took, 0.5)`: the line-at-a-time check sees
+    neither half on one line. A name holds a timing from its assignment until it is reassigned or its function
+    (Python, by indentation) or block (Swift, JavaScript and TypeScript, by braces) ends. A ratio of two timings
+    is the scaling check and is not a bound on wall time; a timing that only reaches a log line or an assertion's
+    message measures nothing.
+    """
+    if path_suffix not in (".py", ".swift", ".ts", ".tsx", ".js", ".mjs"):
+        return []
+    # Most test files read no clock: skip the scope walk for them.
+    source = "\n".join(code_lines)
+    if not any(key in source for key in _CLOCK_KEYS):
+        return []
+    python = path_suffix == ".py"
+    # Each scope is (opening indent or brace depth, timings, readings); module level is the outermost.
+    scopes: list[tuple[int, set[str], set[str]]] = [(-1, set(), set())]
+    depth = 0
+    flagged: list[int] = []
+    for index, line in enumerate(code_lines):
+        if not line.strip():
+            continue
+        if python:
+            indent = len(line) - len(line.lstrip())
+            while len(scopes) > 1 and indent <= scopes[-1][0]:
+                scopes.pop()
+            definition = _PY_DEF.match(line)
+            if definition:
+                scopes.append((indent, set(), set()))
+                continue
+        _, timings, readings = scopes[-1]
+        if _asserts_absolute_bound_on(line, timings):
+            flagged.append(index)
+        assignment = (_PY_ASSIGNMENT if python else _BRACE_ASSIGNMENT).match(line)
+        if assignment:
+            name, value = assignment.group(1), assignment.group(2)
+            kind = _classify_assignment(value, timings, readings)
+            timings.discard(name)
+            readings.discard(name)
+            if kind == "timing":
+                timings.add(name)
+            elif kind == "reading":
+                readings.add(name)
+        if not python and ("{" in line or "}" in line):
+            # A brace in a one-line string literal does not open a block (comments are already stripped).
+            for character in _BRACES.findall(_ONE_LINE_STRING.sub("", line)):
+                if character == "{":
+                    depth += 1
+                    scopes.append((depth, set(), set()))
+                elif character == "}":
+                    if len(scopes) > 1 and scopes[-1][0] == depth:
+                        scopes.pop()
+                    depth = max(depth - 1, 0)
+    return flagged
+
+
 def detect_live_network_host(line: str, path_suffix: str = "") -> bool:
     # High-precision signal only: an actual http(s):// URL with a public host that
     # is ALSO handed to a network-driving verb on the same line (fetch/axios/
@@ -3747,6 +4155,23 @@ _CANCELLATION_ONLY_EXIT = re.compile(
 _YIELD_COUNT_LOOP_MAX_LINES = 60
 
 
+# `a - b <= SOME_MS` (either relational operator, the constant ALL-CAPS and ending in _MS): the subtraction of
+# two stamps measured against a named window. streaming-parked-still counted an offset change as the reader's
+# while `now.t - now.input <= INPUT_MS`; a starved runner moved a frame past it.
+_WALL_CLOCK_WINDOW = re.compile(
+    r"[\w.)\]]\s-\s[^;,]*?(?<![<>=!])(?:<=|>=|<|>)(?![=>])\s*[A-Z][A-Z0-9_]*_MS\b"
+)
+# A clock the test owns and advances by hand is deterministic.
+_FAKE_CLOCK_NOW = re.compile(r"\b(?:time|clock|fakeClock|virtualClock|testClock)\.now\s*\(")
+
+
+def detect_wall_clock_window(line: str, path_suffix: str = "") -> bool:
+    """A JS/TS test that compares two time stamps' distance with a named millisecond window."""
+    if path_suffix not in _JAVASCRIPT_SUFFIXES or _FAKE_CLOCK_NOW.search(line):
+        return False
+    return bool(_WALL_CLOCK_WINDOW.search(line))
+
+
 def detect_yield_count_poll(lines: list[str], idx: int, path_suffix: str) -> bool:
     """A Swift condition poll bounded by a Task.yield() count, not a deadline."""
     if path_suffix != ".swift" or not _YIELD_COUNT_LOOP_HEADER.search(lines[idx]):
@@ -3766,6 +4191,1271 @@ def detect_yield_count_poll(lines: list[str], idx: int, path_suffix: str) -> boo
     return bool(_POLL_EXIT.search(exits))
 
 
+_GIT_WRITE_VERBS = r"(?:init|commit|clone|fetch|pull|push|am|merge|rebase|cherry-pick|stash)"
+# Python: git in an argv list plus a writing subcommand token, or a `git <verb>` shell string.
+_PY_GIT_ARGV = re.compile(r"""[\[(,]\s*['"]git['"]\s*[,\]]""")
+_PY_GIT_WRITE_TOKEN = re.compile(r"""['"]""" + _GIT_WRITE_VERBS + r"""['"]""")
+_PY_GIT_WRITE_STRING = re.compile(r"""['"]git (?:-C \S+ )?(?:-c \S+ )*""" + _GIT_WRITE_VERBS + r"\b")
+_PY_TEMP_DIR = re.compile(r"\b(?:TemporaryDirectory|mkdtemp|tmp_path)\b")
+# Shell is read through tests/shell_tree.py (the parser vendored byte for byte beside the tests), never by a regex
+# over text: a source, a git command, a trap or an assignment is a command of the tree, in the order bash runs them,
+# and a here-document body, a quoted string or an echo's argument is none ("the git-fixture lints match text, not
+# shell structure", review of cmux#41794). Text the parser cannot read is read the way that fails closed.
+_SHELL_TREE_PATH = pathlib.Path(__file__).resolve().parent.parent / "tests" / "shell_tree.py"
+# Kept only for a shell file the parser cannot read: its git writes are then found by text, so they still count.
+_SH_GIT_WRITE = re.compile(r"(?:^|[\s;&|(`])(?:git|git_q)\s+(?:-C\s+\S+\s+)?(?:-c\s+\S+\s+)*" + _GIT_WRITE_VERBS + r"\b")
+_GIT_WRITE_VERB_SET = frozenset(_GIT_WRITE_VERBS[3:-1].split("|"))
+# git's options before its subcommand that take the next word.
+_GIT_GLOBAL_TAKES = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--super-prefix"})
+_MAINTENANCE_OFF = frozenset({"false", "0", "no", "off"})
+_GIT_CONFIG_PAIR = re.compile(r"GIT_CONFIG_(KEY|VALUE)_(\d+)")
+
+
+def _shell_tree():
+    """tests/shell_tree.py, loaded once by path (the script runs under python3 -I too)."""
+    import importlib.util
+
+    module = sys.modules.get("check_test_determinism_shell_tree")
+    if module is None:
+        spec = importlib.util.spec_from_file_location("check_test_determinism_shell_tree", _SHELL_TREE_PATH)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+    return module
+
+
+@lru_cache(maxsize=256)
+def _sh_parse(text: str):
+    """TEXT's command tree, or None when shell_tree cannot read it."""
+    tree = _shell_tree()
+    try:
+        return tree.parse(text)
+    except (tree.Unparsed, RecursionError):
+        return None
+
+
+def _sh_line(text: str, cmd) -> int:
+    """0-based line of CMD's first word (or redirection)."""
+    start = cmd.words[0].start if cmd.words else cmd.redirects[0].target.start if cmd.redirects else 0
+    return text.count("\n", 0, start)
+
+
+def _sh_unquote(raw: str) -> Optional[str]:
+    """RAW, one shell word, after quote removal; each $NAME and ${...} kept as text. None for a $'...' or $"..."
+    string or a quote left open. (shell_tree._unquote loops for ever on an open single quote, and a word of a trap's
+    or eval's parsed text can end just past the outer word's closing quote.)"""
+    out, i, n = [], 0, len(raw)
+    while i < n:
+        c = raw[i]
+        if c == "'":
+            j = raw.find("'", i + 1)
+            if j < 0:
+                return None
+            out.append(raw[i + 1:j])
+            i = j + 1
+        elif c == '"':
+            i += 1
+            while i < n and raw[i] != '"':
+                if raw[i] == "\\" and i + 1 < n and raw[i + 1] in '$`"\\\n':
+                    out.append("" if raw[i + 1] == "\n" else raw[i + 1])
+                    i += 2
+                    continue
+                out.append(raw[i])
+                i += 1
+            if i >= n:
+                return None
+            i += 1
+        elif c == "\\":
+            out.append(raw[i + 1:i + 2].replace("\n", ""))
+            i += 2
+        elif c == "$" and raw[i + 1:i + 2] in ("'", '"'):
+            return None
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
+
+
+def _sh_value(text: str, word) -> Optional[str]:
+    """WORD as bash reads it after quote removal, with each $NAME and ${...} kept as text; None when a command
+    substitution is in it or its quoting is not plain ($'...')."""
+    if any(True for _ in _shell_tree().subs(word.parts)):
+        return None
+    return _sh_unquote(text[word.start:word.end])
+
+
+def _sh_run(text: str, cmd) -> tuple[list, list[Optional[str]]]:
+    """The words CMD runs (after its assignments, reserved words and wrappers), its name first, and their values."""
+    words = _shell_tree().words_run(text, cmd) or []
+    return words, [_sh_value(text, word) for word in words]
+
+
+def _sh_program(values: list[Optional[str]]) -> str:
+    return (values[0] or "").rsplit("/", 1)[-1] if values else ""
+
+
+def _sh_ordered(text: str, script):
+    """SCRIPT's commands in the order this shell runs them: an eval's text in its place, and a function's body where
+    the function is called, never where it is defined (a function nobody calls runs nothing). A substitution's
+    commands run in a subshell and a trap's action later, so neither is here."""
+    commands = script.commands
+    spans = _sh_function_spans(text, commands)
+    headers = {start: end for starts in spans.values() for start, end in starts}
+    bodies = {name: starts[-1] for name, starts in spans.items()}
+    yield from _sh_walk(text, commands, 0, len(commands), headers, bodies, ())
+
+
+def _sh_walk(text: str, commands: list, start: int, end: int, headers: dict, bodies: dict, calls: tuple):
+    k = start
+    while k < end:
+        if k in headers:
+            k = headers[k] + 1  # a definition runs nothing
+            continue
+        cmd = commands[k]
+        yield cmd
+        program = _sh_program(_sh_run(text, cmd)[1])
+        if program == "eval":
+            for nested in cmd.scripts:
+                yield from _sh_ordered(text, nested)
+        body = bodies.get(program)
+        if body is not None and program not in calls and len(calls) < 8:
+            yield from _sh_walk(text, commands, body[0] + 1, body[1] + 1, headers, bodies, calls + (program,))
+        k += 1
+
+
+def _sh_function_spans(text: str, commands: list) -> dict[str, list[tuple[int, int]]]:
+    """Each function COMMANDS define, as (index of its NAME() or `function NAME` command, index of the command that
+    closes its { } group) per definition. A body that is not a { } group keeps only its header out."""
+    out: dict[str, list[tuple[int, int]]] = {}
+    for index, cmd in enumerate(commands):
+        values = [_sh_value(text, word) for word in cmd.words]
+        if len(values) == 1 and re.match(r"[ \t]*\([ \t]*\)", text[cmd.words[0].end:]):
+            name = values[0]
+        elif len(values) == 2 and values[0] == "function":
+            name = values[1]
+        else:
+            continue
+        if not name:
+            continue
+        depth, opened, close = 0, False, None
+        for at in range(index + 1, len(commands)):
+            for word in commands[at].words:  # a { or } counts only where a command starts
+                raw = text[word.start:word.end]
+                if raw == "{":
+                    depth, opened = depth + 1, True
+                elif raw == "}" and opened:
+                    depth -= 1
+                    if depth == 0:
+                        close = at
+                        break
+                else:
+                    break
+            if close is not None or not opened:
+                break
+        out.setdefault(name, []).append((index, index if close is None else close))
+    return out
+
+
+def _sh_running(text: str, script):
+    """Every command that runs: this shell's (_sh_ordered), each substitution's, and a `sh -c` or eval script's."""
+    tree = _shell_tree()
+    for cmd in _sh_ordered(text, script):
+        yield cmd
+        program = _sh_program(_sh_run(text, cmd)[1])
+        if program not in ("eval", "trap"):
+            for nested in cmd.scripts:
+                yield from _sh_running(text, nested)
+        words = cmd.words + cmd.data + [r.target for r in cmd.redirects] + [r.body for r in cmd.redirects if r.body]
+        for word in words:
+            for sub in tree.subs(word.parts):
+                yield from _sh_running(text, sub.script)
+
+
+# Words that leave a builtin (source, .) running in this shell: env, nice, exec, timeout and the rest run a program,
+# and no program is called source (`env source lib.sh` exits 127).
+_SH_IN_SHELL_PREFIXES = frozenset({"builtin", "command", "time"})
+
+
+def _sh_in_shell_run(text: str, cmd) -> tuple[list, list[Optional[str]]]:
+    """CMD's words from its command name on, read through only NAME=value words, reserved words, builtin, command
+    (not -v/-V) and time: ([], []) when anything else stands before the name."""
+    tree = _shell_tree()
+    words = cmd.words
+    values = [_sh_value(text, word) for word in words]
+    k, assigns = 0, True
+    while k < len(words):
+        if values[k] in tree.KEYWORDS or (assigns and tree.ASSIGNMENT.match(text, words[k].start)):
+            k += 1
+            continue
+        if values[k] in _SH_IN_SHELL_PREFIXES:
+            k += 1
+            assigns = False
+            while k < len(words) and values[k] in ("-p", "--"):
+                k += 1
+            if k < len(words) and values[k] in ("-v", "-V"):
+                return [], []
+            continue
+        break
+    return words[k:], values[k:]
+
+
+def _sh_is_fixture_source(text: str, cmd) -> bool:
+    """True when CMD runs `source FILE` or `. FILE` naming git-fixture.sh in this shell."""
+    words, values = _sh_in_shell_run(text, cmd)
+    return len(words) > 1 and values[0] in ("source", ".") and "git-fixture.sh" in _shell_tree().literal(text, words[1])
+
+
+def _sh_assignments(text: str, cmd) -> list[tuple[str, Optional[str]]]:
+    """The NAME=value pairs CMD assigns: its own NAME=value words (before the command, or env's), and
+    export/local/declare/readonly/typeset's arguments. An argument of any other command (`echo K=v`) is none."""
+    tree = _shell_tree()
+    argv = ["X=" if tree.ASSIGNMENT.match(text, word.start) else tree.name(text, word) or "\0" for word in cmd.words]
+    assigned: list = []
+    run = tree.unwrap(argv, assigned) or []
+    # (index, word) or (index, word, spans): spans is set only for a word of an env -S string, which is no word here.
+    picked = [cmd.words[entry[0]] for entry in assigned
+              if entry[0] < len(cmd.words) and (len(entry) < 3 or entry[2] is None)]
+    if run and _sh_program([run[0]]) in _SH_ASSIGNING_BUILTINS:
+        picked += [word for word in cmd.words[len(argv) - len(run) + 1:]]
+    out = []
+    for word in picked:
+        head = tree.ASSIGNMENT.match(text, word.start)
+        if head is not None and word.start + len(head.group(0)) <= word.end:
+            out.append((re.match(r"\w+", head.group(0)).group(0), _sh_unquote(text[head.end():word.end])))
+    return out
+
+
+def _sh_source_lines(text: str) -> list[int]:
+    """0-based lines of each `source FILE` or `. FILE` command naming git-fixture.sh that runs in this shell (through
+    builtin, command or time only). A source in a string, a comment, an echo's arguments, a here-document, a function
+    nobody calls or behind env/nice/exec (no program is called source) loads nothing."""
+    script = _sh_parse(text)
+    if script is None:
+        return []
+    return [_sh_line(text, cmd) for cmd in _sh_ordered(text, script) if _sh_is_fixture_source(text, cmd)]
+
+
+def _sh_git_commands(text: str, script) -> list[tuple[int, str, list[Optional[str]]]]:
+    """(0-based line, subcommand, its arguments) of every git (or git_q) command anywhere in SCRIPT: substitutions,
+    here-document substitutions and an eval's or trap's text included."""
+    out = []
+    for cmd in _shell_tree().commands(script):
+        _, values = _sh_run(text, cmd)
+        if _sh_program(values) not in ("git", "git_q"):
+            continue
+        k = 1
+        while k < len(values) and (values[k] or "").startswith("-"):
+            k += 2 if values[k] in _GIT_GLOBAL_TAKES else 1
+        if k < len(values):
+            out.append((_sh_line(text, cmd), values[k] or "", values[k + 1:]))
+    return out
+
+
+def _sh_git_write_lines(text: str) -> list[int]:
+    """0-based lines of the shell text's writing git commands; by text when the parser cannot read it."""
+    script = _sh_parse(text)
+    if script is None:
+        return [index for index, line in enumerate(text.splitlines()) if _SH_GIT_WRITE.search(line)]
+    return sorted({line for line, verb, _ in _sh_git_commands(text, script) if verb in _GIT_WRITE_VERB_SET})
+
+
+def _sh_makes_temp_dir(text: str) -> bool:
+    script = _sh_parse(text)
+    if script is None:
+        return "mktemp" in text
+    return any(_sh_program(_sh_run(text, cmd)[1]) == "mktemp" for cmd in _shell_tree().commands(script))
+
+
+def _sh_maintenance_off(text: str) -> bool:
+    """True when a git command that runs turns auto maintenance off: `git -c maintenance.auto=false`, `git config
+    maintenance.auto false`, or the pair GIT_CONFIG_KEY_<n>=maintenance.auto and GIT_CONFIG_VALUE_<n>=false
+    assigned in the shell (a command's NAME=value words, env's, export's). An echo, a string, a function nobody
+    calls or GIT_CONFIG_VALUE_<n>=true turns nothing off."""
+    script = _sh_parse(text)
+    if script is None:
+        return False
+    pairs: dict[str, dict[str, Optional[str]]] = {"KEY": {}, "VALUE": {}}
+    for cmd in _sh_running(text, script):
+        for name, value in _sh_assignments(text, cmd):
+            match = _GIT_CONFIG_PAIR.fullmatch(name)
+            if match:
+                pairs[match.group(1)][match.group(2)] = value
+        _, values = _sh_run(text, cmd)
+        if _sh_program(values) in ("git", "git_q") and _git_argv_maintenance_off([value or "" for value in values[1:]]):
+            return True
+    return _config_pairs_off(pairs)
+
+
+def _config_pairs_off(pairs: dict[str, dict]) -> bool:
+    """True when some GIT_CONFIG_KEY_<n> is maintenance.auto and its GIT_CONFIG_VALUE_<n> is off."""
+    return any(key == "maintenance.auto" and str(pairs["VALUE"].get(n) or "").lower() in _MAINTENANCE_OFF
+               for n, key in pairs["KEY"].items())
+
+
+def _git_argv_maintenance_off(argv: list[str]) -> bool:
+    """True when git's ARGV (no program name) sets maintenance.auto off: `-c maintenance.auto=false` or a config
+    write `config [--global|--local|...] maintenance.auto false`."""
+    for k, arg in enumerate(argv):
+        if arg == "-c" and k + 1 < len(argv):
+            key, _, value = argv[k + 1].partition("=")
+            if key == "maintenance.auto" and value.lower() in _MAINTENANCE_OFF:
+                return True
+        if arg == "maintenance.auto" and "config" in argv[:k] and k + 1 < len(argv):
+            if argv[k + 1].lower() in _MAINTENANCE_OFF:
+                return True
+    return False
+
+
+def _py_maintenance_off(tree: object) -> bool:
+    """True when Python code that runs turns auto maintenance off: a git invocation (_py_git_argvs) with
+    `-c maintenance.auto=false` or `config maintenance.auto false`, an env it passes on (_py_env_config_pairs) with
+    GIT_CONFIG_KEY_<n>=maintenance.auto and GIT_CONFIG_VALUE_<n> off, or a string a shell runs that does one of those.
+    A comment, a docstring, a print's arguments or a string nobody runs does not."""
+    if any(_git_argv_maintenance_off(argv) for argv in _py_git_argvs(tree)):
+        return True
+    if _py_env_config_off(tree):
+        return True
+    for value in _py_shell_strings(tree):
+        if "maintenance.auto" in value and _sh_maintenance_off(value):
+            return True
+    return False
+
+
+# Calls that run an argv list: the subprocess functions. A git wrapper is called with git's arguments.
+_PY_ARGV_RUNNERS = frozenset({"run", "call", "check_call", "check_output", "Popen"})
+_PY_GIT_WRAPPERS = frozenset({"git", "_git", "run_git", "git_q"})
+
+
+def _py_assigned(tree: object) -> dict[str, list[object]]:
+    import ast
+
+    assigned: dict[str, list[object]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    assigned.setdefault(target.id, []).append(node.value)
+    return assigned
+
+
+def _py_git_argvs(tree: object) -> list[list[str]]:
+    """git's arguments (constants, "" for anything else) at each git invocation: a subprocess call whose argv list
+    (literal, or a name assigned one; a *NAME of one is spliced in) starts with git, or a call to a git wrapper (git,
+    run_git, or a function of the module that runs git with its *args)."""
+    import ast
+
+    assigned = _py_assigned(tree)
+
+    def argv(node: object, seen: frozenset = frozenset()) -> Optional[list[object]]:
+        if isinstance(node, ast.Name):
+            if node.id in seen:  # `cmd = [*cmd, "x"]` names itself
+                return None
+            seen = seen | {node.id}
+            node = next((value for value in assigned.get(node.id, []) if isinstance(value, (ast.List, ast.Tuple))), None)
+        if not isinstance(node, (ast.List, ast.Tuple)):
+            return None
+        out: list[object] = []
+        for elt in node.elts:
+            spliced = argv(elt.value, seen) if isinstance(elt, ast.Starred) and isinstance(elt.value, ast.Name) else None
+            out.extend(spliced if spliced is not None else [elt])
+        return out
+
+    def constants(elts: list[object]) -> list[str]:
+        return [elt.value if isinstance(elt, ast.Constant) and isinstance(elt.value, str) else "" for elt in elts]
+
+    def runs_git(call: object) -> Optional[list[str]]:
+        elts = argv(call.args[0]) if call.args and _py_call_name(call) in _PY_ARGV_RUNNERS else None
+        if elts and constants(elts[:1])[0].rsplit("/", 1)[-1] == "git":
+            return constants(elts[1:])
+        return None
+
+    wrappers = set(_PY_GIT_WRAPPERS)
+    for function in ast.walk(tree):
+        if isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)) and function.args.vararg is not None:
+            star = function.args.vararg.arg
+            for call in ast.walk(function):
+                if isinstance(call, ast.Call) and runs_git(call) is not None and any(
+                        isinstance(elt, ast.Starred) and isinstance(elt.value, ast.Name) and elt.value.id == star
+                        for elt in (argv(call.args[0]) or [])):
+                    wrappers.add(function.name)
+    out: list[list[str]] = []
+    for call in ast.walk(tree):
+        if not isinstance(call, ast.Call):
+            continue
+        got = runs_git(call)
+        if got is not None:
+            out.append(got)
+        elif _py_call_name(call) in wrappers:
+            out.append(constants(call.args))
+    return out
+
+
+def _py_env_config_off(tree: object) -> bool:
+    """True when a GIT_CONFIG_KEY_<n>=maintenance.auto / GIT_CONFIG_VALUE_<n>=off pair is in an env the module
+    passes on: a dict given as env=, one assigned to a name given as env=, os.environ.update's, or subscript
+    assignments into such a name or os.environ. A dict nobody passes sets nothing."""
+    import ast
+
+    def is_environ(node: object) -> bool:
+        return isinstance(node, ast.Attribute) and node.attr == "environ" and isinstance(node.value, ast.Name) and (
+            node.value.id == "os")
+
+    passed: set[str] = set()
+    dicts: list[object] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            for keyword in node.keywords:
+                if keyword.arg == "env":
+                    if isinstance(keyword.value, ast.Name):
+                        passed.add(keyword.value.id)
+                    elif isinstance(keyword.value, ast.Dict):
+                        dicts.append(keyword.value)
+            func = node.func
+            if isinstance(func, ast.Attribute) and func.attr == "update" and is_environ(func.value) and node.args and (
+                    isinstance(node.args[0], ast.Dict)):
+                dicts.append(node.args[0])
+    containers: dict[str, dict[str, dict]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id in passed and isinstance(node.value, ast.Dict):
+                    dicts.append(node.value)
+                if isinstance(target, ast.Subscript) and (
+                        is_environ(target.value) or isinstance(target.value, ast.Name) and target.value.id in passed):
+                    key, value = target.slice, node.value
+                    if isinstance(key, ast.Constant) and isinstance(value, ast.Constant):
+                        match = _GIT_CONFIG_PAIR.fullmatch(str(key.value))
+                        if match:
+                            pairs = containers.setdefault(ast.dump(target.value), {"KEY": {}, "VALUE": {}})
+                            pairs[match.group(1)][match.group(2)] = str(value.value)
+    for node in dicts:
+        pairs = {"KEY": {}, "VALUE": {}}
+        for key, value in zip(node.keys, node.values):
+            if isinstance(key, ast.Constant) and isinstance(value, ast.Constant):
+                match = _GIT_CONFIG_PAIR.fullmatch(str(key.value))
+                if match:
+                    pairs[match.group(1)][match.group(2)] = str(value.value)
+        if _config_pairs_off(pairs):
+            return True
+    return any(_config_pairs_off(pairs) for pairs in containers.values())
+
+
+# Calls that run their first argument as a shell command line: always, or with shell=True.
+_PY_SHELL_CALLS = frozenset({"system", "getoutput", "getstatusoutput", "popen"})
+_PY_SHELL_TRUE_CALLS = frozenset({"run", "call", "check_call", "check_output", "Popen"})
+_SHELLS = frozenset({"sh", "bash", "zsh", "dash"})
+
+
+def _py_shell_strings(tree: object) -> list[str]:
+    """The strings the module hands a shell to run: the command of os.system/subprocess.getoutput, of a subprocess
+    call with shell=True, or the script after -c in a subprocess call's argv that starts with a shell (each one
+    direct or through a name assigned it). A docstring, a print, a constant or an argv list nobody runs is not one."""
+    import ast
+
+    assigned = _py_assigned(tree)
+
+    def resolve(node: object) -> list[object]:
+        return assigned.get(node.id, []) if isinstance(node, ast.Name) else [node]
+
+    def strings(node: object) -> list[str]:
+        return [text for value in resolve(node) for text in _py_strings(value)]
+
+    out: list[str] = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and node.args):
+            continue
+        name = _py_call_name(node)
+        shell = any(keyword.arg == "shell" and isinstance(keyword.value, ast.Constant) and keyword.value.value is True
+                    for keyword in node.keywords)
+        if name in _PY_SHELL_CALLS or (name in _PY_SHELL_TRUE_CALLS and shell):
+            out.extend(strings(node.args[0]))
+        elif name in _PY_SHELL_TRUE_CALLS:
+            for argv in resolve(node.args[0]):
+                if not isinstance(argv, (ast.List, ast.Tuple)) or not argv.elts:
+                    continue
+                values = [(_py_strings(elt) or [""])[0] for elt in argv.elts]
+                if values[0].rsplit("/", 1)[-1] in _SHELLS and "-c" in values[1:]:
+                    at = values.index("-c", 1) + 1
+                    if at < len(argv.elts):
+                        out.extend(strings(argv.elts[at]))
+    return out
+
+
+def _maintenance_off(text: str, path_suffix: str) -> bool:
+    if path_suffix == ".sh":
+        return _sh_maintenance_off(text)
+    if path_suffix != ".py":
+        return False
+    tree = _py_parse(text)
+    return tree is not None and _py_maintenance_off(tree)
+
+
+def detect_git_temp_repo_maintenance(
+    code_lines: list[str], text: str, path_suffix: str, rel_posix: str = ""
+) -> Optional[int]:
+    """0-based line of the first git write in a temp-dir test with no auto-maintenance opt-out, else None. The helpers
+    are the opt-out: git_fixture_init writes it into the repo it inits."""
+    if rel_posix in _GIT_FIXTURE_HELPERS:
+        return None
+    code = "\n".join(code_lines)
+    covered = _git_fixture_load_cover(text, path_suffix)
+    if covered is None or _maintenance_off(text, path_suffix):
+        return None
+    if path_suffix == ".py":
+        if not _PY_TEMP_DIR.search(code):
+            return None
+        if not (_PY_GIT_WRITE_STRING.search(code) or (_PY_GIT_ARGV.search(code) and _PY_GIT_WRITE_TOKEN.search(code))):
+            return None
+        for index, line in enumerate(code_lines):
+            for pattern in (_PY_GIT_ARGV, _PY_GIT_WRITE_STRING):
+                if any(not _covers(covered, index, match.start()) for match in pattern.finditer(line)):
+                    return index
+        return None if covered else 0
+    if path_suffix == ".sh":
+        if not _sh_makes_temp_dir(text):
+            return None
+        lines = _sh_git_write_lines(text)
+        return lines[0] if lines else None
+    return None
+
+
+# The helpers themselves: they are what a test loads, so they cannot load themselves.
+_GIT_FIXTURE_HELPERS = frozenset({"tests/git_fixture_env.py", "scripts/cmux-next/tests/lib/git-fixture.sh"})
+# Calls that load a Python module by path or name: the helper is loaded when one of them names git_fixture_env.
+_PY_LOADER_CALLS = frozenset(
+    {"spec_from_file_location", "SourceFileLoader", "run_path", "import_module", "__import__", "load_source"}
+)
+
+
+def _py_strings(node: object) -> list[str]:
+    import ast
+
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return [node.value]
+    if isinstance(node, ast.JoinedStr):
+        return ["".join(value.value if isinstance(value, ast.Constant) else "X" for value in node.values)]
+    return []
+
+
+def _py_call_name(node: object) -> str:
+    import ast
+
+    func = node.func if isinstance(node, ast.Call) else None
+    return func.id if isinstance(func, ast.Name) else func.attr if isinstance(func, ast.Attribute) else ""
+
+
+def _py_loader_names(tree: object) -> frozenset:
+    """The stdlib loaders, and each function the module defines that calls one (or another such function): a test's
+    own `_load("git_fixture_env", path)`. A call merely named *load* (json.loads) loads no module."""
+    import ast
+
+    functions = [node for node in ast.walk(tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    names = set(_PY_LOADER_CALLS)
+    grew = True
+    while grew:
+        grew = False
+        for function in functions:
+            if function.name not in names and any(
+                    isinstance(node, ast.Call) and _py_call_name(node) in names for node in ast.walk(function)):
+                names.add(function.name)
+                grew = True
+    return frozenset(names)
+
+
+def _py_loads_git_fixture(tree: object) -> bool:
+    """True when the module imports git_fixture_env or calls a loader (_py_loader_names) whose arguments (or the
+    names they use, followed through their assignments) hold a string naming it."""
+    import ast
+
+    assigned: dict[str, list[object]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for target in targets:
+                if isinstance(target, ast.Name):
+                    assigned.setdefault(target.id, []).append(node.value)
+        if isinstance(node, ast.Import) and any(alias.name.split(".")[-1] == "git_fixture_env" for alias in node.names):
+            return True
+        if isinstance(node, ast.ImportFrom) and (
+            (node.module or "").split(".")[-1] == "git_fixture_env"
+            or any(alias.name == "git_fixture_env" for alias in node.names)
+        ):
+            return True
+    loaders = _py_loader_names(tree)
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or _py_call_name(node) not in loaders:
+            continue
+        pending = list(node.args) + [keyword.value for keyword in node.keywords]
+        seen: set[str] = set()
+        while pending:
+            for part in ast.walk(pending.pop()):
+                if any("git_fixture_env" in value for value in _py_strings(part)):
+                    return True
+                if isinstance(part, ast.Name) and part.id not in seen:
+                    seen.add(part.id)
+                    pending.extend(assigned.get(part.id, []))
+    return False
+
+
+# A child script's span in the file: (first line, its column, last line, the column after it), 0-based, in characters.
+_Span = tuple[int, int, int, int]
+
+
+def _covers(spans: Optional[list[_Span]], line: int, column: int) -> bool:
+    """True when (LINE, COLUMN) is inside one of SPANS (None: the whole file loads the helper)."""
+    if spans is None:
+        return True
+    return any((line, column) >= (a, b) and (line, column) < (c, d) for a, b, c, d in spans)
+
+
+def _git_fixture_load_cover(text: str, path_suffix: str) -> Optional[list[_Span]]:
+    """None when the file loads the git fixture helper as code: a Python import or loader call, a shell `source`
+    or `.` command. Otherwise the spans of child scripts it runs that load the helper themselves (a Python string
+    holding a loader or a source command); a git write outside them, on the same line too, runs without it. A name
+    in a comment, a docstring, an echo or a here-document loads nothing (Codex F2 on cmux#41447)."""
+    if path_suffix == ".sh":
+        return None if _sh_source_lines(text) else []
+    if path_suffix != ".py":
+        return []
+    import ast
+
+    tree = _py_parse(text)
+    if tree is None:
+        return []
+    if _py_loads_git_fixture(tree):
+        return None
+    docstrings = {
+        id(node.body[0].value)
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.body and isinstance(node.body[0], ast.Expr)
+    }
+    lines = text.splitlines()
+
+    def column(line: int, offset: int) -> int:  # ast columns count UTF-8 bytes
+        source = lines[line] if line < len(lines) else ""
+        return len(source.encode("utf-8")[:offset].decode("utf-8", errors="ignore"))
+
+    covered: list[_Span] = []
+    for node in ast.walk(tree):
+        if id(node) in docstrings:
+            continue
+        for value in _py_strings(node):
+            if "git_fixture_env" not in value and "git-fixture.sh" not in value:
+                continue
+            loads = bool(_sh_source_lines(value))
+            if not loads:
+                try:
+                    loads = _py_loads_git_fixture(ast.parse(value))
+                except (SyntaxError, ValueError):
+                    loads = False
+            if loads:
+                first, last = node.lineno - 1, (node.end_lineno or node.lineno) - 1
+                covered.append((first, column(first, node.col_offset), last,
+                                column(last, node.end_col_offset or len(lines[last].encode("utf-8")))))
+    return covered
+
+
+# A git wrapper called with a writing verb: `git("init")`, `self.git("-C", d, "commit")`, `fixture_git(d, "init")`.
+_PY_GIT_WRAPPER_WRITE = re.compile(r"""\b(?:\w*_)?git\([^\n]*['"]""" + _GIT_WRITE_VERBS + r"""['"]""")
+
+
+def detect_git_write_without_fixture(code_lines: list[str], text: str, rel_posix: str) -> Optional[int]:
+    """0-based line of the first writing git command in a test that never loads the fixture helper, else None."""
+    in_scope = (
+        rel_posix.startswith(("tests/", "tests_v2/"))
+        or (rel_posix.startswith("scripts/") and "/tests/" in rel_posix)
+    )
+    kind = pathlib.PurePosixPath(rel_posix).suffix
+    if not in_scope or kind not in (".py", ".sh") or rel_posix in _GIT_FIXTURE_HELPERS:
+        return None
+    covered = _git_fixture_load_cover(text, kind)
+    if covered is None:
+        return None
+    if kind == ".py":
+        # The writing verb must belong to a git call: a `git <verb>` string, an argv list naming git with the
+        # verb within its next lines, or a git wrapper called with the verb (`run_git("commit", ...)`). A
+        # "push" event name elsewhere in a file whose only git is `git show` is not a write. A write inside a
+        # child script that loads the helper itself is covered, and only there: not the rest of its line.
+        for index, line in enumerate(code_lines):
+            for pattern in (_PY_GIT_WRITE_STRING, _PY_GIT_WRAPPER_WRITE):
+                if any(not _covers(covered, index, match.start()) for match in pattern.finditer(line)):
+                    return index
+            if _PY_GIT_WRITE_TOKEN.search("\n".join(code_lines[index:index + 4])) and any(
+                    not _covers(covered, index, match.start()) for match in _PY_GIT_ARGV.finditer(line)):
+                return index
+        return None
+    lines = _sh_git_write_lines(text)
+    return lines[0] if lines else None
+
+
+def _makes_temp_git_repos(code: str, path_suffix: str) -> bool:
+    if path_suffix != ".py" or not _PY_TEMP_DIR.search(code):
+        return False
+    return bool(_PY_GIT_WRITE_STRING.search(code) or (_PY_GIT_ARGV.search(code) and _PY_GIT_WRITE_TOKEN.search(code)))
+
+
+# `env = {`, `self.env = dict(`, `base_env = {` at a line start, or an `env={` keyword argument.
+_ENV_BUILD_START = re.compile(r"(?:^[ \t]*(?:self\.)?(\w*env\w*)[ \t]*=(?!=)[ \t]*|[(,\s]env=)(\{|dict\()", re.M | re.I)
+# A whole environment, not a few extra variables: it sets PATH or HOME, or copies os.environ.
+_ENV_WHOLE = re.compile(r"""['"](?:PATH|HOME)['"]\s*:|\b(?:PATH|HOME)\s*=|os\.environ\.items\(\)""")
+# The mappings an env literal spreads or copies: `**NAME`, `dict(NAME`, and os.environ's copy or items.
+_ENV_SPREAD = re.compile(r"\*\*\s*([A-Za-z_][\w.]*)|^dict\(\s*([A-Za-z_][\w.]*)")
+_ENV_COPIES_ENVIRON = re.compile(r"os\.environ\.(?:copy|items)\(\)")
+# Calls that return an environment carrying the opt-out (tests/git_fixture_env.py).
+_ENV_FIXTURE_CALLS = frozenset({"fixture_env", "write_env", "without_auto_maintenance"})
+
+
+@lru_cache(maxsize=8)
+def _py_parse(code: str):
+    """CODE's module AST, or None when it does not parse; no SyntaxWarning for a test's odd escapes."""
+    import ast
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        try:
+            return ast.parse(code)
+        except (SyntaxError, ValueError, RecursionError):
+            return None
+
+
+def _env_inherits(expr: str, code: str) -> bool:
+    """True when the env literal EXPR copies os.environ or a mapping that does: a spread name is followed through
+    the module's assignments to it (`self.env = {**os.environ, ...}` for `**h.env`), never judged by its name, so
+    `**payload_env` is a few extra variables, not the parent's environment."""
+    if _ENV_COPIES_ENVIRON.search(expr):
+        return True
+    import ast
+
+    tree = _py_parse(code)
+    assigned: dict[str, list[object]] = {}
+    for node in ast.walk(tree) if tree is not None else ():
+        if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
+            for target in node.targets if isinstance(node, ast.Assign) else [node.target]:
+                ident = target.id if isinstance(target, ast.Name) else target.attr if isinstance(target, ast.Attribute) else None
+                if ident:
+                    assigned.setdefault(ident, []).append(node.value)
+
+    def name_inherits(name: str, seen: set[str]) -> bool:
+        if name in ("os.environ", "environ"):
+            return True
+        ident = name.rsplit(".", 1)[-1]
+        if ident in seen:
+            return False
+        seen.add(ident)
+        return any(value_inherits(value, seen) for value in assigned.get(ident, []))
+
+    def value_inherits(value: object, seen: set[str]) -> bool:
+        for node in ast.walk(value):
+            if isinstance(node, ast.Attribute) and node.attr == "environ" and isinstance(node.value, ast.Name) and (
+                    node.value.id == "os"):
+                return True
+            if isinstance(node, ast.Call) and _py_call_name(node) in _ENV_FIXTURE_CALLS:
+                return True
+            if isinstance(node, (ast.Name, ast.Attribute)) and not isinstance(getattr(node, "ctx", None), ast.Store):
+                if name_inherits(ast.unparse(node), seen):
+                    return True
+        return False
+
+    return any(name_inherits(match.group(1) or match.group(2), set()) for match in _ENV_SPREAD.finditer(expr.strip()))
+
+
+_ENV_DROPS_GIT = re.compile(r"""startswith\(\s*\(?[^)]*['"]GIT_?['"]""")
+_ENV_OPTED_OUT = re.compile(r"\b(?:fixture_env|without_auto_maintenance)\(")
+
+
+def _balanced_span(code: str, start: int) -> str:
+    depth = 0
+    for index in range(start, len(code)):
+        char = code[index]
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+            if depth == 0:
+                return code[start:index + 1]
+    return code[start:]
+
+
+def detect_git_fixture_env_dropped(code_lines: list[str], path_suffix: str, text: str = "") -> list[int]:
+    """0-based lines where a temp-git-repo Python test builds a child env that loses the auto-maintenance opt-out.
+    A spread is resolved through the module's own assignments (TEXT, the file as written: the comment-stripped view
+    can cut a string at its '#')."""
+    code = "\n".join(code_lines)
+    source = text or code
+    if not _makes_temp_git_repos(code, path_suffix):
+        return []
+    hits: list[int] = []
+    for match in _ENV_BUILD_START.finditer(code):
+        line_start = code.rfind("\n", 0, match.start()) + 1
+        before = code[line_start:match.start()]
+        if before.count('"') % 2 or before.count("'") % 2:
+            continue  # inside a string literal (test data), not code
+        expr = _balanced_span(code, match.start(2))
+        if not _ENV_WHOLE.search(expr):
+            continue
+        if not _ENV_DROPS_GIT.search(expr) and _env_inherits(expr, source):
+            continue
+        target = match.group(1)
+        if target and re.search(r"\b(?:fixture_env|without_auto_maintenance)\(\s*(?:self\.)?" + re.escape(target) + r"\s*\)", code):
+            continue
+        hits.append(code.count("\n", 0, match.start(2)))
+    return hits
+
+
+def _py_helper_repo_call_lines(code: str) -> Optional[set[int]]:
+    """0-based lines with a call to a helper that makes a managed repo (init_repo, clone_repo, ...), by the callee's
+    exact name; None when the code does not parse. Its name in a string or a print is no call."""
+    import ast
+
+    tree = _py_parse(code)
+    if tree is None:
+        return None
+    names = {"init_repo", "clone_repo", "git_fixture_init", "git_fixture_clone"}
+    return {line - 1 for node in ast.walk(tree) if isinstance(node, ast.Call) and _py_call_name(node) in names
+            for line in range(node.lineno, (node.end_lineno or node.lineno) + 1)}
+
+
+_HELPER_REPO_CALL = re.compile(r"\b(?:init_repo|clone_repo|git_fixture_init|git_fixture_clone)\b")
+_PY_BARE_TOKENS = (
+    (re.compile(r"""['"]init['"]"""), re.compile(r"""['"]--bare['"]""")),
+    (re.compile(r"""['"]clone['"]"""), re.compile(r"""['"]--(?:bare|mirror)['"]""")),
+)
+_PY_BARE_STRING = re.compile(r"""['"]git\s[^'"\n]*\b(?:init|clone)\b[^'"\n]*--(?:bare|mirror)\b""")
+_SH_BARE = re.compile(r"(?:^|[\s;&|(`])(?:git|git_q)\s[^#\n]*\b(?:init|clone)\b[^#\n]*\s--(?:bare|mirror)\b")
+
+
+def detect_git_bare_repo_unmanaged(code_lines: list[str], path_suffix: str, text: str = "") -> list[int]:
+    """0-based lines that make a bare repository without git_fixture_env.init_repo/clone_repo (or the shell pair).
+    Shell is read as commands: a git init/clone with --bare or --mirror, not the words in an echo or a string."""
+    if path_suffix == ".sh":
+        text = text or "\n".join(code_lines)
+        script = _sh_parse(text)
+        if script is not None:
+            return sorted({line for line, verb, args in _sh_git_commands(text, script)
+                           if verb in ("init", "clone") and {"--bare", "--mirror"} & set(args)})
+    hits: list[int] = []
+    # A Python file that does not parse has no helper call it can show (fail closed).
+    helper_lines = (_py_helper_repo_call_lines(text or "\n".join(code_lines)) or set()) if path_suffix == ".py" else None
+    for index, line in enumerate(code_lines):
+        if index in helper_lines if helper_lines is not None else _HELPER_REPO_CALL.search(line):
+            continue
+        if path_suffix == ".py":
+            # An argv list may wrap after the subcommand: look at the next line too while the call is open.
+            wraps = line.count("(") + line.count("[") > line.count(")") + line.count("]")
+            window = line + " " + (code_lines[index + 1] if wraps and index + 1 < len(code_lines) else "")
+            if _PY_BARE_STRING.search(line) or any(
+                verb.search(line) and flag.search(window) for verb, flag in _PY_BARE_TOKENS
+            ):
+                hits.append(index)
+        elif path_suffix == ".sh" and _SH_BARE.search(line):
+            hits.append(index)
+    return hits
+
+
+
+_SH_QUOTED = re.compile(r"'[^']*'|\"(?:\\.|[^\"\\])*\"")
+_EXIT_SIGNALS = frozenset({"EXIT", "SIGEXIT", "0"})
+# Builtins whose NAME=value arguments set a variable in this shell.
+_SH_ASSIGNING_BUILTINS = frozenset({"local", "export", "readonly", "declare", "typeset"})
+
+
+def _sh_exit_trap(text: str, cmd) -> Optional[tuple[str, object]]:
+    """("trap", action word) when CMD sets the EXIT trap (the word is None for `trap - EXIT`, which resets it);
+    ("fixture", action word) for git_fixture_trap_exit; None otherwise. `trap -p` and `trap -l` set nothing."""
+    words, values = _sh_run(text, cmd)
+    program = _sh_program(values)
+    if program == "git_fixture_trap_exit":
+        return ("fixture", words[1]) if len(words) > 1 else None
+    if program != "trap":
+        return None
+    k = 1
+    ended = k < len(values) and values[k] == "--"
+    k += ended
+    if k >= len(values) or not any((value or "").upper() in _EXIT_SIGNALS for value in values[k + 1:]):
+        return None
+    first = values[k]
+    if first == "-":
+        return ("trap", None)
+    if first is not None and first.startswith("-") and not ended:
+        return None
+    return ("trap", words[k])
+
+
+def detect_git_fixture_exit_trap(code_lines: list[str], path_suffix: str, text: str = "") -> list[int]:
+    """0-based lines that set (or reset) the EXIT trap after the file sources lib/git-fixture.sh (it replaces the
+    helper's), in command order: a trap after the source on the source's own line counts. Sourcing is a `source`/`.`
+    command, not the name in an echo, a string or a here-document."""
+    if path_suffix != ".sh":
+        return []
+    text = text or "\n".join(code_lines)
+    script = _sh_parse(text)
+    if script is None:
+        return [0] if "git-fixture.sh" in text and "trap" in text else []
+    hits: list[int] = []
+    sourced = False
+    for cmd in _sh_ordered(text, script):
+        if not sourced:
+            sourced = _sh_is_fixture_source(text, cmd)
+            continue
+        trap = _sh_exit_trap(text, cmd)
+        if trap and trap[0] == "trap":
+            hits.append(_sh_line(text, cmd))
+    return sorted(set(hits))
+
+
+_EXIT_TRAP_SCOPE = "scripts/cmux-next/tests/"
+_SH_VARIABLE_ONLY = re.compile(r"\$\{?(\w+)\}?")
+# A value that is a caller's argument passed on (the helper's own `trap` wrapper): checked where it is written.
+_SH_FORWARDED = re.compile(r"\$\{?(?:[0-9]|@|\*)\}?")
+_UNRESOLVED = object()
+_FORWARDED = object()
+# Puts a saved status back as $?: a subshell exit, or a call/return that hands the status back.
+_TRAP_STATUS_RESTORE = re.compile(r"\(\s*exit\b|^\s*return\s+\S|^\s*\w*(?:return|status)\w*\s+[\"']?\$")
+_TRAP_RERAISE = re.compile(r"\(\s*exit\b|^\s*(?:exit|return)\b")
+_TRAP_ERREXIT_OFF = re.compile(r"^\s*set\s+\+[a-zA-Z]*e")
+# A step that cleans up: removes files, stops a process, removes a worktree, or runs the caller's/a cleanup action.
+_TRAP_CLEANUP = re.compile(r"\b(?:rm|rmdir|p?kill|umount|eval)\b|worktree\s+remove|\w*(?:cleanup|remove|teardown)\w*")
+
+
+def _trap_statements(action: str) -> list[str]:
+    """The action's top-level statements, split on ; and newlines outside quotes."""
+    flat = _SH_QUOTED.sub(lambda m: m.group(0).replace(";", ",").replace("\n", " "), action)
+    return [part.strip() for part in re.split(r"[;\n]", flat) if part.strip()]
+
+
+def _trap_action_problem(action: str) -> bool:
+    """True when the action restores the status with errexit possibly on, or cleans up after re-raising."""
+    errexit_off = False
+    raised = False
+    for statement in _trap_statements(action):
+        if _TRAP_ERREXIT_OFF.search(statement):
+            errexit_off = True
+        if raised and _TRAP_CLEANUP.search(statement):
+            return True
+        if _TRAP_STATUS_RESTORE.search(statement) and not errexit_off:
+            return True
+        if _TRAP_RERAISE.search(statement):
+            raised = True
+    return False
+
+
+def _sh_record_assignments(text: str, cmd, assigned: dict[str, object]) -> None:
+    """Put each variable CMD sets in this shell on ASSIGNED: a command of NAME=value words alone, or local/export/
+    readonly/declare/typeset's NAME=value arguments. A value is its text after quote removal, _FORWARDED for a
+    caller's argument, _UNRESOLVED when a command substitution is in it."""
+    tree = _shell_tree()
+    if cmd.words and all(tree.ASSIGNMENT.match(text, word.start) for word in cmd.words):
+        targets = cmd.words
+    else:
+        words, values = _sh_run(text, cmd)
+        if _sh_program(values) not in _SH_ASSIGNING_BUILTINS:
+            return
+        targets = [word for word in words[1:] if tree.ASSIGNMENT.match(text, word.start)]
+    for word in targets:
+        head = tree.ASSIGNMENT.match(text, word.start)
+        name = re.match(r"\w+", head.group(0)).group(0)
+        raw = text[head.end():word.end]
+        if any(sub.start >= head.end() for sub in tree.subs(word.parts)):
+            assigned[name] = _UNRESOLVED
+        elif _SH_FORWARDED.fullmatch(raw.strip('"')):
+            assigned[name] = _FORWARDED
+        else:
+            got = _sh_unquote(raw)
+            assigned[name] = _UNRESOLVED if got is None else got
+
+
+def _sh_functions(text: str, script) -> dict[str, object]:
+    """Each function the script defines (`NAME() { ...; }`, `function NAME { ...; }`) and its body's text;
+    _UNRESOLVED for a body that is not a { } group."""
+    commands = script.commands
+    out: dict[str, object] = {}
+    for index, cmd in enumerate(commands):
+        values = [_sh_value(text, word) for word in cmd.words]
+        if len(values) == 1 and re.match(r"[ \t]*\([ \t]*\)", text[cmd.words[0].end:]):
+            name = values[0]
+        elif len(values) == 2 and values[0] == "function":
+            name = values[1]
+        else:
+            continue
+        if name:
+            out[name] = _sh_function_body(text, commands, index + 1)
+    return out
+
+
+def _sh_function_body(text: str, commands: list, start: int) -> object:
+    """The text inside the { } group that starts at COMMANDS[START] (a { or } counts only where a command starts)."""
+    depth, opened = 0, None
+    for cmd in commands[start:]:
+        for word in cmd.words:
+            raw = text[word.start:word.end]
+            if raw == "{":
+                opened = word.end if opened is None else opened
+                depth += 1
+            elif raw == "}" and opened is not None:
+                depth -= 1
+                if depth == 0:
+                    return text[opened:word.start]
+            else:
+                break
+        if opened is None:
+            return _UNRESOLVED
+    return _UNRESOLVED
+
+
+def _sh_inline_functions(action: str, functions: dict[str, object]) -> object:
+    """ACTION with each of its commands that calls a function of the file replaced by that function's body."""
+    script = _sh_parse(action) if functions else None
+    if script is None:
+        return action
+    for cmd in reversed(script.commands):
+        if not cmd.words:
+            continue
+        body = functions.get(_sh_program(_sh_run(action, cmd)[1]))
+        if body is _UNRESOLVED:
+            return _UNRESOLVED
+        if isinstance(body, str):
+            action = action[:cmd.words[0].start] + _sh_function_returns(body) + action[cmd.words[-1].end:]
+    return action
+
+
+def _sh_function_returns(body: str) -> str:
+    """A function BODY to inline into a trap action: its `return N` leaves only the function, so it sets $? (a status
+    restore, which errexit turns fatal) without ending the trap; it reads as a call `_function_return N`, not as the
+    trap's own re-raise. An `exit` still ends the shell."""
+    script = _sh_parse(body)
+    if script is None:
+        return body
+    tree = _shell_tree()
+    starts = []
+    for cmd in tree.commands(script):
+        for word in cmd.words:
+            value = _sh_value(body, word)
+            if value in tree.KEYWORDS:
+                continue
+            if value == "return":
+                starts.append(word.start)
+            break
+    for start in sorted(starts, reverse=True):
+        body = body[:start] + "_function_" + body[start:]
+    return body
+
+
+def _sh_action(value: str, assigned: dict[str, object], functions: dict[str, object], depth: int = 0) -> object:
+    """The text an action VALUE runs: a variable's value (followed through further variables), with each function it
+    calls inlined; _FORWARDED for a caller's argument, _UNRESOLVED when the rule cannot know it."""
+    if _SH_FORWARDED.fullmatch(value):
+        return _FORWARDED
+    variable = _SH_VARIABLE_ONLY.fullmatch(value)
+    if variable:
+        got = assigned.get(variable.group(1), _UNRESOLVED)
+        return _sh_action(got, assigned, functions, depth + 1) if isinstance(got, str) and depth < 8 else got
+    return _sh_inline_functions(value, functions)
+
+
+def detect_exit_trap_reraise_order(code_lines: list[str], rel_posix: str, text: str = "") -> list[int]:
+    """0-based lines of EXIT traps under scripts/cmux-next/tests whose action re-raises before (or instead of) cleanup,
+    or whose action the rule cannot resolve (it fails closed: Codex F1 on cmux#41677). Commands are read in the order
+    bash runs them (shell_tree): an expansion in the trap's word ("$a") takes the value assigned before the trap,
+    one left for exit time ('$a') the last one; a function name in any quoting, or through a variable, is its body."""
+    if not rel_posix.startswith(_EXIT_TRAP_SCOPE) or not rel_posix.endswith(".sh"):
+        return []
+    text = text or "\n".join(code_lines)
+    script = _sh_parse(text)
+    if script is None:
+        return [0]
+    tree = _shell_tree()
+    functions = _sh_functions(text, script)
+    assigned: dict[str, object] = {}
+    traps: list[tuple[int, object, Optional[dict]]] = []
+    for cmd in _sh_ordered(text, script):
+        _sh_record_assignments(text, cmd, assigned)
+        trap = _sh_exit_trap(text, cmd)
+        if trap is None or trap[1] is None:
+            continue
+        word = trap[1]
+        now = dict(assigned) if any(isinstance(part, tree.Param) for part in word.parts) else None
+        traps.append((_sh_line(text, cmd), word, now))
+    hits: list[int] = []
+    for line, word, now in traps:
+        value = _sh_value(text, word)
+        action = _UNRESOLVED if value is None else _sh_action(value, assigned if now is None else now, functions)
+        if action is _UNRESOLVED or (isinstance(action, str) and _trap_action_problem(action)):
+            hits.append(line)
+    return sorted(set(hits))
+
+
+# A temp base (no word, $, /, . or } before it, so "$TMP/build/tmp/x" is not one) and then a literal name.
+_TMP_BASE_SH = r"""(?<![\w$/.}-])(?:/tmp|/var/tmp|\$TMPDIR|\$\{TMPDIR\}|\$\{TMPDIR:-/tmp/?\})/[\w.$"{-]"""
+_SH_TMP_ASSIGN = re.compile(r"""^\s*(?:export\s+|local\s+|readonly\s+|declare\s+(?:-\w+\s+)?)?\w+=["']?""" + _TMP_BASE_SH)
+_SH_TMP_SINK = re.compile(r"""(?:>>?|\b(?:mkdir|touch|cp|mv|ln|tee|install|rm)\b[^|;&]*?)\s*["']?""" + _TMP_BASE_SH)
+_PY_TMP_LITERAL = r"""[rfb]?['"]/(?:var/)?tmp/[\w.{-][^'"]*['"]"""
+_PY_TMP_SINK = re.compile(
+    r"""(?:\bopen\(|\bPath\(|os\.makedirs\(|os\.mkdir\(|shutil\.\w+\(|os\.symlink\(|os\.replace\(|os\.rename\()\s*"""
+    + _PY_TMP_LITERAL
+)
+_PY_GETTEMPDIR_JOIN = re.compile(
+    r"""gettempdir\(\)\s*(?:\)\s*)?(?:,\s*[rf]?['"]|/\s*[rf]?['"]|\+\s*[rf]?['"]/)|\{[\w.]*gettempdir\(\)\}/"""
+)
+
+
+def _predictable_tmp_scope(rel_posix: str) -> Optional[str]:
+    """'.py' or '.sh' when rel_posix is a test or hook helper this rule covers, else None."""
+    suffix = pathlib.PurePosixPath(rel_posix).suffix
+    in_scope = (
+        rel_posix.startswith("tests/")
+        or (rel_posix.startswith("scripts/") and "/tests/" in rel_posix)
+        or rel_posix.startswith(GIT_HOOKS_ROOT + "/")
+    )
+    if not in_scope:
+        return None
+    if suffix == ".py":
+        return ".py"
+    if suffix in (".sh", ".bash") or (suffix == "" and rel_posix.startswith(GIT_HOOKS_ROOT + "/")):
+        return ".sh"
+    return None
+
+
+def detect_predictable_tmp_path(raw_lines: list[str], rel_posix: str) -> list[int]:
+    """0-based lines that write to, assign or join a fixed name under a shared temp folder (not via mktemp)."""
+    kind = _predictable_tmp_scope(rel_posix)
+    if kind is None:
+        return []
+    hits: list[int] = []
+    for index, raw in enumerate(raw_lines):
+        # A hook helper has no suffix, so strip its comments as shell here rather than trusting code_lines.
+        code = _strip_comment(raw, kind)
+        if not code.strip() or "mktemp" in raw:
+            continue
+        if kind == ".py":
+            found = _PY_TMP_SINK.search(code) or _PY_GETTEMPDIR_JOIN.search(code)
+        else:
+            found = _SH_TMP_ASSIGN.search(code) or _SH_TMP_SINK.search(code)
+        if found:
+            hits.append(index)
+    return hits
+
+_MISSING_MODULE = re.compile(r"ModuleNotFoundError: No module named '([\w.]+)'")
+_ISOLATED_LOAD = (
+    "import runpy, sys; "
+    "runpy.run_path(sys.argv[1], run_name='__isolated_import_check__')"
+)
+
+
+def isolated_import_finding(repo_root: pathlib.Path, rel_posix: str) -> Optional[Finding]:
+    """Load one Python test the way `python3 -I` runs it (no script folder on sys.path), without running tests.
+
+    Only a missing module that exists beside the test or in tests/ counts: that is the -I failure
+    (cmux#40871, test_cmux_next_compile_trailer.py). A missing third-party package is not this check's business.
+    """
+    import subprocess
+
+    path = repo_root / rel_posix
+    try:
+        result = subprocess.run(
+            [sys.executable, "-I", "-c", _ISOLATED_LOAD, str(path)],
+            cwd=repo_root, capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL,
+        )
+    except subprocess.TimeoutExpired:
+        return None
+    if result.returncode == 0:
+        return None
+    missing = _MISSING_MODULE.search(result.stderr)
+    if not missing:
+        return None
+    top = missing.group(1).split(".")[0]
+    local = any((folder / f"{top}.py").is_file() or (folder / top / "__init__.py").is_file()
+                for folder in (path.parent, repo_root / "tests"))
+    if not local:
+        return None
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    import_line = re.compile(r"^\s*(?:import|from)\s+" + re.escape(top) + r"\b")
+    line_no = next((i + 1 for i, line in enumerate(lines) if import_line.search(line)), 1)
+    return Finding(rel_posix, line_no, RULE_ISOLATED_IMPORT,
+                   f"python3 -I {rel_posix}: No module named '{missing.group(1)}' (load it by path)")
+
+
+def refresh_base(root, ref: str) -> str:
+    """Fetch REF (origin/feat-cmux-next) before this branch's own change is measured from where HEAD meets it: a clone's
+    copy older than a base the branch merged counts that base's files as the branch's own. One shared fetch
+    (scripts/cmux-next/push_range.py refresh_base, the pre-push gate's); a failed fetch is said on stderr."""
+    import importlib.util
+    push_range = pathlib.Path(__file__).resolve().parent / "cmux-next" / "push_range.py"
+    spec = importlib.util.spec_from_file_location("cmux_next_push_range_fresh", push_range)
+    module = sys.modules.get(spec.name)
+    if module is None:
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+    note = module.refresh_base(pathlib.Path(root), ref)
+    if note:
+        print(f"check-test-determinism: {note.lstrip('; ')}", file=sys.stderr)
+    return note
+
+
+def _changed_python_tests(repo_root: pathlib.Path) -> Optional[list[str]]:
+    """Python test files changed against the base branch, or None when history to diff against is missing."""
+    import os
+    import subprocess
+
+    def git(*args: str) -> Optional[str]:
+        result = subprocess.run(["git", "-C", str(repo_root), *args], capture_output=True, text=True)
+        return result.stdout if result.returncode == 0 else None
+
+    bases = [f"origin/{os.environ['GITHUB_BASE_REF']}"] if os.environ.get("GITHUB_BASE_REF") else []
+    bases += ["origin/feat-cmux-next", "origin/main"]
+    for base in bases:
+        refresh_base(repo_root, base)
+        merge_base = git("merge-base", "HEAD", base)
+        if merge_base:
+            names = git("diff", "--name-only", "--diff-filter=AMR", merge_base.strip(), "HEAD") or ""
+            return [name for name in names.split() if name.endswith(".py")]
+    return None
+
+
+
+def collect_predictable_tmp_extra_findings(repo_root: pathlib.Path) -> list[Finding]:
+    """predictable-tmp-path over scripts/**/tests (but GIT_FIXTURE_ONLY_ROOTS, already scanned) and the git hooks."""
+    findings: list[Finding] = []
+    folders = sorted(path for path in repo_root.glob(PREDICTABLE_TMP_EXTRA_GLOB) if path.is_dir())
+    folders.append(repo_root / GIT_HOOKS_ROOT)
+    skip = {repo_root / root for root in GIT_FIXTURE_ONLY_ROOTS}
+    for folder in folders:
+        if folder in skip or any(parent in skip for parent in folder.parents) or not folder.is_dir():
+            continue
+        for path in sorted(p for p in folder.rglob("*") if p.is_file()):
+            rel_posix = path.relative_to(repo_root).as_posix()
+            if is_ignored_path(rel_posix) or _predictable_tmp_scope(rel_posix) is None:
+                continue
+            text = path.read_text(encoding="utf-8", errors="replace")
+            findings += [f for f in scan_text(rel_posix, text)
+                         if f.rule in (RULE_PREDICTABLE_TMP_PATH, RULE_GIT_WRITE_WITHOUT_FIXTURE)]
+    return findings
+
+def collect_isolated_import_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Finding]:
+    """isolated-import over each changed Python test (when the history allows) and each that loads git_fixture_env."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    candidates: set[str] = set()
+    changed = _changed_python_tests(repo_root)
+    for root in roots:
+        root_path = repo_root / root
+        if not root_path.is_dir():
+            continue
+        for path in root_path.rglob("*.py"):
+            rel_posix = path.relative_to(repo_root).as_posix()
+            if is_ignored_path(rel_posix) or not _looks_like_test_file(rel_posix, root):
+                continue
+            if changed is not None and rel_posix in changed:
+                candidates.add(rel_posix)
+            elif "git_fixture_env" in path.read_text(encoding="utf-8", errors="replace"):
+                candidates.add(rel_posix)
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(lambda rel: isolated_import_finding(repo_root, rel), sorted(candidates)))
+    return [finding for finding in results if finding is not None]
+
+
 # ---------------------------------------------------------------------------
 # File scanning
 # ---------------------------------------------------------------------------
@@ -3780,8 +5470,11 @@ def _looks_like_test_file(rel_posix: str, root: str) -> bool:
     suffix = pathlib.PurePosixPath(rel_posix).suffix
     if suffix not in SCANNED_SUFFIXES:
         return False
-    # Under Packages/, only scan files inside a Tests path segment.
-    if root == "Packages" and "/Tests/" not in ("/" + rel_posix):
+    # A Rust tree holds only Rust tests for this gate; a Rust file elsewhere follows its root's rules.
+    if root in RUST_ROOTS or any(rel_posix.startswith(r + "/") for r in RUST_ROOTS):
+        return suffix == ".rs"
+    # Under Packages/ and cmux-next-ios/, only scan files inside a Tests path segment.
+    if root in TESTS_SEGMENT_ROOTS and "/Tests/" not in ("/" + rel_posix):
         return False
     return True
 
@@ -3869,8 +5562,228 @@ def _logical_network_chunks(
     return chunks
 
 
+_RUST_FN = re.compile(r"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:const\s+)?(?:async\s+)?(?:unsafe\s+)?fn\s+\w+")
+_RUST_TEST_CFG = re.compile(r"^\s*#\[cfg\((?:all\(\s*)?test\b")
+_RUST_SHORT_EXPIRY = re.compile(r"\bnow_ms\(\)\s*\+\s*(\d[\d_]*)(?![\w.])")
+_RUST_SHORT_EXPIRY_MS = 10_000
+_RUST_WALL_CLOCK_LOOP = re.compile(r"^\s*while\b.*\bnow_ms\(\)")
+_RUST_SLEEP = re.compile(
+    r"\b(?:thread|time)::sleep\s*\(\s*(?:std::time::|tokio::time::)?Duration::from_(millis|secs)\(\s*(\d[\d_]*)\s*\)"
+)
+_RUST_FAKE_CLOCK = re.compile(r"\btest_clock::|\bstart_paused\b|\bManualClock\b|\btime::pause\(")
+_RUST_FLOCK_EXCLUSIVE = re.compile(r"\bflock\(\s*(\w+)\.as_raw_fd\(\)\s*,\s*libc::LOCK_EX\b")
+_RUST_WRITES_FILE = re.compile(r"\bfs::(?:copy\([^,]+,\s*&?(\w+)\s*\)|write\(\s*&?(\w+)\s*,)")
+_RUST_ASSERTION = re.compile(r"^\s*(?:debug_)?assert(?:_eq|_ne|_matches)?!\s*\(")
+
+
+def _rust_code_lines(raw_lines: list[str]) -> list[str]:
+    """Each line with its `//` comment and the inside of its string literals blanked, and block
+    comments and raw strings across lines blanked whole (a lexer for brace counting, not Rust's)."""
+    code: list[str] = []
+    in_block = 0
+    raw_end: Optional[str] = None
+    for line in raw_lines:
+        out: list[str] = []
+        i = 0
+        in_string = False
+        while i < len(line):
+            if raw_end is not None:
+                if line.startswith(raw_end, i):
+                    out.append(" " * len(raw_end))
+                    i += len(raw_end)
+                    raw_end = None
+                else:
+                    out.append(" ")
+                    i += 1
+                continue
+            if in_block:
+                if line.startswith("*/", i):
+                    in_block -= 1
+                    out.append("  ")
+                    i += 2
+                elif line.startswith("/*", i):
+                    in_block += 1
+                    out.append("  ")
+                    i += 2
+                else:
+                    out.append(" ")
+                    i += 1
+                continue
+            ch = line[i]
+            if in_string:
+                if ch == "\\":
+                    out.append("  ")
+                    i += 2
+                    continue
+                if ch == '"':
+                    in_string = False
+                    out.append(ch)
+                else:
+                    out.append(" ")
+                i += 1
+                continue
+            if line.startswith("//", i):
+                break
+            if line.startswith("/*", i):
+                in_block += 1
+                out.append("  ")
+                i += 2
+                continue
+            raw = re.match(r'b?r(#*)"', line[i:])
+            if raw and (i == 0 or not (line[i - 1].isalnum() or line[i - 1] == "_")):
+                raw_end = '"' + raw.group(1)
+                out.append(" " * raw.end())
+                i += raw.end()
+                continue
+            if ch == "'" and re.match(r"'(?:\\.|[^\\'])'", line[i:]):
+                char_len = re.match(r"'(?:\\.|[^\\'])'", line[i:]).end()
+                out.append(" " * char_len)
+                i += char_len
+                continue
+            if ch == '"':
+                in_string = True
+            out.append(ch)
+            i += 1
+        code.append("".join(out))
+    return code
+
+
+def _rust_test_code_start(rel_posix: str, code: list[str]) -> Optional[int]:
+    """The first line of `rel_posix`'s test code: 0 for a test file, else its first
+    `#[cfg(test)]`; None when it has none."""
+    path = "/" + rel_posix
+    if path.endswith("_tests.rs") or path.endswith("/tests.rs") or "/tests/" in path:
+        return 0
+    return next((i for i, line in enumerate(code) if _RUST_TEST_CFG.match(line)), None)
+
+
+def _rust_functions(code: list[str], start: int) -> Iterable[tuple[int, int]]:
+    """`(first, last)` of each outermost fn from line `start` on, its body found by braces."""
+    i = start
+    while i < len(code):
+        match = _RUST_FN.match(code[i])
+        if not match:
+            i += 1
+            continue
+        depth = 0
+        opened = False
+        j = i
+        while j < len(code):
+            depth += code[j].count("{") - code[j].count("}")
+            opened = opened or "{" in code[j]
+            if opened and depth <= 0:
+                break
+            if not opened and code[j].rstrip().endswith(";"):
+                break
+            j += 1
+        yield i, min(j, len(code) - 1)
+        i = j + 1
+
+
+def _rust_sleep_ms(line: str) -> Optional[int]:
+    match = _RUST_SLEEP.search(line)
+    if not match:
+        return None
+    amount = int(match.group(2).replace("_", ""))
+    return amount if match.group(1) == "millis" else amount * 1000
+
+
+def detect_rust_wall_clock_expiry(code: list[str], start: int) -> list[int]:
+    hits: list[int] = []
+    for first, last in _rust_functions(code, start):
+        body = code[first : last + 1]
+        if any(_RUST_FAKE_CLOCK.search(line) for line in body):
+            continue
+        statement_indent = None
+        for line in body[1:]:
+            if line.strip():
+                statement_indent = len(line) - len(line.lstrip())
+                break
+        for k, line in enumerate(body):
+            match = _RUST_SHORT_EXPIRY.search(line)
+            if not match:
+                continue
+            ahead = int(match.group(1).replace("_", ""))
+            if ahead >= _RUST_SHORT_EXPIRY_MS:
+                continue
+            for later in body[k + 1 :]:
+                if _RUST_WALL_CLOCK_LOOP.match(later):
+                    hits.append(first + k)
+                    break
+                slept = _rust_sleep_ms(later)
+                at_test_level = len(later) - len(later.lstrip()) == statement_indent
+                if slept is not None and slept >= ahead and at_test_level:
+                    hits.append(first + k)
+                    break
+    return hits
+
+
+def detect_rust_flock_released_by_close(code: list[str], start: int) -> list[int]:
+    hits: list[int] = []
+    for first, last in _rust_functions(code, start):
+        body = code[first : last + 1]
+        for k, line in enumerate(body):
+            match = _RUST_FLOCK_EXCLUSIVE.search(line)
+            if not match:
+                continue
+            name = re.escape(match.group(1))
+            unlocked = re.compile(r"\bflock\(\s*" + name + r"\.as_raw_fd\(\)\s*,\s*libc::LOCK_UN\b")
+            closed = re.compile(r"^\s*drop\(\s*" + name + r"\s*\)\s*;")
+            for n in range(k + 1, len(body)):
+                if unlocked.search(body[n]):
+                    break
+                if closed.match(body[n]):
+                    following = next((later for later in body[n + 1 :] if later.strip()), "")
+                    if _RUST_ASSERTION.match(following):
+                        hits.append(first + n)
+                    break
+    return hits
+
+
+def detect_rust_exec_of_file_written_in_process(code: list[str], start: int) -> list[int]:
+    hits: list[int] = []
+    for first, last in _rust_functions(code, start):
+        body = code[first : last + 1]
+        for k, line in enumerate(body):
+            match = _RUST_WRITES_FILE.search(line)
+            if not match:
+                continue
+            name = re.escape(match.group(1) or match.group(2))
+            runs = re.compile(r"\bCommand::new\(\s*&?" + name + r"\s*\)")
+            if any(runs.search(later) for later in body[k + 1 :]):
+                hits.append(first + k)
+    return hits
+
+
+def scan_rust_text(rel_posix: str, text: str) -> list[Finding]:
+    # Most Rust files have no rule's anchor: skip the lexer for them (6,500 files).
+    if "now_ms()" not in text and "LOCK_EX" not in text and "Command::new" not in text:
+        return []
+    raw_lines = text.splitlines()
+    code = _rust_code_lines(raw_lines)
+    start = _rust_test_code_start(rel_posix, code)
+    if start is None:
+        return []
+    findings = [
+        Finding(rel_posix, i + 1, RULE_WALL_CLOCK_EXPIRY, raw_lines[i].strip())
+        for i in detect_rust_wall_clock_expiry(code, start)
+    ]
+    findings += [
+        Finding(rel_posix, i + 1, RULE_FLOCK_RELEASED_BY_CLOSE, raw_lines[i].strip())
+        for i in detect_rust_flock_released_by_close(code, start)
+    ]
+    findings += [
+        Finding(rel_posix, i + 1, RULE_EXEC_OF_FILE_WRITTEN_IN_PROCESS, raw_lines[i].strip())
+        for i in detect_rust_exec_of_file_written_in_process(code, start)
+    ]
+    findings.sort(key=lambda f: (f.line, f.rule))
+    return findings
+
+
 def scan_text(rel_posix: str, text: str) -> list[Finding]:
     suffix = pathlib.PurePosixPath(rel_posix).suffix
+    if suffix == ".rs":
+        return scan_rust_text(rel_posix, text)
     raw_lines = text.splitlines()
     code_lines = [_strip_comment(line, suffix) for line in raw_lines]
     findings: list[Finding] = []
@@ -3911,7 +5824,37 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
             findings.append(Finding(rel_posix, line_no, RULE_SLEEP_THEN_ASSERT, snippet))
         if detect_yield_count_poll(code_lines, i, suffix):
             findings.append(Finding(rel_posix, line_no, RULE_YIELD_COUNT_POLL, snippet))
+        if detect_wall_clock_window(code, suffix):
+            findings.append(Finding(rel_posix, line_no, RULE_WALL_CLOCK_WINDOW, snippet))
 
+    duration_lines = {f.line for f in findings if f.rule == RULE_ASSERT_ON_DURATION}
+    for duration_line in detect_assert_on_duration_through_name(code_lines, suffix):
+        if duration_line + 1 not in duration_lines:
+            findings.append(
+                Finding(rel_posix, duration_line + 1, RULE_ASSERT_ON_DURATION, raw_lines[duration_line].strip())
+            )
+
+    git_line = detect_git_temp_repo_maintenance(code_lines, text, suffix, rel_posix)
+    if git_line is not None:
+        findings.append(
+            Finding(rel_posix, git_line + 1, RULE_GIT_TEMP_REPO_MAINTENANCE, raw_lines[git_line].strip())
+        )
+    for env_line in detect_git_fixture_env_dropped(code_lines, suffix, text):
+        findings.append(Finding(rel_posix, env_line + 1, RULE_GIT_FIXTURE_ENV_DROPPED, raw_lines[env_line].strip()))
+    for bare_line in detect_git_bare_repo_unmanaged(code_lines, suffix, text):
+        findings.append(Finding(rel_posix, bare_line + 1, RULE_GIT_BARE_REPO_UNMANAGED, raw_lines[bare_line].strip()))
+    for tmp_line in detect_predictable_tmp_path(raw_lines, rel_posix):
+        findings.append(Finding(rel_posix, tmp_line + 1, RULE_PREDICTABLE_TMP_PATH, raw_lines[tmp_line].strip()))
+    write_line = detect_git_write_without_fixture(code_lines, text, rel_posix)
+    if write_line is not None:
+        findings.append(
+            Finding(rel_posix, write_line + 1, RULE_GIT_WRITE_WITHOUT_FIXTURE, raw_lines[write_line].strip())
+        )
+    for trap_line in detect_git_fixture_exit_trap(code_lines, suffix, text):
+        findings.append(Finding(rel_posix, trap_line + 1, RULE_GIT_FIXTURE_EXIT_TRAP, raw_lines[trap_line].strip()))
+    for trap_line in detect_exit_trap_reraise_order(code_lines, rel_posix, text):
+        findings.append(Finding(rel_posix, trap_line + 1, RULE_EXIT_TRAP_RERAISE_ORDER, raw_lines[trap_line].strip()))
+    findings.sort(key=lambda f: (f.line, f.rule))
     return findings
 
 
@@ -3999,9 +5942,532 @@ def filter_allowlisted(
 # ---------------------------------------------------------------------------
 
 
+def _isolated_import_self_test() -> list[str]:
+    """isolated-import on real files: 3 that fail under `python3 -I` and 3 that load."""
+    import tempfile
+
+    sibling = "import sys\nimport git_fixture_env\n"
+    by_path = (
+        "import importlib.util\nfrom os import path\n"
+        "spec = importlib.util.spec_from_file_location('git_fixture_env', "
+        "path.join(path.dirname(path.abspath(__file__)), 'git_fixture_env.py'))\n"
+        "m = importlib.util.module_from_spec(spec)\nspec.loader.exec_module(m)\n"
+    )
+    cases = [
+        # (path, source, flagged)
+        ("tests/test_sibling_import.py", sibling, True),
+        ("tests/test_from_import.py", "from git_fixture_env import fixture_env\n", True),
+        ("scripts/cmux-next/tests/test_tests_dir_import.py", "import helper_in_tests\n", True),
+        ("tests/test_by_path.py", by_path, False),
+        ("tests/test_stdlib_only.py", "import json\nimport unittest\n", False),
+        # A missing third-party package is not a -I failure.
+        ("tests/test_third_party.py", "import not_a_real_package_x9\n", False),
+    ]
+    failures: list[str] = []
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        (root / "tests").mkdir()
+        (root / "scripts/cmux-next/tests").mkdir(parents=True)
+        (root / "tests/git_fixture_env.py").write_text("VALUE = 1\n")
+        (root / "tests/helper_in_tests.py").write_text("VALUE = 1\n")
+        for rel, source, flagged in cases:
+            (root / rel).write_text(source)
+            finding = isolated_import_finding(root, rel)
+            if flagged and finding is None:
+                failures.append(f"ISOLATED {rel}: expected {RULE_ISOLATED_IMPORT}")
+            if not flagged and finding is not None:
+                failures.append(f"ISOLATED {rel}: unexpected {finding.format()}")
+    return failures
+
+
 def _self_test() -> int:
     # (filename, source, expected rules present, rules that must NOT be present)
     positives: list[tuple[str, str, set[str]]] = [
+        # cmux#41466: a 50 ms tag life on the real clock, waited out by a loop on that clock.
+        (
+            "cmux-tui/crates/acpmux/src/chats/activity_tests.rs",
+            (
+                "#[test]\n"
+                "fn activity_batch_does_not_keep_expired_parent_relationship() {\n"
+                "    let expires = crate::store::now_ms() + 50;\n"
+                "    let hub = make_hub(expires);\n"
+                "    assert_eq!(decorate(&hub)[\"parent\"], \"claude-code:root\");\n"
+                "    while crate::store::now_ms() < expires {\n"
+                "        std::thread::yield_now();\n"
+                "    }\n"
+                "    assert_eq!(decorate(&hub)[\"parent\"], Value::Null);\n"
+                "}\n"
+            ),
+            {RULE_WALL_CLOCK_EXPIRY},
+        ),
+        # The same, waited out by a sleep at the test's own level, in a #[cfg(test)] module.
+        (
+            "cmux-tui/crates/acpmux/src/server/windows.rs",
+            (
+                "fn product() {}\n"
+                "#[cfg(test)]\n"
+                "mod tests {\n"
+                "    #[tokio::test(flavor = \"multi_thread\")]\n"
+                "    async fn an_archive_that_lapses() {\n"
+                "        let soon = crate::store::now_ms() + 400;\n"
+                "        archive(soon);\n"
+                "        tokio::time::sleep(Duration::from_millis(600)).await;\n"
+                "        assert!(folded());\n"
+                "    }\n"
+                "}\n"
+            ),
+            {RULE_WALL_CLOCK_EXPIRY},
+        ),
+        # cmux#41466: a held flock freed only by a close, then probed at once.
+        (
+            "cmux-tui/crates/acpmux/src/agent_host/wait.rs",
+            (
+                "#[cfg(all(test, unix))]\n"
+                "mod dead_now_tests {\n"
+                "    #[test]\n"
+                "    fn a_free_lock_is_a_dead_host() {\n"
+                "        let host = std::fs::File::create(&path).unwrap();\n"
+                "        assert_eq!(unsafe { libc::flock(host.as_raw_fd(), libc::LOCK_EX) }, 0);\n"
+                "        drop(host);\n"
+                "        assert!(dead_now_in(&dirs, \"s1\", \"n1\"), \"a free lock is a dead host\");\n"
+                "    }\n"
+                "}\n"
+            ),
+            {RULE_FLOCK_RELEASED_BY_CLOSE},
+        ),
+        # A program this test process wrote, then ran (ETXTBSY when another thread forks meanwhile).
+        (
+            "cmux-tui/crates/acpmux/src/agent_host/tree.rs",
+            (
+                "#[cfg(test)]\n"
+                "mod census_tests {\n"
+                "    #[test]\n"
+                "    fn exe_still_names_a_replaced_program() {\n"
+                "        let program = dir.join(\"server\");\n"
+                "        std::fs::copy(\"/bin/sleep\", &program).unwrap();\n"
+                "        let mut child = std::process::Command::new(&program).arg(\"30\").spawn().unwrap();\n"
+                "    }\n"
+                "}\n"
+            ),
+            {RULE_EXEC_OF_FILE_WRITTEN_IN_PROCESS},
+        ),
+        # A temp git repo with git's detached auto maintenance still on (the Errno 39 '.git' race).
+        (
+            "tests/git_temp_repo.py",
+            "import tempfile\nd = tempfile.TemporaryDirectory()\n"
+            "subprocess.run(['git', '-C', d.name, 'init', '-q'])\nsubprocess.run(['git', '-C', d.name, 'commit', '-qm', 'x'])\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE},
+        ),
+        (
+            "tests/git_temp_repo_shell_string.py",
+            "import tempfile\nd = tempfile.mkdtemp()\nsubprocess.run(f'git -C {d} init -q', shell=True)\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE},
+        ),
+        (
+            "scripts/cmux-next/tests/repo.test.sh",
+            'd=$(mktemp -d)\ngit -C "$d" -c user.name=t commit -qm x\n',
+            {RULE_GIT_TEMP_REPO_MAINTENANCE},
+        ),
+        # A child env built from scratch drops the opt-out the helper put in os.environ (cmux#40871 F2).
+        (
+            "tests/git_env_scratch.py",
+            "import tempfile\nimport git_fixture_env\nd = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n"
+            "env = {'PATH': '/usr/bin:/bin', 'HOME': d}\nsubprocess.run(['git', 'commit'], env=env)\n",
+            {RULE_GIT_FIXTURE_ENV_DROPPED},
+        ),
+        # Filtering GIT_* out of os.environ drops GIT_CONFIG_COUNT with it (Sandbox.env, the compile-trailer test).
+        (
+            "tests/git_env_filtered.py",
+            "import tempfile\nimport git_fixture_env\nd = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n"
+            "class T:\n    def setUp(self):\n"
+            "        self.env = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}\n",
+            {RULE_GIT_FIXTURE_ENV_DROPPED},
+        ),
+        # An env= keyword with a whole PATH and nothing inherited.
+        (
+            "tests/git_env_keyword.py",
+            "import tempfile\nimport git_fixture_env\nd = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n"
+            "subprocess.run(['git', 'fetch'], cwd=d, env={'PATH': os.environ['PATH'], 'GIT_DIR': d})\n",
+            {RULE_GIT_FIXTURE_ENV_DROPPED},
+        ),
+        # A fixed name in the shared temp folder: another user can plant it first (cmux#40871 Codex F1).
+        (
+            "scripts/cmux-next/tests/lib/fixture.sh",
+            '_global="${TMPDIR:-/tmp}/cmux-git-fixture-$(id -u)-v1.gitconfig"\nprintf x >"$_global"\n',
+            {RULE_PREDICTABLE_TMP_PATH},
+        ),
+        (
+            "tests/tmp_gettempdir.py",
+            "import os, tempfile\nstate = os.path.join(tempfile.gettempdir(), 'cmux-state.json')\n",
+            {RULE_PREDICTABLE_TMP_PATH},
+        ),
+        (
+            "scripts/git-hooks/pre-push",
+            '#!/bin/bash\n# runs the gate\nrun_gate >/tmp/cmux-pre-push.log 2>&1\n',
+            {RULE_PREDICTABLE_TMP_PATH},
+        ),
+        (
+            "tests/tmp_open_literal.py",
+            "with open('/tmp/cmux-fixture.json', 'w') as handle:\n    handle.write('{}')\n",
+            {RULE_PREDICTABLE_TMP_PATH},
+        ),
+        # A bare remote made with plain git: receive-pack runs with GIT_CONFIG_COUNT cleared (cmux#40871 F3).
+        (
+            "tests/git_bare_argv.py",
+            "import tempfile\nimport git_fixture_env\nd = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n"
+            "subprocess.run(['git', 'init', '-q', '--bare', str(remote)], check=True)\n",
+            {RULE_GIT_BARE_REPO_UNMANAGED},
+        ),
+        # A mirror clone through a wrapper, its flag on the next line.
+        (
+            "tests/git_mirror_wrapped.py",
+            "import tempfile\nimport git_fixture_env\nd = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n"
+            "git(root, 'clone', '-q',\n    '--mirror', str(src), str(dest))\n",
+            {RULE_GIT_BARE_REPO_UNMANAGED},
+        ),
+        (
+            "scripts/cmux-next/tests/bare.test.sh",
+            'source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\nd=$(mktemp -d)\ngit_q clone --bare "$d/src" "$d/o.git"\n',
+            {RULE_GIT_BARE_REPO_UNMANAGED},
+        ),
+        # An EXIT trap that restores the status with errexit on, or cleans up after re-raising (cmux#41195 F1).
+        (
+            "scripts/cmux-next/tests/reraise_subshell.test.sh",
+            "set -euo pipefail\ntmp=$(mktemp -d)\ntrap 's=$?; (exit \"$s\"); rm -rf \"$tmp\"' EXIT\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        (
+            "scripts/cmux-next/tests/lib/reraise_variable.sh",
+            "_t='_s=$?; _remove_dir; (exit \"$_s\"); eval \"$caller\"'\nbuiltin trap -- \"$_t\" EXIT\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        (
+            "scripts/cmux-next/tests/reraise_function.test.sh",
+            "tmp=$(mktemp -d)\ncleanup() {\n  local s=$?\n  exit \"$s\"\n  rm -rf \"$tmp\"\n}\ntrap cleanup EXIT\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        (
+            "scripts/cmux-next/tests/reraise_status_call.test.sh",
+            "set -e\ntmp=$(mktemp -d)\nkeep_status() { return \"$1\"; }\n"
+            "trap 's=$?; keep_status \"$s\"; rm -rf \"$tmp\"' EXIT\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        # A test that writes with git and never loads the helper: an inherited GIT_DIR takes the commit.
+        (
+            "tests/git_write_plain.py",
+            "import subprocess\nsubprocess.run(['git', '-C', repo, 'commit', '-qm', 'x'], check=True)\n",
+            {RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "scripts/ci/tests/git_write_plain.test.sh",
+            'w=$(mktemp -d)\ngit -C "$w" init -q && git -C "$w" commit -q --allow-empty -m x\n',
+            {RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "tests/git_write_wrapper.py",
+            "import subprocess\ndef run_git(*a):\n    return subprocess.run(['git', *a], check=True)\n\n\n\n\n"
+            "run_git('-C', repo, 'commit', '-qm', 'x')\n",
+            {RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "tests/git_write_comment_only.py",
+            "import subprocess\n# uses git_fixture_env somewhere\nsubprocess.run(['git', 'init', d], check=True)\n",
+            {RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "tests/git_write_hand_opt_out.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(['git', '-c', 'maintenance.auto=false', 'init', d], check=True)\n",
+            {RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # Only text names the helper: a string, a docstring, an echo, a heredoc or an inline comment does not load it,
+        # so none of them may suppress the rule (Codex F2 on cmux#41447).
+        (
+            "tests/git_write_string_names_helper.py",
+            "import subprocess\nHINT = 'load tests/git_fixture_env.py first'\n"
+            "subprocess.run(['git', 'init', d], check=True)\n",
+            {RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "tests/git_write_docstring_names_helper.py",
+            '"""Like the tests that import git_fixture_env."""\nimport subprocess\n'
+            "subprocess.run(['git', 'init', d], check=True)\n",
+            {RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "tests/git_write_call_string_names_helper.py",
+            "import subprocess\nprint('git_fixture_env is not loaded')\n"
+            "subprocess.run(['git', 'init', d], check=True)\n",
+            {RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "scripts/ci/tests/git_write_echo_names_helper.test.sh",
+            'echo "run: source lib/git-fixture.sh first"\nw=$(mktemp -d)\ngit -C "$w" init -q\n',
+            {RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "scripts/ci/tests/git_write_heredoc_names_helper.test.sh",
+            "w=$(mktemp -d)\ncat >\"$w/child.sh\" <<'EOF'\nsource lib/git-fixture.sh\nEOF\ngit -C \"$w\" init -q\n",
+            {RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "scripts/ci/tests/git_write_assigned_string_names_helper.test.sh",
+            "hint='. lib/git-fixture.sh'\nw=$(mktemp -d)\ngit -C \"$w\" init -q\n",
+            {RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # The same text match let a comment or a string turn git-temp-repo-maintenance off.
+        (
+            "tests/temp_repo_comment_names_helper.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()  # unlike git_fixture_env users\n"
+            "subprocess.run(['git', '-C', d, 'init'])\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "scripts/ci/tests/temp_repo_string_names_helper.test.sh",
+            'echo "see git-fixture.sh"\nd=$(mktemp -d)\ngit -C "$d" init -q\n',
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # An EXIT action the rule did not read: an assignment on the trap's own line, a double-quoted one, a
+        # git_fixture_trap_exit of a variable, a double-quoted text or a function name, and an action it cannot
+        # resolve at all (Codex F1 on cmux#41677). Each re-raises before its cleanup.
+        (
+            "scripts/cmux-next/tests/reraise_inline_assign.test.sh",
+            "set -e\ntmp=$(mktemp -d)\na='s=$?; (exit \"$s\"); rm -rf \"$tmp\"'; trap \"$a\" EXIT\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        (
+            "scripts/cmux-next/tests/reraise_double_quoted_assign.test.sh",
+            "set -e\ntmp=$(mktemp -d)\na=\"s=\\$?; (exit \\\"\\$s\\\"); rm -rf $tmp\"\ntrap \"$a\" EXIT\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        (
+            "scripts/cmux-next/tests/reraise_fixture_variable.test.sh",
+            "set -e\ntmp=$(mktemp -d)\na='s=$?; (exit \"$s\"); rm -rf \"$tmp\"'\ngit_fixture_trap_exit \"$a\"\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        (
+            "scripts/cmux-next/tests/reraise_fixture_double_quoted.test.sh",
+            "set -e\ntmp=$(mktemp -d)\ngit_fixture_trap_exit \"s=\\$?; (exit \\\"\\$s\\\"); rm -rf $tmp\"\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        (
+            "scripts/cmux-next/tests/reraise_fixture_function.test.sh",
+            "tmp=$(mktemp -d)\ncleanup() {\n  local s=$?\n  exit \"$s\"\n  rm -rf \"$tmp\"\n}\ngit_fixture_trap_exit cleanup\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        (
+            "scripts/cmux-next/tests/reraise_unresolved.test.sh",
+            "set -e\ntmp=$(mktemp -d)\ntrap \"$CLEANUP_ACTION\" EXIT\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        (
+            "scripts/cmux-next/tests/reraise_substituted.test.sh",
+            "set -e\na=$(make_action)\ngit_fixture_trap_exit \"$a\"\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        # The git-fixture rules read shell through tests/shell_tree.py, not regexes over text ("the git-fixture lints
+        # match text, not shell structure", review of cmux#41794). Each row passed at that head.
+        # F2: a trap's "$a" takes a's value when the trap runs, so a later assignment on the same line is not its action.
+        (
+            "scripts/cmux-next/tests/reraise_assign_after_trap.test.sh",
+            "set -e\ntmp=$(mktemp -d)\na='s=$?; (exit \"$s\"); rm -rf \"$tmp\"'; trap \"$a\" EXIT; a='rm -rf \"$tmp\"'\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        # F3: a function name in any quoting, or through a variable, runs that function.
+        (
+            "scripts/cmux-next/tests/reraise_function_single_quoted.test.sh",
+            "tmp=$(mktemp -d)\ncleanup() {\n  local s=$?\n  exit \"$s\"\n  rm -rf \"$tmp\"\n}\ntrap 'cleanup' EXIT\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        (
+            "scripts/cmux-next/tests/reraise_function_double_quoted.test.sh",
+            "tmp=$(mktemp -d)\ncleanup() {\n  local s=$?\n  exit \"$s\"\n  rm -rf \"$tmp\"\n}\ntrap \"cleanup\" EXIT\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        (
+            "scripts/cmux-next/tests/reraise_function_variable.test.sh",
+            "tmp=$(mktemp -d)\ncleanup() {\n  local s=$?\n  exit \"$s\"\n  rm -rf \"$tmp\"\n}\na=cleanup; trap \"$a\" EXIT\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        # F1: json.loads is no loader; only the stdlib loaders and a function of the file's own that calls one are.
+        (
+            "tests/temp_repo_json_loads_names_helper.py",
+            "import json, subprocess, tempfile\nflag = json.loads('\"git_fixture_env\"')\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(['git', '-C', d, 'init'])\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # A source after `then` that is echo's argument, and a source inside a here-document whose delimiter the old
+        # regex could not read ('END-TEXT', \EOF), load nothing.
+        (
+            "scripts/ci/tests/temp_repo_echo_then_source.test.sh",
+            "echo then source lib/git-fixture.sh\nw=$(mktemp -d)\ngit -C \"$w\" init -q\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "scripts/ci/tests/temp_repo_heredoc_dash_delimiter.test.sh",
+            "w=$(mktemp -d)\ncat >\"$w/c.sh\" <<'END-TEXT'\nsource lib/git-fixture.sh\nEND-TEXT\ngit -C \"$w\" init -q\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "scripts/ci/tests/temp_repo_heredoc_escaped_delimiter.test.sh",
+            "w=$(mktemp -d)\ncat >\"$w/c.sh\" <<\\EOF\nsource lib/git-fixture.sh\nEOF\ngit -C \"$w\" init -q\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # maintenance.auto named in a string or an echo turns nothing off: only git's own -c or config does.
+        (
+            "tests/temp_repo_string_names_opt_out.py",
+            "import subprocess, tempfile\nHINT = 'set maintenance.auto yourself'\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(['git', '-C', d, 'init'])\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "scripts/ci/tests/temp_repo_echo_names_opt_out.test.sh",
+            "echo 'maintenance.auto is on'\nd=$(mktemp -d)\ngit -C \"$d\" init -q\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # #41794 review F1: a call whose name merely contains "load" (download, payload) is no loader.
+        (
+            "tests/temp_repo_download_names_helper.py",
+            "import subprocess, tempfile\ndownload('git_fixture_env docs')\npayload('git_fixture_env')\n"
+            "d = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # #41794 review F2: a string literal never turns the opt-out on, even one that reads as the git command
+        # (a docstring, a print, an echo); only a string a shell runs does.
+        (
+            "scripts/ci/temp_repo_docstring_opt_out.py",
+            "\"\"\"git -c maintenance.auto=false init\"\"\"\nimport subprocess, tempfile\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(['git', '-C', d, 'init'])\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE},
+        ),
+        (
+            "scripts/ci/temp_repo_printed_opt_out.py",
+            "import subprocess, tempfile\nprint('git -c maintenance.auto=false init')\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(['git', '-C', d, 'init'])\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE},
+        ),
+        (
+            "scripts/ci/tests/temp_repo_echo_opt_out_value.test.sh",
+            "echo maintenance.auto=false\nd=$(mktemp -d)\ngit -C \"$d\" init -q\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # Sweep of the same class: a spread is the parent's environment only when it resolves to os.environ (or a
+        # fixture env), not because its name holds "env"; a helper's name in a string is no helper call.
+        (
+            "scripts/ci/env_spread_named_env.py",
+            "import subprocess, tempfile\npayload_env_docs = {'X': '1'}\nd = tempfile.mkdtemp()\n"
+            "env = {'PATH': '/bin', **payload_env_docs}\n"
+            "subprocess.run(['git', '-c', 'maintenance.auto=false', 'init', d], env=env)\n",
+            {RULE_GIT_FIXTURE_ENV_DROPPED},
+        ),
+        # A caller's keyword arguments (**env) are a few variables, not the parent's environment.
+        (
+            "scripts/ci/env_spread_kwargs.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\ndef run(**env):\n"
+            "    return subprocess.run(['git', '-c', 'maintenance.auto=false', 'init', d], env={'PATH': '/bin', **env})\n",
+            {RULE_GIT_FIXTURE_ENV_DROPPED},
+        ),
+        (
+            "scripts/ci/bare_repo_name_in_string.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(['git', '-c', 'maintenance.auto=false', 'init', '--bare', d]); print('use init_repo')\n",
+            {RULE_GIT_BARE_REPO_UNMANAGED},
+        ),
+        # An opt-out counts only where the parser shows it runs (#41835 review F1-F3, hq#9831 review F1-F3).
+        # 41835 F1: a string or argv list nobody runs is no git call, and a print's arguments are no git argv.
+        (
+            "scripts/ci/temp_repo_unused_hint_argv.py",
+            "import subprocess, tempfile\nHINT = 'git -c maintenance.auto=false init'\n"
+            "ARGV = ['git', '-c', 'maintenance.auto=false', 'init']\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(['git', 'init', d])\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE},
+        ),
+        # A call that is not git, given maintenance.auto and false, sets nothing for git.
+        (
+            "scripts/ci/temp_repo_set_option_names_opt_out.py",
+            "import subprocess, tempfile\nset_option('maintenance.auto', 'false')\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(['git', 'init', d])\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE},
+        ),
+        # An argv that names itself (`cmd = [*cmd, ...]`) is read once, not followed forever.
+        (
+            "scripts/ci/temp_repo_self_splicing_argv.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\ndef run(args):\n    args = [*args, 'init', d]\n"
+            "    subprocess.run(['git', *args])\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE},
+        ),
+        (
+            "scripts/ci/temp_repo_print_config_args.py",
+            "import subprocess, tempfile\nprint('maintenance.auto', 'false')\nprint('-c', 'maintenance.auto=false')\n"
+            "d = tempfile.mkdtemp()\nsubprocess.run(['git', 'init', d])\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE},
+        ),
+        # 41835 F2: GIT_CONFIG_KEY_<n>=maintenance.auto turns nothing off unless GIT_CONFIG_VALUE_<n> is false.
+        (
+            "scripts/ci/tests/temp_repo_config_value_true.test.sh",
+            "d=$(mktemp -d)\nGIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=maintenance.auto GIT_CONFIG_VALUE_0=true git -C \"$d\" init -q\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "scripts/ci/temp_repo_config_value_true.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\n"
+            "env = {'GIT_CONFIG_COUNT': '1', 'GIT_CONFIG_KEY_0': 'maintenance.auto', 'GIT_CONFIG_VALUE_0': 'true'}\n"
+            "subprocess.run(['git', 'init', d], env=env)\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE},
+        ),
+        # 41835 F3: a function's body runs where it is called; one nobody calls changes no trap state and loads nothing.
+        (
+            "scripts/cmux-next/tests/reraise_never_called_function.test.sh",
+            "tmp=$(mktemp -d)\na='s=$?; (exit \"$s\"); rm -rf \"$tmp\"'\nnever() {\n  a='rm -rf \"$tmp\"'\n}\n"
+            "trap \"$a\" EXIT\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        (
+            "scripts/ci/tests/temp_repo_source_in_uncalled_function.test.sh",
+            "setup() {\n  source scripts/cmux-next/tests/lib/git-fixture.sh\n}\nd=$(mktemp -d)\ngit -C \"$d\" init -q\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # hq#9831 F1: env runs a program, and no program is called source (exit 127): nothing is loaded.
+        (
+            "scripts/ci/tests/temp_repo_env_source.test.sh",
+            "env source scripts/cmux-next/tests/lib/git-fixture.sh || true\nd=$(mktemp -d)\ngit -C \"$d\" init -q\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # hq#9831 F2: an echo's argument is no assignment, whatever it reads.
+        (
+            "scripts/ci/tests/temp_repo_echo_config_key.test.sh",
+            "echo GIT_CONFIG_KEY_0=maintenance.auto GIT_CONFIG_VALUE_0=false\nd=$(mktemp -d)\ngit -C \"$d\" init -q\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # A child script that loads the helper covers its own span, not the rest of its physical line.
+        (
+            "tests/git_write_beside_child_script.py",
+            "import subprocess\nCHILD = 'source lib/git-fixture.sh; git init \"$1\"'; "
+            "subprocess.run(['git', 'init', d], check=True)\n",
+            {RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # A trap after the source on the source's own line replaces the helper's trap too.
+        (
+            "scripts/cmux-next/tests/trap_after_on_source_line.test.sh",
+            'tmp=$(mktemp -d)\nsource "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"; trap \'rm -rf "$tmp"\' EXIT\n',
+            {RULE_GIT_FIXTURE_EXIT_TRAP},
+        ),
+        # An EXIT trap after sourcing the helper replaces its cleanup: the GIT_CONFIG_GLOBAL folder leaks (cmux#40939 F2).
+        (
+            "scripts/cmux-next/tests/trap_after.test.sh",
+            'source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\ntmp=$(mktemp -d)\ntrap \'rm -rf "$tmp"\' EXIT\n',
+            {RULE_GIT_FIXTURE_EXIT_TRAP},
+        ),
+        (
+            "scripts/cmux-next/tests/trap_after_dirname.test.sh",
+            'source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # opt out\ntmp=$(mktemp -d)\ntrap \'rm -rf "$tmp"\' EXIT\n',
+            {RULE_GIT_FIXTURE_EXIT_TRAP},
+        ),
+        (
+            "tests/trap_after_word.sh",
+            '. "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\ncleanup() { rm -rf "$T"; }\nT=$(mktemp -d); trap cleanup EXIT INT\n',
+            {RULE_GIT_FIXTURE_EXIT_TRAP},
+        ),
         # A measured duration read with a string key is still code's data, not an assertion message.
         (
             "tests/string_key_duration.py",
@@ -4018,9 +6484,85 @@ def _self_test() -> int:
             "let elapsed = end - start\nXCTAssertLessThan(elapsedMs, 250)\n",
             {RULE_ASSERT_ON_DURATION},
         ),
+        # A Swift clock reading against a Duration literal: RetryButtonHoldTests asserted a 150 ms answer
+        # returned in under 1 s of ContinuousClock time and failed at 1.29 s on a loaded simulator.
+        (
+            "cmux-next-ios/CmuxMobileKit/Tests/KitTests/hold.swift",
+            "#expect(clock.now - start < .milliseconds(1000))\n",
+            {RULE_ASSERT_ON_DURATION},
+        ),
+        (
+            "cmuxTests/duration_literal_first.swift",
+            "#expect(.seconds(5) > clock.now - start)\n",
+            {RULE_ASSERT_ON_DURATION},
+        ),
         (
             "tests/b.py",
             "elapsed_ms = (time.perf_counter() - t0) * 1000\nassert elapsed_ms < 50\n",
+            {RULE_ASSERT_ON_DURATION},
+        ),
+        # A clock difference stored in a name the token list does not know, then bounded on a later line
+        # (cmux#41236: test_base_red_excuse.py's `took` failed its 0.5 s bound under host load).
+        (
+            "tests/duration_through_name.py",
+            (
+                "class T(unittest.TestCase):\n"
+                "    def test_linear(self):\n"
+                "        started = time.perf_counter()\n"
+                "        owned = place(job)\n"
+                "        took = time.perf_counter() - started\n"
+                "        with self.subTest(shape=label):\n"
+                "            self.assertLess(took, 0.5, f\"place took {took:.2f} s\")\n"
+            ),
+            {RULE_ASSERT_ON_DURATION},
+        ),
+        # Two clock readings, the difference taken from their names.
+        (
+            "tests/duration_end_minus_start.py",
+            (
+                "def test_fast():\n"
+                "    began = time.monotonic()\n"
+                "    run()\n"
+                "    done = time.monotonic()\n"
+                "    spent = done - began\n"
+                "    assert spent < 2\n"
+            ),
+            {RULE_ASSERT_ON_DURATION},
+        ),
+        (
+            "cmuxTests/duration_through_name.swift",
+            (
+                "    func testFast() async {\n"
+                "        let start = clock.now\n"
+                "        await model.load()\n"
+                "        let took = clock.now - start\n"
+                "        XCTAssertLessThan(took, .seconds(1))\n"
+                "    }\n"
+            ),
+            {RULE_ASSERT_ON_DURATION},
+        ),
+        (
+            "cmuxTests/duration_interval_name.swift",
+            (
+                "    func testFast() {\n"
+                "        let t0 = Date()\n"
+                "        model.load()\n"
+                "        let spent = Date().timeIntervalSince(t0)\n"
+                "        XCTAssertLessThan(spent, 0.25)\n"
+                "    }\n"
+            ),
+            {RULE_ASSERT_ON_DURATION},
+        ),
+        (
+            "web/tests/duration_through_name.test.ts",
+            (
+                "it('loads fast', async () => {\n"
+                "  const started = performance.now();\n"
+                "  await load();\n"
+                "  const took = performance.now() - started;\n"
+                "  expect(took).toBeLessThan(500);\n"
+                "});\n"
+            ),
             {RULE_ASSERT_ON_DURATION},
         ),
         (
@@ -5038,9 +7580,288 @@ def _self_test() -> int:
             ),
             {RULE_YIELD_COUNT_POLL},
         ),
+        # A wall-clock window decides what a frame test counts (streaming-parked-still: an offset change
+        # was the reader's while it came within INPUT_MS of a wheel event; a starved runner broke it).
+        (
+            "webviews/test/wall_clock_window.test.ts",
+            "        const recent = now.t - now.input <= INPUT_MS;\n",
+            {RULE_WALL_CLOCK_WINDOW},
+        ),
+        (
+            "webviews/test/wall_clock_watch.test.ts",
+            "    while (Date.now() - start < LEAVE_MS) later = await look(page, x, y);\n",
+            {RULE_WALL_CLOCK_WINDOW},
+        ),
     ]
 
     negatives: list[tuple[str, str]] = [
+        # Git writes through the helper; git reads only; a git hook helper (not a test).
+        (
+            "tests/git_write_helper.py",
+            "import git_fixture_env\nsubprocess.run(['git', '-C', repo, 'commit', '-qm', 'x'], check=True)\n",
+        ),
+        (
+            "scripts/ci/tests/git_write_helper.test.sh",
+            'source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\nw=$(mktemp -d)\ngit_fixture_init "$w"\n'
+            'git -C "$w" commit -q --allow-empty -m x\n',
+        ),
+        (
+            "tests/git_read_only_event_names.py",
+            "import subprocess\ntext = subprocess.run(['git', '-C', root, 'show', 'origin/main:x.py'],\n"
+            "                      capture_output=True).stdout\n\n\n\n\ndef run(event='push'):\n    return event\n",
+        ),
+        (
+            "tests/git_read_only_plain.py",
+            "import subprocess\nsubprocess.run(['git', 'rev-parse', 'HEAD'], check=True)\n",
+        ),
+        # Real loads: the by-path loader every Python test uses, a loader function, a runpy load, and a shell
+        # `source` or `.` after a separator or inside an if.
+        (
+            "tests/git_write_by_path_loader.py",
+            "import importlib.util as _git_fixture_importlib  # noqa: E402\n"
+            "from os import path as _git_fixture_path  # noqa: E402\n"
+            "_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(\n"
+            "    \"git_fixture_env\", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)),"
+            " \"git_fixture_env.py\"))\n"
+            "git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)\n"
+            "_git_fixture_spec.loader.exec_module(git_fixture_env)\n"
+            "subprocess.run(['git', '-C', repo, 'commit', '-qm', 'x'], check=True)\n",
+        ),
+        (
+            "tests/git_write_loader_function.py",
+            "import importlib.util\nfrom pathlib import Path\nHELPER = Path(__file__).parent / 'git_fixture_env.py'\n"
+            "def _load():\n    spec = importlib.util.spec_from_file_location('fixture', HELPER)\n"
+            "    module = importlib.util.module_from_spec(spec)\n    spec.loader.exec_module(module)\n"
+            "    return module\nfixture = _load()\nsubprocess.run(['git', 'init', d], check=True)\n",
+        ),
+        (
+            "tests/git_write_runpy.py",
+            "import runpy, tempfile\nrunpy.run_path('tests/git_fixture_env.py')\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(['git', '-C', d, 'init'])\n",
+        ),
+        (
+            "scripts/ci/tests/git_write_sourced_after_separator.test.sh",
+            'set -e; . "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\nw=$(mktemp -d)\ngit_fixture_init "$w"\n'
+            'git -C "$w" commit -q --allow-empty -m x\n',
+        ),
+        (
+            "scripts/ci/tests/git_write_sourced_in_if.test.sh",
+            'if [[ -n "$ROOT" ]]; then\n  source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\nfi\n'
+            'w=$(mktemp -d)\ngit_fixture_init "$w"\ngit -C "$w" commit -q --allow-empty -m x\n',
+        ),
+        # Text naming the helper does not start git-fixture-exit-trap either: no source, no helper trap to replace.
+        (
+            "scripts/ci/tests/exit_trap_echo_names_helper.test.sh",
+            'echo "run: source lib/git-fixture.sh first"\ntmp=$(mktemp -d)\ntrap \'rm -rf "$tmp"\' EXIT\n',
+        ),
+        # Resolved actions that clean up first: an inline assignment, a variable, a function name, a double-quoted
+        # text, and a forwarded positional parameter (the helper's own `trap` wrapper).
+        (
+            "scripts/cmux-next/tests/reraise_resolved_ok.test.sh",
+            "set -e\ntmp=$(mktemp -d)\na='s=$?; rm -rf \"$tmp\"; exit \"$s\"'; trap \"$a\" EXIT\n"
+            "git_fixture_trap_exit \"$a\"\ncleanup() { rm -rf \"$tmp\"; }\ngit_fixture_trap_exit cleanup\n"
+            "trap \"rm -rf '$tmp'\" EXIT\nforward() {\n  local action=$1\n  git_fixture_trap_exit \"$action\"\n}\n",
+        ),
+        # Exit cleanup through the helper; an EXIT trap set before sourcing; INT alone; `trap -p EXIT`.
+        # Cleanup first, then re-raise; a status call only after set +e; no re-raise at all.
+        (
+            "scripts/cmux-next/tests/reraise_ok.test.sh",
+            "set -euo pipefail\ntmp=$(mktemp -d)\ntrap 's=$?; rm -rf \"$tmp\"; exit \"$s\"' EXIT\n"
+            "_t='_s=$?; set +e; _remove_dir; _keep_return \"$_s\"; eval \"$caller\"; exit \"$_s\"'\n"
+            "builtin trap -- \"$_t\" EXIT\ncleanup() { [[ -n \"$pid\" ]] && kill \"$pid\"; rm -rf \"$tmp\"; }\n"
+            "trap cleanup EXIT\n",
+        ),
+        (
+            "scripts/cmux-next/tests/trap_ok.test.sh",
+            'trap \'echo early\' EXIT\nsource "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\n'
+            'tmp=$(mktemp -d)\ngit_fixture_trap_exit \'rm -rf "$tmp"\'\ntrap \'exit 130\' INT\nprev=$(trap -p EXIT)\n'
+            'trap "echo EXIT" TERM\n',
+        ),
+        # A clock the test advances by hand.
+        (
+            "webviews/test/fake_clock_window.test.ts",
+            "      if (time.now() - lostAt >= RECONNECT_LINE_AFTER_MS) recoveredAt = time.now();\n",
+        ),
+        # A configured constant, no subtraction of stamps.
+        (
+            "webviews/test/configured_window.test.ts",
+            "      expect(config.retryDelay <= RETRY_DELAY_MS).toBe(true);\n",
+        ),
+        # A temp git repo whose test imports the auto-maintenance opt-out.
+        (
+            "tests/git_fixture_ok.py",
+            "import tempfile\nimport git_fixture_env  # noqa: F401\n"
+            "d = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n",
+        ),
+        # Only reads git (no repository is written) beside an unrelated temp dir.
+        (
+            "tests/git_read_only.py",
+            "import tempfile\nout = tempfile.mkdtemp()\nsubprocess.run(['git', 'rev-parse', 'HEAD'])\n",
+        ),
+        # A shell test that sources the shared fixture.
+        (
+            "scripts/cmux-next/tests/ok.test.sh",
+            'source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\nd=$(mktemp -d)\ngit -C "$d" init -q\n',
+        ),
+        # A child env that inherits os.environ (which carries the opt-out).
+        (
+            "tests/git_env_inherits.py",
+            "import tempfile\nimport git_fixture_env\nd = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n"
+            "env = {**os.environ, 'PATH': '/usr/bin:/bin', 'HOME': d}\n",
+        ),
+        # A scratch env passed through the helper, before or after it is built.
+        (
+            "tests/git_env_helper.py",
+            "import tempfile\nimport git_fixture_env\nd = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n"
+            "self.env = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}\n"
+            "git_fixture_env.without_auto_maintenance(self.env)\n"
+            "other = git_fixture_env.fixture_env({'PATH': '/usr/bin', 'HOME': d})\n",
+        ),
+        # A few extra variables (no PATH or HOME) are not a whole environment; one in a string is test data.
+        (
+            "tests/git_env_extras.py",
+            "import tempfile\nimport git_fixture_env\nd = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n"
+            "run(env={'GH_TOKEN': 'x'})\nSOURCE = \"subprocess.run(['x'], env={'PATH': HERE})\"\n",
+        ),
+        # A private folder from mktemp, even one made under ${TMPDIR:-/tmp}.
+        (
+            "scripts/cmux-next/tests/lib/private.sh",
+            'dir=$(mktemp -d "${TMPDIR:-/tmp}/cmux-git-fixture.XXXXXXXX")\nprintf x >"$dir/global.gitconfig"\n',
+        ),
+        # "/tmp/" inside a longer path, and a /tmp path that is only test data in an assertion.
+        (
+            "tests/tmp_data_only.sh",
+            'rm -rf "$TMP/build/tmp/stamp"\nmkdir -p "$TMP/cache/tmp/job"\n[[ "$out" == /tmp/x ]] || fail\n',
+        ),
+        (
+            "tests/tmp_assert_only.py",
+            "import tempfile\nd = tempfile.mkdtemp()\nself.assertIn('/tmp/cmux-x.sock', out)\n# open('/tmp/x')\n",
+        ),
+        # Outside the tests and hook helpers this rule covers.
+        (
+            "scripts/tool.sh",
+            'log=/tmp/tool.log\n',
+        ),
+        # Bare remotes through the helper.
+        (
+            "tests/git_bare_helper.py",
+            "import tempfile\nimport git_fixture_env\nd = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n"
+            "git_fixture_env.init_repo(remote, '--bare', '-b', 'main')\n"
+            "git_fixture_env.clone_repo(work, origin, '--bare')\n",
+        ),
+        # A test that names a bare repository in prose or reads one (no --bare/--mirror create).
+        (
+            "tests/git_bare_mentions.py",
+            "import tempfile\nimport git_fixture_env\nd = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n"
+            "REASON = 'fetches into a scratch `git init` cache'\nsubprocess.run(['git', 'rev-parse', '--is-bare-repository'])\n",
+        ),
+        (
+            "scripts/cmux-next/tests/bare-ok.test.sh",
+            'source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\nd=$(mktemp -d)\n'
+            'git_fixture_init --bare -b feat "$d/r.git"\ngit_fixture_clone --bare "$d/r.git" "$d/c.git"\n',
+        ),
+        # The shell-tree reads keep what was right: a loader wrapper the file defines, git's own maintenance opt-out
+        # (scripts/ci is outside git-write-without-fixture's folders), an action that cleans up before a later
+        # assignment, and a function named in quotes that cleans up first.
+        (
+            "tests/git_write_own_loader_wrapper.py",
+            "import importlib.util, subprocess\ndef _load(name, path):\n"
+            "    spec = importlib.util.spec_from_file_location(name, path)\n    return spec\n"
+            "fixture = _load('git_fixture_env', HERE / 'git_fixture_env.py')\n"
+            "subprocess.run(['git', 'init', d], check=True)\n",
+        ),
+        (
+            "scripts/ci/temp_repo_opt_out_argv.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(['git', '-c', 'maintenance.auto=false', '-C', d, 'init'])\n",
+        ),
+        # A string a shell runs is code: bash -c's script, or a command line with shell=True.
+        (
+            "scripts/ci/temp_repo_opt_out_bash_c.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(['bash', '-c', 'git -c maintenance.auto=false init -q \"$0\"', d])\n",
+        ),
+        (
+            "scripts/ci/temp_repo_opt_out_shell_true.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(f'git -c maintenance.auto=false init -q {d}', shell=True)\n",
+        ),
+        # The spread is resolved in the file as written: a '#' inside a string does not cut the module short.
+        (
+            "scripts/ci/env_spread_after_hash_string.py",
+            "import os, subprocess, tempfile\nscript = '#!/bin/sh'\nd = tempfile.mkdtemp()\n"
+            "env = {**os.environ, 'GIT_CONFIG_NOSYSTEM': '1'}\n"
+            "subprocess.run(['git', '-c', 'maintenance.auto=false', 'init', d], env={**env, 'PATH': '/bin'})\n",
+        ),
+        # A spread that resolves to os.environ, directly or through an attribute set elsewhere, inherits it.
+        (
+            "scripts/ci/env_spread_from_environ.py",
+            "import os, subprocess, tempfile\nclass H:\n    def __init__(self):\n"
+            "        self.env = {**os.environ, 'PATH': '/bin'}\nh = H()\nbase = dict(os.environ)\n"
+            "d = tempfile.mkdtemp()\nenv = {'PATH': '/bin', **h.env}\nenv2 = {'HOME': d, **base}\n"
+            "subprocess.run(['git', '-c', 'maintenance.auto=false', 'init', d], env=env)\n",
+        ),
+        # What does run still counts: a called function's source and assignments, builtin source, an exported
+        # GIT_CONFIG pair, an env passed to git, a module's own git wrapper.
+        (
+            "scripts/ci/tests/source_in_called_function.test.sh",
+            "setup() {\n  source scripts/cmux-next/tests/lib/git-fixture.sh\n}\nsetup\nd=$(mktemp -d)\n"
+            "git -C \"$d\" init -q\n",
+        ),
+        (
+            "scripts/ci/tests/source_through_builtin.test.sh",
+            "builtin source scripts/cmux-next/tests/lib/git-fixture.sh\nd=$(mktemp -d)\ngit -C \"$d\" init -q\n",
+        ),
+        (
+            "scripts/ci/temp_repo_export_config_pair.sh",
+            "export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=maintenance.auto GIT_CONFIG_VALUE_0=false\nd=$(mktemp -d)\n"
+            "git -C \"$d\" init -q\n",
+        ),
+        (
+            "scripts/ci/temp_repo_env_config_pair.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\n"
+            "env = {'GIT_CONFIG_COUNT': '1', 'GIT_CONFIG_KEY_0': 'maintenance.auto', 'GIT_CONFIG_VALUE_0': 'false'}\n"
+            "subprocess.run(['git', 'init', d], env=env)\n",
+        ),
+        (
+            "scripts/ci/temp_repo_opt_out_wrapper.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\ndef run_it(*args):\n"
+            "    return subprocess.run(['git', *args], check=True)\nrun_it('-c', 'maintenance.auto=false', 'init', d)\n",
+        ),
+        (
+            "scripts/cmux-next/tests/reraise_called_function_ok.test.sh",
+            "tmp=$(mktemp -d)\na='s=$?; (exit \"$s\"); rm -rf \"$tmp\"'\nfix() {\n  a='rm -rf \"$tmp\"'\n}\nfix\n"
+            "trap \"$a\" EXIT\n",
+        ),
+        (
+            "scripts/ci/temp_repo_opt_out_config.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\ngit('config', 'maintenance.auto', 'false')\n"
+            "subprocess.run(['git', '-C', d, 'commit', '-qm', 'x'])\n",
+        ),
+        (
+            "scripts/ci/temp_repo_opt_out.sh",
+            "d=$(mktemp -d)\ngit -C \"$d\" init -q\ngit -C \"$d\" config maintenance.auto false\n"
+            "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=maintenance.auto GIT_CONFIG_VALUE_0=false git -C \"$d\" commit -qm x\n",
+        ),
+        (
+            "scripts/cmux-next/tests/reraise_order_ok.test.sh",
+            "set -e\ntmp=$(mktemp -d)\na='s=$?; rm -rf \"$tmp\"; exit \"$s\"'; trap \"$a\" EXIT; a='(exit 1); rm -rf x'\n"
+            "cleanup() { rm -rf \"$tmp\"; }\ntrap 'cleanup' EXIT\nb=cleanup; trap \"$b\" EXIT\n",
+        ),
+        # A function's `return` leaves only the function: it restores $? (here with errexit off) and the trap goes
+        # on to its cleanup and exit (the helper's own exit trap).
+        (
+            "scripts/cmux-next/tests/reraise_function_return_ok.test.sh",
+            "tmp=$(mktemp -d)\nret() { return \"$1\"; }\nact='s=$?; set +e; rm -rf \"$tmp\"; ret \"$s\"; eval \"${c:-:}\"; exit \"$s\"'\n"
+            "arm() {\n  builtin trap -- \"$act\" EXIT\n}\narm\n",
+        ),
+        # The helper is the opt-out: git_fixture_init writes it into the repo it inits.
+        (
+            "scripts/cmux-next/tests/lib/git-fixture.sh",
+            "opt=(maintenance.auto=false)\ngit_fixture_init() {\n  git init -q \"$1\" || return\n"
+            "  for pair in \"${opt[@]}\"; do git -C \"$1\" config \"${pair%%=*}\" \"${pair#*=}\"; done\n}\n"
+            "d=$(mktemp -d); git_fixture_init \"$d\"\n",
+        ),
         # Deterministic scenario-pacing sleep with NO following assertion.
         (
             "tests/n1.py",
@@ -5305,7 +8126,7 @@ def _self_test() -> int:
         # Redirections do not promote later argv data into command position.
         (
             "tests/n18i_shell_redirected_argument.sh",
-            "printf >/tmp/out curl https://api.openai.com/v1/items\n",
+            "printf >\"$TMP/out\" curl https://api.openai.com/v1/items\n",
         ),
         # Merely passing eval and curl as arguments does not execute either one.
         (
@@ -5690,6 +8511,90 @@ def _self_test() -> int:
             "tests/n29.py",
             'assert span < 5, "the duration was off"\n',
         ),
+        # Rust: a test clock moved past the expiry, not waited for.
+        (
+            "cmux-tui/crates/acpmux/src/chats/n_rs1_tests.rs",
+            (
+                "fn expired() {\n"
+                "    let expires = crate::store::now_ms() + 50;\n"
+                "    assert!(live(expires));\n"
+                "    crate::store::test_clock::advance(50);\n"
+                "    while crate::store::now_ms() < expires {}\n"
+                "}\n"
+            ),
+        ),
+        # Rust: a short sleep for distinct stamps, shorter than the instant is ahead; and a sleep
+        # inside a fake server's closure, not at the test's own level.
+        (
+            "cmux-tui/crates/acpmux/src/hub/n_rs2_tests.rs",
+            (
+                "async fn stamps() {\n"
+                "    let cutoff = now_ms() + 1000;\n"
+                "    std::thread::sleep(std::time::Duration::from_millis(2));\n"
+                "    assert!(untouched(cutoff));\n"
+                "}\n"
+                "fn hangs() {\n"
+                "    let soon = now_ms() + 300;\n"
+                "    let hang = Arc::new(move |request: &str| {\n"
+                "        std::thread::sleep(Duration::from_secs(4));\n"
+                "        mint(soon)\n"
+                "    });\n"
+                "    assert_eq!(run(hang), Ok(3));\n"
+                "}\n"
+            ),
+        ),
+        # Rust: an unlock before the close, and a close followed by other work, not a probe.
+        (
+            "cmux-tui/crates/acpmux/src/hub/n_rs3_tests.rs",
+            (
+                "fn unlocked() {\n"
+                "    assert_eq!(unsafe { libc::flock(host.as_raw_fd(), libc::LOCK_EX) }, 0);\n"
+                "    assert_eq!(unsafe { libc::flock(host.as_raw_fd(), libc::LOCK_UN) }, 0);\n"
+                "    drop(host);\n"
+                "    assert!(dead_now_in(&dirs, \"s1\", \"n1\"));\n"
+                "}\n"
+                "fn joined() {\n"
+                "    assert_eq!(unsafe { libc::flock(runner.as_raw_fd(), libc::LOCK_EX) }, 0);\n"
+                "    drop(runner);\n"
+                "    daemon.join().unwrap();\n"
+                "    assert!(stopped.is_ok());\n"
+                "}\n"
+            ),
+        ),
+        # Rust: a program written by a child (`cp`), or linked, then run; a copy that is never run.
+        (
+            "cmux-tui/crates/acpmux/src/n_rs5_tests.rs",
+            (
+                "fn by_cp() {\n"
+                "    let copied = Command::new(\"cp\").arg(\"/bin/sleep\").arg(&program).status();\n"
+                "    let child = Command::new(&program).spawn();\n"
+                "}\n"
+                "fn linked() {\n"
+                "    fs::hard_link(exe, &daemon).unwrap();\n"
+                "    let child = Command::new(&daemon).spawn();\n"
+                "}\n"
+                "fn data_only() {\n"
+                "    fs::copy(\"/bin/sleep\", &program).unwrap();\n"
+                "    let child = Command::new(\"ls\").arg(&program).spawn();\n"
+                "}\n"
+            ),
+        ),
+        # Rust product code with no #[cfg(test)] is not a test; nor is a pattern in a string.
+        (
+            "cmux-tui/crates/acpmux/src/n_rs4.rs",
+            (
+                "fn waits() {\n"
+                "    let soon = now_ms() + 50;\n"
+                "    while now_ms() < soon {}\n"
+                "}\n"
+                "#[cfg(test)]\n"
+                "mod tests {\n"
+                "    fn text() {\n"
+                "        let src = \"let soon = now_ms() + 50; while now_ms() < soon {}\";\n"
+                "    }\n"
+                "}\n"
+            ),
+        ),
         # A sleep inside a deadline-bounded Swift `repeat { } while` poll is a poll body.
         (
             "cmuxTests/n30.swift",
@@ -5699,6 +8604,97 @@ def _self_test() -> int:
                 "            try await Task.sleep(for: .milliseconds(250))\n"
                 "        } while ContinuousClock.now < deadline\n"
                 "        #expect(ready())\n"
+            ),
+        ),
+        # A clock the test moves by hand, checked for an exact instant, is deterministic.
+        (
+            "cmux-next-ios/CmuxMobileKit/Tests/KitTests/n31.swift",
+            "#expect(clock.now == RecordedClock.at(.milliseconds(150)))\n",
+        ),
+        # The scaling pattern (cmux#41236): two timings of the same work at N and 4N, bounded only by their ratio.
+        (
+            "tests/n32.py",
+            (
+                "def test_scales_linearly(self):\n"
+                "    began = time.process_time()\n"
+                "    run(n)\n"
+                "    took_n = time.process_time() - began\n"
+                "    began = time.process_time()\n"
+                "    run(4 * n)\n"
+                "    took_4n = time.process_time() - began\n"
+                "    ratio = took_4n / max(took_n, 1e-9)\n"
+                "    self.assertLess(ratio, 8)\n"
+                "    self.assertLess(took_4n / took_n, 8)\n"
+                "    self.assertLess(took_4n, 8 * took_n)\n"
+            ),
+        ),
+        # A clock difference that only reaches a log line or an assertion's message measures nothing.
+        (
+            "tests/n33.py",
+            (
+                "def test_places_all(self):\n"
+                "    started = time.perf_counter()\n"
+                "    owned = place(job)\n"
+                "    took = time.perf_counter() - started\n"
+                "    print(f\"place took {took:.2f} s\")\n"
+                "    log.info('took %.2f s', took)\n"
+                "    self.assertEqual(len(owned), 3, f\"took {took:.2f} s\")\n"
+            ),
+        ),
+        # A name holds a clock difference only in the function that assigned it, and only until it is reassigned.
+        (
+            "tests/n34.py",
+            (
+                "def helper():\n"
+                "    took = time.perf_counter() - started\n"
+                "    return took\n"
+                "def test_rows(self):\n"
+                "    took = len(rows)\n"
+                "    self.assertLess(took, 5)\n"
+                "def test_again(self):\n"
+                "    self.assertLess(took, 5)\n"
+            ),
+        ),
+        # A bound of 0 on another value, and a timing used as that value's upper bound (a relative check).
+        (
+            "cmuxTests/n36.swift",
+            (
+                "    func a() {\n"
+                "        let waited = (seen - typed) * 1000\n"
+                "        let waited2 = (CACurrentMediaTime() - typed) * 1000\n"
+                "        #expect(latency >= 0 && latency <= waited2, \"echo \\(latency) ms\")\n"
+                "    }\n"
+            ),
+        ),
+        # A timestamp moved by a constant is an instant, not a measured duration.
+        (
+            "web/tests/n37.test.ts",
+            (
+                "const floor = Date.now() + FIVE_HOURS_MS - 1_000;\n"
+                "expect(stored).toBeGreaterThanOrEqual(floor);\n"
+                "const cutoff = Date.now() - 60_000;\n"
+                "expect(stored).toBeGreaterThan(cutoff);\n"
+            ),
+        ),
+        # A timing checked only to be positive: no bound on how long it took.
+        (
+            "web/tests/n38.test.ts",
+            (
+                "  const started = performance.now();\n"
+                "  const perKey = (performance.now() - started) / presses;\n"
+                "  expect(perKey).toBeGreaterThan(0);\n"
+            ),
+        ),
+        (
+            "cmuxTests/n35.swift",
+            (
+                "    func a() {\n"
+                "        let took = clock.now - start\n"
+                "        print(took)\n"
+                "    }\n"
+                "    func b() {\n"
+                "        XCTAssertLessThan(took, 3)\n"
+                "    }\n"
             ),
         ),
     ]
@@ -5716,14 +8712,18 @@ def _self_test() -> int:
         if rules:
             failures.append(f"NEGATIVE {name}: unexpected {sorted(rules)}")
 
+    failures += _isolated_import_self_test()
+    isolated_fixtures = 6
+
     if failures:
         print("self-test FAILED:")
         for failure in failures:
             print(f"  - {failure}")
         return 1
 
-    total = len(positives) + len(negatives)
-    print(f"self-test OK: {len(positives)} positive + {len(negatives)} negative fixtures passed ({total} total)")
+    total = len(positives) + len(negatives) + isolated_fixtures
+    print(f"self-test OK: {len(positives)} positive + {len(negatives)} negative fixtures and "
+          f"{isolated_fixtures} isolated-import fixtures passed ({total} total)")
     return 0
 
 
@@ -5734,6 +8734,24 @@ def _self_test() -> int:
 
 def _resolve_roots(repo_root: pathlib.Path, roots: Optional[list[str]]) -> tuple[str, ...]:
     return tuple(roots) if roots else DEFAULT_ROOTS
+
+
+GUARD_CHECK_RESULTS_ENV = "CMUX_GUARD_CHECK_RESULTS"
+
+
+def report_guard_checks(active: list[Finding]) -> None:
+    """One red guard check per active (path, rule), in the guard runner's "<passed 0|1><TAB><check>" format.
+
+    guards_new_reds.py compares "<step> :: <check>" entries, so a finding the base also has is excused and a new one
+    is the change's. With only the step's verdict, a base already red on this step excused every new finding
+    (cmux#42416's pages-size-open-bench.sh landed behind test_cargo_locks_explain.py's reds; cmuxterm-hq
+    docs/handbook/base-red-excused-for-ever.md). No line numbers: an edit above a finding must not make it new."""
+    path = os.environ.get(GUARD_CHECK_RESULTS_ENV, "")
+    if not path:
+        return
+    with open(path, "a", encoding="utf-8") as handle:
+        for rel, rule in sorted({(finding.path, finding.rule) for finding in active}):
+            handle.write(f"0\t{rel}: {rule}\n")
 
 
 def main(argv: list[str]) -> int:
@@ -5776,6 +8794,11 @@ def main(argv: list[str]) -> int:
         action="store_true",
         help="run built-in detector fixtures and exit",
     )
+    parser.add_argument(
+        "--guard-checks",
+        action="store_true",
+        help=f"append each active (path, rule) as a red check to ${GUARD_CHECK_RESULTS_ENV} (the guard runner's file)",
+    )
     args = parser.parse_args(argv)
 
     if args.self_test:
@@ -5788,6 +8811,15 @@ def main(argv: list[str]) -> int:
     roots = _resolve_roots(repo_root, args.roots)
 
     findings = collect_findings(repo_root, roots)
+    if args.roots is None:
+        findings += [
+            finding
+            for finding in collect_findings(repo_root, GIT_FIXTURE_ONLY_ROOTS)
+            if finding.rule in GIT_FIXTURE_RULES
+        ]
+        findings += collect_predictable_tmp_extra_findings(repo_root)
+        if args.strict:
+            findings += collect_isolated_import_findings(repo_root, ("tests", *GIT_FIXTURE_ONLY_ROOTS))
 
     if args.write_allowlist:
         write_allowlist(allowlist_path, findings)
@@ -5801,6 +8833,8 @@ def main(argv: list[str]) -> int:
         return 2
 
     active, suppressed = filter_allowlisted(findings, allow)
+    if args.guard_checks:
+        report_guard_checks(active)
 
     if args.json:
         payload = {

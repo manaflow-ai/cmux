@@ -616,7 +616,8 @@ impl Mux {
                     projection.result,
                     projection.changes,
                     projected,
-                );
+                )
+                .projected(projection.restates_all);
                 // The reducer models no pins, so it has no op for a pane's only tab
                 // becoming a lone pinned column (`pinned-dock-alone-v1`); the I1-I3
                 // checks of the live result still run.
