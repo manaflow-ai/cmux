@@ -3084,14 +3084,43 @@ jobs:
             echo "The manifest of $source is attested (attestations API)."
           fi
 
+      # The same artifacts as publish's own check (Verify Unix manifests
+      # before upload): the publisher's set, so a tree published without one
+      # of them is not adopted (tests/test_ci_cmux_tui_latest_acpmux.py).
       - name: Verify the prepared manifest
         if: steps.adopt.outputs.state == 'adopted'
         run: |
           python3 cmux-tui/scripts/verify_published_manifest.py \
             --manifest-file assets/cmux-tui/manifest.json \
-            --artifact-dir assets/cmux-tui \
             --expected-commit "$GITHUB_SHA" \
-            --require-provenance
+            --require-provenance \
+            --require-artifact cmux-tui-aarch64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-aarch64-unknown-linux-musl \
+            --require-artifact cmux-tui-acpmux-aarch64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-acpmux-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-app-host-aarch64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-app-host-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-app-host-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-app-host-aarch64-unknown-linux-musl \
+            --require-artifact cmux-tui-cloud-server-aarch64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-cloud-server-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-browser-host-aarch64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-browser-host-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-host-aarch64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-host-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-holder-aarch64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-holder-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-agent-screen-detection-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-agent-screen-detection-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-agent-screen-detection-aarch64-unknown-linux-musl \
+            --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
+            --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
+            --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
+            --forbid-artifact cmux-tui-acpmux-x86_64-pc-windows-gnu.exe \
+            --artifact-directory assets/cmux-tui
 
       - name: Attest raw binary subjects
         id: attest_adopted
