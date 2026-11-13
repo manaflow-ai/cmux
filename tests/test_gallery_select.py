@@ -288,7 +288,10 @@ class WorkflowTests(unittest.TestCase):
         # A PR's squash merge had its receipt on the PR; a bot push changes no UI.
         cond = self.jobs["capture"]["if"]
         self.assertIn("github.event_name == 'push' && github.repository == 'manaflow-ai/cmux' && "
-                      "!endsWith(github.actor, '[bot]') && !contains(github.event.head_commit.message, '(#')", cond)
+                      "!endsWith(github.actor, '[bot]') && !(github.event.head_commit.committer.username == 'web-flow' "
+                      "&& contains(github.event.head_commit.message, '(#'))", cond)
+        frames = [s for s in self.jobs["capture"]["steps"] if s.get("name") == "Require real frames"][0]
+        self.assertEqual(frames["continue-on-error"], "${{ github.event_name == 'push' }}")
         text = self.run_text("capture")
         self.assertIn('base_sha=$PUSH_BEFORE', text)
         self.assertIn("::warning title=Direct push changed a gallery state::", text)

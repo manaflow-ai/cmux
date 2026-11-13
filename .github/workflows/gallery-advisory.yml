@@ -22,8 +22,9 @@ name: gallery visual evidence (advisory)
 # broken state is a warning on the push run (Leo, 2026-11-12: "like run some shit
 # right after a direct push/some direct pushes potentially"; "ugh we can just
 # warn/pre-whatever/quarantine stuff idk"). It warns only: no merge, revert or
-# post reads it. A pull request's squash merge (a `(#N)` in the head commit) had
-# its receipt on the PR, and bot pushes change no UI, so neither runs.
+# post reads it, and a capture that breaks on a push never reddens the base. A pull
+# request's squash merge (GitHub's `web-flow` commit with a `(#N)`) had its receipt
+# on the PR, and bot pushes change no UI, so neither runs.
 on:
   push:
     branches: [feat-cmux-next]
@@ -105,7 +106,7 @@ jobs:
           PY
 
   capture:
-    if: ${{ vars.CI_QUOTA_HOLD != '1' && (github.event_name == 'push' && github.repository == 'manaflow-ai/cmux' && !endsWith(github.actor, '[bot]') && !contains(github.event.head_commit.message, '(#') && github.event.before != '0000000000000000000000000000000000000000' || github.event_name == 'pull_request' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'edited' || github.event.changes.body && (contains(github.event.pull_request.body, 'allery:') || contains(github.event.changes.body.from, 'allery:')))) }}
+    if: ${{ vars.CI_QUOTA_HOLD != '1' && (github.event_name == 'push' && github.repository == 'manaflow-ai/cmux' && !endsWith(github.actor, '[bot]') && !(github.event.head_commit.committer.username == 'web-flow' && contains(github.event.head_commit.message, '(#')) && github.event.before != '0000000000000000000000000000000000000000' || github.event_name == 'pull_request' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'edited' || github.event.changes.body && (contains(github.event.pull_request.body, 'allery:') || contains(github.event.changes.body.from, 'allery:')))) }}
     # The capture step may fail (a browser or gallery build unavailable); the
     # frame check after it decides the job's result, and the artifact step
     # always runs.
@@ -378,6 +379,8 @@ jobs:
       # Zero real frames fails the run. No touched state needs no frame.
       - name: Require real frames
         if: ${{ !cancelled() }}
+        # A direct push's capture warns only: a broken one never reddens feat-cmux-next.
+        continue-on-error: ${{ github.event_name == 'push' }}
         run: |
           set -euo pipefail
           evidence="$RUNNER_TEMP/gallery-advisory"
