@@ -63,9 +63,12 @@ await requireBrowserLane("chat-scroll-back-still.test.ts", async () => {
     "wheeling up %i px and back down to the latest row after reading moves no row the reader sees",
     async (px) => {
       const { port } = vite!.httpServer!.address() as { port: number };
-      const frames = await open120Hz(`http://127.0.0.1:${port}${PAGE}?clock=frames&rows=1&history=${HISTORY}`, {
-        clock: "frames",
-      });
+      const frames = await open120Hz(
+        `http://127.0.0.1:${port}${PAGE}?clock=frames&rows=1&history=${HISTORY}&arm=blocks`,
+        {
+          clock: "frames",
+        },
+      );
       let out: Sample[];
       try {
         await frames.page.waitForFunction(() => "__sendStream" in window);

@@ -996,11 +996,12 @@ function shapedTurn(
     // A run of background-task notifications folds under one line (backgroundRuns.ts; Leo,
     // 2026-11-02: "why do you still do these").
     // A stretch the person came in after ends there, with the end-of-turn footer (`supersededFooters`).
-    // While the turn runs no footer comes in above a prompt the person sent into it, which would
-    // move the prompt down under it after it was drawn: the stretches before it end on theirs with
-    // the turn (Leo, 2026-11-09: "i hate the way when i send off a message it seems to move up").
+    // While the turn runs it comes with the prompt the person sent, in the frame the prompt is drawn
+    // (over a steer still waiting, at the body's end), so the prompt never moves down under it when
+    // the agent reads it (Leo, 2026-11-09: "i hate the way when i send off a message it seems to move
+    // up and under your current running tool call or whatever").
     const runs = foldBackgroundRuns(messaged, expanded);
-    const body = sinceAboveWorked(live ? runs : supersededFooters(runs, turn, endedByPerson, user.at));
+    const body = sinceAboveWorked(supersededFooters(runs, turn, endedByPerson, user.at, live));
     // A running turn's line drawn below stays its last row, under the prompts it holds (a steer
     // waiting for the agent, a prompt that failed to send).
     const liveLine = held.length && body.at(-1)?.below ? body.splice(-1) : [];
@@ -2050,9 +2051,16 @@ function supersededFooters(
   turn: readonly AcpmuxRow[],
   endedByPerson: boolean,
   startedAt: number,
+  live = false,
 ): AcpmuxRow[] {
   let out: AcpmuxRow[] | undefined;
   let from = 0;
+  // A running turn's live line drawn below stays its last row: a footer over a waiting steer goes
+  // above it, where the steer is drawn.
+  const bodyEnd = () => {
+    const list = out ?? drawn;
+    return list.at(-1)?.below ? list.length - 1 : list.length;
+  };
   const close = (to: number, at: number | undefined, key: string) => {
     const stretch = turn.slice(from, to).filter((row) => row.kind !== "turnSummary");
     const began = from > 0 ? turn[from - 1]!.at : startedAt;
@@ -2084,8 +2092,14 @@ function supersededFooters(
   };
   for (let index = 0; index < turn.length; index += 1) {
     const row = turn[index]!;
-    if (row.kind !== "user" || row.incoming || row.received || !continuesTurn(row) || row.steer === "waiting") continue;
+    if (row.kind !== "user" || row.incoming || row.received || !continuesTurn(row)) continue;
     const at = (out ?? drawn).findIndex((each) => each.id === row.id);
+    if (row.steer === "waiting") {
+      // A steer the person sent that the agent has not read yet: while the turn runs its footer comes
+      // with it, right above where it is drawn (or where the held rows after the body start).
+      if (live && sentByPerson(row) && !row.failed) close(index, at < 0 ? bodyEnd() : at, row.id);
+      continue;
+    }
     if (at < 0) from = index + 1;
     else close(index, at, row.id);
   }

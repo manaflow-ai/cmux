@@ -3598,7 +3598,9 @@ function TranscriptView({
           const foldRiding =
             turnEnding && turnEndCapture.current === undefined && !jumping && !bottomStacking && !heightFoldPlaying();
           const folding = Boolean(thread.current?.hasAttribute(TURN_END_ATTR));
-          if (!slimFollow && folding && draining && !jumping && !bottomStacking && !heightFoldPlaying() && !resizing) {
+          // The slim arm is the send's (Leo, 2026-11-09: "the scroll up is extremely sluggish"): the
+          // turn's end still drains here on every arm, so its reply never steps at the end.
+          if (folding && draining && !jumping && !bottomStacking && !heightFoldPlaying() && !resizing) {
             // The fold plays and the reply's last lines still reveal: the fold takes every move but
             // theirs (it takes a late one only from its curve's remaining share, which moved the rest
             // at once, 12 to 18 px in a frame), and the chase takes the reply's growth, drawn back by

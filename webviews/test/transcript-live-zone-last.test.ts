@@ -4,7 +4,7 @@
 // call or whatever"; "im still seeing compacting not be at the bottom"; "i previously sent the claude
 // code one, just look at how they do it"). A prompt sent into a running turn draws after every row
 // drawn at the send, and what was still going then (a call in flight, a thought) lands after it, never
-// in its run above it; no footer comes in above it while the turn runs; a compaction that runs while
+// in its run above it; its stretch's footer comes with it, never after; a compaction that runs while
 // the person's prompt waits stays the live line, under the prompt.
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -102,17 +102,23 @@ for (const family of ["claude", "codex"]) {
     expect(callIds(shaped, `act-1${AFTER_SEND}u-2`)).toEqual(["c-1"]);
   });
 
-  test(`${family}: no footer comes in above a prompt the person sent while the turn runs`, () => {
-    const shaped = view(
-      [
-        prompt,
-        row("act-1", "activity", 1, { items: [call("c-0", "Run tests", "execute", 1, 2)] }),
-        reply,
-        steer("landed"),
-      ],
-      family,
-    );
-    expect(shaped.some((each) => each.id === `${SUPERSEDED}-u-2`)).toBe(false);
+  test(`${family}: the footer above a prompt the person sent comes with it and never moves`, () => {
+    // The stretch before the prompt ends on its footer (#34939) from the frame the prompt is drawn, not
+    // when the agent reads it: nothing comes in above the prompt after it was drawn.
+    const turn = (state: AcpmuxRow["steer"]) =>
+      view(
+        [
+          prompt,
+          row("act-1", "activity", 1, { items: [call("c-0", "Run tests", "execute", 1, 2)] }),
+          reply,
+          steer(state),
+        ],
+        family,
+      );
+    const sent = ids(turn("waiting"));
+    const landed = ids(turn("landed"));
+    expect(sent.indexOf(`${SUPERSEDED}-u-2`)).toBe(sent.indexOf("u-2") - 1);
+    expect(landed.slice(0, landed.indexOf("u-2") + 1)).toEqual(sent.slice(0, sent.indexOf("u-2") + 1));
   });
 }
 
