@@ -1490,7 +1490,7 @@
     --cv-table-fade-right calc(var(--agent-motion-in, 120ms) * 4 / 3) var(--agent-ease-out, ease-out);
 }
 .cv-table-block.cv-enter tbody tr {
-  animation: cv-enter-fade var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) both;
+  animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
 }
 :root:is([data-cmux-motion="reduced"], [data-cmux-motion="off"]) .cv-table-wrap {
   transition: none;
@@ -5763,13 +5763,6 @@ a.cv-sha:focus-visible {
     opacity: 1;
   }
 }
-/* Hold generic row entrances in the initial frame. The attribute is rendered with the row, before
-   WebKit can start its animation clock; entranceClock removes it on the next frame, creating the fade
-   then. This prevents a busy turn-end commit from painting a finished 80/180 ms animation whole. */
-.acpmux-row--enter[data-entrance-held] {
-  animation: none !important;
-  opacity: 0;
-}
 @media (prefers-reduced-motion: no-preference) {
   .cv-enter {
     animation: cv-enter var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) both;
@@ -5784,7 +5777,7 @@ a.cv-sha:focus-visible {
      visible transcript when a subagent or command arrives; the row's measured box is already in
      the layout, so only its ink fades in. Message rows keep their dedicated presentation motion. */
   .acpmux-row.acpmux-row--enter:not(.acpmux-user):not(.acpmux-assistant) {
-    animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+    animation: cv-enter-fade var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) both;
   }
   .acpmux-row__message-presentation {
     animation: cv-message-enter var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) both;
