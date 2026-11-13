@@ -241,6 +241,31 @@ test("Send now and the X disappear when the agent reads the steer first", async 
   expect(container.querySelector(".cv-user__pending")).toBeNull();
 });
 
+// Leo, 2026-11-12: "they're not really responding to my messages. I'm not sure if they're reading
+// them at all." A waiting steer says so at rest, with the step it waits behind in the live line's
+// words, and the mark goes the moment the agent reads it.
+test("a waiting steer says it is not read yet and names the step it waits behind", async () => {
+  const container = installDom();
+  const draw = (row: AcpmuxRow) =>
+    act(async () =>
+      root!.render(
+        <TurnActionsContext.Provider value={{ unsteer: async () => "back" as const }}>
+          <PendingSteer row={row} send={async () => false} />
+        </TurnActionsContext.Provider>,
+      ),
+    );
+  root = createRoot(container);
+  const steer: AcpmuxRow = { ...waiting, steerPromptId: "p-unread", steerBehind: { command: "bun test" } };
+  await draw(steer);
+  expect(container.querySelector(".cv-user__unread")?.textContent).toBe("Not read yet · Running bun test");
+  await draw({ ...steer, version: 2, steerBehind: { agents: 3 } });
+  expect(container.querySelector(".cv-user__unread")?.textContent).toBe("Not read yet · Waiting on 3 subagents");
+  await draw({ ...steer, version: 3, steerBehind: {} });
+  expect(container.querySelector(".cv-user__unread")?.textContent).toBe("Not read yet");
+  await draw({ ...steer, version: 4, steer: "landed" });
+  expect(container.querySelector(".cv-user__unread")).toBeNull();
+});
+
 test("a steer read before it was drawn has no Send now or X", async () => {
   const container = installDom();
   await act(async () => {
