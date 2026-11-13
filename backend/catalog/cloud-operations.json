@@ -8248,6 +8248,66 @@
         }
       }
     },
+    "TeamModelsPolicyState": {
+      "kind": "object",
+      "fields": {
+        "team": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "TeamId"
+          }
+        },
+        "can_edit": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "own_connections": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "choose_runout": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "updated_at": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
+        "updated_by": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "ref",
+              "name": "UserId"
+            }
+          }
+        }
+      }
+    },
     "TeamPolicy": {
       "kind": "object",
       "fields": {
@@ -80480,6 +80540,303 @@
             "type": "string",
             "pattern": "^user_[a-z0-9]{20}$",
             "description": "A cmux user (Stack user id kept as an external id)."
+          }
+        }
+      }
+    },
+    "team.models_policy.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "team": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "TeamId"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "TeamModelsPolicyState"
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "read",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "team models-policy get",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "The team's members policy for model connections (members): whether members' own connections serve their Cloud threads, and whether they choose what happens when one runs out.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "team": {
+            "$ref": "#/$defs/TeamId"
+          }
+        },
+        "additionalProperties": true,
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/TeamModelsPolicyState",
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "TeamModelsPolicyState": {
+            "type": "object",
+            "properties": {
+              "team": {
+                "$ref": "#/$defs/TeamId"
+              },
+              "can_edit": {
+                "type": "boolean"
+              },
+              "own_connections": {
+                "type": "boolean"
+              },
+              "choose_runout": {
+                "type": "boolean"
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "updated_at": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "updated_by": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/UserId"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "team",
+              "can_edit",
+              "own_connections",
+              "choose_runout",
+              "revision",
+              "updated_at",
+              "updated_by"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "team.models_policy.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "own_connections": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "choose_runout": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "TeamModelsPolicyState"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "team models-policy set",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Change the team's members policy for model connections (owners and admins, in a person's session). A field left out keeps its value.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "own_connections": {
+            "type": "boolean"
+          },
+          "choose_runout": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/TeamModelsPolicyState",
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "TeamModelsPolicyState": {
+            "type": "object",
+            "properties": {
+              "team": {
+                "$ref": "#/$defs/TeamId"
+              },
+              "can_edit": {
+                "type": "boolean"
+              },
+              "own_connections": {
+                "type": "boolean"
+              },
+              "choose_runout": {
+                "type": "boolean"
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "updated_at": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "updated_by": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/UserId"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "team",
+              "can_edit",
+              "own_connections",
+              "choose_runout",
+              "revision",
+              "updated_at",
+              "updated_by"
+            ],
+            "additionalProperties": true
           }
         }
       }
