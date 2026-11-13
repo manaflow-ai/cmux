@@ -173,6 +173,12 @@ impl Hub {
                         drops.remove(&key);
                         current.outage_ended.store(false, Ordering::SeqCst);
                     }
+                    // The link takes requests: copies ahead of the peer's journals go back
+                    // first, and prompts to it wait for that (`peer_snapshot/restore.rs`). Before
+                    // the notice, so no message the notice wakes goes ahead of them.
+                    if matches!(notice, PeerNotice::Connected) {
+                        self.restore_peer_journals(&peer, generation);
+                    }
                     self.apply_peer_notice(&peer, generation, notice);
                     if warms {
                         self.warm_peer_copies(&peer);
