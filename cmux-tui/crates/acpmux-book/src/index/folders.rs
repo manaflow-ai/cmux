@@ -70,7 +70,7 @@ impl FolderEntry {
     pub fn validate(&self) -> io::Result<()> {
         self.key.validate()?;
         match (&self.newest, self.count) {
-            (Some(newest), count) if count > 0 => {
+            (Some(newest), 1..) => {
                 newest.validate()?;
                 if newest.origin != self.key.origin {
                     return Err(io::Error::new(
