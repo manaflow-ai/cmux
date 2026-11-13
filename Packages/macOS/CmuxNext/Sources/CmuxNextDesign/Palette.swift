@@ -105,7 +105,7 @@ public struct Palette {
     /// content's own glass, never a fill of its own. It paints what the content paints (``paneFill``): the
     /// surface, opaque, in an opaque window, and clear over a see-through one (a translucent theme, a
     /// background picture), where the chrome's shade leaves a hole under the tab
-    /// (`MainPaneChromeShadeView.update(card:radius:alpha:squareTopLeading:folders:)`), so the tab shows the
+    /// (`MainPaneChromeShadeView.update(card:radius:alpha:squareTopCorners:folders:)`), so the tab shows the
     /// window's one backdrop and tint exactly as the content below it does, and the tab row around it
     /// shows the same backdrop under the shade. Leo, 2026-11-11: "the glass for the selected top area,
     /// it's not the same kind of transparency as the other bit." Until then the tab laid the window's

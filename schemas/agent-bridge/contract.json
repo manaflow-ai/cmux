@@ -104,7 +104,6 @@
     "dictation.start": "dictation.start",
     "dictation.stop": "dictation.stop",
     "dictation.toggle": "dictation.toggle",
-    "dictation.watchMicrophone": "dictation.watchMicrophone",
     "environment.list": "environment.list",
     "environment.remove": "environment.remove",
     "environment.save": "environment.save",

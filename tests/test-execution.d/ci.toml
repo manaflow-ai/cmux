@@ -439,6 +439,10 @@ path = "tests/test_ci_prune_pr_media.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_post_merge_checks.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_prune_xcode_compilation_cache.py"
 lane = "linux-guard"
 

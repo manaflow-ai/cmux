@@ -101,7 +101,10 @@ await requireBrowserLane("composer-persistent-scrollbar.test.ts", async () => {
       const style = getComputedStyle(field);
       const borders = parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth);
       const actions = document.querySelector(".acpmux-composer-actions")?.getBoundingClientRect();
-      const bottom = actions && actions.height > 0 ? Math.min(rect.bottom, actions.top) : rect.bottom;
+      const track = getComputedStyle(field, "::-webkit-scrollbar-track");
+      // Codex reserves space after its track before the footer; those empty rows are not track ink.
+      const trackBottom = rect.bottom - (parseFloat(track.marginBottom) || 0);
+      const bottom = actions && actions.height > 0 ? Math.min(trackBottom, actions.top) : trackBottom;
       // The nearest rounded box around the prompt: its corner's rows are the rim, not the lane.
       let corner = 0;
       for (let node = field.parentElement; node && !corner; node = node.parentElement) {
@@ -126,10 +129,13 @@ await requireBrowserLane("composer-persistent-scrollbar.test.ts", async () => {
       const index = (y * png.width + x) * 4;
       return [png.data[index]!, png.data[index + 1]!, png.data[index + 2]!];
     };
+    // Codex's field reaches the glass card edge: its outermost CSS pixel is the card's rim,
+    // not the scrollbar track. Keep the lane's interior, at the capture's device scale.
+    const end = png.width - Math.ceil(png.width / (box.bar + 4));
     let drawn = 0;
     for (let y = 0; y < png.height; y++) {
       const beside = at(1, y);
-      for (let x = 4; x < png.width; x++) {
+      for (let x = 4; x < end; x++) {
         const pixel = at(x, y);
         if (
           Math.abs(pixel[0]! - beside[0]!) + Math.abs(pixel[1]! - beside[1]!) + Math.abs(pixel[2]! - beside[2]!) >
@@ -170,6 +176,29 @@ await requireBrowserLane("composer-persistent-scrollbar.test.ts", async () => {
 
   for (const [name] of launchers) {
     describe(name, () => {
+      test("the thumb probe ignores the card rim and rejects an opaque track in both looks", async () => {
+        current = browsers.get(name);
+        for (const look of ["codex", "claude"]) {
+          const page = await pane!.open(undefined, async (page) => {
+            await page.addInitScript((look) => localStorage.setItem("cmux.composer.look", look), look);
+          });
+          try {
+            await paste(page, 20);
+            const normal = await thumb(page);
+            expect(normal).toEqual({ bar: normal.bar, thumb: true, track: false });
+            await page.addStyleTag({
+              content:
+                ":root .acpmux-composer-prompt::-webkit-scrollbar-track { background: rgb(255, 0, 255) !important; }",
+            });
+            await painted(page, 3);
+            const opaque = await thumb(page);
+            expect(opaque).toEqual({ bar: opaque.bar, thumb: true, track: true });
+          } finally {
+            await page.close();
+          }
+        }
+      });
+
       // With the agent pane's scrollbar fade on too (its default, `data-cmux-scroller-fade`): it fades
       // the transcript's thumb at rest, never the composer's (Leo 2026-10-21, ask-c8936f0e52).
       for (const fade of [false, true])

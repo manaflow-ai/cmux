@@ -31,7 +31,7 @@ FW_NAME="Chromium Embedded Framework.framework"
 FW_BINARY="Chromium Embedded Framework"
 source "$SCRIPT_DIR/cef-locale-allowlist.sh"
 # Bump when the embedded layout changes so existing app bundles are redone.
-LAYOUT="versioned-3-locale-fallback-allowlist-credits-license-stripped-libs"
+LAYOUT="versioned-3-locale-fallback-allowlist-credits-license-stripped-libs-no-intro-sounds"
 
 app="${TARGET_BUILD_DIR:?}/${WRAPPER_NAME:?}"
 frameworks="$app/Contents/Frameworks"
@@ -181,6 +181,12 @@ if [[ ! -f "$source_stamp" || ! -L "$frameworks/$FW_NAME/Versions/Current" || "$
     ditto "$cef_dir/$FW_NAME/$item" "$fw/Versions/A/$item"
   done
   prune_cef_locales "$fw/Versions/A/Resources"
+  # Chrome's first-run intro sounds (IDR_INTRO_SOUND_*, 4.8 MB of FLAC that does
+  # not compress): CEF never shows that flow. Ids come from the artifact's own
+  # header; with none it leaves resources.pak as it is.
+  if [[ -f "$fw/Versions/A/Resources/resources.pak" ]]; then
+    /usr/bin/python3 "$SCRIPT_DIR/cef-pak-drop.py" "$fw/Versions/A/Resources/resources.pak" "$cef_dir/include/cef_pack_resources.h"
+  fi
   # CEF's dylibs ship with local symbols and debug stabs (7 MiB in
   # libvk_swiftshader.dylib). Drop them before signing; exported symbols stay
   # for the Vulkan loader's dlsym.

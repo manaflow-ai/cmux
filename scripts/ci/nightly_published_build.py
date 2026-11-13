@@ -55,7 +55,14 @@ OPTIONAL = {"sign_stage"}
 SHA = re.compile(r"[0-9a-f]{40}")
 
 
+# nightly-next-one (vars.NIGHTLY_NEXT_ONE_JOB) builds and publishes in one job, with the outputs both name.
+ONE_JOB = "nightly-next-one"
+
+
 def record(needs: dict, run_id: str, attempt: str, sha: str, sign_stage: str = "") -> dict[str, str]:
+    one = needs.get(ONE_JOB) or {}
+    if one.get("result") not in (None, "", "skipped"):
+        needs = {**needs, "publish-nightly": one, "build-nightly-app": one}
     out = {"source_run": run_id, "source_attempt": attempt, "source_sha": sha,
            "sign_stage": "true" if sign_stage == "true" else "",
            "publish_result": str((needs.get("publish-nightly") or {}).get("result") or ""),
