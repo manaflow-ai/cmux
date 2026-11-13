@@ -58,9 +58,12 @@ async fn list_follow_bench() {
             eprintln!("PERF follow peak bytes chats={chats}: {peak}");
         }
         // The app's first page (`limit: 200`) and a whole read's first reply (`_acpmux/sessions`
-        // with no `limit`), each on a new connection after a change, as an app opens.
+        // with no `limit`), each on a new connection after a change, as an app opens: 100 of
+        // each, so the p95 is not the slowest one. The daemon sorted its list's kept order once
+        // when it loaded (`Hub::load_logs`), as a hub of this test does here.
+        let _ = hub.own_rows_from(None, 0);
         let (mut page, mut read) = (Vec::new(), Vec::new());
-        for n in 0..20 {
+        for n in 0..100 {
             record(&hub, &format!("chat-{}", n % chats), "renamed");
             let mut app = Client::new(&hub, Origin::Local).await;
             let started = Instant::now();
@@ -75,7 +78,7 @@ async fn list_follow_bench() {
         // sorting every chat costs, which a page no longer does (`list_order.rs`).
         let mut parts: [Vec<Duration>; 4] = Default::default();
         let params = json!({"enabled": true, "limit": 200});
-        for n in 0..20 {
+        for n in 0..100 {
             record(&hub, &format!("chat-{}", n % chats), "renamed");
             let started = Instant::now();
             let _ = hub.list_cursor();
@@ -97,7 +100,7 @@ async fn list_follow_bench() {
         // The same first page after a rename, which changes its own row only (`append` sends it
         // with `Events::send_row`): the other closed rows keep their bytes.
         let mut renamed = Vec::new();
-        for n in 0..20 {
+        for n in 0..100 {
             hub.own_row_changed_for_test(&format!("chat-{}", n % chats), "renamed");
             let mut app = Client::new(&hub, Origin::Local).await;
             let started = Instant::now();
