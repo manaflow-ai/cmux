@@ -392,7 +392,10 @@ await requireBrowserLane("agent-pane-peer-chat.test.ts", async () => {
       // prompt ("Run make 5s"), moved onto this computer's clock, as it did while the call ran.
       send(3, "tool_call_update", { toolCallId: "t1", status: "completed" });
       const time = page.locator(".cv-worked.is-below .cv-worked__time");
-      await time.waitFor();
+      await time.waitFor({ timeout: 8000 }).catch(async (error) => {
+        console.log(`DIAG worked ${JSON.stringify(await page.locator(".cv-worked").evaluateAll((els) => els.map((el) => el.outerHTML.slice(0, 800))))}`);
+        throw error;
+      });
       const label = (await time.textContent()) ?? "";
       const seconds = /^(\d+)s$/.exec(label)?.[1];
       const strips = await page.locator(".acpmux-composer-strip").count();
