@@ -123,6 +123,21 @@ test("long reply, then a tool, then 'Pushed.': the long reply folds with the wor
   expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "assistant:pushed", "turnSummary:end"]);
 });
 
+test("a substantive answer with a table stays visible before a tool and its short receipt", () => {
+  const substantive = say(
+    "answer-before-tool",
+    "Small is slower because startup dominates.\n\n| lane | time |\n| --- | ---: |\n| small | 14s |\n| huge | 3s |\n\nThe larger lane amortizes the setup cost.",
+  );
+  const rows = [row("u", "user"), substantive, ran("ask-lane"), say("receipt", "I sent the question."), summary()];
+  expect(drawn(rows)).toEqual([
+    "user:u",
+    "worked:worked-u",
+    "assistant:answer-before-tool",
+    "assistant:receipt",
+    "turnSummary:end",
+  ]);
+});
+
 test("completed compactions and subagent reports fold, while a refusal stays available", () => {
   const rows = [
     row("u", "user"),
