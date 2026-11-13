@@ -657,7 +657,7 @@ function arrivedAtTail(before: readonly AcpmuxRow[], after: readonly AcpmuxRow[]
 /// the send's window after it are the turn's and chase. O(1): inspect bounded windows at the append
 /// boundary and tail, so a prompt followed by a burst of rows is still recognized without scanning history.
 export function broughtSentPrompt(before: readonly AcpmuxRow[], after: readonly AcpmuxRow[]): boolean {
-  const promptRow = (row: AcpmuxRow | undefined) => row?.kind === "user" && !isLineRow(row);
+  const promptRow = (row: AcpmuxRow | undefined): row is AcpmuxRow => row?.kind === "user" && !isLineRow(row);
   const becameCanonical = (was: AcpmuxRow | undefined, row: AcpmuxRow | undefined) => {
     if (!promptRow(was) || !promptRow(row)) return false;
     // The normal path keeps the optimistic `local-*` row, but a rebuild can replace it in place.
