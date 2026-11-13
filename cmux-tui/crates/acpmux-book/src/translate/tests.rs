@@ -1050,11 +1050,11 @@ fn queued_entries_are_idempotent_bounded_and_raw() {
         Change::Queue(QueueChange::Add(entry)) if entry.held()
     )));
     let resumed = mux(4, "queue_resumed", r#"{"promptIds":["q"]}"#);
-    super::translate(&mut state, Harness::V1, 702, 1, resumed.as_bytes()).unwrap();
+    translate(&mut state, Harness::V1, 702, 1, resumed.as_bytes()).unwrap();
     assert!(!state.queue.values().next().unwrap().held());
 
     let read = mux(5, "steer_read", r#"{"promptId":"q"}"#);
-    let read_ops = super::translate(&mut state, Harness::V1, 703, 1, read.as_bytes()).unwrap();
+    let read_ops = translate(&mut state, Harness::V1, 703, 1, read.as_bytes()).unwrap();
     assert!(read_ops.iter().any(|op| matches!(
         &op.change,
         Change::Body { source: BodySource::Raw { place: 700, span: 3 }, .. }

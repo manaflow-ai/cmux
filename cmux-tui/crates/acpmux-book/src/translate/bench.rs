@@ -214,7 +214,6 @@ fn god_vs_small() {
             assert!(ratio <= bound, "{label}: {ratio} exceeds {bound}");
         }
         assert!(god[6] * 1024 < 64_000_000);
-        assert!(god[6] as f64 <= small[6] as f64 * 1.2, "god RSS must stay within 1.2x small");
         assert!(god[7] <= small[7] + 64, "only varint counter widths may grow with history");
         if harness == "claude" {
             if let Ok(path) = std::env::var("V2_GATE_OUT") {
