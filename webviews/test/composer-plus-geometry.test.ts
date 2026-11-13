@@ -377,8 +377,21 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
           }
         }
         inline = !!prompt?.querySelector(".acpmux-md-inline");
-        // The first line's text: what is typed, else the placeholder.
-        if (chosen)
+        // New Tab's prompt centers its first line box, not its glyphs' ink, on the controls (cmux#42292:
+        // `--acpmux-text-drop: 0`; newtab-input-scale.test.ts checks + at the field's top padding and
+        // half a line): its line is the field's first line box.
+        const ntField = card?.matches(".nt-box") ? card.querySelector<HTMLElement>(".nt-field") : null;
+        if (ntField && shown(ntField)) {
+          const style = getComputedStyle(ntField);
+          const top =
+            ntField.getBoundingClientRect().top +
+            parseFloat(style.borderTopWidth) +
+            parseFloat(style.paddingTop) -
+            ntField.scrollTop;
+          const height = parseFloat(style.lineHeight);
+          line = { top, center: top + height / 2, bottom: top + height, source: `${textSource} line box` };
+        } else if (chosen)
+          // The first line's text: what is typed, else the placeholder.
           line = {
             top: chosen.top,
             center: (chosen.top + chosen.bottom) / 2,
