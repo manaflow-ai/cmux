@@ -110,10 +110,13 @@ export async function playScriptedTurn(
 ): Promise<void> {
   const ANSWER_ID = SCRIPTED_ANSWER_ID;
   const base = history(historyTurns);
+  // The turn happens now, after the chat was opened: a row from before the open never enters
+  // (openBreakpoint.ts). The script's times stay relative to its prompt at 100_000.
+  const now = Date.now() - 100_000;
   const prompt: AcpmuxRow = {
     id: SCRIPTED_PROMPT_ID,
     version: 1,
-    at: 100_000,
+    at: 100_000 + now,
     kind: "user",
     text: "Why does the relay fall over?",
   };
@@ -124,7 +127,7 @@ export async function playScriptedTurn(
   let ended = false;
   const put = (row: Omit<AcpmuxRow, "version">) => {
     version += 1;
-    turn.set(row.id, { ...row, version } as AcpmuxRow);
+    turn.set(row.id, { ...row, at: row.at + now, version } as AcpmuxRow);
   };
   const emit = () => {
     if (scheduled) return;
