@@ -525,7 +525,30 @@ fn late_compaction_install_cannot_revive_rows_of_an_earlier_origin_life() {
     assert_eq!(ids(&hub), returned_ids(50));
     let window: Window<Summary> =
         hub.list_window(&Sub::new("late-snapshot", "list")).unwrap().decode_json().unwrap();
-    assert_eq!(window.rows.len(), 50, "a snapshot tombstone must not hide the returned hot rows");
+    // Hidden physical candidates still consume the bounded page. Follow its
+    // continuation instead of mistaking a partial first window for lost rows.
+    let index = hub.snapshot();
+    let mut anchor = None;
+    let mut seen = BTreeSet::new();
+    for _ in 0..12 {
+        let page = index
+            .read_page(
+                anchor.as_ref(),
+                ReadSide::After,
+                false,
+                100,
+                crate::wire::MAX_PAGE_BYTES,
+                None,
+            )
+            .unwrap();
+        seen.extend(page.rows.iter().map(|row| row.chat_id.clone()));
+        if !page.has_after {
+            break;
+        }
+        assert_ne!(anchor, page.after_key);
+        anchor = page.after_key;
+    }
+    assert_eq!(seen, returned_ids(50), "all returned rows must remain reachable");
     assert!(window.rows.iter().all(|row| returned_ids(50).contains(&row.chat_id)));
     drop((hub, writer));
     let (hub, _) = Hub::open(directory.path(), 101, || 7).unwrap();

@@ -614,12 +614,23 @@ impl SummaryIndex {
     /// hidden by `apply_origin`, so readers never observe the intermediate
     /// physical batches.
     pub fn remove_origin_batch(&self, seq: u64, origin: &str, limit: usize) -> (Self, usize) {
+        self.remove_origin_batch_visiting(seq, origin, limit, || {})
+    }
+
+    fn remove_origin_batch_visiting(
+        &self,
+        seq: u64,
+        origin: &str,
+        limit: usize,
+        mut visit: impl FnMut(),
+    ) -> (Self, usize) {
         let start = RowKey::new(origin, "");
         let mut visited = 0;
         let keys: Vec<_> = self
             .by_id
             .range::<_, RowKey>((Included(&start), Unbounded))
             .take_while(|(key, _)| {
+                visit();
                 if key.origin.as_ref() != origin || visited >= limit {
                     return false;
                 }
@@ -946,6 +957,27 @@ mod tests {
         assert!(
             SortedSnapshot::write_stream_generation(&path, 1, 0, None, 0, duplicate, rows).is_err()
         );
+    }
+
+    #[test]
+    fn removal_visits_only_its_prefix_batch_at_both_index_sizes() {
+        for unrelated in [20, 11_000] {
+            let mut index = SummaryIndex::new();
+            for n in 0..unrelated {
+                let row = summary(&format!("other-{n}"), n + 1, "{}");
+                index = index.apply(index.seq() + 1, row);
+            }
+            for n in 0..500 {
+                let mut row = summary(&format!("peer-{n}"), n + 1, "{}");
+                row.origin = "peer".into();
+                index = index.apply(index.seq() + 1, row);
+            }
+            let mut visited = 0;
+            let (_, removed) =
+                index.remove_origin_batch_visiting(index.seq(), "peer", 256, || visited += 1);
+            assert_eq!(removed, 256);
+            assert_eq!(visited, 257);
+        }
     }
 
     #[test]
