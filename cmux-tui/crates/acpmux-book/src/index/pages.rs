@@ -69,14 +69,39 @@ impl SummaryIndex {
         let mut bytes_read = 0;
         let mut cold_before = false;
         let mut cold_after = false;
+        let mut physical_before_key = None;
+        let mut physical_after_key = None;
         if let Some(disk) = self.disk()
             && !disk.is_empty()
         {
             let piece = disk.read_piece(anchor, side, inclusive, limit, max_bytes)?;
             bytes_read = piece.bytes_read;
+            physical_before_key = piece.rows.first().map(|row| SortKey::of(row));
+            physical_after_key = piece.rows.last().map(|row| SortKey::of(row));
             let family_row = |row: &Summary| {
-                row.parent.as_ref() == Some(root)
-                    || row.fork_of.as_ref().is_some_and(|fork| fork.key == *root)
+                if self.get_row(&row.key()).is_none()
+                    && !self.is_shadowed(&row.key())
+                    && row.fork_of.as_ref().is_some_and(|fork| fork.key == *root)
+                {
+                    return true;
+                }
+                let mut parent = row.parent.clone();
+                let mut seen = Vec::new();
+                while let Some(key) = parent {
+                    if key == *root {
+                        return true;
+                    }
+                    if seen.contains(&key) {
+                        break;
+                    }
+                    seen.push(key.clone());
+                    parent = piece
+                        .rows
+                        .iter()
+                        .find(|candidate| candidate.key() == key)
+                        .and_then(|candidate| candidate.parent.clone());
+                }
+                false
             };
             cold_before = piece.has_before && piece.rows.iter().any(|row| family_row(row));
             cold_after = piece.has_after && piece.rows.iter().any(|row| family_row(row));
@@ -109,14 +134,21 @@ impl SummaryIndex {
             ReadSide::Around => {
                 let mut left = start;
                 let mut right = start;
+                let mut take_right = true;
                 while positions.len() < limit && (left > 0 || right < end) {
-                    if right < end {
+                    if take_right && right < end {
+                        positions.push(right);
+                        right += 1;
+                    } else if left > 0 {
+                        left -= 1;
+                        positions.push(left);
+                    } else if right < end {
                         positions.push(right);
                         right += 1;
                     } else {
-                        left = left.saturating_sub(1);
-                        positions.push(left);
+                        break;
                     }
+                    take_right = !take_right;
                 }
             }
         }
@@ -143,8 +175,8 @@ impl SummaryIndex {
         let before = first_position.is_some_and(|position| position > 0) || cold_before;
         let after = last_position.is_some_and(|position| position + 1 < items.len()) || cold_after;
         Ok(IndexPage {
-            before_key: rows.first().map(|row| SortKey::of(row)),
-            after_key: rows.last().map(|row| SortKey::of(row)),
+            before_key: rows.first().map(|row| SortKey::of(row)).or(physical_before_key),
+            after_key: rows.last().map(|row| SortKey::of(row)).or(physical_after_key),
             rows,
             has_before: before,
             has_after: after,
@@ -172,6 +204,8 @@ impl SummaryIndex {
         let mut bytes_read = 0;
         let mut cold_before = false;
         let mut cold_after = false;
+        let mut physical_before_key = None;
+        let mut physical_after_key = None;
         if let Some(disk) = self.disk()
             && !disk.is_empty()
         {
@@ -179,6 +213,8 @@ impl SummaryIndex {
             bytes_read = piece.bytes_read;
             cold_before = piece.has_before;
             cold_after = piece.has_after;
+            physical_before_key = piece.rows.first().map(|row| SortKey::of(row));
+            physical_after_key = piece.rows.last().map(|row| SortKey::of(row));
             for row in piece.rows {
                 let key = row.key();
                 if self.get_row(&key).is_none()
@@ -227,14 +263,21 @@ impl SummaryIndex {
             ReadSide::Around => {
                 let mut left = start;
                 let mut right = start;
+                let mut take_right = true;
                 while selected_positions.len() < limit && (left > 0 || right < end) {
-                    if right < end {
+                    if take_right && right < end {
+                        selected_positions.push(right);
+                        right += 1;
+                    } else if left > 0 {
+                        left -= 1;
+                        selected_positions.push(left);
+                    } else if right < end {
                         selected_positions.push(right);
                         right += 1;
                     } else {
-                        left = left.saturating_sub(1);
-                        selected_positions.push(left);
+                        break;
                     }
+                    take_right = !take_right;
                 }
             }
         }
@@ -261,8 +304,8 @@ impl SummaryIndex {
             .last()
             .and_then(|row| rows.iter().position(|candidate| candidate.key() == row.key()));
         Ok(IndexPage {
-            before_key: selected_rows.first().map(|row| SortKey::of(row)),
-            after_key: selected_rows.last().map(|row| SortKey::of(row)),
+            before_key: selected_rows.first().map(|row| SortKey::of(row)).or(physical_before_key),
+            after_key: selected_rows.last().map(|row| SortKey::of(row)).or(physical_after_key),
             rows: selected_rows,
             has_before: before
                 || first_position.is_some_and(|position| position > 0)
@@ -541,8 +584,17 @@ mod tests {
         middle.folder = Some("one".to_owned());
         let mut newest = row("newest", 3);
         newest.folder = Some("one".to_owned());
+        let mut older = row("older", 0);
+        older.folder = Some("one".to_owned());
+        let mut oldest = row("oldest", 0);
+        oldest.folder = Some("one".to_owned());
         let folder = FolderKey::new("local", "one");
-        let index = SummaryIndex::new().apply(1, first).apply(2, middle).apply(3, newest);
+        let index = SummaryIndex::new()
+            .apply(1, first)
+            .apply(2, middle)
+            .apply(3, newest)
+            .apply(4, older)
+            .apply(5, oldest);
         let full = index
             .read_page(
                 None,
@@ -566,9 +618,10 @@ mod tests {
             .unwrap();
         assert_eq!(around.rows.len(), 3);
         assert_eq!(around.rows[0].chat_id, "newest");
+        assert_eq!(around.rows[1].chat_id, "middle");
         assert_eq!(around.rows[2].chat_id, "first");
         assert!(!around.has_before);
-        assert!(!around.has_after);
+        assert!(around.has_after);
     }
 
     #[test]
