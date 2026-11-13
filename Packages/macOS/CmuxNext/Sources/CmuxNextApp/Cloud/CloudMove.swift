@@ -15,10 +15,10 @@ import Foundation
 /// For a chat tab of this Mac it reuses a Cloud machine (the named one, else a
 /// connected one, else any, else a new one), copies the chat's folder there
 /// (`cmux link seed push`), moves the chat (`cmux link agent move`), and shows
-/// it on that machine: a Cloud workspace whose terminal runs in the synced
-/// folder and whose chat tab is bound to the moved session through the
-/// machine's store, so the tab attaches through that machine and carries its
-/// badge, in place of this Mac's tab (``open``), which closes with its chat.
+/// it on that machine: a Cloud workspace whose only tab is the chat, bound to
+/// the moved session through the machine's store, so the tab attaches through
+/// that machine and carries its badge, in place of this Mac's tab (``open``),
+/// which closes with its chat.
 ///
 /// The chat keeps its session, history, draft and queue, not its tab id: a tab
 /// lives in exactly one machine's store, which mints its ids, and a chat on a
@@ -366,7 +366,8 @@ struct CloudMove {
     }
 
     /// Opens a moved chat (Move to Cloud's, Bring Back Local's) on `daemon`, bound to `shown.session` through `host`: a workspace placed
-    /// like Cmd-N, its terminal in `shown.folder`, then the chat's tab (made once: `mutation` + `shown.key`), selected. Each window that
+    /// like Cmd-N whose only tab is the chat's (made once: `mutation` + `shown.key`), selected. No terminal first: as the first tab it took
+    /// the window and `--focus` (capture baf4f76ab502); a new terminal beside the chat starts in its folder. Each window that
     /// showed `tab`, the tab the chat leaves, shows it there even for a run with no `--focus`, as focus follows a moved tab.
     static func open(_ shown: CloudMoveRetries.Shown, host: String?, hostName: String?, on daemon: DaemonService, repair: EmptyWorkspaceRepair,
                      mutation: String, leaving tab: TabModel, services: AppServices) async throws {
@@ -374,9 +375,8 @@ struct CloudMove {
         let record = AgentSessionRef(host: host, hostName: hostName, session: shown.session, harness: shown.harness)
         let workspace = NewWorkspacePlacements.placedKey(in: services.windows)
         let created = try await WorkspaceCreation.createWithFirstTab(workspace, name: shown.name, on: connection, repair: repair) { result in
-            try await connection.createTerminal(in: result.key, cwd: shown.folder)
-            return try await connection.request(NewConversationTabRequest(agentSession: record, workspace: result.workspace,
-                                                                          origin: AgentTabStore.createOrigin, mutationID: mutation + shown.key))
+            try await connection.request(NewConversationTabRequest(agentSession: record, workspace: result.workspace,
+                                                                   origin: AgentTabStore.createOrigin, mutationID: mutation + shown.key))
         }
         let pane = services.locateTab(model: tab)?.1
         let keeping = services.windows.controllers.filter { window in pane.map { window.showsOnScreen(tab.id, in: $0) } == true }.map(\.state.id)
