@@ -11,8 +11,6 @@ use std::path::{Path, PathBuf};
 use cmux_agent_pane_policy::build_identity::BuildIdentity;
 
 const DEBUG_BUNDLE_ID: &str = "com.cmuxterm.app.debug";
-/// `sockaddr_un.sun_path` on macOS (104 bytes) less its terminating NUL.
-const MAX_SOCKET_PATH_BYTES: usize = 103;
 /// `action.list`'s per-action surface plan key (where the app offers the
 /// action: palette, CLI, right-click, MCP). App control vocabulary for UI
 /// surfaces, not a daemon resource word; `cmux mcp` reads its `mcp` entry.
@@ -152,7 +150,9 @@ impl AppIdentity {
             .unwrap_or_else(|| home.join(".local/state/cmux/cmux.sock"));
         let Ok(name) = old.strip_prefix("/tmp") else { return old };
         let moved = home.join(".local/state/cmux").join(name);
-        if moved.as_os_str().len() > MAX_SOCKET_PATH_BYTES || (!moved.exists() && old.exists()) {
+        if moved.as_os_str().len() > cmux_unix_socket::PORTABLE_MAX_PATH_BYTES
+            || (!moved.exists() && old.exists())
+        {
             return old;
         }
         moved

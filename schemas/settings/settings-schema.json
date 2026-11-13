@@ -678,6 +678,8 @@
             "key" : "settings.group.panes",
             "rows" : [
               "appearance.chromeStyle",
+              "appearance.titleAreaTone",
+              "appearance.titleAreaContrast",
               "layout.paneSeparation",
               "layout.panePadding",
               "layout.paneCornerRadius",
@@ -1338,6 +1340,7 @@
           {
             "key" : "settings.group.agentChat",
             "rows" : [
+              "agentPane.display.finishSound",
               "agentPane.newChatsIn",
               "agents.defaultPermissionMode",
               "agents.promptCache",
@@ -31246,9 +31249,9 @@
     },
     {
       "accepts" : [
-        0.85,
-        1.5,
-        1.175
+        0.25,
+        5,
+        2.625
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -31285,15 +31288,15 @@
       ],
       "placeholder" : null,
       "range" : {
-        "max" : 1.5,
-        "min" : 0.85,
+        "max" : 5,
+        "min" : 0.25,
         "placeholder" : 1,
         "step" : 0.05,
         "unit" : "fraction"
       },
       "refuses" : [
-        -0.15000000000000002,
-        2.5,
+        -4.5,
+        9.75,
         "1"
       ],
       "section" : "appearance",
@@ -33412,6 +33415,319 @@
       "title" : {
         "key" : "settings.appearance.chromeStyle",
         "text" : "Window Style"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "oneColor",
+        "subtleTone"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.titleAreaTone.oneColor",
+            "text" : "One Color"
+          },
+          "value" : "oneColor"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.titleAreaTone.subtleTone",
+            "text" : "Subtle Tone"
+          },
+          "value" : "subtleTone"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "oneColor",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.panes",
+        "text" : "Panes"
+      },
+      "help" : {
+        "key" : "settings.appearance.titleAreaTone.help",
+        "text" : "One Color draws the title bar, the tab bar and the sidebar in the content's color, parted by thin dividers, with a highlighted selected tab. Subtle Tone shades them slightly apart from the content, and the selected tab opens into the content."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.titleAreaTone",
+      "keywords" : [
+        "tone",
+        "subtle tone",
+        "two tone",
+        "one color",
+        "single color",
+        "monochrome",
+        "title",
+        "titlebar",
+        "tab bar",
+        "tabs",
+        "chrome",
+        "divider",
+        "contrast",
+        "background"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "titleAreaTone"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.appearance.titleAreaTone.summary",
+        "text" : "One color or a subtle tone for the title area"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.titleAreaTone"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.titleAreaTone",
+        "text" : "Title Area"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        2,
+        1
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.panes",
+        "text" : "Panes"
+      },
+      "help" : {
+        "key" : "settings.appearance.titleAreaContrast.help",
+        "text" : "How much darker the title bar, the tab bar and the sidebar are than the content, under Subtle Tone or a shaded window style. 1 is the default; lower is softer, higher is stronger."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.titleAreaContrast",
+      "keywords" : [
+        "contrast",
+        "title",
+        "titlebar",
+        "tab bar",
+        "tabs",
+        "chrome",
+        "shade",
+        "intensity",
+        "darker",
+        "softer",
+        "frame"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "titleAreaContrast"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 2,
+        "min" : 0,
+        "placeholder" : 1,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -2,
+        4,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.appearance.titleAreaContrast.summary",
+        "text" : "How much the title and tab bar stand apart"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.titleAreaContrast"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.titleAreaContrast",
+        "text" : "Title Area Contrast"
       },
       "validation" : "portable"
     },
@@ -46564,6 +46880,148 @@
       "title" : {
         "key" : "settings.agentPane.display.pinnedPlan",
         "text" : "Pin Task List in Chat"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.finishSound.help",
+        "text" : "A soft sound when a long turn in the chat you're looking at ends, its checks pass or its pull request merges. Follows the Mac's Play user interface sound effects setting."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.finishSound",
+      "keywords" : [
+        "agent",
+        "chat",
+        "sound",
+        "sounds",
+        "audio",
+        "finish",
+        "finished",
+        "done",
+        "merged",
+        "checks",
+        "turn",
+        "notification"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "finishSound"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.finishSound"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.finishSound",
+        "text" : "Play Sound When Work Finishes"
       },
       "validation" : "portable"
     },
@@ -90522,14 +90980,14 @@
         {
           "title" : {
             "key" : "settings.choice.subagentSidebarAlways",
-            "text" : "Always"
+            "text" : "Sidebar"
           },
           "value" : "always"
         },
         {
           "title" : {
             "key" : "settings.choice.subagentSidebarNever",
-            "text" : "Never"
+            "text" : "Chief's Workspaces"
           },
           "value" : "never"
         }
@@ -90545,7 +91003,7 @@
       },
       "help" : {
         "key" : "settings.chief.subagentSidebar.help",
-        "text" : "Automatic lets the Chief decide for each subagent: work you will want to watch or join shows, short errands stay hidden. Always and Never override the Chief."
+        "text" : "Every subagent gets a workspace. Chief Decides puts work you will watch or join in the sidebar and errands in the collapsed Chief's workspaces group, which search still finds. Sidebar or Chief's Workspaces puts every subagent there."
       },
       "kept_on_reset_all" : false,
       "key" : "chief.subagentSidebar",
@@ -90557,7 +91015,8 @@
         "show",
         "hide",
         "hidden",
-        "visible"
+        "visible",
+        "group"
       ],
       "kind" : "choice",
       "page_hidden" : false,
@@ -90658,7 +91117,7 @@
       },
       "title" : {
         "key" : "settings.chief.subagentSidebar",
-        "text" : "Subagents in the Sidebar"
+        "text" : "Subagent Workspaces"
       },
       "validation" : "portable"
     },
@@ -90687,7 +91146,7 @@
       },
       "help" : {
         "key" : "settings.chief.subagentSidebarShowWords.help",
-        "text" : "Words or phrases that show a subagent when the Chief leaves it to these rules. They add to the built-in ones, such as UI, design, screenshots and needs you."
+        "text" : "Words or phrases that put a subagent in the sidebar when the Chief leaves it to these rules. They add to the built-in ones, such as UI, design, screenshots and needs you."
       },
       "kept_on_reset_all" : false,
       "key" : "chief.subagentSidebarShowWords",
@@ -90701,7 +91160,8 @@
         "hidden",
         "visible",
         "words",
-        "rules"
+        "rules",
+        "group"
       ],
       "kind" : "string_list",
       "page_hidden" : false,
@@ -90812,7 +91272,7 @@
       },
       "title" : {
         "key" : "settings.chief.subagentSidebarShowWords",
-        "text" : "Show Tasks That Mention"
+        "text" : "Sidebar for Tasks That Mention"
       },
       "validation" : "portable"
     },
@@ -90841,7 +91301,7 @@
       },
       "help" : {
         "key" : "settings.chief.subagentSidebarHideWords.help",
-        "text" : "Words or phrases that keep a subagent hidden when the Chief leaves it to these rules. They add to the built-in ones, such as lookup, cleanup and land queue. A show word wins."
+        "text" : "Words or phrases that put a subagent in the collapsed Chief's workspaces group when the Chief leaves it to these rules. They add to the built-in ones, such as lookup, cleanup and land queue. A sidebar word wins."
       },
       "kept_on_reset_all" : false,
       "key" : "chief.subagentSidebarHideWords",
@@ -90855,7 +91315,8 @@
         "hidden",
         "visible",
         "words",
-        "rules"
+        "rules",
+        "group"
       ],
       "kind" : "string_list",
       "page_hidden" : false,
@@ -90966,7 +91427,7 @@
       },
       "title" : {
         "key" : "settings.chief.subagentSidebarHideWords",
-        "text" : "Hide Tasks That Mention"
+        "text" : "Chief's Workspaces for Tasks That Mention"
       },
       "validation" : "portable"
     },
@@ -90989,7 +91450,7 @@
       },
       "help" : {
         "key" : "settings.chief.subagentSidebarMinWords.help",
-        "text" : "A task with no show or hide word shows when it has at least this many words, and stays hidden when it is shorter."
+        "text" : "A task with neither kind of word goes in the sidebar when it has at least this many words, and in Chief's workspaces when it is shorter."
       },
       "kept_on_reset_all" : false,
       "key" : "chief.subagentSidebarMinWords",
@@ -91003,7 +91464,8 @@
         "hidden",
         "visible",
         "length",
-        "words"
+        "words",
+        "group"
       ],
       "kind" : "number",
       "page_hidden" : false,
@@ -91111,7 +91573,7 @@
       },
       "title" : {
         "key" : "settings.chief.subagentSidebarMinWords",
-        "text" : "Show Tasks Longer Than"
+        "text" : "Sidebar for Tasks Longer Than"
       },
       "validation" : "portable"
     },
