@@ -62,7 +62,7 @@ const TITLE_CHARS: usize = 200;
 /// `title`, or for a longer one its first [`TITLE_CHARS`], folded, and masked before it is cut
 /// as a lane's title is ([`masked_cut`]): a secret the cut would split is masked whole, never
 /// left as a head a peer's masking no longer knows (`peer_text.rs`).
-fn summary_title(title: &str) -> String {
+pub(super) fn summary_title(title: &str) -> String {
     if title.chars().nth(TITLE_CHARS).is_none() {
         title.to_owned()
     } else {
@@ -473,7 +473,13 @@ impl Hub {
     fn spawn_time_breakdown_seed(&self, session: &Session, backfill: bool) {
         {
             let mut state = session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
-            if state.initialized || state.seeding {
+            if state.initialized {
+                return;
+            }
+            // One seed at a time; a backfill asked of a running one is kept for it to run, not
+            // dropped (`seed_time_breakdown` reads it under this lock before it lets go).
+            if state.seeding {
+                state.backfill_asked |= backfill;
                 return;
             }
             state.seeding = true;
@@ -482,7 +488,9 @@ impl Hub {
             self.hub_ref.get().and_then(std::sync::Weak::upgrade),
             tokio::runtime::Handle::try_current(),
         ) else {
-            session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner()).seeding = false;
+            let mut state = session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
+            state.seeding = false;
+            state.backfill_asked = false;
             return;
         };
         let id = session.id.clone();
@@ -501,87 +509,136 @@ impl Hub {
     /// does. Most of the read runs without the append lock; only the tail written meanwhile is
     /// read under it, so the seed and the next appended record are one ordered view and no record
     /// counts twice.
+    ///
+    /// The seed lets go (`seeding`) only under the breakdown's lock, after it reads whether a
+    /// turn's end asked for the fold while it ran (`backfill_asked`): an open's seed that installs
+    /// nothing runs that fold before it ends, so the ask is never lost to the order the two came
+    /// in (review of #42481, F2).
     pub(super) fn seed_time_breakdown(&self, session: &Session, backfill: bool) {
-        use crate::hub::time_breakdown::{FILE, SAVE_EVERY, State};
-        let path = self.store.session_path(&session.id).map(|dir| dir.join(FILE));
-        let last = session.meta().last_seq;
-        // A copy past the log is another log's (a chat moved back in under its id): not used.
-        let saved = path
-            .as_ref()
-            .and_then(|path| std::fs::read(path).ok())
-            .and_then(|bytes| State::restore(&bytes))
-            .filter(|state| state.last_seq() <= last);
-        let mut seeded = match saved {
-            Some(state) => state,
-            None if backfill || path.is_none() => State::default(),
-            None => {
-                session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner()).seeding = false;
-                return;
-            }
-        };
-        let from = seeded.saved_seq;
-        // A few records past the copy are read back from the log's end, many forward.
-        let few = seeded.last_seq() > 0 && last.saturating_sub(seeded.last_seq()) <= SAVE_EVERY * 4;
-        if self.fold_past(session, &mut seeded, few).is_ok() {
-            let _append = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
-            let tail = self.fold_past(session, &mut seeded, true);
+        let mut backfill = backfill;
+        loop {
+            self.seed_time_breakdown_once(session, backfill);
             let mut state = session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
-            let installed = tail.is_ok() && !state.initialized;
-            let mut save = None;
-            if installed {
-                seeded.initialized = true;
-                // Saved at once when it was folded from the log, and once enough records passed
-                // the copy it restored; the append seam saves it after that.
-                if from == 0 || seeded.last_seq() >= from + SAVE_EVERY {
-                    save = seeded.save();
-                    seeded.saved_seq = seeded.last_seq();
-                }
-                *state = seeded;
+            // Asked while this pass ran (a backfill that failed included): one more pass, as the
+            // backfill. Bounded by the turns that end meanwhile, each of which asks once.
+            if std::mem::take(&mut state.backfill_asked) && !state.initialized {
+                backfill = true;
+                continue;
             }
             state.seeding = false;
-            drop(state);
-            drop(_append);
-            if let (Some(path), Some((bytes, seq))) = (path, save) {
-                self.write_time_breakdown(session, &path, &bytes, seq);
-            }
-            // The chat pane and its census row carry the breakdown without waiting for a record.
-            if installed {
-                self.row_notice(session, "time_breakdown");
-            }
-        } else {
-            session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner()).seeding = false;
+            return;
         }
     }
 
-    /// Folds the records past `seed` into it. With `back`, they are read from the log's end
-    /// backwards and folded in order, which costs only the records past the copy; a forward read
-    /// past them reads the whole segment that holds them.
+    fn seed_time_breakdown_once(&self, session: &Session, backfill: bool) {
+        use crate::hub::time_breakdown::{FILE, SAVE_EVERY, State};
+        let path = self.store.session_path(&session.id).map(|dir| dir.join(FILE));
+        // Only which way to read past the copy: the meta can lag the log (the append seam saves
+        // the copy before it counts the record there, and a hard stop or an open before the
+        // log's catch-up leaves it behind), so it never decides whether the copy is used.
+        let last = session.meta().last_seq;
+        let mut seeded = None;
+        if let Some(mut copy) = path
+            .as_ref()
+            .and_then(|path| std::fs::read(path).ok())
+            .and_then(|bytes| State::restore(&bytes))
+        {
+            // A few records past the copy are read back from the log's end, many forward.
+            let few = copy.last_seq() > 0 && last.saturating_sub(copy.last_seq()) <= SAVE_EVERY * 4;
+            match self.fold_past(session, &mut copy, few) {
+                // The log holds the record the copy ends at: it is this log's copy.
+                Ok(true) => seeded = Some(copy),
+                // A copy past the log's own end (another log's, or one whose journal lost its
+                // tail): not used, whatever the meta says (review of #42481, F1).
+                Ok(false) => {}
+                Err(_) => return,
+            }
+        }
+        let mut seeded = match seeded {
+            Some(state) => state,
+            None if backfill || path.is_none() => {
+                let mut state = State::default();
+                if self.fold_past(session, &mut state, false).is_err() {
+                    return;
+                }
+                state
+            }
+            None => return,
+        };
+        let from = seeded.saved_seq;
+        let _append = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
+        let tail = self.fold_past(session, &mut seeded, true);
+        let mut state = session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
+        let installed = tail.is_ok() && !state.initialized;
+        let mut save = None;
+        if installed {
+            seeded.initialized = true;
+            // Saved at once when it was folded from the log, and once enough records passed
+            // the copy it restored; the append seam saves it after that.
+            if from == 0 || seeded.last_seq() >= from + SAVE_EVERY {
+                save = seeded.save();
+                seeded.saved_seq = seeded.last_seq();
+            }
+            // The flags are the running seed's, not the fold's.
+            seeded.seeding = state.seeding;
+            seeded.backfill_asked = state.backfill_asked;
+            *state = seeded;
+        }
+        drop(state);
+        drop(_append);
+        if let (Some(path), Some((bytes, seq))) = (path, save) {
+            self.write_time_breakdown(session, &path, &bytes, seq);
+        }
+        // The chat pane and its census row carry the breakdown without waiting for a record.
+        if installed {
+            self.row_notice(session, "time_breakdown");
+        }
+    }
+
+    /// Folds the records past `seed` into it, and says whether the log holds the record `seed`
+    /// ends at (always, for a fold from nothing): the check that a saved copy is this log's,
+    /// made against the log itself. With `back`, they are read from the log's end backwards and
+    /// folded in order, which costs only the records past the copy; a forward read past them
+    /// reads the whole segment that holds them.
     fn fold_past(
         &self,
         session: &Session,
         seed: &mut crate::hub::time_breakdown::State,
         back: bool,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<bool> {
         let after = seed.last_seq();
+        // From the record the fold ends at, one more than it needs: `record` skips it.
+        let from = after.saturating_sub(1);
+        let mut holds = after == 0;
         if back && after > 0 {
             let mut past = Vec::new();
-            self.store.scan_back(&session.id, after, u64::MAX, &|_, _| false, &mut |record| {
+            self.store.scan_back(&session.id, from, u64::MAX, &|_, _| false, &mut |record| {
                 past.push(record);
                 true
             })?;
             for record in past.iter().rev() {
+                holds |= record.seq == after;
                 seed.record(record);
             }
-            return Ok(());
+            return Ok(holds);
         }
-        self.store.scan(&session.id, after, &mut |record| {
+        self.store.scan(&session.id, from, &mut |record| {
+            holds |= record.seq == after;
             seed.record(&record);
             true
-        })
+        })?;
+        Ok(holds)
     }
 
     /// Saves the fold's bytes beside the chat's log. A cache: the next daemon folds the records
     /// past an older copy when this one fails.
+    ///
+    /// The path is the chat's id's folder, and the seed and the append seam write after they let
+    /// go of the append lock, so a purge and a new chat under the same id can land in between: the
+    /// purged chat's fold must not go into the new chat's folder (review of #42481, F3). So the
+    /// write runs under the breakdown's lock, which a purge takes to mark the chat purged
+    /// (`turns.rs` `kill_held`): a write that sees the chat not purged lands before its folder is
+    /// deleted, and none starts after. Callers must not hold that lock.
     pub(super) fn write_time_breakdown(
         &self,
         session: &Session,
@@ -589,6 +646,11 @@ impl Hub {
         bytes: &[u8],
         seq: u64,
     ) {
+        let _breakdown = session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
+        if session.purged.load(std::sync::atomic::Ordering::SeqCst) {
+            tracing::debug!(session = %session.id, seq, "time breakdown not saved: chat purged");
+            return;
+        }
         match crate::config::write_atomic_unsynced(path, bytes) {
             Ok(()) => {
                 tracing::debug!(session = %session.id, seq, "saved the time breakdown");
@@ -959,22 +1021,45 @@ impl Hub {
         v
     }
 
+    /// `_acpmux/status`. Every pane's connect waits on it: the app's endpoint lookup that all
+    /// panes share, and the pane's first frame (its machines). So it never waits long on any
+    /// one reading: the readings that may wait (host pressure, the disk, each chat's agent slot)
+    /// run side by side, each under [`STATUS_READING_BUDGET`], and one that misses it is null.
+    /// The config lock is never held across a wait: a writer queued behind a held read would stall
+    /// every later reader. Before this, one chat whose agent was starting or ending, or a slow
+    /// disk walk, held status, and every pane said "Waiting for the agent service" at once
+    /// (Leo, 2026-11-12, ask-64cfa32e34).
     pub async fn status(&self) -> Value {
-        // Before the config lock: it may wait up to `host_pressure::SAMPLE_WAIT` for a sample.
         let loading = !self.store_loaded() || !self.startup_complete();
-        let host_pressure = if loading { Value::Null } else { self.host_pressure_status().await };
-        let cfg = self.config.read().await;
-        // The space of acpmux's disk, `disk.low` with what to free under the floor. Blocking
-        // (statvfs and a bounded, cached folder walk), so off the async workers.
-        let low = cfg.disk_low_bytes.unwrap_or(crate::recovery::DISK_LOW_DEFAULT_BYTES);
-        let disk = if loading {
-            Value::Null
-        } else {
-            tokio::task::spawn_blocking(move || crate::recovery::disk_status(low))
-                .await
-                .unwrap_or(Value::Null)
-        };
+        let low = self
+            .config
+            .read()
+            .await
+            .disk_low_bytes
+            .unwrap_or(crate::recovery::DISK_LOW_DEFAULT_BYTES);
         let sessions = self.sessions();
+        let (host_pressure, disk, agents) = tokio::join!(
+            within_status_budget(async {
+                if loading { Value::Null } else { self.host_pressure_status().await }
+            }),
+            // The space of acpmux's disk, `disk.low` with what to free under the floor. Blocking
+            // (statvfs and a bounded, cached folder walk), so off the async workers.
+            within_status_budget(async move {
+                if loading {
+                    return Value::Null;
+                }
+                tokio::task::spawn_blocking(move || crate::recovery::disk_status(low))
+                    .await
+                    .unwrap_or(Value::Null)
+            }),
+            within_status_budget(live_agents(&sessions)),
+        );
+        let (host_pressure, disk) =
+            (host_pressure.unwrap_or(Value::Null), disk.unwrap_or(Value::Null));
+        // Counts that missed the budget are null, never 0: readers take a missing count as busy
+        // (`RemoteAgentDaemon.idleForKeyedRestart`) and say nothing of other builds.
+        let (live, other_build) =
+            agents.map_or((Value::Null, Value::Null), |(l, o)| (json!(l), json!(o)));
         let stuck: Vec<Value> = sessions
             .iter()
             .filter_map(|s| {
@@ -987,15 +1072,8 @@ impl Hub {
                 "stuckSince": since, "stuckError": error}))
             })
             .collect();
-        let (mut live, mut other_build) = (0, 0);
-        for s in &sessions {
-            if let Some(child) = s.child.lock().await.as_ref() {
-                live += 1;
-                if host_build_differs(child.host_build().as_deref(), build()) {
-                    other_build += 1;
-                }
-            }
-        }
+        // Read after every wait above and held through no other.
+        let cfg = self.config.read().await;
         let exe_unstable = crate::daemon::exe_path::current_unstable();
         json!({
             "version": VERSION,
@@ -1077,6 +1155,39 @@ impl Hub {
     }
 }
 
+/// The longest `status` waits on any one reading that may wait. Under the app lookup's first
+/// 5 s ask (`AgentPaneHost.lookupStatusAttempts`) with room for the reply.
+// timeout: a reading past it is reported null, never an error; status itself always answers.
+pub(crate) const STATUS_READING_BUDGET: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// `reading`, or None when it misses [`STATUS_READING_BUDGET`].
+async fn within_status_budget<T>(reading: impl std::future::Future<Output = T>) -> Option<T> {
+    tokio::time::timeout(STATUS_READING_BUDGET, reading).await.ok()
+}
+
+/// The chats whose agent runs, and those of them on a host of another build. Never waits on a
+/// chat's child lock: a start or a detach holds it while its agent starts or ends (`detach_child`
+/// through the agent's kill), and every pane's handshake asks status (`AgentPaneHost` lookup), so
+/// one chat ending slowly drew "Waiting for the agent service" in every pane (cmuxterm-hq#8489).
+/// A held lock is an agent starting or ending: live, as the idle reaper counts it (`idle.rs`), its
+/// build read on the next status.
+async fn live_agents(sessions: &[Arc<Session>]) -> (usize, usize) {
+    let (mut live, mut other_build) = (0, 0);
+    for s in sessions {
+        let Ok(slot) = s.child.try_lock() else {
+            live += 1;
+            continue;
+        };
+        if let Some(child) = slot.as_ref() {
+            live += 1;
+            if host_build_differs(child.host_build().as_deref(), build()) {
+                other_build += 1;
+            }
+        }
+    }
+    (live, other_build)
+}
+
 /// Whether a command line runs `cmux-tui acp …` (a cmux session daemon, or
 /// enroll's `~/.local/bin/acpmux` link to a cmux-tui), not `acpmux …`.
 pub(crate) fn runs_as_cmux_tui_acp<A: AsRef<std::ffi::OsStr>>(
@@ -1091,6 +1202,10 @@ pub(crate) fn runs_as_cmux_tui_acp<A: AsRef<std::ffi::OsStr>>(
 #[cfg(test)]
 #[path = "views_lane_tests.rs"]
 mod lane_tests;
+
+#[cfg(test)]
+#[path = "views_status_tests.rs"]
+mod status_tests;
 
 /// `true` when this daemon runs in the user's login session (its agents read the
 /// login keychain), `false` when it does not, `"unknown"` when its security session
@@ -1195,3 +1310,7 @@ mod time_breakdown_tests {
         assert_eq!(summary["timeBreakdown"]["totalTokens"], 12);
     }
 }
+
+#[cfg(test)]
+#[path = "views_status_budget_tests.rs"]
+mod status_budget_tests;

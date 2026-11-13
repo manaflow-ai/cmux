@@ -332,9 +332,82 @@ pub(crate) fn cut_page(
     page_text(next.map(|next| next.to_string()), &page)
 }
 
+/// A list row built for a page (`Hub::session_page_rows`): this daemon's as a tree, or a peer's
+/// as its text (`PeerRow::listed`) with its row, whose paging keys are kept typed: never parsed.
+pub(crate) enum BuiltRow {
+    Tree(Value),
+    Peer(String, Arc<RemoteSession>),
+}
+
+impl PageRow for BuiltRow {
+    fn session_id(&self) -> &str {
+        match self {
+            Self::Tree(row) => PageRow::session_id(row),
+            Self::Peer(_, r) => r.summary.session_id().unwrap_or(""),
+        }
+    }
+
+    fn updated_ms(&self) -> u64 {
+        match self {
+            Self::Tree(row) => PageRow::updated_ms(row),
+            Self::Peer(_, r) => r.summary.updated_ms(),
+        }
+    }
+
+    fn peer(&self) -> Option<&str> {
+        match self {
+            Self::Tree(row) => PageRow::peer(row),
+            Self::Peer(_, r) => r.summary.peer(),
+        }
+    }
+
+    fn status(&self) -> Option<&str> {
+        match self {
+            Self::Tree(row) => PageRow::status(row),
+            Self::Peer(_, r) => r.summary.status(),
+        }
+    }
+}
+
+/// A row [`serialize_in_order`] writes: its text, and its paging keys.
+pub(crate) trait InOrder {
+    fn write(&self, out: &mut Vec<u8>);
+    fn paging_keys(&self, at: usize) -> Value;
+}
+
+impl InOrder for Value {
+    fn write(&self, out: &mut Vec<u8>) {
+        // A Value always serializes, and Vec's writer cannot fail.
+        let _ = serde_json::to_writer(out, self);
+    }
+
+    fn paging_keys(&self, at: usize) -> Value {
+        paging_keys(self, at)
+    }
+}
+
+impl InOrder for BuiltRow {
+    fn write(&self, out: &mut Vec<u8>) {
+        match self {
+            Self::Tree(row) => row.write(out),
+            Self::Peer(text, _) => out.extend_from_slice(text.as_bytes()),
+        }
+    }
+
+    fn paging_keys(&self, at: usize) -> Value {
+        match self {
+            Self::Tree(row) => paging_keys(row, at),
+            Self::Peer(_, r) => {
+                let row = &r.summary;
+                keys_of(at, row.session_id(), row.updated_ms(), row.peer(), row.status())
+            }
+        }
+    }
+}
+
 /// `rows`, in the order given (not sorted), as a list's text, where each is in it, and the
 /// paging keys of each (`at` its place): what [`cut_page`] cuts.
-pub(crate) fn serialize_in_order(rows: &[Value]) -> Built {
+pub(crate) fn serialize_in_order<R: InOrder>(rows: &[R]) -> Built {
     let prefix = br#"{"sessions":["#;
     let mut whole = Vec::from(&prefix[..]);
     let (mut spans, mut keys) = (Vec::with_capacity(rows.len()), Vec::with_capacity(rows.len()));
@@ -343,10 +416,9 @@ pub(crate) fn serialize_in_order(rows: &[Value]) -> Built {
             whole.push(b',');
         }
         let start = whole.len();
-        // A Value always serializes, and Vec's writer cannot fail.
-        let _ = serde_json::to_writer(&mut whole, row);
+        row.write(&mut whole);
         spans.push(start..whole.len());
-        keys.push(paging_keys(row, at));
+        keys.push(row.paging_keys(at));
     }
     whole.extend_from_slice(b"]}");
     // serde_json writes UTF-8.
@@ -390,10 +462,19 @@ fn fit_row<'a, K: PageRow + ?Sized>(
     }
 }
 
-/// `row` serialized ([`fit_row`]): whole when it fits in `budget`, else trimmed to fit or a stub
-/// with its keys, as a page sends a row too large for it.
-pub(crate) fn fit_value(row: &Value, budget: usize) -> String {
-    fit_row(&row.to_string(), row, budget).into_owned()
+/// Row text `row` ([`fit_row`]): whole when it fits in `budget`, else trimmed to fit or a stub
+/// with its keys, as a page sends a row too large for it. Parsed only when it does not fit.
+pub(crate) fn fit_text(row: String, budget: usize) -> String {
+    if row.len() <= budget {
+        return row;
+    }
+    let mut value: Value = serde_json::from_str(&row).unwrap_or_default();
+    let keys = paging_keys(&value, 0);
+    if super::reply_fit::fit_object(&mut value, budget) {
+        value.to_string()
+    } else {
+        too_large_stub(&keys, row.len())
+    }
 }
 
 /// The cursor of the page after `last`: a census's (`orderBy`, `s:<id>`) or the list's
@@ -431,15 +512,28 @@ fn too_large_stub<K: PageRow + ?Sized>(key: &K, bytes: usize) -> String {
 /// The paging keys of `row`, at `at` in its list's text: `sessionId`, `updatedAt`, `peer` and
 /// `status`, each only when it has one.
 fn paging_keys(row: &Value, at: usize) -> Value {
+    let text = |k: &str| row.get(k).and_then(Value::as_str);
+    let updated = row.get("updatedAt").and_then(Value::as_u64).unwrap_or_default();
+    keys_of(at, text("sessionId"), updated, text("peer"), text("status"))
+}
+
+/// [`paging_keys`] of a row's fields (`updatedAt` 0 as none).
+fn keys_of(
+    at: usize,
+    id: Option<&str>,
+    updated: u64,
+    peer: Option<&str>,
+    status: Option<&str>,
+) -> Value {
     let mut keys = json!({"at": at});
-    if let Some(id) = row.get("sessionId").and_then(Value::as_str) {
+    if let Some(id) = id {
         keys.set("sessionId", Value::String(id.to_owned()));
     }
-    if let Some(at) = row.get("updatedAt").and_then(Value::as_u64).filter(|at| *at != 0) {
-        keys.set("updatedAt", Value::from(at));
+    if updated != 0 {
+        keys.set("updatedAt", Value::from(updated));
     }
-    for k in ["peer", "status"] {
-        if let Some(v) = row.get(k).and_then(Value::as_str) {
+    for (k, v) in [("peer", peer), ("status", status)] {
+        if let Some(v) = v {
             keys.set(k, Value::String(v.to_owned()));
         }
     }

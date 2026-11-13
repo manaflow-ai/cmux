@@ -468,6 +468,10 @@ pub struct Session {
     /// Tool calls that run `gh pr create`, and the URL each printed so far, until they end
     /// (`pull_requests.rs`).
     pub(super) pr_creates: StdMutex<std::collections::HashMap<String, Option<String>>>,
+    /// Tool calls that run `gh pr merge` or `gh pr close`, and what each settles, until they end
+    /// (`pull_requests.rs`).
+    pub(super) pr_closes:
+        StdMutex<std::collections::HashMap<String, super::pull_requests::Closing>>,
     /// Files its tool calls just edited, for the who-else notice (`touched.rs`).
     pub(super) touch_queue: StdMutex<Vec<(String, String)>>,
     /// The sessions it was told share its files, once each (`touched.rs`).

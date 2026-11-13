@@ -176,7 +176,7 @@ Default density is **compact** (`DesignSettings.swift:25 (DesignSettings.density
 | scrollEdgeFade | 18 | 22 | :91 |
 | panePadding | 2 | 4 | Metrics.swift:91-95 (`Metrics.panePadding`) |
 | divider thickness / hit width | 1 / 7 | 1 / 7 | MetricTunables.swift:107-112 (`MetricTunables.dividerThickness`, `dividerHitWidth`) |
-| tab background inset / content inset | 1 / 8 | 1 / 8 | ChromeTunables.swift:28-31 (`tabBackgroundInset`, `tabContentLeadingInset`) |
+| tab background inset / content inset | 1 / derived | 1 / derived | `tabBackgroundInset` (ChromeTunables.swift); content inset = (tabHeight − iconSize) / 2 + iconSize / 16 on the 2x grid (`Metrics.evenIconLeadingInset`): 6 at a 24 pt tab with a 14 pt icon; was a fixed 8 until 8f32c4613bc |
 | terminal text inset | 4 | 4 | PaneChromeMetrics.swift:46 (`PaneChromeMetrics.terminalTextInset`) |
 
 Corners come in two shapes, and ports draw each surface with the shape the Swift code uses, pixel for pixel.
