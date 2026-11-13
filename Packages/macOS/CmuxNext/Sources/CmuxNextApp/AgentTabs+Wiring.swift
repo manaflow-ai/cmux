@@ -583,7 +583,7 @@ extension AgentTabStore {
             tabs?.localHostName = name
             return AgentPaneModel.rememberLocalMachineName(AgentTabStore.displayName(name) ?? name)
         }
-        tabs.onPageBuilt = { [weak services] key in services?.cache.hibernation?.agentPages?.pageBuilt(key) }
+        tabs.onPageBuilt = { [weak services, weak tabs] key in services?.cache.hibernation?.agentPages?.pageBuilt(key); services?.paneOwedWork.hand(to: tabs?.views.values.map { $0 } ?? []) } // a pane made now takes what its chat owes
         tabs.onCollectingPages = { [weak services] held in services?.cache.hibernation?.agentPages?.holdAwake(held) }
         services.madeAgentTabs = tabs
         return tabs

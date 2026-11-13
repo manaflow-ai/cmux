@@ -9,9 +9,9 @@ import Testing
 /// positioning and spacing throughout all the different modes". In a real window at each density the top
 /// row (traffic lights, sidebar toggle, Back, Forward, the sidebar's +) keeps one rhythm:
 /// - the lights sit as far from the window's left edge as from its top edge;
+/// - the toggle's glyph sits that same distance right of the lights;
 /// - every top-row button has one size, the +'s;
-/// - as in cmux classic (Lawrence 2026-11-11: the gaps between the lights, the toggle and Back were uneven at
-///   Compact), the lights, the toggle's glyph, Back's and Forward's stand evenly apart.
+/// - the lights, the toggle, Back and Forward sit one gap apart, glyph to glyph (Lawrence 2026-11-11).
 @MainActor @Suite(.serialized) struct TopRowSpacingDensityTests {
     /// The glyph's drawn extent (alpha > 0.3) in window x, from the button's image centered in its frame.
     private func ink(_ button: NSButton) throws -> ClosedRange<CGFloat> {
@@ -64,10 +64,12 @@ import Testing
         let group = back.lowerBound - toggle.upperBound, pair = forward.lowerBound - back.upperBound
         print("SPACING|\(density.rawValue)|top \(top) left \(left)|after lights \(afterLights)|group \(group)|pair \(pair)")
         #expect(abs(left - top) <= 0.5, "\(density): the lights are \(left) from the left edge, \(top) from the top")
-        #expect(abs(afterLights - group) <= 1.5, "\(density): the toggle's glyph is \(afterLights) right of the lights, \(group) before Back")
         for button in [band.sidebarToggle, band.backButton, band.forwardButton] as [NSView] {
             #expect(button.frame.size == plus.frame.size, "\(density): a band button is \(button.frame.size), the + is \(plus.frame.size)")
         }
-        #expect(abs(pair - group) <= 1.5, "\(density): Back and Forward are \(pair) apart, the toggle and Back \(group)")
+        // Lawrence 2026-11-11 (msg 29542): "spacing between traffic lights/sidebar and back/forth needs to be perfectly
+        // even at all density sizes": lights to toggle, toggle to Back and Back to Forward are one gap, glyph to glyph.
+        #expect(abs(group - afterLights) <= 0.5, "\(density): toggle to Back is \(group), lights to toggle \(afterLights)")
+        #expect(abs(pair - afterLights) <= 0.5, "\(density): Back to Forward is \(pair), lights to toggle \(afterLights)")
     }
 }

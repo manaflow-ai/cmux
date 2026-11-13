@@ -45,7 +45,15 @@ if [[ -n "$swift_defines" ]]; then
   # shellcheck disable=SC2016 # $(inherited) is an Xcode build setting, not a shell expansion
   notary_test_flags=("OTHER_SWIFT_FLAGS=\$(inherited) $swift_defines" build)
 fi
-notary_test_flags=(${live_code_args[@]+"${live_code_args[@]}"} "${notary_test_flags[@]}")
+# cmux NEXT Nightly's Release Swift for size, hot targets at -O (scripts/cmux-next/lib/swift-size-opt.sh).
+# The classic tracks keep their optimization, and the live code variant sets its own.
+size_opt_args=()
+if [[ "${BUILD_TRACK:-}" == nightly-next && "${CMUX_LIVE_CODE_BUILD:-0}" != 1 ]]; then
+  # shellcheck source=scripts/cmux-next/lib/swift-size-opt.sh
+  source scripts/cmux-next/lib/swift-size-opt.sh
+  while IFS= read -r setting; do size_opt_args+=("$setting"); done < <(swift_size_opt_xcodebuild_args)
+fi
+notary_test_flags=(${size_opt_args[@]+"${size_opt_args[@]}"} ${live_code_args[@]+"${live_code_args[@]}"} "${notary_test_flags[@]}")
 if [[ "$NIGHTLY_COMPILE_ARCHS" == "arm64" ]]; then
   archs="arm64"
   only_active="YES"
