@@ -274,6 +274,74 @@ test("the ride gives way when a row it would move plays its own animation", () =
   ride.release();
 });
 
+// A row may wear a translate that is not the ride's: the running turn's live line, held where it is
+// drawn while the reader has the view (pinnedLiveLine.ts `hold`, with a clip on the row over it by the
+// same distance). The ride wrote its own translate over that one and took it off at its end, so the
+// line went to its layout place and the clip stayed: a blank band over "Thinking" (review of #41661).
+// The ride gives way and leaves that translate as it is.
+test("the ride gives way when a row it would move wears a translate that is not the ride's", () => {
+  const rows = transcript(4);
+  const [row, , under, live] = rows as [HTMLElement, HTMLElement, HTMLElement, HTMLElement];
+  const placed = new Map<HTMLElement, number>(rows.map((each) => [each, 100]));
+  const height = new Map(placed);
+  const ride = new FoldRide({
+    placed: (each) => placed.get(each),
+    height: (each) => height.get(each),
+    finish: () => {},
+  });
+  markHeightFold(row, 10_000);
+  live.style.translate = "0 -30px";
+  height.set(row, 140);
+  expect(ride.ride([row])).toBe(false);
+  expect(live.style.translate).toBe("0 -30px");
+  expect(under.style.translate).toBe("");
+
+  // The line let go: the rows ride, the live line with them.
+  live.style.translate = "";
+  expect(ride.ride([row])).toBe(true);
+  expect(under.style.translate).toBe("0 40px");
+  expect(live.style.translate).toBe("0 40px");
+
+  // Held again while the rows ride (another owner wrote over the ride's translate): the ride gives
+  // way and takes off its own translates only.
+  live.style.translate = "0 -30px";
+  height.set(row, 160);
+  expect(ride.ride([row])).toBe(false);
+  expect(live.style.translate).toBe("0 -30px");
+  expect(under.style.translate).toBe("");
+});
+
+// A row glide the reader's scroll holds is paused (tailGlide.ts `hold`). A paused animation of a
+// row's translate still wins over the inline one the ride writes, so that row stood still while the
+// rows around it rode (review of #41661). A paused animation of anything else moves no row.
+test("the ride gives way when a row it would move holds a paused animation of its translate", () => {
+  const rows = transcript(4);
+  const [row, , glided, last] = rows as [HTMLElement, HTMLElement, HTMLElement, HTMLElement];
+  const paused = (frame: Keyframe) =>
+    ({ playState: "paused", effect: { getKeyframes: () => [frame, {}] } }) as unknown as Animation;
+  let held = [paused({ translate: "0 12px" })];
+  glided.getAnimations = () => held;
+  const placed = new Map<HTMLElement, number>(rows.map((each) => [each, 100]));
+  const height = new Map(placed);
+  const ride = new FoldRide({
+    placed: (each) => placed.get(each),
+    height: (each) => height.get(each),
+    finish: () => {},
+  });
+  markHeightFold(row, 10_000);
+  height.set(row, 140);
+  expect(ride.ride([row])).toBe(false);
+  expect(glided.style.translate).toBe("");
+  expect(last.style.translate).toBe("");
+  held = [paused({ transform: "translateY(12px)" })];
+  expect(ride.ride([row])).toBe(false);
+
+  held = [paused({ opacity: 0 })];
+  expect(ride.ride([row])).toBe(true);
+  expect(glided.style.translate).toBe("0 40px");
+  ride.release();
+});
+
 // Input while rows ride: the scroll range and layout are still the placed ones, so the transcript
 // places every row now, before the input reaches anything (review of #39917 at 184fed21 and
 // e357b4a0: a scroll to a run's foot 1250px short, a map drag 800px short). Nothing riding, input
@@ -353,7 +421,8 @@ test("a fold rides while the transcript's last row stays under the view's end", 
   expect(under.style.translate).toBe("");
   expect(last.style.translate).toBe("");
 
-  // An open from there rides too: the rows move down, away from the view's end.
+  // An open with the last row as far under the view's end rides too (this fake keeps the last row
+  // at 1100; in the app it is at 550 after that close, and an open from there gives way).
   ride.release();
   placed.set(row, 150);
   height.set(row, 190);

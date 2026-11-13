@@ -2,7 +2,8 @@
 // A notification row and the agent's reply after it, in Chromium (gallery agent-pane.notification-reply,
 // which replays acpmux's events through the pane's own client). Leo, 2026-11-09 20:33Z: "these
 // rendered previews dont have time... maybe they dont have other things too / and your response was
-// weirdly folded into the rende?". Opened, a "Subagent finished" row keeps every field its shut line
+// weirdly folded into the rende?". The default completion is compact and its name opens the agent.
+// In the retained disclosure look, an opened "Subagent finished" row keeps every field its shut line
 // has (its mark, its name chip, its new dot, its time, its chevron), each drawn on the line; and the
 // agent's own reply after a subagent's or a background command's end draws as the agent's own
 // message, outside the row's box, never as a muted paragraph inside it.
@@ -43,11 +44,11 @@ await requireBrowserLane("notification-reply-browser.test.ts", async () => {
     await vite?.close();
   });
 
-  const open = async (variant: string, width = 900): Promise<Page> => {
+  const open = async (variant: string, width = 900, reportLook?: "disclosure"): Promise<Page> => {
     const page = await browser.newPage({ viewport: { width: width + 100, height: 900 }, deviceScaleFactor: 2 });
     const port = (vite!.httpServer!.address() as { port: number }).port;
     await page.goto(
-      `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant, width, theme: "Catppuccin Mocha", reducedMotion: "true" })}`,
+      `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant, width, theme: "Catppuccin Mocha", reducedMotion: "true", exp: reportLook && "subagent-done-report", arm: reportLook })}`,
     );
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
       timeout: 120_000,
@@ -64,14 +65,19 @@ await requireBrowserLane("notification-reply-browser.test.ts", async () => {
   const fields = (page: Page) =>
     page.evaluate((agent) => {
       const row = document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="subagentDone:${agent}"]`);
-      const line = row?.querySelector<HTMLElement>(".cv-agentmsg__line");
+      const compact = !!row?.querySelector('[data-report-look="compact"]');
+      const line = row?.querySelector<HTMLElement>(compact ? ".cv-subagent-done-row" : ".cv-agentmsg__line");
       const lineBox = line?.getBoundingClientRect();
       const rowBox = row?.getBoundingClientRect();
       const field = (selector: string) => {
         const node = line?.querySelector<HTMLElement>(selector);
         const box = node?.getBoundingClientRect();
         const shown =
-          !!node && !!box && box.width > 0 && box.height > 0 && node.checkVisibility({ visibilityProperty: true });
+          !!node &&
+          !!box &&
+          box.width > 0 &&
+          box.height > 0 &&
+          node.checkVisibility({ visibilityProperty: true, opacityProperty: true });
         const mid = box ? (box.top + box.bottom) / 2 : NaN;
         return {
           shown,
@@ -82,11 +88,12 @@ await requireBrowserLane("notification-reply-browser.test.ts", async () => {
       };
       return {
         found: !!line,
+        compact,
         open: row?.querySelector(".cv-agentmsg")?.hasAttribute("data-open") ?? false,
-        icon: field(".cv-agentmsg__icon"),
-        name: field(".cv-agentmsg__name"),
+        icon: field(compact ? ".cv-tool__icon" : ".cv-agentmsg__icon"),
+        name: field(compact ? ".cv-agent-tag" : ".cv-agentmsg__name"),
         mark: field(".cv-reaction-mark"),
-        time: field(".cv-agentmsg__time"),
+        time: field(compact ? ".cv-subagent-done__time" : ".cv-agentmsg__time"),
         chevron: field(".cv-agentmsg__chevron"),
       };
     }, AGENT);
@@ -116,20 +123,75 @@ await requireBrowserLane("notification-reply-browser.test.ts", async () => {
   const expectFields = (state: string, result: Awaited<ReturnType<typeof fields>>) => {
     const why = `${state}: ${JSON.stringify(result)}`;
     expect(result.found, why).toBe(true);
-    for (const key of ["icon", "name", "mark", "time", "chevron"] as const) {
+    for (const key of ["icon", "name", "mark", "time"] as const) {
       const one = result[key] as Field;
       expect(one.shown, `${why}\n${key} not shown`).toBe(true);
       expect(one.onLine, `${why}\n${key} off the line`).toBe(true);
       expect(one.inRow, `${why}\n${key} outside the row`).toBe(true);
+    }
+    expect(result.chevron.shown, why).toBe(!result.compact);
+    if (!result.compact) {
+      expect(result.chevron.onLine, why).toBe(true);
+      expect(result.chevron.inRow, why).toBe(true);
     }
     expect(result.time.text, why).toMatch(/^\d+m \d+s$/);
   };
 
   // A wide pane, a chat column and a narrow one: the opened line's name may wrap, never push its
   // time or dot out. Pointed at, too: the hover row never takes their place.
-  for (const width of [900, 560, 380])
-    test(`an opened Subagent finished row keeps its mark, name, new dot, time and chevron on its line at ${width}px`, async () => {
+  for (const width of [900, 560, 380]) {
+    test(`compact completion keeps its identity and opens the chat through its name at ${width}px`, async () => {
       const page = await open("collapsed", width);
+      const row = page.locator(`.acpmux-row[data-row-id="subagentDone:${AGENT}"]`);
+      try {
+        const resting = await fields(page);
+        expect(resting.found).toBe(true);
+        expect(resting.compact).toBe(true);
+        expect(resting.name.text).toBe("Why no nightly since 16:36Z");
+        expect(resting.time.shown).toBe(false);
+        expect(resting.chevron.shown).toBe(false);
+        expect(await row.locator(".cv-subagent-done__report").count()).toBe(0);
+        await row.hover();
+        await settled(page);
+        expectFields(`compact hovered at ${width}`, await fields(page));
+        expect(
+          await placed(page, REPLY.slice(0, 40), `.acpmux-row[data-row-id="subagentDone:${AGENT}"]`),
+        ).toMatchObject({
+          found: true,
+          insideNotification: false,
+          muted: false,
+          below: true,
+        });
+        await page.evaluate(() => {
+          const handler = (
+            window as unknown as {
+              webkit: { messageHandlers: { agentSession: { postMessage(message: unknown): unknown } } };
+            }
+          ).webkit.messageHandlers.agentSession;
+          const post = handler.postMessage;
+          const calls: unknown[] = [];
+          (window as unknown as { __completionCalls: unknown[] }).__completionCalls = calls;
+          handler.postMessage = (message: unknown) => {
+            calls.push(message);
+            return post(message);
+          };
+        });
+        await row.locator("button.cv-agent-tag.is-open").click();
+        const targets = await page.evaluate(() =>
+          (
+            window as unknown as { __completionCalls: { method?: string; params?: { subagent?: string } }[] }
+          ).__completionCalls
+            .filter((call) => call.method === "chat.subagentPane")
+            .map((call) => call.params?.subagent),
+        );
+        expect(targets).toContain(AGENT);
+      } finally {
+        await page.close();
+      }
+    });
+
+    test(`the retained disclosure keeps its mark, name, new dot, time and chevron on its line at ${width}px`, async () => {
+      const page = await open("collapsed", width, "disclosure");
       const shut = await fields(page);
       expectFields("shut", shut);
       expect(shut.open).toBe(false);
@@ -149,9 +211,10 @@ await requireBrowserLane("notification-reply-browser.test.ts", async () => {
       expectFields(`opened and pointed at, at ${width}`, await fields(page));
       await page.close();
     });
+  }
 
   test("the agent's reply after a subagent's end is its own message, open or shut", async () => {
-    const page = await open("collapsed");
+    const page = await open("collapsed", 900, "disclosure");
     const row = `.acpmux-row[data-row-id="subagentDone:${AGENT}"]`;
     const shut = await placed(page, REPLY.slice(0, 40), row);
     expect(shut, JSON.stringify(shut)).toMatchObject({
@@ -183,6 +246,8 @@ await requireBrowserLane("notification-reply-browser.test.ts", async () => {
 
   test("a notification with no reply draws its row alone", async () => {
     const page = await open("no-reply");
+    await page.locator(`.acpmux-row[data-row-id="subagentDone:${AGENT}"]`).hover();
+    await settled(page);
     expectFields("no reply", await fields(page));
     expect(await page.locator(".cv-reaction-reply").count()).toBe(0);
     await page.close();
