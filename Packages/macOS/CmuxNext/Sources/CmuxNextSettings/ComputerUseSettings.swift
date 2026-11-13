@@ -41,7 +41,7 @@ public nonisolated enum ComputerUseMode: String, Sendable, Hashable, CaseIterabl
 ///   the agent set): while the person's pointer is over it, always, or never.
 /// - `settle` (`adaptive`): what the engine waits for after each action before it looks again.
 /// - `allowForeground` (off): agents may send input that takes focus or moves the real pointer.
-/// - `livePreview` (on): a chat shows a small live view of the app its agent uses.
+/// - `livePreview` (on): an agent's terminal or chat shows a live video of the window it uses.
 /// - `menus` (`open`): agents may open pop-up and context menus of background apps (`refuse`: never).
 ///
 /// `computerUse.enabled` and `computerUse.driver` are retired. An old file's

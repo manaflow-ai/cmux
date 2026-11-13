@@ -195738,127 +195738,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Live Preview in Chat"
+            "value": "Live Preview"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "チャットでのライブプレビュー"
+            "value": "ライブプレビュー"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "معاينة مباشرة في الدردشة"
+            "value": "معاينة مباشرة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pregled uživo u chatu"
+            "value": "Pregled uživo"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Live-forhåndsvisning i chat"
+            "value": "Live-forhåndsvisning"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Live-Vorschau im Chat"
+            "value": "Live-Vorschau"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vista previa en directo en el chat"
+            "value": "Vista previa en vivo"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aperçu en direct dans le chat"
+            "value": "Aperçu en direct"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Anteprima dal vivo nella chat"
+            "value": "Anteprima dal vivo"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ការមើលជាមុនផ្ទាល់ក្នុងការជជែក"
+            "value": "ការមើលជាមុនផ្ទាល់"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "채팅의 실시간 미리보기"
+            "value": "실시간 미리보기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Direkteforhåndsvisning i chat"
+            "value": "Direkte forhåndsvisning"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Podgląd na żywo w czacie"
+            "value": "Podgląd na żywo"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Prévia ao vivo no chat"
+            "value": "Prévia ao vivo"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Живой просмотр в чате"
+            "value": "Живой предпросмотр"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ตัวอย่างสดในแชท"
+            "value": "ตัวอย่างสด"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sohbette canlı önizleme"
+            "value": "Canlı önizleme"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Живий перегляд у чаті"
+            "value": "Живий перегляд"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Xem trước trực tiếp trong cuộc trò chuyện"
+            "value": "Xem trước trực tiếp"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "聊天中的实时预览"
+            "value": "实时预览"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "聊天中的即時預覽"
+            "value": "即時預覽"
           }
         }
       }
@@ -195869,127 +195869,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity."
+            "value": "While an agent uses an app, its terminal or chat shows a small live view of the window it works in. Click the view to enlarge it; hover over it to show the window or hide the view."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントがアプリを使っている間、そのチャットにアプリの小さなライブビューが表示されます。ビューをクリックするとエージェントのアクティビティが開きます。"
+            "value": "エージェントがアプリを使っている間、そのターミナルまたはチャットに、作業中のウインドウの小さなライブビューが表示されます。ビューをクリックすると拡大し、ポインタを重ねるとウインドウを表示したりビューを非表示にしたりできます。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "عندما يستخدم وكيل تطبيقًا، تعرض دردشته عرضًا مباشرًا صغيرًا لهذا التطبيق. انقر على العرض لفتح نشاط الوكيل."
+            "value": "أثناء استخدام الوكيل لتطبيق، تعرض الطرفية أو الدردشة الخاصة به عرضًا مباشرًا صغيرًا للنافذة التي يعمل فيها. انقر على العرض لتكبيره، ومرّر المؤشر فوقه لإظهار النافذة أو إخفاء العرض."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dok agent koristi aplikaciju, njegov chat prikazuje mali prikaz te aplikacije uživo. Kliknite prikaz da otvorite Aktivnost agenta."
+            "value": "Dok agent koristi aplikaciju, njegov terminal ili chat prikazuje mali prikaz uživo prozora u kojem radi. Kliknite prikaz da ga uvećate; zadržite pokazivač iznad njega da prikažete prozor ili sakrijete prikaz."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mens en agent bruger en app, viser dens chat en lille livevisning af appen. Klik på visningen for at åbne Agentaktivitet."
+            "value": "Mens en agent bruger en app, viser dens terminal eller chat en lille livevisning af det vindue, den arbejder i. Klik på visningen for at forstørre den; hold markøren over den for at vise vinduet eller skjule visningen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Während ein Agent eine App verwendet, zeigt sein Chat eine kleine Live-Ansicht dieser App. Klicke auf die Ansicht, um die Agentenaktivität zu öffnen."
+            "value": "Während ein Agent eine App verwendet, zeigt sein Terminal oder Chat eine kleine Live-Ansicht des Fensters, in dem er arbeitet. Klicke auf die Ansicht, um sie zu vergrößern; bewege den Zeiger darüber, um das Fenster zu zeigen oder die Ansicht auszublenden."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mientras un agente usa una app, su chat muestra una pequeña vista en directo de esa app. Haz clic en la vista para abrir Actividad de agentes."
+            "value": "Mientras un agente usa una app, su terminal o chat muestra una pequeña vista en vivo de la ventana en la que trabaja. Haz clic en la vista para ampliarla; pasa el puntero por encima para mostrar la ventana u ocultar la vista."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pendant qu'un agent utilise une app, son chat affiche un petit aperçu en direct de cette app. Clique sur l'aperçu pour ouvrir Activité des agents."
+            "value": "Pendant qu’un agent utilise une app, son terminal ou sa discussion affiche un petit aperçu en direct de la fenêtre dans laquelle il travaille. Cliquez sur l’aperçu pour l’agrandir ; survolez-le pour afficher la fenêtre ou masquer l’aperçu."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mentre un agente usa un'app, la sua chat mostra una piccola vista dal vivo di quell'app. Fai clic sulla vista per aprire Attività degli agenti."
+            "value": "Mentre un agente usa un’app, il suo terminale o la sua chat mostra una piccola vista dal vivo della finestra in cui lavora. Fai clic sulla vista per ingrandirla; passaci sopra con il puntatore per mostrare la finestra o nascondere la vista."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ពេលភ្នាក់ងារប្រើកម្មវិធីមួយ ការជជែករបស់វាបង្ហាញទិដ្ឋភាពផ្ទាល់តូចមួយនៃកម្មវិធីនោះ។ ចុចលើទិដ្ឋភាពដើម្បីបើកសកម្មភាពភ្នាក់ងារ។"
+            "value": "ពេលភ្នាក់ងារកំពុងប្រើកម្មវិធី ទែមីណាល់ ឬការជជែករបស់វាបង្ហាញទិដ្ឋភាពផ្ទាល់តូចមួយនៃផ្ទាំងវីនដូដែលវាកំពុងធ្វើការ។ ចុចលើទិដ្ឋភាពដើម្បីពង្រីក ដាក់ព្រួញលើវាដើម្បីបង្ហាញផ្ទាំងវីនដូ ឬលាក់ទិដ្ឋភាព។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "에이전트가 앱을 사용하는 동안 해당 채팅에 그 앱의 작은 실시간 보기가 표시됩니다. 보기를 클릭하면 에이전트 활동이 열립니다."
+            "value": "에이전트가 앱을 사용하는 동안 해당 터미널이나 채팅에 작업 중인 윈도우의 작은 실시간 보기가 표시됩니다. 보기를 클릭하면 확대되고, 포인터를 올리면 윈도우를 보거나 보기를 숨길 수 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mens en agent bruker en app, viser chatten en liten direktevisning av appen. Klikk på visningen for å åpne Agentaktivitet."
+            "value": "Mens en agent bruker en app, viser terminalen eller chatten en liten direktevisning av vinduet den jobber i. Klikk på visningen for å forstørre den; hold pekeren over den for å vise vinduet eller skjule visningen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gdy agent używa aplikacji, jego czat pokazuje mały podgląd tej aplikacji na żywo. Kliknij podgląd, aby otworzyć Aktywność agentów."
+            "value": "Gdy agent używa aplikacji, jego terminal lub czat pokazuje mały podgląd na żywo okna, w którym pracuje. Kliknij podgląd, aby go powiększyć; najedź na niego, aby pokazać okno lub ukryć podgląd."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Enquanto um agente usa um app, o chat dele mostra uma pequena visualização ao vivo desse app. Clique na visualização para abrir Atividade de agentes."
+            "value": "Enquanto um agente usa um app, o terminal ou chat dele mostra uma pequena visualização ao vivo da janela em que ele trabalha. Clique na visualização para ampliá-la; passe o ponteiro sobre ela para mostrar a janela ou ocultar a visualização."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Пока агент работает с приложением, его чат показывает небольшой живой вид этого приложения. Нажмите на вид, чтобы открыть Активность агентов."
+            "value": "Пока агент работает в приложении, его терминал или чат показывает небольшое живое изображение окна, в котором он работает. Нажмите на изображение, чтобы увеличить его; наведите на него указатель, чтобы показать окно или скрыть изображение."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ขณะที่เอเจนต์ใช้แอป แชทของเอเจนต์จะแสดงมุมมองสดขนาดเล็กของแอปนั้น คลิกมุมมองเพื่อเปิดกิจกรรมของเอเจนต์"
+            "value": "ขณะที่เอเจนต์ใช้แอป เทอร์มินัลหรือแชทของเอเจนต์จะแสดงมุมมองสดขนาดเล็กของหน้าต่างที่เอเจนต์ทำงานอยู่ คลิกมุมมองเพื่อขยาย และวางตัวชี้เหนือมุมมองเพื่อแสดงหน้าต่างหรือซ่อนมุมมอง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bir ajan bir uygulamayı kullanırken sohbeti o uygulamanın küçük bir canlı görünümünü gösterir. Ajan etkinliğini açmak için görünüme tıkla."
+            "value": "Bir ajan bir uygulamayı kullanırken terminali veya sohbeti, çalıştığı pencerenin küçük bir canlı görünümünü gösterir. Büyütmek için görünüme tıklayın; pencereyi göstermek veya görünümü gizlemek için imleci üzerine getirin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Поки агент працює з застосунком, його чат показує невеликий живий вигляд цього застосунку. Натисніть на вигляд, щоб відкрити Активність агентів."
+            "value": "Поки агент працює в застосунку, його термінал або чат показує невелике живе зображення вікна, у якому він працює. Натисніть зображення, щоб збільшити його; наведіть на нього вказівник, щоб показати вікно або сховати зображення."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Khi một tác tử dùng một ứng dụng, cuộc trò chuyện của nó hiển thị một khung xem trực tiếp nhỏ của ứng dụng đó. Nhấp vào khung xem để mở Hoạt động của tác tử."
+            "value": "Khi tác tử dùng một ứng dụng, terminal hoặc cuộc trò chuyện của nó hiện một chế độ xem trực tiếp nhỏ của cửa sổ nó đang làm việc. Bấm vào chế độ xem để phóng to; di con trỏ lên đó để hiện cửa sổ hoặc ẩn chế độ xem."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "代理使用某个应用时，其聊天会显示该应用的小型实时视图。点按视图可打开代理活动。"
+            "value": "智能体使用应用时，其终端或聊天会显示它所操作窗口的小型实时画面。点按画面可放大；将指针移到画面上可显示窗口或隐藏画面。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "代理使用某個 App 時，其聊天會顯示該 App 的小型即時檢視。按一下檢視即可開啟代理活動。"
+            "value": "代理使用 App 時，其終端機或聊天會顯示它所操作視窗的小型即時畫面。按一下畫面可放大；將指標移到畫面上可顯示視窗或隱藏畫面。"
           }
         }
       }
@@ -196001,127 +196001,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows the app an agent uses in its chat"
+            "value": "Shows the window an agent uses in its terminal or chat"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントが使うアプリをそのチャットに表示"
+            "value": "エージェントが使うウインドウをそのターミナルまたはチャットに表示"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يعرض التطبيق الذي يستخدمه الوكيل في دردشته"
+            "value": "يعرض النافذة التي يستخدمها الوكيل في الطرفية أو الدردشة الخاصة به"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Prikazuje aplikaciju koju agent koristi u njegovom chatu"
+            "value": "Prikazuje prozor koji agent koristi u njegovom terminalu ili chatu"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Viser den app, en agent bruger, i dens chat"
+            "value": "Viser det vindue, en agent bruger, i dens terminal eller chat"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zeigt die App, die ein Agent verwendet, in seinem Chat"
+            "value": "Zeigt das Fenster, das ein Agent verwendet, in seinem Terminal oder Chat"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Muestra la app que usa un agente en su chat"
+            "value": "Muestra la ventana que usa un agente en su terminal o chat"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Affiche l'app qu'un agent utilise dans son chat"
+            "value": "Affiche la fenêtre utilisée par un agent dans son terminal ou sa discussion"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mostra l'app che un agente usa nella sua chat"
+            "value": "Mostra la finestra usata da un agente nel suo terminale o nella sua chat"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បង្ហាញកម្មវិធីដែលភ្នាក់ងារប្រើ ក្នុងការជជែករបស់វា"
+            "value": "បង្ហាញផ្ទាំងវីនដូដែលភ្នាក់ងារប្រើ នៅក្នុងទែមីណាល់ ឬការជជែករបស់វា"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "에이전트가 사용하는 앱을 채팅에 표시"
+            "value": "에이전트가 사용하는 윈도우를 해당 터미널이나 채팅에 표시"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Viser appen en agent bruker, i chatten"
+            "value": "Viser vinduet en agent bruker, i terminalen eller chatten"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pokazuje w czacie aplikację, której używa agent"
+            "value": "Pokazuje okno używane przez agenta w jego terminalu lub czacie"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mostra no chat o app que um agente usa"
+            "value": "Mostra a janela que um agente usa no terminal ou chat dele"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Показывает в чате приложение, с которым работает агент"
+            "value": "Показывает окно, с которым работает агент, в его терминале или чате"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แสดงแอปที่เอเจนต์ใช้ในแชทของเอเจนต์"
+            "value": "แสดงหน้าต่างที่เอเจนต์ใช้ในเทอร์มินัลหรือแชทของเอเจนต์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ajanın kullandığı uygulamayı sohbetinde gösterir"
+            "value": "Bir ajanın kullandığı pencereyi terminalinde veya sohbetinde gösterir"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Показує в чаті застосунок, з яким працює агент"
+            "value": "Показує вікно, яке використовує агент, у його терміналі або чаті"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hiển thị ứng dụng mà tác tử đang dùng trong cuộc trò chuyện"
+            "value": "Hiện cửa sổ mà tác tử dùng trong terminal hoặc cuộc trò chuyện của nó"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "在聊天中显示代理使用的应用"
+            "value": "在智能体的终端或聊天中显示它使用的窗口"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "在聊天中顯示代理使用的 App"
+            "value": "在代理的終端機或聊天中顯示它使用的視窗"
           }
         }
       }

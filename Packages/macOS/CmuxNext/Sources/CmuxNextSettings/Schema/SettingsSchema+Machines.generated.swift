@@ -221,9 +221,9 @@ nonisolated enum MachineSettingsSchema {
                 ComputerUseSettings.livePreviewPath,
                 section: .general,
                 group: group,
-                title: SettingsText.keyed("settings.computerUse.livePreview", "Live Preview in Chat"),
-                help: SettingsText.keyed("settings.computerUse.livePreview.help", "While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity."),
-                summary: SettingsText.keyed("settings.computerUse.livePreview.summary", "Shows the app an agent uses in its chat"),
+                title: SettingsText.keyed("settings.computerUse.livePreview", "Live Preview"),
+                help: SettingsText.keyed("settings.computerUse.livePreview.help", "While an agent uses an app, its terminal or chat shows a small live view of the window it works in. Click the view to enlarge it; hover over it to show the window or hide the view."),
+                summary: SettingsText.keyed("settings.computerUse.livePreview.summary", "Shows the window an agent uses in its terminal or chat"),
                 kind: .toggle,
                 default: .bool(ComputerUseSettings.livePreviewDefault),
                 keywords: ["computer use", "live preview", "preview", "agent activity", "screenshot", "chat"]
