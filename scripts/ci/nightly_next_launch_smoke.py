@@ -156,8 +156,10 @@ def seeded_note(attempts: list[tuple[int, dict]]) -> str:
         if said == PASS:
             return ""
         reason = str(arm.get("reason") or "the harness gave no reason")
-        # One line of printable text, whatever the harness wrote: the workflow puts it in a `::warning` command.
-        said, reason = ("".join(ch if ch.isprintable() else " " for ch in text) for text in (said, reason))
+        # One line of printable text with no backslash, whatever the harness wrote: the workflow puts it in a
+        # `::warning` command with `echo`, and an `echo` that reads escapes would make `\n` a new line.
+        said, reason = ("".join(ch if ch.isprintable() and ch != "\\" else " " for ch in text)
+                        for text in (said, reason))
         return " ".join(f"the seeded home (imported-cookie sync on) was not checked ({said}: {reason})".split())[:400] \
             + "; the empty home passed and the build stays on the feed"
     return ""
