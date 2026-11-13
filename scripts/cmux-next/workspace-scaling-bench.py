@@ -265,6 +265,23 @@ def read_report(path):
         return {}
 
 
+def probe_reason(report_path, log_path, lines=8):
+    """Why a probe exited without measuring: its report's own `invalid` / `launch_error` and the last lines of its log,
+    so an incomplete record names the cause instead of only an exit code (cmux#24569)."""
+    reason = {}
+    report = read_report(pathlib.Path(report_path))
+    for key in ("invalid", "launch_error", "error"):
+        if report.get(key):
+            reason[key] = report[key]
+    try:
+        tail = pathlib.Path(log_path).read_text(errors="replace").splitlines()[-lines:]
+    except OSError:
+        tail = []
+    if tail:
+        reason["log_tail"] = [line[:300] for line in tail]
+    return reason
+
+
 def run_app(opts):
     reports, failures = {}, []
     for count in COUNTS:
@@ -280,7 +297,8 @@ def run_app(opts):
                           "--out", str(instant), "--json", str(instant / "report.json")], root, probe_timeout)
         if code != 0 or not (instant / "report.json").exists():
             failures.append({"workspaces": count, "probe": "instant", "exit": code,
-                             "report": str(instant / "report.json")})
+                             "report": str(instant / "report.json"),
+                             **probe_reason(instant / "report.json", root / "instant-new-surfaces-bench.log")})
         sidebar = root / "sidebar"
         # sidebar-stress-bench starts with one workspace before grow(size). Ask it to grow size-1 so
         # its measured topology is exactly the headline count rather than count+1. A one-row list
@@ -296,7 +314,8 @@ def run_app(opts):
                              probe_timeout)
             if code != 0 or not (sidebar / "results.json").exists():
                 failures.append({"workspaces": count, "probe": "sidebar", "exit": code,
-                                 "report": str(sidebar / "results.json")})
+                                 "report": str(sidebar / "results.json"),
+                                 **probe_reason(sidebar / "results.json", root / "sidebar-stress-bench.log")})
             sidebar_report = read_report(sidebar / "results.json")
         typing = root / "typing"
         # Keep the typing workload invariant across topology sizes. The typing workspace is the
@@ -309,7 +328,8 @@ def run_app(opts):
                          probe_timeout)
         if code != 0 or not (typing / "report.json").exists():
             failures.append({"workspaces": count, "probe": "typing", "exit": code,
-                             "report": str(typing / "report.json")})
+                             "report": str(typing / "report.json"),
+                             **probe_reason(typing / "report.json", root / "automation-typing-bench.log")})
         reports[count] = {"instant": read_report(instant / "report.json"),
                           "sidebar": sidebar_report,
                           "typing": read_report(typing / "report.json"),
@@ -339,7 +359,11 @@ def run_app(opts):
         for probe, got, names in zip(("instant", "sidebar", "typing"), probes, expected):
             missing = [name for name in names if name not in got]
             if missing:
-                failures.append({"workspaces": count, "probe": probe, "missing": missing})
+                record = {"workspaces": count, "probe": probe, "missing": missing}
+                size_entry = (reports[count]["sidebar"].get("sizes") or {}).get(str(sidebar_count)) or {}
+                if probe == "sidebar" and isinstance(size_entry.get("switch"), dict) and size_entry["switch"].get("error"):
+                    record["switch_error"] = size_entry["switch"]  # the scenario's own reason (sidebar-stress-bench.py)
+                failures.append(record)
         measured = ((reports[count]["sidebar"].get("sizes") or {}).get(str(sidebar_count)) or {}).get("rows_listed")
         if isinstance(measured, int) and measured != count:
             failures.append({"workspaces": count, "probe": "sidebar", "expected_rows": count,

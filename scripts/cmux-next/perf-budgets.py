@@ -509,6 +509,22 @@ def main():
     finish(opts, budgets, only, runs, values)
 
 
+def prepare_outputs(argv, report_path):
+    """Make the folders a bench writes into: its `--out` folder, or the parent of its `--out` when that is the bench's
+    report file (home-perf.py writes one JSON file at --out). Making the report path itself a folder had home-perf.py
+    end in IsADirectoryError after measuring, so the home rows were never read (cmux#24569). An empty folder an older
+    run left at the report path goes, so the bench can write its file there."""
+    for flag, value in zip(argv, argv[1:]):
+        if flag != "--out":
+            continue
+        if report_path and os.path.abspath(value) == os.path.abspath(report_path):
+            if os.path.isdir(value) and not os.listdir(value):
+                os.rmdir(value)
+            os.makedirs(os.path.dirname(os.path.abspath(value)), exist_ok=True)
+        else:
+            os.makedirs(value, exist_ok=True)
+
+
 def run_phase(phase, only, plan, opts, runs, values):
     """Run each bench of `only` once in `phase` (idle, or under that tier's load), its rows suffixed `@phase`."""
     out = os.path.join(opts.out, phase) if phase else opts.out
@@ -519,9 +535,7 @@ def run_phase(phase, only, plan, opts, runs, values):
     for name in only:
         argv, report, mapper = plan[name]
         # Some benches open files in their --out without making it.
-        for flag, value in zip(argv, argv[1:]):
-            if flag == "--out":
-                os.makedirs(value, exist_ok=True)
+        prepare_outputs(argv, o(report) if report else None)
         if not os.path.exists(argv[1]):  # a bench another lane adds (anim-perf) on a checkout without it
             print(f"\n=== {name}: {os.path.basename(argv[1])} is not in this checkout; its rows stay n/a", flush=True)
             continue
