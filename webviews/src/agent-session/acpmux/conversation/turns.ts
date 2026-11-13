@@ -432,9 +432,10 @@ const retainVisibleReplies = (
   previous: readonly AcpmuxRow[] | undefined,
   previousVisibleIds: ReadonlySet<string> | undefined,
 ): readonly AcpmuxRow[] => {
-  if (!previous || !previousVisibleIds || !rows.some((row) => row.kind === "activity")) return rows;
+  if (!previous || !previousVisibleIds) return rows;
   const changedAt = Math.max(0, keptPrefix(previous, rows) - 1);
   const changedRows = rows.slice(changedAt);
+  if (!changedRows.some((row) => row.kind === "activity")) return rows;
   const currentIds = new Set(changedRows.map((row) => row.id));
   const missingReplyIds = new Set(previousVisibleIds);
   for (const row of changedRows)
@@ -451,7 +452,7 @@ const retainVisibleReplies = (
   while (start > 0 && previous[start - 1]!.kind !== "user") start -= 1;
   const relevant = previous.slice(start);
   const previousById = new Map(relevant.map((row) => [row.id, row]));
-  const hasEmptyReplacement = rows.some(
+  const hasEmptyReplacement = changedRows.some(
     (row) =>
       row.kind === "assistant" &&
       isVisiblyEmptyMessage(row) &&
@@ -509,6 +510,24 @@ const retainVisibleReplies = (
       a.at - b.at ||
       (retainedOrder.get(a.id) ?? Number.POSITIVE_INFINITY) - (retainedOrder.get(b.id) ?? Number.POSITIVE_INFINITY),
   );
+};
+
+const visibleReplyIdsFor = (rows: readonly AcpmuxRow[], previous: TurnView | undefined): ReadonlySet<string> => {
+  if (!previous) {
+    return new Set(rows.filter((row) => row.kind === "assistant" && !isVisiblyEmptyMessage(row)).map((row) => row.id));
+  }
+  const changedAt = keptPrefix(previous.source, rows);
+  if (changedAt === rows.length && rows.length === previous.source.length) return previous.visibleReplyIds;
+  const ids = new Set(previous.visibleReplyIds);
+  for (let index = changedAt; index < previous.source.length; index += 1) {
+    const row = previous.source[index]!;
+    if (row.kind === "assistant" && !isVisiblyEmptyMessage(row)) ids.delete(row.id);
+  }
+  for (let index = changedAt; index < rows.length; index += 1) {
+    const row = rows[index]!;
+    if (row.kind === "assistant" && !isVisiblyEmptyMessage(row)) ids.add(row.id);
+  }
+  return ids;
 };
 
 const firstDateUnchanged = (view: TurnView, now: number) =>
@@ -774,9 +793,7 @@ export function turnViewFrom(
     ends,
     nextSteps,
     rows: out,
-    visibleReplyIds: new Set(
-      rows.filter((row) => row.kind === "assistant" && !isVisiblyEmptyMessage(row)).map((row) => row.id),
-    ),
+    visibleReplyIds: visibleReplyIdsFor(rows, previous),
   };
 }
 
