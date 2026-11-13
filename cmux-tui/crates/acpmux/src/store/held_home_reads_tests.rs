@@ -1651,6 +1651,95 @@ fn the_lint_follows_nested_glob_re_exports() {
     );
 }
 
+/// A read bound to a local is still a read: `let f = std::fs::metadata; f(p)`, and `let f =
+/// metadata;` after `use std::fs::metadata;`, are rows at the binding (a read as a value) and at
+/// the call. A local bound later does not hide an earlier call of the import it shadows, and
+/// locals named like a read (`exists`, `metadata`, a closure's `try_exists`) are none.
+#[test]
+fn the_lint_follows_a_read_bound_to_a_local() {
+    let rows = rows_of(
+        r#"
+        mod direct {
+            fn a(p: &Path) -> bool {
+                let f = std::fs::metadata;
+                f(p).is_ok()
+            }
+        }
+        mod imported {
+            use std::fs::metadata;
+            fn a(p: &Path) -> bool {
+                let f = metadata;
+                f(p).is_ok()
+            }
+        }
+        mod shadowed_later {
+            use std::fs::metadata;
+            fn a(p: &Path) -> bool {
+                let ok = metadata(p).is_ok();
+                let metadata = 1;
+                ok && metadata == 1
+            }
+        }
+        mod plain_locals {
+            fn a(exists: bool, p: &Path) -> bool {
+                let metadata = p.as_os_str().len();
+                let f = |try_exists: bool| try_exists;
+                exists && metadata > 0 && f(exists)
+            }
+        }
+        "#,
+    );
+    assert_eq!(
+        rows,
+        [
+            "std::fs::metadata as a value",
+            "f(..) (std::fs::metadata)",
+            "metadata as a value (std::fs::metadata)",
+            "f(..) (std::fs::metadata)",
+            "metadata(..) (std::fs::metadata)",
+        ],
+    );
+}
+
+/// A read passed as a value is a read: `.map(std::fs::metadata)`, `.and_then(fs::symlink_metadata)`,
+/// `.map(Path::exists)`, a struct field set to `fs::metadata`, `home_fs::exists_nofollow` as an
+/// argument. Functions that are not reads (`Result::is_ok`, `Path::to_path_buf`, a local fn) and a
+/// parameter called as a function are none.
+#[test]
+fn the_lint_reports_a_read_passed_as_a_value() {
+    let rows = rows_of(
+        r#"
+        use std::fs;
+        use std::path::Path;
+        struct Probe { read: fn(&Path) -> std::io::Result<fs::Metadata> }
+        fn a(paths: Vec<&Path>) -> usize {
+            paths.into_iter().map(std::fs::metadata).filter(Result::is_ok).count()
+        }
+        fn b(p: Option<&Path>) -> bool {
+            p.map(Path::exists).unwrap_or(false)
+        }
+        fn c(p: &Path) -> bool {
+            Some(p).ok_or(()).and_then(fs::symlink_metadata).is_ok()
+        }
+        fn d() -> Probe { Probe { read: fs::metadata } }
+        fn e(p: &Path) -> bool { run(crate::home_fs::exists_nofollow, p) }
+        fn run(f: fn(&Path) -> bool, p: &Path) -> bool { f(p) }
+        fn known(p: &Path) -> bool { Some(p).map(Path::to_path_buf).is_some() && run(own, p) }
+        fn own(_: &Path) -> bool { true }
+        "#,
+    );
+    assert_eq!(
+        rows,
+        [
+            "std::fs::metadata as a value",
+            "Path::exists as a value",
+            "fs::symlink_metadata as a value",
+            "fs::metadata as a value",
+            "crate::home_fs::exists_nofollow as a value",
+        ],
+    );
+}
+
 /// Every operation in `home_fs.rs` whose Unix arm goes through the held home's descriptor
 /// (`unix::...`) checks the held home in its other arms too (`held` or `held_read`): no
 /// `home_fs` function that the store's reads go through is path-based on any platform (#41721
