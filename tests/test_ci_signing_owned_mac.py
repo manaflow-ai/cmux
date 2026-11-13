@@ -171,6 +171,7 @@ DYNAMIC_INDEX = re.compile(r"\b(?:secrets|needs|outputs)\s*\[")
 REF_CONDITION = re.compile(r"\bgithub\.ref(?:_name)?\b")
 AFTER_STEP = re.compile(r"^\s*steps\.([\w-]+)\.outcome\s*==\s*'failure'\s*$")
 RUNS_AFTER_FAILURE = keychain_guard.runs_after_failure
+AFTER_STEP_RAN = re.compile(r"always\(\)\s*&&\s*steps\.([\w-]+)\.outcome\s*!=\s*'skipped'")
 # A Sparkle EdDSA private key (SPARKLE_PRIVATE_KEY, NIGHTLY_SPARKLE_PRIVATE_KEY, SPARKLE_NEXT_PRIVATE_KEY, ...),
 # as a secret name tests/workflow_jobs.py reads in any form.
 SPARKLE_KEY = re.compile(r"\w*SPARKLE\w*PRIVATE_KEY")
@@ -447,7 +448,14 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
                 # source artifact); the unconditional first-step gate is what fails the job without the claim.
                 if str(steps[claim].get("continue-on-error", "false")) != "false":
                     failures.append(f"{label}: the claim step must fail the job (no continue-on-error)")
+                # `always() && steps.X.outcome != 'skipped'` runs only when step X ran: an X after the claim whose own
+                # `if` cannot run after a failure (nightly-next-one's publish lease) never ran after a failed claim.
+                ran_after_claim = {str(step.get("id")) for step in steps[claim + 1:]
+                                   if step.get("id") and not RUNS_AFTER_FAILURE(step.get("if"))}
                 for index, step in enumerate(steps, 0):
+                    after = AFTER_STEP_RAN.fullmatch(str(step.get("if", "")).strip())
+                    if after and after.group(1) in ran_after_claim:
+                        continue
                     if reads_any_secret(step) and RUNS_AFTER_FAILURE(step.get("if")):
                         failures.append(f"{label}: step {index} names a secret and runs after a failed claim "
                                         f"(if: {step.get('if')})")
@@ -485,15 +493,10 @@ EXCLUSIVE_EXEMPT: dict[tuple[str, str], str] = {
 }
 # Jobs that read signing_runner.py's owned pick and are not counted by its cap (signing_runner.SIGNING_JOBS), each
 # with why. None: every owned pick a job takes is a mini held whole, which MAX_OWNED_SIGNING must count.
-OWNED_PICK_EXEMPT: dict[tuple[str, str], str] = {
-    # Found by this guard on 2026-11-10 and reported, not fixed here: it holds no secret, so it is not glaeda's
-    # exclusive class and the cap rightly does not count it, but it reads find-nightly-next-recovery's sign_owned
-    # (the recovery signer's own runner pin) where verify-signed-nightly and verify-final-dmg-nightly read the
-    # verify pick (`owned`), which find-nightly-next-recovery does not publish.
-    ("nightly.yml", "verify-recovered-nightly-next"):
-        "secret-free verify of the recovered DMG; it follows recover-nightly-next-notarization (needs) onto the "
-        "runner that job's pick named, after the signer released it, and glaeda does not hold that mini whole for it",
-}
+# verify-recovered-nightly-next was the one entry (found here 2026-11-10, reported, not fixed): it read the recovery
+# signer's pin, and glaeda admits only signing jobs on a signing mini, so it was refused and no recovered build ever
+# published (ask-2f54cdc7fc, run 43224144950). A secret-free job reads the verify pick, never a signer's pin.
+OWNED_PICK_EXEMPT: dict[tuple[str, str], str] = {}
 
 
 def owned_pick_reads(jobs: dict, runs_on: str) -> list[str]:

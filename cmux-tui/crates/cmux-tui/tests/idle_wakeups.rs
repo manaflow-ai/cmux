@@ -638,9 +638,9 @@ fn daemon_usage_patterns_follow_the_setting_while_it_runs() {
     /// about 0.1 s after the write.
     const ON: Duration = Duration::from_secs(5);
     /// From the write that turns the setting on to the file on disk. The
-    /// first timed write comes `FLUSH_EVERY` after the daemon reads that
-    /// setting, so a file inside this limit was written because the setting
-    /// went off.
+    /// first timed write comes `FLUSH_EVERY` after the first command that
+    /// the daemon counts, so a file inside this limit was written because
+    /// the setting went off.
     const LIMIT: Duration = Duration::from_secs(20);
     const { assert!(LIMIT.as_secs() < cmux_usage_patterns::FLUSH_EVERY.as_secs()) };
 
@@ -726,6 +726,37 @@ fn daemon_usage_patterns_on_has_no_periodic_wakeups() {
         assert!(Instant::now() < deadline, "the daemon wrote no usage patterns");
         std::thread::sleep(Duration::from_millis(25));
     }
+}
+
+/// The daemon watches the folders its project sources read (~/.codex among
+/// them), and on a machine that runs Codex agents that folder is busy: Codex
+/// appends to its logs and other databases there several times a second. The
+/// daemon reads none of those files, so the writes must not wake it (a watch
+/// of the whole folder woke it for each write: about 230 context switches per
+/// window at 20 writes a second).
+#[test]
+fn cmux_next_daemon_idle_ignores_writes_to_unread_files_in_a_watched_project_folder() {
+    let daemon = Daemon::start("project-folder");
+    let codex = daemon.dir.join("home/.codex");
+    let unread = ["logs_2.sqlite", "logs_2.sqlite-wal", "goals_1.sqlite-wal", "history.jsonl"];
+    for name in unread {
+        fs::write(codex.join(name), "").unwrap();
+    }
+    assert_idle(&daemon, move || {
+        // About 20 writes a second through the windows, in place, as a
+        // database or log appends.
+        let end = Instant::now() + WINDOW * WINDOWS - Duration::from_millis(100);
+        let mut round = 0usize;
+        while Instant::now() < end {
+            let mut file = fs::OpenOptions::new()
+                .append(true)
+                .open(codex.join(unread[round % unread.len()]))
+                .unwrap();
+            file.write_all(format!("{round}\n").as_bytes()).unwrap();
+            round += 1;
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    });
 }
 
 /// Starts a terminal, keeps the app's streams open, settles, then runs

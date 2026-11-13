@@ -17,7 +17,9 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { AcpmuxRow } from "../model";
 import type { Subagent } from "./subagentFold";
+import { foreignHarness } from "./agentIdentityModel";
 import { subagentsIn } from "./subagentRows";
+import type { SenderIconBadge } from "./senderIconLook";
 
 /// The `revealTurn` prefix that opens a pane on a subagent's view.
 export const SUBAGENT_REVEAL = "subagent:";
@@ -72,6 +74,19 @@ export function subagentTabTitle(agent: Pick<Subagent, "id" | "name"> | undefine
   return own && own !== agent?.id ? own : fallback;
 }
 
+/// The harness whose mark subagent `agent`'s row draws (SubagentDoneLine.tsx, the tray: AgentIdentity
+/// with `foreignHarness`), or undefined for the subagent mark (`task.ai`). Its pane's tab draws the
+/// same (`chat.subagentPane` / `chat.subagentShown` `mark`; SubagentTabTitles.swift `icon(ofTab:)`).
+/// Leo, 2026-11-12, on a subagent tab with its chat's mark beside the row's sparkle: "ICON ISN'T THE
+/// SAME".
+export function subagentRowMark(
+  agent: Pick<Subagent, "harness"> | undefined,
+  chatHarness: string | undefined,
+  badge: SenderIconBadge,
+): string | undefined {
+  return foreignHarness(agent?.harness, chatHarness, badge);
+}
+
 /// Asks the app for subagent `id`'s pane; false when it opened none. `title` is the subagent's own
 /// name, which the pane's tab shows instead of the chat's (Leo 2026-10-30: "subagents shouldn't be
 /// tab-named the exact same as the parent").
@@ -81,6 +96,7 @@ export async function openSubagentPane(
   focus: boolean,
   title?: string,
   tone?: number,
+  mark?: string,
 ): Promise<boolean> {
   try {
     const reply = await call("chat.subagentPane", {
@@ -88,6 +104,7 @@ export async function openSubagentPane(
       focus,
       ...(title ? { title } : {}),
       ...(tone !== undefined ? { tone } : {}),
+      ...(mark ? { mark } : {}),
     });
     return (reply as { opened?: unknown } | null)?.opened === true;
   } catch {
@@ -124,12 +141,13 @@ export async function showSubagent(
     beforeOpen?: () => void;
     title?: string;
     tone?: number;
+    mark?: string;
   },
 ): Promise<void> {
   if (options.inSubagentPane) return options.here(id);
   if (!focus && !options.panes) return;
   options.beforeOpen?.();
-  const opened = await openSubagentPane(call, id, focus, options.title, options.tone);
+  const opened = await openSubagentPane(call, id, focus, options.title, options.tone, options.mark);
   if (!opened && focus) options.here(id);
 }
 

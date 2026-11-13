@@ -4,7 +4,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { createStrings } from "../shared/i18n";
 import { LASTING_MS } from "../../ui/lasting";
-import { DaemonGate, type DaemonSource } from "./DaemonGate";
+import { DaemonGate, PAGE_LISTENER_REFUSED, type DaemonSource } from "./DaemonGate";
+import { pageError } from "../shared/pageClient";
+import { userMessage } from "../shared/userMessage";
 import { settleReact } from "../../../test/support/domTeardown";
 
 // Leo, 2026-10-29: "STOP SHOWING FUCKING BULLSHIT ON LOAD". While this build's Chief or the local
@@ -61,6 +63,9 @@ const strings = createStrings(
       "connect.title": "Connect to cmux",
       "connect.connecting": "Connecting…",
       "connect.failed": "Could not connect: %@",
+      "connect.button": "Connect",
+      "connect.restart": "Restart cmux-tui",
+      "connect.listenerRefused": "This cmux-tui was started with its own sign-in settings. Restart cmux-tui.",
     },
   },
   ["en"],
@@ -69,7 +74,7 @@ const strings = createStrings(
 /** A host whose daemon is still starting: every credential load is refused as retryable. */
 const starting: DaemonSource = {
   kind: "host",
-  load: () => Promise.reject(Object.assign(new Error("Starting this build's Chief…"), { retryable: true })),
+  load: () => Promise.reject(pageError("cmux.protocol.unavailable", "Starting this build's Chief…", true)),
 };
 
 test("a daemon still starting shows nothing, then one muted line once it lasts", async () => {
@@ -90,7 +95,8 @@ test("a daemon still starting shows nothing, then one muted line once it lasts",
   await act(async () => void jest.advanceTimersByTime(1));
   const lines = container.querySelectorAll(".hc-gate-line");
   expect(lines).toHaveLength(1);
-  expect(lines[0]!.textContent).toBe("Could not connect: Starting this build's Chief…");
+  // The host words this one for the person; it is said as is.
+  expect(lines[0]!.textContent).toBe("Starting this build's Chief…");
   expect(container.querySelector(".hc-gate-error")).toBeNull();
   expect(container.querySelector("h1")).toBeNull();
 });
@@ -100,7 +106,7 @@ test("a final refusal is said at once, as before", async () => {
   root = createRoot(container);
   const blocked: DaemonSource = {
     kind: "host",
-    load: () => Promise.reject(Object.assign(new Error("too old"), { retryable: false })),
+    load: () => Promise.reject(pageError("cmux.daemon.too_old", "Update cmux, then open this tab again.", false)),
   };
   await act(async () =>
     root!.render(
@@ -109,5 +115,49 @@ test("a final refusal is said at once, as before", async () => {
       </DaemonGate>,
     ),
   );
-  expect(container.querySelector(".hc-gate-error")?.textContent).toBe("Could not connect: too old");
+  expect(container.querySelector(".hc-gate-error")?.textContent).toBe("Update cmux, then open this tab again.");
+});
+
+/** Renders the gate on a host whose credential load always fails with `error`. */
+async function renderBlocked(error: Error, restart?: () => void): Promise<HTMLElement> {
+  const container = installDom();
+  root = createRoot(container);
+  const source: DaemonSource = { kind: "host", load: () => Promise.reject(error) };
+  await act(async () =>
+    root!.render(
+      <DaemonGate source={source} strings={strings} restart={restart}>
+        {() => null}
+      </DaemonGate>,
+    ),
+  );
+  return container;
+}
+
+test("a refused page listener says so plainly and offers Restart cmux-tui, never the daemon's text", async () => {
+  let restarts = 0;
+  const raw =
+    "this daemon's WebSocket listener uses a configured credential (--ws-token or server.ws_token), so it has no credential file to share";
+  const container = await renderBlocked(pageError(PAGE_LISTENER_REFUSED, raw, false), () => restarts++);
+  const line = container.querySelector(".hc-gate-error")?.textContent ?? "";
+  expect(line).toBe(strings.t("connect.listenerRefused"));
+  expect(container.textContent).not.toContain("--ws-token");
+  const buttons = [...container.querySelectorAll("button")].map((button) => button.textContent);
+  expect(buttons).toEqual(["Restart cmux-tui"]);
+  jest.useFakeTimers();
+  await act(async () => container.querySelector("button")!.click());
+  expect(restarts).toBe(1);
+});
+
+test("without the app to restart it, the refusal keeps Connect", async () => {
+  const container = await renderBlocked(pageError(PAGE_LISTENER_REFUSED, "--ws-token", false));
+  expect(container.querySelector(".hc-gate-error")?.textContent).toBe(strings.t("connect.listenerRefused"));
+  expect([...container.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Connect"]);
+});
+
+test("any other final refusal is the plain sentence with Connect", async () => {
+  const container = await renderBlocked(
+    pageError("cmux.page.failed", 'command(cmd: "ws-listen", code: Optional("io"))', false),
+  );
+  expect(container.querySelector(".hc-gate-error")?.textContent).toBe(userMessage(undefined));
+  expect([...container.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Connect"]);
 });

@@ -21,6 +21,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from runs_on_labels import EMPTY, Unknown, disallowed_labels, linux_runner_values, resolve_labels  # noqa: E402
 # The personal Linux workstation's label, from the fleet rule lint: the one file allowed to spell it.
 from test_ci_fleet_rule_lints import CANDIDATE_WORDS_ANY_CASE  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 import workflow_jobs  # noqa: E402
 
 PERSONAL_WORKSTATION_LABEL = CANDIDATE_WORDS_ANY_CASE[0]
@@ -68,7 +70,7 @@ SITES = (
 
 def wrapped(runs_on: str, bad: str) -> str:
     """`${{ vars.CI_MUTATION && '<bad>' || <runs_on> }}`, for a bare label or any expression."""
-    inner = re.fullmatch(r"\$\{\{(.*)\}\}", runs_on.strip(), re.DOTALL)
+    inner = gh_expressions.EXPRESSION.fullmatch(runs_on.strip())
     original = f"({inner.group(1).strip()})" if inner else "'" + runs_on.strip().replace("'", "''") + "'"
     return "${{ vars.CI_MUTATION && '" + bad + "' || " + original + " }}"
 
