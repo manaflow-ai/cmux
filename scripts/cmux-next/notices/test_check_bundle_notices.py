@@ -264,7 +264,7 @@ class CheckBundleNoticesTest(unittest.TestCase):
         return {"entries": [{"path": "Contents/MacOS/app", "notices": ["rust-std", "zig-std"]}]}
 
     def test_rust_std_requirement_reads_the_rustc_commit_of_the_binary(self) -> None:
-        bundle_map = self.std_app("59807616e1fa2540724bfbac14d7976d7e4a3860")  # 1.95.0
+        bundle_map = self.std_app("0ef1bc386059596dada8fb65b50425aab2ea637a")  # 1.100.0
         self.assertEqual(checker.check(self.app, bundle_map), [])
         bundle_map = self.std_app("c" * 40)
         errors = checker.check(self.app, bundle_map)
@@ -273,15 +273,15 @@ class CheckBundleNoticesTest(unittest.TestCase):
         self.assertIn("c" * 40, errors[0])
 
     def test_a_binary_with_rust_code_needs_rust_std_in_its_entry(self) -> None:
-        self.std_app("59807616e1fa2540724bfbac14d7976d7e4a3860")
+        self.std_app("0ef1bc386059596dada8fb65b50425aab2ea637a")
         self.assertEqual(
             checker.check(self.app, MAP),
-            ["Contents/MacOS/app: links the Rust standard library of rustc 59807616e1fa2540724bfbac14d7976d7e4a3860, "
+            ["Contents/MacOS/app: links the Rust standard library of rustc 0ef1bc386059596dada8fb65b50425aab2ea637a, "
              "but no bundle-map entry for it requires rust-std"],
         )
 
     def test_zig_std_requirement_needs_the_bundled_zig_license(self) -> None:
-        bundle_map = self.std_app("59807616e1fa2540724bfbac14d7976d7e4a3860")
+        bundle_map = self.std_app("0ef1bc386059596dada8fb65b50425aab2ea637a")
         (self.app / "Contents/Resources/toolchain-licenses/zig-0.16.0/LICENSE").unlink()
         errors = checker.check(self.app, bundle_map)
         self.assertEqual(len(errors), 1, errors)
@@ -304,7 +304,7 @@ class CheckBundleNoticesTest(unittest.TestCase):
     BROWSER_HOST_SECTIONS = ("rust-cmux-browser-host", "manual-cmux-browser-host-runtime-javascript")
 
     def browser_host_app(self) -> dict:
-        """The fake bundle: bin/cmux-browser-host (Rust, rustc 1.95.0 std), the
+        """The fake bundle: bin/cmux-browser-host (Rust, rustc 1.100.0 std), the
         reviewed toolchain texts, and the committed THIRD_PARTY_LICENSES.md."""
         sys.path.insert(0, str(ROOT / "cmux-tui/build-support/notices/toolchains"))
         import toolchain_notices
@@ -312,7 +312,7 @@ class CheckBundleNoticesTest(unittest.TestCase):
         (self.app / "Contents/MacOS/app").unlink()
         binary = self.app / self.BROWSER_HOST
         binary.parent.mkdir(parents=True)
-        binary.write_bytes(THIN + b"/rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/lib.rs")
+        binary.write_bytes(THIN + b"/rustc/0ef1bc386059596dada8fb65b50425aab2ea637a/library/std/src/lib.rs")
         notices = self.app / "Contents/Resources/THIRD_PARTY_LICENSES.md"
         notices.write_text((ROOT / "THIRD_PARTY_LICENSES.md").read_text())
         return json.loads((HERE / "bundle-map.json").read_text())
@@ -337,7 +337,7 @@ class CheckBundleNoticesTest(unittest.TestCase):
     SCREEN_DETECTION_SECTIONS = ("rust-cmux-agent-screen-detection", "manual-herdr-agent-detection-plugin")
 
     def screen_detection_app(self) -> dict:
-        """The fake bundle: bin/cmux-agent-screen-detection (Rust, rustc 1.95.0
+        """The fake bundle: bin/cmux-agent-screen-detection (Rust, rustc 1.100.0
         std), the reviewed toolchain texts, the GPL LICENSE and the committed
         THIRD_PARTY_LICENSES.md."""
         sys.path.insert(0, str(ROOT / "cmux-tui/build-support/notices/toolchains"))
@@ -346,7 +346,7 @@ class CheckBundleNoticesTest(unittest.TestCase):
         (self.app / "Contents/MacOS/app").unlink()
         binary = self.app / self.SCREEN_DETECTION
         binary.parent.mkdir(parents=True)
-        binary.write_bytes(THIN + b"/rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/lib.rs")
+        binary.write_bytes(THIN + b"/rustc/0ef1bc386059596dada8fb65b50425aab2ea637a/library/std/src/lib.rs")
         notices = self.app / "Contents/Resources/THIRD_PARTY_LICENSES.md"
         notices.write_text((ROOT / "THIRD_PARTY_LICENSES.md").read_text())
         return json.loads((HERE / "bundle-map.json").read_text())

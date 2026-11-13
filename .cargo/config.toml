@@ -1,0 +1,4 @@
+# Keep newly published crates out of ordinary dependency resolutions long enough
+# for registry mirrors and security scanners to observe them.
+[registry]
+global-min-publish-age = "3 days"

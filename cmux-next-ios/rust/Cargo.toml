@@ -55,3 +55,9 @@ smoltcp = { path = "../../cmux-tui/vendor/smoltcp" }
 
 [profile.release]
 lto = "off"
+# Keep line tables for backtraces while avoiding full DWARF in fleet target snapshots.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false

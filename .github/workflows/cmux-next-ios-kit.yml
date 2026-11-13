@@ -208,7 +208,7 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
-      # cmux-next-ios/rust pins the same toolchain as cmux-tui (1.95.0).
+      # cmux-next-ios/rust pins the same toolchain as cmux-tui (1.100.0).
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 

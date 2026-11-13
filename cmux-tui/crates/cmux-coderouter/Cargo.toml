@@ -17,14 +17,10 @@ base64.workspace = true
 bytes.workspace = true
 cmux-local-auth.workspace = true
 cmux-unix-socket.workspace = true
-futures-util.workspace = true
 fs4.workspace = true
 getrandom.workspace = true
 hmac.workspace = true
 http.workspace = true
-http-body-util.workspace = true
-hyper.workspace = true
-hyper-util.workspace = true
 libc.workspace = true
 reqwest = { workspace = true, features = ["stream", "form"] }
 rustls.workspace = true
@@ -32,7 +28,6 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 tokio.workspace = true
-tokio-util.workspace = true
 tower-http.workspace = true
 hex.workspace = true
 tracing = "0.1"
@@ -45,4 +40,3 @@ zeroize.workspace = true
 cmux-link.workspace = true
 
 [dev-dependencies]
-tempfile = "3"
