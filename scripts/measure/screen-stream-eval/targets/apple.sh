@@ -12,6 +12,7 @@ now_ms() {
 }
 
 screen_sharing_app() {
+  [[ -d "/System/Library/CoreServices/Applications/Screen Sharing.app" ]] && echo "/System/Library/CoreServices/Applications/Screen Sharing.app" && return
   [[ -d "/System/Library/CoreServices/Screen Sharing.app" ]] && echo "/System/Library/CoreServices/Screen Sharing.app" && return
   [[ -d "/System/Applications/Utilities/Screen Sharing.app" ]] && echo "/System/Applications/Utilities/Screen Sharing.app" && return
   return 1
