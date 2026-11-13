@@ -107,6 +107,72 @@ struct DropAndReplaceSource {
     generations: Mutex<usize>,
 }
 
+#[derive(Default)]
+struct CreditSource {
+    sink: Mutex<Option<Arc<dyn OfferSink>>>,
+    remaining: Mutex<u64>,
+    next_seq: Mutex<u64>,
+}
+
+impl CreditSource {
+    fn feed(&self, sid: &str, sink: Arc<dyn OfferSink>) {
+        loop {
+            let mut remaining = self.remaining.lock().unwrap();
+            if *remaining == 0 {
+                return;
+            }
+            let mut next_seq = self.next_seq.lock().unwrap();
+            let seq = *next_seq;
+            let mut summary = Summary::new(format!("chat-{seq}"));
+            summary.title = "x".repeat(256);
+            let frame = Frame::json(
+                FrameKind::Delta,
+                &json!({
+                    "sid": sid,
+                    "ops": [{
+                        "op": "summary",
+                        "seq": seq,
+                        "summary": summary,
+                        "padding": "x".repeat(100_000)
+                    }]
+                }),
+            )
+            .unwrap();
+            match sink.offer(sid, frame, Cursor(seq)) {
+                Offer::Taken => {
+                    *remaining -= 1;
+                    *next_seq += 1;
+                }
+                Offer::NotFed | Offer::Dropped { .. } | Offer::UnknownSubscription => return,
+            }
+        }
+    }
+}
+
+impl Source for CreditSource {
+    fn subscribe(
+        &self,
+        sub: &Sub,
+        _person: Option<&[u8]>,
+        sink: Arc<dyn OfferSink>,
+    ) -> Result<(), ConnError> {
+        *self.remaining.lock().unwrap() = 64;
+        *self.sink.lock().unwrap() = Some(sink.clone());
+        self.feed(&sub.sid, sink);
+        Ok(())
+    }
+
+    fn resume(&self, sid: &str, _cursor: Cursor) {
+        if let Some(sink) = self.sink.lock().unwrap().clone() {
+            self.feed(sid, sink);
+        }
+    }
+
+    fn end(&self, _sid: &str) {
+        self.sink.lock().unwrap().take();
+    }
+}
+
 impl Default for DropAndReplaceSource {
     fn default() -> Self {
         Self { generations: Mutex::new(0) }
@@ -284,32 +350,20 @@ async fn client_and_daemon_replace_dropped_sid_and_ignore_old_frames() {
 
 #[tokio::test]
 async fn client_and_daemon_credit_a_slow_taker_past_one_window() {
-    let (hub, mut writer) = Hub::new(SummaryIndex::new());
-    writer.apply(Summary::new("seed")).unwrap();
-    let hub = Arc::new(hub);
+    let source = Arc::new(CreditSource::default());
     let mut client = Client::<Summary>::connected_v2();
-    let (mut stream, task) = pair(hub);
+    let (mut stream, task) = source_pair(source, &["list"]);
     hello(&mut client, &mut stream).await;
     client.subscribe(Sub::new("s", "list")).unwrap();
     send_bytes(&mut stream, client.take_send().unwrap()).await;
-    let window = read_frame(&mut stream).await;
-    let encoded = window.encode();
-    assert_eq!(client.received(&encoded), encoded.len());
-    assert!(matches!(client.next_change(), Some(Change::Window(_))));
-
-    for n in 0..6_000 {
-        let mut summary = Summary::new(format!("chat-{n}"));
-        summary.title = "x".repeat(256);
-        writer.apply(summary).unwrap();
-    }
     let mut data_bytes = 0_u64;
     let mut credits = 0_u8;
-    for _ in 0..4_000 {
+    for _ in 0..64 {
         let frame = read_frame(&mut stream).await;
         let encoded = frame.encode();
         data_bytes = data_bytes.saturating_add(encoded.len() as u64);
         assert_eq!(client.received(&encoded), encoded.len());
-        assert!(client.next_change().is_some());
+        assert!(matches!(client.next_change(), Some(Change::Summary { .. })));
         while let Some(request) = client.take_send() {
             let request_frame = Frame::from_encoded(&request).unwrap();
             let value: Value = request_frame.decode_json().unwrap();
@@ -318,7 +372,7 @@ async fn client_and_daemon_credit_a_slow_taker_past_one_window() {
             }
             send_bytes(&mut stream, request).await;
         }
-        if credits >= 2 {
+        if credits >= 2 && data_bytes > wire::CREDIT_WINDOW_BYTES {
             break;
         }
     }
