@@ -85,9 +85,14 @@ pub(super) async fn handle(
 fn list(dir: Option<&Path>, bindings: &routes::Bindings) -> Vec<Value> {
     let mut out = listed(dir);
     for account in &mut out {
+        let mut builtin = account["builtin"].as_bool().unwrap_or(false);
+        if account["id"] == CLAUDE_LOGIN_ID {
+            // Turned off, the CLI's own login is no longer the default by having no binding.
+            builtin = claude_login_enabled(bindings);
+            account["enabled"] = json!(builtin);
+        }
         let family = account["family"].as_str().unwrap_or_default().to_owned();
         let id = account["id"].as_str().unwrap_or_default().to_owned();
-        let builtin = account["builtin"].as_bool().unwrap_or(false);
         account["default"] = json!(is_default(bindings, &family, &id, builtin));
     }
     out
@@ -123,7 +128,7 @@ fn listed(dir: Option<&Path>) -> Vec<Value> {
             continue;
         }
         if route.file.kind == RouteKind::DirectApiKey {
-            out.push(key_view(&route, &family));
+            out.push(key_view(&route, &family, route.file.secret.is_some()));
             continue;
         }
         if route.file.kind != RouteKind::DirectSubscription {
@@ -143,11 +148,12 @@ fn listed(dir: Option<&Path>) -> Vec<Value> {
 
 /// An API-key route: signed in by its key reference, which is never resolved
 /// here (a `keychain:` one would ask the keychain).
-fn key_view(route: &Route, family: &str) -> Value {
+fn key_view(route: &Route, family: &str, signed_in: bool) -> Value {
     json!({
         "id": route.id, "family": family, "name": route.name(), "home": null,
-        "shadowOf": null, "signedIn": route.file.secret.is_some(), "plan": null,
-        "email": null, "enabled": !route.file.disabled, "builtin": false, "key": true,
+        "shadowOf": null, "signedIn": signed_in, "plan": null, "email": null,
+        "enabled": !route.file.disabled, "builtin": false,
+        "key": route.file.kind == RouteKind::DirectApiKey, "kind": route.file.kind.as_str(),
     })
 }
 
@@ -176,6 +182,44 @@ fn view(
     })
 }
 
+/// Whether the Claude Code login is on: it has no route file, so its switch is in the bindings.
+pub(super) fn claude_login_enabled(bindings: &routes::Bindings) -> bool {
+    !bindings.disabled_connections.contains(CLAUDE_LOGIN_ID)
+}
+
+/// Clears every default that names `id` (workspace, family, global): new chats stop moving onto
+/// a connection turned off. A chat bound to it keeps it.
+fn clear_defaults(b: &mut routes::Bindings, id: &str) {
+    b.workspaces.retain(|_, r| r != id);
+    b.families.retain(|_, r| r != id);
+    if b.global.as_deref() == Some(id) {
+        b.global = None;
+    }
+}
+
+/// Turns the Claude Code login on or off (it has no route file to carry the switch).
+fn set_claude_login(state: &Path, enabled: Option<bool>) -> Result<Value, RpcError> {
+    let error = |e: routes::RouteError| crate::hub::route_error(&e);
+    let b = routes::update_bindings(state, |b| match enabled {
+        Some(false) => {
+            b.disabled_connections.insert(CLAUDE_LOGIN_ID.to_owned());
+            clear_defaults(b, CLAUDE_LOGIN_ID);
+        }
+        Some(true) => {
+            b.disabled_connections.remove(CLAUDE_LOGIN_ID);
+        }
+        None => {}
+    })
+    .map_err(error)?;
+    let claude = claude_login(None);
+    Ok(json!({
+        "id": CLAUDE_LOGIN_ID, "family": "claude", "name": "Claude Code login", "home": null,
+        "shadowOf": null, "signedIn": claude.signed_in, "plan": claude.plan,
+        "email": claude.email, "enabled": claude_login_enabled(&b), "builtin": true,
+        "default": is_default(&b, "claude", CLAUDE_LOGIN_ID, claude_login_enabled(&b)),
+    }))
+}
+
 /// Turns an account on or off, or renames it. The built-in Codex login is
 /// written as a route file of its id, which replaces the built-in one.
 fn set(
@@ -186,8 +230,15 @@ fn set(
     name: Option<String>,
 ) -> Result<Value, RpcError> {
     let error = |e: routes::RouteError| crate::hub::route_error(&e);
+    if id == CLAUDE_LOGIN_ID && routes::find(dir, id).is_err() {
+        return set_claude_login(state, enabled);
+    }
     let route = routes::find(dir, id).map_err(error)?;
-    let key = route.file.kind == RouteKind::DirectApiKey;
+    // A key, and the Cloud connections whose credential is a reference or the daemon's own token.
+    let key = matches!(
+        route.file.kind,
+        RouteKind::DirectApiKey | RouteKind::ChatgptPlan | RouteKind::ClaudeToken
+    );
     if !key
         && (route.file.kind != RouteKind::DirectSubscription
             || (id != routes::CODEX_LOGIN_ROUTE_ID && route.file.account_home.is_none()))
@@ -206,18 +257,17 @@ fn set(
     // fall back to the CLI's own login instead of moving onto it by themselves (as a removed route's
     // defaults are cleared). A chat bound to it keeps running on it (`RouteFile::disabled`).
     if file.disabled {
-        routes::update_bindings(state, |b| {
-            b.workspaces.retain(|_, r| r != id);
-            b.families.retain(|_, r| r != id);
-            if b.global.as_deref() == Some(id) {
-                b.global = None;
-            }
-        })
-        .map_err(error)?;
+        routes::update_bindings(state, |b| clear_defaults(b, id)).map_err(error)?;
     }
     let family = file.families.first().cloned().unwrap_or_else(|| "codex".into());
     if key {
-        return Ok(key_view(&written, &family));
+        let signed_in = match written.file.kind {
+            RouteKind::ChatgptPlan => {
+                crate::chatgpt::store::read(state, id).ok().flatten().is_some_and(|r| r.signed_in())
+            }
+            _ => written.file.secret.is_some(),
+        };
+        return Ok(key_view(&written, &family, signed_in));
     }
     let home = written.file.account_home.clone().map(PathBuf::from);
     let folder = home.clone().or_else(crate::route_shadow::codex_base);
@@ -294,6 +344,17 @@ pub(super) fn claude_login(folder: Option<&Path>) -> Login {
         plan: None,
         email: text_at("emailAddress"),
     }
+}
+
+/// `set` for other modules' tests.
+#[cfg(test)]
+pub(super) fn set_for_test(
+    dir: Option<&Path>,
+    state: &Path,
+    id: &str,
+    enabled: Option<bool>,
+) -> Result<Value, RpcError> {
+    set(dir, state, id, enabled, None)
 }
 
 #[cfg(test)]
