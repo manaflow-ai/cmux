@@ -211,13 +211,16 @@ impl Negotiation {
         let Some((peer_key, peer_addr, peer_mtu)) = self.peer else { return };
         self.started = true;
         let local = self.role.local();
+        let Ok(allowed_ip) = "10.253.0.0/30".parse() else {
+            return;
+        };
         let config = WgConfig {
             private_key: self.private.clone(),
             addresses: vec![InterfaceAddress { address: IpAddr::V4(local), prefix: 32 }],
             mtu: mtu().min(peer_mtu),
             peer_public_key: peer_key,
             preshared_key: None,
-            allowed_ips: vec![IpNetwork::V4("10.253.0.0/30".parse().expect("fixed WG network"))],
+            allowed_ips: vec![IpNetwork::V4(allowed_ip)],
             endpoint: None,
             persistent_keepalive: Some(3),
             peer_addresses: vec![IpAddr::V4(peer_addr)],
