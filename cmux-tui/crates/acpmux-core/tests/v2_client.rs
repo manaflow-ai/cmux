@@ -504,7 +504,9 @@ fn randomized_mirror_runs_against_hub_with_cut_frames() {
                 .snapshot()
                 .iter()
                 .filter(|summary| summary.is_live())
-                .map(|summary| ((summary.origin.clone(), summary.chat_id.clone()), summary.clone()))
+                .map(|summary| {
+                    ((summary.origin.clone(), summary.chat_id.clone()), summary.as_ref().clone())
+                })
                 .collect();
             assert_eq!(rows, expected, "seed {seed} step {step}");
         }
