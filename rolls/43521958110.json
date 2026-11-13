@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43521958110",
+  "recorded_at": "2026-11-13T22:54:09Z",
+  "reason": "cmux-tui 7c6d7c866ff9 changes the image's cmux-tui (pinned cb418d9fe69b)",
+  "dry_run": false,
+  "cmux_tui": "7c6d7c866ff9c4789a9b2baa7bda1f740b0dbed1",
+  "fixes": [
+    {
+      "sha": "7c6d7c866ff9c4789a9b2baa7bda1f740b0dbed1",
+      "mergedAt": "2026-11-13T14:19:53-08:00",
+      "subject": "cmux NEXT: onboarding's classic import runs on the daemon; its Swift rules are deleted (#39281)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T22:54:09Z",
+    "snapshot_id": "sh-f767305d0dac414192a9bbe6fede5cf1",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43521958110): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a80c5d9ed2af4c9a5a50cf4aa4eef473805f4dce",
+    "image": "cloud-native-auto-7c6d7c86-43521958110-1",
+    "revision": "ci-43521958110-1",
+    "at": "2026-11-13T22:54:09Z"
+  },
+  "rolled_back": false
+}
