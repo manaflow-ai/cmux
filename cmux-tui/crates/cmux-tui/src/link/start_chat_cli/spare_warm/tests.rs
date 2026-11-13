@@ -413,6 +413,44 @@ fn no_call(_: &Request, _: &str, _: &str) -> Result<Value, PlatformCallError> {
 }
 
 #[test]
+fn a_late_copy_completion_cannot_finish_a_newer_warm_attempt() {
+    let dir = tempfile::tempdir().unwrap();
+    let call = |request: Value, now| {
+        run(
+            &flags(&request.to_string()),
+            dir.path(),
+            now,
+            &mut stdin(Some(TEAM)).as_bytes(),
+            &no_call,
+        )
+        .unwrap()
+    };
+    let first = call(json!({"account": "user_a", "claimed": MACHINE}), 1_000_000);
+    let generation = first["copy"]["generation"].clone();
+    call(json!({"account": "user_a", "abandoned": MACHINE, "generation": generation}), 1_000_100);
+    let second = call(json!({"account": "user_a", "claimed": MACHINE}), 1_000_200);
+    assert_ne!(generation, second["copy"]["generation"]);
+    call(json!({"account": "user_a", "installed": MACHINE, "generation": generation}), 1_000_300);
+    assert!(copy_in_flight(dir.path(), MACHINE, 1_000_400));
+    assert_eq!(receipt(dir.path(), "user_a", MACHINE, "claude", 1_000_400)["installed"], false);
+}
+
+#[test]
+fn an_unsolicited_install_completion_is_not_a_receipt() {
+    let dir = tempfile::tempdir().unwrap();
+    let request = json!({"account": "user_a", "installed": MACHINE});
+    run(
+        &flags(&request.to_string()),
+        dir.path(),
+        1_000_000,
+        &mut stdin(Some(TEAM)).as_bytes(),
+        &no_call,
+    )
+    .unwrap();
+    assert_eq!(receipt(dir.path(), "user_a", MACHINE, "claude", 1_000_100)["installed"], false);
+}
+
+#[test]
 fn a_claimed_machine_gets_its_own_copy_once_and_no_platform_call() {
     let dir = tempfile::tempdir().unwrap();
     let call = |request: &str, now| {

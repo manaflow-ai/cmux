@@ -16,6 +16,29 @@ fn owner() -> Inputs {
     }
 }
 
+#[test]
+fn warm_readiness_requires_a_verified_login_on_an_owned_spare() {
+    for login in [MachineLogin::Cached, MachineLogin::Session] {
+        let ready = Inputs { machine_login: Some(login), ..owner() };
+        assert_eq!(serde_json::to_value(decide(&ready)).unwrap()["warmVerified"], true);
+        for refused in [
+            Inputs { caller_owns: Some(false), ..ready.clone() },
+            Inputs { guest_kind: Some("team".into()), ..ready.clone() },
+            Inputs { gate: false, ..ready.clone() },
+            Inputs { signed_in: false, ..ready.clone() },
+        ] {
+            assert_ne!(serde_json::to_value(decide(&refused)).unwrap()["warmVerified"], true);
+        }
+    }
+    // `working` also means the provider could not be reached; it is not verification.
+    for login in
+        [None, Some(MachineLogin::Working), Some(MachineLogin::Rejected), Some(MachineLogin::None)]
+    {
+        let uncertain = Inputs { machine_login: login, ..owner() };
+        assert_ne!(serde_json::to_value(decide(&uncertain)).unwrap()["warmVerified"], true);
+    }
+}
+
 fn cached(mut d: Inputs) -> Inputs {
     d.cached = true;
     d
