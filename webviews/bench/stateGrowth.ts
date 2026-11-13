@@ -474,7 +474,16 @@ export function judge(
 }
 
 // ---------- scenarios ----------
-export type ScenarioOptions = { scale: Scale; ops?: number; every?: number; warm?: number; bands?: Partial<Bands> };
+export type ScenarioOptions = {
+  scale: Scale;
+  ops?: number;
+  every?: number;
+  warm?: number;
+  bands?: Partial<Bands>;
+  /// Vehicle only: each sample as it is taken, with the heap's bytes that are not cells (bun:jsc's extraMemorySize:
+  /// string buffers, compiled code).
+  onSample?: (sample: Sample, extraBytes: number) => void;
+};
 
 /// The sizes each scale runs at: small is an ordinary user's app, god a heavy user's (thousands of chats, the
 /// god session's degenerate tail: MB tool outputs, subagents five deep, screenshots).
@@ -544,7 +553,11 @@ async function measure(
   try {
     for (let index = 1; index <= ops; index++) {
       await op(index);
-      if (index % every === 0) keepSample(samples, sample(index, run.client, run.clock, skip), (at) => at === warm);
+      if (index % every === 0) {
+        const next = sample(index, run.client, run.clock, skip);
+        options.onSample?.(next, heapStats().extraMemorySize);
+        keepSample(samples, next, (at) => at === warm);
+      }
     }
   } finally {
     run.client.close();
