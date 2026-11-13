@@ -88,6 +88,7 @@ struct View {
     consumed: u64,
     replaying: bool,
     windows: usize,
+    allow_resume_window: bool,
 }
 impl View {
     fn apply(&mut self, frame: &Frame) {
@@ -99,7 +100,11 @@ impl View {
                 // replacement. A second live window at the same cursor would
                 // hide a duplicate/repeated delivery, so reject it unless a
                 // resume generation is active.
-                assert!(self.rows.is_empty() || self.replaying, "repeated window delivery");
+                assert!(
+                    self.rows.is_empty() || self.replaying || self.allow_resume_window,
+                    "repeated window delivery"
+                );
+                self.allow_resume_window = false;
                 assert!(window.cursor >= self.cursor);
                 self.rows = window.rows.into_iter().map(|s| (s.chat_id, s.last_activity)).collect();
                 self.cursor = window.cursor;
@@ -252,8 +257,10 @@ async fn stopped(shape: acpmux::god_fixture::Shape, dishonest_credit: bool) -> S
     // Resume the honest reader by consuming queued frames and sending real credit.
     // The dishonest one must first drain its old generation's dropped notice.
     credit(&mut slow, "slow", view.consumed).await;
+    view.allow_resume_window = true;
     if dishonest_credit {
         credit(&mut slow, "other", other.consumed).await;
+        other.allow_resume_window = true;
     }
     let mut credited = BTreeMap::<String, u64>::new();
     while view.cursor < target || (dishonest_credit && (result.drops == 0 || other.cursor < target))
@@ -291,10 +298,13 @@ async fn stopped(shape: acpmux::god_fixture::Shape, dishonest_credit: bool) -> S
         }
     }
     let expected = shared_view.lock().unwrap().clone();
+    assert_eq!(expected.windows, 1, "reference reader received a repeated window");
     assert_eq!(view.rows, expected.rows);
     assert_eq!(view.cursor, expected.cursor);
+    assert_eq!(view.windows, 2, "stopped reader did not receive exactly one resume window");
     if dishonest_credit {
         assert_eq!(result.drops, 1);
+        assert_eq!(other.windows, 2, "second sid did not receive exactly one resume window");
         assert_eq!(other.rows, expected.rows);
         assert_eq!(other.cursor, target);
     }
