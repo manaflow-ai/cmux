@@ -569,19 +569,11 @@ impl CarrierSession {
                 }
             })?,
         };
-        let (ours, theirs) = tokio::io::duplex(STREAM_BUFFER);
-        let (their_read, their_write) = tokio::io::split(theirs);
-        let bridge = tokio::spawn(async move {
+        Ok(CarrierStream::over(|their_read, their_write| async move {
             if let Err(error) = mux.bridge(their_read, their_write).await {
                 tracing::debug!(%error, "carrier stream ended");
             }
-        });
-        let (read, write) = tokio::io::split(ours);
-        Ok(CarrierStream {
-            read: tokio::sync::Mutex::new(read),
-            write: tokio::sync::Mutex::new(Some(write)),
-            bridge: Mutex::new(Some(bridge)),
-        })
+        }))
     }
 
     /// The session ended: closed, the daemon dropped it, its reader failed
@@ -733,6 +725,25 @@ pub struct CarrierStream {
 }
 
 impl CarrierStream {
+    /// A stream whose far end `bridge` carries (the session's mux stream). When the bridge ends
+    /// (the session closed, dropped, or its stream failed), its pipe end drops, so `receive`
+    /// returns `None`: the app learns its channel ended and reattaches on a new session.
+    fn over<F, Fut>(bridge: F) -> Self
+    where
+        F: FnOnce(ReadHalf<DuplexStream>, WriteHalf<DuplexStream>) -> Fut,
+        Fut: std::future::Future<Output = ()> + Send + 'static,
+    {
+        let (ours, theirs) = tokio::io::duplex(STREAM_BUFFER);
+        let (their_read, their_write) = tokio::io::split(theirs);
+        let bridge = tokio::spawn(bridge(their_read, their_write));
+        let (read, write) = tokio::io::split(ours);
+        CarrierStream {
+            read: tokio::sync::Mutex::new(read),
+            write: tokio::sync::Mutex::new(Some(write)),
+            bridge: Mutex::new(Some(bridge)),
+        }
+    }
+
     /// Write `bytes` (whole protocol lines) to the daemon.
     pub async fn send(&self, bytes: &[u8]) -> Result<(), CarrierError> {
         let mut write = self.write.lock().await;

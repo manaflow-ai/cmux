@@ -42,6 +42,9 @@ final class FakeDaemonCarrier: CloudCarrierSession, @unchecked Sendable {
     private let lock = NSLock()
     private var live = true
     private var waiters: [CheckedContinuation<Void, Never>] = []
+    /// The streams handed out: the session's end ends them, as the Rust carrier's close does
+    /// (`CarrierSession::close`, "ends the session and its streams").
+    private var streams: [ChannelStream] = []
 
     init(daemon: any MacLink) { self.daemon = daemon }
 
@@ -49,7 +52,14 @@ final class FakeDaemonCarrier: CloudCarrierSession, @unchecked Sendable {
 
     func openStream() async throws -> any CloudCarrierByteStream {
         guard lock.withLock({ live }) else { throw LinkError(code: "closed", message: "the session ended") }
-        return ChannelStream(channel: try await daemon.openChannel(service: "daemon", args: [:]))
+        let stream = ChannelStream(channel: try await daemon.openChannel(service: "daemon", args: [:]))
+        let ended = lock.withLock { () -> Bool in
+            guard live else { return true }
+            streams.append(stream)
+            return false
+        }
+        if ended { await stream.close() }
+        return stream
     }
 
     func isConnected() async -> Bool { lock.withLock { live } }
@@ -67,13 +77,19 @@ final class FakeDaemonCarrier: CloudCarrierSession, @unchecked Sendable {
 
     func close() async { drop() }
 
+    /// The session ended (the relay dropped it, or it was closed): its waiters wake and every
+    /// stream on it ends, as on the real carrier.
     func drop() {
-        let waiting = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+        let (waiting, open) = lock.withLock { () -> ([CheckedContinuation<Void, Never>], [ChannelStream]) in
             live = false
-            defer { waiters = [] }
-            return waiters
+            defer {
+                waiters = []
+                streams = []
+            }
+            return (waiters, streams)
         }
         for waiter in waiting { waiter.resume() }
+        for stream in open { Task { await stream.close() } }
     }
 }
 

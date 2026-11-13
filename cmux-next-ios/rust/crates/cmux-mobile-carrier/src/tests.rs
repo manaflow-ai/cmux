@@ -497,3 +497,33 @@ async fn a_dial_cut_after_the_key_arrived_is_not_reported_as_no_daemon_key() {
     server.abort();
     relay_task.abort();
 }
+
+/// The contract the app relies on to reattach after a session ends: once a stream's bridge ends
+/// (a closed or dropped session ends every bridge), `receive` returns `None`, after delivering
+/// what the bridge had already written.
+#[tokio::test]
+async fn a_stream_whose_bridge_ends_reads_none_after_its_last_bytes() {
+    let stream = CarrierStream::over(|_read, mut write| async move {
+        let _ = write.write_all(b"last line\n").await;
+        // The session ends here: the bridge returns and its pipe end drops.
+    });
+    let first = tokio::time::timeout(Duration::from_secs(5), stream.receive()).await.expect("bytes");
+    assert_eq!(first.as_deref(), Some(&b"last line\n"[..]));
+    let after =
+        tokio::time::timeout(Duration::from_secs(5), stream.receive()).await.expect("the end, not a hang");
+    assert_eq!(after, None, "an ended bridge reads as the end of the stream");
+}
+
+/// A bridge cut short (the session's teardown aborts it) also ends the stream for its reader.
+#[tokio::test]
+async fn a_stream_whose_bridge_is_aborted_reads_none() {
+    let stream = CarrierStream::over(|_read, _write| async move {
+        std::future::pending::<()>().await;
+    });
+    if let Some(bridge) = stream.bridge.lock().unwrap_or_else(PoisonError::into_inner).take() {
+        bridge.abort();
+    }
+    let after =
+        tokio::time::timeout(Duration::from_secs(5), stream.receive()).await.expect("the end, not a hang");
+    assert_eq!(after, None);
+}
