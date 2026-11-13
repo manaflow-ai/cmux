@@ -2110,6 +2110,18 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// shown at once; one on the wire shows when it lands. After each page the next is read
     /// ahead, decoded off the main actor and held, so a reader flinging up never waits for one.
     public func loadEarlierHistory() {
+        if let hub {
+            hub.loadEarlierHistory(sessionID: sessionID)
+        } else {
+            loadEarlierHistoryDirect()
+        }
+    }
+
+    /// Fan-out calls from the hub bypass the generation fan-out to avoid recursion.
+    fileprivate func loadEarlierHistoryPage() { loadEarlierHistoryDirect() }
+
+    private func loadEarlierHistoryDirect() {
+
         if let held = heldEarlier {
             heldEarlier = nil
             if held.before == earlierBefore {
