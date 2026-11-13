@@ -240,12 +240,12 @@ public final class MacScreenSession {
                                                  relayOnly: relayOnly, refresh: displayMaximumFrameRate, display: wantedDisplay)
                 self.fallback = fallback
                 fallback.session.onVideoTrack = { [weak self, weak fallback] track in
-                    guard let self, self.fallback === fallback else { return }
+                    guard let self, let fallback, self.fallback === fallback else { return }
                     onVideoTrack?(track)
                 }
                 fallback.session.onStreamDisplays = { [weak self, weak fallback] sizes, current in
-                    guard let self, self.fallback === fallback else { return }
-                    fallback?.receivedDisplays(sizes, current: current)
+                    guard let self, let fallback, self.fallback === fallback else { return }
+                    fallback.receivedDisplays(sizes, current: current)
                     onStreamDisplays?(sizes, current)
                 }
                 fallback.start()
