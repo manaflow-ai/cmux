@@ -701,8 +701,7 @@ class Resolver:
         if isinstance(site, ast.Name):
             value = self._assigned(site)
             if value is not None:
-                got = self.dotted(value)
-                return got, bool(got)
+                return self.dotted_info(value)
         return set(), False
 
     def _import_of(self, alias):
@@ -731,23 +730,28 @@ class Resolver:
     def dotted(self, node):
         """Every dotted path NODE may name ("os.kill", "signal.SIGKILL", "os"); empty when none is known. An attribute
         the source picks at run time (getattr(os, name)) is "os.*": any of them."""
+        return self.dotted_info(node)[0]
+
+    def dotted_info(self, node):
+        """The dotted paths NODE may name and whether its source binding is complete."""
         if isinstance(node, ast.Name):
-            return self.values(node, node.id)[0]
+            return self.values(node, node.id)
         if isinstance(node, ast.NamedExpr):  # (probe := os.kill)(p, 0): the walrus is its value
-            return self.dotted(node.value)
+            return self.dotted_info(node.value)
         if isinstance(node, ast.Attribute):
-            base = self.dotted(node.value)
-            return {"%s.%s" % (b, node.attr) for b in base if not b.endswith(".*")} | \
-                {b for b in base if b.endswith(".*")}
+            base, complete = self.dotted_info(node.value)
+            return ({"%s.%s" % (b, node.attr) for b in base if not b.endswith(".*")} | \
+                    {b for b in base if b.endswith(".*")}), complete
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-            func = self.values(node.func, node.func.id)[0]
+            func, func_complete = self.values(node.func, node.func.id)
             if "builtins.getattr" in func and len(node.args) >= 2:
-                bases = {b for b in self.dotted(node.args[0]) if not b.endswith(".*")}
+                bases, base_complete = self.dotted_info(node.args[0])
+                bases = {b for b in bases if not b.endswith(".*")}
                 attr = node.args[1]
                 if isinstance(attr, ast.Constant) and isinstance(attr.value, str):
-                    return {"%s.%s" % (b, attr.value) for b in bases}
-                return {"%s.*" % b for b in bases}
+                    return {"%s.%s" % (b, attr.value) for b in bases}, func_complete and base_complete
+                return {"%s.*" % b for b in bases}, func_complete and base_complete
             if ("builtins.__import__" in func and node.args and isinstance(node.args[0], ast.Constant)
                     and isinstance(node.args[0].value, str)):
-                return {node.args[0].value.split(".")[0]}
-        return set()
+                return {node.args[0].value.split(".")[0]}, func_complete
+        return set(), False
