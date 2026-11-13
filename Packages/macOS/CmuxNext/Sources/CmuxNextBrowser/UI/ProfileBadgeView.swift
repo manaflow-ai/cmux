@@ -16,6 +16,37 @@ public struct BrowserProfileBadge: Hashable, Sendable {
     }
 }
 
+extension BrowserProfileBadge {
+    /// The badge drawn round at `side` points: the avatars of the profile menu's
+    /// header and of its other profiles, as Chrome's profile menu shows each
+    /// profile's picture. Drawn when shown, so it follows the menu's appearance.
+    @MainActor public func avatarImage(side: CGFloat) -> NSImage {
+        let badge = self
+        let symbol = ProfileBadgeView.symbolImage(badge.monogram)
+        let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
+            (badge.color?.fill ?? Palette.hoverFill).setFill()
+            NSBezierPath(ovalIn: rect).fill()
+            let ink = Palette.textSecondary
+            if let symbol {
+                let configuration = NSImage.SymbolConfiguration(pointSize: side * 0.5, weight: .semibold)
+                    .applying(NSImage.SymbolConfiguration(paletteColors: [ink]))
+                let glyph = symbol.withSymbolConfiguration(configuration) ?? symbol
+                let size = glyph.size
+                glyph.draw(in: NSRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2, width: size.width, height: size.height))
+            } else {
+                let text = NSAttributedString(string: badge.monogram, attributes: [
+                    .font: NSFont.systemFont(ofSize: side * 0.5, weight: .semibold), .foregroundColor: ink,
+                ])
+                let size = text.size()
+                text.draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2))
+            }
+            return true
+        }
+        image.accessibilityDescription = badge.name
+        return image
+    }
+}
+
 /// The small round avatar at the trailing end of the omnibar that names the
 /// tab's browser profile. Hidden while only one profile exists.
 final class ProfileBadgeView: NSView {
@@ -91,34 +122,6 @@ final class ProfileBadgeView: NSView {
         guard name.count > 1, name.allSatisfy({ ($0.isASCII && ($0.isLowercase || $0.isNumber)) || $0 == "." }) else { return nil }
         // chrome-icons: allow the profile's own symbol, chosen by the user
         return NSImage(systemSymbolName: name, accessibilityDescription: nil)
-    }
-
-    /// `badge` drawn round at `side` points: the avatars of the profile menu's
-    /// header and of its other profiles, as Chrome's profile menu shows each
-    /// profile's picture. Drawn when shown, so it follows the menu's appearance.
-    public static func image(_ badge: BrowserProfileBadge, side: CGFloat) -> NSImage {
-        let symbol = symbolImage(badge.monogram)
-        let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
-            (badge.color?.fill ?? Palette.hoverFill).setFill()
-            NSBezierPath(ovalIn: rect).fill()
-            let ink = Palette.textSecondary
-            if let symbol {
-                let configuration = NSImage.SymbolConfiguration(pointSize: side * 0.5, weight: .semibold)
-                    .applying(NSImage.SymbolConfiguration(paletteColors: [ink]))
-                let glyph = symbol.withSymbolConfiguration(configuration) ?? symbol
-                let size = glyph.size
-                glyph.draw(in: NSRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2, width: size.width, height: size.height))
-            } else {
-                let text = NSAttributedString(string: badge.monogram, attributes: [
-                    .font: NSFont.systemFont(ofSize: side * 0.5, weight: .semibold), .foregroundColor: ink,
-                ])
-                let size = text.size()
-                text.draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2))
-            }
-            return true
-        }
-        image.accessibilityDescription = badge.name
-        return image
     }
 
     override func menu(for event: NSEvent) -> NSMenu? { makeMenu?() }

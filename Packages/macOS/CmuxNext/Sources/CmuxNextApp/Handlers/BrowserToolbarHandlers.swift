@@ -139,10 +139,10 @@ enum BrowserToolbarHandlers {
         return submenu
     }
 
-    /// The profile button's menu: the profile switcher, Import from Browser, this profile's extensions.
+    /// The profile button's menu: the profile switcher, Import from Browser, this profile's Web Store.
     static func profileMenu(for entry: BrowserEntry, services: AppServices) -> NSMenu {
-        let extras: [ContextMenuEntry] = [.action("importFromBrowser"), .separator,
-                                          .action("browser.extensions.manage"), .action("browser.extensions.webStore")]
+        // Manage Extensions is the profile's own row above (`browserProfile.manageExtensions`).
+        let extras: [ContextMenuEntry] = [.action("importFromBrowser"), .separator, .action("browser.extensions.webStore")]
         let menu = profileSwitcherMenu(forTab: tabKey(entry), services: services, customize: false)
         menu.addItem(.separator())
         move(services.registry.makeContextMenu(for: .browserPage, target: tabTarget(entry), entries: extras), into: menu)
@@ -156,7 +156,7 @@ enum BrowserToolbarHandlers {
         let current = services.cache.tabModel(key).map(profiles.profileID(ofTab:)) ?? BrowserProfileRecord.defaultID
         func profile(_ id: String) -> BrowserProfileSwitcherMenuBuilder.Profile {
             let badge = profiles.badge(id)
-            return .init(id: id, name: badge.name) { ProfileBadgeView.image(badge, side: $0) }
+            return .init(id: id, name: badge.name) { badge.avatarImage(side: $0) }
         }
         let others = services.cache.browserTabs.isIncognitoTab(key) ? [] : profiles.ordered.map(\.id).filter { $0 != current }
         return BrowserProfileSwitcherMenuBuilder(registry: services.registry).make(
