@@ -271,7 +271,8 @@ impl Mux {
                         projection.result,
                         projection.changes,
                         move |state| *state = projected,
-                    ))
+                    )
+                    .projected(projection.restates_all))
                 },
             )
             .map_err(|error| {

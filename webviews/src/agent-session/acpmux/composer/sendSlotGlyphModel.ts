@@ -1,6 +1,6 @@
 import { type SendStopMorphArm } from "./sendStopMorph.experiment";
 
-export type SlotGlyph = "stop" | "stopping" | "return" | "arrow";
+export type SlotGlyph = "stop" | "stopping" | "return" | "arrow" | "play";
 
 /// What the slot drew last, kept by the composer across the Send and Stop buttons' remounts.
 export type SlotMemory = {

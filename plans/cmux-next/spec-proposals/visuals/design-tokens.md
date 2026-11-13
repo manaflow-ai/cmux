@@ -176,7 +176,7 @@ Default density is **compact** (`DesignSettings.swift:25 (DesignSettings.density
 | scrollEdgeFade | 18 | 22 | :91 |
 | panePadding | 2 | 4 | Metrics.swift:91-95 (`Metrics.panePadding`) |
 | divider thickness / hit width | 1 / 7 | 1 / 7 | MetricTunables.swift:107-112 (`MetricTunables.dividerThickness`, `dividerHitWidth`) |
-| tab background inset / content inset | 1 / 8 | 1 / 8 | ChromeTunables.swift:28-31 (`tabBackgroundInset`, `tabContentLeadingInset`) |
+| tab background inset / content inset | 1 / derived | 1 / derived | `tabBackgroundInset` (ChromeTunables.swift); content inset = (tabHeight − iconSize) / 2 + iconSize / 16 on the 2x grid (`Metrics.evenIconLeadingInset`): 6 at a 24 pt tab with a 14 pt icon; was a fixed 8 until 8f32c4613bc |
 | terminal text inset | 4 | 4 | PaneChromeMetrics.swift:46 (`PaneChromeMetrics.terminalTextInset`) |
 
 Corners come in two shapes, and ports draw each surface with the shape the Swift code uses, pixel for pixel.
@@ -224,7 +224,6 @@ Speed `fast` (default) scales times by 1, `normal` by 1.5, `off` disables (`Moti
 | disappear | 0.15 | 0.90 | tab close, collapse, row removal |
 | settle | 0.22 | 0.85 | drop after drag |
 | scroll | 0.22 | 0.90 | strip reveal, column reveal, fling snap |
-| screen | 0.22 | 0.90 | none since 2026-11-10 (a screen switch has no animation) |
 | track | 0.12 | 0.90 | drop overlay, drag ghost |
 | selection | 0.15 | 0.90 | sidebar selection pill |
 | panel | 0.18 | 0.85 | hover card slide |

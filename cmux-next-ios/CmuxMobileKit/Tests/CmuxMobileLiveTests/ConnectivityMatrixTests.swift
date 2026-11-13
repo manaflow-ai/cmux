@@ -99,13 +99,15 @@ private struct Timeline {
         phases.first { $0.at >= t && $0.phase.isConnected }?.at
     }
 
-    /// Every status line shown in `[from, to)`.
+    /// Every status line shown in `[from, to)`: the phase after the events
+    /// at `from` (a link dropped at `from` never shows "Connected" in the
+    /// window), then every later one before `to`.
     func statusLines(from: Duration, to: Duration, mac: String = "Studio") -> Set<String> {
         var lines = Set<String>()
-        var current = phases.last { $0.at < from }?.phase
-        if let current, let line = current.statusLine(macName: mac) { lines.insert(line) }
-        for (at, phase) in phases where at >= from && at < to {
-            current = phase
+        if let first = phases.last(where: { $0.at <= from })?.phase, let line = first.statusLine(macName: mac) {
+            lines.insert(line)
+        }
+        for (at, phase) in phases where at > from && at < to {
             if let line = phase.statusLine(macName: mac) { lines.insert(line) }
         }
         return lines
@@ -122,7 +124,7 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
     // MARK: Network
 
     /// The phone loses its network (subway, flight) for 10 s or 8 h (god),
-    /// then gets it back; the path monitor's change sends `.foreground` after
+    /// then gets it back; the path monitor's change sends `.networkChanged` after
     /// `networkSettle`. Reconnected within 2 s of the network being back,
     /// "Reconnecting…" while down, and 8 h within 1.2x of 10 s.
     @Test func cellNetworkOfflineThenBack() {
@@ -137,7 +139,7 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
             timeline.run(world: world, external: [
                 (.zero, .target(studio)),
                 (lost, .linkDropped(generation: 1, reason: "network lost")),
-                (back + LinkController.networkSettle, .foreground),
+                (back + LinkController.networkSettle, .networkChanged),
             ], until: back + .seconds(60))
             let reconnected = timeline.connected(after: back).map { $0 - back }
             report("network_offline_then_back", variant, [
@@ -168,7 +170,7 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
             timeline.run(world: world, external: [
                 (.zero, .target(studio)),
                 (lost, .linkDropped(generation: 1, reason: "network lost")),
-                (back + LinkController.networkSettle, .foreground),
+                (back + LinkController.networkSettle, .networkChanged),
             ], until: back + .seconds(120))
             let reconnected = timeline.connected(after: back).map { $0 - back }
             report("network_back_during_inflight_dial", variant, [
@@ -398,20 +400,57 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
         let dialer = ScriptedDialer(outcomes: [.connect])
         let controller = ScriptedDialer.controller(dialer) { _ in throw failure }
         defer { controller.send(.target(nil)) }
-        try await eventually {
-            if case .waiting = controller.phase { return true }
-            return false
-        }
+        try await eventually { controller.phase == .signedOut }
         let shown = controller.phase.statusLine(macName: "Studio")
         report("pairing_revoked_token", "small", ["status": shown ?? "", "dials": dialer.dials])
-        #expect(shown != "Reconnecting…", "a revoked session says \(shown ?? "nothing")")
+        #expect(shown == "Signed out", "a revoked session says \(shown ?? "nothing")")
+        // One mint, then one forced refresh; both refused, and no dial was made.
+        #expect(dialer.forcedRefresh == [false, true])
+        #expect(dialer.dials == 0)
+    }
+
+    /// The token mints, but the cmux service refuses it at the dial (the
+    /// signaling upgrade answers 401, which the Rust link reports as
+    /// `unauthorized`), the refreshed one too: signed out, and no event
+    /// dials again.
+    @MainActor @Test func cellPairingRevokedTokenRefusedAtDial() async throws {
+        let refused = LinkError(code: LinkError.unauthorized, message: "signaling connect failed: 401 Unauthorized")
+        let dialer = ScriptedDialer(outcomes: [.fail(refused), .fail(refused)])
+        let controller = ScriptedDialer.controller(dialer)
+        defer { controller.send(.target(nil)) }
+        try await eventually { controller.phase == .signedOut }
+        #expect(dialer.forcedRefresh == [false, true], "the second dial must mint a fresh token")
+        for event: LinkMachine.Event in [.foreground, .resume, .macSignaled, .networkChanged, .retryDue(generation: controller.dialGeneration)] {
+            controller.send(event)
+        }
+        try await Task.sleep(for: .milliseconds(50))
+        report("pairing_revoked_token_at_dial", "small", ["dials": dialer.dials, "status": controller.phase.statusLine(macName: "Studio") ?? ""])
+        #expect(dialer.dials == 2, "a signed-out session dialed \(dialer.dials) times")
+        #expect(controller.phase == .signedOut)
+    }
+
+    /// The link of a signed-out Mac is closed as idle (`applyLinks` sends
+    /// `.target(nil)`) and opened again when the Mac is shown: still signed
+    /// out, and no dial until the person signs in again.
+    @MainActor @Test func cellPairingRevokedTokenSurvivesIdleClose() async throws {
+        let refused = LinkError(code: LinkError.unauthorized, message: "signaling connect failed: 401 Unauthorized")
+        let dialer = ScriptedDialer(outcomes: [.fail(refused), .fail(refused)])
+        let controller = ScriptedDialer.controller(dialer)
+        defer { controller.send(.target(nil)) }
+        try await eventually { controller.phase == .signedOut }
+        controller.send(.target(nil))
+        controller.send(.target(.init(macID: "m1", name: "Studio", isOnline: true)))
+        try await Task.sleep(for: .milliseconds(50))
+        report("pairing_revoked_token_idle_close", "small", ["dials": dialer.dials])
+        #expect(dialer.dials == 2, "an idle close and reopen redialed a signed-out session")
+        #expect(controller.phase == .signedOut)
     }
 }
 
 // MARK: Scripted dialer
 
 private final class ScriptedLink: MacLink, @unchecked Sendable {
-    let transport: TransportKind = .wireGuard
+    let transport: CmuxMobileTransport.TransportKind = .wireGuard
     let connectedPath: LinkPathKind? = .direct
     let states: AsyncStream<LinkState>
     private let continuation: AsyncStream<LinkState>.Continuation
@@ -440,7 +479,7 @@ private final class ScriptedDialer: MacLinkDialer, @unchecked Sendable {
 
     func noteToken(forceRefresh: Bool) { lock.withLock { refreshes.append(forceRefresh) } }
 
-    func dial(_ endpoint: LinkEndpoint, transport: TransportKind, accessToken: String) async throws -> any MacLink {
+    func dial(_ endpoint: LinkEndpoint, transport: CmuxMobileTransport.TransportKind, accessToken: String) async throws -> any MacLink {
         let outcome = lock.withLock { () -> Outcome in
             count += 1
             return outcomes.isEmpty ? .connect : outcomes.removeFirst()

@@ -4,6 +4,55 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct LinearTeamsListResult {
+    pub teams: Vec<LinearTeamsListResultTeamsItem>,
+}
+
+wire_errors! {
+    /// The error codes linear.teams.list declares.
+    LinearTeamsListError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IntegrationUnavailable = "integration.unavailable",
+        ProviderError = "provider.error",
+        SelectorNotFound = "selector.not_found",
+    }
+}
+
+wire_op! {
+    /// Read one Gmail message (headers, plain text, attachment list) at call time; nothing is stored.
+    MailGetOp {
+        name: "mail.get",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:ConnectionDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: MailGetParams,
+        result: Value,
+        error: MailGetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MailGetParams {
+    pub connection: ConnectionId,
+    pub message_id: String,
+}
+
+wire_errors! {
+    /// The error codes mail.get declares.
+    MailGetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IntegrationUnavailable = "integration.unavailable",
+        PolicyDenied = "policy.denied",
+        ProviderError = "provider.error",
+        SelectorNotFound = "selector.not_found",
+    }
+}
+
 wire_op! {
     /// Change labels of Gmail messages or a thread (archive, mark read with remove_labels UNREAD).
     MailModifyOp {
@@ -843,64 +892,5 @@ wire_errors! {
         IdempotencyConflict = "idempotency.conflict",
         RevisionConflict = "revision.conflict",
         ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Add a tapback or emoji reaction to a message part (one per author, part and kind).
-    ReactionAddOp {
-        name: "reaction.add",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "mutate-shared",
-        principals: [Session, Install],
-        params: ReactionAddParams,
-        result: HomeConversationCommit,
-        error: ReactionAddError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ReactionAddParams {
-    pub conversation: ConversationId,
-    pub message_id: MessageId,
-    pub part_index: i64,
-    pub reaction: HomeReactionKind,
-}
-
-wire_errors! {
-    /// The error codes reaction.add declares.
-    ReactionAddError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        DuplicateReaction = "duplicate_reaction",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidPartIndex = "invalid_part_index",
-        InvalidReaction = "invalid_reaction",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        Retracted = "retracted",
-        UnknownConversation = "unknown_conversation",
-        UnknownMessage = "unknown_message",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Remove one of your reactions.
-    ReactionRemoveOp {
-        name: "reaction.remove",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: ReactionRemoveParams,
-        result: HomeConversationCommit,
-        error: ReactionRemoveError,
     }
 }

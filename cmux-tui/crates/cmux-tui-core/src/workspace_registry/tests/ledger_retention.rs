@@ -194,9 +194,15 @@ fn one_incremental_vacuum_step_returns_up_to_256_free_pages() {
     let before = pragma_count(&registry, "freelist_count");
     assert!(before > 300, "the test needs more than 256 free pages, got {before}");
 
-    let more = registry.incremental_journal_vacuum().unwrap();
+    // No reserve: every free page is the step's to return.
+    let more = registry.incremental_journal_vacuum(0).unwrap();
 
     let after = pragma_count(&registry, "freelist_count");
     assert_eq!(before - after, 256, "one step returns 256 pages ({before} -> {after})");
-    assert!(more, "free pages remain for a later step");
+    assert_eq!(more, after >= 256, "a later step is due while a whole step is left ({after})");
+
+    // A reserve the free pages are under: nothing is returned.
+    let kept = u64::try_from(after).unwrap() + 1;
+    assert!(!registry.incremental_journal_vacuum(kept).unwrap());
+    assert_eq!(pragma_count(&registry, "freelist_count"), after);
 }

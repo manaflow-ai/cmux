@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 860,
-    "mcp": 774
+    "verbs": 865,
+    "mcp": 781
   },
   "nouns": [
     {
@@ -1590,6 +1590,13 @@
           "mcpTool": "app_cloud_set_network_access"
         },
         {
+          "command": "cmux cloud setup-desktop",
+          "title": "Start Desktop…",
+          "id": "cloudSetupDesktop",
+          "mcp": true,
+          "mcpTool": "app_cloud_setup_desktop"
+        },
+        {
           "command": "cmux cloud setup-github",
           "title": "Set Up GitHub on This Machine",
           "id": "cloudSetupGitHub",
@@ -1806,6 +1813,32 @@
           "id": "device.add",
           "mcp": true,
           "mcpTool": "app_device_add"
+        }
+      ]
+    },
+    {
+      "noun": "divider",
+      "verbs": [
+        {
+          "command": "cmux divider hide",
+          "title": "Hide Divider",
+          "id": "divider.hide",
+          "mcp": true,
+          "mcpTool": "app_divider_hide"
+        },
+        {
+          "command": "cmux divider insert",
+          "title": "Insert New",
+          "id": "divider.insertNew",
+          "mcp": true,
+          "mcpTool": "app_divider_insert"
+        },
+        {
+          "command": "cmux divider show",
+          "title": "Show Divider",
+          "id": "divider.show",
+          "mcp": true,
+          "mcpTool": "app_divider_show"
         }
       ]
     },
@@ -3861,20 +3894,6 @@
           "mcpTool": null
         },
         {
-          "command": "cmux settings use-animations-without-bounce",
-          "title": "Use Animations Without Bounce",
-          "id": "appearance.animations.bounce.none",
-          "mcp": false,
-          "mcpTool": null
-        },
-        {
-          "command": "cmux settings use-bouncy-animations",
-          "title": "Use Bouncy Animations",
-          "id": "appearance.animations.bounce.subtle",
-          "mcp": false,
-          "mcpTool": null
-        },
-        {
           "command": "cmux settings use-chromium-by-default",
           "title": "Use Chromium for New Browser Tabs",
           "id": "browser.defaultEngine.chromium",
@@ -4354,6 +4373,13 @@
           "mcpTool": "app_sidebar_show_spaces"
         },
         {
+          "command": "cmux sidebar toggle-custom",
+          "title": "Toggle Custom Sidebar",
+          "id": "sidebar.custom.toggle",
+          "mcp": true,
+          "mcpTool": "app_sidebar_toggle_custom"
+        },
+        {
           "command": "cmux sidebar toggle-item-archive",
           "title": "Archive/Unarchive Item",
           "id": "sidebar.item.toggleArchive",
@@ -4698,6 +4724,13 @@
           "mcpTool": "app_tab_duplicate"
         },
         {
+          "command": "cmux tab duplicate-to-new-split",
+          "title": "Duplicate Tab to New Split",
+          "id": "tab.duplicateToNewSplit",
+          "mcp": true,
+          "mcpTool": "app_tab_duplicate_to_new_split"
+        },
+        {
           "command": "cmux tab hibernate",
           "title": "Hibernate Tab",
           "id": "hibernateTab",
@@ -4808,6 +4841,13 @@
           "id": "tab.moveToSpace",
           "mcp": true,
           "mcpTool": "app_tab_move_to_space"
+        },
+        {
+          "command": "cmux tab move-to-window",
+          "title": "Move Tab to Window…",
+          "id": "tab.moveToWindow",
+          "mcp": true,
+          "mcpTool": "app_tab_move_to_window"
         },
         {
           "command": "cmux tab move-to-workspace",
@@ -6259,6 +6299,6 @@
   "mcpExempt": {
     "credentials": 7,
     "endsApp": 4,
-    "systemChange": 75
+    "systemChange": 73
   }
 }
