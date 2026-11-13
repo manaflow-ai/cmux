@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43407164814",
+  "recorded_at": "2026-11-13T10:24:06Z",
+  "reason": "cmux-tui ef41262d7ad9 changes the image's cmux-tui (pinned eb88ec0386b5)",
+  "dry_run": false,
+  "cmux_tui": "ef41262d7ad96f7dc5b4a0fda3fc475012faf0de",
+  "fixes": [
+    {
+      "sha": "ef41262d7ad96f7dc5b4a0fda3fc475012faf0de",
+      "mergedAt": "2026-11-13T03:46:35-06:00",
+      "subject": "cmux-tui-image-paste: an upload's lease and a sweep's claim unlock before they close"
+    },
+    {
+      "sha": "6e5ee1d37bec03293273ee35f08ebdb899970dd3",
+      "mergedAt": "2026-11-13T03:46:35-06:00",
+      "subject": "cmux-tui-image-paste tests: an upload's lease and a sweep's claim are free while a forked child keeps their descriptors (red)"
+    },
+    {
+      "sha": "92e836a688cc1ab030a13f86421fc000fd7bba02",
+      "mergedAt": "2026-11-13T03:41:37-06:00",
+      "subject": "cmux-worktree-care tests: care_lifecycle tests take one merge-tree slot, so a squash check never reads a sibling's busy"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T10:24:06Z",
+    "snapshot_id": "sh-38675ce382074c4e8506ba170576ae2c",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43407164814): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "1d8f70a3f6548953252f77babe9906cdfa06af05",
+    "image": "cloud-native-auto-ef41262d-43407164814-1",
+    "revision": "ci-43407164814-1",
+    "at": "2026-11-13T10:24:06Z"
+  },
+  "rolled_back": false
+}
