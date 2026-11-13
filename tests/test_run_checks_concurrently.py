@@ -7,6 +7,7 @@ long as its slowest script; every script still runs, its output still prints
 whole and in order, and any failure fails the step by name.
 """
 
+import os
 import subprocess
 import time
 import unittest
@@ -19,9 +20,12 @@ RUNNER = ROOT / "scripts/ci/run-checks-concurrently.sh"
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
 
 
-def run(commands: str, *args: str) -> subprocess.CompletedProcess:
+def run(commands: str, *args: str, budget: str | None = None) -> subprocess.CompletedProcess:
+    env = {key: value for key, value in os.environ.items() if key != "CMUX_CI_CPU_BUDGET"}
+    if budget is not None:
+        env["CMUX_CI_CPU_BUDGET"] = budget
     return subprocess.run(["bash", str(RUNNER), *args], input=commands, capture_output=True,
-                          text=True, timeout=60, cwd=ROOT)
+                          text=True, timeout=60, cwd=ROOT, env=env)
 
 
 class RunChecksConcurrently(unittest.TestCase):
@@ -43,6 +47,30 @@ class RunChecksConcurrently(unittest.TestCase):
         self.assertIn("after", result.stdout)
         self.assertIn("::error title=check failed::exit 3", result.stdout)
         self.assertIn("2 passed, 1 failed", result.stdout)
+
+    def test_the_job_cpu_share_caps_the_pool(self):
+        # A mini's runner hook grants a job its cores (CMUX_CI_CPU_BUDGET). The checks job asked for one check per
+        # core of the whole 14-core mini while it held 5 (job 131984422217: prepush gate 693 s there, 238 s on a
+        # 16 vCPU Linux runner), so the pool runs no wider than the grant.
+        result = run("echo a\necho b\necho c\n", "--jobs", "14", budget="2")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("3 checks, 2 at a time", result.stdout)
+        self.assertIn("CMUX_CI_CPU_BUDGET=2 caps the pool at 2 (was 14)", result.stdout)
+        # A narrower --jobs, an unset or a malformed budget keep --jobs
+        self.assertIn("3 checks, 1 at a time", run("echo a\necho b\necho c\n", "--jobs", "1", budget="4").stdout)
+        self.assertIn("3 checks, 3 at a time", run("echo a\necho b\necho c\n", "--jobs", "3").stdout)
+        self.assertIn("3 checks, 3 at a time", run("echo a\necho b\necho c\n", "--jobs", "3", budget="x").stdout)
+
+    def test_the_checks_job_starts_the_prepush_gate_first(self):
+        # The prepush gate suite is the pool's longest command (238 s on Linux, 693 s on a mini): started first, a
+        # pool as narrow as the job's share does not leave it for last.
+        document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        start = next(s for s in document["jobs"]["checks"]["steps"]
+                     if "run-checks-concurrently.sh --start" in str(s.get("run", "")))
+        commands = [line.strip() for line in start["run"].split("<<'CHECKS'", 1)[1].splitlines()
+                    if line.strip() and not line.strip().startswith(("[", "#"))]
+        self.assertEqual(commands[0], "python3 tests/test_cmux_next_prepush_gate.py")
+        self.assertEqual(commands.count("python3 tests/test_cmux_next_prepush_gate.py"), 1)
 
     def test_skips_blank_lines_and_comments(self):
         result = run("\n  # a note\n  echo only\n")
