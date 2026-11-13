@@ -28,7 +28,8 @@ fn setup_with(local: &[(&str, &str)]) -> Arc<Hub> {
     let hub = Hub::new(config, store);
     let row = crate::hub::RemoteSession {
         peer: "hb".into(),
-        summary: json!({"sessionId": "peer-review-1", "name": "hb/review", "status": "running"}),
+        summary: json!({"sessionId": "peer-review-1", "name": "hb/review", "status": "running"})
+            .into(),
         receipt: SessionReceipt {
             host_id: "hb".into(),
             mux_session_id: "peer-review-1".into(),
@@ -92,7 +93,8 @@ async fn a_sub_sessions_whole_name_here_and_on_a_peer_is_refused() {
     let hub = setup_with(&[("local-review-1", "review"), ("local-child-1", "review/child")]);
     let row = crate::hub::RemoteSession {
         peer: "hb".into(),
-        summary: json!({"sessionId": "peer-child-1", "name": "hb/review/child", "status": "idle"}),
+        summary: json!({"sessionId": "peer-child-1", "name": "hb/review/child", "status": "idle"})
+            .into(),
         receipt: SessionReceipt {
             host_id: "hb".into(),
             mux_session_id: "peer-child-1".into(),

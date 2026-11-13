@@ -134,6 +134,7 @@ version = "1.0.0"
 dependencies = [
  "acpmux-book",
  "arc-swap",
+ "cmux-scope",
  "serde",
  "serde_json",
  "tempfile",
@@ -1792,7 +1793,7 @@ dependencies = [
 
 [[package]]
 name = "cmux-pty"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "libc",

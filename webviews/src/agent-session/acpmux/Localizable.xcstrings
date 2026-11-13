@@ -103996,6 +103996,402 @@
         }
       }
     },
+    "chatMenu.moveToTerminal": {
+      "comment": "Agent pane chat header menu: move this chat out of the pane into a terminal that resumes it with the agent's own command",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move to terminal"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نقل إلى الطرفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Premjesti u terminal"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flyt til terminal"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ins Terminal verschieben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mover al terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Déplacer vers le terminal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sposta nel terminale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ターミナルに移動"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្លាស់ទីទៅ terminal"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "터미널로 이동"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flytt til terminal"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przenieś do terminala"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mover para o terminal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Переместить в терминал"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ย้ายไปยังเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminale taşı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перемістити в термінал"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Di chuyển sang terminal"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "移至终端"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "移至終端機"
+          }
+        }
+      }
+    },
+    "chatMenu.moveToTerminalBusy": {
+      "comment": "Agent pane toast: Move to terminal was refused because the chat still has a turn, queued message, permission request or tool call open",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move to terminal once the chat is idle"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "انقل الدردشة إلى الطرفية عندما تصبح خاملة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Premjestite chat u terminal kada bude neaktivan"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flyt chatten til terminal, når den er inaktiv"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verschiebe den Chat ins Terminal, sobald er untätig ist"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mueve el chat al terminal cuando esté inactivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Déplacez le chat vers le terminal une fois qu'il est inactif"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sposta la chat nel terminale quando è inattiva"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャットがアイドル状態になってからターミナルに移動してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្លាស់ទីការជជែកទៅ terminal នៅពេលវាទំនេរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅이 유휴 상태가 되면 터미널로 이동하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flytt chatten til terminal når den er inaktiv"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przenieś czat do terminala, gdy będzie bezczynny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mova o chat para o terminal quando ele estiver ocioso"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Переместите чат в терминал, когда он будет простаивать"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ย้ายแชทไปยังเทอร์มินัลเมื่อแชทว่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbet boşta olduğunda terminale taşıyın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перемістіть чат у термінал, коли він буде неактивним"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Di chuyển cuộc trò chuyện sang terminal khi nó rảnh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "请在聊天空闲后再移至终端"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "請在聊天閒置後再移至終端機"
+          }
+        }
+      }
+    },
+    "chatMenu.moveToTerminalFailed": {
+      "comment": "Agent pane toast: Move to terminal could not stop the chat here or open the terminal",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't move the chat to the terminal"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر نقل الدردشة إلى الطرفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Premještanje chata u terminal nije uspjelo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chatten kunne ikke flyttes til terminal"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Chat konnte nicht ins Terminal verschoben werden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudo mover el chat al terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible de déplacer le chat vers le terminal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile spostare la chat nel terminale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャットをターミナルに移動できませんでした"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចផ្លាស់ទីការជជែកទៅ terminal បានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅을 터미널로 이동하지 못했습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke flytte chatten til terminal"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie udało się przenieść czatu do terminala"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível mover o chat para o terminal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось переместить чат в терминал"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถย้ายแชทไปยังเทอร์มินัลได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbet terminale taşınamadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося перемістити чат у термінал"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể di chuyển cuộc trò chuyện sang terminal"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法将聊天移至终端"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法將聊天移至終端機"
+          }
+        }
+      }
+    },
     "chatMenu.floatingChat" : {
       "comment" : "Agent pane chat header",
       "extractionState" : "manual",
@@ -252095,6 +252491,12 @@
     "picker.useApiKey": {"comment":"Model picker, account card: adds an API key account for a signed-out harness.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"استخدام مفتاح API…"}},"bs":{"stringUnit":{"state":"translated","value":"Koristi API ključ…"}},"da":{"stringUnit":{"state":"translated","value":"Brug en API-nøgle…"}},"de":{"stringUnit":{"state":"translated","value":"API-Schlüssel verwenden…"}},"en":{"stringUnit":{"state":"translated","value":"Use an API key…"}},"es":{"stringUnit":{"state":"translated","value":"Usar una clave de API…"}},"fr":{"stringUnit":{"state":"translated","value":"Utiliser une clé API…"}},"it":{"stringUnit":{"state":"translated","value":"Usa una chiave API…"}},"ja":{"stringUnit":{"state":"translated","value":"API キーを使う…"}},"km":{"stringUnit":{"state":"translated","value":"ប្រើសោ API…"}},"ko":{"stringUnit":{"state":"translated","value":"API 키 사용…"}},"nb":{"stringUnit":{"state":"translated","value":"Bruk en API-nøkkel…"}},"pl":{"stringUnit":{"state":"translated","value":"Użyj klucza API…"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Usar uma chave de API…"}},"ru":{"stringUnit":{"state":"translated","value":"Использовать ключ API…"}},"th":{"stringUnit":{"state":"translated","value":"ใช้คีย์ API…"}},"tr":{"stringUnit":{"state":"translated","value":"API anahtarı kullan…"}},"uk":{"stringUnit":{"state":"translated","value":"Використати ключ API…"}},"vi":{"stringUnit":{"state":"translated","value":"Dùng khóa API…"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"使用 API 密钥…"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"使用 API 金鑰…"}}}},
     "backgroundRun.finished": {"comment":"Agent pane transcript: the one muted line of two or more background tasks in a row that finished with nothing new to say; {n} is how many (always 2 or more); it opens to show each (conversation/backgroundRuns.ts)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"{n} background tasks finished"}},"ar":{"stringUnit":{"state":"needs_review","value":"انتهت {n} مهام في الخلفية"}},"bs":{"stringUnit":{"state":"needs_review","value":"Završeno pozadinskih zadataka: {n}"}},"da":{"stringUnit":{"state":"needs_review","value":"{n} baggrundsopgaver afsluttet"}},"de":{"stringUnit":{"state":"needs_review","value":"{n} Hintergrundaufgaben beendet"}},"es":{"stringUnit":{"state":"needs_review","value":"{n} tareas en segundo plano terminadas"}},"fr":{"stringUnit":{"state":"needs_review","value":"{n} tâches en arrière-plan terminées"}},"it":{"stringUnit":{"state":"needs_review","value":"{n} attività in background completate"}},"ja":{"stringUnit":{"state":"needs_review","value":"{n} 件のバックグラウンドタスクが完了"}},"km":{"stringUnit":{"state":"needs_review","value":"កិច្ចការផ្ទៃខាងក្រោយ {n} បានបញ្ចប់"}},"ko":{"stringUnit":{"state":"needs_review","value":"백그라운드 작업 {n}개 완료"}},"nb":{"stringUnit":{"state":"needs_review","value":"{n} bakgrunnsoppgaver fullført"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zakończone zadania w tle: {n}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{n} tarefas em segundo plano concluídas"}},"ru":{"stringUnit":{"state":"needs_review","value":"Завершено фоновых задач: {n}"}},"th":{"stringUnit":{"state":"needs_review","value":"งานเบื้องหลังเสร็จแล้ว {n} งาน"}},"tr":{"stringUnit":{"state":"needs_review","value":"{n} arka plan görevi bitti"}},"uk":{"stringUnit":{"state":"needs_review","value":"Завершено фонових завдань: {n}"}},"vi":{"stringUnit":{"state":"needs_review","value":"{n} tác vụ nền đã xong"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{n} 个后台任务已完成"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{n} 個背景工作已完成"}}}},
     "backgroundRun.updates": {"comment":"Agent pane transcript: the one muted line of two or more background updates in a row (finished or stopped background tasks, scheduled checks) with nothing new to say; {n} is how many (always 2 or more); it opens to show each (conversation/backgroundRuns.ts)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"{n} background updates"}},"ar":{"stringUnit":{"state":"needs_review","value":"{n} تحديثات في الخلفية"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pozadinskih ažuriranja: {n}"}},"da":{"stringUnit":{"state":"needs_review","value":"{n} baggrundsopdateringer"}},"de":{"stringUnit":{"state":"needs_review","value":"{n} Hintergrundaktualisierungen"}},"es":{"stringUnit":{"state":"needs_review","value":"{n} actualizaciones en segundo plano"}},"fr":{"stringUnit":{"state":"needs_review","value":"{n} mises à jour en arrière-plan"}},"it":{"stringUnit":{"state":"needs_review","value":"{n} aggiornamenti in background"}},"ja":{"stringUnit":{"state":"needs_review","value":"{n} 件のバックグラウンド更新"}},"km":{"stringUnit":{"state":"needs_review","value":"បច្ចុប្បន្នភាពផ្ទៃខាងក្រោយ {n}"}},"ko":{"stringUnit":{"state":"needs_review","value":"백그라운드 업데이트 {n}개"}},"nb":{"stringUnit":{"state":"needs_review","value":"{n} bakgrunnsoppdateringer"}},"pl":{"stringUnit":{"state":"needs_review","value":"Aktualizacje w tle: {n}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{n} atualizações em segundo plano"}},"ru":{"stringUnit":{"state":"needs_review","value":"Фоновых обновлений: {n}"}},"th":{"stringUnit":{"state":"needs_review","value":"การอัปเดตเบื้องหลัง {n} รายการ"}},"tr":{"stringUnit":{"state":"needs_review","value":"{n} arka plan güncellemesi"}},"uk":{"stringUnit":{"state":"needs_review","value":"Фонових оновлень: {n}"}},"vi":{"stringUnit":{"state":"needs_review","value":"{n} cập nhật nền"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{n} 个后台更新"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{n} 個背景更新"}}}},
+    "backgroundRun.commandsCompleted": {"comment":"Agent pane transcript: the one muted line of two or more background shell commands in a row that completed successfully; {n} is how many (always 2 or more); it opens to show each (conversation/backgroundRuns.ts)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"{n} background commands completed"}},"ar":{"stringUnit":{"state":"needs_review","value":"انتهت {n} أوامر في الخلفية"}},"bs":{"stringUnit":{"state":"needs_review","value":"Završeno pozadinskih naredbi: {n}"}},"da":{"stringUnit":{"state":"needs_review","value":"{n} baggrundskommandoer afsluttet"}},"de":{"stringUnit":{"state":"needs_review","value":"{n} Hintergrundbefehle beendet"}},"es":{"stringUnit":{"state":"needs_review","value":"{n} comandos en segundo plano terminados"}},"fr":{"stringUnit":{"state":"needs_review","value":"{n} commandes en arrière-plan terminées"}},"it":{"stringUnit":{"state":"needs_review","value":"{n} comandi in background completati"}},"ja":{"stringUnit":{"state":"needs_review","value":"{n} 件のバックグラウンドコマンドが完了"}},"km":{"stringUnit":{"state":"needs_review","value":"ពាក្យបញ្ជាផ្ទៃខាងក្រោយ {n} បានបញ្ចប់"}},"ko":{"stringUnit":{"state":"needs_review","value":"백그라운드 명령 {n}개 완료"}},"nb":{"stringUnit":{"state":"needs_review","value":"{n} bakgrunnskommandoer fullført"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zakończone polecenia w tle: {n}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{n} comandos em segundo plano concluídos"}},"ru":{"stringUnit":{"state":"needs_review","value":"Завершено фоновых команд: {n}"}},"th":{"stringUnit":{"state":"needs_review","value":"คำสั่งเบื้องหลังเสร็จแล้ว {n} คำสั่ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"{n} arka plan komutu bitti"}},"uk":{"stringUnit":{"state":"needs_review","value":"Завершено фонових команд: {n}"}},"vi":{"stringUnit":{"state":"needs_review","value":"{n} lệnh nền đã xong"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{n} 个后台命令已完成"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{n} 個背景命令已完成"}}}},
+    "backgroundRun.commands": {"comment":"Agent pane transcript: the one muted line of two or more background shell commands in a row that ended; {n} is how many (always 2 or more); it opens to show each (conversation/backgroundRuns.ts)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"{n} background commands finished"}},"ar":{"stringUnit":{"state":"needs_review","value":"انتهت {n} أوامر في الخلفية"}},"bs":{"stringUnit":{"state":"needs_review","value":"Završeno pozadinskih naredbi: {n}"}},"da":{"stringUnit":{"state":"needs_review","value":"{n} baggrundskommandoer afsluttet"}},"de":{"stringUnit":{"state":"needs_review","value":"{n} Hintergrundbefehle beendet"}},"es":{"stringUnit":{"state":"needs_review","value":"{n} comandos en segundo plano terminados"}},"fr":{"stringUnit":{"state":"needs_review","value":"{n} commandes en arrière-plan terminées"}},"it":{"stringUnit":{"state":"needs_review","value":"{n} comandi in background completati"}},"ja":{"stringUnit":{"state":"needs_review","value":"{n} 件のバックグラウンドコマンドが完了"}},"km":{"stringUnit":{"state":"needs_review","value":"ពាក្យបញ្ជាផ្ទៃខាងក្រោយ {n} បានបញ្ចប់"}},"ko":{"stringUnit":{"state":"needs_review","value":"백그라운드 명령 {n}개 완료"}},"nb":{"stringUnit":{"state":"needs_review","value":"{n} bakgrunnskommandoer fullført"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zakończone polecenia w tle: {n}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{n} comandos em segundo plano concluídos"}},"ru":{"stringUnit":{"state":"needs_review","value":"Завершено фоновых команд: {n}"}},"th":{"stringUnit":{"state":"needs_review","value":"คำสั่งเบื้องหลังเสร็จแล้ว {n} คำสั่ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"{n} arka plan komutu bitti"}},"uk":{"stringUnit":{"state":"needs_review","value":"Завершено фонових команд: {n}"}},"vi":{"stringUnit":{"state":"needs_review","value":"{n} lệnh nền đã xong"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{n} 个后台命令已完成"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{n} 個背景命令已完成"}}}},
+    "backgroundRun.commandsCompletedFailed": {"comment":"Agent pane transcript: the one muted line of two or more background shell commands in a row, some of which completed and some failed; {n} is how many ended well, {failed} how many failed; it opens to show each (conversation/backgroundRuns.ts)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"{n} background commands completed, {failed} failed"}},"ar":{"stringUnit":{"state":"needs_review","value":"انتهت {n} أوامر في الخلفية، وفشل {failed}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Završeno pozadinskih naredbi: {n}, neuspjelo: {failed}"}},"da":{"stringUnit":{"state":"needs_review","value":"{n} baggrundskommandoer afsluttet, {failed} mislykkedes"}},"de":{"stringUnit":{"state":"needs_review","value":"{n} Hintergrundbefehle beendet, {failed} fehlgeschlagen"}},"es":{"stringUnit":{"state":"needs_review","value":"{n} comandos en segundo plano terminados, {failed} fallaron"}},"fr":{"stringUnit":{"state":"needs_review","value":"{n} commandes en arrière-plan terminées, {failed} en échec"}},"it":{"stringUnit":{"state":"needs_review","value":"{n} comandi in background completati, {failed} non riusciti"}},"ja":{"stringUnit":{"state":"needs_review","value":"{n} 件のバックグラウンドコマンドが完了、{failed} 件が失敗"}},"km":{"stringUnit":{"state":"needs_review","value":"ពាក្យបញ្ជាផ្ទៃខាងក្រោយ {n} បានបញ្ចប់ {failed} បរាជ័យ"}},"ko":{"stringUnit":{"state":"needs_review","value":"백그라운드 명령 {n}개 완료, {failed}개 실패"}},"nb":{"stringUnit":{"state":"needs_review","value":"{n} bakgrunnskommandoer fullført, {failed} mislyktes"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zakończone polecenia w tle: {n}, nieudane: {failed}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{n} comandos em segundo plano concluídos, {failed} falharam"}},"ru":{"stringUnit":{"state":"needs_review","value":"Завершено фоновых команд: {n}, с ошибкой: {failed}"}},"th":{"stringUnit":{"state":"needs_review","value":"คำสั่งเบื้องหลังเสร็จแล้ว {n} คำสั่ง ล้มเหลว {failed} คำสั่ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"{n} arka plan komutu bitti, {failed} başarısız"}},"uk":{"stringUnit":{"state":"needs_review","value":"Завершено фонових команд: {n}, з помилкою: {failed}"}},"vi":{"stringUnit":{"state":"needs_review","value":"{n} lệnh nền đã xong, {failed} lệnh lỗi"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{n} 个后台命令已完成，{failed} 个失败"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{n} 個背景命令已完成，{failed} 個失敗"}}}},
+    "backgroundRun.commandsFailed": {"comment":"Agent pane transcript: the one muted line of two or more background shell commands in a row, some of which failed; {n} is how many ended well, {failed} how many failed; it opens to show each (conversation/backgroundRuns.ts)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"{n} background commands finished, {failed} failed"}},"ar":{"stringUnit":{"state":"needs_review","value":"انتهت {n} أوامر في الخلفية، وفشل {failed}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Završeno pozadinskih naredbi: {n}, neuspjelo: {failed}"}},"da":{"stringUnit":{"state":"needs_review","value":"{n} baggrundskommandoer afsluttet, {failed} mislykkedes"}},"de":{"stringUnit":{"state":"needs_review","value":"{n} Hintergrundbefehle beendet, {failed} fehlgeschlagen"}},"es":{"stringUnit":{"state":"needs_review","value":"{n} comandos en segundo plano terminados, {failed} fallaron"}},"fr":{"stringUnit":{"state":"needs_review","value":"{n} commandes en arrière-plan terminées, {failed} en échec"}},"it":{"stringUnit":{"state":"needs_review","value":"{n} comandi in background completati, {failed} non riusciti"}},"ja":{"stringUnit":{"state":"needs_review","value":"{n} 件のバックグラウンドコマンドが完了、{failed} 件が失敗"}},"km":{"stringUnit":{"state":"needs_review","value":"ពាក្យបញ្ជាផ្ទៃខាងក្រោយ {n} បានបញ្ចប់ {failed} បរាជ័យ"}},"ko":{"stringUnit":{"state":"needs_review","value":"백그라운드 명령 {n}개 완료, {failed}개 실패"}},"nb":{"stringUnit":{"state":"needs_review","value":"{n} bakgrunnskommandoer fullført, {failed} mislyktes"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zakończone polecenia w tle: {n}, nieudane: {failed}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{n} comandos em segundo plano concluídos, {failed} falharam"}},"ru":{"stringUnit":{"state":"needs_review","value":"Завершено фоновых команд: {n}, с ошибкой: {failed}"}},"th":{"stringUnit":{"state":"needs_review","value":"คำสั่งเบื้องหลังเสร็จแล้ว {n} คำสั่ง ล้มเหลว {failed} คำสั่ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"{n} arka plan komutu bitti, {failed} başarısız"}},"uk":{"stringUnit":{"state":"needs_review","value":"Завершено фонових команд: {n}, з помилкою: {failed}"}},"vi":{"stringUnit":{"state":"needs_review","value":"{n} lệnh nền đã xong, {failed} lệnh lỗi"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{n} 个后台命令已完成，{failed} 个失败"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{n} 個背景命令已完成，{failed} 個失敗"}}}},
+    "backgroundRun.commandsAllFailed": {"comment":"Agent pane transcript: the one muted line of two or more background shell commands in a row that all failed; {n} is how many (always 2 or more); it opens to show each (conversation/backgroundRuns.ts)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"{n} background commands failed"}},"ar":{"stringUnit":{"state":"needs_review","value":"فشلت {n} أوامر في الخلفية"}},"bs":{"stringUnit":{"state":"needs_review","value":"Neuspjelo pozadinskih naredbi: {n}"}},"da":{"stringUnit":{"state":"needs_review","value":"{n} baggrundskommandoer mislykkedes"}},"de":{"stringUnit":{"state":"needs_review","value":"{n} Hintergrundbefehle fehlgeschlagen"}},"es":{"stringUnit":{"state":"needs_review","value":"{n} comandos en segundo plano fallaron"}},"fr":{"stringUnit":{"state":"needs_review","value":"{n} commandes en arrière-plan en échec"}},"it":{"stringUnit":{"state":"needs_review","value":"{n} comandi in background non riusciti"}},"ja":{"stringUnit":{"state":"needs_review","value":"{n} 件のバックグラウンドコマンドが失敗"}},"km":{"stringUnit":{"state":"needs_review","value":"ពាក្យបញ្ជាផ្ទៃខាងក្រោយ {n} បរាជ័យ"}},"ko":{"stringUnit":{"state":"needs_review","value":"백그라운드 명령 {n}개 실패"}},"nb":{"stringUnit":{"state":"needs_review","value":"{n} bakgrunnskommandoer mislyktes"}},"pl":{"stringUnit":{"state":"needs_review","value":"Nieudane polecenia w tle: {n}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{n} comandos em segundo plano falharam"}},"ru":{"stringUnit":{"state":"needs_review","value":"Фоновых команд с ошибкой: {n}"}},"th":{"stringUnit":{"state":"needs_review","value":"คำสั่งเบื้องหลังล้มเหลว {n} คำสั่ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"{n} arka plan komutu başarısız"}},"uk":{"stringUnit":{"state":"needs_review","value":"Фонових команд з помилкою: {n}"}},"vi":{"stringUnit":{"state":"needs_review","value":"{n} lệnh nền bị lỗi"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{n} 个后台命令失败"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{n} 個背景命令失敗"}}}},
+    "backgroundRun.failedCount": {"comment":"Agent pane transcript: added after a background run's line when some of its shell commands failed, e.g. \"5 background updates, 1 failed\"; {n} is how many failed (conversation/backgroundRuns.ts)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"{n} failed"}},"ar":{"stringUnit":{"state":"needs_review","value":"فشل {n}"}},"bs":{"stringUnit":{"state":"needs_review","value":"neuspjelo: {n}"}},"da":{"stringUnit":{"state":"needs_review","value":"{n} mislykkedes"}},"de":{"stringUnit":{"state":"needs_review","value":"{n} fehlgeschlagen"}},"es":{"stringUnit":{"state":"needs_review","value":"{n} fallaron"}},"fr":{"stringUnit":{"state":"needs_review","value":"{n} en échec"}},"it":{"stringUnit":{"state":"needs_review","value":"{n} non riusciti"}},"ja":{"stringUnit":{"state":"needs_review","value":"{n} 件が失敗"}},"km":{"stringUnit":{"state":"needs_review","value":"{n} បរាជ័យ"}},"ko":{"stringUnit":{"state":"needs_review","value":"{n}개 실패"}},"nb":{"stringUnit":{"state":"needs_review","value":"{n} mislyktes"}},"pl":{"stringUnit":{"state":"needs_review","value":"nieudane: {n}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{n} falharam"}},"ru":{"stringUnit":{"state":"needs_review","value":"с ошибкой: {n}"}},"th":{"stringUnit":{"state":"needs_review","value":"ล้มเหลว {n}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{n} başarısız"}},"uk":{"stringUnit":{"state":"needs_review","value":"з помилкою: {n}"}},"vi":{"stringUnit":{"state":"needs_review","value":"{n} lỗi"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{n} 个失败"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{n} 個失敗"}}}},
     "machineMenu.chats": {"comment":"Agent pane: a received message's machine label opens a menu; its title and the heading over the chats listed on that machine; {machine} is a machine name such as studio-mac","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Chats on {machine}"}},"ar":{"stringUnit":{"state":"needs_review","value":"الدردشات على {machine}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Chatovi na {machine}"}},"da":{"stringUnit":{"state":"needs_review","value":"Chats på {machine}"}},"de":{"stringUnit":{"state":"needs_review","value":"Chats auf {machine}"}},"es":{"stringUnit":{"state":"needs_review","value":"Chats en {machine}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Discussions sur {machine}"}},"it":{"stringUnit":{"state":"needs_review","value":"Chat su {machine}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{machine} のチャット"}},"km":{"stringUnit":{"state":"needs_review","value":"ការជជែកលើ {machine}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{machine}의 채팅"}},"nb":{"stringUnit":{"state":"needs_review","value":"Chatter på {machine}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Czaty na {machine}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Chats em {machine}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Чаты на {machine}"}},"th":{"stringUnit":{"state":"needs_review","value":"แชตบน {machine}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{machine} üzerindeki sohbetler"}},"uk":{"stringUnit":{"state":"needs_review","value":"Чати на {machine}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Cuộc trò chuyện trên {machine}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{machine} 上的聊天"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{machine} 上的聊天"}}}},
     "machineMenu.copyName": {"comment":"Agent pane: the machine menu's row that copies the machine's name","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Copy machine name"}},"ar":{"stringUnit":{"state":"needs_review","value":"نسخ اسم الجهاز"}},"bs":{"stringUnit":{"state":"needs_review","value":"Kopiraj naziv mašine"}},"da":{"stringUnit":{"state":"needs_review","value":"Kopiér maskinens navn"}},"de":{"stringUnit":{"state":"needs_review","value":"Maschinennamen kopieren"}},"es":{"stringUnit":{"state":"needs_review","value":"Copiar nombre de la máquina"}},"fr":{"stringUnit":{"state":"needs_review","value":"Copier le nom de la machine"}},"it":{"stringUnit":{"state":"needs_review","value":"Copia nome della macchina"}},"ja":{"stringUnit":{"state":"needs_review","value":"マシン名をコピー"}},"km":{"stringUnit":{"state":"needs_review","value":"ចម្លងឈ្មោះម៉ាស៊ីន"}},"ko":{"stringUnit":{"state":"needs_review","value":"머신 이름 복사"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kopier maskinnavn"}},"pl":{"stringUnit":{"state":"needs_review","value":"Kopiuj nazwę maszyny"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Copiar nome da máquina"}},"ru":{"stringUnit":{"state":"needs_review","value":"Скопировать имя машины"}},"th":{"stringUnit":{"state":"needs_review","value":"คัดลอกชื่อเครื่อง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Makine adını kopyala"}},"uk":{"stringUnit":{"state":"needs_review","value":"Копіювати назву машини"}},"vi":{"stringUnit":{"state":"needs_review","value":"Sao chép tên máy"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"复制机器名称"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"複製機器名稱"}}}},
     "message.quoteReply": {"comment":"Agent pane: the small chip over selected transcript text (and a message action row's button) that quotes the text into the composer, the same as Quote in Reply","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Reply"}},"ar":{"stringUnit":{"state":"needs_review","value":"رد"}},"bs":{"stringUnit":{"state":"needs_review","value":"Odgovori"}},"da":{"stringUnit":{"state":"needs_review","value":"Svar"}},"de":{"stringUnit":{"state":"needs_review","value":"Antworten"}},"es":{"stringUnit":{"state":"needs_review","value":"Responder"}},"fr":{"stringUnit":{"state":"needs_review","value":"Répondre"}},"it":{"stringUnit":{"state":"needs_review","value":"Rispondi"}},"ja":{"stringUnit":{"state":"needs_review","value":"返信"}},"km":{"stringUnit":{"state":"needs_review","value":"ឆ្លើយតប"}},"ko":{"stringUnit":{"state":"needs_review","value":"답장"}},"nb":{"stringUnit":{"state":"needs_review","value":"Svar"}},"pl":{"stringUnit":{"state":"needs_review","value":"Odpowiedz"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Responder"}},"ru":{"stringUnit":{"state":"needs_review","value":"Ответить"}},"th":{"stringUnit":{"state":"needs_review","value":"ตอบกลับ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yanıtla"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відповісти"}},"vi":{"stringUnit":{"state":"needs_review","value":"Trả lời"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"回复"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"回覆"}}}},

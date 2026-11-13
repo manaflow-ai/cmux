@@ -189,8 +189,8 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
     at: number;
     /// How long after its frame the read ran (ms).
     lag: number;
-    /// How long after the click the read ran (ms); absent in a read before the click.
-    since?: number;
+    /// The frame's time less the click's (ms), NaN before a click.
+    since: number;
   };
   /// One frame at 60 Hz. A read that ran this long after its frame's time says that the page fell
   /// behind: on the CI runners every frame that got no read had a late read after it. Its place is
@@ -228,29 +228,48 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
   /// got no read, joins the moves of two or three frames into one step, which says nothing about
   /// one frame: an open of 48px whose frames moved 22.3px and 12.4px was read as one step of 34.8px
   /// (#42351). `largest` is the largest one-frame step, `judged` how many of them there were and
-  /// `joined` how many moves were not one frame's. `jumped` needs no read in time: a read that ran
-  /// within JUMP_MS of the click and holds the end place is all of the move at once, because a
-  /// fold is not at its end a third of its time in. A late read only makes that time longer, so it
-  /// cannot turn a fold that glides into a jump. `first` is when the first read after the click
-  /// ran: later than JUMP_MS, no read can say whether the fold jumped.
+  /// `joined` how many moves were not one frame's. The first read of a watch that has none before
+  /// the click is judged only when its frame is two frames or less after the click. A read ran
+  /// `since + lag` after the click. `jumped` needs no read in time, and has two forms.
+  /// Early: a read that ran within JUMP_MS of the click and holds the end place is all of
+  /// the move at once, because a fold is not at its end a third of its time in (the settle of
+  /// 180 ms is 4.7px of 48px short of it at 60 ms, and within 1px only from about 98 ms). A late
+  /// read only makes that time longer, so it cannot turn a fold that glides into a jump. `first`
+  /// is when the first read after the click ran: later than JUMP_MS, this form says nothing.
+  /// Start then end: a read at `from` and the next read at `to`, run within three frames of the
+  /// first one's frame, which also catches a jump that applies later than JUMP_MS. That form
+  /// alone let 7 of 24 folds with the fold look "jump" pass every assert in one CI run: their
+  /// first read after the click held the end place already, and it ran late.
+  /// JUMP_MS is a third of the settle: with a settle under about 110 ms a fold that glides is
+  /// within 1px of its end at 60 ms, and the bound must go down with it. The fold's own landing
+  /// at once on a page that fell behind (fold.ts FOLD_DROP_MS: the second gap of 50 ms or more in
+  /// a row) comes 100 ms or more after its first frame, so the early form does not see it.
   const JUMP_MS = 60;
   const steps = (frames: Frame[], key: "line" | "under", from: number, to: number) => {
     let largest = 0;
     let judged = 0;
     let joined = 0;
-    const first = frames.find((frame) => frame.since !== undefined)?.since;
-    const jumped = frames.some(
-      (frame) => frame.since !== undefined && frame.since <= JUMP_MS && Math.abs(frame[key] - to) <= 1,
-    );
+    const ran = (frame: Frame) => frame.since + frame.lag;
+    const after = frames.find((frame) => Number.isFinite(frame.since));
+    const first = after ? ran(after) : undefined;
+    let jumped = frames.some((frame) => ran(frame) <= JUMP_MS && Math.abs(frame[key] - to) <= 1);
     let last: { top: number; at?: number; late: boolean } = { top: from, late: false };
     for (const frame of frames) {
       const top = frame[key];
       const late = frame.lag > FRAME_MS;
       const step = Math.abs(top - last.top);
-      if (!late && !last.late && (last.at === undefined || frame.at - last.at < FRAME_MS * 1.5)) {
+      const next = last.at === undefined ? !(frame.since > FRAME_MS * 2) : frame.at - last.at < FRAME_MS * 1.5;
+      if (!late && !last.late && next) {
         judged += 1;
         largest = Math.max(largest, step);
       } else if (step > 0.5) joined += 1;
+      if (
+        last.at !== undefined &&
+        Math.abs(last.top - from) <= 1 &&
+        Math.abs(top - to) <= 1 &&
+        frame.at + frame.lag - last.at <= FRAME_MS * 3
+      )
+        jumped = true;
       last = { top, at: frame.at, late };
     }
     return { largest, judged, joined, jumped, first };
@@ -261,11 +280,8 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
         new Promise<Frame[]>((resolve) => {
           const frames: Frame[] = [];
           const start = performance.now();
-          let clicked: number | undefined;
-          const mark = () => {
-            clicked ??= performance.now();
-          };
-          document.addEventListener("click", mark, { capture: true });
+          let clicked = Number.NaN;
+          addEventListener("click", () => (clicked = performance.now()), { capture: true, once: true });
           window.cmuxAfterPaint((painted) => {
             const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
             const line = document.querySelector<HTMLElement>(selector)!;
@@ -285,10 +301,9 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
               over: box.bottom - (cut ? Number(cut[1]) : 0) - next.getBoundingClientRect().top,
               at: painted,
               lag: performance.now() - painted,
-              since: clicked === undefined ? undefined : performance.now() - clicked,
+              since: painted - clicked,
             });
             if (performance.now() - start < duration) return;
-            document.removeEventListener("click", mark, { capture: true });
             resolve(frames);
             return false;
           });
@@ -377,6 +392,12 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
             const at = { direction, index, ...frame };
             expect({ at, still: Math.abs(frame.line - before.line) <= 1 }).toEqual({ at, still: true });
           }
+        // A step judged is one frame's: the settle curve (cubic-bezier(0.16, 1, 0.3, 1), 180 ms)
+        // covers about half the way in its first 17 ms and 70% by 30 ms, so a first frame drawn two
+        // frames after the click on a busy runner, or a frame the runner dropped, spans more than
+        // one frame of the curve and says nothing of the glide (`steps` judges it).
+        // The watch saw the click: it has reads from the click on (it starts a frame or two before).
+        expect(frames.filter((frame) => Number.isFinite(frame.since)).length).toBeGreaterThan(0);
         // Three new places or more strictly between where it was and where it settles: the glide,
         // not a jump. Fewer with reads that ran late is no measure: it says so and judges nothing.
         const { places, late, seen } = glide(frames, moving, before[moving], after[moving]);
@@ -387,12 +408,13 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
         else expect({ direction, places, between: places >= 3 }).toEqual({ direction, places, between: true });
         // No frame moves most of the way: the largest one-frame step. A move read over a late read
         // or over a frame with no read is two or three frames' moves: it says so and is not judged,
-        // but all of the move between two reads next to each other is a jump however they ran.
+        // but a read at the end place within JUMP_MS of the click, or all of the move between two
+        // reads next to each other, is a jump however the reads ran.
         const { largest, judged, joined, jumped, first } = steps(frames, moving, before[moving], after[moving]);
         console.log(
           `VEHICLE real ${engineName} ${direction}: ${vehicleLine(frames, moving, before[moving], after[moving])}`,
         );
-        if (first === undefined || first > JUMP_MS)
+        if (!jumped && (first === undefined || first > JUMP_MS))
           console.log(
             `no verdict: jump (${engineName} ${direction}: the first read after the click ran ${first?.toFixed(0) ?? "never"}ms after it, later than ${JUMP_MS}ms)`,
           );
@@ -417,25 +439,42 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
       if (engine !== browser) await engine.close();
     });
 
-  // VEHICLE, never merges: every number of one fold on one line, each read as place@ms since the
-  // read before, L = late.
+  // VEHICLE, never merges: every number of one fold on one line. `span` is the rule of #42525
+  // alone (frame times 1.5 frames or less apart, 2 for the first from the click), run on the same
+  // reads: its largest step, how many steps it did not judge and its verdict on `smooth`.
   const vehicleLine = (frames: Frame[], key: "line" | "under", from: number, to: number) => {
     const { places, late } = glide(frames, key, from, to);
     const { largest, judged, joined, jumped, first } = steps(frames, key, from, to);
     const total = Math.abs(to - from);
+    const clicked = frames.filter((frame) => Number.isFinite(frame.since));
+    const tops = [from, ...clicked.map((frame) => frame[key])];
+    const times = [0, ...clicked.map((frame) => frame.since)];
+    let span = 0;
+    let spanJudged = 0;
+    let spanSkipped = 0;
+    for (let index = 1; index < tops.length; index++) {
+      const step = Math.abs(tops[index]! - tops[index - 1]!);
+      const apart = times[index]! - times[index - 1]!;
+      if (!(apart <= (index === 1 ? 2 : 1.5) * FRAME_MS)) {
+        if (step > 0.5) spanSkipped += 1;
+        continue;
+      }
+      spanJudged += 1;
+      span = Math.max(span, step);
+    }
     const reads: string[] = [];
     let last: number | undefined;
     for (const frame of frames) {
       if (reads.length >= 16) break;
       const apart = last === undefined ? 0 : frame.at - last;
-      // place @ ms since the frame before / lag of the read / ms since the click (- = before it)
+      // place @ ms since the frame before / lag of the read / frame's ms since the click (- = before it)
       reads.push(
-        `${frame[key].toFixed(1)}@${apart.toFixed(0)}/${frame.lag.toFixed(0)}/${frame.since?.toFixed(0) ?? "-"}${frame.lag > FRAME_MS ? "L" : ""}`,
+        `${frame[key].toFixed(1)}@${apart.toFixed(0)}/${frame.lag.toFixed(0)}/${Number.isFinite(frame.since) ? frame.since.toFixed(0) : "-"}${frame.lag > FRAME_MS ? "L" : ""}`,
       );
       last = frame.at;
     }
     const jump = jumped ? "FAIL" : first === undefined || first > JUMP_MS ? "no verdict" : "pass";
-    return `total=${total.toFixed(1)} places=${places} late=${late} largest=${largest.toFixed(1)} (${((largest / total) * 100).toFixed(1)}%) judged=${judged} joined=${joined} jumped=${jumped} first=${first?.toFixed(0) ?? "never"} between=${places >= 3 ? "pass" : late > 0 ? "no verdict" : "FAIL"} smooth=${largest <= total * 0.7 ? "pass" : "FAIL"} jump=${jump} from=${from.toFixed(1)} reads=${reads.join(" ")}`;
+    return `total=${total.toFixed(1)} places=${places} late=${late} largest=${largest.toFixed(1)} (${((largest / total) * 100).toFixed(1)}%) judged=${judged} joined=${joined} jumped=${jumped} first=${first?.toFixed(0) ?? "never"} between=${places >= 3 ? "pass" : late > 0 ? "no verdict" : "FAIL"} smooth=${largest <= total * 0.7 ? "pass" : "FAIL"} jump=${jump} span=${span.toFixed(1)} (${((span / total) * 100).toFixed(1)}%) spanJudged=${spanJudged} spanSkipped=${spanSkipped} spanSmooth=${span <= total * 0.7 ? "pass" : "FAIL"} from=${from.toFixed(1)} reads=${reads.join(" ")}`;
   };
   // VEHICLE, never merges: the same fold with the look "jump" (fold.ts FoldLook: the fold applies at
   // once). Each of the 3 tries prints its numbers; the case is red when the asserts of the glide

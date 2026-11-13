@@ -15,6 +15,7 @@ function recordingClient(): { client: AcpmuxDirectClient; sent: Record<string, u
     fedMode: false,
     disposed: false,
     rows: new OrderedRows(),
+    supersededRowIds: new Set<string>(),
     sessions: [],
     askedSessions: [],
     asks: { sessions: () => undefined, list: () => [], listGrouped: () => [] },

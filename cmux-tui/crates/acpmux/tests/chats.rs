@@ -489,3 +489,48 @@ async fn a_codex_home_watched_by_its_folders_sees_rollouts_and_a_folder_made_lat
     std::fs::remove_file(&rollout).unwrap();
     c.change(&key, |p| p["kind"] == "removed").await;
 }
+
+/// A folder moved into a watched root with a session already in it: the session reaches
+/// watchers. On Linux inotify gives a folder made or moved in a watch of its own only after its
+/// event; a file already there (or written before that watch) has no event at all, so the watch
+/// lists the folder once it is watched (`chats/watch.rs`, `Message::Folder`). The same race made
+/// `a_codex_home_watched_by_its_folders_sees_rollouts_and_a_folder_made_later` fail now and then
+/// (Codex makes the day's folder and writes its rollout at once); moving the folder in makes it
+/// happen every time. Linux only: macOS watches a Codex home by its folders and a Claude Code
+/// root by an FSEvents stream, not by notify.
+#[cfg(target_os = "linux")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_folder_moved_into_a_root_with_a_session_in_it_is_seen() {
+    let h = home("folderin");
+    let codex = h.0.join(".codex");
+    std::fs::create_dir_all(&codex).unwrap();
+    std::fs::write(codex.join("config.toml"), "").unwrap();
+    let projects = h.0.join(".claude/projects");
+    std::fs::create_dir_all(&projects).unwrap();
+    let hub = hub();
+    hub.start_chats(sources(&h.0, &[])).await.unwrap();
+    let mut c = Client::new(&hub, Origin::Local);
+    let snapshot = c.ok("_acpmux/chats_watch", json!({})).await;
+    assert!(keys(&snapshot).is_empty(), "{snapshot}");
+
+    // A Codex day folder, made beside the root and moved in whole with its rollout.
+    let staged = h.0.join("staged-sessions");
+    let day = staged.join("2026/11/12");
+    std::fs::create_dir_all(&day).unwrap();
+    let meta = json!({"timestamp": "2026-11-12T00:00:00Z", "type": "session_meta",
+        "payload": {"id": A, "cwd": "/work/app", "timestamp": "2026-11-12T00:00:00Z"}});
+    let asked = json!({"timestamp": "2026-11-12T00:00:01Z", "type": "event_msg",
+        "payload": {"type": "user_message", "message": "a codex chat moved in"}});
+    let name = format!("rollout-2026-11-12T00-00-00-{A}.jsonl");
+    std::fs::write(day.join(&name), format!("{meta}\n{asked}\n")).unwrap();
+    std::fs::rename(&staged, codex.join("sessions")).unwrap();
+    let added = c.change(&format!("codex:{A}"), |p| p["kind"] == "upsert").await;
+    assert_eq!(added["chat"]["title"], "a codex chat moved in");
+
+    // A Claude Code project folder, moved in the same way.
+    let project = h.0.join("staged-project");
+    write_session(&project, B, &[user(B, "/work/app", "a claude chat moved in")]);
+    std::fs::rename(project.join("-work-app"), projects.join("-work-app")).unwrap();
+    let added = c.change(&format!("claude-code:{B}"), |p| p["kind"] == "upsert").await;
+    assert_eq!(added["chat"]["title"], "a claude chat moved in");
+}

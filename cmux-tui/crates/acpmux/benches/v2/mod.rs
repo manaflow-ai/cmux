@@ -39,8 +39,20 @@ pub const GATE_ROWS: &[GateRow] = &[
     },
     GateRow {
         pr: "2",
-        name: "v2.pr02.translate_properties_and_cost",
-        done_when: "fold(a ++ b) == apply(fold(a), b) over 10k random splits. Final reply visible in every interleaving. Translate cost per line 1.2x. The 1.1 GB JSONL shape translates in bounded memory (under 64 MB).",
+        name: "v2.pr02.translate_line",
+        done_when: "Translate cost per line is at most 1.2x god against small.",
+        measured: false,
+    },
+    GateRow {
+        pr: "2",
+        name: "v2.pr02.translate_line_full_state",
+        done_when: "Translate cost with the bounded open state is at most 1.2x god against small.",
+        measured: false,
+    },
+    GateRow {
+        pr: "2",
+        name: "v2.pr02.jsonl_peak_rss",
+        done_when: "The 1.1 GB JSONL shape stays under 64 MB RSS and within 1.2x god against small.",
         measured: false,
     },
     GateRow {
@@ -53,6 +65,12 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "3",
         name: "v2.pr03.chat_actor_window_resume",
         done_when: "First window within 50 ms of sub, 1.2x. Resume from a cursor costs O(missed). RSS with the god chat subscribed within 1.2x of small. An append that waits behind a cold page read: its wait 1.2x, god against small. The actor killed mid-turn 50 times: the replay settles every row once.",
+        measured: false,
+    },
+    GateRow {
+        pr: "3a",
+        name: "v2.pr03a.source_read_bounds",
+        done_when: "A 1 GB growth reads one chunk and holds reads one byte at 40 rows and 2M rows. A 10 MB line appended in 100 pieces is read once when its newline arrives.",
         measured: false,
     },
     GateRow {

@@ -307,7 +307,8 @@ impl Hub {
     /// `child_label` among the rows peers list (a cloud subagent), whose rows carry their live tags.
     fn peer_child_label(&self, pair: &(String, String)) -> Option<String> {
         let label = |r: &RemoteSession| {
-            let tags = r.summary.get("tags")?;
+            // Only its tags are parsed, of the few rows with the pair.
+            let tags = r.summary.tags()?;
             let tag = |key: &str| tags.get(key).and_then(text);
             let mine = tag(PARENT_TAG).as_deref() == Some(pair.0.as_str())
                 && tag(HANDLE_TAG).as_deref() == Some(pair.1.as_str());

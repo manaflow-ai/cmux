@@ -1285,6 +1285,9 @@ async fn dispatch_request_with_identity(
             {
                 reply.set_path(&["_meta", "acpmux", "cliPath"], json!(path));
             }
+            if matches!(conn.origin, Origin::Local | Origin::LocalApp) {
+                hub.mark_local_ready();
+            }
             // Advertised only where they work; other builds answer `not_built`.
             #[cfg(all(unix, feature = "tailnet"))]
             if let Some(extensions) =
@@ -3073,8 +3076,11 @@ async fn dispatch_request_with_identity(
             let last = s.meta().last_seq;
             // The app's open names its bound: superseded tool output stays out of its page
             // (`store/superseded.rs`); the live stream is unchanged.
-            let page_filter =
-                filter.omitting_superseded(params.get("maxBytes").is_some_and(|b| !b.is_null()));
+            // A phone's open also cuts a tool call's oversized output (`toolOutputMaxBytes`,
+            // `hub/tool_output_cut.rs`); live records always go whole.
+            let page_filter = filter
+                .omitting_superseded(params.get("maxBytes").is_some_and(|b| !b.is_null()))
+                .cutting_tool_output(events::tool_output_max(&params));
             let read = || {
                 hub.events_page(
                     &s.id,

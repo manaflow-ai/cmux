@@ -80,4 +80,19 @@ struct DockedDevToolsWindowImageTests {
         #expect(try Self.colors(image, in: Self.devToolsArea.insetBy(dx: 1, dy: 1)) == [[255, 0, 0]])
         #expect(try Self.colors(image, in: Self.pageArea.insetBy(dx: 8, dy: 8)) == [[0, 0, 255]])
     }
+    /// A page Chromium gave no image of (its renderer waits in a dialog: an alert, a confirm, a prompt or Leave
+    /// site, fleet capture 2026-11-13): the page area shows the stripes that say it was not captured, not the
+    /// window's blank pixels, which read as a black page (a real screen showed the page, dimmed, behind the dialog).
+    @Test func aPageChromiumGaveNoImageOfShowsStripes() throws {
+        let base = try Self.solid(0.13, 0.13, 0.13)
+        let image = try #require(WindowImageLayer.composite(base: base, windowSize: Self.size, layers:
+            WindowImageLayer.chromiumPage(nil, Self.pageArea)))
+        let striped = try Self.colors(image, in: Self.pageArea.insetBy(dx: 2, dy: 2))
+        let (dark, light) = WindowImageLayer.notCapturedColors
+        let expected = try [dark, light].map { color in try #require(color.components).prefix(3).map { UInt8(($0 * 255).rounded()) } }
+        #expect(expected.allSatisfy { striped.contains($0) }, "both stripe colors: \(striped.prefix(6))")
+        #expect(!striped.contains([33, 33, 33]), "a blank window pixel in the page area")
+        // Outside the page, the window's own pixels.
+        #expect(try Self.colors(image, in: Self.devToolsArea.insetBy(dx: 1, dy: 1)) == [[33, 33, 33]])
+    }
 }
