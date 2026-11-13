@@ -5143,8 +5143,7 @@ function TranscriptView({
       if (movingUp) {
         readerDown.current = undefined;
         caughtUp.current = false;
-      }
-      else if (downInput) readerDown.current = { at: performance.now(), input: downInput };
+      } else if (downInput) readerDown.current = { at: performance.now(), input: downInput };
       // A wheel or key down at the scroller's end, where the browser scrolls nothing and sends no
       // scroll event: the reader is at the latest row, so it follows again from here. A pressed drag
       // (selecting text near the end) is not a move to the latest row, nor a key a control keeps (the
