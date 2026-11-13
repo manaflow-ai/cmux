@@ -17,6 +17,7 @@ fn wire_name_round_trips_through_serde() {
         "diff.comments.list",
         "diff.comments.save",
         "diff.comments.delete",
+        "diff.comments.send",
         "stream.cancel",
         "origin.confirmation.issue",
         "chief.continue",
@@ -28,6 +29,8 @@ fn wire_name_round_trips_through_serde() {
         "cloud.vm.domains",
         "cloud.owner.acpmux_keyed_start",
         "cloud.machine.io",
+        "cloud.machine.chat_access",
+        "cloud.machine.share_chat",
         "palette.rank",
     ] {
         let operation: ResourceOperation =

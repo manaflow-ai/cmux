@@ -343,3 +343,33 @@ Chromium in this process. No relaunch.
 - First Chromium tab on a slow link waits for about 100 MB. WebKit covers the
   gap; the prefetch starts 20 s after launch to make that rare.
 - Disk: two engines can be on disk for one launch after an update.
+
+## Shared first-party page graph (2026-11-12)
+
+`build-pages-web.sh` builds all page entries through `webviews/scripts/pages/bundle.mjs`
+in one esbuild graph. React, its compiler runtime, shared UI and lazy imports ship once
+under `pages/__shared/`; each page keeps its own document, CSS, bridge and origin.
+CSS uses each page's isolated build graph to preserve its cascade byte for byte; a shared
+CSS graph can reorder rules across documents. Static dependencies get modulepreload links;
+dynamic imports remain lazy. Relative URLs
+work both at `cmux-page://cmux.<page>/` and the daemon's `/pages/<page>/`.
+
+The native resource adapter mounts only build-owned JavaScript in the selected page
+root's sibling `__shared` directory. It uses the existing containment checks and the
+page's CSP. Chromium routes that prefix through the same adapter even without a live
+server. Chunks follow the page's pinned OTA tree; never fall back across build trees.
+The web ABI changes because older apps cannot serve the shared namespace.
+
+Detector: `bundle-size.py report` measures the generated Pages resource bundle;
+`webviews/scripts/pages/check-bundle.mjs PAGES RECEIPTS [scheme|daemon] [BASELINE]` renders every
+packaged document with gallery host fixtures and fails on an empty page, script error
+or missing asset. This catches packaging failures that Vite source-based gallery tests
+cannot. `PageSharedAssetsTests`, `PageChromiumCoverageTests` and `app_page_listener`
+cover the native adapter, CEF registration and the daemon file transport respectively.
+
+CEF's shim serves bundled documents outside the live web loop. Shared asset
+requests therefore bypass the tab's live provider in that mode and read from the
+same registered bundled root; an installed OTA tree must not replace only the
+imports of a bundled document. In live mode both the document and shared chunks
+continue through the existing live adapter. `PageSharedAssetsTests` covers the
+bundled response's bytes, MIME, CSP and containment.

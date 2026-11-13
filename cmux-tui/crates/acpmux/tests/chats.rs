@@ -450,3 +450,132 @@ for line in sys.stdin:
     drop(harness_in);
     let _ = harness.wait();
 }
+
+/// A Codex home is watched by its session folders and its own store files, not whole
+/// (`chats/watch.rs`): a `sessions` folder made after the start, a new rollout in it, a
+/// rollout that grows, and one removed still reach watchers.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_codex_home_watched_by_its_folders_sees_rollouts_and_a_folder_made_later() {
+    let h = home("codexfolders");
+    let codex = h.0.join(".codex");
+    std::fs::create_dir_all(&codex).unwrap();
+    std::fs::write(codex.join("config.toml"), "").unwrap();
+    let hub = hub();
+    hub.start_chats(sources(&h.0, &[])).await.unwrap();
+    let mut c = Client::new(&hub, Origin::Local);
+    let snapshot = c.ok("_acpmux/chats_watch", json!({})).await;
+    assert!(keys(&snapshot).is_empty(), "{snapshot}");
+
+    // Codex's own files, written as a running Codex writes them: no chat.
+    std::fs::write(codex.join("logs_2.sqlite-wal"), "log").unwrap();
+    let day = codex.join("sessions/2026/11/12");
+    std::fs::create_dir_all(&day).unwrap();
+    let rollout = day.join(format!("rollout-2026-11-12T00-00-00-{A}.jsonl"));
+    let meta = json!({"timestamp": "2026-11-12T00:00:00Z", "type": "session_meta",
+        "payload": {"id": A, "cwd": "/work/app", "timestamp": "2026-11-12T00:00:00Z"}});
+    let asked = |text: &str| {
+        json!({"timestamp": "2026-11-12T00:00:01Z", "type": "event_msg",
+               "payload": {"type": "user_message", "message": text}})
+    };
+    std::fs::write(&rollout, format!("{meta}\n{}\n", asked("a codex chat"))).unwrap();
+    let key = format!("codex:{A}");
+    let added = c.change(&key, |p| p["kind"] == "upsert").await;
+    assert_eq!(added["chat"]["title"], "a codex chat");
+    let count = added["chat"]["messageCount"].as_u64().unwrap();
+
+    append(&rollout, &asked("a second prompt"));
+    c.change(&key, |p| p["chat"]["messageCount"].as_u64().is_some_and(|n| n > count)).await;
+
+    std::fs::remove_file(&rollout).unwrap();
+    c.change(&key, |p| p["kind"] == "removed").await;
+}
+
+/// A folder moved into a watched root with a session already in it: the session reaches
+/// watchers. On Linux inotify gives a folder made or moved in a watch of its own only after its
+/// event; a file already there (or written before that watch) has no event at all, so the watch
+/// lists the folder once it is watched (`chats/watch.rs`, `Message::Folder`). The same race made
+/// `a_codex_home_watched_by_its_folders_sees_rollouts_and_a_folder_made_later` fail now and then
+/// (Codex makes the day's folder and writes its rollout at once); moving the folder in makes it
+/// happen every time. Linux only: macOS watches a Codex home by its folders and a Claude Code
+/// root by an FSEvents stream, not by notify.
+#[cfg(target_os = "linux")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_folder_moved_into_a_root_with_a_session_in_it_is_seen() {
+    let h = home("folderin");
+    let codex = h.0.join(".codex");
+    std::fs::create_dir_all(&codex).unwrap();
+    std::fs::write(codex.join("config.toml"), "").unwrap();
+    let projects = h.0.join(".claude/projects");
+    std::fs::create_dir_all(&projects).unwrap();
+    let hub = hub();
+    hub.start_chats(sources(&h.0, &[])).await.unwrap();
+    let mut c = Client::new(&hub, Origin::Local);
+    let snapshot = c.ok("_acpmux/chats_watch", json!({})).await;
+    assert!(keys(&snapshot).is_empty(), "{snapshot}");
+
+    // A Codex day folder, made beside the root and moved in whole with its rollout.
+    let staged = h.0.join("staged-sessions");
+    let day = staged.join("2026/11/12");
+    std::fs::create_dir_all(&day).unwrap();
+    let meta = json!({"timestamp": "2026-11-12T00:00:00Z", "type": "session_meta",
+        "payload": {"id": A, "cwd": "/work/app", "timestamp": "2026-11-12T00:00:00Z"}});
+    let asked = json!({"timestamp": "2026-11-12T00:00:01Z", "type": "event_msg",
+        "payload": {"type": "user_message", "message": "a codex chat moved in"}});
+    let name = format!("rollout-2026-11-12T00-00-00-{A}.jsonl");
+    std::fs::write(day.join(&name), format!("{meta}\n{asked}\n")).unwrap();
+    std::fs::rename(&staged, codex.join("sessions")).unwrap();
+    let added = c.change(&format!("codex:{A}"), |p| p["kind"] == "upsert").await;
+    assert_eq!(added["chat"]["title"], "a codex chat moved in");
+
+    // A Claude Code project folder, moved in the same way.
+    let project = h.0.join("staged-project");
+    write_session(&project, B, &[user(B, "/work/app", "a claude chat moved in")]);
+    std::fs::rename(project.join("-work-app"), projects.join("-work-app")).unwrap();
+    let added = c.change(&format!("claude-code:{B}"), |p| p["kind"] == "upsert").await;
+    assert_eq!(added["chat"]["title"], "a claude chat moved in");
+}
+
+/// A symbolic link to a folder outside the root, moved into a watched root, is not followed: the
+/// session in the folder it points at stays out of the index, as a scan of the root leaves it
+/// (the adapters list entries without following links). The watch took the link for a folder
+/// made (`Path::is_dir` follows links) and listed the outside folder through it. A real folder
+/// moved in after it is still seen, so the watch did run. Linux only, as above.
+#[cfg(target_os = "linux")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_symlinked_folder_moved_into_a_root_is_not_followed() {
+    let h = home("linkin");
+    let projects = h.0.join(".claude/projects");
+    std::fs::create_dir_all(&projects).unwrap();
+    let hub = hub();
+    hub.start_chats(sources(&h.0, &[])).await.unwrap();
+    let mut c = Client::new(&hub, Origin::Local);
+    let snapshot = c.ok("_acpmux/chats_watch", json!({})).await;
+    assert!(keys(&snapshot).is_empty(), "{snapshot}");
+
+    // A session outside every root, reached by a link moved into the root.
+    let outside = h.0.join("outside");
+    write_session(&outside, B, &[user(B, "/work/app", "a chat outside the root")]);
+    let link = h.0.join("staged-link");
+    std::os::unix::fs::symlink(outside.join("-work-app"), &link).unwrap();
+    std::fs::rename(&link, projects.join("-work-link")).unwrap();
+    // Then a real folder: once its chat is in, the link's event was handled before it.
+    let project = h.0.join("staged-project");
+    write_session(&project, A, &[user(A, "/work/app", "a real folder moved in")]);
+    std::fs::rename(project.join("-work-app"), projects.join("-work-app")).unwrap();
+    let outside_key = format!("claude-code:{B}");
+    let real_key = format!("claude-code:{A}");
+    loop {
+        let v = c.next().await;
+        if v["method"] != "_acpmux/chat_changed" {
+            continue;
+        }
+        assert_ne!(v["params"]["key"], outside_key, "a session behind a link was indexed: {v}");
+        if v["params"]["key"] == real_key && v["params"]["kind"] == "upsert" {
+            break;
+        }
+    }
+    let snapshot = c.ok("_acpmux/chats_watch", json!({})).await;
+    let listed = keys(&snapshot);
+    assert!(listed.contains(&real_key), "{snapshot}");
+    assert!(!listed.contains(&outside_key), "a session behind a link was indexed: {snapshot}");
+}

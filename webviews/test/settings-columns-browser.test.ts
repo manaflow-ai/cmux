@@ -307,73 +307,54 @@ await requireBrowserLane("settings-columns-browser.test.ts", async () => {
     return found;
   }
 
+  // Rows have no Reset button since the settings overhaul (standup 2026-11-11: it shifted the row's
+  // controls); a row resets from its title's right-click menu. A changed and a reset value keep the
+  // number editor on the card's one control edge.
   for (const width of [446, 641, 1000])
-    test(`Settings Reset keeps editor columns and its accessory gutter (${width}px)`, async () => {
+    test(`Settings keeps a number editor on its column through a change and a reset (${width}px)`, async () => {
       const page = await open(
         "pages.settings",
-        { variant: "appearance", colorScheme: "light", width, height: 2400 },
+        { variant: "editor", colorScheme: "light", width, height: 2400 },
         { width, height: 2400 },
       );
       try {
-        for (const [key, value, alwaysShown] of [
-          ["appearance.metrics.sidebarWidth", "280", false],
-          ["appearance.metrics.chromeFontSize", "16", true],
+        for (const [key, value, neighbor] of [
+          ["editor.fontSize", "16", "editor.tabSize"],
+          ["editor.tabSize", "8", "editor.fontSize"],
         ] as const) {
           const row = page.locator(`[data-row-key="${key}"]`);
           const field = row.locator("input.number");
-          const reset = row.locator(".reset-button");
           const originalValue = await field.inputValue();
-          const geometry = () =>
-            row.evaluate((row) => {
-              const editor = row.querySelector(".number-editor")!.getBoundingClientRect();
-              const slot = row.querySelector(".reset-slot")!.getBoundingClientRect();
-              const button = row.querySelector(".reset-button")!.getBoundingClientRect();
-              const control = row.querySelector(".row-control")!;
-              const bounds = row.getBoundingClientRect();
-              return {
-                edge: editor.right,
-                gap: slot.left - editor.right,
-                expectedGap: parseFloat(getComputedStyle(control).columnGap),
-                slot: { left: slot.left, right: slot.right, top: slot.top, bottom: slot.bottom },
-                button: { left: button.left, right: button.right, top: button.top, bottom: button.bottom },
-                row: { left: bounds.left, right: bounds.right, top: bounds.top, bottom: bounds.bottom },
-              };
-            });
-          const baseline = await geometry();
-          expect(await reset.getAttribute("aria-hidden")).toBe(alwaysShown ? null : "true");
-          expect(await reset.isDisabled()).toBe(true);
+          const edge = () => row.evaluate((row) => row.querySelector(".number-editor")!.getBoundingClientRect().right);
+          const baseline = await edge();
           await field.fill(value);
           await field.press("Enter");
-          await page.waitForFunction((key) => {
-            const button = document.querySelector<HTMLButtonElement>(`[data-row-key="${key}"] .reset-button`);
-            return button && !button.disabled && button.getAttribute("aria-hidden") !== "true";
-          }, key);
-          expect(await field.inputValue()).toBe(value);
-          const customized = await geometry();
+          await page.waitForFunction(
+            ({ key, value }) =>
+              document.querySelector<HTMLInputElement>(`[data-row-key="${key}"] input.number`)?.value === value,
+            { key, value },
+          );
+          const customized = await edge();
+          await row.locator(".row-title").click({ button: "right" });
+          const reset = page.locator("[role=menu] [role=menuitem]", { hasText: /^Reset to Default$/ });
+          await page.waitForFunction(() => {
+            const item = [...document.querySelectorAll<HTMLButtonElement>("[role=menu] [role=menuitem]")].find(
+              (button) => button.textContent === "Reset to Default",
+            );
+            return item !== undefined && !item.disabled && item.getAttribute("aria-disabled") !== "true";
+          });
           await reset.click();
           await page.waitForFunction(
-            (key) => document.querySelector<HTMLButtonElement>(`[data-row-key="${key}"] .reset-button`)?.disabled,
-            key,
+            ({ key, originalValue }) =>
+              document.querySelector<HTMLInputElement>(`[data-row-key="${key}"] input.number`)?.value === originalValue,
+            { key, originalValue },
           );
-          expect(await field.inputValue()).toBe(originalValue);
-          expect(await reset.getAttribute("aria-hidden")).toBe(alwaysShown ? null : "true");
-          const restored = await geometry();
-          for (const state of [baseline, customized, restored]) {
-            expect(Math.abs(state.edge - baseline.edge)).toBeLessThanOrEqual(0.5);
-            expect(Math.abs(state.gap - state.expectedGap)).toBeLessThanOrEqual(0.5);
-            expect(state.button.left).toBeGreaterThanOrEqual(state.slot.left - 0.5);
-            expect(state.button.right).toBeLessThanOrEqual(state.row.right);
-            expect(state.button.top).toBeGreaterThanOrEqual(state.row.top);
-            expect(state.button.bottom).toBeLessThanOrEqual(state.row.bottom);
-            expect(state.slot.left).toBeGreaterThanOrEqual(state.row.left);
-            expect(state.slot.right).toBeLessThanOrEqual(state.row.right);
-            expect(state.slot.top).toBeGreaterThanOrEqual(state.row.top);
-            expect(state.slot.bottom).toBeLessThanOrEqual(state.row.bottom);
-          }
+          const restored = await edge();
+          for (const state of [customized, restored]) expect(Math.abs(state - baseline)).toBeLessThanOrEqual(0.5);
           const neighborEdge = await page
-            .locator('[data-row-key="appearance.metrics.columnGap"] .number-editor')
+            .locator(`[data-row-key="${neighbor}"] .number-editor`)
             .evaluate((editor) => editor.getBoundingClientRect().right);
-          expect(Math.abs(restored.edge - neighborEdge)).toBeLessThanOrEqual(0.5);
+          expect(Math.abs(restored - neighborEdge)).toBeLessThanOrEqual(0.5);
         }
       } finally {
         await page.close();
@@ -384,7 +365,7 @@ await requireBrowserLane("settings-columns-browser.test.ts", async () => {
   /** The cards whose stills a PR shows, by page: the ones the rule changed. */
   const stills: Record<string, string[]> = {
     accounts: ['[data-card="accounts"]', '[data-card="machines"]'],
-    general: ['[data-card="rooms"]'],
+    sidebar: ['[data-card="rooms"]'],
   };
 
   test("every Settings page: one text column, one gap after a mark, one control edge, controls centered", async () => {
