@@ -49,7 +49,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  NIGHTLY_NEXT_FEED: https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml
+  # The one cmux NIGHTLY feed (#36287). The /next/ appcast froze on 2026-11-05; verdicts stay in /next/.
+  NIGHTLY_NEXT_FEED: https://files-next.cmux.com/nightly-next/appcast-arm64.xml
   # Bumping it canaries every feed build again.
   CANARY_CACHE_PREFIX: nightly-next-canary-v1-
 
@@ -113,9 +114,10 @@ jobs:
           if not items:
               sys.exit(f"no feed item {'for build ' + wanted if wanted else 'with a DMG'}")
           build, url, length = max(items)
-          # Since #25656 the feed's enclosures point at its own R2 origin; the GitHub
-          # release copy follows later. Both are ours; Gatekeeper and the tickets below check the DMG.
-          if not url.startswith(("https://files-next.cmux.com/nightly-next/next/",
+          # Since #25656 the feed's enclosures point at its own R2 origin (nightly-next/ since #36287,
+          # nightly-next/next/ before); the GitHub release copy follows later. Both are ours; Gatekeeper
+          # and the tickets below check the DMG.
+          if not url.startswith(("https://files-next.cmux.com/nightly-next/",
                                  "https://github.com/manaflow-ai/cmux/releases/download/nightly-next/")):
               sys.exit(f"{url} is neither the cmux NEXT feed's R2 origin nor a nightly-next release asset")
           print(f"build={build}\nurl={url}\nlength={length}")

@@ -12,7 +12,7 @@ use cmux_tui_core::resource::{
 use ratatui::buffer::CellWidth;
 use serde_json::{Value, json};
 
-use super::command::{RequestPlan, WireOperation, random_prefixed};
+use super::command::{RequestPlan, ResponseView, WireOperation, random_prefixed};
 use super::{GlobalArgs, OutputMode, UsageError};
 
 const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
@@ -109,6 +109,76 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
         return 3;
     }
     run_response(&mut reader, &global, &plan, &request_id)
+}
+
+/// Send one non-stream request and return its result, or the error as JSON
+/// (`{code, message}`; a daemon error as the daemon wrote it), for a client
+/// command that reads or chains requests instead of printing one result
+/// (`cli/attention.rs`). Routing and session injection match [`run`].
+pub(super) fn fetch(global: &GlobalArgs, mut plan: RequestPlan) -> Result<Value, Value> {
+    let local = |code: &str, message: String| json!({"code": code, "message": message});
+    if let Some(params) = plan.params.as_object_mut() {
+        if let Some(machine) = &global.machine
+            && params.get("machine").is_none_or(|value| value.as_str() == Some("current"))
+        {
+            params.insert("machine".into(), Value::String(machine.clone()));
+        }
+        if let Some(session) = &global.session
+            && params.get("session").is_none_or(|value| value.as_str() == Some("current"))
+        {
+            params.insert("session".into(), Value::String(session.clone()));
+        }
+    }
+    let request = request_value(&plan).map_err(|error| local("usage.invalid", error.0))?;
+    let request_id = request
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| local("internal", "request has no id".into()))?;
+    let encoded = serde_json::to_vec(&request)
+        .map_err(|error| local("internal", format!("cannot encode request: {error}")))?;
+    let (socket, socket_is_derived) = resolve_socket_with_origin(global).map_err(|_| {
+        local(
+            "usage.invalid",
+            crate::localization::catalog().startup.invalid_session_name.to_string(),
+        )
+    })?;
+    let stream = cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived)
+        .map_err(|error| {
+            local(
+                "transport.unavailable",
+                format!("cannot connect to session socket {}: {error}", socket.display()),
+            )
+        })?;
+    let mut reader = BufReader::new(stream);
+    let _ = reader.get_mut().set_read_timeout(response_read_timeout(&plan, false));
+    reader
+        .get_mut()
+        .write_all(&encoded)
+        .and_then(|()| reader.get_mut().write_all(b"\n"))
+        .and_then(|()| reader.get_mut().flush())
+        .map_err(|error| local("transport.failed", format!("transport error: {error}")))?;
+    loop {
+        let value = read_envelope(&mut reader, false)
+            .map_err(|error| local("transport.failed", error))?
+            .ok_or_else(|| local("transport.failed", "transport closed before response".into()))?;
+        if value.get("type").and_then(Value::as_str) != Some("response") {
+            continue;
+        }
+        let response: ResponseEnvelope = serde_json::from_value(value).map_err(|error| {
+            local("protocol.invalid", format!("invalid response envelope: {error}"))
+        })?;
+        response.validate().map_err(|error| local("protocol.invalid", error.message))?;
+        if response.id.as_str() != request_id {
+            continue;
+        }
+        return match (response.ok, response.result, response.error) {
+            (true, Some(result), _) => Ok(result),
+            (_, _, Some(error)) => Err(serde_json::to_value(error)
+                .unwrap_or_else(|_| local("internal", "unreadable error".into()))),
+            _ => Err(local("protocol.invalid", "response has no result".into())),
+        };
+    }
 }
 
 #[cfg(unix)]
@@ -243,7 +313,7 @@ fn response_read_timeout(plan: &RequestPlan, signal_interrupt_armed: bool) -> Op
     Some(Duration::from_secs(10))
 }
 
-fn request_value(plan: &RequestPlan) -> Result<Value, UsageError> {
+pub(super) fn request_value(plan: &RequestPlan) -> Result<Value, UsageError> {
     let class = plan.operation.class();
     let mut request = json!({
         "protocol": PROTOCOL,
@@ -270,7 +340,7 @@ fn random_request_id() -> Result<String, UsageError> {
     random_prefixed("request")
 }
 
-fn random_idempotency_key() -> Result<String, UsageError> {
+pub(super) fn random_idempotency_key() -> Result<String, UsageError> {
     random_prefixed("mutation")
 }
 
@@ -331,6 +401,12 @@ fn run_response(
                 }
                 let result = response.result.expect("validated result");
                 if !plan.stream {
+                    if global.output == OutputMode::Human
+                        && plan.view == ResponseView::ScreenText
+                        && let Some(text) = result.get("text").and_then(Value::as_str)
+                    {
+                        return print_screen_text(text);
+                    }
                     let code = print_success(&result, global.output);
                     return if code == 0 { success_exit_code(plan, &result) } else { code };
                 }
@@ -461,6 +537,20 @@ fn success_exit_code(plan: &RequestPlan, result: &Value) -> i32 {
         WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::TerminalWait)
     ) && result.get("matched") == Some(&Value::Bool(false));
     i32::from(unmatched_wait)
+}
+
+/// `terminal <t> screen read` as plain text: the screen's rows as they show,
+/// without trailing blank rows, then one newline.
+fn print_screen_text(text: &str) -> i32 {
+    let mut stdout = io::stdout().lock();
+    let shown = text.trim_end_matches(['\n', ' ']);
+    match writeln!(stdout, "{shown}").and_then(|()| stdout.flush()) {
+        Ok(()) => 0,
+        Err(error) => {
+            eprintln!("stdout error: {error}");
+            3
+        }
+    }
 }
 
 fn print_success(value: &Value, output: OutputMode) -> i32 {
@@ -764,7 +854,7 @@ fn is_terminal_control(ch: char) -> bool {
 /// so multi-line values stay on one table row; every other control character,
 /// including TAB, becomes a placeholder so the cell-width padding stays
 /// correct. Width math must always use the sanitized string.
-fn sanitize_human_cell(value: &str) -> String {
+pub(super) fn sanitize_human_cell(value: &str) -> String {
     let mut sanitized = String::with_capacity(value.len());
     for ch in value.chars() {
         match ch {
@@ -863,6 +953,7 @@ mod tests {
             params: json!({}),
             idempotency_key: None,
             stream: false,
+            view: ResponseView::Full,
         }
     }
 
@@ -930,6 +1021,7 @@ mod tests {
             params: json!({"initial_content":"empty"}),
             idempotency_key: None,
             stream: false,
+            view: ResponseView::Full,
         };
         assert!(request_value(&mutation).unwrap().get("idempotency_key").is_some());
 
@@ -938,6 +1030,7 @@ mod tests {
             params: json!({}),
             idempotency_key: None,
             stream: false,
+            view: ResponseView::Full,
         };
         assert!(request_value(&read).unwrap().get("idempotency_key").is_none());
     }
@@ -1156,6 +1249,7 @@ mod tests {
                 params: json!({"timeout_ms":"5000"}),
                 idempotency_key: None,
                 stream: false,
+                view: ResponseView::Full,
             };
             assert_eq!(response_read_timeout(&bounded, false), Some(Duration::from_secs(7)));
 
@@ -1171,6 +1265,7 @@ mod tests {
             params: json!({}),
             idempotency_key: None,
             stream: true,
+            view: ResponseView::Full,
         };
         assert_eq!(response_read_timeout(&stream, false), Some(Duration::from_millis(250)));
         assert_eq!(response_read_timeout(&stream, true), None);
@@ -1191,6 +1286,7 @@ mod tests {
                     params: json!({}),
                     idempotency_key: Some("input-error".into()),
                     stream: false,
+                    view: ResponseView::Full,
                 };
                 for (reason, expected) in [
                     ("terminal_input_too_large", catalog.terminal_input.too_large),
@@ -1228,6 +1324,7 @@ mod tests {
                 params: json!({}),
                 idempotency_key: Some("reload-owner-stopped".into()),
                 stream: false,
+                view: ResponseView::Full,
             };
             let mut error = json!({
                 "code":"operation.failed",

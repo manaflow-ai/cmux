@@ -199,19 +199,19 @@ set +e
 bounded_pid=$!
 set +m
 set -e
-for _ in $(seq 1 100); do [[ -s "$child_pid_file" ]] && break; sleep 0.01; done
-[[ -s "$child_pid_file" ]] || { kill "$bounded_pid" 2>/dev/null || true; fail "parent-signal: child never started"; }
-bounded_rc=""
-for _ in $(seq 1 100); do
-  if [[ -s "$bound_status" ]]; then
-    bounded_rc="$(cat "$bound_status")"
-    break
-  fi
-  sleep 0.01
-done
+# Wait for the bound itself to end (a real exit, not a 1 s poll, which a busy
+# runner missed: main CI fast guards, 2026-11-08), at most 15 s. The bound's
+# own limit is 20 s, so a bound that missed the SIGINT is still running then;
+# the watchdog stops its group and the missing status fails the case.
+( sleep 15; kill -TERM -- "-$bounded_pid" 2>/dev/null ) </dev/null >/dev/null 2>&1 &
+watchdog_pid=$!
+wait "$bounded_pid" 2>/dev/null || true
+kill -KILL "$watchdog_pid" 2>/dev/null || true
+wait "$watchdog_pid" 2>/dev/null || true
+[[ -s "$child_pid_file" ]] || fail "parent-signal: child never started"
 child_pid="$(cat "$child_pid_file")"
+bounded_rc="$(cat "$bound_status" 2>/dev/null || true)"
 if [[ -z "$bounded_rc" ]]; then
-  kill -TERM -- "-$bounded_pid" 2>/dev/null || kill -TERM "$bounded_pid" 2>/dev/null || true
   kill -TERM -- "-$child_pid" 2>/dev/null || kill -TERM "$child_pid" 2>/dev/null || true
   fail "parent-signal: bound did not handle the child's SIGINT"
 fi
