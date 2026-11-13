@@ -484,14 +484,12 @@ struct ChatComposer: View {
         store.modes.first { $0.id == store.currentModeID }?.name
     }
 
+    /// A menu row checked when it is the value in force. A Toggle, not a Button with a checkmark
+    /// image: iOS draws a menu Toggle's own checkmark at every text size, while it drops a row's
+    /// image at accessibility sizes (the Effort submenu then showed no check at all). Choosing
+    /// the checked row again changes nothing.
     private func checkButton(_ title: String, checked: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            if checked {
-                Label(title, systemImage: "checkmark")
-            } else {
-                Text(title)
-            }
-        }
+        Toggle(title, isOn: Binding(get: { checked }, set: { on in if on { action() } }))
     }
 
     private enum PrimaryState { case empty, send, stop, queue }
