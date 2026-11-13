@@ -94,10 +94,30 @@ LOCK_WAIT = "Blocking waiting for file lock on package cache"
 # explain: the same three spellings, with the lock's path (which can hold spaces). Only a line that holds
 # REFUSED is matched against it, and one line at a time.
 REFUSED = "--locked was passed"
-REFUSAL = re.compile(r"cannot (?:update|create) the lock file (?P<a>.+?) because --locked was passed"
-                     r"|the lock file (?P<b>.+?) needs to be updated but --locked was passed")
-# Characters before "--locked was passed" a refusal can span: cargo's words and a path up to PATH_MAX.
+NAMES_LOCK = "the lock file "
+# What stands between the lock's path and REFUSED, and what must stand before NAMES_LOCK (None: anything).
+REFUSAL_ENDS = ((" because ", ("cannot update ", "cannot create ")), (" needs to be updated but ", None))
+# Characters a lock's path can span: up to PATH_MAX.
 REFUSAL_WINDOW = 4200
+
+
+def refused_lock(line: str) -> str | None:
+    """The lock's path in the first of cargo's refusals LINE holds, else None. Each REFUSED is judged against the
+    NAMES_LOCK nearest before it, and both are found in one pass, so one long line (a progress bar, a minified dump,
+    the same words a million times) costs its length, not its length times a window."""
+    named, ahead = -1, line.find(NAMES_LOCK)
+    at = line.find(REFUSED)
+    while at != -1:
+        while ahead != -1 and ahead < at:
+            named, ahead = ahead, line.find(NAMES_LOCK, ahead + 1)
+        start = named + len(NAMES_LOCK)
+        if named != -1 and at - start <= REFUSAL_WINDOW:
+            for end, before in REFUSAL_ENDS:
+                if (at - len(end) > start and line.endswith(end, start, at)
+                        and (before is None or line.endswith(before, 0, named))):
+                    return line[start:at - len(end)]
+        at = line.find(REFUSED, at + 1)
+    return None
 
 
 def refused_locks(lines, repo: Path) -> list[str]:
@@ -105,16 +125,10 @@ def refused_locks(lines, repo: Path) -> list[str]:
     REPO."""
     found: list[str] = []
     for line in lines:
-        at = line.find(REFUSED)
-        match = None
-        # Each refusal is searched for in a window that ends at its "--locked was passed" and holds a path's longest
-        # spelling, so one long line (a progress bar, a minified dump) costs its length, not its square.
-        while at != -1 and match is None:
-            match = REFUSAL.search(line, max(0, at - REFUSAL_WINDOW), at + len(REFUSED))
-            at = line.find(REFUSED, at + 1)
-        if match is None:
+        raw = refused_lock(line)
+        if raw is None:
             continue
-        raw = (match["a"] or match["b"]).strip().strip("`'\"")
+        raw = raw.strip().strip("`'\"")
         try:
             lock = Path(raw).resolve().relative_to(repo.resolve()).as_posix()
         except (ValueError, OSError):

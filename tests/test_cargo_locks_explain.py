@@ -173,7 +173,10 @@ class ExplainTests(Scratch):
         noise = ("   Compiling serde v1.0.0 (registry+https://github.com/rust-lang/crates.io-index)\n"
                  "warning: the lock file is fine, but --locked was passed and this is not cargo's sentence\n")
         long_line = ("the lock file " * 80000) + "--locked was passed\n"
-        body = noise * (5_000_000 // len(noise)) + long_line
+        # cmux#42375 review F2: cargo's last words 250,000 times on one line, each after a lock that is named.
+        repeated = "the lock file x is fine, --locked was passed " * 120000 + "\n"
+        self.assertGreater(len(repeated), 5_000_000)
+        body = noise * (5_000_000 // len(noise)) + long_line + repeated
         for refusal in ("", SPELLINGS["update"].format(lock=ROOT / "Cargo.lock") + "\n"):
             with self.subTest(refusal=bool(refusal)):
                 log = self.log(body + refusal, "big.log")
@@ -433,6 +436,7 @@ EXPLAINED = {
     ".github/workflows/cmux-tui-artifacts.yml#cmux-next-daemon-tests/cargo test cmux_next_":
         "explain stops the retry loop",
     # cmux#42257: their own match of the same three spellings.
+    ".github/scripts/rust-workspaces.py": "a refused clippy or test run names the stale lock",
     ".github/scripts/cmux-tui-clippy-changed.py": "cmux#42257",
     "scripts/cmux-next/rust_panic_ratchet.py": "cmux#42257",
 }
@@ -440,6 +444,7 @@ EXPLAINED = {
 PASSES_THROUGH = {
     "scripts/cmux-next/cargo-locks.py": "the explainer; its left: lines are its own fix's",
     "scripts/cmux-next/prepush-gate.py": "runs cargo-locks.py check; its ::error lines are other guards'",
+    ".github/scripts/test_cmux_tui_clippy_changed.py": "a test of cmux-tui-clippy-changed.py; ::error is asserted",
     "scripts/cmux-next/cloud-devloop.ts": "FAIL build prints cargo's error lines and tail",
     "scripts/ci/car_guards.py": "a red result prints cargo's output tail",
     "scripts/ci/chief-first-turn-cost.sh": "set -e stops at the cargo build, its stderr in the log",
@@ -467,6 +472,9 @@ PASSES_THROUGH = {
 }
 
 RUNS_CARGO_LOCKED = re.compile(r"(?<![\w./-])cargo\b(?![-_.\w]).*--locked\b|[\"']cargo[\"'].*[\"']--locked[\"']")
+# A command built as a list: "cargo" on one line and "--locked" added on another (`*locked`, `argv += [...]`).
+CARGO_WORD = re.compile(r"[\"']cargo[\"']")
+LOCKED_WORD = re.compile(r"[\"']--locked[\"']")
 PRINTS_A_CAUSE = re.compile(r"::error|\bFAIL\b|\bleft:")
 SKIP_SUFFIXES = {".md", ".json", ".toml", ".txt", ".png", ".jpg", ".svg"}
 
@@ -475,7 +483,9 @@ def wraps_cargo(text: str) -> bool:
     """TEXT runs cargo with --locked and prints a cause of its own (comments and continuations aside)."""
     joined = re.sub(r"\\\n\s*", " ", text)
     code = [line for line in joined.splitlines() if not line.lstrip().startswith(("#", "//"))]
-    return any(RUNS_CARGO_LOCKED.search(line) for line in code) and any(PRINTS_A_CAUSE.search(line) for line in code)
+    runs = any(RUNS_CARGO_LOCKED.search(line) for line in code) or (
+        any(CARGO_WORD.search(line) for line in code) and any(LOCKED_WORD.search(line) for line in code))
+    return runs and any(PRINTS_A_CAUSE.search(line) for line in code)
 
 
 def wrappers() -> set[str]:
@@ -530,6 +540,10 @@ class EveryWrapperIsListedTests(unittest.TestCase):
         self.assertTrue(wraps_cargo('cargo build \\\n  --locked\necho "FAIL build"'))
         self.assertFalse(wraps_cargo('# cargo test --locked\necho "::error::x"'))
         self.assertFalse(wraps_cargo('cargo test --locked'))
+        # cmux#42375 review F1: the flag joins the list on another line.
+        self.assertTrue(wraps_cargo('locked = ["--locked"] if tracked else []\n'
+                                    'command = ["cargo", "test", *locked]\nprint("::error::tests failed")'))
+        self.assertFalse(wraps_cargo('command = ["cargo", "test"]\nprint("::error::tests failed")'))
 
 
 if __name__ == "__main__":
