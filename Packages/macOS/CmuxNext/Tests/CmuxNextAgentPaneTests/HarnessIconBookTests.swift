@@ -17,7 +17,8 @@ struct HarnessIconBookTests {
             return nil
         })
         #expect(await book.resolveEnvironment() == nil)
-        #expect(!wasMain.load(ordering: .relaxed))
+        let ranOnMain = wasMain.load(ordering: .relaxed)
+        #expect(!ranOnMain)
     }
 
     @Test func aReplysIconsReplaceTheBooksOnlyWhenTheyChange() {
