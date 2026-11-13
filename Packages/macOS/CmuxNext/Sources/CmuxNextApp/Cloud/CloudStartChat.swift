@@ -291,7 +291,7 @@ extension CloudStartChat {
             return .init(personal: personal, organization: keys.loaded ? CloudSetup.Snapshot.organization(keys: rows) : nil)
         }
         services.cloud.setup.run = { [weak services] action in
-            try? services?.settingsWindow.show(section: nil, route: action == .addKey || action == .connectChatGPT || action == .setUpClaude ? "#/settings/models/add" : "#/settings/models")
+            try? services?.settingsWindow.show(section: nil, route: action == .addKey || action == .connectChatGPT || action == .setUpClaude ? "#/settings/models?focus=models.add" : "#/settings/models")
         }
     }
 
