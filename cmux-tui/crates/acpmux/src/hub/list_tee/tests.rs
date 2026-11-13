@@ -143,6 +143,7 @@ fn meta(id: &str) -> crate::store::SessionMeta {
 }
 
 async fn next(receiver: &acpmux_core::hub::ListReceiver) -> acpmux_core::hub::ListItem {
+    // timeout: Test-only deadline detects a missing summary; no user request is cancelled.
     tokio::time::timeout(std::time::Duration::from_secs(5), receiver.recv()).await.unwrap().unwrap()
 }
 
@@ -490,6 +491,7 @@ async fn a_queued_family_prompt_marks_once_per_wait_edge() {
     assert!(subscribed.receiver.try_next().is_none());
     assert!(v1.remove_queued(&child, "queued-prompt"));
     assert!(
+        // timeout: Test-only deadline detects a withdrawn prompt that fails to release its wait.
         tokio::time::timeout(std::time::Duration::from_secs(5), waiting).await.unwrap().is_err()
     );
     assert!(!v1.waits_for_slot(&child.meta()));

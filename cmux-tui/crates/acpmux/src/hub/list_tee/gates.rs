@@ -390,16 +390,10 @@ fn keyed_page_samples(count: usize) -> Vec<Vec<u128>> {
             origin: "peer".into(),
         }))
         .collect();
-    let request = Page {
-        sid: "gate".into(),
-        stream: "list".into(),
-        before: None,
-        after: None,
-        keys: Some(ids),
-        view: None,
-        max_bytes: 256 * 1024,
-        filter: None,
-    };
+    // Use the protocol's default reply budget, as an ordinary client does.
+    let mut request = Page::new("gate", "list", PageSide::After, 0);
+    request.after = None;
+    request.keys = Some(ids);
     let mut samples = Vec::with_capacity(5);
     for _ in 0..5 {
         let mut round = Vec::with_capacity(200);
