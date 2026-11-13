@@ -14,7 +14,7 @@
 
 use super::session_pages::PageRow;
 use super::*;
-use acpmux_book::index::{ForkOf, RowKey, Summary};
+use acpmux_book::index::{ForkOf, ReadSide, RowKey, SortKey, Summary};
 use acpmux_core::life::V2;
 use cmux_json::JsonSet as _;
 use std::collections::{HashMap, HashSet};
@@ -87,17 +87,63 @@ pub(crate) fn start_v2_tee(
     let task = async move {
         v1.wait_store().await;
 
-        // The first walk is deliberately after the complete v1 store load. It feeds the
-        // published index in bounded batches and yields between batches so startup work remains
-        // responsive. A later mark always rebuilds from the current session, never from the
-        // event that caused it.
+        // The first walk is deliberately after the complete v1 store load. It compares one
+        // bounded index page at a time, removes local rows v1 no longer has, and then submits
+        // sessions the index did not contain. A later mark always rebuilds from the current
+        // session, never from the event that caused it.
         let sessions = v1.session_handles();
-        for batch in sessions.chunks(256) {
-            for session in batch {
-                if let Some(summary) = summary_from_session(&v1, session) {
-                    let _ = v2.hub.submit(summary);
+        let sessions_by_id: HashMap<_, _> =
+            sessions.iter().map(|session| (session.id.clone(), session)).collect();
+        let mut seen = HashSet::new();
+        let mut anchor: Option<SortKey> = None;
+        loop {
+            let index = v2.hub.snapshot();
+            let page = match index.read_page(
+                anchor.as_ref(),
+                ReadSide::After,
+                false,
+                256,
+                256 * 1024,
+                None,
+            ) {
+                Ok(page) => page,
+                Err(_) => break,
+            };
+            for row in &page.rows {
+                if row.origin != "local" {
+                    continue;
+                }
+                seen.insert(row.chat_id.clone());
+                match sessions_by_id.get(&row.chat_id) {
+                    Some(session) => {
+                        if let Some(summary) = summary_from_session(&v1, session)
+                            && !row.same_content(&summary)
+                        {
+                            let _ = v2.hub.submit(summary);
+                        }
+                    }
+                    None => {
+                        let _ = v2.hub.remove("local", &row.chat_id);
+                    }
                 }
             }
+            drain_marks(&v1, &v2, &state, 256);
+            let Some(next) = page.after_key else { break };
+            if !page.has_after {
+                break;
+            }
+            anchor = Some(next);
+            tokio::task::yield_now().await;
+        }
+        for session in sessions {
+            if !seen.contains(&session.id)
+                && let Some(summary) = summary_from_session(&v1, &session)
+            {
+                let _ = v2.hub.submit(summary);
+            }
+        }
+        while !state.pending.lock().unwrap_or_else(|e| e.into_inner()).is_empty() {
+            drain_marks(&v1, &v2, &state, 256);
             tokio::task::yield_now().await;
         }
 
@@ -108,30 +154,32 @@ pub(crate) fn start_v2_tee(
                 _ = state.notify.notified() => {},
                 _ = &mut wake => mark_expired(&v1, &state, &mut expiries),
             }
-            let ids = state.take(256);
-            if !ids.is_empty() {
-                let sessions: HashMap<_, _> = v1
-                    .session_handles()
-                    .into_iter()
-                    .map(|session| (session.id.clone(), session))
-                    .collect();
-                for id in ids {
-                    match sessions.get(&id) {
-                        Some(session) => {
-                            if let Some(summary) = summary_from_session(&v1, session) {
-                                let _ = v2.hub.submit(summary);
-                            }
-                        }
-                        None => {
-                            let _ = v2.hub.remove("local", &id);
-                        }
-                    }
-                }
-            }
+            drain_marks(&v1, &v2, &state, 256);
             tokio::task::yield_now().await;
         }
     };
     (handle, task)
+}
+
+fn drain_marks(v1: &Hub, v2: &Arc<V2>, state: &TeeState, limit: usize) {
+    let ids = state.take(limit);
+    if ids.is_empty() {
+        return;
+    }
+    let sessions: HashMap<_, _> =
+        v1.session_handles().into_iter().map(|session| (session.id.clone(), session)).collect();
+    for id in ids {
+        match sessions.get(&id) {
+            Some(session) => {
+                if let Some(summary) = summary_from_session(v1, session) {
+                    let _ = v2.hub.submit(summary);
+                }
+            }
+            None => {
+                let _ = v2.hub.remove("local", &id);
+            }
+        }
+    }
 }
 
 fn mark_expired(v1: &Hub, state: &TeeState, expiries: &mut HashMap<String, Option<u64>>) {
