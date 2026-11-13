@@ -269,7 +269,7 @@ pub enum HubError {
     Log(#[from] std::io::Error),
     #[error("published summary {0:?} is missing after apply")]
     MissingSummary(String),
-    #[error("source {source:?} does not own origin {origin:?} (owner {owner:?})")]
+    #[error("source {incoming:?} does not own origin {origin:?} (owner {owner:?})")]
     SourceRefused { origin: String, incoming: String, owner: String },
     #[error("origin limit exceeded")]
     OriginLimit,
