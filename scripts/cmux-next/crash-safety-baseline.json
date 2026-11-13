@@ -124,6 +124,7 @@
    "panic_macro": {
     "acpmux": 2,
     "cmux-pane-protocol": 1,
+    "cmux-scope": 1,
     "cmux-server": 1,
     "cmux-tui": 1,
     "cmux-tui-core": 3

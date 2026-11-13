@@ -11,7 +11,7 @@
    backdrop and rim are owned by .ui-glass. Keep the composer's edge/elevation aliases so focus,
    borders-none and Reduce Transparency preserve the existing card contract. */
 .nt-box{flex:none;display:flex;flex-direction:column;box-sizing:border-box;border-radius:20px;position:relative;--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge);--glass-edge:var(--acpmux-composer-edge);--glass-elevation:var(--acpmux-composer-shadow,var(--elevation-1))}
-.nt-input{--nt-input-pad-block:var(--text-content);display:flex;align-items:flex-start;gap:var(--ds-space-2);min-height:52px;min-height:calc(1lh + 2 * var(--nt-input-pad-block));padding:0 18px}
+.nt-input{display:flex;align-items:flex-start;gap:var(--ds-space-2);min-height:calc(1lh + 2 * var(--nt-input-pad-block));--nt-input-pad-inline:calc(18px * var(--acpmux-density, 1));padding:0 var(--nt-input-pad-inline)}
 :root[data-borders=none] .nt-box{--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) transparent}
 /* The field wraps a long draft and grows with it (field-sizing; NewTabScreen fits it only in an engine
    without field-sizing) to the shared twelve-line cap (markdownField.css), and never past 40% of the pane; then it scrolls.
@@ -31,9 +31,9 @@
 .ui-positioner:has(>.nt-popover){z-index:var(--layer-overlay)}
 .nt-popover .nt-rows{--popup-scroll-cap:360px;box-sizing:border-box;padding:var(--ui-popup-padding);max-height:min(48vh,360px);overflow:auto;overscroll-behavior:contain}
 .nt-row{display:flex;align-items:center;gap:var(--ds-space-2);height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);border-radius:var(--ui-row-radius);color:var(--agent-soft);font-size:var(--text-control);white-space:nowrap;letter-spacing:var(--text-control--letter-spacing)}
-.nt-row.is-selected{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 8%,transparent);color:var(--agent-text)}
+.nt-row.is-selected{background:var(--ds-color-selection);color:var(--agent-text)}
 /* The pointer lights the row it is on in a neutral fill, apart from Return's row (is-selected, with its ↵): hover never takes Return (Leo 2026-10-31: "i cant even press enter on that hello anymore it doesnt send it to claude"). */
-.nt-row:not(.is-selected):hover,.nt-create-strip-item:not(.is-selected):hover{background:color-mix(in srgb,var(--agent-text) 5%,transparent);color:var(--agent-text)}
+.nt-row:not(.is-selected):hover,.nt-create-strip-item:not(.is-selected):hover{background:var(--ds-color-hover);color:var(--agent-text)}
 .nt-row-glyph{flex:none;display:grid;place-items:center;width:16px;height:16px}
 .nt-row-icon{color:var(--acpmux-composer-dim)}
 .nt-row.is-selected .nt-row-icon,.nt-row:not(:disabled):hover .nt-row-icon{color:var(--agent-text)}
@@ -44,14 +44,14 @@
 .nt-row.is-selected .nt-row-action,.nt-row:hover .nt-row-action,.nt-row-host:hover .nt-row-action,.nt-row-host:has([data-popup-open]) .nt-row-action{opacity:1}
 .nt-row-action kbd{padding:var(--grid-half-step) var(--ds-space-1);border-radius:4px;background:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));color:var(--agent-soft);font:var(--text-caption)/1 var(--font-ui)}
 /* The create actions the rows don't list (screenModel.ts createStrip): one quiet line under them, never three rows (Leo 2026-10-24: "the new terminal, new browser tab, new tab ... less annoying"). Shows with the rows, no fade. */
- .nt-create-strip{display:flex;flex-wrap:wrap;gap:var(--ds-space-1);margin-top:var(--ds-space-1);padding-top:var(--ds-space-1);border-top:1px solid color-mix(in srgb,var(--agent-text) 8%,transparent);overflow:hidden}
+ .nt-create-strip{display:flex;flex-wrap:wrap;gap:var(--ds-space-1);margin-top:var(--ds-space-1);padding-top:var(--ds-space-1);border-top:1px solid var(--ds-color-separator);overflow:hidden}
 /* Each action centers its icon and label in its own third, so the strip reads as three cells, not a row that starts off the rows' glyph column (Leo 2026-11-06: "this is misaligned at the left ... have them all individually centered along their things?"). The cell spans the rows' edges, so its hover fill lines up with theirs. */
 .nt-create-strip-item{display:flex;flex:1 1 0;align-items:center;justify-content:center;gap:var(--ds-space-2);min-width:0;height:24px;padding:0 var(--ui-row-padding-inline);border-radius:var(--ui-row-radius);color:var(--acpmux-composer-dim);font-size:var(--text-detail);white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
 .nt-create-strip-item .nt-row-title{flex:0 1 auto;min-width:0;max-width:none;overflow:hidden;text-overflow:ellipsis}
 /* Labels that do not all fit (createStripFit.ts) go away together: three icons, still centered, each named by its aria-label and tooltip, never three ellipsized "Nouv…". The title stays measurable (visually hidden, not display:none). */
 .nt-create-strip[data-icons-only] .nt-create-strip-item{position:relative}
 .nt-create-strip[data-icons-only] .nt-create-strip-item .nt-row-title{position:absolute;width:0;height:0;overflow:hidden;clip-path:inset(50%)}
-.nt-create-strip-item.is-selected{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 8%,transparent);color:var(--agent-text)}
+.nt-create-strip-item.is-selected{background:var(--ds-color-selection);color:var(--agent-text)}
 .nt-fix-error{flex-basis:100%;margin:0;color:var(--agent-status-error,var(--agent-muted));font-size:var(--text-caption);letter-spacing:var(--text-caption--letter-spacing)}
 .nt-chats{margin-top:var(--ds-space-5)}
 .nt-chats-head{display:flex;align-items:center;gap:var(--ds-space-3);height:28px;font-size:var(--text-body);letter-spacing:var(--text-body--letter-spacing)}
@@ -73,6 +73,9 @@
 .nt-card-message{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:var(--acpmux-composer-dim);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
 .nt-card[data-state=error] .nt-card-message,.nt-card[data-state=failed] .nt-card-message{color:var(--agent-danger)}
 .nt-card-age{font-variant-numeric:tabular-nums}
+/* An archived chat (acpmux's cold archive): a muted badge beside its age, and its preview as quiet as the age; nothing else on the card moves. */
+.nt-card-badge{flex:none;padding:0 var(--ds-space-1);border-radius:var(--ds-radius-control);background:color-mix(in srgb,var(--agent-text) 7%,transparent);color:var(--acpmux-composer-dim);font-size:var(--text-caption);line-height:1.6;white-space:nowrap}
+.nt-cards[data-variant="list"] .nt-card-badge{order:-1}
 .nt-card[data-state=input] .nt-card-message{color:var(--agent-warning,var(--agent-text))}
 /* Hover as Edge draws it (cx-f6i7): the fill eases in fast and clears at once (--agent-motion-hover-out, 0 by default). */
 @media (prefers-reduced-motion:no-preference){.nt-row,.nt-card,.nt-open-tab,.nt-tool,.nt-all-row{transition:background-color var(--agent-motion-hover-out,0s) var(--agent-ease-out,ease-out),color var(--agent-motion-hover-out,0s) var(--agent-ease-out,ease-out)}.nt-row:hover,.nt-card:hover,.nt-open-tab:hover,.nt-tool:hover,.nt-all-row:hover{transition-duration:var(--agent-motion-hover,.08s)}}
@@ -165,17 +168,18 @@
      2026-10-29: "stop making them take up so much space"). */
   --acpmux-strip-height: 24px;
   margin: 0;
-  /* The folder icon's center is 15.5 px into the strip's first ghost button (its padding and ink):
-     the strip's leading padding puts it on the + glyph's center, inset + 14 (Leo 2026-10-31: the
-     project chip row starts at a different x than + and the text). */
+  /* Subtract the context and ghost button insets from the + center. The location slot scales
+     with density; the ghost button's 4.5 px leading inset does not. */
   padding: 0 var(--ds-space-1);
-  padding-inline-start: calc(var(--nt-composer-inset) - 1.5px);
+  padding-inline-start: calc(var(--nt-composer-inset) + (var(--acpmux-composer-control) - var(--acpmux-location-box)) / 2 - var(--acpmux-strip-pad, 4px) - 4.5px);
   border-radius: 0;
   background: none;
   box-shadow: none;
 }
 /* The create actions are outlined pills, as Cursor's home draws its starters: New terminal, New
-   browser tab and New chat read as buttons, not as text (Lucas #21133). */
+   browser tab and New chat read as buttons, not as text (Lucas #21133). The outline is the chrome's
+   divider token and the fills the app's hover ramp, so a theme, Borders: None and the title area
+   tone reach them as they reach the window around the page. */
 .nt-screen .nt-create {
   gap: var(--ds-space-2);
   margin: var(--ds-space-2) 0 0;
@@ -184,13 +188,13 @@
   height: 28px;
   padding: 0 var(--ds-space-3) 0 var(--ds-space-2);
   border-radius: var(--ds-radius-popup);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 12%, transparent);
+  box-shadow: inset 0 0 0 1px var(--ds-color-divider);
   color: var(--agent-soft);
   font-weight: var(--weight-regular);
 }
 .nt-screen .nt-create .nt-tool:hover,
 .nt-screen .nt-create .nt-tool:focus-visible {
-  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  background: var(--ds-color-hover);
   color: var(--agent-text);
 }
 .nt-screen .nt-create .nt-tool:focus-visible {
@@ -290,12 +294,12 @@
 /* The page's lists (Open tabs, Recently closed, All chats) share one leading column: each heading's text and every row's glyph start on the shared row inset (design/grid.md rules 1, 2 and 6). */
 .nt-open-tabs-head{height:30px;display:flex;align-items:center;padding:0 0 0 var(--ui-row-padding-inline);color:var(--acpmux-composer-dim);font-size:var(--text-detail);font-weight:var(--weight-emphasis);letter-spacing:var(--text-detail--letter-spacing)}
 .nt-open-tab{width:100%;height:28px;border:0;border-radius:var(--ds-radius-popup);background:none;font:inherit;font-size:var(--text-detail);text-align:left;letter-spacing:var(--text-detail--letter-spacing)}
-.nt-open-tab:not(:disabled):hover,.nt-open-tab:focus-visible{background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
+.nt-open-tab:not(:disabled):hover,.nt-open-tab:focus-visible{background:var(--ds-color-hover);color:var(--agent-text)}
 .nt-open-tab:focus-visible .nt-row-action{opacity:1}
 .nt-card-host,.nt-row-host{display:contents}
 /* The create actions' buttons. Geometry and type: the shared ghost button (ui/ghost.css, cx-s6zvc). */
 .nt-tool{border:0;background:none;color:var(--acpmux-composer-dim);font-family:inherit}
-.nt-tool:hover,.nt-tool:focus-visible{background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
+.nt-tool:hover,.nt-tool:focus-visible{background:var(--ds-color-hover);color:var(--agent-text)}
 /* The create actions (cx-ag5.7): one quiet ghost row under the box, at its left edge. */
 .nt-create{display:flex;flex-wrap:wrap;margin:var(--ds-space-2) var(--ds-space-1) 0;font-size:var(--text-detail);line-height:var(--text-detail--line-height);letter-spacing:var(--text-detail--letter-spacing)}
 /* Chats (cx-n0i9): one list under the field. The running and waiting chats lead it with their
@@ -319,10 +323,10 @@
 /* Chats and Projects (cx-ncc.66): the view tabs are buttons; the chosen one reads in full ink. */
 .nt-all button.nt-chats-tab{padding:0;border:0;background:none;font-family:inherit}
 .nt-all button.nt-chats-tab:hover,.nt-all .nt-chats-tab.is-selected{color:var(--agent-text)}
-.nt-all button.nt-chats-tab:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px;border-radius:4px}
+.nt-all button.nt-chats-tab:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px;border-radius:var(--ds-radius-control)}
 /* Filter (cx-htpk0): quiet text like the view tabs, full ink while it narrows the list. */
 .nt-all .nt-chats-filter-button{display:inline-flex;align-items:center;gap:var(--ds-space-1);height:22px;padding:0 var(--ds-space-2);border:0;border-radius:var(--ds-radius-control);background:none;color:var(--acpmux-composer-dim);font-family:inherit;font-size:var(--text-detail);font-weight:var(--weight-emphasis);letter-spacing:var(--text-detail--letter-spacing)}
-.nt-all .nt-chats-filter-button.is-selected,.nt-all .nt-chats-filter-button:hover,.nt-all .nt-chats-filter-button[aria-expanded="true"]{color:var(--agent-text);background:color-mix(in srgb,var(--agent-text) 6%,transparent)}
+.nt-all .nt-chats-filter-button.is-selected,.nt-all .nt-chats-filter-button:hover,.nt-all .nt-chats-filter-button[aria-expanded="true"]{color:var(--agent-text);background:var(--ds-color-hover)}
 .nt-all .nt-chats-filter-button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 .nt-chats-filter-chevron{width:var(--grid-glyph);height:var(--grid-glyph);opacity:.7}
 .nt-chats-filter-list{min-width:150px}
@@ -340,7 +344,7 @@
 .nt-all-list{flex:1;min-height:0}
 .nt-all-item{box-sizing:border-box;padding:1px 0}
 .nt-all-row{display:flex;align-items:center;gap:var(--ds-space-2);width:100%;height:100%;padding:0 var(--ui-row-padding-inline);box-sizing:border-box;border:0;border-radius:var(--ds-radius-control);background:none;color:var(--agent-soft);font:inherit;font-size:var(--text-body);text-align:left;white-space:nowrap;letter-spacing:var(--text-body--letter-spacing)}
-.nt-all-row:hover,.nt-all-row:focus-visible{outline:0;background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
+.nt-all-row:hover,.nt-all-row:focus-visible{outline:0;background:var(--ds-color-hover);color:var(--agent-text)}
 .nt-all-glyph{flex:none;display:flex;width:16px;height:16px;filter:grayscale(1);opacity:.5}
 .nt-all-row:hover .nt-all-glyph,.nt-all-row:focus-visible .nt-all-glyph,.nt-all-row[data-state] .nt-all-glyph{filter:none;opacity:1}
 .nt-all-title{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
@@ -397,27 +401,98 @@
 :root,
 .nt-composer,
 .nt-popover {
-  --nt-composer-inset: max(0px, calc((var(--text-content--line-height) + 2 * var(--text-content) - 28px) / 2));
+  /* The prompt's room over and under its text: the content size (48 px at Default with 14 px text, the
+     chat composer's box), so it grows with the text, and smaller at a compact density, where the box
+     was too tall. */
+  --nt-input-pad-block: calc(var(--text-content) * min(1, var(--cmux-density-scale, 1)));
+  --nt-composer-inset: max(0px, calc((var(--text-content--line-height) + 2 * var(--nt-input-pad-block) - 28px * var(--cmux-density-scale, var(--cmux-interface-scale, 1))) / 2));
 }
 /* The composer's control tokens (composerLocation.css), restated here so a page that loads only this
    sheet draws the same row. */
 .nt-screen .nt-composer {
-  --acpmux-composer-control: 28px;
-  --acpmux-composer-trail-glyph: 18px;
-  --acpmux-composer-trail-stroke: 1.35;
-  --acpmux-composer-lead-gap: calc(var(--ds-space-2) * var(--cmux-interface-scale, 1));
-  --acpmux-text-drop: calc(var(--text-content) / 14);
+  --acpmux-composer-control: calc(28px * var(--cmux-density-scale, var(--cmux-interface-scale, 1)));
+  --acpmux-composer-glyph: calc(16px * var(--cmux-density-scale, var(--cmux-interface-scale, 1)));
+  --acpmux-composer-trail-glyph: var(--acpmux-composer-glyph);
+  --acpmux-composer-trail-stroke: 1.5;
+  --acpmux-composer-lead-gap: calc(var(--ds-space-2) * var(--cmux-density-scale, var(--cmux-interface-scale, 1)));
+  --acpmux-text-drop: 0px;
   --acpmux-composer-inset: var(--nt-composer-inset);
+  --acpmux-chip-glyph: var(--acpmux-composer-glyph);
+  --acpmux-chip-chevron: calc(12px * var(--cmux-density-scale, var(--cmux-interface-scale, 1)));
 }
-/* The suggestions' popover frosts what is under it (the Chats header and cards read through its lower
-   half at the plain popup tint, as the pills did through the + menu, Leo 2026-10-31: "they show
-   through"): the + menu's denser tint (86%, cmux #28798; still glass, under the 0.9 that
-   glass-never-opaque holds) and the menus' blur (desktop.css --ds-glass-menu-blur). Reduce
-   Transparency keeps the solid popup surface (glass.css). */
-.nt-popover.ui-glass {
-  --glass-tint: color-mix(in srgb, var(--glass-surface) 86%, transparent);
-  --glass-backdrop: var(--ds-glass-menu-blur);
+/* The folder and computer chips over the box draw what the permission and model chips under it do
+   (composerLocation.css, the chip tokens): the label in the control style, a 16 px glyph and a 12 px
+   chevron. The ghost button keeps its 14 px slots, so the glyph overhangs its slot by a pixel a side
+   and the chevron centers in its own: no chip moves, and the folder stays on the + and shield's
+   column (newtab-icon-column.test.ts). test/newtab-chip-scale.test.ts measures it. */
+.nt-above .acpmux-composer-context .acpmux-location-label {
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+  letter-spacing: var(--text-control--letter-spacing);
 }
+/* A project's badge is a glyph like the rest: the chip glyph's box, no tile behind it, overhanging
+   its slot as the folder glyph does, so a picked project's name starts where "No folder" and the
+   permission mode's label start. Its 16 px image or mark fills the box. */
+.nt-above .acpmux-location-button:has(> .acpmux-project-badge:first-child) {
+  --acpmux-project-badge-size: var(--acpmux-chip-glyph);
+}
+.nt-above .acpmux-location-button > .acpmux-project-badge:first-child {
+  margin-inline-end: calc((var(--acpmux-location-box, var(--ui-ghost-icon-size)) - var(--acpmux-chip-glyph)) / 2);
+  background: none;
+}
+.nt-above .acpmux-location-button > .acpmux-project-badge:first-child > svg {
+  width: var(--acpmux-chip-glyph);
+  height: var(--acpmux-chip-glyph);
+}
+.nt-above .acpmux-location-button > .ui-ghost-icon:last-child:not(:first-child) > svg {
+  width: var(--acpmux-chip-chevron);
+  height: var(--acpmux-chip-chevron);
+}
+/* One ink, no emphasis at rest (Lawrence 2026-11-09: "think what do we want to emphasize, if anything
+   at all (maybe we should just make them all the same color)"). The four chips are settings the user
+   reads, not content, so none outranks another: the folder, the computer, the permission mode and
+   the model, glyph, name and effort alike, rest in the muted ink the folder, computer and model
+   already drew (the more readable of the two secondary inks in the default themes: 170 against the
+   soft ink's 136 on dark). The prompt is the one emphasis.
+   Hover, an open menu and Full access still change a chip's ink: those carry state, and their rules
+   outrank these. Base drew the mode one step dimmer (soft) than the rest and the effort at 68 %. */
+.nt-composer {
+  --acpmux-chip-ink: var(--agent-muted);
+}
+.nt-above .acpmux-location-button,
+.nt-foot :is(.acpmux-access-trigger, .acpmux-model .acpmux-picker-button, .acpmux-effort .acpmux-picker-button) {
+  color: var(--acpmux-chip-ink);
+}
+.nt-foot :is(.acpmux-mode-text, .acpmux-model-name, .acpmux-model-short, .acpmux-model-detail) {
+  color: inherit;
+}
+/* The permission chip's padding and shield slot scale with density, as the + control does. */
+.nt-foot .acpmux-composer-foot .acpmux-access {
+  margin-inline-start: calc(var(--acpmux-composer-inset) + var(--acpmux-composer-control) / 2 - var(--acpmux-row-inset) - var(--acpmux-shield-box) / 2);
+}
+.nt-foot .acpmux-mode .acpmux-access-trigger > .acpmux-icon:first-child {
+  margin-inline-end: calc((var(--ui-ghost-icon-size) - var(--acpmux-chip-glyph)) / 2);
+}
+/* The right column: the model's text ends where Send's ink ends. Send's glyph stands the composer's
+   inset plus half the control's spare room in from the box, and the ↑ path's ink stops 3.225 of its
+   16 units short of its box (M8 12.9V3.4M3.9 7.5 8 3.4l4.1 4.1, 1.35 line). The model's button
+   still ends on the box's edge (the row spans the box, test/composer-side-inset.test.ts) and takes
+   that distance as its end padding, in a row with room for it: at the composer's narrow steps the
+   row keeps every pixel for its labels (at 320 px a 12 px pad pushed the mode chip off the icon
+   column). */
+@container composer (min-width: 421px) {
+  .nt-foot .acpmux-composer-foot .acpmux-model .acpmux-picker-button {
+    --nt-send-ink-bearing: calc(var(--acpmux-composer-trail-glyph) * 3.225 / 16);
+    padding-inline-end: calc(
+      var(--acpmux-composer-inset) + (var(--acpmux-composer-control) - var(--acpmux-composer-trail-glyph)) / 2 +
+        var(--nt-send-ink-bearing)
+    );
+  }
+}
+/* The suggestions' popover frosts what is under it (the Chats header and cards, Leo 2026-10-31: "they
+   show through") with every popup's glass, the menu level (ui/glass/glass.css GLASS LEVELS): its own
+   86% tint made it a different material from the menus opened from the same box (Leo, 2026-11-11:
+   "the styles mix and they don't look good"). */
 /* The suggestions' rows: each row's 16 px glyph centered under the + glyph (inset + 14), past the
    popover's padding (Leo 2026-10-31: the suggestion rows start at a different x than + and the text). */
 .nt-popover .nt-rows > .nt-row {
@@ -431,8 +506,7 @@
   min-height: var(--acpmux-composer-control);
   margin: 0 0 max(0px, calc(var(--nt-input-pad-block) + var(--text-content--line-height) / 2 - var(--acpmux-composer-control) / 2));
 }
-/* The field's text drops by --acpmux-text-drop (composerLocation.css) so its ink, not its line box,
-   centers on the row's middle where the controls stand; the shell glyph drops with it. */
+/* Keep the prompt, placeholder and shell glyph on the same centered line. */
 .nt-input[data-split] .nt-field {
   padding-top: calc(var(--nt-input-pad-block) + var(--acpmux-text-drop));
   padding-bottom: calc(var(--nt-input-pad-block) - var(--acpmux-text-drop));
@@ -447,8 +521,8 @@
 }
 /* The dictation mic beside Send (DictationMic), both in the bar's end group. */
 .nt-pickers .acpmux-mic {
-  width: 24px;
-  height: 24px;
+  width: calc(24px * var(--acpmux-density, 1));
+  height: calc(24px * var(--acpmux-density, 1));
 }
 /* Send is the mic's plain glyph at the mic's size and weight (Leo 2026-10-21: no disc;
    composerStates.css), the composer's trailing glyph tokens (composerLocation.css). */
@@ -529,7 +603,7 @@
   padding: 0 var(--ds-space-1);
   border: 0;
   border-radius: var(--ds-radius-control);
-  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  background: var(--ds-color-hover);
   color: var(--agent-soft);
   font: inherit;
   font-size: var(--text-caption);
@@ -538,7 +612,7 @@
 }
 .nt-card-children-toggle:hover,
 .nt-card-children-toggle[aria-expanded="true"] {
-  background: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  background: var(--ds-color-pressed);
   color: var(--agent-text);
 }
 .nt-card-children {
@@ -590,7 +664,7 @@
 /* The bar fills from the inline start: right to left under RTL. */
 .nt-player-played:dir(rtl){transform-origin:right center}
 .nt-player-controls{display:flex;align-items:center;gap:var(--ds-space-2);margin-left:calc(-1 * var(--ds-space-1))}
-.nt-player-button{display:grid;place-items:center;width:28px;height:28px;padding:6px;box-sizing:border-box;border:0;border-radius:50%;
+.nt-player-button{display:grid;place-items:center;width:28px;height:28px;padding:6px;box-sizing:border-box;border:0;border-radius:var(--ds-radius-control);
   background:transparent;color:var(--agent-text)}
 .nt-player-button:hover:not(:disabled){background:var(--acpmux-pill-hover)}
 .nt-player-button:active:not(:disabled){background:var(--acpmux-pill-press)}
@@ -633,40 +707,6 @@
   align-items: stretch;
   gap: var(--ds-space-1);
 }
-/* The New Tab widget view (WidgetCards.tsx, Leo 2026-10-18): soft cards in the composer's fill and
-   hairline edge, round as the composer box, no squared boxes. Rows are quiet text; a pointer fills
-   one, as the page's other rows do. A chat's state reads in the theme's amber (input) or red. */
-.nt-extras{display:flex;flex-wrap:wrap;align-items:baseline;gap:var(--ds-space-1) var(--ds-space-3);margin:0 var(--ds-space-1) var(--ds-space-2);color:var(--agent-muted);font-size:var(--text-caption);line-height:18px;letter-spacing:var(--text-caption--letter-spacing)}
-.nt-extra-warm{flex:1 0 100%;color:var(--agent-soft)}
-.nt-extra-clock,.nt-extra-timer{font-variant-numeric:tabular-nums;white-space:nowrap}
-.nt-extra-quote{flex:1 0 100%;margin:0;color:var(--agent-soft)}
-.nt-extra-quote blockquote{margin:0;font:inherit}
-.nt-extra-quote figcaption{margin-top:2px;color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
-.nt-widgets{min-width:0;display:flex;flex-direction:column;gap:var(--ds-space-3);margin-top:var(--ds-space-2)}
-/* --nt-card-inset: the 6 px a widget or stage card holds its 14 px rows off its edge; its hairline rules
-   run edge to edge by taking that inset back. */
-.nt-widget{min-width:0;--nt-card-inset:6px;display:flex;flex-direction:column;box-sizing:border-box;padding:var(--nt-card-inset);border-radius:20px;background:color-mix(in srgb,var(--acpmux-composer-bg) 70%,transparent);box-shadow:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge)}
-.nt-widget-row{display:flex;align-items:center;gap:var(--ds-space-3);min-width:0;height:36px;padding:0 var(--ds-space-3);box-sizing:border-box;border:0;border-radius:14px;background:none;color:var(--agent-soft);font:inherit;font-size:var(--text-body);text-align:left;letter-spacing:var(--text-body--letter-spacing)}
-button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
-.nt-widget-row[aria-pressed=true]{color:var(--agent-text)}
-.nt-widget-icon{flex:none;color:var(--acpmux-composer-dim)}
-.nt-widget-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.nt-widget-check{flex:none;color:var(--agent-text)}
-.nt-widget-rule{height:0;margin:4px calc(-1 * var(--nt-card-inset));border:0;border-top:var(--cmux-hairline,.5px) solid var(--acpmux-composer-edge)}
-.nt-widget-attention{gap:var(--ds-space-1)}
-.nt-widget-chat{display:flex;align-items:center;gap:var(--ds-space-1);min-width:0;padding-right:var(--ds-space-1);border-radius:14px}
-/* A Needs you chat's hover lights the control under the pointer alone: its open button, or its x. The row never takes a wash around its small x (Leo 2026-10-27: "why are you giving it the entire row when it's only this small little section? Just don't do that. Don't ever do that."). */
-.nt-widget-chat-open{flex:1;display:flex;align-items:baseline;gap:var(--ds-space-2);min-width:0;height:36px;padding:0 var(--ds-space-3);box-sizing:border-box;border:0;border-radius:14px;background:none;color:var(--agent-soft);font:inherit;font-size:var(--text-body);line-height:36px;text-align:left;letter-spacing:var(--text-body--letter-spacing)}
-.nt-widget-chat-open:hover{background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text)}
-.nt-widget-state{flex:none;color:var(--agent-warning,var(--agent-text))}
-.nt-widget-chat[data-state=error] .nt-widget-state,.nt-widget-chat[data-state=failed] .nt-widget-state{color:var(--agent-danger)}
-.nt-widget-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.nt-widget-dismiss{flex:none;display:grid;place-items:center;width:24px;height:24px;border:0;border-radius:var(--ds-radius-popup);padding:0;background:none;color:var(--acpmux-composer-dim)}
-.nt-widget-dismiss:hover{background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text)}
-.nt-widget-tip{display:flex;flex-direction:column;gap:2px;max-width:360px}
-.nt-widget-tip-title{color:var(--agent-text)}
-.nt-widget-tip-detail{color:var(--acpmux-composer-dim);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-@media (prefers-reduced-motion:no-preference){.nt-widget-row,.nt-widget-chat,.nt-widget-dismiss{transition:background-color var(--agent-motion-hover-out,0s) var(--agent-ease-out,ease-out),color var(--agent-motion-hover-out,0s) var(--agent-ease-out,ease-out)}.nt-widget-row:hover,.nt-widget-chat:hover,.nt-widget-dismiss:hover{transition-duration:var(--agent-motion-hover,.08s)}}
 /* The page's column is the chat's (conversation.css --cv-column: Chat Text Width, 800 px by default,
    capped by the pane), so the New Tab composer is as wide as the chat composer in the same pane (Leo 2026-10-21). */
 /* The quiet row sits 4 px under the box (the column gap is 6). */
@@ -749,7 +789,7 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
   padding: 0 var(--ds-space-2);
   box-sizing: border-box;
   border: 0;
-  border-radius: var(--ds-radius-popup);
+  border-radius: var(--ds-radius-control);
   background: none;
   box-shadow: none;
   color: var(--agent-soft);
@@ -970,283 +1010,17 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 :root[data-borders="none"] .nt-screen[data-template="cards"] .nt-card {
   box-shadow: var(--acpmux-composer-shadow, var(--elevation-1));
 }
-/* The Minimal layout with no widgets on (pageWidgets.ts; Leo 2026-10-20, the default): the composer,
-   nothing else (no greeting, Leo 2026-10-22). It sits about the window's middle at a fixed place (a
-   pasted image or a long draft grows it downward, never moves it); the headline, when on, sits a
-   little over it. */
+/* The Minimal layout (Leo 2026-10-20, the default): the composer, nothing else (no greeting, Leo
+   2026-10-22; no widgets, Lawrence 2026-11-09). It sits about the window's middle at a fixed place (a
+   pasted image or a long draft grows it downward, never moves it). */
 .nt-screen[data-minimal] {
   padding-top: max(32px, calc(50vh - 150px));
 }
-/* The second dot's quick action pills (tabDots.ts) sit centered under the composer, as the headline
-   over it is. */
-.nt-screen[data-minimal] .nt-create {
-  justify-content: center;
-}
-/* Minimal's headline slot (NewTabScreen.tsx): the old greeting's box (its heading line and 6px
-   under it), there with the headline on or off, so the composer sits where it sat under the greeting
-   and turning the headline on never moves it. The headline sits on the slot's floor and a taller
-   one (Hero, or Choose project under the question) grows up into the page's top padding. */
-.nt-headline-slot {
+/* Minimal's room over the composer (NewTabScreen.tsx): the old greeting's box (its heading line and
+   6px under it), kept empty so the composer sits where it always sat. */
+.nt-composer-room {
   flex: none;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
   height: calc(var(--text-heading--line-height) + 6px);
-}
-/* The headline (NewTabHeadline.tsx; off by default): "What should we work on in <project>?", the
-   project an inline picker. Hero (the shipped look) is a new chat's hero question; Quiet is where the
-   old greeting sat; Chip draws the project as the composer's folder chip (headline.experiment.ts). */
-.nt-headline {
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  --nt-headline-gap: 6px;
-  /* The question's line: Hero's is a new chat's hero line (28px); Quiet's is the heading step. */
-  --nt-headline-line: calc(28px * var(--cmux-interface-scale, 1));
-  gap: 6px;
-  margin: 0 0 10px;
-  text-align: center;
-}
-/* The no-project headline has a second row for its chooser. Keep that row's space after a
-   project is selected, so replacing the chooser with the inline project button never moves the
-   headline or the composer (the gallery measures this transition at CLS 0). */
-.nt-headline {
-  min-height: calc(var(--nt-headline-line) + var(--text-body--line-height) + var(--nt-headline-gap));
-}
-.nt-headline-text {
-  margin: 0;
-  width: 100%;
-  display: flex;
-  align-items: baseline;
-  justify-content: center;
-  white-space: pre;
-  max-width: 560px;
-  /* A new chat's hero question (.acpmux-empty-title, styles.css: 20px on a 28px line): the
-     heading step is that 20px. */
-  font-size: var(--text-heading);
-  line-height: var(--nt-headline-line);
-  font-weight: var(--weight-regular);
-  color: var(--agent-text);
-  overflow-wrap: anywhere;
-  letter-spacing: var(--text-heading--letter-spacing);
-}
-/* The machine the chat starts on, plain text in the question: a long name gives way first. */
-.nt-headline-machine {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.nt-headline[data-look="quiet"] {
-  --nt-headline-line: var(--text-heading--line-height);
-  margin-bottom: 6px;
-}
-.nt-headline[data-look="quiet"] .nt-headline-text {
-  font-size: var(--text-heading);
-  line-height: var(--nt-headline-line);
-  font-weight: var(--weight-regular);
-  color: var(--acpmux-composer-dim, color-mix(in srgb, var(--agent-text) 55%, transparent));
-  letter-spacing: var(--text-heading--letter-spacing);
-}
-.nt-headline[data-look="chip"] .nt-headline-text .acpmux-project {
-  display: inline-flex;
-  vertical-align: middle;
-  margin: 0 2px;
-}
-.nt-headline-choose .acpmux-project-button {
-  font-size: var(--text-body);
-  line-height: var(--text-body--line-height);
-  color: var(--agent-muted);
-  letter-spacing: var(--text-body--letter-spacing);
-}
-.nt-headline-choose .acpmux-project-button > span {
-  text-decoration: none;
-}
-
-/* The ambient widgets (newtab/AmbientWidgets.tsx): one quiet row under the field, in the greeting's
-   dim color, so the page stays calm and the field never moves. */
-.nt-ambient {
-  flex: none;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: var(--ds-space-1) var(--ds-space-4);
-  margin-top: var(--ds-space-2);
-  color: var(--acpmux-composer-dim, color-mix(in srgb, var(--agent-text) 55%, transparent));
-  font-size: var(--text-caption);
-  line-height: var(--text-caption--line-height);
-  user-select: none;
-  letter-spacing: var(--text-caption--letter-spacing);
-}
-.nt-ambient-weather {
-  display: inline-flex;
-  align-items: baseline;
-  gap: var(--ds-space-1);
-}
-.nt-ambient-weather[data-stale] {
-  opacity: 0.55;
-}
-.nt-ambient-temp {
-  color: var(--agent-soft);
-  font-variant-numeric: tabular-nums;
-}
-.nt-ambient-range {
-  font-variant-numeric: tabular-nums;
-}
-.nt-ambient-machines {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: var(--ds-space-1) var(--ds-space-3);
-}
-.nt-ambient-machine {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--ds-space-1);
-  max-width: 180px;
-}
-.nt-ambient-machine-icon {
-  flex: none;
-  display: inline-flex;
-  /* This Mac stays quiet; another machine wears its identity color (machineColor.ts, inline). */
-  color: var(--agent-soft);
-}
-.nt-ambient-machine-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.nt-ambient-dot {
-  flex: none;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  box-shadow: inset 0 0 0 1px currentColor;
-}
-.nt-ambient-machine[data-online] .nt-ambient-dot {
-  background: var(--agent-ansi-2);
-  box-shadow: none;
-}
-/* Minimal's edit mode (WidgetEditing.tsx; right-click > Edit New Tab, as an iPhone's home screen).
-   Out of it a widget's slot draws nothing of its own, so the page lays out as it always did. */
-.nt-menu-host,
-.nt-widget-slot:not([data-editing]) {
-  display: contents;
-}
-/* A slot's content is the stage's own item: full width, and the first and last center the stage. */
-.nt-stage > .nt-widget-slot > *,
-.nt-widget-content > * {
-  width: 100%;
-}
-.nt-stage > .nt-widget-slot:not([data-editing]):first-child > :first-child,
-.nt-stage > .nt-widget-slot[data-editing]:first-child {
-  margin-top: auto;
-}
-.nt-stage > .nt-widget-slot:not([data-editing]):last-child > :last-child,
-.nt-stage > .nt-widget-slot[data-editing]:last-child {
-  margin-bottom: auto;
-}
-.nt-screen[data-editing] {
-  position: relative;
-}
-.nt-edit-bar {
-  position: absolute;
-  top: var(--ds-space-3);
-  right: var(--ds-space-3);
-  z-index: var(--layer-sticky, 10);
-  display: flex;
-  /* Not the full width every other child of .nt-screen takes: a bar in the top right corner. */
-  width: auto;
-  gap: var(--ds-space-2);
-}
-.nt-edit-button {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--ds-space-2);
-  height: 26px;
-  padding: 0 var(--ds-space-2);
-  border: 0;
-  border-radius: var(--ds-radius-popup);
-  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
-  color: var(--agent-text);
-  font: inherit;
-  font-size: var(--text-control);
-  letter-spacing: var(--text-control--letter-spacing);
-}
-.nt-edit-button:hover {
-  background: color-mix(in srgb, var(--agent-text) 14%, transparent);
-}
-.nt-edit-button[data-primary] {
-  background: var(--agent-accent, var(--agent-text));
-  color: var(--agent-on-accent, var(--acpmux-base));
-}
-.nt-edit-button:focus-visible,
-.nt-widget-frame:focus-visible {
-  outline: 1.5px solid color-mix(in srgb, var(--agent-text) 55%, transparent);
-  outline-offset: 2px;
-}
-/* An edited widget: its content takes no clicks (inert), it takes the drag and the keyboard. */
-.nt-widget-frame {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--ds-space-3);
-  width: 100%;
-  border-radius: 14px;
-  cursor: grab;
-}
-.nt-widget-content {
-  display: contents;
-}
-.nt-widget-frame[data-dragging] {
-  opacity: 0.4;
-}
-.nt-widget-frame[data-drop="before"] {
-  box-shadow: 0 -2px 0 var(--agent-accent, var(--agent-text));
-}
-.nt-widget-frame[data-drop="after"] {
-  box-shadow: 0 2px 0 var(--agent-accent, var(--agent-text));
-}
-.nt-widget-remove {
-  position: absolute;
-  top: calc(-1 * var(--ds-space-2));
-  left: calc(-1 * var(--ds-space-2));
-  z-index: var(--layer-raised, 1);
-  display: grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: var(--agent-soft, var(--agent-text));
-  color: var(--acpmux-base);
-  box-shadow: var(--elevation-1);
-}
-.nt-widget-remove:hover {
-  background: var(--agent-text);
-}
-/* The wiggle: small, alternate widgets out of step. Still with Reduce Motion or animations off. */
-@media (prefers-reduced-motion: no-preference) {
-  .nt-widget-frame:not([data-dragging]) {
-    animation: nt-widget-wiggle 0.28s ease-in-out infinite alternate; /* motion-allow: the edit-mode wiggle is a loop, not a transition; still under Reduce Motion and animations off */
-  }
-  .nt-widget-frame:nth-of-type(even) {
-    animation-delay: -0.14s;
-  }
-}
-:root[data-agent-motion="off"] .nt-widget-frame {
-  animation: none;
-}
-@keyframes nt-widget-wiggle {
-  from {
-    transform: rotate(-0.4deg);
-  }
-  to {
-    transform: rotate(0.4deg);
-  }
 }
 
 /* New Tab owns one page scroll, including the virtualized All chats rows. History keeps its

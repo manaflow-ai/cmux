@@ -84,6 +84,8 @@ struct File {
 pub struct LastGood {
     path: Option<PathBuf>,
     peers: Mutex<BTreeMap<String, Entry>>,
+    /// The remote tokens each `ssh://` peer read, in the same home (`peer_kept_tokens.rs`).
+    pub tokens: crate::peer_kept_tokens::KeptTokens,
 }
 
 impl LastGood {
@@ -92,7 +94,8 @@ impl LastGood {
     pub fn open(home: Option<&Path>) -> Self {
         let path = home.map(|home| home.join(FILE_NAME));
         let peers = path.as_deref().and_then(read).unwrap_or_default();
-        Self { path, peers: Mutex::new(peers) }
+        let tokens = crate::peer_kept_tokens::KeptTokens::open(home);
+        Self { path, peers: Mutex::new(peers), tokens }
     }
 
     pub fn get(&self, name: &str) -> Option<Entry> {
@@ -114,7 +117,7 @@ impl LastGood {
             File { version: VERSION, peers: peers.clone() }
         };
         if let Some(path) = &self.path
-            && let Err(e) = write(path, &snapshot)
+            && let Err(e) = write_json(path, &snapshot)
         {
             tracing::warn!(peer = %name, "could not save the peer's last good path: {e}");
         }
@@ -130,37 +133,42 @@ impl LastGood {
             File { version: VERSION, peers: peers.clone() }
         };
         if let Some(path) = &self.path {
-            let _ = write(path, &snapshot);
+            let _ = write_json(path, &snapshot);
         }
     }
 }
 
 fn read(path: &Path) -> Option<BTreeMap<String, Entry>> {
+    let file: File = read_json(path)?;
+    (file.version == VERSION).then_some(file.peers)
+}
+
+/// A JSON file of this home's peer state (none, too large or unreadable: None).
+pub(crate) fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Option<T> {
     let meta = std::fs::symlink_metadata(path).ok()?;
     if !meta.is_file() || meta.len() > MAX_BYTES {
         return None;
     }
-    let file: File = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
-    (file.version == VERSION).then_some(file.peers)
+    serde_json::from_slice(&std::fs::read(path).ok()?).ok()
 }
 
-fn write(path: &Path, file: &File) -> std::io::Result<()> {
-    let text = serde_json::to_vec(file).map_err(std::io::Error::other)?;
+/// Replace `path` with `value` as JSON, mode 0600, through a temp file and a rename.
+pub(crate) fn write_json(path: &Path, value: &impl Serialize) -> std::io::Result<()> {
+    let text = serde_json::to_vec(value).map_err(std::io::Error::other)?;
     let dir = path.parent().ok_or_else(|| std::io::Error::other("no parent"))?;
-    let temp = dir.join(format!(".{FILE_NAME}.{}.tmp", std::process::id()));
-    let written = write_private(&temp, &text).and_then(|()| std::fs::rename(&temp, path));
+    let name = path.file_name().ok_or_else(|| std::io::Error::other("no file name"))?;
+    let temp = dir.join(format!(".{}.{}.tmp", name.to_string_lossy(), std::process::id()));
+    let written = write_private(&temp, &text).and_then(|()| crate::home_fs::rename(&temp, path));
     if written.is_err() {
-        let _ = std::fs::remove_file(&temp);
+        let _ = crate::home_fs::remove_file(&temp);
     }
     written
 }
 
 fn write_private(path: &Path, text: &[u8]) -> std::io::Result<()> {
     use std::io::Write as _;
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let mut options = crate::home_fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true).mode(0o600);
     let mut file = options.open(path)?;
     file.write_all(text)?;
     file.sync_all()

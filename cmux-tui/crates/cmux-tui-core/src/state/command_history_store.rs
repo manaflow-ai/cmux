@@ -58,6 +58,9 @@ pub(crate) enum CommandDeletion {
     Ids(Vec<u64>),
     /// Commands that started at or after this time.
     StartedSince(u64),
+    /// Commands that started at or after the first time and at or before the
+    /// second (a queued history clear's click time).
+    StartedWithin(u64, u64),
     All,
 }
 
@@ -250,6 +253,10 @@ impl WorkspaceRegistry {
             CommandDeletion::StartedSince(since_ms) => tx.execute(
                 "DELETE FROM terminal_commands WHERE started_at_ms >= ?1",
                 [to_i64(*since_ms)],
+            )?,
+            CommandDeletion::StartedWithin(since_ms, until_ms) => tx.execute(
+                "DELETE FROM terminal_commands WHERE started_at_ms >= ?1 AND started_at_ms <= ?2",
+                [to_i64(*since_ms), to_i64(*until_ms)],
             )?,
             CommandDeletion::All => tx.execute("DELETE FROM terminal_commands", [])?,
         };

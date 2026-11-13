@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import {
   filesFrom,
+  filesOnce,
   isImageFile,
   pastedImageFiles,
   installFileDropLifecycle,
@@ -16,7 +17,7 @@ import {
 } from "../attachments";
 import type { UploadCancelled, UploadProgressReport, UploadResult } from "../cloudUploads";
 import { type StringKey, type Translate, useT } from "../i18n";
-import { keptThumb, keepThumb } from "./imagePool";
+import { decoded, keptThumb, keepThumb } from "./imagePool";
 import { imageSize, MAX_DECODE_PIXELS, thumbRatio } from "./imageWork";
 import { intakeFiles, type IntakeError } from "./intakeFiles";
 import { pastesPlaced } from "./composerCopy";
@@ -24,6 +25,7 @@ import { attachSources } from "./attachmentSources";
 import { retryUploadLater, UPLOAD_AUTO_RETRIES } from "./uploadRetry";
 import { type DropOverlayState, HIDDEN_DROP, landDropOverlay, stepDropOverlay } from "./dropOverlayState";
 import { isVideoName, useVideoInfo } from "./videoAttachments";
+import { videoShapeOf } from "./videoShape";
 
 export const ATTACHMENT_LABELS = {
   attachments: "composer.attachments",
@@ -69,9 +71,13 @@ export type AttachmentIntakeOptions = {
   /// The chat column a file drag lifts the drop overlay over (composer/dropOverlayState.ts): over
   /// it a drop attaches; elsewhere in the pane the overlay only arms. Unset: the whole page.
   dropZone?(): Element | null;
-  /// True while the composer takes nothing (a Cloud start is out, App.tsx `cloudStarting`): a paste
-  /// or a file drop stages no attachment then, since the tab closes with only the sent prompt.
+  /// True while the field takes nothing (the classic New Tab page while a Cloud start from it is out,
+  /// NewTabScreen `cloudStarting`): a paste or a file drop stages no attachment then.
   locked?(): boolean;
+  /// Why no attachment is taken now, said to the person (a chat's Cloud start: the host carries the
+  /// started chat's text, not its chips, App.tsx `cloudStarting`). Typing stays open; a paste, drop or
+  /// pick of files stages nothing and the composer's note says this instead.
+  refusal?(): string | undefined;
   /// The chat the composer shows. A file is the chat's it was pasted or dropped in: its placeholder
   /// shows only there, and a read that ends after the composer moved to another chat hands its
   /// chips to `elsewhere` instead of this chat's strip.
@@ -160,7 +166,10 @@ export type PendingAttachment = {
   /// its thumbnail will have, so the picture arriving moves nothing (Leo, 2026-11-07: "they go up top
   /// above and then they land to where they should be").
   size?: { width: number; height: number };
-  /// An image whose header is still being read (a few bytes, a frame or two): its tile is held, zero
+  /// A video's tile shape (width over height) from its file's header (composer/videoShape.ts): the
+  /// loading tile is the box its chip, its poster and its sent tile keep. Unset once read, the square.
+  videoShape?: number;
+  /// An image or a video whose header is still being read (a few bytes, a frame or two): its tile is held, zero
   /// wide and unseen, so it first shows at its thumbnail's size, never a stand-in width. For
   /// HEADER_WAIT_MS at most; one whose header does not answer by then shows at the stand-in.
   sizing?: boolean;
@@ -202,26 +211,34 @@ function sizeFromHeader(file: File, done: (size: { width: number; height: number
 /// attaches whatever its size.
 const INSTANT_PREVIEW_MAX_BYTES = 4 * 1024 * 1024;
 
+/// Whether `file` may show its own picture on its loading tile (instantPreview): an image of its
+/// own bytes, not past INSTANT_PREVIEW_MAX_BYTES.
+function mayShowAtOnce(file: File | MadeFile): file is File {
+  return !isMadeFile(file) && isImageFile(file) && file.size <= INSTANT_PREVIEW_MAX_BYTES;
+}
+
+/// How long a pasted image's tile is held unseen for its own picture (instantPreview: its header,
+/// then the browser's read of its bytes): it first shows as the picture it will be, never as empty
+/// glass that the picture then fills and the chip then brightens (Leo, 2026-11-11: "this 3 stage
+/// attachment thing is still there"). One whose picture does not come by then shows as glass.
+const PICTURE_WAIT_MS = 250;
+
 /// `file`'s own picture as a `data:` URL (a cmux page's CSP allows `img-src data:`, not `blob:`),
 /// encoded by the browser off the main thread (FileReader); undefined for one that is not an image,
 /// past INSTANT_PREVIEW_MAX_BYTES, whose header gives no size, or whose pixels pass the limit its
 /// preview is held to (imageWork.ts MAX_DECODE_PIXELS: a small file can decode to gigabytes), or that
 /// cannot be read here (a test's DOM). Such a tile shows its kind's glyph until its preview is made.
 export async function instantPreview(file: File | MadeFile): Promise<string | undefined> {
-  if (
-    isMadeFile(file) ||
-    !isImageFile(file) ||
-    file.size > INSTANT_PREVIEW_MAX_BYTES ||
-    typeof FileReader === "undefined"
-  )
-    return undefined;
+  if (!mayShowAtOnce(file) || typeof FileReader === "undefined") return undefined;
   const size = await imageSize(file).catch(() => undefined);
   if (!size?.width || !size.height || size.width * size.height > MAX_DECODE_PIXELS) return undefined;
   return new Promise((resolve) => {
     const reader = new FileReader();
     reader.onload = () => {
       const url = String(reader.result);
-      resolve(url.startsWith("data:image/") ? url : undefined);
+      if (!url.startsWith("data:image/")) return resolve(undefined);
+      // Decoded before its tile shows, so the tile's first frame has its picture.
+      void decoded(url).then(() => resolve(url));
     };
     reader.onerror = () => resolve(undefined);
     reader.readAsDataURL(file);
@@ -246,12 +263,18 @@ export function chipRemoved(state: {
 }
 
 /// Reads `given` into chips (useAttachmentIntake's `attach`); `again`, a failed chip's Retry.
+/// The chat a gesture was made in, with its options then (upload, local paths), for a gesture read
+/// after its own task: the person may have moved to another chat meanwhile.
+type GestureChat = { scope: string | undefined; options: AttachmentIntakeOptions };
+
 type Intake = (
   given: (File | MadeFile)[],
   uploads?: boolean,
   kind?: SourceKind,
   again?: string,
   needsOriginal?: boolean,
+  /// The gesture's chat, when it is read later than its own task (filesOnce).
+  made?: GestureChat,
 ) => Promise<void>;
 
 /// How many cancelled loading chips keep their file for an undo (`revive`).
@@ -285,6 +308,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   const t = useT();
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [pending, setPending] = useState<PendingAttachment[]>([]);
+  /// The gestures whose files are still read for twins (attachments.ts filesOnce), each with its chat.
+  const [twinReads, setTwinReads] = useState<GestureChat[]>([]);
   const pendingRef = useRef<PendingAttachment[]>([]);
   pendingRef.current = pending;
   const [attachError, setAttachError] = useState<string | undefined>();
@@ -378,17 +403,33 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// failed chip whose file `given` is, read again under its id (Retry): it keeps its place in the
   /// strip and in the text, and its node there draws what the read makes.
   /// Pending image `id`'s header answered `size` (undefined: it gave none by the frame): its tile shows.
+  /// `held`: its own picture is still coming (PICTURE_WAIT_MS), so the size is kept and the tile
+  /// stays unseen.
   const [sized] = useState(
-    () => (id: string, size: { width: number; height: number } | undefined) =>
+    () =>
+      (id: string, size: { width: number; height: number } | undefined, held = false) =>
+        setPending((chips) =>
+          chips.some((chip) => chip.id === id && ((chip.sizing && !held) || (size && !chip.size)))
+            ? chips.map((chip) =>
+                chip.id === id
+                  ? { ...chip, sizing: held && Boolean(chip.sizing), ...(size && !chip.size ? { size } : {}) }
+                  : chip,
+              )
+            : chips,
+        ),
+  );
+  /// Pending video `id`'s header answered `videoShape` (undefined: none in time, the square): its tile shows.
+  const [shaped] = useState(
+    () => (id: string, videoShape: number | undefined) =>
       setPending((chips) =>
-        chips.some((chip) => chip.id === id && (chip.sizing || (size && !chip.size)))
+        chips.some((chip) => chip.id === id && chip.sizing)
           ? chips.map((chip) =>
-              chip.id === id ? { ...chip, sizing: false, ...(size && !chip.size ? { size } : {}) } : chip,
+              chip.id === id ? { ...chip, sizing: false, ...(videoShape ? { videoShape } : {}) } : chip,
             )
           : chips,
       ),
   );
-  const [intake] = useState<Intake>(() => async (given, uploads = false, kind, again, needs = false) => {
+  const [intake] = useState<Intake>(() => async (given, uploads = false, kind, again, needs = false, chat) => {
     if (given.length === 0) return;
     // When the page took the gesture: the host answers its source only from a record made before
     // it (composer/attachmentSources.ts).
@@ -397,7 +438,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     // A pick in the file input too: a chat on this Mac links the picked files where they are, as it
     // does a Finder drop, instead of streaming a copy of each (an older host answers nothing).
     const dropped: DroppedKind | undefined = kind;
-    const { options: current } = live.current;
+    // The chat the gesture was made in, its upload and its paths, as the gesture's own task had them.
+    const current = chat?.options ?? live.current.options;
     const batch = { scope: current.scope };
     // In the paste's or drop's own task, so React draws them before the next frame.
     const shown: PendingAttachment[] = files.map((file) => ({
@@ -405,13 +447,20 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       name: file.name,
       image: isImageFile(file),
       ...(isVideoName(file.name) ? { video: true } : {}),
-      ...(!isMadeFile(file) && isImageFile(file) ? { sizing: true } : {}),
+      ...(!isMadeFile(file) && (isImageFile(file) || isVideoName(file.name)) ? { sizing: true } : {}),
       scope: batch.scope,
     }));
     // Each image's own picture, on its tile while the tile still loads.
     files.forEach((file, index) => {
       const id = shown[index]!.id;
-      if (shown[index]!.sizing) sizeFromHeader(file, (size) => sized(id, size));
+      // A video's shape from its header, the one read its chip takes too (intakeFiles.ts).
+      const video = Boolean(shown[index]!.sizing) && !isMadeFile(file) && isVideoName(file.name);
+      // One that may show its own picture is held for it, not only for its header.
+      const waits = !video && Boolean(shown[index]!.sizing) && mayShowAtOnce(file);
+      // timeout: a picture that does not come in time must not hold its tile unseen.
+      const deadline = waits ? setTimeout(() => sized(id, undefined), PICTURE_WAIT_MS) : undefined;
+      if (video) void videoShapeOf(file).then((videoShape) => shaped(id, videoShape));
+      else if (shown[index]!.sizing) sizeFromHeader(file, (size) => sized(id, size, waits));
       // A capture the page makes (Attach Screenshot) has no bytes yet: its shape once it has.
       else if (isMadeFile(file) && isImageFile(file))
         void file.file.then(
@@ -419,10 +468,16 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
           () => {},
         );
       void instantPreview(file).then((preview) => {
-        if (!preview) return;
+        clearTimeout(deadline);
+        // No picture: the tile shows as it would have once its header answered.
+        if (!preview) {
+          if (waits) sized(id, undefined);
+          return;
+        }
+        // The picture and the tile in one render: its first frame shown is the picture.
         setPending((chips) =>
           chips.some((chip) => chip.id === id && !chip.failed && !chip.preview)
-            ? chips.map((chip) => (chip.id === id ? { ...chip, preview } : chip))
+            ? chips.map((chip) => (chip.id === id ? { ...chip, preview, sizing: false } : chip))
             : chips,
         );
       });
@@ -454,7 +509,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       );
     else {
       setPending((chips) => [...chips, ...shown]);
-      current.place?.(shown, dropped);
+      // A gesture read after the person left its chat goes to that chat's strip, not this prompt.
+      if (batch.scope === live.current.options.scope) current.place?.(shown, dropped);
     }
     const paths = current.localPaths;
     /// The chip each file became, by index, for its original's path arriving later.
@@ -676,10 +732,16 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       });
     }
   });
+  /// The refusal now (`refusal`), said in the composer's note: true when nothing may be attached.
+  const [refused] = useState(() => () => {
+    const why = live.current.options.refusal?.();
+    if (why) setAttachError(why);
+    return why !== undefined;
+  });
   const [attach] = useState(
     () =>
-      (given: (File | MadeFile)[], uploads = false, kind?: SourceKind, needs = false) =>
-        intake(given, uploads, kind, undefined, needs),
+      (given: (File | MadeFile)[], uploads = false, kind?: SourceKind, needs = false, made?: GestureChat) =>
+        given.length && refused() ? Promise.resolve() : intake(given, uploads, kind, undefined, needs, made),
   );
   /// A chip the host makes from something of its own (a long dictation recording it sends to the
   /// chat's machine): its tile shows at once, drawn before this returns so a send made in the same
@@ -701,6 +763,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         stop?: () => void,
         again?: string,
       ) => {
+        if (again === undefined && refused()) return stop?.();
         const batch = { scope: live.current.options.scope, bound: true };
         const chip: PendingAttachment = {
           id: again ?? crypto.randomUUID(),
@@ -829,9 +892,14 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       sent && "error" in sent ? { text: sent.error } : { name: file.name, reason: "unsupported" };
     originalMissed(id, intakeErrorText(error, live.current.t));
   });
-  /// An image no longer in the strip has no Retry to show: its original's file and failure go.
+  /// An image no longer in the strip has no Retry to show: its original's file and failure go. Only one
+  /// a render staged (`everStaged`): this effect runs after its commit's paint, and an original that
+  /// failed in between belongs to a chip whose staging no render has drawn yet, which is not gone
+  /// (the same race as inlineAttachments.tsx `drawnLoading`).
   useEffect(() => {
-    const left = [...originals.current.keys()].filter((id) => !attachments.some((chip) => chip.id === id));
+    const left = [...originals.current.keys()].filter(
+      (id) => everStaged.current.has(id) && !attachments.some((chip) => chip.id === id),
+    );
     for (const id of left) originals.current.delete(id);
     if (left.length)
       setOriginalFailures((now) => Object.fromEntries(Object.entries(now).filter(([id]) => !left.includes(id))));
@@ -862,6 +930,20 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     [],
   );
   useEffect(() => {
+    // One set of bytes is one chip (attachments.ts filesOnce).
+    // While its twins are read (at most a frame) the gesture holds a send, and its chips go to the
+    // chat it was made in, as they would have from its own task.
+    const attachOnce = (files: File[], uploads: boolean, kind: SourceKind) => {
+      const once = filesOnce(files);
+      if (Array.isArray(once)) return void attach(once, uploads, kind);
+      const { options } = live.current;
+      const made = { scope: options.scope, options };
+      setTwinReads((reads) => [...reads, made]);
+      void once.then((files) => {
+        setTwinReads((reads) => reads.filter((read) => read !== made));
+        return attach(files, uploads, kind, false, made);
+      });
+    };
     const paste = (event: ClipboardEvent) => {
       if (live.current.options.locked?.() || pastesPlaced.has(event)) return;
       const owned = live.current.options.pasteTarget(event.target as Node);
@@ -873,20 +955,21 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       const other = pasted.length ? undefined : pastedImageFiles(event.clipboardData);
       const files = other ? other.files : pasted;
       if (!other) event.preventDefault();
-      if (files.length) void attach(files, owned.uploads, "paste");
+      if (files.length) attachOnce(files, owned.uploads, "paste");
       if (other?.text !== undefined) pasteTextInto(event, other.text);
     };
     const removeFileDropLifecycle = installFileDropLifecycle(
       (files) => {
         if (live.current.options.locked?.()) return showDrop(HIDDEN_DROP);
+        if (refused()) return showDrop(HIDDEN_DROP);
         showDrop(landDropOverlay(dropRef.current, files));
-        void attach(files, true, "drop");
+        attachOnce(files, true, "drop");
       },
       (active, event) => {
         const { allowImages, dropZone, locked } = live.current.options;
-        const refused = locked?.() === true;
-        setDropping(active && !refused);
-        if (refused) return showDrop(HIDDEN_DROP);
+        const closed = locked?.() === true || live.current.options.refusal?.() !== undefined;
+        setDropping(active && !closed);
+        if (closed) return showDrop(HIDDEN_DROP);
         showDrop(stepDropOverlay(dropRef.current, active, event, allowImages, dropZone?.()));
       },
     );
@@ -895,7 +978,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       removeFileDropLifecycle();
       document.removeEventListener("paste", paste);
     };
-  }, [attach, showDrop]);
+  }, [attach, showDrop, refused]);
   const shown = pending.filter((chip) => chip.scope === scope);
   /// The chips a send waits for. One still reading, one streaming to the session's machine and
   /// one whose upload failed (until its Retry makes it or its x takes it out) all hold the send,
@@ -903,11 +986,13 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// video uploaded went at once without it (Leo, 2026-11-01: "oh i guess mp4 couldnt get sent").
   /// A file the composer refused (no images here, one that would not decode) holds none: its
   /// Retry could never make it. A chip the host makes (`bound`) holds it even once failed.
-  const loading = shown.filter((chip) => !chip.failed || chip.bound || chip.uploadFailed).length;
+  const loading =
+    shown.filter((chip) => !chip.failed || chip.bound || chip.uploadFailed).length +
+    twinReads.filter((read) => read.scope === scope).length;
   /// The same chips (useSendWhenAttached's `unsettled`).
   const unsettled = loading;
-  /// The video chips whose poster and frames the host still reads, for a chat on this Mac: a send
-  /// waits for them a few seconds at most (composer/videoAttachments.ts).
+  /// The video chips whose poster and frames the host still reads, for a chat on this Mac
+  /// (composer/videoAttachments.ts). No send waits for them: a video goes as its path.
   const videoReading = useVideoInfo(
     attachments,
     setAttachments,
@@ -936,6 +1021,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     dropLanded,
     attach,
     attachLater,
+    /// Says the refusal (`refusal`) when there is one: true when nothing may be attached now.
+    refused,
   };
 }
 
