@@ -89,13 +89,16 @@ def clean_env(**extra: str) -> dict[str, str]:
 
 
 # The scan's cost as a count, with no clock: refused_locks on one line of about CHARS characters and on one with 4
-# times as many repeats, in a child process (this test file loads no script module itself). The line is a str that counts the characters
-# each of its own calls reads: a find reads from its start to the end of what it found (to the end of its range on
-# a miss), a startswith or endswith reads the words it compares, a slice reads what it returns. The same line
-# gives the same count on every host. Every other str call that reads the line raises, so work the count cannot
-# see fails the child and never passes as cheap. A regex is the one reader the line cannot see or refuse: a scan
-# by regex alone reads nothing here and fails the test's "half a pass" floor, and a regex beside the counted calls
-# is not seen. The child prints, for each size, the line's length and the count.
+# times as many repeats, in a child process (this test file loads no script module itself). The line is a str that
+# counts the characters each of its own calls reads: a find reads from its start to the end of what it found (to
+# the end of its range on a miss), a startswith or endswith reads the words it compares, a slice reads what it
+# returns. The same line gives the same count on every host. The common other str calls that read the line (in,
+# iteration, count, index, split, partition, replace, strip, encode, str(), line + x) raise, so that work fails the
+# child and never passes as cheap. The count has limits: it does not see a copy by case or padding (lower,
+# casefold, ljust), line * n, line % x, x + line, a comparison, a call through str itself (str.count(line, x)),
+# bytes(line, "utf-8") or a regex. A scan by one of those alone reads nothing here and fails the test's "half a
+# pass" floor; one of those beside the counted calls is not seen. The child prints, for each size, the line's
+# length and the count.
 COUNT_CHILD = r"""
 import importlib, json, pathlib, sys
 sys.path.insert(0, sys.argv[1])
@@ -136,8 +139,9 @@ for units in (chars // len(unit), 4 * (chars // len(unit))):
     counts.append({"chars": len(line), "read": read[0]})
 print(json.dumps(counts))
 """
-# What one hostile line repeats (cmux#42375 review F2): a lock named again and again before cargo's last words,
-# cargo's last words again and again, each after a lock that is named, and cargo's last words with no lock named.
+# What one hostile line repeats: a lock named again and again before cargo's last words, and cargo's last words
+# again and again, each after a lock that is named (both from cmux#42375 review F2); then cargo's last words with
+# no lock named (from the review of this test).
 COUNT_UNITS = ("the lock file ", "the lock file x is fine, --locked was passed ", "--locked was passed ")
 # A line's length at the small size: 70 times cargo-locks.py's REFUSAL_WINDOW, so a scan that reads the window
 # again for each match reads far more than COUNT_LIMIT times the line.
@@ -257,7 +261,7 @@ class ExplainTests(Scratch):
     def test_the_scan_reads_a_line_a_fixed_number_of_times(self) -> None:
         """cmux#42375 review F2, as a count (a bound of 2 s was here: on a loaded runner that measures the runner).
         "One long line costs its length, not its length times a window": the characters the scan reads through
-        the str calls COUNT_CHILD counts (every other str call fails the child) are at most COUNT_LIMIT for each
+        the str calls COUNT_CHILD counts (the common other str calls fail the child) are at most COUNT_LIMIT for each
         character of the line, at a length and at 4 times that length, and 4 times the line is at most 4 times
         the reads, with 1% for a linear scan's constant part."""
         for unit in COUNT_UNITS:
