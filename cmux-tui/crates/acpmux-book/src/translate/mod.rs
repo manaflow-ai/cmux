@@ -16,7 +16,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 pub const VERSION: u32 = 5;
-pub const MAX_STATE_BYTES: usize = 32 * 1024;
+pub const MAX_STATE_BYTES: usize = 96 * 1024;
+const MAX_TRANSLATOR_BYTES: usize = 32 * 1024;
+const MAX_QUEUE_ENTRIES: usize = 1024;
 const MAX_KEY_BYTES: usize = 256;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -45,6 +47,8 @@ pub enum Change {
     Row(OwnedRow),
     /// Rare replacement of a settled live-message block; rev is incremented.
     Patch(OwnedRow),
+    /// Add or update one bounded prompt-queue entry, or remove it by id hash.
+    Queue(QueueChange),
     /// Apply before the following settle. Input values are JSON, copied/decoded by
     /// the actor directly into its inline body or blob. Text pieces are <=16 KiB.
     Body { id: u64, field: BodyField, append: bool, source: BodySource },
@@ -64,6 +68,63 @@ pub enum BodySource {
     Text(String),
     /// One complete JSON value within the current input, including quotes for strings.
     Input(RawRange),
+    /// Text in a previously logged raw line. The actor resolves this source.
+    Raw {
+        place: u64,
+        span: u64,
+    },
+}
+
+/// A durable queue mutation. Add is an idempotent upsert: a repeated queued line does
+/// not duplicate an entry, while a hold/release may change its packed state.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum QueueChange {
+    Add(QueueEntry),
+    Remove(u64),
+}
+
+/// The compact queue checkpoint record. Its packed representation is deliberately 32 bytes:
+/// id hash (8), timestamp/state (8), raw place (8), raw span (4), decoded text length (4).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QueueEntry {
+    pub id_hash: u64,
+    at_state: u64,
+    pub place: u64,
+    pub span: u32,
+    pub text_len: u32,
+}
+impl QueueEntry {
+    const AT_MASK: u64 = (1 << 48) - 1;
+    const STATE_SHIFT: u32 = 48;
+    const HELD: u64 = 1;
+
+    pub fn new(id_hash: u64, at_ms: u64, held: bool, place: u64, span: u64, text_len: u64) -> Self {
+        let state = if held { Self::HELD } else { 0 };
+        Self {
+            id_hash,
+            at_state: (at_ms & Self::AT_MASK) | (state << Self::STATE_SHIFT),
+            place,
+            span: u32::try_from(span).unwrap_or(u32::MAX),
+            text_len: u32::try_from(text_len).unwrap_or(u32::MAX),
+        }
+    }
+    pub fn at_ms(self) -> u64 {
+        self.at_state & Self::AT_MASK
+    }
+    pub fn held(self) -> bool {
+        (self.at_state >> Self::STATE_SHIFT) & Self::HELD != 0
+    }
+    fn with_held(self, held: bool) -> Self {
+        Self::new(
+            self.id_hash,
+            self.at_ms(),
+            held,
+            self.place,
+            self.span as u64,
+            self.text_len as u64,
+        )
+    }
 }
 
 /// Only metadata: no body, preview, tool output or arguments live in translator state.
@@ -155,6 +216,8 @@ pub struct State {
     plan: Option<OwnedRow>,
     compaction: Option<OwnedRow>,
     prompts: BTreeMap<u64, Prompt>,
+    queue: BTreeMap<u64, QueueEntry>,
+    queue_overflowed: u64,
     settled_prompts: Vec<u64>,
     replayed_prompts: u64,
     forced_steers: u64,
@@ -192,7 +255,13 @@ impl std::error::Error for Error {}
 
 /// A complete JSON line. Errors leave state unchanged. The actor advances its raw
 /// cursor only after successfully applying the returned operations in order.
-pub fn translate(state: &mut State, harness: Harness, bytes: &[u8]) -> Result<Vec<Op>, Error> {
+pub fn translate(
+    state: &mut State,
+    harness: Harness,
+    place: u64,
+    span: u64,
+    bytes: &[u8],
+) -> Result<Vec<Op>, Error> {
     let mut out = input::Output::new(bytes);
     let valid = match harness {
         Harness::V1 => v1::validate(bytes),
@@ -203,7 +272,7 @@ pub fn translate(state: &mut State, harness: Harness, bytes: &[u8]) -> Result<Ve
         return Ok(Vec::new());
     }
     let result = match harness {
-        Harness::V1 => v1::line(state, bytes, &mut out),
+        Harness::V1 => v1::line(state, place, span, bytes, &mut out),
         Harness::Claude => claude::line(state, bytes, &mut out),
     };
     debug_assert!(result.is_ok(), "validated harness line failed during apply");
@@ -212,6 +281,8 @@ pub fn translate(state: &mut State, harness: Harness, bytes: &[u8]) -> Result<Ve
         return Ok(Vec::new());
     }
     state.bound_open_rows(&mut out);
+    // The queue is counted separately from the translator's 32 KiB budget. The
+    // combined checkpoint remains below MAX_STATE_BYTES (96 KiB).
     Ok(out.ops)
 }
 fn bounded(s: &str) -> Result<(), Error> {
@@ -233,6 +304,7 @@ pub struct Counters {
     pub dropped_tool_updates: u64,
     pub cut_fields: u64,
     pub line_errors: u64,
+    pub queue_overflowed: u64,
 }
 impl State {
     pub fn counters(&self) -> Counters {
@@ -246,6 +318,7 @@ impl State {
             dropped_tool_updates: self.dropped_tool_updates,
             cut_fields: self.cut_fields,
             line_errors: self.line_errors,
+            queue_overflowed: self.queue_overflowed,
         }
     }
     pub fn last_row_id(&self) -> u64 {
@@ -287,6 +360,75 @@ impl State {
             lines: 0,
             fields: BTreeMap::new(),
         })
+    }
+    fn queue_add(
+        &mut self,
+        id: &str,
+        at_ms: u64,
+        held: bool,
+        place: u64,
+        span: u64,
+        text_len: u64,
+        out: &mut input::Output<'_>,
+    ) {
+        if id.is_empty() {
+            return;
+        }
+        let hash = prompt_hash(id);
+        let entry = QueueEntry::new(hash, at_ms, held, place, span, text_len);
+        if let Some(old) = self.queue.get(&hash).copied() {
+            if old == entry {
+                return;
+            }
+            self.queue.insert(hash, entry);
+            out.emit(Change::Queue(QueueChange::Add(entry)));
+            return;
+        }
+        if self.queue.len() >= MAX_QUEUE_ENTRIES {
+            self.queue_overflowed = self.queue_overflowed.saturating_add(1);
+            return;
+        }
+        self.queue.insert(hash, entry);
+        out.emit(Change::Queue(QueueChange::Add(entry)));
+    }
+    fn queue_remove(&mut self, id: &str, out: &mut input::Output<'_>) {
+        if id.is_empty() {
+            return;
+        }
+        let hash = prompt_hash(id);
+        if self.queue.remove(&hash).is_some() {
+            out.emit(Change::Queue(QueueChange::Remove(hash)));
+        }
+    }
+    fn queue_set_held(
+        &mut self,
+        raw: Option<&serde_json::value::RawValue>,
+        held: bool,
+        out: &mut input::Output<'_>,
+    ) -> Result<(), Error> {
+        let Some(raw) = raw else { return Ok(()) };
+        input::each(raw, |id| {
+            let id = input::text(id)?;
+            let hash = prompt_hash(&id);
+            if let Some(entry) = self.queue.get(&hash).copied() {
+                let next = entry.with_held(held);
+                if next != entry {
+                    self.queue.insert(hash, next);
+                    out.emit(Change::Queue(QueueChange::Add(next)));
+                }
+            }
+            Ok(())
+        })
+    }
+    fn queue_set_all_held(&mut self, held: bool, out: &mut input::Output<'_>) {
+        let entries: Vec<_> = self.queue.values().copied().collect();
+        for entry in entries {
+            let next = entry.with_held(held);
+            if next != entry {
+                self.queue.insert(next.id_hash, next);
+                out.emit(Change::Queue(QueueChange::Add(next)));
+            }
+        }
     }
     fn group(&mut self, out: &mut input::Output<'_>) -> Result<u64, Error> {
         if let Some(row) = &self.group {
@@ -467,6 +609,20 @@ impl State {
         if self.settled_prompts.contains(&hash) {
             return Ok(());
         }
+        if let Some(entry) = self.queue.get(&hash).copied() {
+            self.mark_steer();
+            self.queue_remove(key, out);
+            let mut row = self.row(RowKind::User, out)?;
+            row.turn = self.turn;
+            debug_assert!(!row.field("state", "sent"));
+            row.fields.insert("steer".into(), "true".into());
+            out.row(&row);
+            out.raw_body(row.id, BodyField::Content, false, entry.place, u64::from(entry.span));
+            row.open = false;
+            out.row(&row);
+            self.settled_prompt(hash);
+            return Ok(());
+        }
         let already_steer =
             self.prompts.get(&hash).is_some_and(|p| p.row.fields.contains_key("steer"));
         if !already_steer {
@@ -505,6 +661,9 @@ impl State {
         }
         let already_read = self.prompts.get(&hash).is_some_and(|p| p.read);
         let steer = steer || already_read;
+        if !steer {
+            self.queue_remove(prompt_key, out);
+        }
         if steer {
             if !already_read {
                 self.mark_steer();

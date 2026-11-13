@@ -8,6 +8,9 @@
     reason = "test-only benchmark arithmetic and assertions"
 )]
 use super::*;
+fn t(state: &mut State, harness: Harness, bytes: &[u8]) -> Result<Vec<Op>, Error> {
+    super::translate(state, harness, 0, 1, bytes)
+}
 use std::hint::black_box;
 use std::time::Instant;
 
@@ -89,7 +92,7 @@ fn measure_child() {
     for n in 0..count {
         let line = line_at(harness, &lines, n);
         bytes += line.len();
-        black_box(translate(&mut state, harness, line.as_bytes()).unwrap());
+        black_box(t(&mut state, harness, line.as_bytes()).unwrap());
     }
     assert_eq!(state.open_rows().count(), 0);
     let checkpoint = state.checkpoint().unwrap();
@@ -104,7 +107,7 @@ fn measure_child() {
         for _ in &lines {
             let line = line_at(harness, &lines, cursor);
             cursor += 1;
-            black_box(translate(&mut state, harness, line.as_bytes()).unwrap());
+            black_box(t(&mut state, harness, line.as_bytes()).unwrap());
         }
         let mut samples = Vec::new();
         let mut cold = Vec::new();
@@ -113,12 +116,12 @@ fn measure_child() {
                 let line = line_at(harness, &lines, cursor);
                 cursor += 1;
                 let start = Instant::now();
-                black_box(translate(&mut state, harness, line.as_bytes()).unwrap());
+                black_box(t(&mut state, harness, line.as_bytes()).unwrap());
                 samples.push(start.elapsed().as_nanos());
             }
             let start = Instant::now();
             let mut restored = State::restore(black_box(&checkpoint)).unwrap();
-            black_box(translate(&mut restored, harness, cold_line.as_bytes()).unwrap());
+            black_box(t(&mut restored, harness, cold_line.as_bytes()).unwrap());
             cold.push(start.elapsed().as_nanos());
         }
         best = best.min(p95(&mut samples));

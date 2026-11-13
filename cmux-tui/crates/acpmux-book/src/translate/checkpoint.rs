@@ -1,5 +1,5 @@
 //! Opaque versioned state, independent of the log's record/checkpoint layout.
-use super::{Error, MAX_STATE_BYTES, State, VERSION};
+use super::{Error, MAX_QUEUE_ENTRIES, MAX_STATE_BYTES, State, VERSION};
 use bincode::Options;
 impl State {
     pub fn checkpoint(&self) -> Result<Vec<u8>, Error> {
@@ -20,6 +20,7 @@ impl State {
         }
         let mut ids = std::collections::BTreeSet::new();
         if state.prompts.len() > 32
+            || state.queue.len() > MAX_QUEUE_ENTRIES
             || state.settled_prompts.len() > 32
             || state.forced_tools.len() > 64
             || state.forced_order.len() > 64

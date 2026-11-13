@@ -6,6 +6,9 @@
     reason = "deterministic generated inputs and assertions"
 )]
 use super::*;
+fn t(state: &mut State, harness: Harness, bytes: &[u8]) -> Result<Vec<Op>, Error> {
+    super::translate(state, harness, 0, 1, bytes)
+}
 const SEED: &str = include_str!("fixtures/seed-turn.ndjson");
 const ANSWER: &str = "Sorry, that's frustrating. I did answer, but the chat drew the answer above your question, so it looked like I ignored you.\n\nMy answer was **no**, it shouldn't say cmux.";
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -13,6 +16,7 @@ struct Mirror {
     rows: BTreeMap<u64, OwnedRow>,
     text: BTreeMap<u64, String>,
     raw: BTreeMap<(u64, String), String>,
+    queue: BTreeMap<u64, QueueEntry>,
 }
 impl Mirror {
     fn apply(&mut self, op: &Op, bytes: &[u8]) {
@@ -55,6 +59,12 @@ impl Mirror {
                 self.text.remove(&row.id);
                 self.rows.insert(row.id, row.clone());
             }
+            Change::Queue(QueueChange::Add(entry)) => {
+                self.queue.insert(entry.id_hash, *entry);
+            }
+            Change::Queue(QueueChange::Remove(hash)) => {
+                self.queue.remove(hash);
+            }
             Change::Body { id, field, append, source } => {
                 assert!(self.rows[id].open);
                 let s = match source {
@@ -76,6 +86,7 @@ impl Mirror {
                         }
                         s
                     }
+                    BodySource::Raw { .. } => String::new(),
                 };
                 if matches!(field, BodyField::Text | BodyField::Content) {
                     let text = self.text.entry(*id).or_default();
@@ -88,7 +99,7 @@ impl Mirror {
         }
     }
     fn line(&mut self, state: &mut State, harness: Harness, line: &str) -> Vec<Op> {
-        let ops = translate(state, harness, line.as_bytes()).unwrap();
+        let ops = t(state, harness, line.as_bytes()).unwrap();
         for op in &ops {
             self.apply(op, line.as_bytes());
         }
@@ -308,7 +319,7 @@ fn th_ten_thousand_random_splits_restore_identical_ops_and_final_replies() {
         let mut killed = State::restore(&checkpoint).unwrap();
         for line in &lines[cut..] {
             let ops = split_view.line(&mut split, Harness::V1, line);
-            assert_eq!(ops, translate(&mut killed, Harness::V1, line.as_bytes()).unwrap());
+            assert_eq!(ops, t(&mut killed, Harness::V1, line.as_bytes()).unwrap());
         }
         assert_eq!(whole, split);
         assert_eq!(view, split_view);
@@ -382,9 +393,9 @@ fn claude_split_property_and_final_reply_visibility() {
 #[test]
 fn malformed_harness_lines_are_counted_and_do_not_block_replay() {
     let mut state = State::default();
-    assert!(translate(&mut state, Harness::Claude, br#"{"type":7}"#).is_ok());
+    assert!(t(&mut state, Harness::Claude, br#"{"type":7}"#).is_ok());
     assert_eq!(state.counters().invalid_records, 1);
-    assert!(translate(&mut state, Harness::V1, br#"not-json"#).is_ok());
+    assert!(t(&mut state, Harness::V1, br#"not-json"#).is_ok());
     assert_eq!(state.counters().invalid_records, 2);
 }
 
@@ -483,13 +494,13 @@ fn assert_leaf_mutations(harness: Harness, lines: &[String]) {
             let mut candidate = state.clone();
             let before = candidate.checkpoint().unwrap();
             let invalid = candidate.counters().invalid_records;
-            translate(&mut candidate, harness, mutated.as_slice()).unwrap();
+            t(&mut candidate, harness, mutated.as_slice()).unwrap();
             if candidate.counters().invalid_records > invalid {
                 assert_eq!(candidate.checkpoint().unwrap(), before, "invalid leaf changed state");
             }
             assert_eq!(candidate.counters().line_errors, 0, "leaf mutation caused a late error");
         }
-        translate(&mut state, harness, line.as_bytes()).unwrap();
+        t(&mut state, harness, line.as_bytes()).unwrap();
     }
 }
 
@@ -524,15 +535,15 @@ fn every_json_leaf_is_total_and_does_not_mutate_on_rejection() {
 fn duplicate_sequences_are_noops_but_new_replayed_prompts_start_a_turn() {
     let line = mux(1, "user_message", r#"{"text":"first","promptId":"p","turnId":"t1"}"#);
     let mut state = State::default();
-    translate(&mut state, Harness::V1, line.as_bytes()).unwrap();
+    t(&mut state, Harness::V1, line.as_bytes()).unwrap();
     let before = state.clone();
-    let duplicate = translate(&mut state, Harness::V1, line.as_bytes()).unwrap();
+    let duplicate = t(&mut state, Harness::V1, line.as_bytes()).unwrap();
     assert!(duplicate.is_empty());
     assert_eq!(state, before);
     let end = mux(2, "turn_result", r#"{"turnId":"t1"}"#);
-    translate(&mut state, Harness::V1, end.as_bytes()).unwrap();
+    t(&mut state, Harness::V1, end.as_bytes()).unwrap();
     let replay = mux(3, "user_message", r#"{"text":"second","promptId":"p","turnId":"t2"}"#);
-    let ops = translate(&mut state, Harness::V1, replay.as_bytes()).unwrap();
+    let ops = t(&mut state, Harness::V1, replay.as_bytes()).unwrap();
     assert!(!ops.is_empty());
     assert_eq!(state.counters().replayed_prompts, 1);
     assert!(state.turn.is_some_and(|id| id > before.last_id));
@@ -550,7 +561,7 @@ fn long_metadata_is_cut_without_a_late_line_error() {
     );
     let mut state = State::default();
     let before = state.checkpoint().unwrap();
-    assert!(translate(&mut state, Harness::V1, v1.as_bytes()).is_ok());
+    assert!(t(&mut state, Harness::V1, v1.as_bytes()).is_ok());
     assert!(state.counters().cut_fields > 0);
     assert_eq!(state.counters().line_errors, 0);
     let after = state.checkpoint().unwrap();
@@ -558,7 +569,7 @@ fn long_metadata_is_cut_without_a_late_line_error() {
 
     let malformed = br#"{"type":"assistant","message":{"content":7}}"#;
     let before = state.checkpoint().unwrap();
-    assert!(translate(&mut state, Harness::Claude, malformed).is_ok());
+    assert!(t(&mut state, Harness::Claude, malformed).is_ok());
     assert_eq!(state.checkpoint().unwrap(), before);
     assert_eq!(state.counters().line_errors, 0);
 }
@@ -573,7 +584,7 @@ fn accepted_input_never_mutates_a_leaf_before_rejection() {
         } else {
             br#"{"type":"assistant","message":{"content":7}}"#.to_vec()
         };
-        assert!(translate(&mut state, Harness::Claude, &line).is_ok());
+        assert!(t(&mut state, Harness::Claude, &line).is_ok());
         assert_eq!(state.checkpoint().unwrap(), before);
         assert_eq!(state.counters().line_errors, 0);
     }
@@ -586,7 +597,7 @@ fn accepted_input_never_mutates_a_leaf_before_rejection() {
             quote(&segment)
         ),
     );
-    assert!(translate(&mut state, Harness::V1, line.as_bytes()).is_ok());
+    assert!(t(&mut state, Harness::V1, line.as_bytes()).is_ok());
     assert_eq!(state.checkpoint().unwrap(), before);
     assert_eq!(state.counters().line_errors, 0);
 }
@@ -609,7 +620,7 @@ fn large_tool_bodies_are_ranges_and_streamed_replies_have_small_checkpoints() {
             )
         };
         let mut s = State::default();
-        let ops = translate(&mut s, harness, line.as_bytes()).unwrap();
+        let ops = t(&mut s, harness, line.as_bytes()).unwrap();
         assert!(s.checkpoint().unwrap().len() < 1024 * s.open_rows().count());
         assert!(ops.iter().any(|o|matches!(o.change,Change::Body{source:BodySource::Input(r),..} if r.length>=5*1024*1024)));
         assert!(ops.iter().all(
@@ -664,7 +675,7 @@ fn malformed_input_is_transactional_and_raw_ranges_preserve_escapes() {
         1,
         r#"{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"\ud800"}}"#,
     );
-    assert!(translate(&mut s, Harness::V1, bad.as_bytes()).is_ok());
+    assert!(t(&mut s, Harness::V1, bad.as_bytes()).is_ok());
     assert_eq!(s.counters().invalid_records, 1);
     assert_eq!(s.last_row_id(), 0);
     let mut m = Mirror::default();
@@ -893,7 +904,7 @@ fn session_exit_settles_live_bodies_and_hides_a_textless_steer() {
 fn missing_claude_tool_ids_never_coalesce_into_an_empty_identity() {
     let mut s = State::default();
     let line = r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{}}]}}"#;
-    let ops = translate(&mut s, Harness::Claude, line.as_bytes()).unwrap();
+    let ops = t(&mut s, Harness::Claude, line.as_bytes()).unwrap();
     assert!(ops.is_empty());
     assert!(s.tools.is_empty());
 }
