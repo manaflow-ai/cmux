@@ -89,6 +89,7 @@ PATH_OWNERS = {
     "ghostty": frozenset(("release-tooling",)),
     "ios/scripts/fetch-testflight-notes-history.sh": frozenset(("release-ios",)),
     "ios/scripts/upload-testflight.sh": frozenset(("release-ios",)),
+    "ios/scripts/asc_verify_distribution_certificate.py": frozenset(("release-ios",)),
     # validate_test_execution_registry.py reads the recipe for the tests it runs.
     "scripts/verify-local.py": frozenset(("preflight", "ci")),
     # test_lint_feature_flags_scope.py reads its parser and registry discovery.
