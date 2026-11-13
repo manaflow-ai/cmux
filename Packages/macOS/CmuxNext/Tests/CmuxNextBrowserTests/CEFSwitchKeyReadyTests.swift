@@ -104,7 +104,9 @@ extension CEFDeferredFocusTests {
         let leavingPage = pageWindow(over: leaving, in: window)
         defer { leavingPage.closeAfterTest() }
         // The window of the page that shows. Both pages fill the same area. A hosted page's window is out of the
-        // cmux window while the page is detached: the fork's stand-in below puts it in only at the attach.
+        // cmux window while the page is detached. The fork's stand-in below puts it in one run-loop pass after the
+        // attach call, as the fork does (its order-in observer runs in the pass after the attach, and the hold's end
+        // waits for that pass's commit): a grant at the attach call finds no window to make key.
         let showingPage = NSWindow(contentRect: leavingPage.frame, styleMask: .borderless, backing: .buffered, defer: true)
         showingPage.setFrame(leavingPage.frame, display: false)
         defer { showingPage.closeAfterTest() }
@@ -112,7 +114,7 @@ extension CEFDeferredFocusTests {
         _ = try hostedPage(of: leavingHost, browser: 43) { _ in }
         let hosting = try hostedPage(of: showingHost, browser: 44) { detached in
             log.items.append(detached ? "detach" : "attach")
-            if !detached { window.addChildWindow(showingPage, ordered: .above) }
+            if !detached { CEFLayerHosting.atEndOfTurn { window.addChildWindow(showingPage, ordered: .above) } }
         }
         // The second workspace hides: the first one shows.
         workspaces[1].isHidden = true
@@ -144,6 +146,7 @@ extension CEFDeferredFocusTests {
         // The turn ends and its frame did not come yet (a test window is never on screen: its display link stays
         // still). The commit's grant found the hold, so the ask is kept: still no focus, no keys and no report.
         Self.endTurn()
+        try #require(!showing.appearedThisTurn, "the commit of the switch's turn did not run its grant try: the asserts below prove nothing")
         #expect(hosting.holdsFirstFrame(), "the first-frame hold ended with no frame")
         #expect(!showing.pageReady, "a hosted page counts as ready for keys while its first-frame hold keeps its focus ask: a key typed now is not held and reaches no page")
         #expect(FocusSpyShim.granted.isEmpty, "a page took the focus before the frame of the switch: \(FocusSpyShim.granted)")
