@@ -277,7 +277,8 @@ struct CloudStartChat {
 /// machine, copied to an owned machine as the composer's Cloud start copies one, and trusted there when this Mac trusts it.
 extension CloudStartChat {
     /// Cloud first use's reads and ways in (``CloudSetup``): this Mac's `_acpmux/connections`, the team's
-    /// shared keys, and Settings > Models for the card's buttons. Lane D's `cmux.settings.models.run` takes
+    /// shared keys, and Settings > Cloud for the card's buttons, opened on the row that sets up what the
+    /// button names (Models for Cloud: Claude, ChatGPT, API key). Lane D's `cmux.settings.models.run` takes
     /// over ``CloudSetup/run`` for Continue with ChatGPT and Set up Claude (`claudeSetupToken`), and calls
     /// ``CloudSetup/connectionsChanged()`` on every `cmux.settings.models.changed`.
     @MainActor static func wireSetup(_ services: AppServices) {
@@ -291,7 +292,13 @@ extension CloudStartChat {
             return .init(personal: personal, organization: keys.loaded ? CloudSetup.Snapshot.organization(keys: rows) : nil)
         }
         services.cloud.setup.run = { [weak services] action in
-            try? services?.settingsWindow.show(section: nil, route: action == .addKey || action == .connectChatGPT || action == .setUpClaude ? "#/settings/models?focus=models.add" : "#/settings/models")
+            let row: String? = switch action {
+            case .setUpClaude: "claude"
+            case .connectChatGPT: "chatgpt"
+            case .addKey: "apiKey"
+            case .openSettings: nil
+            }
+            try? services?.settingsWindow.show(section: nil, route: DeepLink.cloudRoute(row: row))
         }
     }
 

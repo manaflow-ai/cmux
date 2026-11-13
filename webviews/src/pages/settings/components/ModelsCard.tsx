@@ -9,7 +9,8 @@
 // Code through `claude setup-token` in a cmux terminal tab and a paste field for the token it prints)
 // and API keys (a password field and an optional label). A pasted key or token lives only in the open
 // form until it is sent, then is cleared; the app moves it into the Keychain and the page never sees it
-// again. A Mac login Cloud threads cannot use (servesCloud false) says This Mac only (Revision 2).
+// again. A Mac login Cloud threads cannot use (servesCloud false) says This Mac only (Revision 2), with
+// Set Up for Cloud, which opens Settings > Cloud on the row that sets one up (CloudModelsCard.tsx).
 import { useEffect, useId, useRef, useState, type DragEvent } from "react";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
 import { isClaudeToken } from "../../../agent-session/shared/claudeSetupToken";
@@ -17,12 +18,13 @@ import { Button } from "../../../ui/Button";
 import { Dialog } from "../../../ui/Dialog";
 import { Input } from "../../../ui/Input";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
-import { useSettingsState, useStore } from "../context";
+import { useSettingsRouter, useSettingsState, useStore } from "../context";
 import { Select } from "../editors/Select";
 import { Switch } from "../editors/ToggleEditor";
 import { planName } from "../harnesses";
 import { Icon } from "../icons";
 import type { ModelConnection, ModelProvider, ModelsRun, ModelsState } from "../ops";
+import { sectionHref } from "../router";
 import { t } from "../strings";
 
 /** The route focus that opens Add a Connection (cmux://settings/models/add). */
@@ -31,7 +33,7 @@ export const MODELS_ADD_FOCUS = "models.add";
 export const CHATGPT_USAGE_URL = "https://chatgpt.com/settings/usage";
 
 /** Product names, shown as they are in every language. */
-const PROVIDERS: Record<ModelProvider, string> = {
+export const PROVIDERS: Record<ModelProvider, string> = {
   anthropic: "Anthropic",
   openai: "OpenAI",
   openrouter: "OpenRouter",
@@ -77,19 +79,14 @@ export function moveId(ids: string[], id: string, to: number): string[] {
   return rest;
 }
 
-type Run = (gesture: ModelsRun) => Promise<boolean>;
+export type Run = (gesture: ModelsRun) => Promise<boolean>;
 
-export function ModelsCard({ focus }: { focus: string | null }) {
-  const models = useSettingsState().models;
+/** A card's gestures to the host: `run` sends one and resolves whether the host took it; `busy` while
+ * one is out, `error` the last refusal's text (shown under the card). */
+export function useModelsRun(): { busy: boolean; error: string | null; run: Run } {
   const store = useStore();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [adding, setAdding] = useState(focus === MODELS_ADD_FOCUS);
-  useEffect(() => {
-    if (focus === MODELS_ADD_FOCUS) setAdding(true);
-  }, [focus]);
-  if (!models) return null;
-  /** Sends a gesture; resolves whether the host took it (a refusal shows under the card). */
   const run: Run = (gesture) => {
     setBusy(true);
     setError(null);
@@ -104,6 +101,23 @@ export function ModelsCard({ focus }: { focus: string | null }) {
       )
       .finally(() => setBusy(false));
   };
+  return { busy, error, run };
+}
+
+/** The Settings > Cloud row (CloudModelsCard.tsx) that sets up what a This Mac only connection serves. */
+export function cloudFocusOf(connection: Pick<ModelConnection, "kind" | "families">): string {
+  if (connection.kind === "api-key") return "cloud.apiKey";
+  return connection.families.includes("codex") ? "cloud.chatgpt" : "cloud.claude";
+}
+
+export function ModelsCard({ focus }: { focus: string | null }) {
+  const models = useSettingsState().models;
+  const { busy, error, run } = useModelsRun();
+  const [adding, setAdding] = useState(focus === MODELS_ADD_FOCUS);
+  useEffect(() => {
+    if (focus === MODELS_ADD_FOCUS) setAdding(true);
+  }, [focus]);
+  if (!models) return null;
   return (
     <div className="models" data-card="models" aria-busy={busy}>
       <p className="row-help models-lead">{t("settingsWindow.models.subtitle")}</p>
@@ -158,7 +172,7 @@ function AddButton({
   );
 }
 
-function ChatGPTStatus({ chatgpt, busy, run }: { chatgpt: ModelsState["chatgpt"]; busy: boolean; run: Run }) {
+export function ChatGPTStatus({ chatgpt, busy, run }: { chatgpt: ModelsState["chatgpt"]; busy: boolean; run: Run }) {
   if (chatgpt.attempt) {
     return (
       <output className="models-chatgpt" data-chatgpt="pending">
@@ -296,6 +310,7 @@ function ConnectionRow({
   onMove(to: number): void;
 }) {
   const nameId = useId();
+  const router = useSettingsRouter();
   const [confirming, setConfirming] = useState(false);
   const builtin = connection.kind === "codex-login" || connection.kind === "claude-login";
   const plan = connection.kind === "chatgpt-plan";
@@ -351,6 +366,17 @@ function ConnectionRow({
           {!connection.servesCloud && (
             <div className="row-help" data-connection-local="">
               {t("settingsWindow.models.thisMacOnly")}
+              {" · "}
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="link-button"
+                data-models-action="setUpForCloud"
+                onClick={() => router.history.push(sectionHref("cloud", cloudFocusOf(connection)))}
+              >
+                {t("settingsWindow.models.setUpForCloud")}
+              </Button>
             </div>
           )}
           {plan && (
@@ -713,6 +739,9 @@ function MembersSection({
   );
 }
 
+/** Where Add a Connection opens: its list (null), or straight on one way in (Settings > Cloud's Set Up). */
+export type SheetStart = "chatgpt" | "claude" | ModelProvider | null;
+
 type Choice =
   | { kind: "chatgpt"; title: string; detail: string }
   | { kind: "claude"; title: string; detail: string }
@@ -723,25 +752,34 @@ const SUBSCRIPTIONS: Choice[] = [
   { kind: "claude", title: "Claude Code", detail: "claude.ai" },
 ];
 
-function AddConnectionSheet({
+const keyChoice = (provider: ModelProvider): Choice => ({
+  kind: "key",
+  provider,
+  title: PROVIDERS[provider],
+  detail: t("settingsWindow.models.sheet.apiKey"),
+});
+
+function startChoice(start: SheetStart): Choice | null {
+  if (start === null) return null;
+  return SUBSCRIPTIONS.find((choice) => choice.kind === start) ?? keyChoice(start as ModelProvider);
+}
+
+export function AddConnectionSheet({
   models,
   busy,
   run,
   onClose,
+  start = null,
 }: {
   models: ModelsState;
   busy: boolean;
   run: Run;
   onClose(): void;
+  start?: SheetStart;
 }) {
   const [query, setQuery] = useState("");
-  const [picked, setPicked] = useState<Choice | null>(null);
-  const keys: Choice[] = KEY_PROVIDERS.map((provider) => ({
-    kind: "key",
-    provider,
-    title: PROVIDERS[provider],
-    detail: t("settingsWindow.models.sheet.apiKey"),
-  }));
+  const [picked, setPicked] = useState<Choice | null>(() => startChoice(start));
+  const keys: Choice[] = KEY_PROVIDERS.map(keyChoice);
   const needle = query.trim().toLocaleLowerCase();
   const matches = (choice: Choice) =>
     !needle || `${choice.title} ${choice.detail}`.toLocaleLowerCase().includes(needle);

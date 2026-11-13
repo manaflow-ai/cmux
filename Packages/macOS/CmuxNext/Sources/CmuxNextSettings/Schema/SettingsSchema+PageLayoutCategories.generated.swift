@@ -7,7 +7,7 @@ extension SettingsPageLayout {
         SidebarSection(id: "app", title: nil, categories: [generalCategory, updatesCategory]),
         SidebarSection(id: "look", title: SettingsText.keyed("settings.sidebarSection.lookAndFeel", "Look and Feel"), categories: [personalizationCategory, themeCategory, appearanceCategory]),
         SidebarSection(id: "tools", title: SettingsText.keyed("settings.sidebarSection.tools", "Tools"), categories: [terminalCategory, editorCategory, browserCategory]),
-        SidebarSection(id: "ai", title: SettingsText.keyed("settings.sidebarSection.ai", "AI"), categories: [agentsCategory, modelsCategory, chiefCategory]),
+        SidebarSection(id: "ai", title: SettingsText.keyed("settings.sidebarSection.ai", "AI"), categories: [agentsCategory, modelsCategory, cloudCategory, chiefCategory]),
         SidebarSection(id: "interaction", title: SettingsText.keyed("settings.sidebarSection.interaction", "Interaction"), categories: [notificationsCategory, keyboardCategory, menusCategory]),
         SidebarSection(id: "devices", title: SettingsText.keyed("settings.sidebarSection.devices", "Accounts and Devices"), categories: [accountsCategory, mobileCategory, devicesCategory, serverCategory]),
         SidebarSection(id: "system", title: SettingsText.keyed("settings.sidebarSection.system", "Data and System"), categories: [importCategory, privacyCategory, advancedCategory, experimentalCategory, developmentCategory]),
@@ -184,6 +184,15 @@ extension SettingsPageLayout {
         lead: [.models]
     )
 
+    /// Everything Cloud chats need in one place (owner, 2026-11-12: "we should have this setup stuff in CLOUD in the settings"): Models for Cloud says plainly whether Claude, ChatGPT and an API key are set up for Cloud and opens the same setup steps as Settings > Models; then the team's Cloud Environments and the Cloud Workspaces rows (both moved here from Accounts). cmux://settings/cloud opens it; the Set up Cloud card opens it on the row it needs (focus=cloud.claude, cloud.chatgpt, cloud.apiKey).
+    private static let cloudCategory = CategorySpec(
+        id: "cloud", title: SettingsText.keyed("settings.category.cloud", "Cloud"), symbol: "cloud",
+        groups: [
+            GroupSpec(group: "settings.group.cloudWorkspaces"),
+        ],
+        lead: [.cloudModels, .cloudEnvironments]
+    )
+
     /// Every Chief setting on one page (Leo 2026-10-20: the name pill's popover is the quick version; its All Chief Settings link opens this): Chiefs lists every Chief, each opening its editor (name, picture, backend; u2586); the Chief Pet card (ChatGPT's Mini & Pets) draws the preview, Show/Hide and the characters from its group's two rows; then the chat's look. Voice input (the message box's mic) shows only in builds with Debug Settings. Notices last: a row that opens Notifications (the Chief's notices are the app's notifications; their rows keep their one home there).
     private static let chiefCategory = CategorySpec(
         id: "chief", title: SettingsText.keyed("settings.category.chief", "Chief"), symbol: "crown",
@@ -244,9 +253,8 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.phone"),
             GroupSpec(group: "settings.group.messagesServer"),
             GroupSpec(group: "settings.group.machineColors"),
-            GroupSpec(group: "settings.group.cloudWorkspaces"),
         ],
-        lead: [.accounts, .machines, .cloudEnvironments], actions: [.accounts, .machines], aliases: [.accounts, .machines]
+        lead: [.accounts, .machines], actions: [.accounts, .machines], aliases: [.accounts, .machines]
     )
 
     /// Phones reaching this Mac: the iPhone host's switch, then its live status and phones.

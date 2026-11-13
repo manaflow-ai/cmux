@@ -142,6 +142,13 @@ Settings ops (`webviews/src/pages/settings/ops.ts`; Swift `SettingsPageProvider.
 - Settings layout: new sidebar category `models` ("Models"), card `models`, in
   `schemas/settings/source/page-layout.json`, placed right after Agents. Route
   `cmux://settings/models` opens it; `cmux://settings/models/add` opens the Add a connection sheet.
+- Settings > Cloud (category `cloud`, after Models; 2026-11-12): card `cloudModels` ("Models for
+  Cloud") lists Claude, ChatGPT and API key, each "Connected for Cloud" when an enabled, signed-in
+  `serves_cloud` connection of that family exists (or the team's shared key), else "Not set up for
+  Cloud" with Set Up (the same Add a connection steps) and a plain note when only a This Mac only
+  login exists. The Cloud Environments card and the Cloud Workspaces rows live there too. Routes:
+  `cmux://settings/cloud`, `/cloud/claude`, `/cloud/chatgpt`, `/cloud/api-key`
+  (`#/settings/cloud?focus=cloud.<row>`); the chat's Set up Cloud card opens the row its button names.
 
 Members policy (backend `backend/apps/api`, lane D): `team.models_policy.get|set` beside
 `team.agent_key.*`, owner/admin write, defaults above. Enforcement in the platform route is

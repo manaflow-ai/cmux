@@ -50,7 +50,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case contextMenus
         /// Settings > Server: each server's status, version line, Restart Recommended, socket and tailnet address (plans/cmux-next/server-updates-DESIGN.md section 10).
         case server
-        /// Settings > Accounts > Cloud Environments: the team's environments, Build, Delete and Add (plans/cmux-next/cloud-environments-DESIGN.md); `cmux.settings.environments.*`.
+        /// Settings > Cloud > Cloud Environments: the team's environments, Build, Delete and Add (plans/cmux-next/cloud-environments-DESIGN.md); `cmux.settings.environments.*`.
         case cloudEnvironments
         /// Settings > Server > This Mac on Your Tailnet: sign this Mac's own tailnet node in or out (acpmux's embedded node, `_acpmux/tailnet/*`, relayed by the app on its person connection); `cmux.settings.tailnet.*`. Shown only where acpmux answers.
         case tailnet
@@ -58,6 +58,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case sharedLinks
         /// Settings > Agents > Worktree Setup: a project's worktree recipe (setup, run and teardown scripts, files to copy) over the repository's .worktreeinclude and .cmux/worktree.toml (design/worktree-setup.md); `cmux.project.list`, `cmux.project.update` and `cmux.git.worktree.setup` through the page relay.
         case worktreeSetup
+        /// Settings > Cloud > Models for Cloud: whether Claude, ChatGPT and an API key are set up for Cloud chats (a connection with serves_cloud), each with its Set up way in (Settings > Models' Add a Connection steps) and a plain note when only a This Mac only login exists (cmux-tui/docs/model-connections.md Revision 2); deep links #/settings/cloud?focus=cloud.claude, cloud.chatgpt, cloud.apiKey.
+        case cloudModels
         /// Settings > Models: the person's connections (Mac logins, ChatGPT plan, API keys) in the order a thread uses them, Spread usage, the organization's shared keys, and the members policy (cmux-tui/docs/model-connections.md); `cmux.settings.models.*`.
         case models
     }

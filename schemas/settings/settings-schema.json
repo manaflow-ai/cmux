@@ -1447,6 +1447,42 @@
         ],
         "groups" : [
           {
+            "key" : "settings.group.cloudWorkspaces",
+            "rows" : [
+              "cloud.newWorkspacesInCloud",
+              "cloud.newWorkspaceFolder",
+              "cloud.agentsStartWithoutAsking",
+              "cloud.turnCheckpoints"
+            ],
+            "title" : {
+              "key" : "settings.group.cloudWorkspaces",
+              "text" : "Cloud Workspaces"
+            }
+          }
+        ],
+        "id" : "cloud",
+        "lead" : [
+          "cloudModels",
+          "cloudEnvironments"
+        ],
+        "symbol" : "cloud",
+        "title" : {
+          "key" : "settings.category.cloud",
+          "text" : "Cloud"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
             "key" : "settings.group.chiefChat",
             "rows" : [
               "home.chiefBubbleStyle",
@@ -1795,26 +1831,12 @@
               "key" : "settings.group.machineColors",
               "text" : "Machine Colors"
             }
-          },
-          {
-            "key" : "settings.group.cloudWorkspaces",
-            "rows" : [
-              "cloud.newWorkspacesInCloud",
-              "cloud.newWorkspaceFolder",
-              "cloud.agentsStartWithoutAsking",
-              "cloud.turnCheckpoints"
-            ],
-            "title" : {
-              "key" : "settings.group.cloudWorkspaces",
-              "text" : "Cloud Workspaces"
-            }
           }
         ],
         "id" : "accounts",
         "lead" : [
           "accounts",
-          "machines",
-          "cloudEnvironments"
+          "machines"
         ],
         "symbol" : "person.crop.circle",
         "title" : {
@@ -2154,6 +2176,7 @@
         "categories" : [
           "agents",
           "models",
+          "cloud",
           "chief"
         ],
         "id" : "ai",
