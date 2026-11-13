@@ -41,11 +41,27 @@ impl TerminalLane {
             if held > 0 && held.saturating_add(1) > free_after {
                 return false;
             }
+        }
+        self.count(&mut clients, client);
+        true
+    }
+
+    /// One place for a connection that is open already: the daemon admitted
+    /// it before it knew its terminal (`ConnectionLease::join_terminal`). No
+    /// limit and no share apply, because nothing can be refused now: the
+    /// connection holds its thread and its socket. The count says what is
+    /// true, and each later `claim` sees it.
+    pub(super) fn enter(&self, client: Option<u32>) {
+        let mut clients = self.clients.lock().unwrap_or_else(PoisonError::into_inner);
+        self.count(&mut clients, client);
+    }
+
+    fn count(&self, clients: &mut HashMap<u32, u64>, client: Option<u32>) {
+        if let Some(client) = client {
             let held = clients.entry(client).or_insert(0);
             *held = held.saturating_add(1);
         }
         self.active.fetch_add(1, Ordering::AcqRel);
-        true
     }
 
     pub(super) fn release(&self, client: Option<u32>) {

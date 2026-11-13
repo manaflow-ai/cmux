@@ -627,7 +627,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   // Closed, a thought's button reads its words (Codex parity); open, "Thought".
   const thoughtToggle = (page: Page) => page.locator("button.cv-thought[aria-expanded]");
 
-  test("a long thought streams, then folds when the next step starts without moving the rows above it", async () => {
+  test("a long thought draws as its folded line while it streams, and the next step moves nothing above it", async () => {
     const chat = newChat();
     thinks(chat, THOUGHT);
     const page = await open(chat, 900, 700, false, true);
@@ -637,15 +637,18 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     push(chat, "in", "agent_thought_chunk", {
       ...update({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "\n" } }),
     });
-    // Streaming: the Codex-style turn draws no row for the thought yet; the turn's live line at its foot says one of the default
-    // The default status mode is Thinking only, with nothing to open.
+    // Streaming: the thought draws from its first words as the line it folds to once done, closed
+    // (Leo, 2026-11-09: "we can be a bit more optimistic with, like, the displaying of the thinking
+    // ... I only started seeing your thinking bit, like, seven seconds in"), its text not drawn. The
+    // turn's live line at its foot says Thinking.
     await page
       .locator(".cv-worked.is-below .cv-thinking", {
         hasText: /^Thinking/,
       })
       .waitFor();
+    await thoughtToggle(page).waitFor();
+    expect(await thoughtToggle(page).getAttribute("aria-expanded")).toBe("false");
     expect(await page.getByText("Step 60: check the retry path.", { exact: false }).count()).toBe(0);
-    expect(await thoughtToggle(page).count()).toBe(0);
     await page.locator(".acpmux-scroll").hover();
     await page.mouse.wheel(0, -1600);
     await settle(page);
@@ -661,6 +664,9 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
       }),
     });
     await thoughtToggle(page).waitFor({ state: "attached" });
+    // The thought's line was drawn before the call came, so nothing new mounts that the view would
+    // settle on: watch the frames the call's arrival draws before reading them.
+    await page.waitForFunction(() => ((window as any).__frames?.length ?? 0) > 5);
     const tops = (await stop(page)).map((frame) => frame.top);
     expect(await thoughtToggle(page).getAttribute("aria-expanded")).toBe("false");
     expect(tops.length).toBeGreaterThan(5);

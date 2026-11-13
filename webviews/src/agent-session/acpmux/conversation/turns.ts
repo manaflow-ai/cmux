@@ -54,7 +54,7 @@ import { turnCopyParts } from "./turnCopy";
 import { turnWork } from "./waterfallSpans";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
 import { hidesEveryCall } from "./mcpPresentation";
-import { isThought } from "./thoughts";
+import { isQuietThought, isThought, thoughtDuration } from "./thoughts";
 import { SILENT_MS } from "./thinkingModel";
 import {
   BACKGROUND_TURN,
@@ -2969,15 +2969,18 @@ function runningLabel(tool: Parameters<typeof toolLabel>[0], text: string): stri
 /// on every change between them (App.tsx compares versions): 1 the live latest run, 2 an earlier
 /// run, 3 an ended turn's open fold, 4 an earlier run whose running command the live line holds.
 const RUN_STATES = 5;
+/// How long a running turn's thought that opens its run streams before it draws (`codexRuns`): a
+/// few chunks, so its row never lands in the frame its run and the turn's Working line do.
+const FIRST_THOUGHT_MS = 100;
 /// A steered turn's open fold, whose run lines start open (`runOpen`), differs from the same fold
 /// closed. (Not a sixth `RUN_STATES`: the minimap's edit-card versions are pinned to five.)
 const OPEN_RUN_STATES = 2;
 
 /// A running turn's runs as the Codex desktop app draws them (cx-ncc.108; Lucas, 2026-11-11): each
 /// run folds into its summary line between the paragraphs ("Read 6 files, ran 4 commands", or one
-/// group's "Ran 3 commands"), the latest one too as its calls finish, and opens on a click. The call in flight and
-/// a thought still coming are not in the run: the turn's live line names them (WorkingFor.tsx
-/// `doing`, "Thinking") and each step replaces it in place. A call still running in an earlier run
+/// group's "Ran 3 commands"), the latest one too as its calls finish, and opens on a click. The call in flight is
+/// not in the run: the turn's live line names it (WorkingFor.tsx `doing`) and each step replaces it
+/// in place. A thought still coming is, once it is not quiet (below). A call still running in an earlier run
 /// (a background shell) stays in its run, except the command the live line names (`named`,
 /// `lineCall`), which reads once, on the line. Each derived row's version moves with its drawn state.
 /// With `lineOnly` a finished run of the stretch still running draws no row: the live line is its
@@ -3030,12 +3033,37 @@ function codexRuns(rows: AcpmuxRow[], named?: string, lineOnly = false, carried?
     // finished steps and never grows a stack of live rows (Leo 2026-10-20: "rows pile up instead
     // of replacing each other").
     const all = row.items ?? [];
-    const items = all.filter((item, at) =>
-      item.tool
-        ? !isRunning(item.tool) || (carried?.has(item.tool.id) === true && item.tool.id !== named)
-        : !(at === all.length - 1 && item.kind !== "tool"),
-    );
+    // A thought still coming stays in the run from its first words, not only once the next step
+    // ends it (Leo, 2026-11-09: "we can be a bit more optimistic with, like, the displaying of the
+    // thinking ... I only started seeing your thinking bit, like, seven seconds in"). It draws as it
+    // will once done, its folded line (ThoughtRow, not `streaming`: the row is not `live`), so the
+    // row neither grows under the reader as it streams nor shrinks when it ends (Leo, 2026-11-07:
+    // "the jumps are jarring. We want to minimize the jumps"); the live line under it says
+    // Thinking. Not while it is still quiet by
+    // the rule a finished thought draws by (thoughts.ts `isQuietThought`): its text and its time only
+    // grow, so one shown here never leaves when it ends, and a short thought that has run a second
+    // shows now, as it does once the turn ends or the chat reloads (Leo, 2026-11-09: "oh i guess the
+    // service or something must have crashed in between cuz now i see it").
+    const tail = all.at(-1);
+    const steps = (shows: boolean) =>
+      all.filter((item, at) =>
+        item.tool
+          ? !isRunning(item.tool) || (carried?.has(item.tool.id) === true && item.tool.id !== named)
+          : !(at === all.length - 1 && item.kind !== "tool" && !shows),
+      );
+    const thinking =
+      tail !== undefined &&
+      isThought(tail) &&
+      !isQuietThought(tail) &&
+      // A thought that is the run's first step waits out its first chunks (FIRST_THOUGHT_MS of them,
+      // by their own times): its run arrives with the turn's Working line (`shapeLiveTurn`) and the
+      // reply's last text, and the two rows landing in one frame moved the rows above by 29 px
+      // (test/turn-transition-jumps.test.ts burst-thought). One later step in, it arrives alone.
+      (steps(false).length > 0 || (thoughtDuration(tail) ?? FIRST_THOUGHT_MS) >= FIRST_THOUGHT_MS);
+    const items = steps(thinking);
     if (!items.length) return [];
+    // Whether it shows its thought is the row's own (its text and its chunks' times, not the
+    // clock), so the version it has says it: state 1 either way, never an ended fold's 3.
     return [{ ...row, items, settled: true, foldRun: true, version: row.version * RUN_STATES + 1 }];
   });
 }

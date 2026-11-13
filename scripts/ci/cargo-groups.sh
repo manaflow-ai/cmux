@@ -139,6 +139,9 @@ for i in "${!pids[@]}"; do
   echo "$label: $((end - starts[i])) s"
   # A group run with `cargo --timings` (the Cloud machine channel's legs) names
   # its slowest units and its last ones, so a slow leg says where its time went.
+  # Under release LTO thin the last unit of the cmux-tui and acpmux groups was
+  # their "bin" (107-175 s, every crate's machine code made in the link), so
+  # the channel builds with LTO off (cmux-tui-build-package.yml).
   # Groups under 2 min never set a leg's pace: their units would only be noise.
   if ((end - starts[i] >= 120)); then
     timings_summary "${dirs[i]}/cargo-timings/cargo-timing.html" "${starts[i]}"
