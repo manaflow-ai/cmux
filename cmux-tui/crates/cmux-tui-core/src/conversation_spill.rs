@@ -69,19 +69,14 @@ fn clipped(text: &str, max: usize, from_end: bool) -> &str {
     if text.len() <= max {
         return text;
     }
-    if from_end {
-        let mut start = text.len() - max;
-        while !text.is_char_boundary(start) {
-            start += 1;
-        }
-        &text[start..]
+    // Each range is on character boundaries, so `get` gives it; a range that
+    // it refused would give no excerpt, never more than `max` bytes.
+    let excerpt = if from_end {
+        text.get(text.ceil_char_boundary(text.len() - max)..)
     } else {
-        let mut end = max;
-        while !text.is_char_boundary(end) {
-            end -= 1;
-        }
-        &text[..end]
-    }
+        text.get(..text.floor_char_boundary(max))
+    };
+    excerpt.unwrap_or_default()
 }
 
 /// A fence longer than any backtick run in `text`, so the excerpt cannot
@@ -103,18 +98,17 @@ fn block(label: &str, excerpt: &str) -> String {
 
 /// The short text the message carries in place of `text`, saved as `name`.
 pub(crate) fn prompt(text: &str, name: &str) -> String {
-    let lines: Vec<&str> = text.lines().collect();
-    let count = lines.len();
-    let head =
-        clipped(&lines[..count.min(EXCERPT_LINES)].join("\n"), EXCERPT_BYTES, false).to_owned();
+    let count = text.lines().count();
+    let head = text.lines().take(EXCERPT_LINES).collect::<Vec<_>>().join("\n");
+    let head = clipped(&head, EXCERPT_BYTES, false).to_owned();
     let mut out = format!(
         "The user sent a long message ({} lines, {}), so it is attached as the file {name} instead of written here.\n\n{INSTRUCTION}\n\n",
         grouped(count),
         size(text.len()),
     );
     if count > 2 * EXCERPT_LINES {
-        let tail =
-            clipped(&lines[count - EXCERPT_LINES..].join("\n"), EXCERPT_BYTES, true).to_owned();
+        let tail = text.lines().skip(count - EXCERPT_LINES).collect::<Vec<_>>().join("\n");
+        let tail = clipped(&tail, EXCERPT_BYTES, true).to_owned();
         out.push_str(&block(&format!("Its first {EXCERPT_LINES} lines:"), &head));
         out.push_str(&format!("\n\n[{} lines not shown]\n\n", grouped(count - 2 * EXCERPT_LINES)));
         out.push_str(&block(&format!("Its last {EXCERPT_LINES} lines:"), &tail));
@@ -129,9 +123,11 @@ pub(crate) fn prompt(text: &str, name: &str) -> String {
 
 /// The file `text` is kept in: its SHA-256 and name.
 pub(crate) fn file_of(text: &str) -> (String, String) {
-    let hash: String = Sha256::digest(text.as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
-    let name = format!("message-{}.txt", &hash[..12]);
-    (hash, name)
+    let digest = Sha256::digest(text.as_bytes());
+    let hash: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+    // The first 12 digits of the hash.
+    let short: String = digest.iter().take(6).map(|b| format!("{b:02x}")).collect();
+    (hash, format!("message-{short}.txt"))
 }
 
 impl ConversationStore {
