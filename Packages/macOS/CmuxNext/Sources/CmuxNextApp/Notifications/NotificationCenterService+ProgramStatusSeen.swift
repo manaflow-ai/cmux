@@ -47,7 +47,7 @@ extension NotificationCenterService {
     /// whether they hold an unread notification.
     func viewedFacts(_ store: DaemonStore) -> ViewedTabsFacts {
         ViewedTabsFacts(revision: viewedRevision,
-                        tabs: viewedTabs(store).map { ViewedProgramStatus(tab: $0.id, records: $0.programStatus, unread: $0.hasUnread) })
+                        tabs: viewedTabs(store).map { ViewedProgramStatus(tab: $0.id, records: $0.programStatus, unread: $0.hasUnread, attention: $0.attention.map { "\($0.atMs) \($0.requestID ?? "")" }) })
     }
 
     /// The tabs shown in a key window while cmux is active: each window's

@@ -141,5 +141,10 @@ struct FocusUnreadPaneFlashTests {
         tab.applyState(ask(2_000), progress: nil)
         #expect(fixture.services.notifications.attentionMarks(for: workspace)[pane] == nil,
                 "a new request on the pane the person is looking at rang")
+        // The person saw that request: leaving the pane must not ring it.
+        fixture.content.layoutModel.focus(LayoutPaneID(fixture.quiet.id), source: .keyboard)
+        try await PinnedPageTests.until({ fixture.controller.focus.state.pane == fixture.quiet.id })
+        #expect(fixture.services.notifications.attentionMarks(for: workspace)[pane] == nil,
+                "a request that came while the person looked at the pane rang once they left")
     }
 }
