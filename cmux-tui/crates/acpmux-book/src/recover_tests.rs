@@ -329,6 +329,27 @@ fn a_torn_patch_restores_the_previous_revision() {
 }
 
 #[test]
+fn a_cut_patch_without_undo_requests_rebuild() {
+    let home = tempfile::tempdir().unwrap();
+    let book = home.path().join("book");
+    let mark_len;
+    {
+        let (mut log, _) = open(&book);
+        settle(&mut log, 1, 1);
+        log.write_checkpoint(&[], &[]).unwrap();
+        mark_len = fs::metadata(segment(&book)).unwrap().len();
+        log.patch(1, 2, RawRange::NONE, &text(1)).unwrap();
+        log.sync().unwrap();
+    }
+    let path = segment(&book);
+    let mut bytes = fs::read(&path).unwrap();
+    bytes.truncate(mark_len as usize);
+    fs::write(path, bytes).unwrap();
+    fs::write(book.join("rows.undo"), []).unwrap();
+    assert!(matches!(Log::open(&book, Options::default()), Err(Error::Rebuild(_))));
+}
+
+#[test]
 fn replayed_indexes_are_synced_by_the_following_checkpoint() {
     let home = tempfile::tempdir().unwrap();
     let book = home.path().join("book");
