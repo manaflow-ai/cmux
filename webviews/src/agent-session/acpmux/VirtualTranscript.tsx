@@ -2171,9 +2171,6 @@ function TranscriptView({
   /// Rows that arrived while the chat loaded (blank or partly blank, then text): their first mount
   /// fades in once (Leo, 2026-11-07, ask-69299b9711: "blank to fast fade in to text").
   const loadFade = useRef<LoadFadeWindow | undefined>(undefined);
-  /// When the reader last moved the transcript themselves (wheel, pointer, touch or key):
-  /// read by the rows' render below (a page landing under a scrub draws whole), so declared first.
-  const readerAt = useRef(Number.NEGATIVE_INFINITY);
   loadFade.current ??= new LoadFadeWindow();
   if (sessionChanged) loadFade.current.clear();
   loadFade.current.phase(loading);
@@ -2216,8 +2213,8 @@ function TranscriptView({
     // is moving, history pages are part of that gesture and must draw whole: a page published by
     // the short-open fill path can otherwise start an opacity animation under an upward scrub, which
     // reads as a blank/flicker and makes the next frame harder to follow.
-    const readerIsMoving = performance.now() - readerAt.current <= READER_SCROLL_MS;
-    const loadArrival = loadFade.current.open && coldOpen === undefined && !readerIsMoving;
+    const { open: loadOpen, readerMoving: readerIsMoving } = loadFade.current.arrivals(READER_SCROLL_MS);
+    const loadArrival = loadOpen && coldOpen === undefined && !readerIsMoving;
     // The running turn's live line keeps one id from turn to turn (turns.ts LIVE_THINKING): a line
     // the last rows did not end with came now, with the prompt that opened it, so it enters on the
     // send's clock with the prompt (conversation.css SEND-ENTRANCE). O(1): the last rows' tail only.
@@ -2970,6 +2967,8 @@ function TranscriptView({
   /// The rows' going clamped the offset to the shorter tail's end, the bottom, and nothing found
   /// the reader's row again. Only the reader's own input, Jump to latest or a send lets it go.
   const heldPlace = useRef<ScrollAnchor | undefined>(undefined);
+  /// When the reader last moved the transcript themselves (wheel, pointer, touch or key).
+  const readerAt = useRef(Number.NEGATIVE_INFINITY);
   /// The last upward input has not yet been acknowledged by the native scroll event. A tiny real
   /// wheel at the old end must not be mistaken for the browser's clamp window during a layout correction.
   const readerUpPending = useRef(false);
@@ -4864,8 +4863,8 @@ function TranscriptView({
   /// The older-history check (below), which every scroll event runs too.
   const checkOlderNow = useRef<() => void>(() => {});
   /// The reader's speed up and how long pages take, which move the older-history ask further ahead.
-  const olderAhead = useRef<OlderAhead>(undefined);
-  olderAhead.current ??= new OlderAhead();
+  /// One per transcript, made once (render reads no ref).
+  const [olderAhead] = useState(() => new OlderAhead());
   const handleScroll = (node: HTMLDivElement, immediate = false) => {
     pacing.scrolled();
     // A row whose glide the reader's input held, scrolled out of view, lands now where nobody sees it,
@@ -4904,7 +4903,7 @@ function TranscriptView({
       setRoomRose((total) => total + rise);
     }
     giveRoomNearTop();
-    olderAhead.current!.scrolled(paidAt, performance.now());
+    olderAhead.scrolled(paidAt, performance.now());
     checkOlderNow.current();
     const next = node.scrollTop;
     trimFoldRoom(node);
@@ -5251,6 +5250,7 @@ function TranscriptView({
       if (event?.type === "touchstart") touchY = (event as TouchEvent).touches[0]?.clientY;
       else if (touch) touchY = touch.clientY;
       readerAt.current = performance.now();
+      loadFade.current?.readerMoved();
       // The reader moved: where they are now is their place, not the one a reconnect held.
       heldPlace.current = undefined;
       // Wheeling on at the top of the loaded rows scrolls nothing while older history pages in: the
@@ -5615,11 +5615,7 @@ function TranscriptView({
       return;
     }
     // Measured from the loaded rows' top, under the room held for the history above them.
-    const ahead = olderAhead.current!.ahead(
-      node.clientHeight * OLDER_AHEAD_VIEWPORTS,
-      node.clientHeight,
-      performance.now(),
-    );
+    const ahead = olderAhead.ahead(node.clientHeight * OLDER_AHEAD_VIEWPORTS, node.clientHeight, performance.now());
     if (node.scrollTop - (layout.origin ?? 0) >= ahead) {
       // Allow the next visit to the threshold to request the next page, even when the first row
       // did not change while the reader was away from the top.
@@ -5650,7 +5646,7 @@ function TranscriptView({
     // Rows that do not reach the view's top leave a blank band above them until the page lands
     // (Leo's NIGHTLY, 2026-11-12: the top ~40% empty above "Received 3 messages").
     onLoadOlder(node.scrollHeight - (layout.origin ?? 0) <= node.clientHeight).then(() => {
-      if (ask === olderAsk.current) olderAhead.current!.read(performance.now() - askedAt);
+      if (ask === olderAsk.current) olderAhead.read(performance.now() - askedAt);
       settled();
     }, settled);
   };
@@ -5662,8 +5658,8 @@ function TranscriptView({
   }, [canLoadOlder, height, onLoadOlder, olderLoadKey, renderScroll.top]);
   useEffect(() => () => clearTimeout(olderRecheck.current), []);
   useEffect(() => {
-    olderAhead.current!.reset();
-  }, [sessionKey]);
+    olderAhead.reset();
+  }, [olderAhead, sessionKey]);
   // A wheel up with the view already at the loaded rows' top moves nothing, so no scroll event says the reader
   // wants more: it asks itself, unless an ask is still out.
   const onWheel = (event: React.WheelEvent<HTMLDivElement>) => {
