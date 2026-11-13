@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43504582230",
+  "recorded_at": "2026-11-13T20:55:10Z",
+  "reason": "cmux-tui 048243858780 changes the image's cmux-tui (pinned e38ef6bf34c0)",
+  "dry_run": false,
+  "cmux_tui": "0482438587807ef3f3c06f53e5c976a1b205c58e",
+  "fixes": [
+    {
+      "sha": "0482438587807ef3f3c06f53e5c976a1b205c58e",
+      "mergedAt": "2026-11-13T20:19:02Z",
+      "subject": "cmux chat send: a failed Cloud turn answers its own error, not the last reply (#40890)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T20:55:10Z",
+    "snapshot_id": "sh-8e0ab6c7cf7244ab95ab89f4ec8ce034",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43504582230): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "86b974f978aa35e934f74c2655e576506e5dd2cd",
+    "image": "cloud-native-auto-04824385-43504582230-1",
+    "revision": "ci-43504582230-1",
+    "at": "2026-11-13T20:55:10Z"
+  },
+  "rolled_back": false
+}
