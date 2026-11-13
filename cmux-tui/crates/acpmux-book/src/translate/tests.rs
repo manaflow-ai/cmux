@@ -6,6 +6,11 @@
     reason = "deterministic generated inputs and assertions"
 )]
 use super::*;
+use serde::Deserialize;
+use std::collections::BTreeSet;
+fn t(state: &mut State, harness: Harness, bytes: &[u8]) -> Result<Vec<Op>, Error> {
+    translate(state, harness, 0, 1, bytes)
+}
 const SEED: &str = include_str!("fixtures/seed-turn.ndjson");
 const ANSWER: &str = "Sorry, that's frustrating. I did answer, but the chat drew the answer above your question, so it looked like I ignored you.\n\nMy answer was **no**, it shouldn't say cmux.";
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -13,6 +18,16 @@ struct Mirror {
     rows: BTreeMap<u64, OwnedRow>,
     text: BTreeMap<u64, String>,
     raw: BTreeMap<(u64, String), String>,
+    queue: BTreeMap<u64, QueueEntry>,
+    queued_text: BTreeMap<(u64, u32), String>,
+}
+#[derive(Deserialize)]
+struct MirrorEnvelope {
+    msg: Option<MirrorMessage>,
+}
+#[derive(Deserialize)]
+struct MirrorMessage {
+    text: Option<String>,
 }
 impl Mirror {
     fn apply(&mut self, op: &Op, bytes: &[u8]) {
@@ -55,6 +70,17 @@ impl Mirror {
                 self.text.remove(&row.id);
                 self.rows.insert(row.id, row.clone());
             }
+            Change::Queue(QueueChange::Add(entry)) => {
+                self.queue.insert(entry.id_hash, *entry);
+                if let Ok(envelope) = serde_json::from_slice::<MirrorEnvelope>(bytes)
+                    && let Some(text) = envelope.msg.and_then(|msg| msg.text)
+                {
+                    self.queued_text.insert((entry.place, entry.span), text);
+                }
+            }
+            Change::Queue(QueueChange::Remove(hash)) => {
+                self.queue.remove(hash);
+            }
             Change::Body { id, field, append, source } => {
                 assert!(self.rows[id].open);
                 let s = match source {
@@ -76,6 +102,11 @@ impl Mirror {
                         }
                         s
                     }
+                    BodySource::Raw { place, span } => self
+                        .queued_text
+                        .get(&(*place, u32::try_from(*span).unwrap_or(u32::MAX)))
+                        .cloned()
+                        .unwrap_or_default(),
                 };
                 if matches!(field, BodyField::Text | BodyField::Content) {
                     let text = self.text.entry(*id).or_default();
@@ -88,7 +119,17 @@ impl Mirror {
         }
     }
     fn line(&mut self, state: &mut State, harness: Harness, line: &str) -> Vec<Op> {
-        let ops = translate(state, harness, line.as_bytes()).unwrap();
+        self.line_at(state, harness, 0, 1, line)
+    }
+    fn line_at(
+        &mut self,
+        state: &mut State,
+        harness: Harness,
+        place: u64,
+        span: u64,
+        line: &str,
+    ) -> Vec<Op> {
+        let ops = translate(state, harness, place, span, line.as_bytes()).unwrap();
         for op in &ops {
             self.apply(op, line.as_bytes());
         }
@@ -143,8 +184,10 @@ fn chunk(seq: u64, text: &str, key: &str) -> String {
 fn replay(lines: &[String]) -> (State, Mirror) {
     let mut s = State::default();
     let mut m = Mirror::default();
+    let mut place = 0;
     for l in lines {
-        m.line(&mut s, Harness::V1, l);
+        m.line_at(&mut s, Harness::V1, place, l.len() as u64, l);
+        place = place.saturating_add(l.len() as u64);
     }
     (s, m)
 }
@@ -229,17 +272,75 @@ fn chat(seed: u32) -> (Vec<String>, Vec<Stretch>) {
     let mut calls = 0;
     for t in 0..1 + pick(4) {
         let notice = t > 0 && pick(3) == 0;
+        let prompt_id = (t == 1).then(|| format!("q-turn-{seed}"));
         c.mux(
             "user_message",
-            &format!(
-                r#"{{"text":"Prompt {seed}-{t}","_meta":{{"provenance":{{"kind":"{}"}}}}}}"#,
-                if notice { "inbox_notice" } else { "human" }
-            ),
+            &match prompt_id.as_deref() {
+                Some(id) => format!(
+                    r#"{{"text":"Prompt {seed}-{t}","promptId":"{id}","_meta":{{"provenance":{{"kind":"{}"}}}}}}"#,
+                    if notice { "inbox_notice" } else { "human" }
+                ),
+                None => format!(
+                    r#"{{"text":"Prompt {seed}-{t}","_meta":{{"provenance":{{"kind":"{}"}}}}}}"#,
+                    if notice { "inbox_notice" } else { "human" }
+                ),
+            },
         );
         c.mux("turn_started", "{}");
         let mut stretch = Stretch::default();
         let mut open = false;
         let mut message = String::new();
+
+        // Keep the queue contract in the same random stream as the reply
+        // interleavings. These cases deliberately exercise all legal orders.
+        if t == 0 {
+            c.mux("queued", &format!(r#"{{"text":"queued turn","promptId":"q-turn-{seed}"}}"#));
+            c.mux("queue_paused", &format!(r#"{{"held":["q-turn-{seed}"]}}"#));
+            c.mux("queue_resumed", &format!(r#"{{"promptIds":["q-turn-{seed}"]}}"#));
+            c.mux("queued", &format!(r#"{{"text":"drop","promptId":"q-drop-{seed}"}}"#));
+            c.mux("dequeued", &format!(r#"{{"promptId":"q-drop-{seed}"}}"#));
+
+            // Read then echo, with the queue record first.
+            c.mux("queued", &format!(r#"{{"text":"read first","promptId":"q-read-{seed}"}}"#));
+            c.mux("steer_read", &format!(r#"{{"promptId":"q-read-{seed}"}}"#));
+            c.mux(
+                "user_message",
+                &format!(r#"{{"text":"read first","promptId":"q-read-{seed}","steer":true}}"#),
+            );
+
+            // Echo then read.
+            c.mux("queued", &format!(r#"{{"text":"echo first","promptId":"q-echo-{seed}"}}"#));
+            c.mux(
+                "user_message",
+                &format!(r#"{{"text":"echo first","promptId":"q-echo-{seed}","steer":true}}"#),
+            );
+            c.mux("steer_read", &format!(r#"{{"promptId":"q-echo-{seed}"}}"#));
+
+            // Read before the queued record.
+            c.mux("steer_read", &format!(r#"{{"promptId":"q-before-{seed}"}}"#));
+            c.mux(
+                "queued",
+                &format!(r#"{{"text":"read before queued","promptId":"q-before-{seed}"}}"#),
+            );
+            c.mux(
+                "user_message",
+                &format!(
+                    r#"{{"text":"read before queued","promptId":"q-before-{seed}","steer":true}}"#
+                ),
+            );
+
+            // This read is completed after the current turn ends and the next
+            // prompt starts. It remains in the current turn's out.
+            c.mux("queued", &format!(r#"{{"text":"late steer","promptId":"q-late-{seed}"}}"#));
+            c.mux("steer_read", &format!(r#"{{"promptId":"q-late-{seed}"}}"#));
+            stretch.steered = true;
+        }
+        if t == 1 {
+            c.mux(
+                "user_message",
+                &format!(r#"{{"text":"late steer","promptId":"q-late-{seed}","steer":true}}"#),
+            );
+        }
         for step in 0..1 + pick(10) {
             match pick(7) {
                 0 | 1 => {
@@ -292,6 +393,41 @@ fn chat(seed: u32) -> (Vec<String>, Vec<Stretch>) {
     }
     (c.lines, stretches)
 }
+
+fn assert_settled_group_out(mirror: &Mirror) {
+    for group in mirror.rows.values().filter(|row| row.kind == RowKind::Group && !row.open) {
+        let last = group
+            .fields
+            .get("last")
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(group.id);
+        let out: BTreeSet<u64> = serde_json::from_str::<Vec<[u64; 2]>>(
+            group.fields.get("out").map(String::as_str).unwrap_or("[]"),
+        )
+        .unwrap()
+        .into_iter()
+        .flat_map(|[first, last]| first..=last)
+        .collect();
+        for id in &out {
+            let row = &mirror.rows[id];
+            assert_eq!(row.turn, group.turn, "out row {id} has the wrong turn");
+        }
+        let mut expected = out.clone();
+        expected.insert(group.id);
+        let actual: BTreeSet<u64> = mirror
+            .rows
+            .values()
+            .filter(|row| {
+                row.id >= group.id
+                    && row.id <= last
+                    && (row.id == group.id || (row.turn == group.turn && mirror.visible(row)))
+            })
+            .map(|row| row.id)
+            .collect();
+        assert_eq!(actual, expected, "settled group {} has incomplete out", group.id);
+    }
+}
+
 #[test]
 fn th_ten_thousand_random_splits_restore_identical_ops_and_final_replies() {
     for seed in 1..=10_000 {
@@ -300,18 +436,36 @@ fn th_ten_thousand_random_splits_restore_identical_ops_and_final_replies() {
         let cut = (seed as usize * 7919) % (lines.len() + 1);
         let mut split = State::default();
         let mut split_view = Mirror::default();
+        let mut place = 0;
         for line in &lines[..cut] {
-            split_view.line(&mut split, Harness::V1, line);
+            split_view.line_at(&mut split, Harness::V1, place, line.len() as u64, line);
+            place = place.saturating_add(line.len() as u64);
         }
         let checkpoint = split.checkpoint().unwrap();
         split = State::restore(&checkpoint).unwrap();
         let mut killed = State::restore(&checkpoint).unwrap();
         for line in &lines[cut..] {
-            let ops = split_view.line(&mut split, Harness::V1, line);
-            assert_eq!(ops, translate(&mut killed, Harness::V1, line.as_bytes()).unwrap());
+            let ops = split_view.line_at(&mut split, Harness::V1, place, line.len() as u64, line);
+            assert_eq!(
+                ops,
+                translate(&mut killed, Harness::V1, place, line.len() as u64, line.as_bytes())
+                    .unwrap()
+            );
+            place = place.saturating_add(line.len() as u64);
         }
         assert_eq!(whole, split);
         assert_eq!(view, split_view);
+        let pending_hash = prompt_hash(&format!("q-turn-{seed}"));
+        let expected_queue: BTreeSet<u64> = if lines.iter().any(|line| {
+            line.contains(r#""kind":"user_message"#)
+                && line.contains(&format!(r#""promptId":"q-turn-{seed}"#))
+        }) {
+            BTreeSet::new()
+        } else {
+            [pending_hash].into_iter().collect()
+        };
+        assert_eq!(whole.queue.keys().copied().collect::<BTreeSet<_>>(), expected_queue);
+        assert_settled_group_out(&view);
         let mut floor = 0;
         for stretch in stretches {
             let answer = if stretch.worked && !stretch.steered {
@@ -382,25 +536,157 @@ fn claude_split_property_and_final_reply_visibility() {
 #[test]
 fn malformed_harness_lines_are_counted_and_do_not_block_replay() {
     let mut state = State::default();
-    assert!(translate(&mut state, Harness::Claude, br#"{"type":7}"#).is_ok());
+    assert!(t(&mut state, Harness::Claude, br#"{"type":7}"#).is_ok());
     assert_eq!(state.counters().invalid_records, 1);
-    assert!(translate(&mut state, Harness::V1, br#"not-json"#).is_ok());
+    assert!(t(&mut state, Harness::V1, br#"not-json"#).is_ok());
     assert_eq!(state.counters().invalid_records, 2);
+}
+
+fn json_value_end(bytes: &[u8], start: usize) -> Option<usize> {
+    let first = *bytes.get(start)?;
+    if first == b'"' {
+        let mut escaped = false;
+        for (offset, byte) in bytes.iter().enumerate().skip(start + 1) {
+            if escaped {
+                escaped = false;
+            } else if *byte == b'\\' {
+                escaped = true;
+            } else if *byte == b'"' {
+                return Some(offset + 1);
+            }
+        }
+        return None;
+    }
+    if matches!(first, b'[' | b'{') {
+        let mut depth = 0usize;
+        let mut escaped = false;
+        let mut string = false;
+        for (offset, byte) in bytes.iter().enumerate().skip(start) {
+            if string {
+                if escaped {
+                    escaped = false;
+                } else if *byte == b'\\' {
+                    escaped = true;
+                } else if *byte == b'"' {
+                    string = false;
+                }
+                continue;
+            }
+            match *byte {
+                b'"' => string = true,
+                b'[' | b'{' => depth = depth.saturating_add(1),
+                b']' | b'}' => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        return Some(offset + 1);
+                    }
+                }
+                _ => {}
+            }
+        }
+        return None;
+    }
+    let mut end = start;
+    while let Some(byte) = bytes.get(end) {
+        if matches!(byte, b',' | b'}' | b']' | b'\n' | b'\r') {
+            break;
+        }
+        end += 1;
+    }
+    Some(end)
+}
+
+fn leaf_mutations(line: &str) -> Vec<Vec<u8>> {
+    let bytes = line.as_bytes();
+    let mut mutations = Vec::new();
+    let replacements = [
+        "7".to_owned(),
+        format!("\"{}\"", "x".repeat(300)),
+        "null".to_owned(),
+        "[]".to_owned(),
+        "{}".to_owned(),
+    ];
+    let mut colon = 0;
+    while let Some(relative) =
+        bytes.get(colon..).and_then(|tail| tail.iter().position(|b| *b == b':'))
+    {
+        colon += relative + 1;
+        let mut start = colon;
+        while bytes.get(start).is_some_and(u8::is_ascii_whitespace) {
+            start += 1;
+        }
+        let Some(end) = json_value_end(bytes, start) else { break };
+        if end > start {
+            for replacement in &replacements {
+                let mut mutated = Vec::with_capacity(bytes.len() + replacement.len());
+                mutated.extend_from_slice(&bytes[..start]);
+                mutated.extend_from_slice(replacement.as_bytes());
+                mutated.extend_from_slice(&bytes[end..]);
+                mutations.push(mutated);
+            }
+        }
+        colon = end;
+    }
+    mutations
+}
+
+fn assert_leaf_mutations(harness: Harness, lines: &[String]) {
+    let mut state = State::default();
+    for line in lines {
+        for mutated in leaf_mutations(line) {
+            let mut candidate = state.clone();
+            let before = candidate.checkpoint().unwrap();
+            let invalid = candidate.counters().invalid_records;
+            t(&mut candidate, harness, mutated.as_slice()).unwrap();
+            if candidate.counters().invalid_records > invalid {
+                assert_eq!(candidate.checkpoint().unwrap(), before, "invalid leaf changed state");
+            }
+            assert_eq!(candidate.counters().line_errors, 0, "leaf mutation caused a late error");
+        }
+        t(&mut state, harness, line.as_bytes()).unwrap();
+    }
+}
+
+#[test]
+fn every_json_leaf_is_total_and_does_not_mutate_on_rejection() {
+    let mut v1 = Vec::new();
+    for fixture in [
+        SEED,
+        include_str!("fixtures/r1-reply-1.ndjson"),
+        include_str!("fixtures/r1-reply-2.ndjson"),
+    ] {
+        v1.extend(fixture.lines().map(str::to_owned));
+    }
+    for seed in 0..256 {
+        v1.extend(chat(seed).0);
+    }
+    assert_leaf_mutations(Harness::V1, &v1);
+
+    let claude = [
+        r#"{"type":"user","uuid":"p","message":{"content":"Question"}}"#,
+        r#"{"type":"assistant","message":{"id":"a","content":[{"type":"thinking","thinking":"reason"},{"type":"tool_use","id":"t","name":"Read","input":{"path":"a"}}]}}"#,
+        r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t","content":"output"}]}}"#,
+        r#"{"type":"assistant","message":{"id":"a","content":[{"type":"text","text":"Answer"}],"stop_reason":"end_turn"}}"#,
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect::<Vec<_>>();
+    assert_leaf_mutations(Harness::Claude, &claude);
 }
 
 #[test]
 fn duplicate_sequences_are_noops_but_new_replayed_prompts_start_a_turn() {
     let line = mux(1, "user_message", r#"{"text":"first","promptId":"p","turnId":"t1"}"#);
     let mut state = State::default();
-    translate(&mut state, Harness::V1, line.as_bytes()).unwrap();
+    t(&mut state, Harness::V1, line.as_bytes()).unwrap();
     let before = state.clone();
-    let duplicate = translate(&mut state, Harness::V1, line.as_bytes()).unwrap();
+    let duplicate = t(&mut state, Harness::V1, line.as_bytes()).unwrap();
     assert!(duplicate.is_empty());
     assert_eq!(state, before);
     let end = mux(2, "turn_result", r#"{"turnId":"t1"}"#);
-    translate(&mut state, Harness::V1, end.as_bytes()).unwrap();
+    t(&mut state, Harness::V1, end.as_bytes()).unwrap();
     let replay = mux(3, "user_message", r#"{"text":"second","promptId":"p","turnId":"t2"}"#);
-    let ops = translate(&mut state, Harness::V1, replay.as_bytes()).unwrap();
+    let ops = t(&mut state, Harness::V1, replay.as_bytes()).unwrap();
     assert!(!ops.is_empty());
     assert_eq!(state.counters().replayed_prompts, 1);
     assert!(state.turn.is_some_and(|id| id > before.last_id));
@@ -418,7 +704,7 @@ fn long_metadata_is_cut_without_a_late_line_error() {
     );
     let mut state = State::default();
     let before = state.checkpoint().unwrap();
-    assert!(translate(&mut state, Harness::V1, v1.as_bytes()).is_ok());
+    assert!(t(&mut state, Harness::V1, v1.as_bytes()).is_ok());
     assert!(state.counters().cut_fields > 0);
     assert_eq!(state.counters().line_errors, 0);
     let after = state.checkpoint().unwrap();
@@ -426,7 +712,7 @@ fn long_metadata_is_cut_without_a_late_line_error() {
 
     let malformed = br#"{"type":"assistant","message":{"content":7}}"#;
     let before = state.checkpoint().unwrap();
-    assert!(translate(&mut state, Harness::Claude, malformed).is_ok());
+    assert!(t(&mut state, Harness::Claude, malformed).is_ok());
     assert_eq!(state.checkpoint().unwrap(), before);
     assert_eq!(state.counters().line_errors, 0);
 }
@@ -441,7 +727,7 @@ fn accepted_input_never_mutates_a_leaf_before_rejection() {
         } else {
             br#"{"type":"assistant","message":{"content":7}}"#.to_vec()
         };
-        assert!(translate(&mut state, Harness::Claude, &line).is_ok());
+        assert!(t(&mut state, Harness::Claude, &line).is_ok());
         assert_eq!(state.checkpoint().unwrap(), before);
         assert_eq!(state.counters().line_errors, 0);
     }
@@ -454,7 +740,7 @@ fn accepted_input_never_mutates_a_leaf_before_rejection() {
             quote(&segment)
         ),
     );
-    assert!(translate(&mut state, Harness::V1, line.as_bytes()).is_ok());
+    assert!(t(&mut state, Harness::V1, line.as_bytes()).is_ok());
     assert_eq!(state.checkpoint().unwrap(), before);
     assert_eq!(state.counters().line_errors, 0);
 }
@@ -477,7 +763,7 @@ fn large_tool_bodies_are_ranges_and_streamed_replies_have_small_checkpoints() {
             )
         };
         let mut s = State::default();
-        let ops = translate(&mut s, harness, line.as_bytes()).unwrap();
+        let ops = t(&mut s, harness, line.as_bytes()).unwrap();
         assert!(s.checkpoint().unwrap().len() < 1024 * s.open_rows().count());
         assert!(ops.iter().any(|o|matches!(o.change,Change::Body{source:BodySource::Input(r),..} if r.length>=5*1024*1024)));
         assert!(ops.iter().all(
@@ -532,7 +818,7 @@ fn malformed_input_is_transactional_and_raw_ranges_preserve_escapes() {
         1,
         r#"{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"\ud800"}}"#,
     );
-    assert!(translate(&mut s, Harness::V1, bad.as_bytes()).is_ok());
+    assert!(t(&mut s, Harness::V1, bad.as_bytes()).is_ok());
     assert_eq!(s.counters().invalid_records, 1);
     assert_eq!(s.last_row_id(), 0);
     let mut m = Mirror::default();
@@ -618,6 +904,7 @@ fn group_decides_visibility_once_after_later_work_and_steers() {
         mux(6, "turn_result", "{}"),
     ]);
     assert!(m.visible(m.reply("Checking.")));
+    assert!(m.visible(m.reply("also check")));
 }
 #[test]
 fn superseding_live_multiblock_reply_patches_only_its_settled_rows() {
@@ -747,6 +1034,29 @@ fn read_before_text_survives_another_turn_and_nonsteer_echo() {
 }
 
 #[test]
+fn read_before_late_text_is_in_the_settled_turn_out() {
+    let lines = [
+        mux(1, "user_message", r#"{"text":"first","turnId":"t1"}"#),
+        mux(2, "steer_read", r#"{"promptId":"s","turnId":"t1"}"#),
+        mux(3, "turn_result", r#"{"turnId":"t1"}"#),
+        mux(4, "user_message", r#"{"text":"next","turnId":"t2"}"#),
+        mux(5, "user_message", r#"{"text":"late","promptId":"s","turnId":"t1"}"#),
+        mux(6, "turn_result", r#"{"turnId":"t2"}"#),
+    ];
+    let (_, mirror) = replay(&lines);
+    let steer = mirror.reply("late");
+    assert!(mirror.visible(steer));
+    assert_eq!(steer.turn, Some(mirror.reply("first").id));
+    let next = mirror.reply("next");
+    let group = mirror
+        .rows
+        .values()
+        .find(|row| row.kind == RowKind::Group && row.turn == next.turn)
+        .unwrap();
+    assert!(!group.fields.get("out").is_some_and(|out| out.contains(&steer.id.to_string())));
+}
+
+#[test]
 fn session_exit_settles_live_bodies_and_hides_a_textless_steer() {
     let (_, m) = replay(&[
         mux(1, "user_message", r#"{"text":"q"}"#),
@@ -761,7 +1071,7 @@ fn session_exit_settles_live_bodies_and_hides_a_textless_steer() {
 fn missing_claude_tool_ids_never_coalesce_into_an_empty_identity() {
     let mut s = State::default();
     let line = r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{}}]}}"#;
-    let ops = translate(&mut s, Harness::Claude, line.as_bytes()).unwrap();
+    let ops = t(&mut s, Harness::Claude, line.as_bytes()).unwrap();
     assert!(ops.is_empty());
     assert!(s.tools.is_empty());
 }
@@ -869,6 +1179,73 @@ fn a_queued_steer_belongs_to_the_turn_that_reads_it() {
     ]);
     assert_eq!(m.reply("steer").turn, Some(m.reply("second").id));
     assert!(m.reply("steer").id < m.reply("answer").id);
+}
+
+#[test]
+fn queued_entries_are_idempotent_bounded_and_raw() {
+    let mut state = State::default();
+    let first = mux(1, "user_message", r#"{"text":"first","promptId":"p","turnId":"t1"}"#);
+    t(&mut state, Harness::V1, first.as_bytes()).unwrap();
+    let queued = mux(2, "queued", r#"{"text":"hé","promptId":"q"}"#);
+    let ops = translate(&mut state, Harness::V1, 700, 3, queued.as_bytes()).unwrap();
+    assert!(ops.iter().any(|op| matches!(
+        &op.change,
+        Change::Queue(QueueChange::Add(entry))
+            if entry.place == 700 && entry.span == 3 && entry.text_len == "hé".len() as u32
+    )));
+    assert_eq!(state.queue.len(), 1);
+    let duplicate = translate(&mut state, Harness::V1, 700, 3, queued.as_bytes()).unwrap();
+    assert!(duplicate.is_empty());
+
+    let paused = mux(3, "queue_paused", r#"{"held":["q"]}"#);
+    let paused_ops = translate(&mut state, Harness::V1, 701, 1, paused.as_bytes()).unwrap();
+    assert!(paused_ops.iter().any(|op| matches!(
+        &op.change,
+        Change::Queue(QueueChange::Add(entry)) if entry.held()
+    )));
+    let resumed = mux(4, "queue_resumed", r#"{"promptIds":["q"]}"#);
+    translate(&mut state, Harness::V1, 702, 1, resumed.as_bytes()).unwrap();
+    assert!(!state.queue.values().next().unwrap().held());
+
+    let read = mux(5, "steer_read", r#"{"promptId":"q"}"#);
+    let read_ops = translate(&mut state, Harness::V1, 703, 1, read.as_bytes()).unwrap();
+    assert!(read_ops.iter().any(|op| matches!(
+        &op.change,
+        Change::Body { source: BodySource::Raw { place: 700, span: 3 }, .. }
+    )));
+    assert!(state.queue.is_empty());
+}
+
+#[test]
+fn queue_entries_are_removed_when_read_before_or_after_queue_record() {
+    let mut state = State::default();
+    let first = mux(1, "user_message", r#"{"text":"first","turnId":"t1"}"#);
+    translate(&mut state, Harness::V1, 1, 1, first.as_bytes()).unwrap();
+    let read = mux(2, "steer_read", r#"{"promptId":"late"}"#);
+    translate(&mut state, Harness::V1, 2, 1, read.as_bytes()).unwrap();
+    let queued = mux(3, "queued", r#"{"text":"late","promptId":"late"}"#);
+    translate(&mut state, Harness::V1, 3, 1, queued.as_bytes()).unwrap();
+    assert!(state.queue.is_empty());
+    let echo = mux(4, "user_message", r#"{"text":"late","promptId":"late","steer":true}"#);
+    translate(&mut state, Harness::V1, 4, 1, echo.as_bytes()).unwrap();
+    let end = mux(5, "turn_result", r#"{"turnId":"t1"}"#);
+    translate(&mut state, Harness::V1, 5, 1, end.as_bytes()).unwrap();
+    let queued_again = mux(6, "queued", r#"{"text":"late","promptId":"late"}"#);
+    translate(&mut state, Harness::V1, 6, 1, queued_again.as_bytes()).unwrap();
+    assert!(state.queue.is_empty());
+}
+
+#[test]
+fn queue_cap_counts_the_1025th_entry_without_holding_it() {
+    let mut state = State::default();
+    t(&mut state, Harness::V1, mux(1, "user_message", r#"{"text":"first"}"#).as_bytes()).unwrap();
+    for n in 0..1025u64 {
+        let line = mux(n + 2, "queued", &format!(r#"{{"text":"q-{n}","promptId":"q-{n}"}}"#));
+        translate(&mut state, Harness::V1, n + 2, 1, line.as_bytes()).unwrap();
+    }
+    assert_eq!(state.queue.len(), 1024);
+    assert_eq!(state.counters().queue_overflowed, 1);
+    assert!(state.checkpoint().unwrap().len() <= 64 * 1024);
 }
 
 #[test]
