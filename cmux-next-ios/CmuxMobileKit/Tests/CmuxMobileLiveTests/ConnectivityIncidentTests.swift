@@ -701,6 +701,7 @@ import Testing
         #expect(signals.contains { if case .phase(.connecting) = $0 { true } else { false } })
     }
 
+    #if os(iOS)
     @Test func phasesMapToTheDetectorsStates() {
         #expect(LiveCoordinator.incidentState(.idle) == .notWanted(.linkClosed))
         #expect(LiveCoordinator.incidentState(.macOffline) == .notWanted(.macOffline))
@@ -714,6 +715,7 @@ import Testing
         #expect(LiveCoordinator.networkKind("utun3 via -") == "other")
         #expect(LiveCoordinator.simulations(relayOnly: true, blockUDP: true) == ["relay_only", "block_udp"])
     }
+    #endif
 
     @Test func theReportBodyIsWhatTheServiceReads() throws {
         let t0 = Date(timeIntervalSince1970: 1_800_000_000)

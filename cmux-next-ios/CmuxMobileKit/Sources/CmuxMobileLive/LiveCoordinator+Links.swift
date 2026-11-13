@@ -1167,7 +1167,6 @@ final class MultiMacFeedActions: FeedActions {
         return error.message.hasPrefix("no pending permission")
     }
 }
-#endif
 
 // MARK: Connectivity incidents
 
@@ -1197,3 +1196,4 @@ extension LiveCoordinator {
         (relayOnly ? ["relay_only"] : []) + (blockUDP ? ["block_udp"] : [])
     }
 }
+#endif
