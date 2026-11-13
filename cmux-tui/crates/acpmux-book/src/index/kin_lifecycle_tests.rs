@@ -104,7 +104,7 @@ fn assert_kin(
             ))
             .map(|(view, _)| view)
         })
-        .expect("folder projection rebuild");
+        .unwrap();
     let actual =
         index.folders().iter().map(|row| (row.key(), row.as_ref().clone())).collect::<Vec<_>>();
     let expected = rebuilt.iter().map(|row| (row.key(), row.as_ref().clone())).collect::<Vec<_>>();

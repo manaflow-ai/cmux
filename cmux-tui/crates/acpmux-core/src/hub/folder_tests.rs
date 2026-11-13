@@ -333,3 +333,32 @@ fn folder_subscriber_copy_matches_hot_rows_after_10k_changes_and_eviction_batche
         }
     }
 }
+
+#[test]
+fn keyed_folder_pages_reserve_bytes_for_unanswered_identities() {
+    let (hub, mut writer) = Hub::new(SummaryIndex::new());
+    let mut keys = Vec::new();
+    for n in 0..10 {
+        let folder = format!("/{}-{n}", "x".repeat(900));
+        writer.apply(row(&format!("chat-{n}"), &folder, n)).unwrap();
+        keys.push(crate::wire::FolderIdentity { origin: "local".into(), folder });
+    }
+    let key_bytes =
+        keys.iter().map(|key| serde_json::to_vec(key).unwrap().len() + 1).sum::<usize>();
+    let first = keys.first().unwrap();
+    let first_row = hub
+        .snapshot()
+        .folders()
+        .get(&FolderKey::new(first.origin.as_str(), first.folder.as_str()))
+        .unwrap();
+    let extra_row_bytes = first_row.encoded_len() - serde_json::to_vec(first).unwrap().len();
+    let mut request = page(FolderPosition { at: 0, origin: "local".into(), folder: "/a".into() });
+    request.after = None;
+    request.max_bytes = (8192 + request.sid.len() + key_bytes + extra_row_bytes) as u32;
+    request.keys = Some(keys.iter().cloned().map(PageKey::Folder).collect());
+    let frame = hub.page(&request).unwrap();
+    assert!(frame.encoded_len() <= request.max_bytes as usize);
+    let reply: FolderPageResult = frame.decode_json().unwrap();
+    assert_eq!(reply.rows.len(), 1);
+    assert_eq!(reply.rest, keys.into_iter().skip(1).collect::<Vec<_>>());
+}

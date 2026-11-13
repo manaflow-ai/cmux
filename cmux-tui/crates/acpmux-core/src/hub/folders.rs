@@ -135,24 +135,33 @@ impl Hub {
                     _ => Err(HubError::InvalidPage),
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            let mut used = 0usize;
-            for (n, key) in keys.iter().enumerate() {
+            // Every unanswered identity travels in `rest`. Reserve those
+            // bytes before admitting rows, so a legal prefix never turns into
+            // an oversized frame merely by attaching its continuation.
+            let key_costs = keys
+                .iter()
+                .map(|key| serde_json::to_vec(key).map(|bytes| bytes.len() + 1))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(FrameError::Encode)?;
+            let mut used = key_costs.iter().copied().sum::<usize>();
+            if used > budget {
+                return Err(HubError::InvalidPage);
+            }
+            for (n, (key, key_cost)) in keys.iter().zip(key_costs).enumerate() {
                 let row = index
                     .folders()
                     .get(&FolderKey::new(key.origin.as_str(), key.folder.as_str()))
                     .filter(|row| visible(&index, row));
-                let cost = row.as_ref().map_or_else(
-                    || serde_json::to_vec(key).map_or(usize::MAX, |bytes| bytes.len() + 1),
-                    |row| row.encoded_len() + 1,
-                );
-                if used.saturating_add(cost) > budget {
+                let cost = row.as_ref().map_or(key_cost, |row| row.encoded_len() + 1);
+                let next_used = used.saturating_sub(key_cost).saturating_add(cost);
+                if next_used > budget {
                     if n == 0 {
                         return Err(HubError::InvalidPage);
                     }
                     reply.rest = keys.iter().skip(n).map(|key| (*key).clone()).collect();
                     break;
                 }
-                used += cost;
+                used = next_used;
                 if let Some(row) = row {
                     if request
                         .filter

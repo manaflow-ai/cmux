@@ -337,7 +337,6 @@ impl Folders {
         let mut bytes_read = 0usize;
         let mut byte_limited = false;
         for row in candidates.take(limit) {
-            let row = row.as_ref();
             if rows.len() == limit {
                 break;
             }
