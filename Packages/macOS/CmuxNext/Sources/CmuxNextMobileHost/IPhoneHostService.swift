@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextAgentPane
 public import CmuxNextCompat
+public import CmuxNextDesign
 import CmuxNextDaemon
 import CmuxNextKeepAwake
 import CmuxNextWakeups
@@ -183,6 +184,8 @@ public final class IPhoneHostService {
     /// The folders acpmux gets (``followWorkspaceFolders()``).
     @ObservationIgnored private let folders = MobileHostWorkspaceFolders()
     @ObservationIgnored private var followingPicks: Task<Void, Never>?
+    /// This Mac's theme and wallpaper for the phones (`followAppearance(of:)`).
+    @ObservationIgnored var followingAppearance: Task<Void, Never>?
     @ObservationIgnored private var pairingWatch: Task<Void, Never>?
     /// App-lifetime wake observer; released on stop or deinit.
     @ObservationIgnored private var wakeObserver: MainActorObservation?
@@ -224,7 +227,8 @@ public final class IPhoneHostService {
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.iphone")
 
     /// A host that runs nothing until it is wired and an account with the setting on arrives.
-    public init(loginKeychain: LoginKeychain, pairedStore: MobileHostPairedStore? = nil) {
+    /// `appearance`: the scope whose theme and wallpaper the phones get (the app's; ask-87d30da8e5).
+    public init(loginKeychain: LoginKeychain, pairedStore: MobileHostPairedStore? = nil, appearance: ThemeScope? = nil) {
         self.loginKeychain = loginKeychain
         let pairedStore = pairedStore ?? MobileHostPairedStore(loginKeychain: loginKeychain)
         self.pairedStore = pairedStore
@@ -275,6 +279,7 @@ public final class IPhoneHostService {
                 self?.pairingEvent(event)
             }
         }
+        if let appearance { followAppearance(of: appearance) }
     }
 
     /// The app Feed's open requests for the phones (#33818), from `user`'s feed: handed to hostd,
@@ -282,6 +287,12 @@ public final class IPhoneHostService {
     /// set for that account's hostd only.
     public func setNeedsYou(_ requests: [MobileHostNeedsYouRequest], user: String) async {
         await supervisor.setNeedsYou(requests, user: user)
+    }
+
+    /// This Mac's theme and wallpaper for the phones (ask-87d30da8e5): handed to hostd, which
+    /// serves it (`appearance.rs`). One hop to the supervisor; it keeps the newest for each hostd.
+    public func setAppearance(_ appearance: MobileHostAppearance) async {
+        await supervisor.setAppearance(appearance)
     }
 
     /// The feed's account changed or signed out: the kept set is forgotten, so no hostd gets it.
@@ -483,6 +494,7 @@ public final class IPhoneHostService {
         pairingWatch?.cancel()
         folders.stop()
         followingPicks?.cancel()
+        followingAppearance?.cancel()
         approverSync?.stop()
         quietAttention()
         let supervisor = supervisor

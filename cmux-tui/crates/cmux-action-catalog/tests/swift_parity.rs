@@ -22,7 +22,7 @@ fn repo() -> PathBuf {
 /// Actions this crate has and the pinned app FFI does not yet (step A of an app FFI change,
 /// docs/ci/app-ffi-release.md). The exports are written from the pinned catalog, so they gain
 /// these rows with the re-pin, which takes them off this list (#38644, #41954).
-const AWAITING_REPIN: &[&str] = &["palette.toggleTerminalChat"];
+const AWAITING_REPIN: &[&str] = &["palette.toggleTerminalChat", "debug.sidebarRowTuner"];
 
 /// Each id on [`AWAITING_REPIN`] is a catalog action that `export` (one of the exports' action
 /// lists) does not have yet: once the export has it, it comes off the list.

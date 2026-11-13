@@ -25,6 +25,30 @@ PREFLIGHT = ROOT / 'scripts/ci/spm_artifact_preflight.py'
 BUILD_STEP = ROOT / 'scripts/ci/nightly-steps/app-build-release.sh'
 IROH_PACKAGE = 'let package = Package(targets: [\n  .binaryTarget(\n    name: "Iroh",\n    url: "https://x/Iroh.zip", checksum: "0")\n])\n'
 
+# iroh-ffi's Package.swift at the pin of Package.resolved (ee19f156667c, 1.2.0-cmux.1.ios17), the lines that select
+# its binary, verbatim: ONE target `Iroh`, declared in 2 ways. SwiftPM takes `path:` only where a locally built
+# xcframework is in the package's folder; a checkout has none, so the build gets the release zip in artifacts/.
+IROH_FFI_PACKAGE = r'''let packageDir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+let localBuiltBinaries = [
+    "Iroh.xcframework/macos-arm64_x86_64/Iroh.framework/Versions/A/Iroh",
+    "Iroh.xcframework/macos-x86_64_arm64/Iroh.framework/Versions/A/Iroh",
+    // Continue recognizing locally built artifacts from before Intel support.
+    "Iroh.xcframework/macos-arm64/Iroh.framework/Versions/A/Iroh",
+].map { packageDir.appendingPathComponent($0) }
+let forceRemote = ProcessInfo.processInfo.environment["IROH_FORCE_REMOTE_XCFRAMEWORK"] != nil
+let useLocalXcframework = !forceRemote
+    && localBuiltBinaries.contains { FileManager.default.fileExists(atPath: $0.path) }
+
+let irohBinary: Target = useLocalXcframework
+    ? .binaryTarget(
+        name: "Iroh",
+        path: "Iroh.xcframework")
+    : .binaryTarget(
+        name: "Iroh",
+        url: "https://github.com/\(releaseRepository)/releases/download/\(releaseTag)/IrohLib.xcframework.zip",
+        checksum: releaseChecksum)
+'''
+
 
 def write_state(source_packages: Path, artifact_path: Path) -> None:
     source_packages.mkdir(parents=True, exist_ok=True)
@@ -98,6 +122,116 @@ class SpmArtifactPreflight(unittest.TestCase):
         self.own.mkdir(parents=True)
         self.assertEqual(preflight.problems(self.packages, [resolved]), [])
 
+    def local_packages(self):
+        """An app whose Xcode project names one local package (CmuxNext, with the CCmuxAppFFI binary target) that
+        depends on another by path (CmuxVNCWebRTC, with WebRTC); no workspace-state.json, no Package.resolved."""
+        app = self.root / 'app'
+        project = app / 'cmux.xcodeproj'
+        project.mkdir(parents=True)
+        (project / 'project.pbxproj').write_text(
+            '/* Begin XCLocalSwiftPackageReference section */\n'
+            '\t\tA1 /* XCLocalSwiftPackageReference "Packages/macOS/CmuxNext" */ = {\n'
+            '\t\t\tisa = XCLocalSwiftPackageReference;\n'
+            '\t\t\trelativePath = Packages/macOS/CmuxNext;\n\t\t};\n')
+        root = app / 'Packages/macOS/CmuxNext'
+        root.mkdir(parents=True)
+        (root / 'Package.swift').write_text(
+            'let appFFI: Target = .binaryTarget(\n    name: "CCmuxAppFFI",\n    url: appFFIPin.url,\n'
+            '    checksum: appFFIPin.checksum\n)\n'
+            'let package = Package(dependencies: [\n    .package(path: "../../Shared/CmuxVNCWebRTC"),\n'
+            '    .package(url: "https://github.com/getsentry/sentry-cocoa", from: "8.0.0"),\n], targets: [appFFI])\n')
+        webrtc = app / 'Packages/Shared/CmuxVNCWebRTC'
+        webrtc.mkdir(parents=True)
+        (webrtc / 'Package.swift').write_text(
+            'let package = Package(targets: [\n        // .binaryTarget(name: "Retired", url: "https://x/R.zip", checksum: "0"),\n'
+            '        .binaryTarget(\n            name: "WebRTC",\n'
+            '            url: "https://github.com/stasel/WebRTC/releases/download/154.0.0/WebRTC-M154.xcframework.zip",\n'
+            '            checksum: "a2"\n        ),\n'
+            '        .binaryTarget(name: "LocalKit", path: "Frameworks/LocalKit.xcframework"),\n])\n')
+        (webrtc / 'Frameworks/LocalKit.xcframework').mkdir(parents=True)
+        (self.packages / 'checkouts').mkdir(parents=True)
+        return project, [self.packages / 'artifacts/cmuxnext/CCmuxAppFFI/CCmuxAppFFI.xcframework',
+                         self.packages / 'artifacts/cmuxvncwebrtc/WebRTC/WebRTC.xcframework']
+
+    def test_a_local_packages_missing_xcframework_resolves_again_without_workspace_state(self):
+        # F1 on #42238: the seed drops workspace-state.json and Package.resolved pins only remote packages, so a
+        # local package's binary target (WebRTC, the root's CCmuxAppFFI) is found from the manifests themselves.
+        project, wanted = self.local_packages()
+        self.assertFalse((self.packages / 'workspace-state.json').exists())
+        found = preflight.problems(self.packages, [], [project])
+        for path in wanted:
+            self.assertTrue(any(f'{path} is missing' in problem for problem in found), found)
+        script = self.root / 'resolve_local.py'
+        script.write_text('import pathlib, sys\nfor p in sys.argv[1:]: pathlib.Path(p).mkdir(parents=True)\n')
+        result = subprocess.run([sys.executable, '-I', str(PREFLIGHT), str(self.packages), '--xcodeproj', str(project),
+                                 '--', sys.executable, '-I', str(script), *map(str, wanted)],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('resolving again', result.stdout)
+        self.assertIn('cmuxvncwebrtc/WebRTC/WebRTC.xcframework is missing', result.stdout)
+
+    def test_local_packages_with_every_xcframework_in_place_pass(self):
+        project, wanted = self.local_packages()
+        for path in wanted:
+            path.mkdir(parents=True)
+        self.assertEqual(preflight.problems(self.packages, [], [project]), [])
+        result = subprocess.run([sys.executable, '-I', str(PREFLIGHT), str(self.packages), '--xcodeproj', str(project),
+                                 '--', 'false'], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn('resolving again', result.stdout)
+
+    def test_a_local_path_binary_target_must_exist_in_its_package(self):
+        project, wanted = self.local_packages()
+        for path in wanted:
+            path.mkdir(parents=True)
+        local = self.root / 'app/Packages/Shared/CmuxVNCWebRTC/Frameworks/LocalKit.xcframework'
+        local.rmdir()
+        found = preflight.problems(self.packages, [], [project])
+        self.assertTrue(any(f'{local} is missing' in problem for problem in found), found)
+
+    def iroh_ffi_checkout(self):
+        """The pinned iroh-ffi checkout as the nightly's tree has it: the real manifest's 2 declarations of `Iroh`."""
+        checkout = self.packages / 'checkouts/iroh-ffi'
+        checkout.mkdir(parents=True)
+        (checkout / 'Package.swift').write_text(IROH_FFI_PACKAGE)
+        resolved = self.root / 'Package.resolved'
+        resolved.write_text(json.dumps({'pins': [{'identity': 'iroh-ffi',
+                                                  'location': 'https://github.com/manaflow-ai/iroh-ffi.git'}]}))
+        return checkout, resolved
+
+    def test_a_target_declared_by_path_or_url_is_in_place_from_its_release_zip(self):
+        # Nightly push runs 43375104895 and 43375861824: the build stopped at "checkouts/iroh-ffi/Iroh.xcframework
+        # is missing (iroh-ffi declares binary target Iroh at Iroh.xcframework)" with the artifact in artifacts/.
+        _checkout, resolved = self.iroh_ffi_checkout()
+        self.own.mkdir(parents=True)
+        self.assertEqual(preflight.problems(self.packages, [resolved]), [])
+
+    def test_a_target_declared_by_path_or_url_comes_back_with_a_resolve(self):
+        # Nothing is there: the artifact a resolve can bring is the one that is asked for, never the path in the
+        # checkout, which no resolve fills.
+        checkout, resolved = self.iroh_ffi_checkout()
+        found = preflight.problems(self.packages, [resolved])
+        self.assertEqual(found, [f'{self.own} is missing (iroh-ffi declares binary target Iroh)'])
+        result = subprocess.run([sys.executable, '-I', str(PREFLIGHT), str(self.packages), '--resolved', str(resolved),
+                                 '--', *self.resolver()], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('resolving again', result.stdout)
+        self.assertNotIn(str(checkout / 'Iroh.xcframework'), result.stdout)
+        self.assertEqual(preflight.problems(self.packages, [resolved]), [])
+
+    def test_a_target_declared_by_path_or_url_is_in_place_from_its_local_build(self):
+        # A source checkout that was built: SwiftPM takes the `path:` form, and artifacts/ holds nothing of it.
+        checkout, resolved = self.iroh_ffi_checkout()
+        (checkout / 'Iroh.xcframework').mkdir()
+        self.assertEqual(preflight.problems(self.packages, [resolved]), [])
+
+    def test_checkouts_are_read_when_no_package_resolved_pins_them(self):
+        checkout = self.packages / 'checkouts/iroh-ffi'
+        checkout.mkdir(parents=True)
+        (checkout / 'Package.swift').write_text(IROH_PACKAGE)
+        found = preflight.problems(self.packages, [])
+        self.assertTrue(any('iroh-ffi/Iroh/Iroh.xcframework is missing' in problem for problem in found), found)
+
     def test_a_complete_tree_does_not_resolve(self):
         write_state(self.packages, self.own)
         self.own.mkdir(parents=True)
@@ -133,6 +267,7 @@ class SpmArtifactPreflight(unittest.TestCase):
         self.assertIn('xcodebuild -resolvePackageDependencies', resolve)
         self.assertIn('-clonedSourcePackagesDirPath .spm-cache', resolve)
         self.assertIn('-packageCachePath "$PWD/.spm-cache/.package-cache"', resolve)
+        self.assertIn('--xcodeproj cmux.xcodeproj', resolve)
         self.assertIn('cd "$build_root"', text[text.rfind('(', 0, call):call])
 
 
