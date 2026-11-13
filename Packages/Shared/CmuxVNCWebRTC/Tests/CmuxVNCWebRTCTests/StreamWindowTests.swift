@@ -1,6 +1,7 @@
 import CmuxVNCWebRTC
 import CoreImage
 import CoreVideo
+import Darwin
 import Foundation
 import ImageIO
 import Testing
@@ -48,6 +49,15 @@ struct StreamWindowTests {
 
     private func unixMs() -> Int { Int(Date().timeIntervalSince1970 * 1000) }
 
+    private func processCPUSeconds() -> Double? {
+        var usage = rusage()
+        guard getrusage(RUSAGE_SELF, &usage) == 0 else { return nil }
+        func seconds(_ time: timeval) -> Double {
+            Double(time.tv_sec) + Double(time.tv_usec) / 1_000_000
+        }
+        return seconds(usage.ru_utime) + seconds(usage.ru_stime)
+    }
+
     @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_EVAL_WINDOW_S"] != nil), .timeLimit(.minutes(5)))
     func passiveWindow() async throws {
         let env = ProcessInfo.processInfo.environment
@@ -68,7 +78,9 @@ struct StreamWindowTests {
         var last = await viewer.videoStats()
         let first = last
         let clock = ContinuousClock()
-        var next = clock.now
+        let cpuStart = processCPUSeconds()
+        let started = clock.now
+        var next = started
         for _ in 0 ..< seconds {
             next += .seconds(1)
             try await Task.sleep(until: next, clock: clock)
@@ -84,6 +96,15 @@ struct StreamWindowTests {
             ])
             last = now
         }
+        let elapsed = started.duration(to: clock.now).components
+        let elapsedSeconds = Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
+        let cpuEnd = processCPUSeconds()
+        let cpuPercent: Any
+        if let cpuStart, let cpuEnd, cpuEnd >= cpuStart, elapsedSeconds > 0 {
+            cpuPercent = (cpuEnd - cpuStart) / elapsedSeconds * 100
+        } else {
+            cpuPercent = NSNull()
+        }
         if let path = env["CMUX_EVAL_SNAPSHOT"], let pixels = reader.newest { writePNG(pixels, to: path) }
         let report: [String: Any] = [
             "engine": "webrtc (CmuxVNCWebRTC ScreenStreamHost)",
@@ -94,6 +115,7 @@ struct StreamWindowTests {
             "packets_lost": last.packetsLost - first.packetsLost,
             "frames_dropped": last.framesDropped - first.framesDropped,
             "freezes": last.freezeCount - first.freezeCount,
+            "client_cpu_pct": cpuPercent,
         ]
         let json = try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys])
         print("streamwindow: \(String(decoding: json, as: UTF8.self))")
