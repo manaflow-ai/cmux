@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CmuxNextFiles
 public import CmuxNextSettings
 public import Foundation
@@ -52,6 +53,30 @@ public final class AgentBoardPageProvider: PageProvider {
         self.watcher = watcher
     }
 
+    /// The provider the app uses: `agents.board.enabled` read from and written to `settings` as the
+    /// person (a `.userOnly` key), files opened by the app and links in a cmux browser tab.
+    public convenience init(
+        settings: SettingsController?,
+        openFile: @escaping @MainActor (URL) -> Void,
+        openLink: @escaping @MainActor (URL) -> Bool
+    ) {
+        self.init(
+            enabled: { [weak settings] in settings.map { Self.isEnabled($0.snapshot.root) } ?? false },
+            write: { [weak settings] on in
+                guard let settings else {
+                    throw PageError(code: "cmux.agentBoard.unavailable", message: Self.settingsNotLoaded, retryable: true)
+                }
+                try await settings.setSetting(at: AgentGuidanceSettings.boardEnabledPath, to: .bool(on), by: .user)
+            },
+            openFile: openFile,
+            openLink: openLink)
+    }
+
+    /// Whether the settings file turns the board on; the flat dotted key counts as the nested one.
+    public nonisolated static func isEnabled(_ root: JSONValue) -> Bool {
+        (root["agents.board.enabled"] ?? root.value(at: AgentGuidanceSettings.boardEnabledPath))?.boolValue == true
+    }
+
     /// The ledger folder agents write to: the skill's `CMUX_AGENT_BOARD_DIR`, else `~/.cmux/agent-board`.
     public nonisolated static func defaultFolder(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
         if let dir = environment["CMUX_AGENT_BOARD_DIR"], !dir.isEmpty {
@@ -89,15 +114,14 @@ public final class AgentBoardPageProvider: PageProvider {
             let target = params["url"]?.stringValue ?? params["path"]?.stringValue ?? ""
             guard !target.isEmpty else { throw PageError.invalidParams("path or url is required") }
             let folder = self.folder
-            let named = await Task.detached(priority: .userInitiated) { Self.ledgersName(target, in: folder) }.value
-            guard named else { throw Self.notInLedger }
-            if let url = URL(string: target), url.scheme == "https" || url.scheme == "http" {
-                return .object(["opened": .bool(openLink(url))])
-            }
+            let link = URL(string: target).flatMap { $0.scheme == "https" || $0.scheme == "http" ? $0 : nil }
             let file = URL(fileURLWithPath: (target as NSString).expandingTildeInPath)
-            guard FileManager.default.fileExists(atPath: file.path) else {
-                throw PageError(code: "cmux.agentBoard.missing", message: Self.missing)
-            }
+            let (named, exists) = await Task.detached(priority: .userInitiated) {
+                (Self.ledgersName(target, in: folder), link != nil || FileManager.checked.fileExists(atPath: file.path))
+            }.value
+            guard named else { throw Self.notInLedger }
+            if let link { return .object(["opened": .bool(openLink(link))]) }
+            guard exists else { throw PageError(code: "cmux.agentBoard.missing", message: Self.missing) }
             openFile(file)
             return .object(["opened": .bool(true)])
         default:
@@ -109,8 +133,13 @@ public final class AgentBoardPageProvider: PageProvider {
                           onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
         guard stream == "cmux.agentBoard.changes" else { throw PageError.unknownOp(stream) }
         // The folder must exist for FSEvents to watch it; agents create it on their first append too.
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let folder = self.folder
+        await Task.detached(priority: .utility) {
+            try? FileManager.checked.createDirectory(at: folder, withIntermediateDirectories: true)
+        }.value
         let changes = watcher.changes(in: folder)
+        // main-hop-allow: one empty page event per folder change; FSEvents coalesces bursts (50 ms) and the
+        // stream keeps at most 64 changes, so each hop only posts one message to the page's web view.
         let task = Task { @MainActor in
             for await _ in changes { onEvent(.object([:])) }
         }
@@ -137,19 +166,19 @@ public final class AgentBoardPageProvider: PageProvider {
     /// The newest ledgers in `folder` (`*.jsonl`), newest first. A missing folder is no ledgers.
     nonisolated static func readLedgers(in folder: URL) -> [Ledger] {
         let keys: [URLResourceKey] = [.contentModificationDateKey, .isRegularFileKey]
-        guard let items = try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: keys) else {
+        guard let items = try? FileManager.checked.contentsOfDirectory(at: folder, includingPropertiesForKeys: keys) else {
             return []
         }
         let files = items.compactMap { url -> (URL, Date)? in
             guard url.pathExtension == "jsonl",
-                  let values = try? url.resourceValues(forKeys: Set(keys)), values.isRegularFile == true
+                  let values = try? url.blockingResourceValues(forKeys: Set(keys)), values.isRegularFile == true
             else { return nil }
             return (url, values.contentModificationDate ?? .distantPast)
         }
         return files.sorted { $0.1 > $1.1 }.prefix(ledgerLimit).compactMap { url, modified in
             guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
             defer { try? handle.close() }
-            let data = (try? handle.read(upToCount: ledgerByteLimit + 1)) ?? Data()
+            let data = (try? handle.blockingRead(upToCount: ledgerByteLimit + 1)) ?? Data()
             let truncated = data.count > ledgerByteLimit
             let kept = truncated ? data.prefix(ledgerByteLimit) : data
             // A cut line at the end is dropped rather than shown as an unreadable line.
@@ -175,12 +204,12 @@ public final class AgentBoardPageProvider: PageProvider {
             throw PageError(code: "cmux.agentBoard.notImage", message: notImage)
         }
         guard ledgersName(path, in: folder) else { throw notInLedger }
-        let attributes = try? FileManager.default.attributesOfItem(atPath: file.path)
+        let attributes = try? FileManager.checked.attributesOfItem(atPath: file.path)
         guard let size = (attributes?[.size] as? NSNumber)?.intValue else {
             throw PageError(code: "cmux.agentBoard.missing", message: missing)
         }
         if size > imageByteLimit { return .object(["tooLarge": .bool(true), "size": .number(Double(size))]) }
-        guard let data = try? Data(contentsOf: file) else {
+        guard let data = try? Data(blockingContentsOf: file) else {
             throw PageError(code: "cmux.agentBoard.missing", message: missing)
         }
         return .object(["dataURL": .string("data:\(type);base64,\(data.base64EncodedString())")])

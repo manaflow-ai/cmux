@@ -8,10 +8,6 @@
   --ab-wait: var(--ds-color-attention, #ff9f0a);
   --ab-accent: var(--ds-color-accent, var(--cmux-accent, #0a84ff));
   --ab-muted: var(--ds-color-muted, var(--cmux-text-secondary, GrayText));
-  /* Drawn stand-ins for captured screenshots: the light and dark app canvases they depict. */
-  --ab-thumb-light: #f5f5f7;
-  --ab-thumb-dark: #1d1d1f;
-  --ab-thumb-ink: #8e8e93;
   color: var(--ds-color-fg, var(--cmux-text, CanvasText));
   font-family: var(--font-ui);
   font-size: var(--text-body);
@@ -161,10 +157,6 @@ code {
   margin-top: var(--ds-space-4);
 }
 .ab-dialog {
-  --ab-scrim: rgb(0 0 0 / 0.55);
-  --ab-thumb-light: #f5f5f7;
-  --ab-thumb-dark: #1d1d1f;
-  --ab-thumb-ink: #8e8e93;
   --ab-border: var(--ds-color-separator);
   --ab-accent: var(--ds-color-accent);
   --ab-bad: var(--ds-color-danger);
@@ -193,16 +185,6 @@ code {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: var(--text-detail);
   white-space: pre-wrap;
-}
-.ab-play {
-  position: absolute;
-  display: grid;
-  place-items: center;
-  width: var(--ds-space-48);
-  height: var(--ds-space-48);
-  border-radius: 50%;
-  background: var(--ab-scrim);
-  color: var(--ds-color-on-accent);
 }
 .ab-viewer-meta {
   display: grid;
