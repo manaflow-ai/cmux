@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43371059420",
+  "recorded_at": "2026-11-13T05:25:27Z",
+  "reason": "cmux-tui 63dd6b4723bb changes the image's cmux-tui (pinned 5f1acbba80dd)",
+  "dry_run": false,
+  "cmux_tui": "63dd6b4723bbfd7b8e17436645d7b5e94ff95f22",
+  "fixes": [
+    {
+      "sha": "63dd6b4723bbfd7b8e17436645d7b5e94ff95f22",
+      "mergedAt": "2026-11-12T22:53:28-06:00",
+      "subject": "cmux-tui notifications: the poster test starts a fixed program and posts after its first output"
+    },
+    {
+      "sha": "70dde52ca7d3627589683c9810cb64999c6d917b",
+      "mergedAt": "2026-11-12T22:53:28-06:00",
+      "subject": "cmux-tui notifications: a poster is one read of the foreground group"
+    },
+    {
+      "sha": "5c09cbcd5392b0f33c9806f96879cf105ece299c",
+      "mergedAt": "2026-11-12T22:53:28-06:00",
+      "subject": "cmux-tui notifications: red test, a poster pairs one leader's PID with a later leader's executable"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T05:25:27Z",
+    "snapshot_id": "sh-b5629b0bd2064c0884f1736c46d41a8f",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43371059420): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "f571281739fd5044e235ff84fb274294c4cc55be",
+    "image": "cloud-native-auto-63dd6b47-43371059420-1",
+    "revision": "ci-43371059420-1",
+    "at": "2026-11-13T05:25:27Z"
+  },
+  "rolled_back": false
+}
