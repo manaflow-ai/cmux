@@ -374,6 +374,12 @@ struct WorkspaceShellView: View {
     /// Set from launch until the user picks, creates or deep-links into a
     /// workspace; the phone split detail stays empty meanwhile.
     @State var splitDetailAwaitsWorkspacePick = false
+    /// The workspace open when the scene was last saved, so a relaunch after
+    /// the system ended the suspended app reopens it.
+    @SceneStorage(MobileWorkspaceShellLayoutPolicy.openWorkspaceSceneStorageKey)
+    private var sceneOpenWorkspaceID = ""
+    /// A remembered workspace waiting for the workspace list to include it.
+    @State private var pendingRestoredWorkspaceID: MobileWorkspacePreview.ID?
     #if os(iOS)
     /// Measured width of the split sidebar column. Feeds the root toolbar's
     /// content-width environment so the computer picker budgets against the
@@ -526,6 +532,13 @@ struct WorkspaceShellView: View {
             .onChange(of: store.deeplinkWorkspaceNavigationRequest) { _, request in
                 guard request != nil else { return }
                 consumeDeeplinkNavigationRequestIfNeeded()
+            }
+            .onChange(of: pendingRestoredWorkspaceIsListed) { _, isListed in
+                guard isListed else { return }
+                restorePendingWorkspaceIfListed()
+            }
+            .onChange(of: openWorkspaceID) { _, id in
+                rememberOpenWorkspace(id)
             }
             .onAppear {
                 store.recordAppEvent(
@@ -1450,11 +1463,41 @@ struct WorkspaceShellView: View {
         guard !Self.launchSelectionHandled else { return }
         Self.launchSelectionHandled = true
         #if os(iOS)
+        let hasPendingDeeplink = store.deeplinkWorkspaceNavigationRequest != nil
         splitDetailAwaitsWorkspacePick = MobileWorkspaceShellLayoutPolicy.launchAwaitsWorkspacePick(
             isPhoneIdiom: UIDevice.current.userInterfaceIdiom == .phone,
-            hasPendingDeeplink: store.deeplinkWorkspaceNavigationRequest != nil
+            hasPendingDeeplink: hasPendingDeeplink
         )
+        pendingRestoredWorkspaceID = MobileWorkspaceShellLayoutPolicy.launchRestoredWorkspaceID(
+            sceneOpenWorkspaceID: sceneOpenWorkspaceID,
+            hasPendingDeeplink: hasPendingDeeplink
+        ).map(MobileWorkspacePreview.ID.init(rawValue:))
+        restorePendingWorkspaceIfListed()
         #endif
+    }
+
+    /// The workspace the shell shows, which scene storage remembers.
+    private var openWorkspaceID: MobileWorkspacePreview.ID? {
+        usesCompactStack ? compactNavigationPath.last : splitDetailWorkspaceID
+    }
+
+    private var pendingRestoredWorkspaceIsListed: Bool {
+        guard let pendingRestoredWorkspaceID else { return false }
+        return store.workspaces.contains { $0.id == pendingRestoredWorkspaceID }
+    }
+
+    /// Reopens the remembered workspace once the workspace list includes it,
+    /// the same way a tap opens it.
+    private func restorePendingWorkspaceIfListed() {
+        guard pendingRestoredWorkspaceIsListed, let pendingRestoredWorkspaceID else { return }
+        selectWorkspaceImmediately(pendingRestoredWorkspaceID)
+    }
+
+    /// Remembers the open workspace, except while a launch still waits to
+    /// reopen the remembered one.
+    private func rememberOpenWorkspace(_ id: MobileWorkspacePreview.ID?) {
+        guard pendingRestoredWorkspaceID == nil else { return }
+        sceneOpenWorkspaceID = id?.rawValue ?? ""
     }
 
     /// The workspace the split detail and sidebar highlight show: none until
@@ -1466,6 +1509,7 @@ struct WorkspaceShellView: View {
     /// Ends the launch wait at an explicit open (a tap, search result,
     /// create or deep link), and brings back a sidebar the user had hidden.
     func noteWorkspacePicked() {
+        pendingRestoredWorkspaceID = nil
         guard splitDetailAwaitsWorkspacePick else { return }
         splitDetailAwaitsWorkspacePick = false
         guard splitSidebarShownUntilWorkspacePicked else { return }

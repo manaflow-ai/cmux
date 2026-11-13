@@ -118,6 +118,15 @@ import Testing
         )
     }
 
+    @Test func relaunchAfterTheSystemEndedTheAppReopensTheWorkspace() {
+        typealias Policy = MobileWorkspaceShellLayoutPolicy
+        #expect(Policy.launchRestoredWorkspaceID(sceneOpenWorkspaceID: "ws-1", hasPendingDeeplink: false) == "ws-1")
+        // Nothing was open, or the user closed the app: start on the list.
+        #expect(Policy.launchRestoredWorkspaceID(sceneOpenWorkspaceID: "", hasPendingDeeplink: false) == nil)
+        // A notification tap opens its own workspace.
+        #expect(Policy.launchRestoredWorkspaceID(sceneOpenWorkspaceID: "ws-1", hasPendingDeeplink: true) == nil)
+    }
+
     @Test func onlyTheSidebarColumnCountsAsShown() {
         #expect(MobileWorkspaceShellLayoutPolicy.splitSidebarIsHidden(.detailOnly))
         #expect(!MobileWorkspaceShellLayoutPolicy.splitSidebarIsHidden(.all))

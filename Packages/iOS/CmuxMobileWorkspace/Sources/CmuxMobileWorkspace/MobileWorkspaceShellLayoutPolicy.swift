@@ -93,6 +93,28 @@ public struct MobileWorkspaceShellLayoutPolicy {
         isPhoneIdiom && !hasPendingDeeplink
     }
 
+    /// The scene-storage key holding the workspace open when the scene was
+    /// last saved.
+    public static let openWorkspaceSceneStorageKey = "cmux.workspaces.openWorkspaceID"
+
+    /// The workspace a launch reopens instead of starting on the list.
+    ///
+    /// iOS keeps scene storage when it ends a suspended app and drops it when
+    /// the user closes the app from the switcher, so a relaunch the user
+    /// didn't ask for comes back to the workspace they had open, while a
+    /// fresh launch starts on the list. A pending deep link keeps its target.
+    /// - Parameters:
+    ///   - sceneOpenWorkspaceID: The stored workspace ID, empty when none was open.
+    ///   - hasPendingDeeplink: Whether a deep link is waiting to open a workspace.
+    /// - Returns: The workspace ID to reopen, or `nil`.
+    public static func launchRestoredWorkspaceID(
+        sceneOpenWorkspaceID: String,
+        hasPendingDeeplink: Bool
+    ) -> String? {
+        guard !sceneOpenWorkspaceID.isEmpty, !hasPendingDeeplink else { return nil }
+        return sceneOpenWorkspaceID
+    }
+
     /// Whether a column visibility hides the phone split sidebar.
     ///
     /// The split opens on an explicit visibility (see
