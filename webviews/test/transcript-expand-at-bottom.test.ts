@@ -381,6 +381,9 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
         // or over a frame with no read is two or three frames' moves: it says so and is not judged,
         // but all of the move between two reads next to each other is a jump however they ran.
         const { largest, judged, joined, jumped } = steps(frames, moving, before[moving], after[moving]);
+        console.log(
+          `VEHICLE real ${engineName} ${direction}: ${vehicleLine(frames, moving, before[moving], after[moving])}`,
+        );
         if (joined > 0)
           console.log(
             `no verdict: joined steps (${engineName} ${direction}: ${joined} moves read over a late read or a frame with no read, ${judged} one-frame steps judged, the largest ${largest.toFixed(1)} of ${Math.abs(total).toFixed(1)})`,
@@ -400,6 +403,69 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
       }
       await page.close();
       if (engine !== browser) await engine.close();
+    });
+
+  // VEHICLE, never merges: every number of one fold on one line, each read as place@ms since the
+  // read before, L = late.
+  const vehicleLine = (frames: Frame[], key: "line" | "under", from: number, to: number) => {
+    const { places, late } = glide(frames, key, from, to);
+    const { largest, judged, joined, jumped } = steps(frames, key, from, to);
+    const total = Math.abs(to - from);
+    const reads: string[] = [];
+    let last: number | undefined;
+    for (const frame of frames) {
+      if (reads.length >= 24) break;
+      const apart = last === undefined ? 0 : frame.at - last;
+      reads.push(`${frame[key].toFixed(1)}@${apart.toFixed(0)}${frame.lag > FRAME_MS ? "L" : ""}`);
+      last = frame.at;
+    }
+    return `total=${total.toFixed(1)} places=${places} late=${late} largest=${largest.toFixed(1)} (${((largest / total) * 100).toFixed(1)}%) judged=${judged} joined=${joined} jumped=${jumped} between=${places >= 3 ? "pass" : late > 0 ? "no verdict" : "FAIL"} smooth=${largest <= total * 0.7 ? "pass" : "FAIL"} jump=${jumped ? "FAIL" : "pass"} from=${from.toFixed(1)} reads=${reads.join(" ")}`;
+  };
+  // VEHICLE, never merges: the same fold with the look "jump" (fold.ts FoldLook: the fold applies at
+  // once). Each of the 3 tries prints its numbers; the case is red when the asserts of the glide
+  // case catch the jump, which is what this run is for.
+  for (const engineName of ["chromium", "webkit"] as const)
+    test(`VEHICLE jump (${engineName}): a fold that applies at once fails the glide asserts`, async () => {
+      let engine = browser!;
+      if (engineName === "webkit") {
+        engine = await webkit.launch({ headless: true });
+        await warmGalleryFrame(vite!, ENTRY, { browser: engine, params: { variant: VARIANT } });
+      }
+      const caught: { attempt: number; direction: string; jumped: boolean; largest: number; total: number }[] = [];
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        const page = await open(VARIANT, GROUP, engine, { "run-scroll": "inline" });
+        await page.locator(".acpmux-scroll").evaluate((node, selector) => {
+          document.documentElement.setAttribute("data-fold-look", "jump");
+          node.querySelector<HTMLElement>(selector)!.dataset.glideProbe = "true";
+          node.scrollTop = node.scrollHeight;
+        }, GROUP);
+        await settled(page);
+        const PROBE = "[data-glide-probe]";
+        for (const direction of ["open", "close"] as const) {
+          if (direction === "close") {
+            await page.locator(".acpmux-scroll").evaluate((node) => {
+              node.scrollTop = node.scrollHeight;
+            });
+            await settled(page);
+          }
+          const before = (await watchOpen(page, PROBE, 0, false))[0]!;
+          const frames = await watchOpen(page, PROBE);
+          await settled(page);
+          const after = (await watchOpen(page, PROBE, 0, false))[0]!;
+          const moving = direction === "open" ? "under" : "line";
+          console.log(
+            `VEHICLE jump ${engineName} try=${attempt} ${direction}: ${vehicleLine(frames, moving, before[moving], after[moving])}`,
+          );
+          const { largest, jumped } = steps(frames, moving, before[moving], after[moving]);
+          caught.push({ attempt, direction, jumped, largest, total: Math.abs(after[moving] - before[moving]) });
+        }
+        await page.close();
+      }
+      if (engine !== browser) await engine.close();
+      for (const each of caught) {
+        expect({ ...each, jumped: each.jumped }).toEqual({ ...each, jumped: false });
+        expect({ ...each, smooth: each.largest <= each.total * 0.7 }).toEqual({ ...each, smooth: true });
+      }
     });
 
   /// The scene's own plays (ExpandAtBottom.gallery.ts) check where the bottom and the clicked line
