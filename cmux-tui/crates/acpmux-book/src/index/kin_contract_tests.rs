@@ -528,7 +528,7 @@ fn table_answers_match_independent_parent_and_fork_oracles() {
     let child = parent(row("oracle-child", 1), &root);
     let grandchild = parent(row("oracle-grandchild", 2), &child);
     let forked = fork(row("oracle-fork", 3), &root);
-    let rows = vec![root.clone(), child.clone(), grandchild.clone(), forked.clone()];
+    let rows = [root.clone(), child, grandchild, forked];
     let index = rows
         .iter()
         .cloned()
