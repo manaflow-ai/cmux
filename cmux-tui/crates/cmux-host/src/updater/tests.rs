@@ -871,7 +871,7 @@ fn a_restore_the_supervisor_has_not_dispatched_holds_the_flip() {
 }
 
 /// Review F2 of #38326: the health timeout's rollback waits while carrier
-/// sessions are attached, looking again every minute, and stops waiting when
+/// sessions are attached, looking again every BUSY_RETRY, and stops waiting when
 /// the role stops.
 #[cfg(target_os = "linux")]
 #[test]
@@ -880,7 +880,7 @@ fn the_health_timeout_rollback_waits_for_carrier_sessions() {
         vec![None, Some("1 carrier session(s) attached".to_owned()), Some("1".to_owned())];
     let mut carrier = || looks.pop().flatten();
     // `wait` with no message times out after BUSY_RETRY: too slow for a test,
-    // so a Check stands in for each minute.
+    // so a Check stands in for each look.
     let (tx, rx_checks) = std::sync::mpsc::channel();
     tx.send(role::Msg::Check).unwrap();
     tx.send(role::Msg::Check).unwrap();
@@ -1769,4 +1769,33 @@ fn adopt_relinks_a_work_link_the_app_replaced_and_keeps_the_file() {
     assert_eq!(relink_work_link(&paths).unwrap(), Relinked::KeptFile);
     restore_work_link(&paths, Relinked::KeptFile);
     assert_eq!(fs::read(&link).unwrap(), b"a newer app build");
+}
+
+/// Goal cloud-fix-to-machine (channel published -> first seen on a production
+/// machine): the worker looks at the channel again within 20 s of any check,
+/// idle or busy, so a channel move reaches an idle machine within about 20 s
+/// and a busy one within about 20 s of its turn ending, not a minute. Never
+/// sooner than 10 s (a tight loop), and the jitter keeps machines out of step.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_updater_looks_again_within_20_s_idle_or_busy() {
+    use std::collections::BTreeSet;
+    use std::time::Duration;
+    let outcomes = [
+        role::Outcome::Busy(vec!["1 carrier session(s) attached".to_owned()]),
+        role::Outcome::Current("c".to_owned()),
+        role::Outcome::Failed("reading the channel: timeout".to_owned()),
+        role::Outcome::Off("off".to_owned()),
+    ];
+    for outcome in &outcomes {
+        for draw in [0, 1, 1_875, 3_750, 3_751, 123_456_789, u64::MAX] {
+            let wait = role::next_look(outcome, draw);
+            assert!(
+                (Duration::from_secs(10)..=Duration::from_secs(20)).contains(&wait),
+                "{outcome:?} with draw {draw}: next look in {wait:?}"
+            );
+        }
+    }
+    let spread: BTreeSet<_> = (0..64u64).map(|i| role::next_look(&outcomes[1], i * 977)).collect();
+    assert!(spread.len() > 8, "the jitter spreads the looks: {spread:?}");
 }
