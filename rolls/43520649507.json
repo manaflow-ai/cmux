@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43520649507",
+  "recorded_at": "2026-11-13T22:45:07Z",
+  "reason": "cmux-tui cb418d9fe69b changes the image's cmux-tui (pinned f6335369e3d3)",
+  "dry_run": false,
+  "cmux_tui": "cb418d9fe69b52ce4cbdab643e4dcf45373d8ce0",
+  "fixes": [
+    {
+      "sha": "cb418d9fe69b52ce4cbdab643e4dcf45373d8ce0",
+      "mergedAt": "2026-11-13T14:07:48-08:00",
+      "subject": "acpmux: the shipped standalone binary stamps its build id in the binary only, so a new commit no longer recompiles the acpmux lib (#42682)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T22:45:07Z",
+    "snapshot_id": "sh-184650d43d2c41029c52986cb188017f",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43520649507): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "5071e25c54aa1ff32efbba341021b899ea99e549",
+    "image": "cloud-native-auto-cb418d9f-43520649507-1",
+    "revision": "ci-43520649507-1",
+    "at": "2026-11-13T22:45:07Z"
+  },
+  "rolled_back": false
+}
