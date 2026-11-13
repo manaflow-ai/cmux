@@ -30,13 +30,28 @@ struct OverlayGlassVariantTests {
         #expect(OverlayGlassVariant.picked.rawValue == 1, "the gallery's number")
     }
 
-    @Test(arguments: [SurfaceRole.toast, .sheet])
-    func variantOneIsUntintedLiquidGlassWithItsOwnEdge(_ role: SurfaceRole) throws {
+    @Test func variantOneIsUntintedLiquidGlassWithItsOwnEdge() throws {
         guard Glass.isLiquidGlassAvailable else { return }
-        let surface = Self.surface(role, .appKitRegular)
+        let surface = Self.surface(.sheet, .appKitRegular)
         #expect(surface.material == .liquidGlass)
         let glass = try #require(Self.glass(surface))
         #expect(glass.tintColor == nil, "no veil over Apple's glass")
+        #expect(surface.rimView == nil, "the glass's own edge, no second rim")
+    }
+
+    /// Leo 2026-11-07: "these toasts are still coloured unthemed... incl. the import cookies toast".
+    /// Variant 1 drops the gray veil, never the toast's veil in the theme's tint: the toast (and the
+    /// Import Cookies card, on the same role) is Apple's Liquid Glass in the theme's tint, with its own edge.
+    @Test func variantOneKeepsTheToastsThemeTint() throws {
+        guard Glass.isLiquidGlassAvailable else { return }
+        let surface = Self.surface(.toast, .appKitRegular)
+        #expect(surface.material == .liquidGlass)
+        let tint = try #require(try #require(Self.glass(surface)).tintColor, "the theme's tint on the toast's glass")
+        let shown = try #require(tint.usingColorSpace(.sRGB))
+        let veil = try #require(Palette.veil(of: .toast).usingColorSpace(.sRGB))
+        let pairs = [(shown.redComponent, veil.redComponent), (shown.greenComponent, veil.greenComponent),
+                     (shown.blueComponent, veil.blueComponent), (shown.alphaComponent, veil.alphaComponent)]
+        for (a, b) in pairs { #expect(abs(a - b) < 0.02, "tint \(shown), wanted the theme veil \(veil)") }
         #expect(surface.rimView == nil, "the glass's own edge, no second rim")
     }
 
