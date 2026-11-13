@@ -67,18 +67,30 @@ impl HubWriter {
         }
     }
 
-    pub(super) fn defer_record(&mut self, record: &IndexRecord, error: std::io::Error) -> HubError {
+    pub(super) fn defer_record(
+        &mut self,
+        source: &str,
+        record: &IndexRecord,
+        error: std::io::Error,
+    ) -> HubError {
         self.log_errors.fetch_add(1, Ordering::Relaxed);
-        self.retry_log
-            .insert(RowKey::new(record.origin.as_str(), record.chat_id.as_str()), record.clone());
+        self.retry_log.insert(
+            RowKey::new(record.origin.as_str(), record.chat_id.as_str()),
+            (source.to_owned(), record.clone()),
+        );
         self.storage_retry = Some(std::time::Instant::now() + std::time::Duration::from_secs(1));
         HubError::Log(error)
     }
 
-    pub(super) fn persist(&mut self, record: &IndexRecord, key: &RowKey) -> Result<(), HubError> {
+    pub(super) fn persist(
+        &mut self,
+        source: &str,
+        record: &IndexRecord,
+        key: &RowKey,
+    ) -> Result<(), HubError> {
         if let Some(log) = self.log.as_mut() {
             if let Err(error) = log.append_record(record) {
-                return Err(self.defer_record(record, error));
+                return Err(self.defer_record(source, record, error));
             }
             self.log_dirty = true;
         }
@@ -95,11 +107,11 @@ impl HubWriter {
         let keys: Vec<_> = self.retry_log.keys().take(256).cloned().collect();
         let mut first_error = None;
         for key in keys {
-            let Some(record) = self.retry_log.remove(&key) else { continue };
+            let Some((source, record)) = self.retry_log.remove(&key) else { continue };
             let result = if record.gone {
-                self.apply_remove(&key).map(|_| ())
+                self.apply_remove(&source, &key).map(|_| ())
             } else {
-                self.apply(record.summary).map(|_| ())
+                self.apply_from(&source, record.summary).map(|_| ())
             };
             if let Err(error) = result {
                 first_error.get_or_insert(error);
@@ -129,22 +141,33 @@ impl HubWriter {
         self.install_compaction();
         self.maintain_compaction();
         self.hydrate_batch();
-        if let Some(origin) = self.pending_origin_removals.first().cloned() {
+        if let Some(origin) = self.leaving.iter().next().cloned() {
             let current = self.published.load_full();
             let (next, removed) = current.remove_origin_batch(current.seq(), &origin, 256);
             self.published.store(Arc::new(next));
             if removed == 0 {
-                self.pending_origin_removals.remove(0);
+                self.leaving.remove(&origin);
             }
         }
         for (key, update) in self.updates.take_batch() {
+            let update_origin = match (&key, &update) {
+                (UpdateKey::Row(key), _) => Some(key.origin.to_string()),
+                (UpdateKey::Origin(id), _) => Some(id.to_string()),
+            };
+            if update_origin.as_ref().is_some_and(|origin| self.leaving.contains(origin)) {
+                self.held.insert(key, update);
+                continue;
+            }
             let result = match update {
                 PendingUpdate::Summary { source, summary } => {
                     self.apply_from(&source, *summary).map(|_| ())
                 }
-                PendingUpdate::Gone { source } => {
-                    self.remove_from(&source, key.origin.as_ref(), key.chat_id.as_ref()).map(|_| ())
-                }
+                PendingUpdate::Gone { source } => match key {
+                    UpdateKey::Row(key) => self
+                        .remove_from(&source, key.origin.as_ref(), key.chat_id.as_ref())
+                        .map(|_| ()),
+                    UpdateKey::Origin(_) => Err(HubError::WriterGone),
+                },
                 PendingUpdate::Origin { record } => {
                     self.origin(&record.id, record.state, record.since).map(|_| ())
                 }
@@ -152,6 +175,29 @@ impl HubWriter {
             };
             if result.is_err() {
                 self.log_errors.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+        if self.leaving.is_empty() {
+            let held = std::mem::take(&mut self.held);
+            for (key, update) in held.into_iter().take(256) {
+                let result = match update {
+                    PendingUpdate::Summary { source, summary } => {
+                        self.apply_from(&source, *summary).map(|_| ())
+                    }
+                    PendingUpdate::Gone { source } => match key {
+                        UpdateKey::Row(key) => self
+                            .remove_from(&source, key.origin.as_ref(), key.chat_id.as_ref())
+                            .map(|_| ()),
+                        UpdateKey::Origin(_) => Err(HubError::WriterGone),
+                    },
+                    PendingUpdate::Origin { record } => {
+                        self.origin(&record.id, record.state, record.since).map(|_| ())
+                    }
+                    PendingUpdate::Takeover { origin, source } => self.takeover(&origin, &source),
+                };
+                if result.is_err() {
+                    self.log_errors.fetch_add(1, Ordering::Relaxed);
+                }
             }
         }
         if self.sync_batch().is_err() {

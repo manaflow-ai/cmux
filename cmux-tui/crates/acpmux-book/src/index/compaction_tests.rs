@@ -100,6 +100,7 @@ fn a_partial_snapshot_stage_is_ignored_until_the_atomic_rename() {
         0,
         None,
         job.covered_generation(),
+        Vec::new(),
         captured.merged_rows(),
     )
     .unwrap();

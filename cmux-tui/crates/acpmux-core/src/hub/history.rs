@@ -29,9 +29,23 @@ pub(super) struct History {
 #[derive(Serialize)]
 #[serde(tag = "op", rename_all = "camelCase", rename_all_fields = "camelCase")]
 enum Op<T, S> {
-    Summary { seq: u64, summary: T },
-    Gone { seq: u64, origin: S, chat_id: S },
-    Origin { seq: u64, origin: crate::wire::Origin },
+    Summary {
+        seq: u64,
+        summary: T,
+    },
+    Gone {
+        seq: u64,
+        origin: S,
+        chat_id: S,
+    },
+    Origin {
+        seq: u64,
+        id: String,
+        state: crate::wire::OriginState,
+        since: u64,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        extra: Option<serde_json::Value>,
+    },
 }
 
 impl History {
@@ -96,7 +110,13 @@ impl History {
             ListItem::Gone { seq, origin, chat_id } => {
                 Op::Gone { seq: *seq, origin: origin.as_str(), chat_id: chat_id.as_str() }
             }
-            ListItem::Origin { seq, origin } => Op::Origin { seq: *seq, origin: origin.clone() },
+            ListItem::Origin { seq, origin } => Op::Origin {
+                seq: *seq,
+                id: origin.id.clone(),
+                state: origin.state,
+                since: origin.since,
+                extra: origin.extra.clone(),
+            },
             ListItem::Lagged { .. } => return Ok(()),
         };
         let seq = match &op {

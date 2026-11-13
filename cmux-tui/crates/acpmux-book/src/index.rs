@@ -392,6 +392,7 @@ pub struct SummaryIndex {
     shadowed: OrdSet<RowKey>,
     origins: OrdMap<Arc<str>, OriginRecord>,
     removed_origins: OrdSet<Arc<str>>,
+    removed_snapshot_seq: OrdMap<Arc<str>, u64>,
 }
 
 impl Default for SummaryIndex {
@@ -411,11 +412,33 @@ impl SummaryIndex {
             shadowed: OrdSet::new(),
             origins: OrdMap::new(),
             removed_origins: OrdSet::new(),
+            removed_snapshot_seq: OrdMap::new(),
         }
     }
 
     pub fn from_disk(disk: Option<Arc<DiskSnapshot>>, edition: u32) -> Self {
-        Self { seq: disk.as_ref().map_or(0, |disk| disk.seq()), edition, disk, ..Self::new() }
+        let origins = disk.as_ref().map_or_else(OrdMap::new, |disk| {
+            disk.origins().map(|origin| (origin.id.clone().into(), origin.clone())).collect()
+        });
+        let removed_origins = origins
+            .values()
+            .filter(|origin| origin.state == OriginState::Removed)
+            .map(|origin| origin.id.clone().into())
+            .collect();
+        let removed_snapshot_seq = origins
+            .values()
+            .filter(|origin| origin.state == OriginState::Removed)
+            .map(|origin| (origin.id.clone().into(), origin.seq))
+            .collect();
+        Self {
+            seq: disk.as_ref().map_or(0, |disk| disk.seq()),
+            edition,
+            disk,
+            origins,
+            removed_origins,
+            removed_snapshot_seq,
+            ..Self::new()
+        }
     }
 
     /// Merge the immutable disk generation with the current hot/tail overlay.
@@ -432,6 +455,9 @@ impl SummaryIndex {
                         Some(Ok(row)) => {
                             if self.is_shadowed(&row.key())
                                 || self.is_origin_removed(row.origin.as_str())
+                                || self.removed_snapshot_seq.get(row.origin.as_str()).is_some_and(
+                                    |seq| self.disk.as_ref().is_some_and(|disk| disk.seq() < *seq),
+                                )
                                 || self.get_row(&row.key()).is_some()
                             {
                                 continue;
@@ -466,6 +492,7 @@ impl SummaryIndex {
     ) -> (Self, ChangedRows) {
         let mut next = self.clone();
         next.disk = Some(snapshot);
+        next.removed_snapshot_seq.retain(|_, seq| snapshot.seq() < *seq);
         let retired_shadow = std::mem::replace(&mut next.shadowed, changed);
         (next, retired_shadow)
     }
@@ -526,7 +553,8 @@ impl SummaryIndex {
         next.seq = next.seq.max(seq);
         next.origins.insert(id.clone(), record);
         if next.origin(id.as_ref()).is_some_and(|record| record.state == OriginState::Removed) {
-            next.removed_origins.insert(id);
+            next.removed_origins.insert(id.clone());
+            next.removed_snapshot_seq.insert(id, seq);
         } else {
             next.removed_origins.remove(id.as_ref());
         }
@@ -573,7 +601,14 @@ impl SummaryIndex {
     }
 
     pub fn hydrate(&self, row: Arc<Summary>, now: u64) -> Self {
-        if self.shadowed.contains(&row.key()) || !row.is_hot_at(now) {
+        if self.shadowed.contains(&row.key())
+            || self.is_origin_removed(row.origin.as_str())
+            || self
+                .removed_snapshot_seq
+                .get(row.origin.as_str())
+                .is_some_and(|seq| self.disk.as_ref().is_some_and(|disk| disk.seq() < *seq))
+            || !row.is_hot_at(now)
+        {
             return self.clone();
         }
         let mut next = self.clone();
@@ -621,6 +656,17 @@ impl SummaryIndex {
             shadowed.insert(key);
         }
         Self { seq: self.seq.max(seq), by_id, ordered, shadowed, ..self.clone() }
+    }
+
+    /// Apply the durable summary rule shared by the writer and replay. Remote
+    /// origins contribute live rows only; a closed remote summary advances the
+    /// sequence and remains in the log/history, but is not retained in the
+    /// index.
+    pub fn apply_summary(&self, seq: u64, summary: Summary) -> Self {
+        let remote_closed = summary.origin != "local" && !summary.is_live();
+        let key = summary.key();
+        let next = self.apply(seq, summary);
+        if remote_closed { next.remove_ephemeral(&key) } else { next }
     }
 
     /// Test/telemetry hook: applying one summary records the number of

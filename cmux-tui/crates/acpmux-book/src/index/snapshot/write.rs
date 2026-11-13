@@ -2,7 +2,7 @@ use super::{
     CHECKPOINT_BYTES, Checkpoint, DiskSnapshot, FIRST_ROWS, HEADER_BYTES, Head, MAGIC, PAGE_BYTES,
     SEEK_BYTES, TRAILER_BYTES,
 };
-use crate::index::{IndexRecord, SortKey, Summary, SummaryIndex, codec};
+use crate::index::{IndexRecord, OriginRecord, SortKey, Summary, SummaryIndex, codec};
 use std::fs::{self, File};
 use std::io::{self, BufWriter, Seek, SeekFrom, Write};
 use std::path::Path;
@@ -37,6 +37,7 @@ impl SortedSnapshot {
             log_offset,
             log_name,
             0,
+            index.origins().cloned().collect(),
             index.merged_rows(),
         )
     }
@@ -50,7 +51,7 @@ impl SortedSnapshot {
         log_name: Option<&str>,
         rows: impl IntoIterator<Item = io::Result<Arc<Summary>>>,
     ) -> io::Result<()> {
-        Self::write_stream_generation(path, seq, log_offset, log_name, 0, rows)
+        Self::write_stream_generation(path, seq, log_offset, log_name, 0, Vec::new(), rows)
     }
 
     pub fn write_stream_generation(
@@ -59,9 +60,13 @@ impl SortedSnapshot {
         log_offset: u64,
         log_name: Option<&str>,
         covered_generation: u64,
+        origins: Vec<OriginRecord>,
         rows: impl IntoIterator<Item = io::Result<Arc<Summary>>>,
     ) -> io::Result<()> {
         let path = path.as_ref();
+        if origins.len() > 256 {
+            return Err(codec::invalid("snapshot origin limit"));
+        }
         let mut temp_name = path.as_os_str().to_os_string();
         temp_name.push(".new");
         let temp = std::path::PathBuf::from(temp_name);
@@ -144,6 +149,7 @@ impl SortedSnapshot {
             directory_bytes,
             count,
             first_lengths,
+            origins,
         };
         let json = serde_json::to_vec(&head).map_err(io::Error::other)?;
         if json.len() > HEADER_BYTES - 16 {

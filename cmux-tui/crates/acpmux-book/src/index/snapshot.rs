@@ -3,7 +3,7 @@
 //! Snapshot records have a trailing frame length, so a backward page needs no
 //! dense row-offset table. Sparse entries have a fixed width and are searched
 //! on disk; neither opening nor writing a snapshot materializes its directory.
-use super::{RowKey, SortKey, Summary, codec};
+use super::{OriginRecord, RowKey, SortKey, Summary, codec};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{self, Read};
@@ -38,6 +38,8 @@ pub(super) struct Head {
     count: u64,
     // A constant-size first-window accelerator, never a dense directory.
     first_lengths: Vec<u16>,
+    #[serde(default)]
+    pub origins: Vec<OriginRecord>,
 }
 
 #[derive(Debug)]
@@ -187,6 +189,9 @@ impl Iterator for SnapshotRows {
 }
 
 impl DiskSnapshot {
+    pub fn origins(&self) -> impl Iterator<Item = &OriginRecord> {
+        self.head.origins.iter()
+    }
     pub fn rows(self: &Arc<Self>) -> SnapshotRows {
         SnapshotRows {
             snapshot: self.clone(),

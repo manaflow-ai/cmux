@@ -177,7 +177,10 @@ impl IndexLog {
     }
 
     pub fn append_origin(&mut self, record: &OriginRecord) -> io::Result<u64> {
-        let seq = self.next_seq.saturating_add(1);
+        let seq = record.seq;
+        if seq <= self.next_seq {
+            return Err(codec::invalid("nonmonotonic origin append"));
+        }
         let bytes = codec::encode_origin(seq, record)?;
         self.file.set_len(self.offset)?;
         self.file.seek(SeekFrom::Start(self.offset))?;
@@ -313,14 +316,7 @@ pub fn replay_log_from(
                     .unwrap_or(index)
                     .advance_seq(seq);
             }
-            codec::LogRecord::Row(record)
-                if record.summary.origin != "local" && !record.summary.is_live() =>
-            {
-                index = index
-                    .remove_ephemeral(&RowKey::new(record.origin, record.chat_id))
-                    .advance_seq(seq);
-            }
-            codec::LogRecord::Row(record) => index = index.apply(seq, record.summary),
+            codec::LogRecord::Row(record) => index = index.apply_summary(seq, record.summary),
         }
     }
     Ok(index)

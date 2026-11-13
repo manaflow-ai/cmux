@@ -68,8 +68,14 @@ enum PendingUpdate {
     Takeover { origin: String, source: String },
 }
 
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+enum UpdateKey {
+    Row(RowKey),
+    Origin(Arc<str>),
+}
+
 struct UpdateQueue {
-    pending: Mutex<HashMap<RowKey, PendingUpdate>>,
+    pending: Mutex<HashMap<UpdateKey, PendingUpdate>>,
     notify: Notify,
     closed: AtomicBool,
 }
@@ -85,16 +91,16 @@ impl UpdateQueue {
 
     fn submit(&self, source: impl Into<String>, summary: Summary) -> Result<(), HubError> {
         self.enqueue(
-            summary.key(),
+            UpdateKey::Row(summary.key()),
             PendingUpdate::Summary { source: source.into(), summary: Box::new(summary) },
         )
     }
 
     fn submit_remove(&self, source: impl Into<String>, key: RowKey) -> Result<(), HubError> {
-        self.enqueue(key, PendingUpdate::Gone { source: source.into() })
+        self.enqueue(UpdateKey::Row(key), PendingUpdate::Gone { source: source.into() })
     }
 
-    fn enqueue(&self, key: RowKey, update: PendingUpdate) -> Result<(), HubError> {
+    fn enqueue(&self, key: UpdateKey, update: PendingUpdate) -> Result<(), HubError> {
         let mut pending = self.pending.lock().map_err(|_| HubError::WriterGone)?;
         if self.closed.load(Ordering::Acquire) {
             return Err(HubError::WriterGone);
@@ -110,7 +116,7 @@ impl UpdateQueue {
         self.notify.notify_one();
     }
 
-    fn take_batch(&self) -> Vec<(RowKey, PendingUpdate)> {
+    fn take_batch(&self) -> Vec<(UpdateKey, PendingUpdate)> {
         let Ok(mut pending) = self.pending.lock() else { return Vec::new() };
         let keys: Vec<_> = pending.keys().take(256).cloned().collect();
         keys.into_iter().filter_map(|key| pending.remove(&key).map(|value| (key, value))).collect()
@@ -253,10 +259,11 @@ pub struct HubWriter {
     log: Option<IndexLog>,
     log_dirty: bool,
     log_errors: Arc<AtomicU64>,
-    retry_log: HashMap<RowKey, acpmux_book::index::IndexRecord>,
+    retry_log: HashMap<RowKey, (String, acpmux_book::index::IndexRecord)>,
     hydration: Option<disk::Hydration>,
     sources: HashMap<String, String>,
-    pending_origin_removals: Vec<String>,
+    leaving: std::collections::HashSet<String>,
+    held: HashMap<UpdateKey, PendingUpdate>,
     origin_ids: Arc<Mutex<std::collections::HashSet<String>>>,
 }
 
@@ -359,7 +366,8 @@ impl Hub {
             retry_log: HashMap::new(),
             hydration: None,
             sources: HashMap::new(),
-            pending_origin_removals: Vec::new(),
+            leaving: std::collections::HashSet::new(),
+            held: HashMap::new(),
             origin_ids,
         };
         (hub, writer)
@@ -402,12 +410,12 @@ impl Hub {
             return Err(HubError::OriginLimit);
         }
         ids.insert(id.to_owned());
-        self.updates.enqueue(RowKey::new("origin", id), PendingUpdate::Origin { record })
+        self.updates.enqueue(UpdateKey::Origin(id.into()), PendingUpdate::Origin { record })
     }
 
     pub fn takeover(&self, origin: &str, source: &str) -> Result<(), HubError> {
         self.updates.enqueue(
-            RowKey::new("origin", origin),
+            UpdateKey::Origin(origin.into()),
             PendingUpdate::Takeover { origin: origin.to_owned(), source: source.to_owned() },
         )
     }
@@ -601,27 +609,18 @@ impl HubWriter {
     pub fn apply(&mut self, summary: Summary) -> Result<SummaryEvent, HubError> {
         let source =
             if summary.origin == "local" { "local".to_owned() } else { summary.origin.clone() };
-        self.apply_internal(&source, summary, true)
+        self.apply_internal(&source, summary)
     }
 
     pub fn apply_from(&mut self, source: &str, summary: Summary) -> Result<SummaryEvent, HubError> {
-        self.apply_internal(source, summary, false)
+        self.apply_internal(source, summary)
     }
 
-    fn apply_internal(
-        &mut self,
-        source: &str,
-        summary: Summary,
-        retain_legacy_closed_history: bool,
-    ) -> Result<SummaryEvent, HubError> {
+    fn apply_internal(&mut self, source: &str, summary: Summary) -> Result<SummaryEvent, HubError> {
         let summary = summary.prepare()?;
         self.check_source(source, &summary.origin)?;
         let current = self.published.load_full();
         let key = summary.key();
-        let remote_closed = summary.origin != "local" && !summary.is_live();
-        if remote_closed && !retain_legacy_closed_history && current.get_row(&key).is_none() {
-            return Ok(SummaryEvent { seq: current.seq(), summary: Arc::new(summary) });
-        }
         // Latest wins even if an earlier version never reached the log.
         self.retry_log.remove(&key);
         let record = acpmux_book::index::IndexRecord {
@@ -633,7 +632,9 @@ impl HubWriter {
         };
         let existing = match current.get_row(&key) {
             Some(row) => Some(row),
-            None if !current.is_shadowed(&key) => {
+            None if !current.is_shadowed(&key)
+                && !current.is_origin_removed(key.origin.as_ref()) =>
+            {
                 if let Some(disk) = current.disk() {
                     match disk.read_piece(
                         Some(&SortKey::of(&record.summary)),
@@ -662,12 +663,9 @@ impl HubWriter {
             // The returned row is unchanged; no event is published.
             return Ok(SummaryEvent { seq: current.seq(), summary: existing });
         }
-        self.persist(&record, &key)?;
-        let mut next = self.published.load_full().apply(record.seq, record.summary.clone());
+        self.persist(source, &record, &key)?;
+        let mut next = self.published.load_full().apply_summary(record.seq, record.summary.clone());
         let summary = Arc::new(record.summary.clone());
-        if remote_closed && !retain_legacy_closed_history {
-            next = next.remove_ephemeral(&key);
-        }
         let event = SummaryEvent { seq: record.seq, summary };
         self.published.store(Arc::new(next));
         self.record_history(ListItem::Summary(event.clone()));
@@ -696,7 +694,7 @@ impl HubWriter {
         chat_id: &str,
     ) -> Result<bool, HubError> {
         self.check_source(source, origin)?;
-        self.apply_remove(&RowKey::new(origin, chat_id))
+        self.apply_remove(source, &RowKey::new(origin, chat_id))
     }
 
     pub fn origin(&mut self, id: &str, state: OriginState, since: u64) -> Result<bool, HubError> {
@@ -724,7 +722,7 @@ impl HubWriter {
         self.record_history(ListItem::Origin { seq, origin: wire.clone() });
         self.publish_origin(seq, wire);
         if state == OriginState::Removed {
-            self.pending_origin_removals.push(id.to_owned());
+            self.leaving.insert(id.to_owned());
         }
         Ok(true)
     }
@@ -754,7 +752,7 @@ impl HubWriter {
         })
     }
 
-    fn apply_remove(&mut self, key: &RowKey) -> Result<bool, HubError> {
+    fn apply_remove(&mut self, source: &str, key: &RowKey) -> Result<bool, HubError> {
         key.validate()?;
         self.retry_log.remove(key);
         let current = self.published.load_full();
@@ -764,6 +762,7 @@ impl HubWriter {
         }
         let seq = current.seq().saturating_add(1);
         self.persist(
+            source,
             &acpmux_book::index::IndexRecord {
                 seq,
                 origin: key.origin.to_string(),
