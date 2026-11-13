@@ -23,6 +23,10 @@ parser.add_argument("--app", required=True)
 parser.add_argument("--tag", required=True)
 parser.add_argument("--out", required=True)
 parser.add_argument("--browser", action="store_true", help="open a browser split beside the terminal first")
+parser.add_argument("--focus-page", action="store_true", help="click into the browser page first, so the page holds the keyboard")
+parser.add_argument("--fullscreen", action="store_true", help="put the window in full screen first")
+parser.add_argument("--input", choices=["hid", "cua-desktop", "cua-foreground", "cua-background"], default="hid",
+                    help="hid: CGEventPost at the HID tap (needs the Accessibility grant); cua-*: cua-driver's pixel click")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
@@ -103,10 +107,18 @@ def question():
 
 def shot(name, note):
     path = os.path.join(opts.out, f"{len(steps):02d}-{name}.png")
-    done = subprocess.run(["bash", os.environ["NX_CAPTURE"], "shot", "--pid", str(app.pid), "--with-popups", "--out", path],
-                          capture_output=True, text=True, timeout=120)
-    print("shot", name, done.returncode, (done.stdout + done.stderr).strip()[-200:], flush=True)
-    steps.append({"file": os.path.basename(path), "step": name, "note": note, "ok": done.returncode == 0})
+    if os.environ.get("NX_CAPTURE"):
+        done = subprocess.run(["bash", os.environ["NX_CAPTURE"], "shot", "--pid", str(app.pid), "--with-popups", "--out", path],
+                              capture_output=True, text=True, timeout=120)
+        ok = done.returncode == 0
+    else:
+        import base64
+        state = cua("get_desktop_state", {})
+        ok = bool(state.get("screenshot_png_b64"))
+        if ok:
+            open(path, "wb").write(base64.b64decode(state["screenshot_png_b64"]))
+    print("shot", name, ok, flush=True)
+    steps.append({"file": os.path.basename(path), "step": name, "note": note, "ok": ok})
 
 
 def cua(tool, args):
@@ -131,22 +143,32 @@ def find(obj, pred, out=None):
 
 
 def element(label, role):
-    """The screen frame center (top-left origin) of the app's element `label` of `role`, searched in every window of the
-    app (the question's card is in the overlay panel, a child window of the main window)."""
+    """The element `label` of `role` (its accessibility frame is in screen points, top-left origin) and the on-screen window
+    of the app under its center, the top one first: the overlay panel that holds the question's card."""
     wins = cua("list_windows", {"pid": app.pid})
     rows = find(wins, lambda o: isinstance(o, dict) and "window_id" in o and o.get("pid") == app.pid)
-    for win in sorted(rows, key=lambda w: -(w.get("z_index") or 0)):
+    hit = None
+    for win in rows:
         state = cua("get_window_state", {"pid": app.pid, "window_id": win["window_id"], "include_screenshot": False,
                                          "max_depth": 60, "max_elements": 4000})
         hits = [e for e in find(state, lambda o: isinstance(o, dict) and "frame" in o and "role" in o)
                 if role in str(e.get("role", "")).lower() and label in (str(e.get("label", "")) + str(e.get("title", "")))]
         if hits:
-            f, b = hits[-1]["frame"], win.get("bounds") or {}
-            x, y = f["x"] + f["w"] / 2, f["y"] + f["h"] / 2
-            if b and not (b["x"] <= x <= b["x"] + b["width"] and b["y"] <= y <= b["y"] + b["height"]):
-                x, y = x + b["x"], y + b["y"]
-            return {"point": [x, y], "frame": f, "window": win["window_id"], "role": hits[-1].get("role"), "label": hits[-1].get("label")}
-    return None
+            hit = hits[-1]
+            break
+    if not hit:
+        return None
+    f = hit["frame"]
+    x, y = f["x"] + f["w"] / 2, f["y"] + f["h"] / 2
+    under = [w for w in rows if w.get("is_on_screen") and (lambda b: b["x"] <= x <= b["x"] + b["width"] and b["y"] <= y <= b["y"] + b["height"])(w["bounds"])]
+    # list_windows lists front to back: the first window under the point is the one a click there reaches.
+    # cua-driver's pixel click captures its window to place the point, and the overlay panel takes no capture: address
+    # the main window (the panel has its frame), whose screen point the pointer events reach on the top window there.
+    titled = [w for w in under if w.get("title")]
+    win = (titled or under or [None])[0]
+    local = [x - win["bounds"]["x"], y - win["bounds"]["y"]] if win else None
+    return {"point": [x, y], "local": local, "frame": f, "window": win and win["window_id"], "bounds": win and win["bounds"],
+            "role": hit.get("role"), "label": hit.get("label")}
 
 
 def post_click(x, y):
@@ -183,6 +205,8 @@ def post_key(code):
 
 def ask():
     """Close Workspace as a person's run on the active workspace: it asks while `sleep` runs."""
+    if workspace:
+        cli("workspace", workspace, "focus")
     reply = rpc("debug.toast", {"perform": "closeWorkspace"})
     print("perform closeWorkspace:", json.dumps(reply)[:200], flush=True)
     return wait(question, 10)
@@ -193,11 +217,21 @@ def click(label, role):
     print("element", label, json.dumps(found), flush=True)
     if not check(bool(found), f"the question's {label!r} {role} is on screen (accessibility)"):
         return None
-    post_click(*found["point"])
+    if opts.input == "hid":
+        post_click(*found["point"])
+    else:
+        if opts.input == "cua-desktop":
+            # Real pointer events at the screen point (cua-driver holds the Accessibility grant the SSH session lacks).
+            found["click"] = cua("click", {"x": found["point"][0], "y": found["point"][1], "scope": "desktop"})
+        else:
+            found["click"] = cua("click", {"pid": app.pid, "window_id": found["window"], "x": found["local"][0], "y": found["local"][1],
+                                           "delivery_mode": opts.input.split("-")[1]})
+        print("cua click", json.dumps(found["click"])[:300], flush=True)
     return found
 
 
 app = None
+workspace = None
 try:
     with open(CONFIG, "w") as f:
         json.dump({}, f)
@@ -211,26 +245,43 @@ try:
     log = open(os.path.join(opts.out, "app.log"), "a")
     app = subprocess.Popen([os.path.join(opts.app, "Contents/MacOS/cmux DEV")], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
     print("launched pid", app.pid, flush=True)
-    if not wait(lambda: os.path.exists(SOCKET) and workspace_titles(), 180):
+    if not wait(lambda: os.path.exists(SOCKET) and workspace_titles(), 400):
         sys.exit("the tagged app did not come up")
-    done = cli("workspace", "create", "--name", NAME, "--json")
-    terminal = None
+    before = workspace_titles().count(NAME)
+    done = cli("workspace", "create", "--name", NAME, "--focus", "--json")
+    terminal = workspace = None
     try:
-        terminal = (json.loads(done.stdout).get("value") or {}).get("terminal_id")
+        made = json.loads(done.stdout).get("value") or {}
+        terminal, workspace = made.get("terminal_id"), made.get("workspace_id")
     except ValueError:
         pass
-    check(bool(wait(lambda: NAME in workspace_titles(), 15)), f"the workspace {NAME!r} is listed", workspace_titles())
+    check(bool(wait(lambda: workspace_titles().count(NAME) > before, 15)), f"the workspace {NAME!r} is listed", workspace_titles())
     if terminal:
         cli("terminal", str(terminal), "write", "--text", "sleep 600\n")
         time.sleep(1.5)  # test harness: the shell starts sleep before the close asks process-info
     if opts.browser:
-        cli("browser", "open", "https://example.com")
+        cli("workspace", workspace or "current", "open-url", "--url", "https://example.com")
         time.sleep(4)  # test harness: the page window shows beside the terminal
     wins = cua("list_windows", {"pid": app.pid})
-    main = max(find(wins, lambda o: isinstance(o, dict) and "window_id" in o and o.get("pid") == app.pid),
-               key=lambda w: (w.get("bounds") or {}).get("width", 0), default=None)
+    main = next((w for w in find(wins, lambda o: isinstance(o, dict) and "window_id" in o and o.get("pid") == app.pid)
+                 if w.get("title") == "cmux"), None)
     if main:
-        cua("bring_to_front", {"pid": app.pid, "window_id": main["window_id"]})  # the job owns this GUI session
+        # Clear of the system prompts other jobs left at the screen's middle and right, then in front (this GUI
+        # session is the rig's, not a person's).
+        moved = cua("set_window_frame", {"pid": app.pid, "window_id": main["window_id"], "x": 0, "y": 520, "width": 860, "height": 540})
+        print("set_window_frame", json.dumps(moved)[:300], flush=True)
+        cua("bring_to_front", {"pid": app.pid, "window_id": main["window_id"]})
+    if opts.fullscreen:
+        print("fullscreen", json.dumps(rpc("debug.toast", {"perform": "toggleFullScreen"}))[:200], flush=True)
+        time.sleep(4)  # test harness: the full screen transition ends
+    if opts.focus_page:
+        # A real click in the page's lower right (clear of the card to come): the Chromium page window takes the key.
+        frame = next((w["bounds"] for w in find(cua("list_windows", {"pid": app.pid}), lambda o: isinstance(o, dict) and "window_id" in o
+                                                                                    and o.get("pid") == app.pid) if w.get("title") == "cmux"), None)
+        if frame:
+            print("focus page", json.dumps(cua("click", {"x": frame["x"] + frame["width"] - 120, "y": frame["y"] + frame["height"] - 90,
+                                                        "scope": "desktop"}))[:200], flush=True)
+            time.sleep(1)  # test harness: the page takes the key
     shot("workspace", f"{NAME} runs sleep" + (" beside a browser split" if opts.browser else ""))
 
     # check: two clicks on the check box ------------------------------------------------------------------------
@@ -238,6 +289,8 @@ try:
     check(bool(asked), "Close Workspace asks (sleep runs)", dialogs())
     json.dump(dialogs(), open(os.path.join(opts.out, "question.json"), "w"), indent=1)
     shot("asked", "the close question shows")
+    json.dump(cua("list_windows", {"pid": app.pid}), open(os.path.join(opts.out, "windows-asked.json"), "w"), indent=1)
+    json.dump(rpc("debug.windows"), open(os.path.join(opts.out, "debug-windows-asked.json"), "w"), indent=1)
     if click("ask again", "checkbox"):
         checked = wait(lambda: (question() or {}).get("values", {}).get("dont-ask-again") is True, 3)
         check(bool(checked), "a click on Don't ask again checks it", question())
@@ -250,21 +303,25 @@ try:
     if click("Cancel", "button"):
         check(bool(wait(lambda: question() is None, 3)), "a click on Cancel answers the question", dialogs())
         time.sleep(0.5)  # test harness: a cancelled close must change nothing
-        check(NAME in workspace_titles(), "Cancel keeps the workspace", workspace_titles())
+        check(workspace_titles().count(NAME) == before + 1, "Cancel keeps the workspace", workspace_titles())
         shot("cancelled", "after a click on Cancel: the workspace stays")
 
     # escape ---------------------------------------------------------------------------------------------------
     if check(bool(ask()), "Close Workspace asks again"):
-        post_key(53)
+        if opts.input == "hid":
+            post_key(53)
+        else:
+            key = {"key": "escape", "scope": "desktop"} if opts.input == "cua-desktop" else {"pid": app.pid, "key": "escape"}
+            print("press_key", json.dumps(cua("press_key", key))[:300], flush=True)
         check(bool(wait(lambda: question() is None, 3)), "Escape answers the question as Cancel", dialogs())
-        check(NAME in workspace_titles(), "Escape keeps the workspace", workspace_titles())
+        check(workspace_titles().count(NAME) == before + 1, "Escape keeps the workspace", workspace_titles())
 
     # close ----------------------------------------------------------------------------------------------------
     if check(bool(ask()), "Close Workspace asks a third time"):
         shot("asked-again", "the close question before the click on Close")
         if click("Close", "button"):
             check(bool(wait(lambda: question() is None, 3)), "a click on Close answers the question", dialogs())
-            check(bool(wait(lambda: NAME not in workspace_titles(), 10)), "Close closes the workspace", workspace_titles())
+            check(bool(wait(lambda: workspace_titles().count(NAME) == before, 10)), "Close closes the workspace", workspace_titles())
             shot("closed", "after a click on Close: the workspace closed")
 finally:
     json.dump({"steps": steps, "failures": failures}, open(os.path.join(opts.out, "steps.json"), "w"), indent=1)

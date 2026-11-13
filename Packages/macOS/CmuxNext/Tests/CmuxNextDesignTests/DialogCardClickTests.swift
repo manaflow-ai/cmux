@@ -32,8 +32,25 @@ import Testing
         let root: NSView
     }
 
-    private static func show(_ answer: @escaping (CmuxDialogAnswer) -> Void) throws -> Shown {
-        let center = CmuxDialogCenter(host: CmuxDialogOverlayHost(activate: {}, isAppActive: { true }))
+    /// The overlay host, except that it loses track of a card on `hide` (and on the first `drops` discards): the
+    /// state Aziz's log showed, a card whose controls fired (`sendAction:` at 16:56:16.408 and .882) and ended nothing.
+    @MainActor final class LosesCards: CmuxDialogHosting {
+        let inner = CmuxDialogOverlayHost(activate: {}, isAppActive: { true })
+        var drops: Int
+        init(drops: Int = 0) { self.drops = drops }
+        func show(_ dialog: CmuxDialogPresentation, in scope: CmuxDialogScope, scopeGone: @escaping () -> Void) {
+            inner.show(dialog, in: scope, scopeGone: scopeGone)
+        }
+        func hide(_ dialog: CmuxDialogPresentation) {}
+        func discard(_ dialog: CmuxDialogPresentation) {
+            // The overlay host still records the card: its hide takes it off the screen.
+            if drops > 0 { drops -= 1 } else { inner.hide(dialog) }
+        }
+    }
+
+    private static func show(host: any CmuxDialogHosting = CmuxDialogOverlayHost(activate: {}, isAppActive: { true }),
+                             _ answer: @escaping (CmuxDialogAnswer) -> Void) throws -> Shown {
+        let center = CmuxDialogCenter(host: host)
         let window = Self.window()
         let id = center.present(spec, in: .window(window), completion: answer)
         let view = try #require(center.dialog(id)?.view)
@@ -91,6 +108,38 @@ import Testing
         defer { shown.center.dismiss(shown.id); shown.window.close() }
         try Self.click(try Self.control("cmux.dialog.button.cancel", in: shown), in: shown.panel)
         #expect(answer?.button == "cancel")
+    }
+
+    /// Whether the window's overlay still holds `view` (its card's region), blocking the window.
+    private static func holds(_ view: NSView, _ window: NSWindow) -> Bool {
+        WindowOverlayHost.existingHost(for: window)?.presentedHandles.contains { $0.content === view } ?? false
+    }
+
+    @Test func aCardItsHostLostLeavesWithTheClickThatEndsItsDialog() throws {
+        var answers: [String] = []
+        let shown = try Self.show(host: LosesCards()) { answers.append($0.button) }
+        defer { shown.window.close() }
+        let card = try #require(shown.center.dialog(shown.id)?.view)
+        try Self.click(try Self.control("cmux.dialog.button.confirm", in: shown), in: shown.panel)
+        #expect(answers == ["confirm"])
+        #expect(!Self.holds(card, shown.window), "the card stays up after its dialog ended: every later click and key ends nothing")
+        #expect(WindowOverlayHost.existingHost(for: shown.window)?.blocksWholeWindow != true, "the ended dialog's scrim still blocks the window")
+    }
+
+    @Test func aClickOnACardWhoseDialogEndedTakesTheCardAway() throws {
+        var answers: [String] = []
+        // The host keeps the card up through the end of its dialog too (the first discard is lost).
+        let shown = try Self.show(host: LosesCards(drops: 1)) { answers.append($0.button) }
+        defer { shown.window.close() }
+        let view = try #require(shown.center.dialog(shown.id)?.view)
+        let close = try Self.control("cmux.dialog.button.confirm", in: shown)
+        try Self.click(close, in: shown.panel)
+        #expect(answers == ["confirm"])
+        #expect(Self.holds(view, shown.window), "precondition: the host kept the card")
+        // The person clicks the card that is still up: it answers nothing more, and it leaves.
+        try Self.click(close, in: shown.panel)
+        #expect(answers == ["confirm"], "an ended dialog answers once")
+        #expect(!Self.holds(view, shown.window), "a click on a card whose dialog ended leaves it up")
     }
 
     @Test func aClickOnTheCheckBoxChecksIt() throws {
