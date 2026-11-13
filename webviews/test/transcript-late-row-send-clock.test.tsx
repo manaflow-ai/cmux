@@ -271,6 +271,8 @@ test("a sent thinking row keeps its instant marker across finished activity rows
     });
   try {
     await render(history.slice(0, 3), 0);
+    // The send count is recorded before the async client registers its optimistic prompt.
+    await render(history.slice(0, 3), 1);
     const prompt = row("marker-prompt", "user", "A new question");
     const rows = [
       ...history.slice(0, 3),

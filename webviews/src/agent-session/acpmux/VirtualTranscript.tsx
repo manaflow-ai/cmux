@@ -625,6 +625,19 @@ const RowFrame = React.memo(function RowFrame({
 /// row other than a reply and the live line changed (a call finished, a thought grew, a steer
 /// landed). O(1): the last ARRIVAL_TAIL rows, by id and version.
 const ARRIVAL_TAIL = 6;
+/// Sent thinking markers live only for the recent sends that can still be in their landing window.
+/// This keeps the identity side table constant-size even when a long transcript is retained.
+const SENT_PROMPT_ID_LIMIT = 32;
+
+function rememberSentPromptId(ids: Set<string>, id: string): void {
+  ids.delete(id);
+  ids.add(id);
+  while (ids.size > SENT_PROMPT_ID_LIMIT) {
+    const oldest = ids.values().next().value as string | undefined;
+    if (oldest === undefined) break;
+    ids.delete(oldest);
+  }
+}
 /// How long after a row arrived its room still counts as the arrival: the passes that measure it.
 const ARRIVAL_PASS_MS = 100;
 function arrivedAtTail(before: readonly AcpmuxRow[], after: readonly AcpmuxRow[]): boolean {
@@ -2670,6 +2683,9 @@ function TranscriptView({
   /// Prompt identities captured on the send's first snapshot. Kept separately from enteringRows:
   /// a burst can exceed the live-entry threshold, while its thinking row still belongs to the send.
   const sentPromptIds = useRef(new Set<string>());
+  /// Sends are counted before the async client registers its optimistic prompt. Keep a bounded number
+  /// of sends waiting for that prompt to arrive so a later thinking row still gets the send marker.
+  const pendingSentPrompts = useRef(0);
   /// A prompt was sent before the chat opened (while its tail still fits): it opens at the latest
   /// message, not at the reader's old place.
   const sentBeforeOpen = useRef(false);
@@ -2806,18 +2822,28 @@ function TranscriptView({
   }, [noteQueue]);
   const previousLayout = useRef<PlacedLayout | null>(null);
   const previousRows = useRef<readonly AcpmuxRow[]>(rows);
-  if (sessionChanged) sentPromptIds.current.clear();
-  if (sends !== seenSends.current) {
+  if (sessionChanged) {
+    sentPromptIds.current.clear();
+    pendingSentPrompts.current = 0;
+  } else {
+    const observedSends = sendsAt;
+    if (sends > observedSends) {
+      pendingSentPrompts.current = Math.min(SENT_PROMPT_ID_LIMIT, pendingSentPrompts.current + sends - observedSends);
+    } else if (sends < observedSends) {
+      pendingSentPrompts.current = 0;
+    }
     const previous = previousRows.current;
     const first = Math.max(0, previous.length - ARRIVAL_TAIL);
     const last = Math.min(rows.length, previous.length + ARRIVAL_TAIL);
-    for (let index = first; index < last; index += 1) {
+    const indexes = new Set<number>();
+    for (let index = first; index < last; index += 1) indexes.add(index);
+    for (let index = Math.max(0, rows.length - ARRIVAL_TAIL); index < rows.length; index += 1) indexes.add(index);
+    for (const index of indexes) {
       const row = rows[index];
-      if (row?.kind === "user" && !isLineRow(row) && row.id !== previous[index]?.id) sentPromptIds.current.add(row.id);
-    }
-    for (let index = Math.max(0, rows.length - ARRIVAL_TAIL); index < rows.length; index += 1) {
-      const row = rows[index];
-      if (row?.kind === "user" && !isLineRow(row)) sentPromptIds.current.add(row.id);
+      if (pendingSentPrompts.current > 0 && row?.kind === "user" && !isLineRow(row) && row.id !== previous[index]?.id) {
+        rememberSentPromptId(sentPromptIds.current, row.id);
+        pendingSentPrompts.current -= 1;
+      }
     }
   }
   const previousViewport = useRef({ height, width, dockSpace, dockCard });
