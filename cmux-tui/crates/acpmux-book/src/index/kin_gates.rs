@@ -190,6 +190,8 @@ fn page_gate(name: &str, family: bool, anchored: bool) {
     );
     assert_eq!(a.parent_steps, b.parent_steps);
     assert!(a.rows_read <= 51 && b.rows_read <= 51);
+    let lookup_bound = if family { 2 * 51 + 64 } else { 1 };
+    assert!(a.lookups <= lookup_bound && b.lookups <= lookup_bound);
     assert_eq!((a.bytes_read, b.bytes_read), (0, 0));
     check(name, paired(|| read(&small), || read(&god)), 1.2, 2.0, None);
 }
