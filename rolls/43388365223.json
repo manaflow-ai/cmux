@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43388365223",
+  "recorded_at": "2026-11-13T07:55:52Z",
+  "reason": "cmux-tui 66b6d2b90256 changes the image's cmux-tui (pinned 0461b61f2489)",
+  "dry_run": false,
+  "cmux_tui": "66b6d2b902568aaa93d614d85eb59d8cfd537c6c",
+  "fixes": [
+    {
+      "sha": "66b6d2b902568aaa93d614d85eb59d8cfd537c6c",
+      "mergedAt": "2026-11-12T23:25:58-08:00",
+      "subject": "fix(sidebar): a new workspace of another machine goes to the top by default"
+    },
+    {
+      "sha": "ba3918a2d3a8b28d43f3f00f088064b9a6f0f95a",
+      "mergedAt": "2026-11-12T23:25:58-08:00",
+      "subject": "test(sidebar): a new workspace of another machine goes to the top by default (red)"
+    },
+    {
+      "sha": "d68472433d109dfbcf433c92ce3677a03e8e73a0",
+      "mergedAt": "2026-11-12T23:11:30-08:00",
+      "subject": "Cloud: verify and fence pre-claim login readiness in Rust (step A) (#42442)"
+    },
+    {
+      "sha": "b05fe598f1cd18b973ded6c54cef51a1042dbd76",
+      "mergedAt": "2026-11-13T00:54:54-06:00",
+      "subject": "cmux-worktree-care: the pass, memo and merge-tree locks unlock before they close"
+    },
+    {
+      "sha": "190e9fa67264e7ca2e16cbc736c2b490b0287418",
+      "mergedAt": "2026-11-13T00:54:54-06:00",
+      "subject": "cmux-worktree-care tests: the pass, memo and merge-tree locks are free while a forked child keeps their descriptors (red)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T07:55:52Z",
+    "snapshot_id": "sh-69ef611107b3416aafd1818ece9d4133",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43388365223): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "788f16fac412cb627c2c69e653a899ec2b2f7b42",
+    "image": "cloud-native-auto-66b6d2b9-43388365223-1",
+    "revision": "ci-43388365223-1",
+    "at": "2026-11-13T07:55:52Z"
+  },
+  "rolled_back": false
+}
