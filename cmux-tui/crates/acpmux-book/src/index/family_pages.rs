@@ -145,10 +145,10 @@ impl SummaryIndex {
             before_key.get_or_insert_with(|| key.clone());
             after_key = Some(key);
             if visible {
-                rows.push(row);
                 if walk.depth() == MAX_DEPTH && walk.has_children() {
                     deeper.push(SortKey::of(&row));
                 }
+                rows.push(row);
             }
         };
         Ok(IndexPage {
