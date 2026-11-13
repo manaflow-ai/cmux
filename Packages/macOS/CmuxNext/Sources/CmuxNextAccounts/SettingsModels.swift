@@ -178,7 +178,8 @@ public final class SettingsModels {
 
     // MARK: Watching
 
-    /// The page shows the card: acpmux's `_acpmux/connections.changed` reads the state again.
+    /// The page shows the card: each `_acpmux/connections.changed` carries acpmux's whole
+    /// `ConnectionsState`, which shows at once (a note without one reads the state again).
     public func beginWatching() {
         watchers += 1
         startWatch()
@@ -188,17 +189,25 @@ public final class SettingsModels {
     /// at the card's next read).
     private func startWatch() {
         guard watchers > 0, watch == nil, let environment = environment() else { return }
-        let (changes, continuation) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
-        let socket = environment.watchConnections { continuation.yield() }
-        // task-owner: SettingsModels.watch: one read per acpmux change while a page shows the card; endWatching cancels it.
+        let (changes, continuation) = AsyncStream.makeStream(of: Data.self, bufferingPolicy: .bufferingNewest(1))
+        let socket = environment.watchConnections { continuation.yield($0) }
+        // task-owner: SettingsModels.watch: one update per acpmux change while a page shows the card; endWatching cancels it.
         watch = Task { [weak self] in
             await withTaskCancellationHandler {
-                for await _ in changes { await self?.refresh() }
+                for await line in changes { await self?.changed(line) }
             } onCancel: {
                 socket.cancel()
                 continuation.finish()
             }
         }
+    }
+
+    /// One `_acpmux/connections.changed` line: its state shows at once and any read in flight answers no
+    /// more; a note without a state reads it again.
+    func changed(_ line: Data) async {
+        guard let state = (try? JSONValue.parse(line))?["params"], state["connections"] != nil else { return await refresh() }
+        generation += 1
+        apply(state)
     }
 
     public func endWatching() {
