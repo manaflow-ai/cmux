@@ -100,12 +100,15 @@ def _path_dependencies(manifest: dict, crate: str, workspace: str, shared: dict)
 
 
 def _outside(path: str) -> bool:
-    return path == ".." or path.startswith("../")
+    """PATH (normalized, from the repository root) leaves the repository: `..` up, or absolute (`path = "/dep"`)."""
+    return path == ".." or path.startswith("../") or path.startswith("/")
 
 
 def _follow(tree, directory: str, relative: str) -> str | None:
     """DIRECTORY/RELATIVE in the tree with each symlink followed before a `..` (as the filesystem resolves it), or
     None when it leaves the repository."""
+    if relative.startswith("/"):
+        return None  # include_str!("/x") names the filesystem's /x, outside the repository
     try:
         return _walk(tree, directory, relative)
     except git_tree.NeedsFullTree:

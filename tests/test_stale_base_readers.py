@@ -5,7 +5,7 @@ Each tool here takes where HEAD meets this clone's origin/feat-cmux-next. That r
 last fetch of it: a branch that merged a newer base (a stacked parent fetched alone, `git fetch origin lane/parent`,
 after the parent merged feat-cmux-next) had that base's files counted as its own. cmux#41310 fixed the pre-push gate
 (scripts/cmux-next/push_range.py refresh_upstream); these are the readers left: affected tests, the Rust panic
-ratchet, build_class, gate-plan, the test-determinism scan, codebase-health and a manual arch-ratchet run (the
+ratchet, build_class, gate-plan, the test-determinism scan, codebase-health and a manual arch-ratchet or guardrails run (the
 gate and the web lint run by hand take the same push_range.manual_range). Each test builds one fixture: the topic
 adds own files and merges a base that has base-only files, while the clone's origin/feat-cmux-next stays old.
 
@@ -20,9 +20,12 @@ import importlib.util
 import io
 import json
 import os
+import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -167,6 +170,81 @@ class StaleBaseReaders(StaleBaseFixture):
             self.assertEqual(arch.main(["--repo", str(self.work)]), 0)
         self.assertIn(f"over {self.fresh_base[:11]}", out.getvalue())
         self.assert_fetched()
+
+    def test_a_manual_guardrails_run_judges_from_the_fresh_base(self):
+        guardrails = load("stale_base_guardrails", "scripts/cmux-next/guardrails.py")
+        out = io.StringIO()
+        with unittest.mock.patch.object(guardrails, "run_push", lambda *args, **kwargs: False), \
+                contextlib.redirect_stdout(out):
+            guardrails.main(["--repo", str(self.work)])
+        self.assertIn(f"over {self.fresh_base[:11]}", out.getvalue())
+        self.assert_fetched()
+
+
+class StaleBaseIsNamed(StaleBaseReaders):
+    """When the refresh cannot fetch origin/feat-cmux-next, every reader of an own range says so: the range's note
+    (push_range.refresh_base) names the stale base. A reader that drops the note measures from the stale copy in
+    silence, and a newer base's files count as the branch's own (#41662 review F1: the web lint run by hand)."""
+
+    STALE = "origin/feat-cmux-next could not be fetched"
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.git(self.work, "remote", "set-url", "origin", str(self.tmp / "gone.git"))
+        self.head = self.git(self.work, "rev-parse", "HEAD")
+        self.push = [f"refs/heads/topic {self.head} refs/heads/topic {'0' * 40}"]
+
+    def assert_named(self, text: str) -> None:
+        self.assertIn(self.STALE, text, "the stale base is not named")
+
+    def test_a_manual_web_lint_run_names_the_stale_base(self):
+        lint = load("stale_base_web_lint_manual", "scripts/web_lint_prepush.py")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            lint.main(["--repo", str(self.work), "--dry-run"])
+        self.assert_named(err.getvalue())
+
+    def test_a_pre_push_web_lint_run_names_the_stale_base(self):
+        lint = load("stale_base_web_lint_push", "scripts/web_lint_prepush.py")
+        err = io.StringIO()
+        with unittest.mock.patch.object(sys, "stdin", io.StringIO("\n".join(self.push) + "\n")), \
+                unittest.mock.patch.dict(os.environ, {"CMUX_WEB_LINT_SKIP_REASON": ""}), \
+                contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            lint.main(["--repo", str(self.work), "--pre-push", "--dry-run"])
+        self.assert_named(err.getvalue())
+
+    def test_a_pre_push_arch_ratchet_run_names_the_stale_base(self):
+        arch = load("stale_base_arch_ratchet_push", "scripts/cmux-next/arch-ratchet.py")
+        err = io.StringIO()
+        with unittest.mock.patch.object(arch, "run_push", lambda *args, **kwargs: False), \
+                contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            arch.pre_push(self.work, "origin", self.push)
+        self.assert_named(err.getvalue())
+
+    def test_a_manual_guardrails_run_names_the_stale_base(self):
+        guardrails = load("stale_base_guardrails_stale", "scripts/cmux-next/guardrails.py")
+        out = io.StringIO()
+        with unittest.mock.patch.object(guardrails, "run_push", lambda *args, **kwargs: False), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            guardrails.main(["--repo", str(self.work)])
+        self.assert_named(out.getvalue())
+
+    def test_the_fast_tier_receipt_names_the_stale_base(self):
+        tier = load("stale_base_fast_tier", "scripts/cmux-next/prepush_fast_tier.py")
+        args = unittest.mock.Mock(repo=self.work, remote="origin", base=None, head="HEAD", scratch=None)
+        with unittest.mock.patch.object(tier, "check_range", lambda *a, **k: []):
+            receipt = tier.worker(args, "\n".join(self.push) + "\n")
+        self.assert_named(json.dumps(receipt))
+
+    # The fixture's fetch fails here, so the parent's fresh-base rows do not apply.
+    test_affected_tests_plans_from_the_fresh_base = None
+    test_rust_panic_ratchet_lists_the_branch_s_own_hits_first = None
+    test_build_class_classifies_only_the_branch_s_own_files = None
+    test_gate_plan_routes_only_the_branch_s_own_files = None
+    test_the_determinism_scan_reads_only_the_branch_s_own_tests = None
+    test_codebase_health_names_only_the_tree_s_own_measured_changes = None
+    test_a_manual_arch_ratchet_run_judges_from_the_fresh_base = None
+    test_a_manual_guardrails_run_judges_from_the_fresh_base = None
 
 
 class BaseFetchOnce(StaleBaseFixture):
@@ -451,6 +529,207 @@ class BaseFetchFailsOnceAndNeverPrompts(StaleBaseFixture):
             self.assertEqual(call["env"]["GIT_TERMINAL_PROMPT"], "0")
             self.assertEqual(call["env"]["GCM_INTERACTIVE"], "never")
             self.assert_no_prompt(call)
+
+
+    # -- cmux#41750 review: the fetch ends with whatever cancels its caller -------------------------------------
+
+    def slow_ssh(self) -> Path:
+        """An ssh that never answers; each start writes its pid to self.ssh_pids (git's `-G` probe connects nowhere)."""
+        self.ssh_pids = self.tmp / "slow-ssh.pids"
+        slow = self.tmp / "bin" / "slow" / "ssh"
+        slow.parent.mkdir(parents=True, exist_ok=True)
+        slow.write_text(f"#!{sys.executable}\nimport os, sys, time\n"
+                        f"if sys.argv[1:2] != ['-G']:\n"
+                        f"    open({str(self.ssh_pids)!r}, 'a').write(f'{{os.getpid()}}\\n')\n"
+                        f"    time.sleep(120)\n")
+        slow.chmod(0o755)
+        return slow
+
+    def ssh_started(self) -> list[int]:
+        return [int(line) for line in self.ssh_pids.read_text().split()] if self.ssh_pids.exists() else []
+
+    def assert_fetch_gone(self, started: list[int], why: str) -> None:
+        """Every ssh in STARTED exits within 5 s (one the test started itself and finds alive is then killed)."""
+        def alive(pid: int) -> bool:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return False
+            except PermissionError:
+                return True
+            try:  # an orphan its reaper has not collected yet is gone too
+                return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] != "Z"
+            except (OSError, IndexError):
+                return True
+
+        deadline = time.monotonic() + 5
+        while any(alive(pid) for pid in started) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        left = [pid for pid in started if alive(pid)]
+        for pid in left:
+            os.kill(pid, 9)
+        self.assertEqual(left, [], why)
+
+    def assert_attempt_stamped(self) -> None:
+        stamp = Path(self.git(self.work, "rev-parse", "--path-format=absolute", "--git-common-dir")) / \
+            "cmux-guardrails" / self.push_range.UPSTREAM_REFRESH_FILE
+        self.assertTrue(stamp.exists(), "the cancelled fetch is stamped for its hook run")
+        note = self.finish(self.checker("run-1"))
+        self.assertIn("could not be fetched", note)
+        self.assertEqual(len(self.ssh_started()), 1, "the next checker of the run did not fetch again")
+
+    def test_the_fast_tier_s_cancel_ends_the_fetch_and_stamps_the_attempt(self):
+        """prepush_fast_tier.py kills its worker's process group with SIGKILL after 4 s. The fetch ran in a session
+        of its own, so it escaped: ssh ran on with no 30 s limit and no stamp, and the next checker of the same hook
+        run fetched again beside it. Runs the real fast-tier entry point against an ssh that never answers."""
+        self.over_ssh()
+        os.environ.update(GIT_SSH_COMMAND=str(self.slow_ssh()), CMUX_PREPUSH_RUN="run-1")
+        tier = subprocess.run([sys.executable, "-I", str(ROOT / "scripts/cmux-next/prepush_fast_tier.py"),
+                               "--repo", str(self.work), "--remote", "origin"], input=self.key + "\n",
+                              capture_output=True, text=True, timeout=60)
+        self.assertIn("4s budget exhausted", tier.stdout, f"the fast tier cancelled its worker: {tier.stdout}")
+        self.assertTrue(self.ssh_started(), "the fetch reached ssh before the cancel")
+        self.assert_fetch_gone(self.ssh_started(), "the fetch's ssh outlived the fast tier that cancelled it")
+        self.assert_attempt_stamped()
+
+    def test_ctrl_c_on_a_checker_ends_the_fetch_and_stamps_the_attempt(self):
+        """cmux#41750 review: Ctrl-C (SIGINT) on a checker mid-fetch. The terminal's SIGINT reaches only the
+        foreground process group, which the fetch's own session is not in, and subprocess.run answers the
+        KeyboardInterrupt by killing its own child alone. The checker is interrupted once its fetch reaches ssh."""
+        self.over_ssh()
+        os.environ["GIT_SSH_COMMAND"] = str(self.slow_ssh())
+        proc = self.checker("run-1")
+        self.addCleanup(lambda: proc.poll() is None and proc.kill())
+        deadline = time.monotonic() + 30
+        while not self.ssh_started() and time.monotonic() < deadline and proc.poll() is None:
+            time.sleep(0.05)
+        self.assertTrue(self.ssh_started(), "the checker's fetch reached ssh")
+        proc.send_signal(signal.SIGINT)
+        proc.communicate(timeout=30)
+        self.assertNotEqual(proc.returncode, 0, "the checker stopped on Ctrl-C")
+        self.assert_fetch_gone(self.ssh_started(), "the fetch's ssh outlived the checker stopped by Ctrl-C")
+        self.assert_attempt_stamped()
+
+    # -- cmux#41765 review: a timeout is said only when the fetch's guard ended it --------------------------------
+
+    def git_whose_fetch(self, body: str) -> None:
+        """Puts a `git` first on PATH that runs BODY (python) for `fetch` and is the real git for anything else."""
+        real = shutil.which("git")
+        folder = self.tmp / "bin" / "git-stub"
+        folder.mkdir(parents=True, exist_ok=True)
+        stub = folder / "git"
+        stub.write_text(f"#!{sys.executable}\nimport os, sys, time\n"
+                        f"if 'fetch' in sys.argv[1:]:\n{body}\n"
+                        f"os.execv({real!r}, [{real!r}, *sys.argv[1:]])\n")
+        stub.chmod(0o755)
+        os.environ["PATH"] = f"{folder}{os.pathsep}{os.environ.get('PATH', '')}"
+
+    def test_a_git_that_exits_124_at_once_is_reported_with_its_real_exit(self):
+        """cmux#41765 review: the keeper's exit 124 was read as a timeout every time, so a git (or a wrapper) that
+        exits 124 at once was reported as "no answer in 30s", hiding the real failure."""
+        self.git_whose_fetch("    sys.exit(124)")
+        note = self.fetch_note()
+        # The real exit, not the limit's "no answer": the note itself says which ended the fetch.
+        self.assertIn("could not be fetched (exit 124)", note)
+        self.assertNotIn("no answer", note)
+
+    def test_a_fetch_the_guard_ends_at_the_limit_is_a_timeout(self):
+        # A fetch that never answers: it blocks on nothing until the guard ends it.
+        self.git_whose_fetch("    import select\n    select.select([], [], [])")
+        with unittest.mock.patch.object(self.push_range, "UPSTREAM_FETCH_SECONDS", 1):
+            note = self.fetch_note()
+        self.assertIn("could not be fetched (no answer in 1s)", note)
+
+class FetchGuardCancelRace(unittest.TestCase):
+    """cmux#41803 review F1: "If the caller cancels as the deadline hits, the pipe reader can close before os.write.
+    BrokenPipeError then kills the guard before os.killpg, so git and ssh live on." The row runs the real keeper
+    (push_range._FETCH_WATCHDOG) and makes that order certain: the caller's end of the guard's pipe is closed first,
+    while the caller is still there (its other pipe stays open), and the deadline fires after."""
+
+    def test_a_cancel_as_the_deadline_hits_still_ends_the_fetch(self):
+        push_range = load("stale_base_push_range_cancel_race", "scripts/cmux-next/push_range.py")
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        pid_file = Path(tmp.name) / "fetch.pid"
+        fetch = [sys.executable, "-I", "-c",
+                 f"import os, time\nopen({str(pid_file)!r}, 'w').write(str(os.getpid()))\ntime.sleep(60)\n"]
+        alive_read, alive_write = os.pipe()
+        fired_read, fired_write = os.pipe()
+        keeper = subprocess.Popen([sys.executable, "-I", "-c", push_range._FETCH_WATCHDOG, "2", str(fired_write),
+                                   *fetch], stdin=alive_read, pass_fds=(fired_write,), stdout=subprocess.DEVNULL,
+                                  stderr=subprocess.DEVNULL, start_new_session=True)
+        os.close(alive_read)
+        os.close(fired_write)
+        os.close(fired_read)  # the reader goes first; the 2 s deadline fires after it
+
+        def stop() -> None:
+            os.close(alive_write)
+            if keeper.poll() is None:
+                keeper.kill()
+            keeper.wait(timeout=10)
+        self.addCleanup(stop)
+
+        deadline = time.monotonic() + 10
+        while not pid_file.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertTrue(pid_file.exists(), "the fetch started")
+        pid = int(pid_file.read_text())
+
+        def alive() -> bool:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return False
+            try:  # killed but not yet reaped by the keeper is gone too
+                return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] != "Z"
+            except (OSError, IndexError):
+                return True
+
+        deadline = time.monotonic() + 10
+        while alive() and time.monotonic() < deadline:
+            time.sleep(0.1)
+        left = alive()
+        if left:
+            os.kill(pid, signal.SIGKILL)
+        self.assertFalse(left, "the fetch outlived a guard whose reader closed before the deadline")
+
+
+class SshBatchModeWins(StaleBaseFixture):
+    """cmux#41750 review: OpenSSH keeps the FIRST value of an option, so `-o BatchMode=yes` appended after a user's
+    `BatchMode=no` lost, and ssh could still ask. Each row resolves the command the fetch would run with the real ssh
+    (`ssh -G` connects nowhere) and reads the batchmode it ends up with."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.push_range = load("stale_base_push_range_batch", "scripts/cmux-next/push_range.py")
+        for name in ("GIT_SSH", "GIT_SSH_COMMAND"):
+            os.environ.pop(name, None)
+        self.ssh = shutil.which("ssh")
+        self.assertIsNotNone(self.ssh, "these rows need OpenSSH's client on PATH")
+
+    def batchmode(self) -> str:
+        command = self.push_range._no_prompt_env(self.work).get("GIT_SSH_COMMAND", "")
+        self.assertTrue(command, "the fetch runs ssh through a GIT_SSH_COMMAND it set")
+        out = subprocess.run(["sh", "-c", f"{command} -F /dev/null -G fixture.invalid"], capture_output=True,
+                             text=True, stdin=subprocess.DEVNULL, timeout=30)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        return next(line.split()[1] for line in out.stdout.splitlines() if line.startswith("batchmode "))
+
+    def test_git_ssh_as_a_full_path_to_openssh(self):
+        os.environ["GIT_SSH"] = self.ssh
+        self.assertEqual(self.batchmode(), "yes")
+
+    def test_git_ssh_command_that_turns_batchmode_off(self):
+        os.environ["GIT_SSH_COMMAND"] = "ssh -o BatchMode=no"
+        self.assertEqual(self.batchmode(), "yes")
+
+    def test_core_sshcommand_that_turns_batchmode_off(self):
+        self.git(self.work, "config", "core.sshCommand", f"{self.ssh} -o BatchMode=no")
+        self.assertEqual(self.batchmode(), "yes")
+
+    def test_a_quoted_program_path_keeps_its_arguments(self):
+        os.environ["GIT_SSH_COMMAND"] = f"'{self.ssh}' -oBatchMode=no -o ConnectTimeout=7"
+        self.assertEqual(self.batchmode(), "yes")
 
 
 if __name__ == "__main__":

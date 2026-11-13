@@ -562,8 +562,8 @@ impl StateMutex {
         }
     }
 
-    /// The state lock if it is free now (the accept loop, which never waits
-    /// for it, and the snapshot reader that builds, `resource_api/committed_snapshot.rs`).
+    /// The state lock if it is free now (the snapshot reader that builds,
+    /// `resource_api/committed_snapshot.rs`).
     /// A try cannot deadlock, so it skips the rank check `lock` makes.
     #[track_caller]
     pub(crate) fn try_lock(&self) -> TryLockResult<StateGuard<'_>> {

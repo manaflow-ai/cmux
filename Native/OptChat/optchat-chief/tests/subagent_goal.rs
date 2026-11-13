@@ -177,3 +177,36 @@ fn subagent_goal_setting_reads_on_unless_false() {
     assert!(!on(Some(&json!({"chief": {"subagentGoal": false}}))));
     assert!(!on(Some(&json!({"chief.subagentGoal": false}))));
 }
+
+/// a1147's real spawn on build a8a0a78 (2026-11-12): the task came first, then
+/// Claude Code refused `/goal` ("can't run while hooks are restricted
+/// (disableAllHooks ...)"), because the subagent folder's project settings
+/// turned every hook off. A subagent's settings leave hooks on; the Chief's
+/// own turn folder keeps them off.
+#[test]
+fn subagent_goal_subagent_settings_leave_hooks_on() {
+    use optchat_chief::prompt::Tools;
+    use optchat_chief::session_dir::{SessionSetup, write, write_subagent};
+    let dir = tempfile::tempdir().unwrap();
+    let paths = optchat_chief::paths::Paths::new(&dir.path().join("mux"));
+    paths.create().unwrap();
+    let setup = SessionSetup {
+        exe: "/x/optchat-chief".into(),
+        env: Default::default(),
+        instructions: None,
+        tools: Tools::Mcp,
+        user_env: Default::default(),
+        profile_tool: false,
+        chiefs_tool: false,
+    };
+    write(&paths, &setup).unwrap();
+    write_subagent(&paths, &setup, "subagent").unwrap();
+    let read = |path: std::path::PathBuf| -> serde_json::Value {
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap()
+    };
+    for name in ["settings.json", "settings.local.json"] {
+        let sub = read(paths.subagent.join(".claude").join(name));
+        assert_eq!(sub["disableAllHooks"], json!(false), "{name}: {sub}");
+        assert!(sub.get("allowManagedHooksOnly").is_none(), "{name}: {sub}");
+    }
+}

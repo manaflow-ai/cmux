@@ -47,6 +47,14 @@ fn row_id(row: &Value) -> Option<&str> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn no_reply_on_a_client_path_is_larger_than_a_page() {
+    super::list_web_page_tests::list_test_within(
+        "no_reply_on_a_client_path_is_larger_than_a_page",
+        no_reply_on_a_client_path_is_larger_than_a_page_body(),
+    )
+    .await
+}
+
+async fn no_reply_on_a_client_path_is_larger_than_a_page_body() {
     let hub = hub().await;
     let every = every_id();
     let own: HashSet<String> = every.iter().filter(|id| id.starts_with("own-")).cloned().collect();
