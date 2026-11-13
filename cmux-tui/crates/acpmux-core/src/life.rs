@@ -44,7 +44,6 @@ impl V2 {
     }
 }
 
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Health {
     Starting,
