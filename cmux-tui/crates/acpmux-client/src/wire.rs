@@ -397,7 +397,7 @@ impl Page {
 }
 
 /// A generic bounded window shared by list and chat streams.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Window<T> {
     pub sid: String,

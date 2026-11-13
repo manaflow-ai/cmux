@@ -69,6 +69,11 @@ impl Clone for Summary {
 }
 
 impl Summary {
+    /// Whether this summary belongs to the live list view.
+    pub fn is_live(&self) -> bool {
+        matches!(self.state.as_str(), "running" | "working" | "active" | "open")
+    }
+
     /// A compact default useful when a chat has not supplied a title yet.
     pub fn new(chat_id: impl Into<String>) -> Self {
         Self {
