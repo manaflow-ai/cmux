@@ -87,7 +87,7 @@ fn assert_roundtrip(v1: &Hub, index: &SummaryIndex) {
 }
 
 async fn wait_roundtrip(v1: &Hub, v2: &V2) {
-    tokio::time::timeout(Duration::from_secs(5), async {
+    let result = tokio::time::timeout(Duration::from_secs(5), async {
         loop {
             let snapshot = v2.hub.snapshot();
             let sessions = v1.session_handles();
@@ -114,8 +114,27 @@ async fn wait_roundtrip(v1: &Hub, v2: &V2) {
             tokio::time::sleep(Duration::from_millis(1)).await;
         }
     })
-    .await
-    .expect("v1 and the v2 tee did not converge");
+    .await;
+    if result.is_err() {
+        let snapshot = v2.hub.snapshot();
+        let sessions = v1.session_handles();
+        eprintln!(
+            "roundtrip timeout: index_ids={:?} session_ids={:?}",
+            snapshot.iter().map(|row| row.chat_id.clone()).collect::<Vec<_>>(),
+            sessions.iter().map(|session| session.id.clone()).collect::<Vec<_>>()
+        );
+        for session in sessions {
+            if let Some(expected) = indexed_v1_row(&snapshot, &session.id) {
+                eprintln!(
+                    "{} actual={} expected={}",
+                    session.id,
+                    v1.session_list_summary(&session),
+                    expected
+                );
+            }
+        }
+        panic!("v1 and the v2 tee did not converge");
+    }
 }
 
 #[tokio::test]
