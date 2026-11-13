@@ -10,6 +10,7 @@ import type { Play } from "../../gallery/play";
 import { assistant, chat, summary, user } from "../../gallery/fixtures/acpmux";
 import type { AcpmuxRow } from "./model";
 import { jumpUpBadge, type JumpUpBadge } from "./jumpPair.experiment";
+import { jumpUpButton } from "./jumpUp.experiment";
 
 const turns = (from: number, count: number, ago: number) =>
   Array.from({ length: count }, (_, index) => [
@@ -35,7 +36,8 @@ const upShown: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-jump-latest[data-jump="up"][data-shown]'));
 };
 
-const badge = (arm: JumpUpBadge) => ({ experiments: { [jumpUpBadge.id]: arm } });
+// The control turns up only with Jump up on (jumpUp.experiment.ts, off by default).
+const badge = (arm: JumpUpBadge) => ({ experiments: { [jumpUpBadge.id]: arm, [jumpUpButton.id]: "on" } });
 
 export default agentPaneEntry({
   id: "agent-pane.jump-up-badge",

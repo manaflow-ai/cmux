@@ -15,6 +15,7 @@ import wallpaper from "../../gallery/fixtures/assets/liquid-glass-wallpaper.jpg?
 import { assistant, chat, row, summary, user } from "../../gallery/fixtures/acpmux";
 import { SINCE_DIVIDER, type AcpmuxRow } from "./model";
 import { jumpPairLook, type JumpPairLook } from "./jumpPair.experiment";
+import { jumpUpButton } from "./jumpUp.experiment";
 
 const MARK = "gallery-jump-pair:41";
 
@@ -100,7 +101,9 @@ const overImage: Play = async (ctx) => {
   await park(ctx);
 };
 
-const look = (arm: JumpPairLook) => ({ experiments: { [jumpPairLook.id]: arm } });
+const look = (arm: JumpPairLook, up = false) => ({
+  experiments: { [jumpPairLook.id]: arm, ...(up ? { [jumpUpButton.id]: "on" } : {}) },
+});
 
 export default agentPaneEntry({
   id: "agent-pane.jump-pair-look",
@@ -128,12 +131,13 @@ export default agentPaneEntry({
       note: "Jump up at the latest message, the New line far above, in the app's look; View Compare arms puts every look side by side.",
       snapshot,
       play: atLatest,
+      experiments: { [jumpUpButton.id]: "on" },
     },
     "labeled-up": {
       note: "Labeled Jump up: its own words, at the latest message.",
       snapshot,
       play: atLatest,
-      ...look("labeled"),
+      ...look("labeled", true),
     },
     latest: {
       note: "Above the New line: nothing unseen above, so the one disc is Jump to latest, in the app's look.",

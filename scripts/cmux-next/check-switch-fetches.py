@@ -57,6 +57,8 @@ ALLOWED_LISTENERS = {
     "the page hides, so they don't replay on return; reads no data",
     (f"{ACPMUX}/conversation/sendTuck.ts", "visibilitychange"): "ends a send's tuck animation and "
     "removes its copies as the page hides; reads no data",
+    (f"{ACPMUX}/conversation/shimmerCadence.ts", "visibilitychange"): "pauses and restarts decorative "
+    "shimmer timers as the page hides or shows; reads no data",
     (f"{ACPMUX}/chatPerfCapture.ts", "visibilitychange"): "`cmux app chat perf` notes when the "
     "page hid during a capture, only while one runs (removed after); reads no data",
     (f"{ACPMUX}/composerFocus.ts", "focus"): "focus claim when the window is focused (the composer "
@@ -86,6 +88,9 @@ ALLOWED_LISTENERS = {
     "tray's and cards' one-second clock while the page hides and catches it up on show; reads no "
     "data",
     (f"{ACPMUX}/pageKey.ts", "focus"): "marks the page key or not for the caret; reads no data",
+    (f"{ACPMUX}/finish/useFinishMoments.ts", "visibilitychange"): "drops a long turn's finish sound "
+    "still waiting for its summary as the page hides, since the Agent Finished notification sounds "
+    "for it; reads no data",
     (f"{ACPMUX}/flickerLog.ts", "visibilitychange"): "the flicker log records the page's visibility "
     "as a diagnostic event and resets or re-arms its own frame watch; reads no data",
     (f"{ACPMUX}/Composer.tsx", "visibilitychange"): "flushes a new chat's waiting unsent draft to the host "

@@ -47,6 +47,9 @@ pub struct AttachParams {
     pub session_id: String,
     /// Wait for restart-time log restoration before answering; false serves the page immediately.
     pub wait_logs: Option<bool>,
+    /// Answer from the chat's settled view first (`settled-attach-v1`,
+    /// `server/requests/settled_attach.rs`): a read, falling back to a plain page.
+    pub settled: Option<bool>,
     pub kinds: Option<EventKinds>,
     /// Send every matching record as `_acpmux/event`; else the agent's
     /// updates arrive as ACP `session/update` and acpmux's own as
@@ -237,9 +240,13 @@ pub struct WatchParams {
     pub enabled: Option<bool>,
     pub limit: Option<u64>,
     pub cursor: Option<String>,
-    /// A peer daemon's link only (`watch_delta.rs`): every session it holds of this daemon's
-    /// list, with the digest of its row as last listed (`""` when it changed since). The reply
-    /// is then a delta: `delta: true`, the rows new or changed, and `removed`.
+    /// Follow the list from this position (`hub/row_log.rs`, capability
+    /// `session-list-follow-v1`): the highest `listSeq` the client applied. The reply holds the
+    /// rows changed since and `gone`, not the list (`follow: true`); one the log cannot follow is
+    /// answered with the list's first page and `reset: true`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub known: Option<std::collections::BTreeMap<String, String>>,
+    pub after_seq: Option<u64>,
+    /// The `listEpoch` that `afterSeq` came with: a cursor of another daemon run is reset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub list_epoch: Option<String>,
 }

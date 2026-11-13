@@ -4,7 +4,7 @@
 // place and eases the rest; the way back glides too. With nothing unseen there is no up arrow: not on
 // an open (a restart, a reconnect), nor after a press of Jump to latest (Leo, 2026-11-12: "after
 // clicking the jump to bottom button, this appears... maybe a bit extra?").
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, test, beforeEach, afterEach } from "bun:test";
 import { settleReact } from "./support/domTeardown";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -100,6 +100,14 @@ async function frames(scroller: HTMLElement): Promise<number[]> {
   }
   return seen;
 }
+
+// Jump up is off by default (jumpUp.experiment.ts, #42247): these press the control while it is on.
+beforeEach(() => {
+  globalThis.cmuxExperiments = { "jump-up": "on" };
+});
+afterEach(() => {
+  globalThis.cmuxExperiments = undefined;
+});
 
 test("Jump up glides to the place and back, never cutting a viewport or more in one frame", async () => {
   const root = createRoot(dom.window.document.getElementById("root")!);
@@ -227,6 +235,68 @@ test("after a press of Jump to latest no up arrow comes, and none going back up 
     await moveTo(scroller, scrollerEnd(scroller) - VIEWPORT / 2);
     expect(jump.hasAttribute("data-shown")).toBe(true);
     expect(jump.getAttribute("data-jump")).toBe("latest");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+/// The chat as the page draws it: the transcript's seen reports move its cursor (direct.ts
+/// `noteVisibleThrough`, the reader attending), as acpmux's `readThrough` comes back.
+async function openSeeing(readThrough: number) {
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const expanded = new Set<string>();
+  let cursor = readThrough;
+  const draw = () =>
+    root.render(
+      <VirtualTranscript
+        rows={turnView(rows, expanded)}
+        readThrough={cursor}
+        onSeenThrough={(seq) => {
+          if (seq === undefined || seq <= cursor) return;
+          cursor = seq;
+          queueMicrotask(draw);
+        }}
+        jumpButton
+        onToggleActivity={() => {}}
+        expanded={expanded}
+      />,
+    );
+  await act(async () => draw());
+  await act(async () => nextFrame());
+  const doc = dom.window.document;
+  return {
+    root,
+    scroller: doc.querySelector<HTMLElement>(".acpmux-scroll")!,
+    jump: doc.querySelector<HTMLButtonElement>(".acpmux-jump-latest")!,
+    cursor: () => cursor,
+  };
+}
+
+async function rideToEnd(scroller: HTMLElement) {
+  for (let i = 0; i < 120 && scroller.scrollTop !== scrollerEnd(scroller); i++)
+    await act(async () => {
+      await nextFrame();
+      scroller.dispatchEvent(new dom.window.Event("scroll"));
+    });
+  await act(async () => nextFrame());
+}
+
+test('Jump up, then Jump to latest: at the bottom the control does not come back (Leo: "it appears again")', async () => {
+  const { root, scroller, jump, cursor } = await openSeeing(1);
+  try {
+    expect(jump.getAttribute("data-jump")).toBe("up");
+    await act(async () => jump.click());
+    await frames(scroller);
+    // At the first unseen row: the same control is Jump to latest.
+    expect(jump.getAttribute("data-jump")).toBe("latest");
+    await act(async () => jump.click());
+    await rideToEnd(scroller);
+    expect(scroller.scrollTop).toBe(scrollerEnd(scroller));
+    // The reader asked for the latest message: what they skipped on the way is theirs to have
+    // passed, so the cursor is at the end and no arrow points up.
+    expect(cursor()).toBe(LAST);
+    expect(jump.hasAttribute("data-shown")).toBe(false);
+    expect(jump.getAttribute("data-jump")).not.toBe("up");
   } finally {
     await act(async () => root.unmount());
   }

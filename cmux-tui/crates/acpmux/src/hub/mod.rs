@@ -43,6 +43,7 @@ mod exit_reason;
 mod fallback_start;
 pub(crate) mod session_auth;
 pub(crate) mod settled_view;
+pub(crate) mod subagent_resume;
 pub(crate) mod subagent_retry;
 pub(crate) mod turn_errors;
 pub(crate) use btw::SIDE_TAG;
@@ -63,6 +64,7 @@ mod gemini_plan;
 pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 #[cfg(test)]
 mod agent_messaging_tests;
+mod ephemeral;
 #[cfg(test)]
 mod first_work_tests;
 mod fork;
@@ -133,6 +135,7 @@ pub mod media_read;
 mod mesh_book;
 mod mesh_rows;
 pub(crate) mod native_history;
+pub(crate) mod row_log;
 pub(crate) mod subagent_transcript;
 mod team_information;
 mod team_sent;
@@ -278,6 +281,7 @@ mod tailnet_controller;
 mod tap;
 pub(crate) mod time_breakdown;
 mod titles;
+mod tool_installs;
 mod tool_paths;
 mod tool_read_images;
 mod tool_shell;
@@ -368,6 +372,8 @@ mod background_cause;
 pub mod background_turn;
 mod goal_tools;
 pub mod plan_build;
+#[cfg(test)]
+mod refused_append_tests;
 #[cfg(feature = "sim")]
 mod sim_startup;
 #[cfg(all(test, unix))]
@@ -469,6 +475,10 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// session resumes on its next prompt (`idle.rs`).
 pub const IDLE_CHILD: std::time::Duration = std::time::Duration::from_secs(2 * 60);
 
+/// Events the hub's background readers missed because they fell behind its event ring
+/// ([`Hub::lagged_reader`]), since the daemon started.
+pub(crate) static READER_LAGS: AtomicU64 = AtomicU64::new(0);
+
 /// Fan-out item: one appended record for one session, shared by every receiver, never copied.
 /// `remote` carries the peer name and the peer's summary when the session lives elsewhere.
 #[derive(Debug, Clone)]
@@ -485,6 +495,9 @@ pub struct HubEvent {
     /// its tools, built by the first watching connection that sends it and shared by the rest
     /// (`server::deliver`): one build per record, not one per watching connection.
     pub row: Arc<[std::sync::OnceLock<Value>; 2]>,
+    /// The list position its row change took (`row_log.rs`), stamped as it is sent; 0 for an
+    /// event that changes no row.
+    pub list_seq: u64,
 }
 
 /// One `_acpmux/message` copy in a journal: its message id, plus for a sender's copy the chat
@@ -1125,6 +1138,8 @@ pub struct Hub {
     pub(crate) wait_evaluations: std::sync::atomic::AtomicU64,
     /// Failed subagents waiting to be resumed, by chat (`subagent_retry.rs`).
     pub(super) subagent_retries: subagent_retry::Retries,
+    /// Each chat's top-level subagents and their briefs, for a Resume (`subagent_resume.rs`).
+    pub(super) subagent_resumes: subagent_resume::Resumes,
     /// Fired by `set_transfer_lease`: each move's watch reads the new lease now.
     pub(super) transfer_lease_changed: Notify,
     /// Secrets agents asked the person for, and their one-use refs (`secrets.rs`).
@@ -1233,6 +1248,10 @@ impl Hub {
         // Beside the peer caches, in the home they are in; a memory store keeps neither.
         let home = store.peer_cache_dir().and_then(|p| p.parent().map(Path::to_path_buf));
         let peer_paths = Arc::new(crate::peer_last_good::LastGood::open(home.as_deref()));
+        // A removed peer's kept remote tokens go with it (`peer_kept_tokens.rs`).
+        peer_paths
+            .tokens
+            .retain(peers_cfg.iter().map(|(name, pc)| (name.as_str(), pc.url.as_str())));
         let suggestion_gate = StdMutex::new(crate::suggestion_gate::Gate::open(home.as_deref()));
         // Beside the session store in its home; a memory store keeps it in memory only.
         let ledger = ledger::Ledger::open(home.as_ref().map(|h| h.join("ledger")));
@@ -1444,6 +1463,7 @@ impl Hub {
             session_update_encodes: Default::default(),
             wait_evaluations: Default::default(),
             subagent_retries: Default::default(),
+            subagent_resumes: Default::default(),
             transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
             mcp_connects: Default::default(),
@@ -1533,6 +1553,20 @@ impl Hub {
         self.outbox.unsettled()
     }
 
+    /// A background reader of [`Hub::subscribe`] fell `missed` events behind (rework stage 3,
+    /// E4): counted, logged, and the chats it may have missed a turn's end of, the idle ones, to
+    /// look at again.
+    pub(super) fn lagged_reader(&self, reader: &'static str, missed: u64) -> Vec<Arc<Session>> {
+        READER_LAGS.fetch_add(missed, Ordering::Relaxed);
+        tracing::warn!(
+            reader,
+            missed,
+            "a background event reader fell behind: it reads its chats again"
+        );
+        let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        sessions.values().filter(|s| s.turn().is_none()).cloned().collect()
+    }
+
     pub fn subscribe(&self) -> broadcast::Receiver<HubEvent> {
         self.events.subscribe()
     }
@@ -1578,7 +1612,7 @@ impl Hub {
             plan.hosted.extend(hosted.iter().cloned());
         }
         // An older daemon's approve-all that could be vmHost's asks now (`policy_source.rs`).
-        self.settle_legacy_grants(&mut metas);
+        let unsaved = self.settle_legacy_grants(&mut metas);
         self.store_load.total.store(metas.len(), Ordering::SeqCst);
         // A first start with no ledger file: each session's running totals (`hub/ledger`).
         if self.ledger.wants_seed() {
@@ -1589,7 +1623,8 @@ impl Hub {
         }
         for meta in metas {
             let hosted = hosted.contains(&meta.id);
-            self.install_stored_session(meta, deferred, hosted);
+            let saved = !unsaved.contains(&meta.id);
+            self.install_stored_session(meta, deferred, hosted, saved);
         }
         tracing::info!(
             "loaded {} sessions from store",
@@ -1601,13 +1636,20 @@ impl Hub {
         self.resume_races();
     }
 
-    pub(super) fn install_stored_session(&self, meta: SessionMeta, deferred: bool, hosted: bool) {
+    pub(super) fn install_stored_session(
+        &self,
+        meta: SessionMeta,
+        deferred: bool,
+        hosted: bool,
+        saved: bool,
+    ) {
         // An on-demand read may already have installed and updated this chat. Never replace it
         // with the snapshot the background list read earlier.
         let mut sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if sessions.contains_key(&meta.id) {
             return;
         }
+        let saved_meta = saved.then(|| meta.clone());
         let mut meta = meta;
         // An agent whose host still runs keeps its saved status until adoption reaches it:
         // it works on meanwhile, never shown idle (claude-sr2, 2026-10-26).
@@ -1630,6 +1672,9 @@ impl Hub {
             self.subsessions.note_status(&link.started_by, &meta.id, meta.status);
         }
         let session = self.make_session(meta);
+        if let Some(meta) = saved_meta {
+            session.meta_writer.note_saved(meta);
+        }
         session.caught_up.store(false, Ordering::SeqCst);
         *session.transfer_authority.lock().unwrap_or_else(|e| e.into_inner()) = None;
         // Its log is read after the ready line (`log_load.rs`).
@@ -2250,7 +2295,7 @@ impl Hub {
         // copy was appended, so recovering an old message cannot regress activity.
         // Published only once stored: a failed copy is repaired later (`message_events.rs`),
         // and that repair's copy is the one clients and peers hear.
-        if self.append_at_locked(session, "mux", "_acpmux/message", msg, None, None, true, true).1 {
+        if self.append_at_locked(session, "mux", "_acpmux/message", msg, None, None, true).1 {
             ids.insert(key);
             true
         } else {
@@ -2338,7 +2383,7 @@ impl Hub {
         tool_paths::add_canonical_paths(session, kind, &mut msg);
         let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         self.catch_up_locked(session);
-        self.append_at_locked(session, dir, kind, msg, None, None, false, false).0
+        self.append_at_locked(session, dir, kind, msg, None, None, false).0
     }
 
     /// [`Hub::append_logged`] of a record that happened at `at` (Unix ms;
@@ -2361,12 +2406,12 @@ impl Hub {
         tool_paths::add_canonical_paths(session, kind, &mut msg);
         let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         self.catch_up_locked(session);
-        self.append_at_locked(session, dir, kind, msg, host_seq, at, false, true)
+        self.append_at_locked(session, dir, kind, msg, host_seq, at, true)
     }
 
-    /// [`Hub::append_at_locked`] of one record. `stored_only`: a record the store refused is
-    /// neither counted nor published (its caller appends it again), so no client or peer hears a
-    /// copy the journal does not hold. `kept`: what the log stores for it.
+    /// [`Hub::append_at_locked`] of one record. A record the store refused is neither counted nor
+    /// published, so no client or peer hears a copy the journal does not hold. `kept`: what the
+    /// log stores for it.
     #[allow(clippy::too_many_arguments)]
     fn append_record_locked(
         &self,
@@ -2376,7 +2421,6 @@ impl Hub {
         msg: Value,
         host_seq: Option<u64>,
         at: Option<u64>,
-        stored_only: bool,
         kept: log_deferral::Kept,
         notify: bool,
     ) -> (EventRecord, bool) {
@@ -2444,7 +2488,11 @@ impl Hub {
         if session.status() == SessionStatus::Closed {
             self.store.close_log(&session.id);
         }
-        if stored_only && !stored {
+        // A record the store refused (its journal's backlog full, a failed write) is neither
+        // counted nor published: no viewer sees an event no log holds, which a later catch-up
+        // from the log would contradict (rework stage 3, C3). It leaves a gap in the chat's
+        // sequence, which every reader skips; a caller that must keep it appends it again.
+        if !stored {
             return (record, false);
         }
         {
@@ -2509,6 +2557,7 @@ impl Hub {
                 remote: None,
                 update_line: Default::default(),
                 row: Default::default(),
+                list_seq: 0,
             };
             // A live chat's streamed text changes only its own row, which is never cached, so the
             // closed rows keep their bytes while agents stream. Read after the metadata update

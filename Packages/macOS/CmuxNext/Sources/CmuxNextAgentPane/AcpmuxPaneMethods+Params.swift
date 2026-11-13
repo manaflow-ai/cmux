@@ -47,7 +47,9 @@ nonisolated extension AcpmuxPaneMethods {
         // (its own id) or the chat's own turn.
         "_acpmux/retry": (["sessionId", "subagentId"], []),
         // `visible`: whether the pane shows the chat; acpmux owns unread from it (cx-n8ou).
-        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "attending", "waitLogs"], []),
+        // `settled`: a cold open asks for acpmux's settled view (direct.ts sendAttach,
+        // settled-attach-v1); refused, no chat opens once the daemon names it (#42185).
+        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "attending", "waitLogs", "settled"], []),
         "_acpmux/detach": (["sessionId"], []),
         "_acpmux/view": (["sessionId", "visible", "attending", "seenSeq"], []),
         // The newest row seq on screen while the person attends (acpmux hub/seen.rs `read_through`).

@@ -388,6 +388,12 @@ pub struct SessionMeta {
     /// 2026-11-04 a kept Chief session that woke after a restart died at the 90 s deadline again.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub wait_start: bool,
+    /// Its creator purges it right after its work (`_meta.acpmux.throwaway`, the Chief
+    /// compactor's nodes): its prompts'
+    /// `user_message` keeps no long body (`hub/ephemeral.rs`), and a retry or restart never runs
+    /// such a prompt again. Kept on disk with the rest of its meta.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub throwaway: bool,
     /// When (Unix ms) the idle exit hibernated its agent, 0 when no start woke it since
     /// (`hub/idle.rs`): after a restart, opening it wakes it and its wake draws no row, as
     /// before the restart, and the wake's log says how long it slept.
@@ -1368,6 +1374,8 @@ mod sync_model;
 
 mod memory;
 pub use memory::MemoryStore;
+#[cfg(test)]
+pub(crate) use memory::{COPY_FORKS, REFUSE_APPENDS};
 
 // ----------------------------------------------------------------- local
 
@@ -1392,6 +1400,8 @@ pub struct LocalStore {
     rehydrate_hook: std::sync::OnceLock<RehydrateHook>,
     /// The parts files written or read (`store/meta_parts.rs`).
     parts: meta_parts::PartsMemo,
+    #[cfg(test)]
+    pub(crate) meta_saves: std::sync::Arc<std::sync::atomic::AtomicU64>,
 }
 
 /// The logs held open, at most `LocalStore::open_logs` (`store/open_logs.rs`): the least
@@ -1441,6 +1451,8 @@ impl LocalStore {
             cold: Default::default(),
             rehydrate_hook: Default::default(),
             parts: Default::default(),
+            #[cfg(test)]
+            meta_saves: Default::default(),
         })
     }
 
@@ -1491,34 +1503,44 @@ impl LocalStore {
         Ok(out)
     }
 
-    fn list_entry(&self, entry: &std::fs::DirEntry) -> Result<Option<SessionMeta>> {
-        let kind = entry.file_type()?;
-        anyhow::ensure!(!kind.is_symlink(), "session entry {} is a link", entry.path().display());
-        if !kind.is_dir() {
+    fn list_entry(
+        &self,
+        root: &crate::home_fs::PrivateDir,
+        name: &std::ffi::OsStr,
+    ) -> Result<Option<SessionMeta>> {
+        let entry = match root.entry(name) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            other => other?,
+        };
+        let session = root.path().join(name);
+        anyhow::ensure!(!entry.is_symlink, "session entry {} is a link", session.display());
+        if !entry.is_dir {
             return Ok(None);
         }
-        let session = entry.path();
-        self.validate_session_dir(&session)?;
+        let held = self.validate_session_dir(root, name)?;
         let path = session.join("session.json");
-        let id = entry.file_name().to_string_lossy().into_owned();
-        let Ok(file) = crate::config::private_state_file(&path) else {
-            if crate::home_fs::try_exists_nofollow(&path)? {
-                self.mark_unlisted(&id, true);
+        let id = name.to_string_lossy().into_owned();
+        let file = match held.private_file(std::ffi::OsStr::new("session.json")) {
+            Ok(file) => file,
+            Err(error) => {
+                if !is_not_found(&error) {
+                    self.mark_unlisted(&id, true);
+                }
+                return Ok(None);
             }
-            return Ok(None);
         };
         let mut text = String::new();
         BufReader::new(file).read_to_string(&mut text)?;
         // Only a closed chat can be a purged chat revived by a late save. Open chats need
         // no segment enumeration: that work belongs to their on-demand log read.
         if let Ok(meta) = serde_json::from_str::<StatusOnly>(&text)
-            && self.purged_startup_entry(&entry.file_name().to_string_lossy(), meta.status)?
+            && self.purged_startup_entry(&id, meta.status)?
         {
             return Ok(None);
         }
         match serde_json::from_str::<SessionMeta>(&text) {
             Ok(mut meta) => {
-                self.parts.merge(&session, text.as_bytes(), &mut meta);
+                self.parts.merge_held(&held, text.as_bytes(), &mut meta);
                 self.mark_unlisted(&id, false);
                 Ok(Some(meta))
             }
@@ -1541,15 +1563,18 @@ impl LocalStore {
 
     /// Exact on-demand reads use the same directory checks as the background list before
     /// trusting metadata or reading any log. In particular, neither directory may be a link.
-    fn validate_session_dir(&self, session: &Path) -> Result<()> {
-        crate::config::private_state_dir(session)?;
-        let events = session.join("events");
-        match crate::home_fs::symlink_metadata(&events) {
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error.into()),
-            Ok(_) => crate::config::private_state_dir(&events)?,
+    fn validate_session_dir(
+        &self,
+        root: &crate::home_fs::PrivateDir,
+        name: &std::ffi::OsStr,
+    ) -> Result<crate::home_fs::PrivateDir> {
+        let session = root.child(name)?;
+        match session.child(std::ffi::OsStr::new("events")) {
+            Err(error) if is_not_found(&error) => {}
+            Err(error) => return Err(error),
+            Ok(_) => {}
         }
-        Ok(())
+        Ok(session)
     }
 
     fn purged_startup_entry(&self, id: &str, status: SessionStatus) -> Result<bool> {
@@ -1596,6 +1621,10 @@ impl LocalStore {
         let written = cut_torn_tail(&file, &path)?;
         Ok(SegmentWriter { index, file, written, used: 0 })
     }
+}
+
+fn is_not_found(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<std::io::Error>().is_some_and(|e| e.kind() == std::io::ErrorKind::NotFound)
 }
 
 /// A session record's status alone, read without the rest of the record.
@@ -1825,37 +1854,41 @@ impl Store for LocalStore {
     fn list(&self) -> Result<Vec<SessionMeta>> {
         // No sessions folder yet: no chat. One that is there and does not read is a failed list,
         // never an empty one: an empty list proves every chat gone (`hub/hosts.rs`).
-        let rd = match std::fs::read_dir(&self.root) {
-            Ok(rd) => rd,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-            Err(error) => {
-                return Err(
-                    anyhow::Error::new(error).context(format!("list {}", self.root.display()))
-                );
-            }
+        if !crate::home_fs::try_exists_nofollow(&self.root)? {
+            return Ok(Vec::new());
+        }
+        let root = match crate::home_fs::PrivateDir::open(&self.root) {
+            Ok(root) => root,
+            Err(error) if is_not_found(&error) => return Ok(Vec::new()),
+            Err(error) => return Err(error.context(format!("list {}", self.root.display()))),
         };
-        let entries = rd.collect::<std::io::Result<Vec<_>>>()?;
+        // Only enumeration fails the pass. Entry checks belong to each worker.
+        let entries = root.names()?;
         if entries.is_empty() {
             return Ok(Vec::new());
         }
-        // Metadata reads do independent filesystem/ACL checks. Keep those checks, but do
-        // not put every chat behind every earlier chat's disk latency at daemon startup.
+        // Hold the checked store for the pass. Each worker checks only its chats and their
+        // events folders, never the same ancestors again.
         let workers = std::thread::available_parallelism().map_or(1, usize::from).min(8);
         std::thread::scope(|scope| {
             let workers: Vec<_> = entries
                 .chunks(entries.len().div_ceil(workers))
                 .map(|chunk| {
+                    let root = &root;
                     scope.spawn(move || {
                         let mut metas = Vec::new();
-                        for entry in chunk {
+                        for name in chunk {
                             // One chat that is refused or does not read is left out (and
                             // counted unread), never the reason no chat is listed.
-                            match self.list_entry(entry) {
+                            match self.list_entry(root, name) {
                                 Ok(Some(meta)) => metas.push(meta),
                                 Ok(None) => {}
                                 Err(e) => {
-                                    tracing::warn!("skip {}: {e:#}", entry.path().display());
-                                    let id = entry.file_name().to_string_lossy().into_owned();
+                                    tracing::warn!(
+                                        "skip {}: {e:#}",
+                                        root.path().join(name).display()
+                                    );
+                                    let id = name.to_string_lossy().into_owned();
                                     self.mark_unlisted(&id, true);
                                 }
                             }
@@ -1880,20 +1913,26 @@ impl Store for LocalStore {
     }
 
     fn load(&self, id: &str) -> Result<Option<SessionMeta>> {
-        let session = self.dir(id);
-        match crate::home_fs::symlink_metadata(&session) {
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(error.into()),
-            Ok(_) => self.validate_session_dir(&session)?,
-        }
-        let path = session.join("session.json");
-        if !crate::home_fs::try_exists_nofollow(&path)? {
+        // An absent chat needs only search access, before opening folders for reading.
+        if !crate::home_fs::try_exists_nofollow(self.dir(id))? {
             return Ok(None);
         }
+        let root = match crate::home_fs::PrivateDir::open(&self.root) {
+            Err(error) if is_not_found(&error) => return Ok(None),
+            other => other?,
+        };
+        let held = match self.validate_session_dir(&root, std::ffi::OsStr::new(id)) {
+            Err(error) if is_not_found(&error) => return Ok(None),
+            other => other?,
+        };
+        let file = match held.private_file(std::ffi::OsStr::new("session.json")) {
+            Err(error) if is_not_found(&error) => return Ok(None),
+            other => other?,
+        };
         let mut text = String::new();
-        BufReader::new(crate::config::private_state_file(&path)?).read_to_string(&mut text)?;
+        BufReader::new(file).read_to_string(&mut text)?;
         let mut meta: SessionMeta = serde_json::from_str(&text)?;
-        self.parts.merge(&session, text.as_bytes(), &mut meta);
+        self.parts.merge_held(&held, text.as_bytes(), &mut meta);
         Ok(Some(meta))
     }
 
@@ -1906,6 +1945,8 @@ impl Store for LocalStore {
     }
 
     fn save(&self, meta: &SessionMeta) -> Result<()> {
+        #[cfg(test)]
+        self.meta_saves.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let _open = self.writable()?;
         let dir = self.dir(&meta.id);
         crate::config::private_state_dir(&dir)?;

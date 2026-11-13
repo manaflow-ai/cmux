@@ -62,6 +62,11 @@ pub(crate) struct Events {
     /// (`Session::summary_gen`, [`Events::send_row`], [`Events::row_changed`]), so a change of one
     /// chat rebuilds its own row only (`Hub::cached_closed_summary`).
     pub(super) summary_generation: Arc<AtomicU64>,
+    /// The list's row log (`row_log.rs`): a row change is stamped and sent under its lock, so
+    /// list positions go out in their order.
+    rows: std::sync::Mutex<super::row_log::RowLog>,
+    /// This run's id for list positions: a cursor of another run is no cursor here.
+    epoch: String,
 }
 
 impl Events {
@@ -70,7 +75,45 @@ impl Events {
             tx: broadcast::channel(capacity).0,
             changes: AtomicU64::new(0),
             summary_generation: Arc::new(AtomicU64::new(0)),
+            rows: Default::default(),
+            epoch: super::row_log::new_epoch(),
         }
+    }
+
+    /// Sends `event`, stamped with the list position of the row it changes, if any.
+    fn stamped(&self, mut event: HubEvent) -> Result<usize, broadcast::error::SendError<HubEvent>> {
+        let Some((key, gone)) = super::row_log::row_change(&event) else {
+            return self.tx.send(event);
+        };
+        let mut rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
+        event.list_seq = rows.stamp(key, gone);
+        let rec = &event.record;
+        if event.remote.is_none()
+            && rec.kind != "created"
+            && reaches_other_rows(&rec.dir, &rec.kind)
+        {
+            rows.floor_all();
+        }
+        self.tx.send(event)
+    }
+
+    /// Stamps `session`'s row, which changed with no notice a watcher hears (a streamed chunk's
+    /// preview, an attach): a follow after it sends the row as it is now.
+    fn stamp_own(&self, session: &str) {
+        let key = super::row_log::RowKey::Own(session.to_owned());
+        self.rows.lock().unwrap_or_else(|e| e.into_inner()).stamp(key, false);
+    }
+
+    pub(super) fn list_head(&self) -> u64 {
+        self.rows.lock().unwrap_or_else(|e| e.into_inner()).head()
+    }
+
+    pub(super) fn list_epoch(&self) -> &str {
+        &self.epoch
+    }
+
+    pub(super) fn list_since(&self, after: u64) -> Option<super::row_log::Since> {
+        self.rows.lock().unwrap_or_else(|e| e.into_inner()).since(after)
     }
 
     /// Counts the change, then sends it. A peer's event goes through [`Events::send_remote`]:
@@ -81,7 +124,7 @@ impl Events {
     ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
         debug_assert!(event.remote.is_none(), "a peer's event goes through Events::send_remote");
         self.changed();
-        self.tx.send(event)
+        self.stamped(event)
     }
 
     pub(super) fn subscribe(&self) -> broadcast::Receiver<HubEvent> {
@@ -98,6 +141,7 @@ impl Events {
         event: HubEvent,
     ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
         self.changes.fetch_add(1, Ordering::SeqCst);
+        self.stamp_own(&event.session_id);
         self.tx.send(event)
     }
 
@@ -109,7 +153,7 @@ impl Events {
     ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
         debug_assert!(event.remote.is_some(), "a local event goes through Events::send");
         self.changes.fetch_add(1, Ordering::SeqCst);
-        self.tx.send(event)
+        self.stamped(event)
     }
 
     /// Sends a change of `session`'s own row, which no other row reads (`Hub::append`): the
@@ -120,13 +164,14 @@ impl Events {
         event: HubEvent,
     ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
         self.row_changed(session);
-        self.tx.send(event)
+        self.stamped(event)
     }
 
     /// A change of `session`'s own row no event carries (an attach, a start under way): the next
     /// list is built anew, with only `session`'s cached closed row stale.
     pub(super) fn row_changed(&self, session: &Session) {
         self.changes.fetch_add(1, Ordering::SeqCst);
+        self.stamp_own(&session.id);
         session.summary_gen.fetch_add(1, Ordering::SeqCst);
     }
 
@@ -178,9 +223,6 @@ pub(crate) struct Snapshot {
     /// The full rows are built only for trusted internal consumers (peer bootstrap and ACP).
     /// Ordinary census/watch replies keep using `whole`, so their retained bytes stay small.
     full: StdMutex<Option<Arc<FullRows>>>,
-    /// Lazy parts keep the live snapshot attached while they are being made. Expiry also checks
-    /// the Arc count: a request that still holds this snapshot may start a part after expiry woke.
-    lazy_builds: std::sync::atomic::AtomicUsize,
     #[cfg(test)]
     lazy_build_hold: StdMutex<Option<Arc<(std::sync::Barrier, std::sync::Barrier)>>>,
 }
@@ -233,15 +275,9 @@ impl Snapshot {
             keys,
             made,
             full: Default::default(),
-            lazy_builds: std::sync::atomic::AtomicUsize::new(0),
             #[cfg(test)]
             lazy_build_hold: Default::default(),
         }
-    }
-
-    fn lazy_build(&self) -> LazyBuild<'_> {
-        self.lazy_builds.fetch_add(1, Ordering::Acquire);
-        LazyBuild { snapshot: self }
     }
 
     /// Keep only serialized bytes and paging keys as summaries are produced. A full
@@ -289,7 +325,6 @@ impl Snapshot {
 
     /// [`Self::full_whole`] with where each row is, for ACP's pages.
     pub(crate) fn full_rows(&self, hub: &Hub) -> Arc<FullRows> {
-        let _lazy_build = self.lazy_build();
         let mut full = self.full.lock().unwrap_or_else(|e| e.into_inner());
         full.get_or_insert_with(|| {
             #[cfg(test)]
@@ -422,7 +457,6 @@ impl Snapshot {
         name: &'static str,
         make: impl FnOnce(&Self) -> String,
     ) -> Arc<String> {
-        let _lazy_build = self.lazy_build();
         let mut made = self.made.lock().unwrap_or_else(|e| e.into_inner());
         made.entry(name)
             .or_insert_with(|| {
@@ -445,6 +479,12 @@ impl Snapshot {
         *self.fresh_until.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    /// A concurrent lazy result still owns the snapshot's full-row lock. Reuse the current
+    /// snapshot while that build is in flight, even if its base freshness window has elapsed.
+    fn lazy_building(&self) -> bool {
+        matches!(self.full.try_lock(), Err(std::sync::TryLockError::WouldBlock))
+    }
+
     /// A part of it begun at `began` is made: it stays fresh a window past now, the window of
     /// that part's cost ([`PACE`] times it, at most [`MAX_WINDOW`]) or its build's, the longer.
     /// Its with-tools rows are several times its base rows (3,000 chats of 10 KB titles: 30 MB
@@ -457,16 +497,6 @@ impl Snapshot {
         let window = now.saturating_duration_since(began).saturating_mul(PACE).min(MAX_WINDOW);
         let mut until = self.fresh_until.lock().unwrap_or_else(|e| e.into_inner());
         *until = (*until).max(now + window.max(self.window));
-    }
-}
-
-struct LazyBuild<'a> {
-    snapshot: &'a Snapshot,
-}
-
-impl Drop for LazyBuild<'_> {
-    fn drop(&mut self) {
-        self.snapshot.lazy_builds.fetch_sub(1, Ordering::Release);
     }
 }
 
@@ -806,6 +836,8 @@ pub(crate) struct ListGuard {
 struct State {
     last: Option<Arc<Snapshot>>,
     pace: Pacer,
+    #[cfg(test)]
+    expiry_wakes: usize,
 }
 
 impl ListGuard {
@@ -868,7 +900,7 @@ impl ListGuard {
         if let Some(last) = &state.last
             && last.live_only == live_only
             && last.key.0
-            && (last.serial > asked || last.current(hub) && last.fresh())
+            && (last.serial > asked || last.current(hub) && (last.fresh() || last.lazy_building()))
         {
             return last.clone();
         }
@@ -909,15 +941,23 @@ impl ListGuard {
         let state = Arc::downgrade(&self.state);
         tokio::spawn(async move {
             let mut until = Instant::now() + window;
+            let retry_cap = Duration::from_secs(1);
+            let mut retry = window.max(Duration::from_millis(1)).min(retry_cap);
             loop {
                 tokio::time::sleep_until(until).await;
                 let Some(state) = state.upgrade() else { return };
                 let mut state = state.lock().await;
+                #[cfg(test)]
+                {
+                    state.expiry_wakes += 1;
+                }
                 let Some(last) = state.last.as_ref().filter(|s| s.serial == serial) else { return };
-                if last.lazy_builds.load(Ordering::Acquire) != 0 || Arc::strong_count(last) > 1 {
+                if Arc::strong_count(last) > 1 {
                     // A request still owns this snapshot and may begin a lazy part after this
-                    // task woke. Leave it live; made_now will extend the same state entry.
-                    until = Instant::now() + last.window.max(Duration::from_millis(1));
+                    // task woke. Leave it live; made_now will extend the same state entry. Back
+                    // off so a long lazy build does not wake and take this lock every millisecond.
+                    until = Instant::now() + retry;
+                    retry = retry.saturating_mul(2).min(retry_cap);
                     continue;
                 }
                 let fresh_until = last.fresh_until();
@@ -1709,6 +1749,61 @@ mod tests {
         assert!(guard.state.lock().await.last.is_none(), "kept past its part's window");
     }
 
+    /// A request arriving after the base window reuses a current snapshot while its lazy rows
+    /// are still being made, instead of starting a second whole-list build.
+    #[tokio::test(start_paused = true)]
+    async fn a_concurrent_request_reuses_a_snapshot_during_lazy_build() {
+        let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+        let guard = &hub.list_guard;
+        let held = hold(&hub, Duration::from_secs(1)).await;
+        let entered = Arc::new((std::sync::Barrier::new(2), std::sync::Barrier::new(2)));
+        *held.lazy_build_hold.lock().unwrap() = Some(entered.clone());
+
+        let building = {
+            let snapshot = held.clone();
+            let hub = hub.clone();
+            tokio::task::spawn_blocking(move || snapshot.full_rows(&hub))
+        };
+        tokio::task::spawn_blocking({
+            let entered = entered.clone();
+            move || entered.0.wait()
+        })
+        .await
+        .unwrap();
+        tokio::time::advance(Duration::from_secs(2)).await;
+        tokio::task::yield_now().await;
+
+        let before = guard.builds_for_tests();
+        let reused = guard.snapshot(&hub).await;
+        let after = guard.builds_for_tests();
+        println!("F1 lazy-build concurrent snapshot: before={before} after={after}");
+        assert!(Arc::ptr_eq(&reused, &held), "stale snapshot was rebuilt during lazy build");
+        assert_eq!(after, before, "lazy build started a duplicate whole-list build");
+
+        tokio::task::spawn_blocking(move || entered.1.wait()).await.unwrap();
+        building.await.unwrap();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn expiry_retries_back_off_while_a_snapshot_is_held() {
+        const HELD_MS: usize = 2_000;
+        const WINDOW: Duration = Duration::from_millis(1);
+        let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+        let guard = &hub.list_guard;
+        let held = hold(&hub, WINDOW).await;
+        guard.expire(held.serial, WINDOW);
+
+        // Before backoff, the 1 ms retry cap woke 2,000 times over this 2 s hold. Exponential
+        // backoff reaches an independent 1 s cap, so after it there are at most 12 wakes.
+        for _ in 0..HELD_MS {
+            tokio::time::advance(Duration::from_millis(1)).await;
+            tokio::task::yield_now().await;
+        }
+        let wakes = guard.state.lock().await.expiry_wakes;
+        println!("F1 expiry retry wake count: before={HELD_MS} after={wakes}");
+        assert!(wakes <= 12, "before backoff: {HELD_MS} wakes; after backoff: {wakes} wakes");
+    }
+
     /// Expiry must not detach a snapshot while its lazy rows are being made: the next page still
     /// uses that snapshot instead of rebuilding the whole list for every page.
     #[tokio::test(start_paused = true)]
@@ -1717,14 +1812,16 @@ mod tests {
         let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
         let guard = &hub.list_guard;
         let held = hold(&hub, Duration::from_secs(1)).await;
+        let serial = held.serial;
         let entered = Arc::new((std::sync::Barrier::new(2), std::sync::Barrier::new(2)));
         *held.lazy_build_hold.lock().unwrap() = Some(entered.clone());
-        guard.expire(held.serial, Duration::from_secs(1));
+        drop(held);
+        guard.expire(serial, Duration::from_secs(1));
 
         let building = {
-            let held = held.clone();
+            let snapshot = guard.state.lock().await.last.clone().unwrap();
             let hub = hub.clone();
-            tokio::task::spawn_blocking(move || held.full_rows(&hub))
+            tokio::task::spawn_blocking(move || snapshot.full_rows(&hub))
         };
         tokio::task::spawn_blocking({
             let entered = entered.clone();
@@ -1739,6 +1836,7 @@ mod tests {
         building.await.unwrap();
 
         // The lazy build took longer than the base window, so its own window keeps the live entry.
+        let held = guard.state.lock().await.last.clone().unwrap();
         held.made_now(Instant::now().checked_sub(Duration::from_secs(3)).unwrap());
         let before = guard.builds_for_tests();
         for _ in 0..PAGES {

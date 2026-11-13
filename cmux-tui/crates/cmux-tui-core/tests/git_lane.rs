@@ -13,6 +13,10 @@
 //! - a git that passes its limit is ended, its request gets an error and its
 //!   place is free again;
 //! - a client that ends its writes still gets its replies;
+//! - a client that closed its whole end leaves at once: its reads that wait
+//!   start no git, its mutation that waits still runs, and a client that
+//!   closes later leaves when its first reply cannot be written; a client
+//!   that is there and does not read is not taken for one that closed;
 //! - a request that waits when the shutdown begins is refused and does not
 //!   run, and a broken connection's waiting mutation still runs;
 //! - the copies of a shared reply do not fill the connection's reply queue,
@@ -191,6 +195,22 @@ fn wait_for(what: &str, done: impl Fn() -> bool) {
     }
 }
 
+/// Polls until `done`, for `wait` at most. Returns whether it was done.
+fn done_in(wait: Duration, done: impl Fn() -> bool) -> bool {
+    let deadline = Instant::now() + wait;
+    while !done() {
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    true
+}
+
+/// How long a client that closed may stay a client of the daemon. Far below
+/// the 20 s limit of one git read, which is where a held read frees its place.
+const GONE: Duration = Duration::from_secs(10);
+
 /// Fills each read place of the lane with a git run of `repo`, whose gate
 /// holds every run (`hold-all`): [`LONG_GIT_RUNS`] long reads and one short
 /// read. Returns their ids.
@@ -286,6 +306,19 @@ impl Connection {
         writeln!(self.writer, "{request}").unwrap();
     }
 
+    /// One line of the daemon, with a wait of `left` at most: `Ok(0)` when
+    /// the daemon closed, an error when no line came in time.
+    ///
+    /// macOS refuses a read timeout on a socket whose peer closed its whole
+    /// end (`EINVAL`). `read_timeout_or_ended` takes that refusal as the end
+    /// only when the socket can receive no more: the read then gives the
+    /// lines that are left, then the close, with no wait. A refusal on a
+    /// connection that is open is a fault of the test, and a panic here.
+    fn read_line_in(&mut self, left: Duration, line: &mut String) -> std::io::Result<usize> {
+        cmux_tui_platform::read_timeout_or_ended(self.reader.get_ref(), left).unwrap();
+        self.reader.read_line(line)
+    }
+
     /// The reply with `id` among the lines the connection sends in `wait`;
     /// `None` when it did not come by then.
     fn reply_in(&mut self, id: &Value, wait: Duration) -> Option<Value> {
@@ -296,9 +329,8 @@ impl Connection {
         loop {
             let left = deadline.checked_duration_since(Instant::now())?;
             let left = left.max(Duration::from_millis(1));
-            self.reader.get_ref().set_read_timeout(Some(left)).unwrap();
             let mut line = String::new();
-            match self.reader.read_line(&mut line) {
+            match self.read_line_in(left, &mut line) {
                 Ok(0) => panic!("the connection closed before the reply {id}"),
                 Ok(_) => {}
                 Err(_) => return None,
@@ -325,9 +357,8 @@ impl Connection {
         while replies.len() < count {
             let Some(left) = deadline.checked_duration_since(Instant::now()) else { break };
             let left = left.max(Duration::from_millis(1));
-            self.reader.get_ref().set_read_timeout(Some(left)).unwrap();
             let mut line = String::new();
-            match self.reader.read_line(&mut line) {
+            match self.read_line_in(left, &mut line) {
                 Ok(0) => return (replies, true),
                 Ok(_) => {}
                 Err(_) => break,
@@ -351,15 +382,54 @@ impl Connection {
         loop {
             let Some(left) = deadline.checked_duration_since(Instant::now()) else { return false };
             let left = left.max(Duration::from_millis(1));
-            self.reader.get_ref().set_read_timeout(Some(left)).unwrap();
             let mut line = String::new();
-            match self.reader.read_line(&mut line) {
+            match self.read_line_in(left, &mut line) {
                 Ok(0) => return true,
                 Ok(_) => {}
                 Err(_) => return false,
             }
         }
     }
+
+    /// A connection whose far end wrote `lines` and then closed its whole
+    /// end, before any look of this client. A daemon that ends a connection
+    /// does that: it closes each descriptor of its socket at once.
+    fn closed_after(lines: &str) -> Self {
+        let (near, mut far) = UnixStream::pair().unwrap();
+        far.write_all(lines.as_bytes()).unwrap();
+        drop(far);
+        let writer = near.try_clone().unwrap();
+        Self { writer, reader: BufReader::new(near), seen: Vec::new() }
+    }
+}
+
+/// 2 reply lines, as a daemon writes them.
+const TWO_REPLIES: &str = "{\"id\":\"a\",\"ok\":true}\n{\"id\":\"b\",\"ok\":true}\n";
+
+/// The 3 looks of the test client itself, each on a connection that closed
+/// before the look. macOS refuses a read timeout on such a socket; a look
+/// that takes that for a fault of the test makes its test fail by chance,
+/// when the daemon's close comes before the look.
+#[test]
+fn git_lane_the_test_client_sees_a_close_that_came_before_its_look() {
+    let closed = Connection::closed_after("").closed_in(Duration::from_secs(1));
+    assert!(closed, "the look for a close did not see a connection that closed before it");
+}
+
+#[test]
+fn git_lane_the_test_client_reads_the_replies_that_a_closed_connection_left() {
+    let mut connection = Connection::closed_after(TWO_REPLIES);
+    let (replies, closed) = connection.replies(3, Duration::from_secs(1));
+    let ids: Vec<Value> = replies.iter().map(|reply| reply["id"].clone()).collect();
+    assert_eq!((ids, closed), (vec![json!("a"), json!("b")], true), "the 2 lines, then closed");
+}
+
+#[test]
+fn git_lane_the_test_client_finds_the_reply_that_a_closed_connection_left() {
+    let mut connection = Connection::closed_after(TWO_REPLIES);
+    let reply = connection.reply_in(&json!("b"), Duration::from_secs(1));
+    assert_eq!(reply.map(|reply| reply["ok"].clone()), Some(json!(true)), "the reply b");
+    assert!(connection.answered("a"), "the reply a is kept for a later look");
 }
 
 /// The person's case: the warm `git.diff` of a hidden chat runs for seconds,
@@ -698,6 +768,217 @@ fn git_lane_a_client_that_ends_its_writes_still_gets_its_git_reply() {
     assert_eq!(status["ok"], true, "git.status failed: {status}");
 }
 
+/// A CLI that a person stops: it sent a `git.status`, each read place holds a
+/// git of the app, and the CLI closed its whole end. Nobody can read that
+/// reply. The daemon must not keep the client (its registration holds its
+/// size leases and its attached surfaces) until a place is free and its git
+/// ran: the client leaves while the places are still held, and its read
+/// starts no git.
+#[test]
+fn git_lane_a_client_that_closed_leaves_while_its_git_read_waits_and_the_read_starts_no_git() {
+    let (held_repo, held) = repository("gone-held");
+    let (repo, gate) = repository("gone");
+    let (socket, mux) = persistent_daemon("gone");
+    let mut app = Connection::open(&socket);
+    held.hold("hold-all");
+    let fills = fill_the_read_places(&mut app, &held_repo, &held);
+    let clients = mux.client_count();
+
+    let mut cli = Connection::open(&socket);
+    cli.send("status", "git.status", json!({"path": repo}));
+    // The daemon read the status line: it answers the line after it.
+    cli.ping(1);
+    cli.reply(&json!(1));
+    assert_eq!(mux.client_count(), clients + 1, "the CLI is a client");
+    let closed_at = Instant::now();
+    drop(cli);
+
+    let left = done_in(GONE, || mux.client_count() == clients);
+    let (stayed, places_held) = (closed_at.elapsed(), held.active());
+    held.release("hold-all");
+    for id in &fills {
+        let reply = app.reply(&json!(id));
+        assert_eq!(reply["ok"], true, "{id} failed: {reply}");
+    }
+    // The CLI's status came before this one, so a status that still waited
+    // started before it.
+    app.send("after", "git.status", json!({"path": held_repo}));
+    app.reply(&json!("after"));
+    let runs = gate.runs_of("status");
+    eprintln!(
+        "git-lane: a client that closed with a git.status that waits: left in {GONE:?}: {left} \
+         (looked for {stayed:?}, {places_held} git runs held then); git runs of its status: {runs}"
+    );
+    assert!(left, "a client that closed stayed a client while its git.status waited for a place");
+    assert_eq!(runs, 0, "the git.status of a client that closed started git");
+}
+
+/// A client that closes later: it ended its writes with one `git.status` in
+/// git and one `git.diff` that waits, and then closed its whole end. Its
+/// first reply cannot be written, which closes its writer. From then nobody
+/// reads the reply of the diff: the client leaves while the diff still waits
+/// for a place.
+#[test]
+fn git_lane_a_client_whose_writer_closed_leaves_while_its_next_git_read_waits() {
+    let (held_repo, held) = repository("late-held");
+    let (repo, gate) = repository("late");
+    let (socket, mux) = persistent_daemon("late");
+    let mut app = Connection::open(&socket);
+    held.hold("hold-all");
+    for number in 0..LONG_GIT_RUNS {
+        let params =
+            json!({"path": held_repo, "scope": "uncommitted", "context_lines": number + 1});
+        app.send(&format!("fill{number}"), "git.diff", params);
+    }
+    wait_for("each long read place held", || held.active() >= LONG_GIT_RUNS);
+    let clients = mux.client_count();
+
+    let mut cli = Connection::open(&socket);
+    gate.hold("hold-all");
+    // The status takes the place for short reads and waits at its gate; the
+    // diff waits for a place behind the app's diffs.
+    cli.send("status", "git.status", json!({"path": repo}));
+    gate.wait_held();
+    cli.send("diff", "git.diff", json!({"path": repo, "scope": "uncommitted"}));
+    cli.ping(1);
+    cli.reply(&json!(1));
+    assert_eq!(mux.client_count(), clients + 1, "the CLI is a client");
+    // First the end of its writes, as a client that waits for its replies;
+    // the daemon is at the end of its input before the whole end closes.
+    cli.writer.shutdown(Shutdown::Write).unwrap();
+    // This sleep decides no result. It decides which way the client leaves:
+    // without it the daemon can see the whole close at the end of its input.
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(mux.client_count(), clients + 1, "a client that ended its writes stays");
+    drop(cli);
+    // Its status runs to its end; the write of that reply fails.
+    let released_at = Instant::now();
+    gate.release("hold-all");
+
+    let left = done_in(GONE, || mux.client_count() == clients);
+    let (stayed, places_held) = (released_at.elapsed(), held.active());
+    held.release("hold-all");
+    for number in 0..LONG_GIT_RUNS {
+        let id = format!("fill{number}");
+        let reply = app.reply(&json!(id));
+        assert_eq!(reply["ok"], true, "{id} failed: {reply}");
+    }
+    eprintln!(
+        "git-lane: a client that closed after it ended its writes, with a git.diff that waits: \
+         left in {GONE:?}: {left} (looked for {stayed:?}, {places_held} git runs of the app \
+         held then)"
+    );
+    // No count of the git runs of its diff: a read whose writer closed runs
+    // no git in any case (`Job::run`), so that count shows nothing here.
+    assert!(left, "a client whose writer closed stayed a client while its git.diff waited");
+}
+
+/// The one ask the daemon makes at the end of a client's input
+/// (`transport::Stream::peer_gone`): is the client gone, or did it only end
+/// its writes and still reads its replies? Beside it, what the older ask
+/// says (`peer_closed`, a poll for reading), which is "closed" for both on
+/// macOS.
+#[test]
+fn git_lane_a_closed_peer_is_gone_and_one_that_ended_its_writes_is_not() {
+    use cmux_tui_core::platform::transport::Stream;
+    let mut said = Vec::new();
+    for state in ["open", "ended its writes", "closed", "sent a line and closed"] {
+        let (mut near, mut far) = UnixStream::pair().unwrap();
+        match state {
+            "open" => {}
+            "ended its writes" => far.shutdown(Shutdown::Write).unwrap(),
+            "closed" => drop(far),
+            _ => {
+                far.write_all(b"line\n").unwrap();
+                drop(far);
+            }
+        }
+        if state != "open" {
+            // As the daemon's reader: at the end of the input.
+            let mut input = Vec::new();
+            std::io::Read::read_to_end(&mut near, &mut input).unwrap();
+        }
+        let (gone, closed) = (near.peer_gone(), near.peer_closed());
+        eprintln!("git-lane: the peer {state}: gone: {gone} (the older ask, closed: {closed})");
+        said.push((state, gone));
+    }
+    let wanted = [
+        ("open", false),
+        ("ended its writes", false),
+        ("closed", true),
+        ("sent a line and closed", true),
+    ];
+    assert_eq!(said, wanted, "whether each peer is gone");
+}
+
+/// A client that is there and does not read: this side's send buffer is full,
+/// so a poll for writing does not say "writable". That is not a hang-up. The
+/// client is not gone, also when it ended its writes before: it gets its
+/// replies when it reads again. Only after it closed its whole end is it gone.
+#[test]
+fn git_lane_a_peer_that_does_not_read_is_not_gone_while_the_send_buffer_is_full() {
+    use cmux_tui_core::platform::transport::Stream;
+    let mut said = Vec::new();
+    for state in ["open", "ended its writes"] {
+        let (mut near, far) = UnixStream::pair().unwrap();
+        if state == "ended its writes" {
+            far.shutdown(Shutdown::Write).unwrap();
+            // As the daemon's reader: at the end of the input.
+            let mut input = Vec::new();
+            std::io::Read::read_to_end(&mut near, &mut input).unwrap();
+        }
+        near.set_nonblocking(true).unwrap();
+        let (chunk, mut filled) = ([0u8; 4096], 0usize);
+        loop {
+            match near.write(&chunk) {
+                Ok(written) => filled += written,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+                Err(error) => panic!("the write to a peer that is there failed: {error}"),
+            }
+        }
+        let full = near.peer_gone();
+        drop(far);
+        let closed = near.peer_gone();
+        eprintln!(
+            "git-lane: the peer {state} and does not read, {filled} bytes fill the send buffer: \
+             gone: {full}; after it closed its whole end: gone: {closed}"
+        );
+        said.push((state, full, closed));
+    }
+    let wanted = [("open", false, true), ("ended its writes", false, true)];
+    assert_eq!(said, wanted, "whether a peer that does not read is gone, then after it closed");
+}
+
+/// A script that sends a save and closes its whole end with no wait for the
+/// reply: the save is work the daemon took, so it still runs.
+#[test]
+fn git_lane_a_mutation_that_waits_when_its_client_closes_still_runs() {
+    let (repo, gate) = repository("gone-save");
+    let (socket, mux) = persistent_daemon("gone-save");
+    let mut other = Connection::open(&socket);
+    let clients = mux.client_count();
+    let mut script = Connection::open(&socket);
+
+    gate.hold("hold-diff");
+    script.send("diff", "git.diff", json!({"path": repo, "scope": "uncommitted"}));
+    gate.wait_held();
+    let comment = json!({"filePath": "a.txt", "message": "kept after the close"});
+    script.send("save", "diff.comments.save", json!({"root": repo, "comment": comment}));
+    script.ping(9);
+    script.reply(&json!(9));
+    // The save waits for the diff before it, and the client closes.
+    drop(script);
+    let left = done_in(GONE, || mux.client_count() == clients);
+    gate.release("hold-diff");
+
+    let saved = a_comment_is_saved(&mut other, &repo);
+    eprintln!(
+        "git-lane: a save that waited when its client closed (the client left while the diff \
+         before it was held: {left}): saved: {saved}"
+    );
+    assert!(saved, "a diff.comments.save the daemon took was dropped when its client closed");
+}
+
 /// The lane is one queue for the whole daemon, so a CLI's `git.status` on a
 /// connection of its own comes behind the app's diffs. They are long reads
 /// and the place for short reads is free: it is answered while they are held.
@@ -821,27 +1102,31 @@ fn git_lane_a_mutation_that_waits_when_its_connection_breaks_still_runs() {
     let closed = app.closed_in(Duration::from_secs(5));
     gate.release("hold-diff");
 
-    let mut other = Connection::open(&socket);
+    let saved = a_comment_is_saved(&mut Connection::open(&socket), &repo);
+    eprintln!(
+        "git-lane: a save that waited when its connection broke (closed by the daemon: \
+         {closed}): saved: {saved}"
+    );
+    assert!(saved, "a diff.comments.save the daemon took was dropped when its connection broke");
+}
+
+/// Whether `repo` gets its one saved comment in 10 s, asked on `other`.
+fn a_comment_is_saved(other: &mut Connection, repo: &str) -> bool {
     let deadline = Instant::now() + Duration::from_secs(10);
-    let saved = loop {
+    loop {
         let id = unique("l");
         other.send(&id, "diff.comments.list", json!({"root": repo}));
         let list = other.reply(&json!(id));
         assert_eq!(list["ok"], true, "diff.comments.list failed: {list}");
         let comments = list["result"]["comments"].as_array().map_or(0, Vec::len);
         if comments == 1 {
-            break true;
+            return true;
         }
         if Instant::now() >= deadline {
-            break false;
+            return false;
         }
         std::thread::sleep(Duration::from_millis(50));
-    };
-    eprintln!(
-        "git-lane: a save that waited when its connection broke (closed by the daemon: \
-         {closed}): saved: {saved}"
-    );
-    assert!(saved, "a diff.comments.save the daemon took was dropped when its connection broke");
+    }
 }
 
 /// Sends [`GIT_RUNS`] different `operation` reads of a repository whose git

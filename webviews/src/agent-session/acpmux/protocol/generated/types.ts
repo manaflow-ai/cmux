@@ -76,6 +76,7 @@ export interface AcpmuxRequestMeta {
   tags?: unknown;
   teamMessage?: unknown;
   throughSeq?: unknown;
+  throwaway?: unknown;
   topic?: unknown;
   via?: unknown;
   vmBoundary?: unknown;
@@ -201,6 +202,11 @@ export interface AttachParams {
   limit?: (number | null);
   maxBytes?: (number | null);
   sessionId: string;
+  /**
+   * Answer from the chat's settled view first (`settled-attach-v1`,
+   * `server/requests/settled_attach.rs`): a read, falling back to a plain page.
+   */
+  settled?: (boolean | null);
   /** False attaches without showing the chat (`hub/seen.rs`); default true. */
   visible?: (boolean | null);
   /** Wait for restart-time log restoration before answering; false serves the page immediately. */
@@ -462,6 +468,13 @@ export interface ForkParams {
 export interface ForumRulesParams {
   _meta?: RequestMeta;
 }
+
+/** A row that left the list since a follow's cursor. */
+export type GoneRow = {
+  /** The peer a remote session ran on. */
+  peer?: (string | null);
+  sessionId: string;
+} & Record<string, unknown>;
 
 export interface HandoffDiscardParams {
   _meta?: RequestMeta;
@@ -1401,6 +1414,11 @@ export interface SessionCancelParams {
 export type SessionChanged = {
   /** The record kind, or `queue`, `permission_resolved` or `purged`. */
   kind: string;
+  /**
+   * The list position this change took (`hub/row_log.rs`): the client's cursor for
+   * `_acpmux/watch {afterSeq}` is the highest it applied.
+   */
+  listSeq: number;
   /** The peer a remote session runs on. */
   peer?: (string | null);
   recordKind: string;
@@ -2039,21 +2057,37 @@ export interface SessionsParams {
 
 export type SessionsResult = {
   /**
-   * A watch that sent `known` (`watch_delta.rs`): `sessions` holds only the rows new or
-   * changed since, and the rest of the known rows stand.
+   * A watch that sent `afterSeq`: `sessions` holds only the rows changed since, and `gone` the
+   * rows that went; the client's other rows stand.
    */
-  delta?: (boolean | null);
+  follow?: (boolean | null);
+  /** With `follow`: the rows that went since `afterSeq`. */
+  gone?: (GoneRow[] | null);
+  /** With `listSeq`: this daemon run's id for list positions. */
+  listEpoch?: (string | null);
+  /**
+   * A watch's reply: the list position it is current to (`hub/row_log.rs`). Every change after
+   * it reaches the watcher as a `session_changed` with a higher `listSeq`; a row replaces the
+   * one held only when its position is not lower.
+   */
+  listSeq?: (number | null);
+  /**
+   * With `follow`: cut at the page's size; `listSeq` is the last position it holds, and the
+   * client follows again from there.
+   */
+  more?: (boolean | null);
   /**
    * With `limit`: the cursor for the next page, null when the list is
    * done. Absent without `limit`.
    */
   nextCursor?: (string | null);
-  /** With `delta`: the known sessions no longer listed. */
-  removed?: (string[] | null);
+  /**
+   * A watch whose `afterSeq` the log could not follow (another daemon run, or older than its
+   * oldest removal): this is the list's first page, and the client drops the rows it held.
+   */
+  reset?: (boolean | null);
   /** Local and peer sessions, newest first, then by `sessionId`. */
   sessions: SessionSummary[];
-  /** With `delta`: how many listed rows were left out as unchanged. */
-  unchanged?: (number | null);
 } & Record<string, unknown>;
 
 export interface SetToolsParams {
@@ -2290,19 +2324,22 @@ export interface WarmParams {
 }
 
 export interface WatchParams {
+  /**
+   * Follow the list from this position (`hub/row_log.rs`, capability
+   * `session-list-follow-v1`): the highest `listSeq` the client applied. The reply holds the
+   * rows changed since and `gone`, not the list (`follow: true`); one the log cannot follow is
+   * answered with the list's first page and `reset: true`.
+   */
+  afterSeq?: (number | null);
   cursor?: (string | null);
   /**
    * Default true: every session's changes arrive as
    * `_acpmux/session_changed`.
    */
   enabled?: (boolean | null);
-  /**
-   * A peer daemon's link only (`watch_delta.rs`): every session it holds of this daemon's
-   * list, with the digest of its row as last listed (`""` when it changed since). The reply
-   * is then a delta: `delta: true`, the rows new or changed, and `removed`.
-   */
-  known?: (Record<string, string> | null);
   limit?: (number | null);
+  /** The `listEpoch` that `afterSeq` came with: a cursor of another daemon run is reset. */
+  listEpoch?: (string | null);
   /** Include tool inventories explicitly; default census rows omit them. */
   withTools?: (boolean | null);
 }

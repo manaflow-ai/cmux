@@ -1,8 +1,9 @@
 // l10n-allow-file: sample transcript and comparison notes, not shipped UI.
-// The unread marker and the jump pair in the whole pane (design/transcript-overlays.md): the "New"
+// The unread marker and the jump control in the whole pane (design/transcript-overlays.md): the "New"
 // line, the unread banner in the top-start zone, and the one jump control in the bottom-center zone,
-// pointing up while a row the reader has not seen lies above the view (jumpControl.ts), beside
-// Session Info. Leo, 2026-11-10: "make it look integrated ... don't
+// beside Session Info. The banner is off by default, and so is the control turning up (jumpUp.experiment.ts;
+// Lawrence, 2026-11-11 standup: two up arrows, match Codex); with it on, it points up while a row the
+// reader has not seen lies above the view (jumpControl.ts). Leo, 2026-11-10: "make it look integrated ... don't
 // introduce any random stuff"; "you get jump to bottom, but then jump to, like, the last thread".
 // The component looks (line, banner, light, dark and image) are agent-pane.since-divider.
 // View every variant at each width, and in light and dark (?colorScheme=light / dark).
@@ -11,6 +12,7 @@ import type { Play } from "../../gallery/play";
 import wallpaper from "../../gallery/fixtures/assets/liquid-glass-wallpaper.jpg?inline";
 import { assistant, chat, row, summary, user } from "../../gallery/fixtures/acpmux";
 import { SINCE_DIVIDER, type AcpmuxRow } from "./model";
+import { jumpUpButton } from "./jumpUp.experiment";
 
 const MARK = "gallery-unread:41";
 
@@ -63,17 +65,16 @@ const display = async (values: Record<string, unknown>) => {
   setChatDisplay(values);
 };
 
-/// Opens at the latest message, as a returning person does: the banner over the top, the control
-/// pointing up over the composer (the first unseen row is far above). With the banner off nothing
-/// draws it (SinceDivider.tsx `UnreadBanner`), so the view is ready once Jump up shows.
+/// Opens at the latest message, as a returning person does: the banner over the top while it is on,
+/// Jump to latest hidden (at the latest message).
 const atLatest =
   (values: Record<string, unknown> = {}): Play =>
   async (ctx) => {
     await display(values);
     await settle(ctx);
-    const off = values["agentPane.display.unreadBanner"] === "off";
-    await ctx.waitFor(() => ctx.document.querySelector(off ? ".acpmux-jump-up[data-shown]" : ".acpmux-since-jump"));
-    if (off && ctx.document.querySelector(".acpmux-since-jump")) throw new Error("the banner draws while it is off");
+    if (values["agentPane.display.unreadBanner"] !== undefined)
+      await ctx.waitFor(() => ctx.document.querySelector(".acpmux-since-jump"));
+    else if (ctx.document.querySelector(".acpmux-since-jump")) throw new Error("the banner draws while it is off");
   };
 
 /// Scrolled up above the line by hand: nothing unseen lies above the view, so the one control is
@@ -86,6 +87,7 @@ const midChat: Play = async (ctx) => {
 
 /// The banner pressed: the transcript brings the line in, and the banner has done its job.
 const lineInView: Play = async (ctx) => {
+  await display({ "agentPane.display.unreadBanner": "expanded" });
   await settle(ctx);
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-since-jump[data-shown]"));
   await ctx.click({ selector: ".acpmux-since-jump__body" });
@@ -168,35 +170,29 @@ const imageBackground: Play = async (ctx) => {
 
 export default agentPaneEntry({
   id: "agent-pane.unread-marker",
-  title: "Unread marker and the jump pair",
+  title: "Unread marker",
   area: "Agent pane",
   height: 640,
   widths: { narrow: 420, normal: 900, wide: 1600 },
   covers: ["agent-session/acpmux/conversation/SinceDivider.tsx", "agent-session/acpmux/jumpControl.ts"],
-  keywords: ["unread", "new since", "jump up", "jump to bottom", "banner", "idle", "attention"],
+  // The control turns up only with Jump up on (off by default): Jump to latest stands alone.
+  experiment: { definition: jumpUpButton, script: [{ name: "scroll to the middle", run: midChat }] },
+  keywords: ["unread", "new since", "jump up", "jump to bottom", "banner", "attention"],
   variants: {
-    "banner-expanded": {
-      note: "Chosen: back in a chat that kept working, the banner at the top left reads 9 new turns since the time, with Mark read; the control points up over the composer.",
+    "banner-off": {
+      note: "Chosen (the default): no banner and the control never points up; only the New line in the transcript, as Codex.",
       snapshot,
       play: atLatest(),
+    },
+    "banner-expanded": {
+      note: "Expanded (Settings > Unread Banner): the banner at the top left reads 9 new turns since the time, with Mark read.",
+      snapshot,
+      play: atLatest({ "agentPane.display.unreadBanner": "expanded" }),
     },
     "banner-collapsed": {
       note: "Collapsed (the chevron, kept as the setting): a small pill with the arrow and the count; still jumps.",
       snapshot,
       play: atLatest({ "agentPane.display.unreadBanner": "collapsed" }),
-    },
-    "banner-off": {
-      note: "Off (right-click > Hide unread banner): only the line and Jump up; the line's right-click brings it back.",
-      snapshot,
-      // Off draws no banner (SinceDivider.tsx returns none), so this waits for Jump up instead and
-      // holds the banner to being gone.
-      play: async (ctx) => {
-        await display({ "agentPane.display.unreadBanner": "off" });
-        await settle(ctx);
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-up[data-shown]"));
-        if (ctx.document.querySelector(".acpmux-since-jump"))
-          throw new Error("with the banner off, the unread banner must not draw");
-      },
     },
     "jump-pair": {
       note: 'Scrolled up above the New line: nothing unseen above, so the one control is Jump to latest; never two discs (Leo, 2026-11-12: "a bit extra").',
@@ -212,34 +208,39 @@ export default agentPaneEntry({
       note: "Chosen: rows the person did not see lie above the view: the control points up and carries the theme's accent dot, the sidebar's unread dot, and goes to the first of them.",
       snapshot,
       play: unreadUp("dot"),
+      experiments: { [jumpUpButton.id]: "on" },
     },
     "unread-ring": {
       note: "Compared: the disc's rim in the accent instead of a dot. Reads as focus or selection, not news.",
       snapshot,
       play: unreadUp("ring"),
+      experiments: { [jumpUpButton.id]: "on" },
     },
     "unread-tint": {
       note: "Compared: the arrow in the accent. Too quiet at 14 pt on glass, and lost over an image.",
       snapshot,
       play: unreadUp("tint"),
+      experiments: { [jumpUpButton.id]: "on" },
     },
     "unread-landed": {
       note: "Pressed from the latest message: the New line near the top of the view, the first turn the person did not see right under it; the control is Jump to latest again.",
       snapshot,
       play: landedNearTop,
+      experiments: { [jumpUpButton.id]: "on" },
     },
     "nothing-unread": {
       note: "Nothing unseen (read through while attending, or a restart with nothing new): no arrow at all.",
       snapshot: readAll,
       play: nothingUp,
+      experiments: { [jumpUpButton.id]: "on" },
     },
     "with-session-info": {
-      note: "Session Info pushes at the end edge; the banner keeps to the column's start, the pair to its center: no overlap.",
+      note: "Session Info pushes at the end edge; the banner keeps to the column's start: no overlap.",
       snapshot,
       play: sessionInfo,
     },
     "image-background": {
-      note: "Over a background image: the glass banner and pair, the accent line, all from the theme's tokens.",
+      note: "Over a background image: the glass banner and the accent line, all from the theme's tokens.",
       snapshot,
       play: imageBackground,
     },

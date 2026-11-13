@@ -335,8 +335,6 @@ public final class AgentPaneView: NSView {
             self.rendersAtFullRate = full
         }
         model.onDictation = { [weak self] command in self?.dictation.handle(command) }
-        // Only the page host draws the outside-dictation mark; the old host has no event stream.
-        model.onWatchMicrophone = { [weak self] on in self?.watchMicrophone(on) }
         // A long recording is an upload of the chat: in its folder on this Mac (it goes with the chat),
         // else at the top; the App's launch sweep removes either after 30 days.
         dictation.chatSession = { [weak model] in model?.sessionId }
@@ -521,29 +519,8 @@ public final class AgentPaneView: NSView {
         DictationMicrophone.shared.stopListening()
     }
 
-    /// The app's microphone watcher (``AgentPaneShared/microphone``); nil: no outside-dictation mark.
-    var microphoneActivity: MicrophoneActivity?
-
-    /// While `on`, tells the page whenever another app takes or releases the microphone, and its
-    /// level while metered; off (the page's composers lost the keyboard) or a closed pane stops watching.
-    func watchMicrophone(_ on: Bool) {
-        guard let microphoneActivity else { return }
-        guard on, let pageEvents else {
-            microphoneActivity.unwatch(self)
-            return
-        }
-        microphoneActivity.watch(self, onLevel: { [weak pageEvents] level in
-            // A level is stale at once: with no page subscribed, none is buffered for later.
-            guard let pageEvents, pageEvents.hasSubscribers else { return }
-            _ = pageEvents.publish(.micLevel(level))
-        }, onChange: { [weak pageEvents] state in
-            _ = pageEvents?.publish(.micActivity(state))
-        })
-    }
-
     /// Stops the page (and its WebSocket) for good; call when the tab closes.
     public func close() {
-        microphoneActivity?.unwatch(self)
         // A closed page must not notify the pane that used to host it after it leaves.
         onNativeToolOwnerChange = nil
         // A closed chat leaves its crash group: a sibling's Reload must not reload it.

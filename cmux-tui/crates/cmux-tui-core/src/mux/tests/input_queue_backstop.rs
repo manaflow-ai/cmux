@@ -90,3 +90,75 @@ fn a_creation_that_ends_after_the_old_expiry_keeps_its_queue_until_its_end() {
     assert!(back.recv_timeout(NOT_YET).is_err(), "given back twice");
     assert_eq!(mux.input_queue_backstop_give_backs_for_test(), 0);
 }
+
+/// An adoption of [`TERMINAL`]'s surviving host that runs (the id is in the adoption set, no
+/// live terminal has it), with bytes queued for it by connection 7.
+struct QueuedAdoption {
+    mux: Arc<Mux>,
+    clock: Arc<ManualClock>,
+    /// Each give-back of the queue.
+    back: Receiver<GivenBack>,
+    notice: UnclaimedNotice,
+}
+
+fn queued_adoption(bytes: &[u8]) -> QueuedAdoption {
+    let mux = test_mux();
+    let clock = ManualClock::new();
+    mux.set_input_queue_clock_for_test(clock.clone());
+    mux.terminal_adoptions.lock().unwrap().insert(TERMINAL.to_owned());
+    let (given, back) = std::sync::mpsc::channel();
+    let given = Mutex::new(given);
+    let notice: UnclaimedNotice = Arc::new(move |_: &str, bytes: &[u8], reason: &str| {
+        let _ = given.lock().unwrap().send((bytes.to_vec(), reason.to_owned()));
+    });
+    let target = mux.write_terminal_input(TERMINAL, 7, bytes, false, notice.clone()).unwrap();
+    assert_eq!(target, TerminalInputTarget::Queued, "input for an adopting terminal is queued");
+    QueuedAdoption { mux, clock, back, notice }
+}
+
+#[test]
+fn an_adoption_that_never_ends_gives_its_input_back_at_the_backstop() {
+    let QueuedAdoption { mux, clock, back, notice } = queued_adoption(b"echo adopted\r");
+    // Past the old 10 s give-back and the slowest adoption measured (48 s), short of the
+    // backstop: the queue stays.
+    clock.move_to(&mux, Duration::from_secs(119));
+    assert!(back.recv_timeout(NOT_YET).is_err(), "given back before the backstop");
+    assert!(mux.knows_terminal_input_target(TERMINAL), "the queue was dropped before the backstop");
+    // Past the backstop: given back once, whole, as "expired", and counted.
+    clock.move_to(&mux, Duration::from_secs(121));
+    let (bytes, reason) = back.recv_timeout(Duration::from_secs(10)).expect("never given back");
+    assert_eq!((bytes.as_slice(), reason.as_str()), (&b"echo adopted\r"[..], "expired"));
+    assert_eq!(mux.input_queue_backstop_give_backs_for_test(), 1);
+    assert!(back.recv_timeout(Duration::from_millis(50)).is_err(), "given back twice");
+    // The adoption still runs: later input starts a new queue with its own backstop, not a
+    // refusal, and the old backstop does not take it.
+    let target = mux.write_terminal_input(TERMINAL, 7, b"after\r", false, notice).unwrap();
+    assert_eq!(target, TerminalInputTarget::Queued);
+    clock.move_to(&mux, Duration::from_secs(200));
+    assert!(back.recv_timeout(NOT_YET).is_err(), "the new queue went early");
+    clock.move_to(&mux, Duration::from_secs(242));
+    let (bytes, reason) = back.recv_timeout(Duration::from_secs(10)).expect("never given back");
+    assert_eq!((bytes.as_slice(), reason.as_str()), (&b"after\r"[..], "expired"));
+    assert_eq!(mux.input_queue_backstop_give_backs_for_test(), 2);
+}
+
+#[test]
+fn an_adoption_that_ends_after_the_old_expiry_takes_its_queue_at_its_end() {
+    let QueuedAdoption { mux, clock, back, notice } = queued_adoption(b"ls\r");
+    clock.move_to(&mux, Duration::from_secs(30));
+    let target = mux.write_terminal_input(TERMINAL, 7, b"pwd\r", false, notice).unwrap();
+    assert_eq!(target, TerminalInputTarget::Queued);
+    clock.move_to(&mux, Duration::from_secs(60));
+    assert!(back.recv_timeout(NOT_YET).is_err(), "given back while the adoption ran");
+    // The adoption ends with no live terminal for the id (its host was lost): the end, not the
+    // backstop, gives the queue back, in the typed order, as "failed".
+    mux.terminal_adoptions.lock().unwrap().remove(TERMINAL);
+    mux.finish_adopting_input(TERMINAL);
+    let (bytes, reason) = back.recv_timeout(Duration::from_secs(10)).expect("never given back");
+    assert_eq!((bytes.as_slice(), reason.as_str()), (&b"ls\rpwd\r"[..], "failed"));
+    assert!(!mux.knows_terminal_input_target(TERMINAL));
+    // The backstop of that queue ends with it.
+    clock.move_to(&mux, Duration::from_secs(600));
+    assert!(back.recv_timeout(Duration::from_millis(50)).is_err(), "given back twice");
+    assert_eq!(mux.input_queue_backstop_give_backs_for_test(), 0);
+}
