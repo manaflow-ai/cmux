@@ -453,10 +453,23 @@ def scroll_gesture(events=150, dy=-40.0):
 
 
 def scroll_to_top():
+    """Wheel events with no phase: the scroll view clamps them at the top. A trackpad gesture (began, ended) this
+    large left the list stretched far past its top, the first row near the window's bottom (first row at y 779 of
+    900 on the bench Mac, 2026-11-13), so the switch scenario found no row to click."""
     x, y = list_point()
     for _ in range(3):
-        rpc("debug.mouse", {"action": "scroll", "x": x, "y": y, "dy": 100000, "phase": "began"})
-        rpc("debug.mouse", {"action": "scroll", "x": x, "y": y, "dy": 0, "phase": "ended"})
+        rpc("debug.mouse", {"action": "scroll", "x": x, "y": y, "dy": 100000})
+
+
+def visible_rows(wait_s=5.0):
+    """The workspace rows inside the window, once at least two are (the list may still settle after a scroll)."""
+    deadline = time.monotonic() + wait_s
+    while True:
+        rows = [r for r in workspace_rows()
+                if r["window_frame"]["y"] > 60 and r["window_frame"]["y"] + r["window_frame"]["height"] < WINDOW[3] - 80]
+        if len(rows) >= 2 or time.monotonic() >= deadline:
+            return rows
+        time.sleep(0.25)
 
 
 def scenario_scroll(pid, size, label, trace=True):
@@ -506,7 +519,7 @@ def scenario_ticks(pid, size):
 def scenario_switch(pid, size, count=24):
     scroll_to_top()
     time.sleep(1)
-    rows = [r for r in workspace_rows() if r["window_frame"]["y"] > 60 and r["window_frame"]["y"] + r["window_frame"]["height"] < WINDOW[3] - 80]
+    rows = visible_rows()
     if len(rows) < 2:
         listed = sidebar().get("rows") or []
         error = {"error": "fewer than two visible rows",
