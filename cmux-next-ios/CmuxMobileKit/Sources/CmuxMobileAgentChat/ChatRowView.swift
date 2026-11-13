@@ -79,6 +79,7 @@ struct ChatRowView: View {
             .environment(\.attachmentLoader, context.attachmentLoader)
             .environment(\.openURL, context.openURL)
             .environment(\.chatDisclosures, context.surface.disclosures)
+            .environment(\.loadFullToolOutput, LoadFullToolOutputAction { [store = context.store] call in store.loadFullOutput(of: call) })
             .environment(\.transcriptFoldHold, context.foldHold)
     }
 

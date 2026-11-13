@@ -344,10 +344,18 @@ enum AgentChatFixture {
 /// `limit` records, `maxBytes` of whole records with at least one). Moving `end` is the Mac
 /// writing records while the phone is away. Pages are cut by index arithmetic, so the fake's
 /// own cost does not grow with the log's length; only the page it sends costs.
+/// `toolOutputMaxBytes` cuts a tool call record past it as acpmux does (`hub/tool_output_cut.rs`):
+/// each record's cut line is made once and kept, as the Mac's own cost is not the phone's.
 final class InstantPerfAcpmux: @unchecked Sendable {
     let log: AgentChatLog
     private let lock = NSLock()
     private var visible: Int
+    /// Cut lines by record index and cap.
+    private var cutLines: [Int: [Int: String]] = [:]
+    /// Each `_acpmux/events` reply sent, oldest first: the record indices it held and its bytes.
+    private var eventReplies: [(records: ClosedRange<Int>?, bytes: Int)] = []
+
+    var eventReplyLog: [(records: ClosedRange<Int>?, bytes: Int)] { lock.withLock { eventReplies } }
 
     init(_ log: AgentChatLog, end: Int? = nil) {
         self.log = log
@@ -382,15 +390,29 @@ final class InstantPerfAcpmux: @unchecked Sendable {
         case "_acpmux/watch":
             return [reply(#"{"sessions":[{"sessionId":"s1","name":"Fix","harness":"codex","cwd":"/tmp/w","status":"idle"}]}"#)]
         case "_acpmux/attach":
-            return [reply(#"{"session":{"sessionId":"s1","status":"idle","pending":[]},"lastSeq":\#(end),\#(page(params, end: end))}"#)]
+            return [reply(#"{"session":{"sessionId":"s1","status":"idle","pending":[]},"lastSeq":\#(end),\#(page(params, end: end).json)}"#)]
         case "_acpmux/events":
-            return [reply("{\(page(params, end: end))}")]
+            let (json, records) = page(params, end: end)
+            let data = reply("{\(json)}")
+            lock.withLock { eventReplies.append((records, data.count)) }
+            return [data]
         default:
             return [reply("{}")]
         }
     }
 
-    private func page(_ params: [String: Any], end: Int) -> String {
+    private func page(_ params: [String: Any], end: Int) -> (json: String, records: ClosedRange<Int>?) {
+        let cutOver = (params["toolOutputMaxBytes"] as? NSNumber)?.intValue
+        /// Record `index` as sent, and its bytes.
+        func sent(_ index: Int) -> (line: String, bytes: Int) {
+            guard let cutOver, cutOver > 0, log.bytes[index] > cutOver else { return (log.records[index], log.bytes[index]) }
+            let line = lock.withLock { cutLines[index]?[cutOver] } ?? {
+                let line = ToolOutputCutModel.cut(log.records[index], bytes: log.bytes[index], max: cutOver)
+                lock.withLock { cutLines[index, default: [:]][cutOver] = line }
+                return line
+            }()
+            return (line, line.utf8.count)
+        }
         let limit = max((params["limit"] as? NSNumber)?.intValue ?? 400, 1)
         // acpmux caps a page at 1 MiB when the request names no cap (hub/paging.rs `page_bytes`).
         let maxBytes = (params["maxBytes"] as? NSNumber)?.intValue ?? 1_048_576
@@ -403,8 +425,9 @@ final class InstantPerfAcpmux: @unchecked Sendable {
             var index = max(after, 0)
             var bytes = 0
             while index < end, picked.count < limit {
-                if !picked.isEmpty, bytes + log.bytes[index] > maxBytes { break }
-                bytes += log.bytes[index]
+                let size = sent(index).bytes
+                if !picked.isEmpty, bytes + size > maxBytes { break }
+                bytes += size
                 picked.append(index)
                 index += 1
             }
@@ -423,8 +446,9 @@ final class InstantPerfAcpmux: @unchecked Sendable {
                 var index = upper - 1
                 var bytes = 0
                 while index >= lower, picked.count < limit {
-                    if !picked.isEmpty, bytes + log.bytes[index] > maxBytes { break }
-                    bytes += log.bytes[index]
+                    let size = sent(index).bytes
+                    if !picked.isEmpty, bytes + size > maxBytes { break }
+                    bytes += size
                     picked.append(index)
                     index -= 1
                 }
@@ -432,7 +456,75 @@ final class InstantPerfAcpmux: @unchecked Sendable {
                 more = index >= lower
             }
         }
-        return #""hasMore":\#(more),"events":[\#(picked.map { log.records[$0] }.joined(separator: ","))]"#
+        let json = #""hasMore":\#(more),"events":[\#(picked.map { sent($0).line }.joined(separator: ","))]"#
+        return (json, picked.first.flatMap { first in picked.last.map { first...$0 } })
+    }
+}
+
+/// acpmux's cut of a tool call record's oversized output (cmux-tui acpmux
+/// `hub/tool_output_cut.rs`, `cut_tool_output`), for the fake: each output string over 1 KiB (a
+/// `content` text block's text, every `rawOutput` string) keeps its head, an even share of half
+/// of `max`, ending after a newline in its second half; the update says
+/// `_meta.acpmux.cut {bytes, seq}`. Diffs and other records go whole.
+enum ToolOutputCutModel {
+    static let minBytes = 1024
+
+    static func cut(_ line: String, bytes: Int, max: Int) -> String {
+        guard var record = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any],
+              record["dir"] as? String == "in",
+              ["tool_call", "tool_call_update"].contains(record["kind"] as? String ?? ""),
+              var msg = record["msg"] as? [String: Any], var params = msg["params"] as? [String: Any],
+              var update = params["update"] as? [String: Any] else { return line }
+        var count = 0
+        func countLong(_ value: Any) {
+            if let text = value as? String, text.utf8.count > minBytes { count += 1 }
+            (value as? [Any])?.forEach(countLong)
+            (value as? [String: Any])?.values.forEach(countLong)
+        }
+        let blocks = update["content"] as? [[String: Any]] ?? []
+        for block in blocks where block["type"] as? String == "content" {
+            if let inner = block["content"] as? [String: Any], inner["type"] as? String == "text", let text = inner["text"] { countLong(text) }
+        }
+        if let raw = update["rawOutput"] { countLong(raw) }
+        guard count > 0 else { return line }
+        let share = Swift.max(Swift.max(max / 2, minBytes) / count, minBytes)
+        var cutAny = false
+        func head(_ text: String) -> String {
+            let utf8 = Array(text.utf8)
+            guard utf8.count > minBytes, utf8.count > share else { return text }
+            var end = share
+            while end > 0, (utf8[end] & 0xC0) == 0x80 { end -= 1 }
+            var kept = Array(utf8[..<end])
+            if let newline = kept.lastIndex(of: 0x0A), newline >= end / 2 { kept = Array(kept[...newline]) }
+            cutAny = true
+            return String(decoding: kept, as: UTF8.self)
+        }
+        func cutStrings(_ value: Any) -> Any {
+            if let text = value as? String { return head(text) }
+            if let items = value as? [Any] { return items.map(cutStrings) }
+            if let map = value as? [String: Any] { return map.mapValues(cutStrings) }
+            return value
+        }
+        if update["content"] != nil { update["content"] = blocks.map { block -> [String: Any] in
+            guard block["type"] as? String == "content", var inner = block["content"] as? [String: Any],
+                  inner["type"] as? String == "text", let text = inner["text"] as? String else { return block }
+            var block = block
+            inner["text"] = head(text)
+            block["content"] = inner
+            return block
+        } }
+        if let raw = update["rawOutput"] { update["rawOutput"] = cutStrings(raw) }
+        guard cutAny else { return line }
+        var meta = update["_meta"] as? [String: Any] ?? [:]
+        var acpmux = meta["acpmux"] as? [String: Any] ?? [:]
+        acpmux["cut"] = ["bytes": bytes, "seq": record["seq"] ?? 0]
+        meta["acpmux"] = acpmux
+        update["_meta"] = meta
+        params["update"] = update
+        msg["params"] = params
+        record["msg"] = msg
+        guard let data = try? JSONSerialization.data(withJSONObject: record) else { return line }
+        return String(decoding: data, as: UTF8.self)
     }
 }
 

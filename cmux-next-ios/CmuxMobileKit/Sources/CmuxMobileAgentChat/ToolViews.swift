@@ -111,11 +111,29 @@ struct ToolRowView: View {
     }
 }
 
-/// Expanded output: a code card; bash shows `$ command` first; capped at 12 lines.
+/// Expanded output: a code card; bash shows `$ command` first; capped at 12 lines. An output
+/// the Mac sent cut (a page's oversized one) shows its head and reads the rest as it opens.
 struct ToolOutputView: View {
     let call: ACPToolCall
+    @Environment(\.loadFullToolOutput) private var loadFull
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            card
+            if call.outputCut != nil {
+                Text("Loading the full output…")
+                    .font(.footnote)
+                    .foregroundStyle(.tertiary)
+                    .padding(.leading, 26)
+            }
+        }
+        .task(id: call.outputCut) {
+            if call.outputCut != nil { loadFull(call) }
+        }
+    }
+
+    @ViewBuilder
+    private var card: some View {
         let output = call.outputText
         if call.kind == .execute {
             let command = call.command.map { "$ \($0)\n" } ?? ""

@@ -178,6 +178,9 @@ public struct ACPToolCall: Hashable, Sendable, Codable, Identifiable {
     public var locations: [Location]
     public var rawInput: JSONValue?
     public var rawOutput: JSONValue?
+    /// The Mac sent this call's output cut short (a page's oversized tool output); the whole
+    /// record loads when the person opens it (``AgentChatStore/loadFullOutput(of:)``). Nil: whole.
+    public var outputCut: ACPToolOutputCut?
     /// Client-side timing (first event, first terminal status).
     public var startedAt: Date?
     public var endedAt: Date?
@@ -185,7 +188,7 @@ public struct ACPToolCall: Hashable, Sendable, Codable, Identifiable {
     private enum CodingKeys: String, CodingKey {
         case id = "toolCallId", title, kind, status, content, locations, rawInput, rawOutput
         /// Client-side only (never on the wire): kept when a transcript spills to disk (`RowSpill`).
-        case startedAt, endedAt
+        case startedAt, endedAt, outputCut
     }
 
     public init(
@@ -214,6 +217,7 @@ public struct ACPToolCall: Hashable, Sendable, Codable, Identifiable {
         rawOutput = try container.decodeIfPresent(JSONValue.self, forKey: .rawOutput)
         startedAt = try container.decodeIfPresent(Date.self, forKey: .startedAt)
         endedAt = try container.decodeIfPresent(Date.self, forKey: .endedAt)
+        outputCut = try container.decodeIfPresent(ACPToolOutputCut.self, forKey: .outputCut) ?? ACPToolOutputCut.marked(in: decoder)
     }
 
     /// Applies a `tool_call_update`: only present fields change; `content` replaces.
@@ -225,6 +229,8 @@ public struct ACPToolCall: Hashable, Sendable, Codable, Identifiable {
         if let locations = update.locations { self.locations = locations }
         if let rawInput = update.rawInput { self.rawInput = rawInput }
         if let rawOutput = update.rawOutput { self.rawOutput = rawOutput }
+        // The output it carries, whole or cut, is now the call's.
+        if update.content != nil || update.rawOutput != nil { outputCut = update.outputCut }
     }
 
     /// The shell command for execute calls: `rawInput.command` as a string or argv (`sh -lc script` shows the script).
@@ -270,10 +276,13 @@ public struct ACPToolCallUpdate: Hashable, Sendable, Codable {
     public var locations: [ACPToolCall.Location]?
     public var rawInput: JSONValue?
     public var rawOutput: JSONValue?
+    /// The Mac cut this update's output (`_meta.acpmux.cut`); nil: it is whole.
+    public var outputCut: ACPToolOutputCut?
 
     public init(
         toolCallId: String, title: String? = nil, kind: ACPToolCall.Kind? = nil, status: ACPToolCall.Status? = nil,
-        content: [ACPToolCall.Content]? = nil, locations: [ACPToolCall.Location]? = nil, rawInput: JSONValue? = nil, rawOutput: JSONValue? = nil
+        content: [ACPToolCall.Content]? = nil, locations: [ACPToolCall.Location]? = nil, rawInput: JSONValue? = nil, rawOutput: JSONValue? = nil,
+        outputCut: ACPToolOutputCut? = nil
     ) {
         self.toolCallId = toolCallId
         self.title = title
@@ -283,6 +292,52 @@ public struct ACPToolCallUpdate: Hashable, Sendable, Codable {
         self.locations = locations
         self.rawInput = rawInput
         self.rawOutput = rawOutput
+        self.outputCut = outputCut
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case toolCallId, title, kind, status, content, locations, rawInput, rawOutput, outputCut
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        toolCallId = try container.decode(String.self, forKey: .toolCallId)
+        title = try container.decodeIfPresent(String.self, forKey: .title)
+        kind = try container.decodeIfPresent(ACPToolCall.Kind.self, forKey: .kind)
+        status = try container.decodeIfPresent(ACPToolCall.Status.self, forKey: .status)
+        content = try container.decodeIfPresent([ACPToolCall.Content].self, forKey: .content)
+        locations = try container.decodeIfPresent([ACPToolCall.Location].self, forKey: .locations)
+        rawInput = try container.decodeIfPresent(JSONValue.self, forKey: .rawInput)
+        rawOutput = try container.decodeIfPresent(JSONValue.self, forKey: .rawOutput)
+        outputCut = try container.decodeIfPresent(ACPToolOutputCut.self, forKey: .outputCut) ?? ACPToolOutputCut.marked(in: decoder)
+    }
+}
+
+/// A tool call's output the Mac sent cut to its head (`_acpmux/events` `toolOutputMaxBytes`,
+/// cmux-tui acpmux `hub/tool_output_cut.rs`): the whole record's size, and its seq, which reads it
+/// whole.
+public struct ACPToolOutputCut: Hashable, Sendable, Codable {
+    /// The whole record's bytes on the Mac.
+    public var bytes: Int
+    /// The record's seq in the chat's log.
+    public var seq: Int
+
+    public init(bytes: Int, seq: Int) {
+        self.bytes = bytes
+        self.seq = seq
+    }
+
+    private enum MetaKeys: String, CodingKey { case meta = "_meta" }
+    private struct Meta: Decodable {
+        struct Acpmux: Decodable { var cut: ACPToolOutputCut? }
+        var acpmux: Acpmux?
+    }
+
+    /// The marker in an update's `_meta.acpmux.cut`, if any; a malformed `_meta` reads as none.
+    static func marked(in decoder: any Decoder) -> ACPToolOutputCut? {
+        guard let container = try? decoder.container(keyedBy: MetaKeys.self),
+              let meta = try? container.decodeIfPresent(Meta.self, forKey: .meta) else { return nil }
+        return meta.acpmux?.cut
     }
 }
 

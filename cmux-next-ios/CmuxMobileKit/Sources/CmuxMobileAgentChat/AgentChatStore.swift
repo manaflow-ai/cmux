@@ -658,6 +658,39 @@ public final class AgentChatStore {
 
     @ObservationIgnored private var loadedBookmarks = false
     @ObservationIgnored private var loadingBookmarks = false
+
+    /// The person opened a tool output the Mac sent cut (``ACPToolCall/outputCut``): its whole
+    /// record is read and put in place of the cut one, unless a newer update replaced the output
+    /// meanwhile. One read per record at a time; a failed read leaves the cut output shown, and
+    /// the next open asks again.
+    public func loadFullOutput(of call: ACPToolCall) {
+        guard let cut = call.outputCut, !fullOutputReads.contains(cut.seq) else { return }
+        fullOutputReads.insert(cut.seq)
+        let source = source
+        let id = call.id
+        Task { @MainActor [weak self] in
+            let full = await source.fullToolOutput(cut)
+            guard let self else { return }
+            self.fullOutputReads.remove(cut.seq)
+            guard let full, full.toolCallId == id else { return }
+            self.placeFullOutput(full, cut: cut)
+        }
+    }
+
+    @ObservationIgnored private var fullOutputReads: Set<Int> = []
+
+    private func placeFullOutput(_ full: ACPToolCallUpdate, cut: ACPToolOutputCut) {
+        var placed = false
+        for index in turns.indices.reversed() where !placed {
+            placed = turns[index].items.placeFullOutput(full, cut: cut)
+        }
+        for index in subagents.indices where !placed {
+            placed = subagents[index].items.placeFullOutput(full, cut: cut)
+        }
+        guard placed else { return }
+        revision &+= 1
+        refreshDerived()
+    }
     /// The transcript asked for the marks (it is on screen): a reconnect reads them if needed.
     @ObservationIgnored private var wantsBookmarks = false
 
