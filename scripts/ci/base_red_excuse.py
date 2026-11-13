@@ -71,6 +71,8 @@ import io
 import json
 import os
 import re
+import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -5292,8 +5294,53 @@ def ws_check_mirror(repo: str) -> Path | None:
     return mirror if (mirror / "HEAD").is_file() and (mirror / "objects").is_dir() else None
 
 
-@once_per_judgement("git squash tree")
-def ws_check_squash_tree(repo: str, head: str, tip: str) -> str:
+# A commit neither this host's mirror nor the cache has is fetched into the mirror before it is refused unread. A host
+# with lane-gh and no GitHub token has no credentials for git's own fetch, and its broker fetches branches by name only
+# (no pull ref, no commit id). Before this, a judgement on such a host refused "git cannot read ... commit (not in this
+# host's mirror or cache, and its fetch failed)" until someone ran that fetch by hand, and the read then passed.
+MIRROR_REFRESH_SECONDS = 300
+
+
+def mirror_refresh_command(repo: str, where: Path, branches: list[str]) -> list[str]:
+    """The one command that refreshes WHERE (this host's mirror of REPO, else the cache) with REPO's BRANCHES: `lane-gh
+    fetch` when lane-gh is on PATH and there is no GitHub token, else git's fetch from origin."""
+    if shutil.which("lane-gh") and not github_token():
+        return ["lane-gh", "fetch", repo, "--dir", str(where),
+                *(arg for branch in branches for arg in ("--branch", branch))]
+    return ["git", "--git-dir", str(where), "fetch", "-q", "--no-tags", "origin",
+            *(f"+refs/heads/{branch}:refs/remotes/origin/{branch}" for branch in branches)]
+
+
+def mirror_refresh(repo: str, where: Path, branches: list[str]) -> tuple[str, str]:
+    """Run mirror_refresh_command once: (the command as one shell line, "" when it ran clean, else why it failed)."""
+    argv = mirror_refresh_command(repo, where, branches)
+    shown = shlex.join(argv)
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+    try:
+        done = subprocess.run(argv, capture_output=True, text=True, env=env, timeout=MIRROR_REFRESH_SECONDS,
+                              stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError) as error:
+        return shown, f"{type(error).__name__}: {error}"[:200]
+    if done.returncode:
+        return shown, f"exit {done.returncode}: {(done.stderr or done.stdout).strip()[-200:] or 'no output'}"
+    return shown, ""
+
+
+def ws_check_branches(repo: str, base: str, sha: str, github) -> list[str]:
+    """The branches a mirror refresh fetches SHA and BASE's tip by: the head branch of SHA's pull request in REPO, when
+    GitHub names one, then BASE."""
+    try:
+        pulls = github.json(f"repos/{repo}/commits/{sha}/pulls?per_page=100") if github is not None else []
+    except Refused:
+        pulls = []
+    heads = [str(pull["head"]["ref"]) for pull in pulls or [] if isinstance(pull, dict)
+             and isinstance(pull.get("head"), dict) and pull["head"].get("sha") == sha and pull["head"].get("ref")
+             and ((pull["head"].get("repo") or {}).get("full_name") or "").lower() == repo.lower()]
+    return list(dict.fromkeys([*heads[:1], base]))
+
+
+@once_per_judgement("git squash tree", key=lambda repo, head, tip, branches=None: (repo, head, tip))
+def ws_check_squash_tree(repo: str, head: str, tip: str, branches: Callable[[], list[str]] | None = None) -> str:
     """The tree a merge-tested ws-check run of HEAD must have tested for HEAD to land on base tip TIP: HEAD merged with
     TIP (the tree a pinned squash makes), cut to the paths its fast_checks_hosts entry names, as the lane-gh broker cuts
     its snapshot (cmuxterm-hq tools/lane-gh-broker ci_snapshot and ci_merged_tree: HEAD's own tree when TIP has HEAD,
@@ -5329,8 +5376,12 @@ def ws_check_squash_tree(repo: str, head: str, tip: str) -> str:
                 # The whole history (no --depth): merge-tree needs the merge-base. No blobs until a merge reads them.
                 if run("fetch", "-q", "--no-tags", "--filter=blob:none", "origin", commit).returncode or \
                         run("cat-file", "-e", f"{commit}^{{commit}}").returncode:
-                    raise Refused(f"git cannot read {repo} commit {commit[:12]} (not in this host's mirror or cache, "
-                                  "and its fetch failed)")
+                    # The mirror is refreshed first (MIRROR_REFRESH_SECONDS), and refused only if that fails too.
+                    fetch, why = mirror_refresh(repo, mirror or where, branches() if branches else [])
+                    if run("cat-file", "-e", f"{commit}^{{commit}}").returncode:
+                        raise Refused(f"git cannot read {repo} commit {commit[:12]}: it is not in this host's mirror "
+                                      f"or cache, and `{fetch}` did not bring it ({why or 'it ran clean'}); run "
+                                      "that fetch, then judge again")
         # Present is not complete: git_commit fills this cache one commit deep (`--depth=1`), so both commits can be
         # here with their parents cut off, and merge-base or merge-tree then reads two unrelated histories (cmux#41386
         # F1). Any shallow boundary may cut this merge's history, so the cache is made whole first, or nothing is said.
@@ -5368,7 +5419,7 @@ def ws_check_squash_tree(repo: str, head: str, tip: str) -> str:
     return cut
 
 
-def ws_check_tested_tree(repo: str, base: str, sha: str, snapshot: dict, tip: str) -> None:
+def ws_check_tested_tree(repo: str, base: str, sha: str, snapshot: dict, tip: str, github=None) -> None:
     """Refused unless the head SHA's snapshot run (SNAPSHOT: {"run", "tree"}, ws_check_verdict) tested the tree a pinned
     squash of SHA onto BASE's tip TIP makes (ws_check_squash_tree), compared by tree id only. A run that tested an older
     base, another head, or names no tree is no verdict on what lands."""
@@ -5379,7 +5430,7 @@ def ws_check_tested_tree(repo: str, base: str, sha: str, snapshot: dict, tip: st
                       f"{base}")
     if not HEX40.fullmatch(tip or ""):
         raise Refused(f"{where}: {base} has no tip to merge {sha[:12]} with")
-    want = ws_check_squash_tree(repo, sha, tip)
+    want = ws_check_squash_tree(repo, sha, tip, lambda: ws_check_branches(repo, base, sha, github))
     if tested != want:
         raise Refused(f"{where} tested tree {tested[:12]}, not {sha[:12]} merged with {base}'s tip {tip[:12]} "
                       f"({want[:12]}): it tested another base or head. Run ws-check again at this head")
@@ -5602,7 +5653,7 @@ def ws_check_red(repo: str, base: str, sha: str, github, evidence: "Evidence | N
     merge_base = evidence.merge_base(sha)
     commits = evidence.status_commits(WS_CHECK_COMMITS)
     if head.get("snapshot"):
-        ws_check_tested_tree(repo, base, sha, head["snapshot"], commits[0] if commits else "")
+        ws_check_tested_tree(repo, base, sha, head["snapshot"], commits[0] if commits else "", github)
     verdicts = ((commit, *ws_check_verdict(repo, commit, github)) for commit in commits)
     verdicts = (found for found in verdicts if found[1] != "none")
     newest = next(verdicts, None)
