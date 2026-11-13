@@ -2570,6 +2570,23 @@ def test_adopted_commit_manifest_is_the_commits_own_with_the_trees_bytes():
         assert hashlib.sha256((out / name).read_bytes()).hexdigest() == digest
 
 
+def test_adopted_manifest_check_requires_what_publish_requires():
+    # The adopted prefix must hold everything a published one does: adopt-commit-manifest's check names the same
+    # required and forbidden artifacts as publish's "Verify Unix manifests before upload", so the two cannot drift
+    # (32964a1a's check named none, and tests/test_ci_cmux_tui_latest_acpmux.py went red on it).
+    artifacts = workflow("cmux-tui-artifacts.yml")
+
+    def artifact_args(text: str, step: str) -> list[str]:
+        body = text.split(f"- name: {step}", 1)[1].split("\n      - ", 1)[0]
+        call = body.split("--manifest-file assets/cmux-tui/manifest.json", 1)[1].split("--artifact-directory", 1)[0]
+        return re.findall(r"--(?:require|forbid)-artifact [\w.-]+", call)
+
+    published = artifact_args(workflow_job(artifacts, "publish"), "Verify Unix manifests before upload")
+    adopted = artifact_args(workflow_job(artifacts, "adopt-commit-manifest"), "Verify the prepared manifest")
+    assert len(published) > 20
+    assert adopted == published
+
+
 def test_owner_not_finished_writes_no_manifest_pointing_at_missing_objects():
     # The owner is still publishing: no completion.json yet, or a binary the publisher's manifest names
     # still answers 404. Nothing is written, and above all no manifest.json.
