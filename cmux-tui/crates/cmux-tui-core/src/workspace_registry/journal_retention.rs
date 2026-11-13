@@ -102,6 +102,14 @@ const MAX_AGE_RETAINED_RECORDS: u64 = 65_536;
 /// record, each in two B-trees).
 pub(crate) const RETENTION_RECORDS_PER_HOLD: u64 = 256;
 
+/// The most rows one hold of the registry lock may delete (the four row
+/// tables together). The bound of 256 records does not bound the rows: a
+/// record of a long-lived session has about 15 subject rows, so a hold
+/// deleted about 4,000 rows, each through each index of its table. The
+/// tests of the bound name it; the hold does not keep it yet.
+#[cfg(test)]
+pub(crate) const RETENTION_ROWS_PER_HOLD: u64 = 128;
+
 /// The tables with a row for each record, and their sequence column.
 const PRUNED_ROW_TABLES: [(&str, &str); 4] = [
     ("journal_segment_reducer_records", "sequence"),
@@ -121,6 +129,9 @@ pub(crate) enum RetentionStep {
     /// One hold deletes the rows of the records through this one
     /// ([`WorkspaceRegistry::delete_pruned_segment_rows`]). Inside the hold.
     RowHold { through: i64 },
+    /// One hold deleted this many rows of the four row tables. Inside the
+    /// hold, before its commit.
+    RowsDeleted { rows: u64 },
     /// The records of the sealed segments at or below a floor are read
     /// (`output_cleanup::stage`): a row seek for each of those segments.
     FloorCut,
@@ -490,10 +501,16 @@ impl WorkspaceRegistry {
         let through = hold_through(&tx, end)?;
         #[cfg(test)]
         retention_step_for_test(RetentionStep::RowHold { through });
+        let mut rows = 0;
         for (table, column) in PRUNED_ROW_TABLES {
-            tx.prepare_cached(&format!("DELETE FROM {table} WHERE {column} <= ?1"))?
+            rows += tx
+                .prepare_cached(&format!("DELETE FROM {table} WHERE {column} <= ?1"))?
                 .execute([through])?;
         }
+        #[cfg(test)]
+        retention_step_for_test(RetentionStep::RowsDeleted { rows: u64::try_from(rows)? });
+        #[cfg(not(test))]
+        let _ = rows;
         tx.commit()?;
         Ok(through < end)
     }

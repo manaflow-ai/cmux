@@ -64,6 +64,21 @@ fn records_with_rows(db: &Connection, after: u64, through: u64) -> u64 {
     u64::try_from(count).unwrap()
 }
 
+/// The rows of the four row tables at or below the record `through`.
+fn rows_at_or_below(db: &Connection, through: u64) -> u64 {
+    let count: i64 = db
+        .query_row(
+            "SELECT (SELECT COUNT(*) FROM journal_segment_reducer_records WHERE sequence <= ?1)
+                  + (SELECT COUNT(*) FROM journal_subject_index WHERE sequence <= ?1)
+                  + (SELECT COUNT(*) FROM journal_event_index WHERE sequence <= ?1)
+                  + (SELECT COUNT(*) FROM journal_ingress_receipts WHERE journal_sequence <= ?1)",
+            [i64::try_from(through).unwrap()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    u64::try_from(count).unwrap()
+}
+
 fn segment_rows(db: &Connection, end: u64) -> i64 {
     db.query_row(
         "SELECT COUNT(*) FROM journal_segments WHERE end_sequence = ?1",
@@ -187,6 +202,66 @@ fn one_hold_deletes_the_rows_of_at_most_256_records_and_the_content_goes_last() 
     }
     assert!(holds >= 3, "the rows went in {holds} holds");
     assert_eq!(count(&sealed), 0, "no row of the old segment's records is left");
+
+    assert!(sealed.registry.finish_journal_segment_prune(&segment).unwrap());
+    assert_eq!(segment_rows(&sealed.registry.connection.get(), old_end), 0, "the segment is gone");
+    assert_eq!(later(&sealed), later_before, "each row above the old segment stays");
+    assert_eq!(sealed.new.len(), NEW_RECORDS);
+    sealed.close();
+}
+
+/// A hold of the registry lock deletes at most [`RETENTION_ROWS_PER_HOLD`]
+/// rows, whatever the rows of a record are: a record of a long-lived
+/// session has about 15 subject rows, and a hold of 256 records read about
+/// 10,500 pages of the file under the lock. A hold that is not the last is
+/// full; the segment's row with its content goes last; nothing above the
+/// segment changes. It counts rows and times nothing.
+#[test]
+fn one_hold_deletes_at_most_the_bound_of_rows_and_the_content_goes_last() {
+    let mut sealed = registry("row-bound");
+    let (old_end, head) = (sealed.old_end, sealed.registry.session_journal_head().unwrap());
+    let rows = |sealed: &Sealed| rows_at_or_below(&sealed.registry.connection.get(), old_end);
+    let later =
+        |sealed: &Sealed| records_with_rows(&sealed.registry.connection.get(), old_end, head);
+    let (whole, later_before) = (rows(&sealed), later(&sealed));
+    assert!(
+        whole > 2 * RETENTION_ROWS_PER_HOLD,
+        "the setup: the old segment has more rows than two holds take: {whole}"
+    );
+
+    let segment = sealed
+        .registry
+        .begin_journal_segment_prune(old_end)
+        .unwrap()
+        .expect("the first hold selects the old segment");
+    assert_eq!(rows(&sealed), whole, "the first hold deletes no row");
+
+    let mut holds: u64 = 0;
+    loop {
+        let before = rows(&sealed);
+        let more = sealed.registry.delete_pruned_segment_rows(&segment).unwrap();
+        let deleted = before - rows(&sealed);
+        holds += 1;
+        assert!(
+            deleted <= RETENTION_ROWS_PER_HOLD,
+            "hold {holds} deleted {deleted} rows of {whole}; a hold deletes at most \
+             {RETENTION_ROWS_PER_HOLD}"
+        );
+        assert_eq!(
+            segment_rows(&sealed.registry.connection.get(), old_end),
+            1,
+            "the segment row with its content is there after hold {holds}"
+        );
+        if !more {
+            break;
+        }
+        assert_eq!(deleted, RETENTION_ROWS_PER_HOLD, "hold {holds} is not the last and is full");
+    }
+    assert!(
+        holds >= whole.div_ceil(RETENTION_ROWS_PER_HOLD),
+        "the {whole} rows went in {holds} holds"
+    );
+    assert_eq!(rows(&sealed), 0, "no row of the old segment's records is left");
 
     assert!(sealed.registry.finish_journal_segment_prune(&segment).unwrap());
     assert_eq!(segment_rows(&sealed.registry.connection.get(), old_end), 0, "the segment is gone");
