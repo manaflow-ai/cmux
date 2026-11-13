@@ -198,7 +198,12 @@ test("what reads as a takeaway: long prose, a question, a list or a link; not sh
   expect(isTakeaway(say("f", "word ".repeat(60)))).toBe(true);
   expect(isTakeaway(say("g", "one\ntwo\nthree\nfour"))).toBe(true);
   expect(isTakeaway(say("h", "First sentence. Second sentence. Third sentence."))).toBe(true);
-  expect(isTakeaway(say("i", "First sentence. Second sentence."))).toBe(false);
+  expect(isTakeaway(say("i", "First sentence. Second sentence."))).toBe(true);
+  expect(isTakeaway(say("j", "Let me check. Running the tests."))).toBe(false);
+  expect(isTakeaway(say("k", "Let me check. Running the tests. Reading the logs."))).toBe(true);
+  expect(isTakeaway(say("l", "Let me check. The cache is stale."))).toBe(true);
+  expect(isTakeaway(say("m", "Small is slower because startup dominates."))).toBe(true);
+  expect(isTakeaway(say("n", "lane | time\n--- | ---\nsmall | 14s"))).toBe(true);
 });
 
 test("Find opens the right fold past a prompt that failed to send mid-turn", () => {

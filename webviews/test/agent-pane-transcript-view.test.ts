@@ -352,11 +352,11 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
 
       // Closing the turn hides short narration and calls; substantive replies stay outside.
       expect({ normal, thinking, verbose, closedByHand, backToNormal }).toEqual({
-        normal: { worked: "false", thoughts: 0, commands: 0, reply: true, interim: false },
+        normal: { worked: "false", thoughts: 0, commands: 0, reply: true, interim: true },
         thinking: { worked: "true", thoughts: true, commands: true, someClosed: true },
         verbose: { open: true },
         closedByHand: { worked: "false", fewer: true },
-        backToNormal: { worked: "false", thoughts: 0, commands: 0, reply: true, interim: false },
+        backToNormal: { worked: "false", thoughts: 0, commands: 0, reply: true, interim: true },
       });
       await page.close();
     });

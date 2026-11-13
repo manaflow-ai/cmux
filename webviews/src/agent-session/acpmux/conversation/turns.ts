@@ -1199,9 +1199,8 @@ const isOwnSteer = (row: AcpmuxRow) => !row.incoming && !row.received;
 /// The person's steer always does: it and the reply before it stay in sight under every arm. Another
 /// agent's message does only after a reply that stays in sight beside the closed fold: with none, the
 /// fold above it would close onto the next one with nothing between them, so it folds in place, the
-/// nearest fold's entry. Under turnFoldReplies' `answer` arm (Codex's), short narration folds with
-/// the work while substantive replies stay visible, so no agent's message splits merely because
-/// narration ran.
+/// nearest fold's entry. The default `answer` arm keeps one work disclosure across received
+/// messages, with the person's replies beside it; only a personal steer splits that disclosure.
 const startsFold = (row: AcpmuxRow, replied: boolean) =>
   splitsFold(row) && (isOwnSteer(row) || (replied && experimentArm(turnFoldReplies) !== "answer"));
 /// A reply that lets another agent's message start a fold (`startsFold`), read the same way off the
@@ -2794,13 +2793,31 @@ export function isTakeaway(row: AcpmuxRow): boolean {
   if (row.kind !== "assistant") return false;
   const text = (row.text ?? "").trim();
   if (!text) return false;
-  const sentences = text.replace(/\.{3,}/g, ".").match(/[.!?](?=\s|$)/g)?.length ?? 0;
   return (
     Boolean(row.incoming) ||
     text.length > SHORT_NOTE_CHARS ||
     text.split("\n").length > TAKEAWAY_LINES ||
-    sentences > 2 ||
-    /\?|```|~~~|\n\s*\n|^\s*(?:[-*+]|\d+[.)])\s|\]\(|https?:\/\//m.test(text)
+    /\?|```|~~~|\n\s*\n|^\s*(?:[-*+]|\d+[.)])\s|\]\(|https?:\/\//m.test(text) ||
+    !isWorkNarration(text)
+  );
+}
+
+/// Only recognizable short progress narration belongs to the work. Unknown prose can be a brief
+/// answer: a later tool and "I sent it" do not replace it (Leo, 2026-11-13). Check every sentence
+/// so "Let me check. The cache is stale." keeps its finding; structural takeaways win above.
+function isWorkNarration(text: string): boolean {
+  const sentences = text
+    .replace(/\.{3,}|…/g, ".")
+    .split(/[.!?](?:\s+|$)/)
+    .filter((part) => part.trim());
+  return (
+    sentences.length > 0 &&
+    sentences.length <= 2 &&
+    sentences.every((part) =>
+      /^(?:(?:let me|i['’]ll|i will) (?:check|read|look|inspect|search|run|test|review|verify|wait)\b|(?:i['’]m |i am )?(?:checking|reading|looking|inspecting|searching|running|testing|reviewing|verifying|waiting)\b|(?:both|the|all) .+\b(?:still running|still pending|are running|are pending)\b)[^|]*$/i.test(
+        part.trim(),
+      ),
+    )
   );
 }
 /// A personal steer closes the reply before it for the reader, even though the harness continues the

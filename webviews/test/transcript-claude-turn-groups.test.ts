@@ -189,7 +189,7 @@ function steered() {
     run("b3"),
     row("s1", "user", { text: "and the runners", steer: "landed" }),
     run("b4"),
-    row("n2", "assistant", { text: "Now the runners." }),
+    row("n2", "assistant", { text: "Checking the runners." }),
     run("b5"),
     row("answer", "assistant", { text: "All of them are healthy." }),
     row("sum", "turnSummary", { status: "completed" }),
@@ -208,7 +208,7 @@ test("a steered Claude turn keeps the steer and the reply before it in sight, ea
   const notes = (id: string) =>
     (view.find((row) => row.id === id)?.items ?? []).filter((item) => item.kind === "note").map((item) => item.text);
   expect(notes("b1")).toEqual(["Checking the minis."]);
-  expect(notes("b4")).toEqual(["Now the runners."]);
+  expect(notes("b4")).toEqual(["Checking the runners."]);
   expect(notes("b3")).toEqual([]);
 });
 
