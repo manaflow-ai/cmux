@@ -162,7 +162,6 @@ import Testing
         var answer: CmuxDialogAnswer?
         let shown = try Self.show { answer = $0 }
         defer { shown.center.dismiss(shown.id); shown.window.close() }
-        let host = try #require(WindowOverlayHost.existingHost(for: shown.window))
         let close = try Self.control("cmux.dialog.button.confirm", in: shown)
         // On the card's own container, above the card, covering it.
         let container = try #require(shown.center.dialog(shown.id)?.view?.superview)
@@ -195,6 +194,23 @@ import Testing
         host.endStaleFades()
         #expect(host.fades[id] == nil, "a fade older than staleFadeAge still runs")
         #expect(card.superview == nil)
+    }
+
+    /// The real fade path: a dialog's fade-out that never got its completion is ended by ``endStaleFades``, once; its
+    /// completion arriving later changes nothing (no second decrement).
+    @Test func aRealFadeEndedAsStaleEndsOnce() throws {
+        let shown = try Self.show { _ in }
+        defer { shown.window.close() }
+        let host = try #require(WindowOverlayHost.existingHost(for: shown.window))
+        shown.center.dismiss(shown.id)
+        // With motion off the card leaves at once and there is no fade to lose.
+        guard let key = host.fades.keys.first, let fade = host.fades[key] else { return #expect(host.fadingOut == 0) }
+        host.fades[key] = (fade.began - 60, fade.end)
+        host.endStaleFades()
+        #expect(host.fades.isEmpty)
+        #expect(host.fadingOut == 0)
+        fade.end()
+        #expect(host.fadingOut == 0, "a late completion decremented the fade count again")
     }
 
     @Test func aClickOnTheCheckBoxChecksIt() throws {

@@ -17,7 +17,6 @@ public extension WindowOverlayHost {
             return handle
         }
         if content.frame.size == .zero { content.setFrameSize(content.fittingSize) }
-        endStaleFades()
         let container = panel.container(for: options.effectiveLayer)
         var scrim: OverlayScrimView?
         if options.dimsContent, !isAppHost {
@@ -40,6 +39,8 @@ public extension WindowOverlayHost {
             container.addSubview(content)
         }
         handles.append(handle)
+        // After the new overlay is listed: a stale fade of this same content leaves it where it is (review of #42346).
+        endStaleFades()
         cachedRegions = nil
         // A content that grows or shrinks on its own (a SwiftUI popover) changes the regions.
         handle.contentPostedFrameChanges = content.postsFrameChangedNotifications
@@ -221,17 +222,17 @@ extension WindowOverlayHost {
         onBlockingChange?()
     }
 
+    /// Ends every fade-out that began more than ``staleFadeAge`` ago (`now`, system uptime): its completion was lost.
+    func endStaleFades(now: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        for (_, fade) in fades.sorted(by: { $0.key < $1.key }) where now - fade.began > Self.staleFadeAge { fade.end() }
+    }
+
     /// A dialog and its scrim fade out (POLISH: no flash) where they were: the card on `fadeOut`,
     /// faster than it came, shrinking a little toward `Motion.panelCloseScale` (only the fade under
     /// Reduce Motion), and the scrim on `scrim`, in step with the inactive-window tint lifting as the
     /// window takes key back. The dialog is already gone: it takes no input, and the window under it
     /// is usable at once. A view leaves only if it is still where the fade found it: a dialog
     /// presented again meanwhile, here or in another window (its tab moved there), stays where it went.
-    /// Ends every fade-out that began more than ``staleFadeAge`` ago (`now`, system uptime): its completion was lost.
-    func endStaleFades(now: TimeInterval = ProcessInfo.processInfo.systemUptime) {
-        for (_, fade) in fades.sorted(by: { $0.key < $1.key }) where now - fade.began > Self.staleFadeAge { fade.end() }
-    }
-
     private func fadeOut(_ views: [NSView], content: NSView) {
         fadingOut += 1
         let fadeID = nextFadeID
