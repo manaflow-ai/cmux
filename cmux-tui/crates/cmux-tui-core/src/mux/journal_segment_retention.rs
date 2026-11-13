@@ -19,8 +19,8 @@ use crate::workspace_registry::wal_durability::WalRoom;
 /// the fastest sealing.
 ///
 /// One segment is more than one hold of the registry lock
-/// ([`Mux::retain_journal_segment`]): no hold deletes the rows of more than
-/// `RETENTION_RECORDS_PER_HOLD` records, and after each hold the pass waits,
+/// ([`Mux::retain_journal_segment`]): no hold deletes more than
+/// `RETENTION_ROWS_PER_HOLD` rows, and after each hold the pass waits,
 /// with no lock held, for the WAL syncer's checkpoint of what the hold wrote
 /// ([`Mux::after_retention_hold`]). So a tick deletes fewer segments than
 /// this when the disk is slow: the tick ends at its deadline, one tick
@@ -309,8 +309,8 @@ impl Mux {
 
     /// Deletes the oldest sealed segment at or below `floor`, in more than
     /// one hold of the registry lock (`workspace_registry::journal_retention`,
-    /// the module doc): the base and the floor first, then the rows of at
-    /// most `RETENTION_RECORDS_PER_HOLD` records a hold, the segment row with
+    /// the module doc): the base and the floor first, then at most
+    /// `RETENTION_ROWS_PER_HOLD` rows a hold, the segment row with
     /// its content last. When the worker is paused between two holds, or
     /// the WAL has no room for more frames of this pass after a hold
     /// ([`Self::after_retention_hold`]), the segment stays at or below the

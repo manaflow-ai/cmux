@@ -1,7 +1,7 @@
 //! What the retention pass reads of the registry file BEFORE a hold of the
 //! registry lock, on a connection of its own.
 //!
-//! A row hold deletes each row of its records through each index of its
+//! A row hold deletes each of its rows through each index of its
 //! table: a seek into each B-tree for each row, and each page that the
 //! registry connection does not have is a read of the file inside the hold.
 //! On a generated registry of a long-lived session a hold read about 10,500
@@ -17,7 +17,10 @@
 //! lock. What the hold writes is not less.
 //!
 //! The reads change no answer: the hold asks for its rows again under the
-//! lock ([`hold_through`]).
+//! lock, in the same order with the same bound
+//! ([`RETENTION_ROWS_PER_HOLD`]). Only the maintenance thread deletes or
+//! writes a row at or below the floor, so the read names the rows that the
+//! hold then deletes.
 //!
 //! Each read is one statement with no transaction around it, so its read
 //! transaction ends with the statement. A read that stayed open would keep
@@ -28,65 +31,75 @@ use std::path::Path;
 use std::time::Duration;
 
 use anyhow::Context as _;
-use rusqlite::Connection;
+use rusqlite::{Connection, params};
 
-use super::{PrunedSegment, hold_through};
+use super::{PrunedSegment, RETENTION_ROWS_PER_HOLD};
 use crate::workspace_registry::open_registry_database_read_only;
 use crate::workspace_registry::output_cleanup::{
     journal_in_place_room_on, journal_rebuild_owed_on,
 };
 
 /// For each table of `PRUNED_ROW_TABLES`, in its order: the read of the
-/// rows at or below a record (`?1`), through the table and EACH of its
-/// indexes, as the delete of those rows goes. A column that can be long is
-/// read to its end (its overflow pages). A partial index has an entry only
-/// for a row with a value there; a row with none makes no seek, as in the
-/// delete. A test compares these plans with the indexes of the schema, so
-/// a new index of one of the tables fails until it is read here.
+/// lowest `?2` rows at or below a record (`?1`), in the order of the
+/// table's key as the hold's delete takes them, through the table and EACH
+/// of its indexes. The first column is the count of those rows. A column
+/// that can be long is read to its end (its overflow pages). A partial
+/// index has an entry only for a row with a value there; a row with none
+/// makes no seek, as in the delete. A test compares these plans with the
+/// indexes of the schema, so a new index of one of the tables fails until
+/// it is read here.
 pub(super) const HOLD_ROW_READS: [(&str, &str); 4] = [
     (
         "journal_segment_reducer_records",
-        "SELECT COALESCE(SUM(LENGTH(hold.record_json)), 0)
-         FROM journal_segment_reducer_records AS hold
-         WHERE hold.sequence <= ?1",
+        "SELECT COUNT(*), COALESCE(SUM(seen), 0) FROM (
+           SELECT LENGTH(hold.record_json) AS seen
+           FROM journal_segment_reducer_records AS hold
+           WHERE hold.sequence <= ?1
+           ORDER BY hold.sequence LIMIT ?2)",
     ),
     (
         "journal_subject_index",
-        "SELECT COALESCE(SUM(EXISTS(
-           SELECT 1 FROM journal_subject_index AS entry
-             INDEXED BY journal_subject_index_by_subject_sequence
-           WHERE entry.kind = hold.kind AND entry.id = hold.id
-             AND entry.sequence = hold.sequence)), 0)
-         FROM journal_subject_index AS hold
-         WHERE hold.sequence <= ?1",
+        "SELECT COUNT(*), COALESCE(SUM(seen), 0) FROM (
+           SELECT EXISTS(
+             SELECT 1 FROM journal_subject_index AS entry
+               INDEXED BY journal_subject_index_by_subject_sequence
+             WHERE entry.kind = hold.kind AND entry.id = hold.id
+               AND entry.sequence = hold.sequence) AS seen
+           FROM journal_subject_index AS hold
+           WHERE hold.sequence <= ?1
+           ORDER BY hold.sequence, hold.kind, hold.id LIMIT ?2)",
     ),
     (
         "journal_event_index",
-        "SELECT COALESCE(SUM(
-           EXISTS(SELECT 1 FROM journal_event_index AS entry
-                  WHERE entry.event_id = hold.event_id)
-           + EXISTS(SELECT 1 FROM journal_event_index AS entry
-                      INDEXED BY journal_event_index_by_causal_hook
-                    WHERE entry.causal_hook_id = hold.causal_hook_id
-                      AND entry.sequence = hold.sequence)
-           + EXISTS(SELECT 1 FROM journal_event_index AS entry
-                      INDEXED BY journal_event_index_by_resource_revision
-                    WHERE entry.resource_revision = hold.resource_revision)), 0)
-         FROM journal_event_index AS hold
-         WHERE hold.sequence <= ?1",
+        "SELECT COUNT(*), COALESCE(SUM(seen), 0) FROM (
+           SELECT EXISTS(SELECT 1 FROM journal_event_index AS entry
+                         WHERE entry.event_id = hold.event_id)
+                  + EXISTS(SELECT 1 FROM journal_event_index AS entry
+                             INDEXED BY journal_event_index_by_causal_hook
+                           WHERE entry.causal_hook_id = hold.causal_hook_id
+                             AND entry.sequence = hold.sequence)
+                  + EXISTS(SELECT 1 FROM journal_event_index AS entry
+                             INDEXED BY journal_event_index_by_resource_revision
+                           WHERE entry.resource_revision = hold.resource_revision)
+                  AS seen
+           FROM journal_event_index AS hold
+           WHERE hold.sequence <= ?1
+           ORDER BY hold.sequence LIMIT ?2)",
     ),
     (
         "journal_ingress_receipts",
-        "SELECT COALESCE(SUM(
-           LENGTH(hold.result_json)
-           + EXISTS(SELECT 1 FROM journal_ingress_receipts AS entry
-                    WHERE entry.producer_id = hold.producer_id
-                      AND entry.origin = hold.origin
-                      AND entry.idempotency_key = hold.idempotency_key)
-           + EXISTS(SELECT 1 FROM journal_ingress_receipts AS entry
-                    WHERE entry.event_id = hold.event_id)), 0)
-         FROM journal_ingress_receipts AS hold
-         WHERE hold.journal_sequence <= ?1",
+        "SELECT COUNT(*), COALESCE(SUM(seen), 0) FROM (
+           SELECT LENGTH(hold.result_json)
+                  + EXISTS(SELECT 1 FROM journal_ingress_receipts AS entry
+                           WHERE entry.producer_id = hold.producer_id
+                             AND entry.origin = hold.origin
+                             AND entry.idempotency_key = hold.idempotency_key)
+                  + EXISTS(SELECT 1 FROM journal_ingress_receipts AS entry
+                           WHERE entry.event_id = hold.event_id)
+                  AS seen
+           FROM journal_ingress_receipts AS hold
+           WHERE hold.journal_sequence <= ?1
+           ORDER BY hold.journal_sequence LIMIT ?2)",
     ),
 ];
 
@@ -111,17 +124,28 @@ impl RetentionReadAhead {
 
     /// Reads the rows of the next row hold of `segment`
     /// (`WorkspaceRegistry::delete_pruned_segment_rows`) as that hold will:
-    /// the hold's last record, then each row at or below it through each
+    /// at most [`RETENTION_ROWS_PER_HOLD`] rows at or below the segment's
+    /// end, table by table and the lowest key first, each row through each
     /// index of its table. The caller holds no lock.
     #[inline(never)]
     pub(crate) fn read_hold_rows(&self, segment: &PrunedSegment) -> anyhow::Result<()> {
-        let through = hold_through(&self.connection, i64::try_from(segment.end)?)?;
+        let end = i64::try_from(segment.end)?;
+        let mut left = RETENTION_ROWS_PER_HOLD;
         for (_, read) in HOLD_ROW_READS {
-            self.connection.prepare_cached(read)?.query_row([through], |_| Ok(()))?;
+            if left == 0 {
+                break;
+            }
+            let rows: i64 = self
+                .connection
+                .prepare_cached(read)?
+                .query_row(params![end, i64::try_from(left)?], |row| row.get(0))?;
+            left = left.saturating_sub(u64::try_from(rows)?);
         }
         self.ended()?;
         #[cfg(test)]
-        super::retention_step_for_test(super::RetentionStep::ReadBeforeHold { through });
+        super::retention_step_for_test(super::RetentionStep::ReadBeforeHold {
+            rows: RETENTION_ROWS_PER_HOLD - left,
+        });
         Ok(())
     }
 
