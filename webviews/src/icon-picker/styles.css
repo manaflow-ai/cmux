@@ -131,7 +131,8 @@
    too short for both keeps the search row), and a click goes through it to the tile under it. */
 .icon-picker-error {
   position: absolute;
-  z-index: 3;
+  /* Over the grid's rows (no z-index of their own); the docked header and the bottom bar stay over it. */
+  z-index: var(--layer-raised, 1);
   left: 8px;
   right: 8px;
   bottom: calc(var(--icon-bar-height) + 16px);
