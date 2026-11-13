@@ -1169,6 +1169,18 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
 
+      # A base red is excused on every pull request, so nothing made it anyone's: react-apps-check was red on every
+      # completed push run from 2026-11-11 16:59 UTC to 2026-11-13 and model-picker-scaling on 62 recorded pushes in
+      # a row before anyone read the failures (cmuxterm-hq#10383). This names each file red on the last 10 pushes it
+      # ran on, with the commits it went red between (one ::error a range, a table in the job summary), and turns
+      # this push-only job red. Pull requests never run this job, so it holds none of them. After the save: the
+      # history is kept whatever this says.
+      - name: Name webview reds stuck on the base
+        if: ${{ steps.history-record.outcome == 'success' }}
+        run: |
+          python3 scripts/ci/webviews_test_history.py stuck "$RUNNER_TEMP/webviews-test-history/history.json" \
+            --repo "$GITHUB_REPOSITORY" --summary "$GITHUB_STEP_SUMMARY" --fail
+
   diff-sidecar-check:
     # Generated protocol checks and the sidecar tests only run for their owned inputs.
     needs: web-subarea-scope
