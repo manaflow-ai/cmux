@@ -245,7 +245,7 @@ impl FamilyWalk<'_> {
             return self.load(key, reads, lookups);
         }
         while self.frames.len() > 1 {
-            let current = self.frames.pop().expect("family frame exists");
+            let Some(current) = self.frames.pop() else { break };
             if let Some(parent) = self.frames.last()
                 && let Some(key) = Self::next_child(&parent.children, self.root, Some(&current.key))
             {
