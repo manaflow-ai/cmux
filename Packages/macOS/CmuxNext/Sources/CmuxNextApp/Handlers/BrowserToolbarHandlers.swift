@@ -139,67 +139,15 @@ enum BrowserToolbarHandlers {
         return submenu
     }
 
-    /// One item per browser profile (the tab's checked), each other one moving
-    /// the tab with `browserProfile.moveTab`; then the tab's profile's own menu
-    /// (the profile badge's: New Tab, Window and Workspace with it, New Browser
-    /// Profile, Rename, Appearance, Manage Extensions, Clear Browsing Data,
-    /// Delete), Import from Browser and the Web Store. Every row is a palette
-    /// action (#42437, `MenuPaletteParityTests`).
+    /// The profile button's menu (`ActionRegistry.makeBrowserProfileMenu`), for the tab by the key the App keeps it
+    /// under: an adopted page's own id finds no tab, and Clear Browsing Data or Delete would act on Default.
     static func profileMenu(for entry: BrowserEntry, services: AppServices) -> NSMenu {
         let profiles = services.browserProfiles
-        // By the key the App keeps the tab under: an adopted page's own id finds no tab, and its
-        // profile's rows (Clear Browsing Data, Delete) would act on Default.
         let key = tabKey(entry)
-        let current = services.cache.tabModel(key).map(profiles.profileID(ofTab:)) ?? BrowserProfileRecord.defaultID
-        // An incognito tab's data is no profile's: its menu has no profile rows to clear or delete.
-        let incognito = services.cache.browserTabs.isIncognitoTab(key)
-        return profileMenu(tabKey: key, current: current, profiles: profiles.ordered, registry: services.registry,
-                           profileActions: !incognito)
-    }
-
-    /// The profile button's menu for the tab `tabKey`, whose profile is `current`, listing `profiles`;
-    /// `profileActions` false leaves out the profile's own menu (an incognito tab).
-    static func profileMenu(tabKey: String, current: String, profiles: [BrowserProfileRecord], registry: ActionRegistry,
-                            profileActions: Bool = true) -> NSMenu {
-        let target = ActionTargetRef(kind: .tab, id: tabKey)
-        let menu = NSMenu()
-        for record in profiles {
-            let title = record.icon.map { "\($0)  \(record.name)" } ?? record.name
-            // The tab's own profile is the checked choice; it runs nothing (moving there refuses).
-            guard record.id != current else {
-                let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-                item.state = .on
-                menu.addItem(item)
-                continue
-            }
-            // The palette's Move Tab to Browser Profile…, with this profile picked.
-            if let item = registry.makeContextMenuItem(for: "browserProfile.moveTab", in: .browserPage, target: target,
-                                                       arguments: ["browserProfile": .string(record.id)], title: title) {
-                menu.addItem(item)
-            }
-        }
-        menu.addItem(.separator())
-        // The tab's profile's own menu, as its badge shows it; New Tab with Browser Profile and
-        // Manage Extensions open in this tab's pane.
-        if profileActions {
-            let profileTarget = ActionTargetRef(kind: .browserProfile, id: current)
-            move(registry.makeContextMenu(for: .browserProfile, target: profileTarget, arguments: ["tab": .target(target)], customize: false),
-                 into: menu)
-        }
-        // Import from Browser, and the Web Store opened in this tab's profile. A built menu drops a
-        // leading separator, so the one above them (and below Delete) is added here.
-        let tail = registry.makeContextMenu(for: .browserPage, target: target,
-                                            entries: [.action("importFromBrowser"), .action("browser.extensions.webStore")])
-        if !tail.items.isEmpty, menu.items.last?.isSeparatorItem == false { menu.addItem(.separator()) }
-        move(tail, into: menu)
-        return menu
-    }
-
-    private static func move(_ source: NSMenu, into menu: NSMenu) {
-        for item in source.items {
-            source.removeItem(item)
-            menu.addItem(item)
-        }
+        return services.registry.makeBrowserProfileMenu(
+            tabKey: key, current: services.cache.tabModel(key).map(profiles.profileID(ofTab:)) ?? BrowserProfileRecord.defaultID,
+            profiles: profiles.ordered.map { record in (record.id, record.icon.map { "\($0)  \(record.name)" } ?? record.name) },
+            profileActions: !services.cache.browserTabs.isIncognitoTab(key))
     }
 
     /// The More menu (cx-6qwm): buttons not in the toolbar (and Extensions while none is pinned), new

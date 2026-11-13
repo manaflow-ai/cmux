@@ -163,9 +163,11 @@ import Testing
         BrowserProfileRecord(id: "work", name: "Work", icon: "💼", position: 1),
     ]
 
-    static func toolbarProfileMenu(_ services: AppServices) -> NSMenu {
-        BrowserToolbarHandlers.profileMenu(tabKey: "tab-1", current: BrowserProfileRecord.defaultID, profiles: profiles,
-                                           registry: services.registry)
+    /// The toolbar's profile menu for tab `tab-1`, whose profile is `current`.
+    static func toolbarProfileMenu(_ services: AppServices, current: String = BrowserProfileRecord.defaultID,
+                                   profileActions: Bool = true) -> NSMenu {
+        services.registry.makeBrowserProfileMenu(tabKey: "tab-1", current: current, profiles: profiles.map { ($0.id, $0.name) },
+                                                 profileActions: profileActions)
     }
 
     @Test func everyBrowserToolbarProfileMenuRowHasAPaletteRow() {
@@ -209,7 +211,7 @@ import Testing
     /// A tab of another profile: its rows act on that profile, and Default is the row that moves it.
     @Test func browserToolbarProfileMenuActsOnTheTabsProfile() {
         let services = Self.services()
-        let menu = BrowserToolbarHandlers.profileMenu(tabKey: "tab-1", current: "work", profiles: Self.profiles, registry: services.registry)
+        let menu = Self.toolbarProfileMenu(services, current: "work")
         let runs = Self.rows(menu, "").compactMap { ActionRegistry.menuRun(of: $0.1) }
         #expect(runs.filter { $0.id == "browserProfile.moveTab" }.map { $0.arguments["browserProfile"]?.stringValue } == [BrowserProfileRecord.defaultID])
         let profileRows = runs.filter { $0.target?.kind == .browserProfile }
@@ -220,8 +222,7 @@ import Testing
     /// An incognito tab's data belongs to no profile: no row clears or deletes one.
     @Test func incognitoToolbarProfileMenuHasNoProfileRows() {
         let services = Self.services()
-        let menu = BrowserToolbarHandlers.profileMenu(tabKey: "tab-1", current: BrowserProfileRecord.defaultID, profiles: Self.profiles,
-                                                      registry: services.registry, profileActions: false)
+        let menu = Self.toolbarProfileMenu(services, profileActions: false)
         let runs = Self.rows(menu, "").compactMap { ActionRegistry.menuRun(of: $0.1) }
         #expect(runs.allSatisfy { $0.target?.kind != .browserProfile }, "\(runs.map(\.id))")
     }

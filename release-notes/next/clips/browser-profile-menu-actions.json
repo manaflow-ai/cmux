@@ -1,0 +1,50 @@
+{
+  "caption": "Open a browser tab's profile button for a new tab, window or workspace with that profile, its extensions and Clear Browsing Data.",
+  "frameInterval": 0.25,
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2
+    },
+    {
+      "title": "A fixed window",
+      "rpc": {
+        "method": "debug.window_frame",
+        "params": {
+          "frame": [80, 80, 1200, 800]
+        }
+      },
+      "wait": 0.5
+    },
+    {
+      "title": "A browser workspace",
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "newBrowserWorkspace",
+          "focus": true
+        }
+      },
+      "wait": 4
+    },
+    {
+      "title": "Open the profile button's menu",
+      "rpc": {
+        "method": "debug.object_menu",
+        "params": {
+          "menu": "browserProfile"
+        }
+      },
+      "wait": 2,
+      "clip": true
+    },
+    {
+      "title": "Keep the menu open",
+      "wait": 1,
+      "clip": true
+    }
+  ],
+  "crop": [0.5, 0.0, 0.5, 0.7],
+  "lead": 0.6,
+  "hold": 1.2
+}
