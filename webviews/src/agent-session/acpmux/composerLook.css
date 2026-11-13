@@ -21,6 +21,11 @@
 .acpmux-dock > .acpmux-asks-stack:has(~ .acpmux-composer[data-composer-grid][data-composer-look="codex"]) {
   --grid-composer-radius: calc(22px * var(--acpmux-density));
 }
+/* New Tab's box in Codex's look keeps Nightly's 22 px on its 48 px box, as a share of its height
+   (newtab/screen.css --nt-box-radius). */
+.nt-composer[data-composer-look="codex"] {
+  --nt-box-round: calc(22 / 48);
+}
 :where(:root:not([data-top-strip="plain"])) .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip,
 .nt-composer[data-composer-look="codex"] > .nt-above {
   position: relative;
@@ -67,10 +72,6 @@
 .nt-composer[data-composer-look="codex"] > .nt-box {
   position: relative;
   z-index: var(--layer-raised, 1);
-}
-.nt-composer[data-composer-look="codex"] > .nt-box {
-  /* New Tab's one corner in every look (newtab/screen.css --nt-box-radius), not Codex's 22 px chat card. */
-  border-radius: var(--nt-box-radius);
 }
 /* The box keeps its own four corners and whole rim over the tray (not the default's joined top). */
 :root .acpmux-composer[data-composer-look="codex"]:has(> .acpmux-composer-strip) > .acpmux-composer-box {

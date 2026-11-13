@@ -427,10 +427,13 @@
     var(--cmux-density-scale, var(--cmux-interface-scale, 1)),
     var(--cmux-density-text-scale, 0)
   );
-  /* New Tab's box corner: 18 px on its 48 px one-line box at Default (about 38%) and at every density's scale, in
-     every look and template, rounder than the chat composer's 12 but never a pill (Lucas 2026-11-14: "a bit more
-     rounded. not fully rounded", then 20 px was "just a tiny bit" too round). */
-  --nt-box-radius: calc(18px * var(--nt-density));
+  /* New Tab's box corner keeps Nightly's roundness at every density and font size: Nightly's share of its one-line
+     box at Default, 20 px on Claude's 50.75 px box (its 22.75 px line and 14 px over and under) and 22 px on Codex's
+     48 px box (below), times the box's own one-line height here (Lucas 2026-11-14: "currently nightly has 20px
+     border radius on default. we want to proportionally match that"). Under half the height, so never a pill. */
+  --nt-box-height: calc(var(--text-content--line-height) + 2 * var(--nt-input-pad-block));
+  --nt-box-round: calc(20 / 50.75);
+  --nt-box-radius: calc(var(--nt-box-height) * var(--nt-box-round));
   /* The text's size times the density's room for it: the text size at Default (a 48 px box around Codex's 20 px
      line), and at 14 px text exactly what the chat composer's 48 px box leaves at each density, 24 x density less
      10 x the density's text scale, over 14 (M). It follows the person's own text size, as the base did, so a
