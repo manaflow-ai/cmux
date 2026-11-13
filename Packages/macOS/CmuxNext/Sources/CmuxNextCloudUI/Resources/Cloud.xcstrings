@@ -45,395 +45,133 @@
         }
       }
     },
-    "cloud.seedRefused.connectGitHub": {
+    "cloud.seedRefused.tooLarge": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connect GitHub"
+            "value": "This folder is %1$@, more than %2$@ has room for. Choose a smaller folder, or connect GitHub so the machine can clone it."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ربط GitHub"
+            "value": "حجم هذا المجلد %1$@، وهو أكبر مما يتسع له %2$@. اختر مجلدًا أصغر، أو اربط GitHub ليتمكن الجهاز من استنساخه."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Poveži GitHub"
+            "value": "Ova mapa ima %1$@, više nego što %2$@ ima mjesta. Odaberite manju mapu ili povežite GitHub da je mašina može klonirati."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Forbind GitHub"
+            "value": "Denne mappe fylder %1$@, mere end %2$@ har plads til. Vælg en mindre mappe, eller forbind GitHub, så maskinen kan klone den."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub verbinden"
+            "value": "Dieser Ordner ist %1$@ groß, mehr als auf %2$@ Platz hat. Wähle einen kleineren Ordner oder verbinde GitHub, damit die Maschine ihn klonen kann."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conectar GitHub"
+            "value": "Esta carpeta ocupa %1$@, más de lo que cabe en %2$@. Elige una carpeta más pequeña o conecta GitHub para que la máquina pueda clonarla."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connecter GitHub"
+            "value": "Ce dossier fait %1$@, plus que ce que %2$@ peut contenir. Choisissez un dossier plus petit ou connectez GitHub pour que la machine puisse le cloner."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connetti GitHub"
+            "value": "Questa cartella occupa %1$@, più di quanto %2$@ possa contenere. Scegli una cartella più piccola o collega GitHub in modo che la macchina possa clonarla."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub に接続"
+            "value": "このフォルダは %1$@ あり、%2$@ の空き容量を超えています。小さいフォルダを選ぶか、マシンがクローンできるように GitHub を接続してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ភ្ជាប់ GitHub"
+            "value": "ថតនេះមានទំហំ %1$@ ដែលធំជាងទំហំដែល %2$@ អាចផ្ទុកបាន។ សូមជ្រើសថតតូចជាងនេះ ឬភ្ជាប់ GitHub ដើម្បីឱ្យម៉ាស៊ីនអាចក្លូនវាបាន។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub 연결"
+            "value": "이 폴더는 %1$@로, %2$@에 남은 공간보다 큽니다. 더 작은 폴더를 선택하거나 머신이 복제할 수 있도록 GitHub를 연결하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Koble til GitHub"
+            "value": "Denne mappen er på %1$@, mer enn %2$@ har plass til. Velg en mindre mappe, eller koble til GitHub slik at maskinen kan klone den."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Połącz z GitHub"
+            "value": "Ten folder zajmuje %1$@, więcej niż mieści %2$@. Wybierz mniejszy folder albo połącz GitHub, aby maszyna mogła go sklonować."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conectar ao GitHub"
+            "value": "Esta pasta tem %1$@, mais do que cabe em %2$@. Escolha uma pasta menor ou conecte o GitHub para que a máquina possa cloná-la."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Подключить GitHub"
+            "value": "Размер этой папки — %1$@, это больше, чем помещается на %2$@. Выберите папку поменьше или подключите GitHub, чтобы машина могла её клонировать."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เชื่อมต่อ GitHub"
+            "value": "โฟลเดอร์นี้มีขนาด %1$@ ซึ่งมากกว่าพื้นที่ที่ %2$@ รองรับได้ เลือกโฟลเดอร์ที่เล็กกว่า หรือเชื่อมต่อ GitHub เพื่อให้เครื่องโคลนได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub'a bağlan"
+            "value": "Bu klasör %1$@ boyutunda; %2$@ makinesinde bu kadar yer yok. Daha küçük bir klasör seçin veya makinenin klonlayabilmesi için GitHub’ı bağlayın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Підключити GitHub"
+            "value": "Розмір цієї папки — %1$@, це більше, ніж вміщує %2$@. Виберіть меншу папку або підключіть GitHub, щоб машина могла її клонувати."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kết nối GitHub"
+            "value": "Thư mục này có dung lượng %1$@, lớn hơn chỗ trống của %2$@. Hãy chọn thư mục nhỏ hơn hoặc kết nối GitHub để máy có thể sao chép kho."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "连接 GitHub"
+            "value": "此文件夹大小为 %1$@，超出了 %2$@ 的可用空间。请选取较小的文件夹，或连接 GitHub 以便机器克隆它。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "連接 GitHub"
-          }
-        }
-      }
-    },
-    "cloud.seedRefused.copy": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copy the Folder"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "نسخ المجلد"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kopiraj mapu"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kopiér mappen"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ordner kopieren"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copiar la carpeta"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copier le dossier"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copia la cartella"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フォルダをコピー"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ចម្លងថត"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "폴더 복사"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kopier mappen"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Skopiuj folder"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copiar a pasta"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Скопировать папку"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "คัดลอกโฟลเดอร์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Klasörü Kopyala"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Скопіювати папку"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sao chép thư mục"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "拷贝文件夹"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "拷貝檔案夾"
-          }
-        }
-      }
-    },
-    "cloud.seedRefused.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copy the folder to %@?"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "هل تريد نسخ المجلد إلى %@؟"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kopirati mapu na %@?"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vil du kopiere mappen til %@?"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Den Ordner nach %@ kopieren?"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "¿Copiar la carpeta a %@?"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copier le dossier sur %@ ?"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copiare la cartella su %@?"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フォルダを %@ にコピーしますか？"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ចម្លងថតទៅ %@ ឬ?"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "폴더를 %@에 복사할까요?"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vil du kopiere mappen til %@?"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Skopiować folder na %@?"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copiar a pasta para %@?"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Скопировать папку на %@?"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "คัดลอกโฟลเดอร์ไปยัง %@ หรือไม่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Klasör %@ makinesine kopyalansın mı?"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Скопіювати папку на %@?"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sao chép thư mục sang %@?"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "将文件夹拷贝到 %@？"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "要將檔案夾拷貝到 %@ 嗎？"
+            "value": "此檔案夾大小為 %1$@，超出 %2$@ 的可用空間。請選擇較小的檔案夾，或連接 GitHub 讓機器複製它。"
           }
         }
       }

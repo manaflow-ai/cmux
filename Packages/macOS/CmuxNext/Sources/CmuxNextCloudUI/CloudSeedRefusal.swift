@@ -1,36 +1,32 @@
 public import CmuxNextCloud
-public import CmuxNextDesign
-public import AppKit
-import CmuxNextCompat
+import Foundation
 import os
 
 /// A Cloud chat start whose machine can't clone the folder from its git remote (cmux-tui
 /// `link start-chat copy --on-seed-refusal ask` answering `seed_refused`): the whole folder is copied
-/// instead, with no question (2026-11-10: "instead of this dialog, let's just automatically do it").
-/// Only a copy above ``askAboveBytes`` asks first, with cmux-tui's reason and what the copy would send:
-/// a silent copy of a 12.8 GB folder ran a 16 GB machine's disk out ("Broken pipe").
+/// instead, and the person is never asked (2026-11-10: "instead of this dialog, let's just automatically
+/// do it"; 2026-11-13: "instead of asking user to copy the folder, just do it automatically so that it just
+/// works"). A start that waited on the question showed only "Thinking" in its chat.
+/// Only a copy the machine's disk cannot hold (``fits(diskMb:)``) is not made: the start ends with words
+/// that say so, since a silent copy of a 12.8 GB folder ran a 16 GB machine's disk out ("Broken pipe").
 public nonisolated struct CloudSeedRefusal: Equatable, Sendable {
     public static let code = "seed_refused"
-    public static let copyButton = "copy"
-    public static let connectGitHubButton = "connectGitHub"
     /// The seed plan's code for a private repository the machine can't read without the cmux GitHub App.
     public static let needsGitHub = "seed.needs_github"
-    public static let identifier = "cmux.dialog.cloud.seedRefused"
 
     /// cmux-tui's words: why the machine can't clone it, and the copy's files and size.
     public let message: String
     public let machine: String
     /// The seed plan's code for the refusal (`not_git`, `submodule_local_work`, ...), for the log.
     public let fallbackCode: String?
-    /// For ``needsGitHub``: the cmux GitHub App's install page, which Connect GitHub opens.
-    public let installURL: URL?
     /// The bytes the copy would send; nil when cmux-tui could not read the folder's size.
     public let copyBytes: Int64?
-    /// A copy up to this size goes without a question; a larger one asks first (a 12.8 GB copy filled a 16 GB machine's disk).
-    public static let askAboveBytes: Int64 = 8_000_000_000
-
-    /// The person's answer to the dialog.
-    public enum Choice: Equatable, Sendable { case copy, connectGitHub, cancel }
+    /// The disk a machine whose size is not known is taken to have (the smallest size's).
+    public static let assumedDiskMb = 16_384
+    /// What a machine's image and its own work keep of the disk: a copy may fill the rest.
+    public static let reservedDiskBytes: Int64 = 12 * 1_073_741_824
+    /// The least a machine is taken to have room for, whatever its disk.
+    public static let leastRoomBytes: Int64 = 4 * 1_073_741_824
 
     /// The refusal in `answer`, or nil for any other answer.
     public init?(_ answer: CloudMoveCLI.Answer, machine: String) {
@@ -38,60 +34,32 @@ public nonisolated struct CloudSeedRefusal: Equatable, Sendable {
         message = answer.error ?? Self.code
         self.machine = machine
         fallbackCode = answer.fallbackCode
-        installURL = answer.fallbackCode == Self.needsGitHub ? answer.installURL.flatMap(URL.init(string:)) : nil
         copyBytes = answer.copyBytes
     }
 
-    public var spec: CmuxDialogSpec {
-        CmuxDialogSpec(
-            title: String(format: String(localized: "cloud.seedRefused.title", defaultValue: "Copy the folder to %@?", table: "Cloud", bundle: .module), machine),
-            lines: [message],
-            buttons: [.cancel(), CmuxDialogButton(id: Self.copyButton, title: String(localized: "cloud.seedRefused.copy", defaultValue: "Copy the Folder", table: "Cloud", bundle: .module),
-                                                  role: installURL == nil ? .default : .normal)]
-                + (installURL == nil ? [] : [CmuxDialogButton(id: Self.connectGitHubButton, title: String(localized: "cloud.seedRefused.connectGitHub", defaultValue: "Connect GitHub", table: "Cloud", bundle: .module), role: .default)]),
-            identifier: Self.identifier)
+    /// The bytes a copy may send to a machine with a `diskMb` disk (nil: ``assumedDiskMb``).
+    public static func room(diskMb: Int?) -> Int64 {
+        max(Int64(diskMb ?? assumedDiskMb) * 1_048_576 - reservedDiskBytes, leastRoomBytes)
     }
 
-    /// `copy` seeding first (`.ask`); a refused seed copies the folder (`.copy`) with no question. Only a copy
-    /// above ``askAboveBytes`` asks the person in `window` first: their Cancel, a dismissal or no window throws
-    /// `declined(reason)`. A 12.8 GB copy ran a 16 GB machine's disk out.
-    @MainActor public static func copying<Copied>(machine: String, in window: @MainActor () -> NSWindow?, declined: (String) -> any Error,
-                                                  _ copy: (CloudMoveCLI.SeedRefusal) async throws -> (CloudMoveCLI.Answer, Copied)) async throws -> (CloudMoveCLI.Answer, Copied) {
-        try await copying(machine: machine, ask: { await $0.choice(in: window()) }, open: { _ = NSWorkspace.shared.openInForeground($0) },
-                          declined: declined, copy)
+    /// Whether the copy fits a machine with a `diskMb` disk. A copy whose size cmux-tui could not read is made.
+    public func fits(diskMb: Int?) -> Bool { (copyBytes ?? 0) <= Self.room(diskMb: diskMb) }
+
+    /// Why a copy that does not fit is not made, for the chat: the folder's size and the machine's name.
+    public var tooLarge: String {
+        String(format: String(localized: "cloud.seedRefused.tooLarge", defaultValue: "This folder is %1$@, more than %2$@ has room for. Choose a smaller folder, or connect GitHub so the machine can clone it.", table: "Cloud", bundle: .module),
+               ByteCountFormatter.string(fromByteCount: copyBytes ?? 0, countStyle: .file), machine)
     }
 
-    /// ``copying(machine:in:declined:_:)`` with the question `ask` and `open` for Connect GitHub, which
-    /// opens the install page and throws `declined(reason)`: the start's Retry seeds again once the App is in.
-    @MainActor public static func copying<Copied>(machine: String, ask: (CloudSeedRefusal) async -> Choice, open: (URL) -> Void,
-                                                  declined: (String) -> any Error,
+    /// `copy` seeding first (`.ask`); a refused seed copies the folder (`.copy`) with no question. A copy that
+    /// does not fit the machine's `diskMb` disk is not made: `declined(``tooLarge``)` is thrown.
+    @MainActor public static func copying<Copied>(machine: String, diskMb: Int?, declined: (String) -> any Error,
                                                   _ copy: (CloudMoveCLI.SeedRefusal) async throws -> (CloudMoveCLI.Answer, Copied)) async throws -> (CloudMoveCLI.Answer, Copied) {
         let first = try await copy(.ask)
         guard let refused = CloudSeedRefusal(first.0, machine: machine) else { return first }
         Logger(subsystem: "com.cmuxterm.app.next", category: "cloud").info(
-            "cloud seed refused on \(machine, privacy: .public): \(refused.fallbackCode ?? "unknown", privacy: .public)")
-        guard refused.asksFirst else { return try await copy(.copy) }
-        switch await ask(refused) {
-        case .copy: return try await copy(.copy)
-        case .connectGitHub:
-            if let url = refused.installURL { open(url) }
-            throw declined(refused.message)
-        case .cancel: throw declined(refused.message)
-        }
-    }
-
-    /// Whether the copy is too large to make unasked. A copy whose size cmux-tui could not read goes unasked.
-    public var asksFirst: Bool { (copyBytes ?? 0) > Self.askAboveBytes }
-
-    /// The person's pick; ``Choice/cancel`` for Cancel, a dismissal or no window to ask in.
-    @MainActor public func choice(in window: NSWindow?) async -> Choice {
-        guard let window else { return .cancel }
-        let answer = await CmuxDialogCenter.shared.present(spec, in: .window(window))
-        guard !answer.isDismissal else { return .cancel }
-        switch answer.button {
-        case Self.copyButton: return .copy
-        case Self.connectGitHubButton where installURL != nil: return .connectGitHub
-        default: return .cancel
-        }
+            "cloud seed refused on \(machine, privacy: .public): \(refused.fallbackCode ?? "unknown", privacy: .public); copy fits: \(refused.fits(diskMb: diskMb), privacy: .public)")
+        guard refused.fits(diskMb: diskMb) else { throw declined(refused.tooLarge) }
+        return try await copy(.copy)
     }
 }

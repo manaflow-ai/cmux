@@ -10,8 +10,12 @@
 /// The folder chip's words for it live here and only here, so the UX lane can restyle them in one
 /// place: `FOLDERLESS_CLOUD_LABELS` (keys in Localizable.xcstrings).
 
+import { chatComputerId } from "./chatMachine";
 import { emptyFolderLabel } from "./composerContextModel";
+import type { AcpmuxSnapshot } from "./model";
 import { isAgentHome, projectLabel } from "./sessionList";
+
+type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 
 export const FOLDERLESS_CLOUD_LABELS = {
   /// The chip's face while Cloud is picked and no folder is: a valid state, never "Choose folder".
@@ -80,6 +84,20 @@ export function cloudChatHome(cwd: string | undefined): string | undefined {
 export function chatOwnFolder(cwd: string | undefined, cloud: boolean): string | undefined {
   if (!cwd || isAgentHome(cwd) || (cloud && isCloudChatFolder(cwd))) return undefined;
   return cwd.replace(/\/+$/, "") || "/";
+}
+
+/// The folder a chat's composer names from its summary while `computer` (ComposerContext's picked
+/// machine, `chatComputerId`) is the chat's: its own folder (`chatOwnFolder`), else none. The one rule
+/// for "which folder is this chat in": the chip draws it, and a Cloud start copies exactly it
+/// (cloudRun.ts `composerCloudStartFolder`). A folder the host only offered (a New Tab page's
+/// inherited `cwd`, which the folder menu lists but the chip never names) is not the chat's.
+export function shownChatFolder(
+  summary: Pick<Summary, "cwd" | "peer" | "host" | "hostKind"> | undefined,
+  computer: string,
+  cloud: boolean,
+): string | undefined {
+  if (!summary?.cwd || chatComputerId(summary) !== computer) return undefined;
+  return chatOwnFolder(summary.cwd, cloud);
 }
 
 /// The folder chip's face for a chat's own cwd: its state and, for a folder, the folder's name (its

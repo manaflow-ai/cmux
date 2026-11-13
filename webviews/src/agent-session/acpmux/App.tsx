@@ -562,6 +562,7 @@ import {
   cloudSendAfterCheck,
   heldPromptShown,
   cloudPickExtras,
+  composerCloudStartFolder,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
 import { holdsDraft, promptBeforeTyped, type CloudStartDraft } from "./cloudStartCarry";
@@ -4768,7 +4769,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [cloudFolderGrant] = useState(() => cloudFolderGrants());
   const pickComposerMode = (mode: RunMode) => {
     if (mode === "cloud") {
-      const folder = cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd);
+      const folder = composerCloudStartFolder(composerSnapshot.summary);
       if ("cwd" in folder)
         cloudFolderGrant.granting(
           folder.cwd,
@@ -12252,14 +12253,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               if (authBlock) return false;
               if (sandboxHoldsChat && !sandboxDraftMoved) return false;
               if (cloudPicked) {
-                // The chat's project, copied to the machine; none: the machine's own folder (cloudStartFolder).
+                // The project picked for this chat, else the folder the chip names, copied to the machine; none: the
+                // machine's own folder (composerCloudStartFolder). Never the tab's inherited folder, which no chip shows.
                 const once = cloudFolderOnce.current;
                 cloudFolderOnce.current = undefined;
                 const started = sendToCloud(
                   text,
                   shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
                   {
-                    ...(once ?? cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd)),
+                    ...(once ??
+                      (projectDraft ? cloudStartFolder(projectDraft) : composerCloudStartFolder(composerSnapshot.summary))),
                     ...heldPick(composerSnapshot),
                     ...cloudStartModePick(composerSnapshot.summary?.harness),
                     // The picker's effort and account go with its model (cmux-tui/docs/model-connections.md).

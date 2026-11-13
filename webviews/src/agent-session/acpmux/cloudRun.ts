@@ -7,6 +7,7 @@
 /// message (CloudStartView, cloudStartProgress.ts); the prompt stays in the composer until the chat
 /// opens on the machine.
 
+import { shownChatFolder } from "./folderlessCloud";
 import { isAgentHome } from "./sessionList";
 import { pickFolder } from "./startFolderModel";
 import type { ComposerAttachment } from "./attachments";
@@ -52,6 +53,18 @@ export function cloudStartFolder(project: string | undefined): { cwd: string } |
   // reports. RED before: a no-folder Cloud start copied it (3,602 files, 1.2 GB, refused as not git).
   if (/\/\.cmux\/chief(?:\/|$)/.test(folder)) return { home: true };
   return { cwd: folder };
+}
+
+/// The Cloud start of a new chat sent from its composer: the folder the composer's chip names (the
+/// chat's own folder on this Mac, `shownChatFolder`), and with none, `home`, nothing copied. Never a
+/// folder the chip does not show: a New Tab page's inherited `cwd` (the host's start folder, which can
+/// be any folder the app was launched from) once went as the project of a chip that said "No folder",
+/// and its 23 GB copy was asked about instead of starting in the machine's own folder.
+/// `summary` is the one the composer draws (App.tsx `composerSnapshot`, a picked folder included).
+export function composerCloudStartFolder(
+  summary: Parameters<typeof shownChatFolder>[0],
+): ReturnType<typeof cloudStartFolder> {
+  return cloudStartFolder(shownChatFolder(summary, "local", false));
 }
 
 type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;

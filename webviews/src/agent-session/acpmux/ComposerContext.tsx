@@ -76,7 +76,7 @@ import {
   FOLDER_CHIP_LABELS,
   FOLDERLESS_CLOUD_LABELS,
   chatFolderChoices,
-  chatOwnFolder,
+  shownChatFolder,
   folderChipState,
   startedCloudFolderName,
   folderMenu,
@@ -555,7 +555,7 @@ export function ComposerContext({
   const currentFolder = savedFolderPick
     ? normalizeCwd(savedFolderPick.folder)
     : summaryFolder
-      ? normalizeCwd(chatOwnFolder(summaryFolder, summaryOnCloud))
+      ? normalizeCwd(shownChatFolder(summary, selectedComputer, summaryOnCloud))
       : projectChoices
         ? undefined
         : folders[0]?.id;
