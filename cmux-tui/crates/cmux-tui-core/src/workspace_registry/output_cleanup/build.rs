@@ -41,7 +41,6 @@ use super::super::session_journal::{
 use super::chunks::{CHUNK_RECORD_LIMIT, ChunkReader, StagedRecord, insert_chunk};
 use super::codec::{SegmentWriter, encode_hex};
 use super::journal_compact::{Folded, fold_record};
-use super::pruned::range_ending_at;
 use super::session_puts::{Put, SessionPuts};
 use super::stage::{
     SegmentGaps, inflated_segment_records, progress_log_interval, sealed_records, staged_records,
@@ -50,7 +49,7 @@ use super::stage::{
 use super::stated_fold::{FoldDelta, StatedFold};
 use super::{
     CleanupMode, OUTPUT_KIND, PRUNED_RANGES_SCHEMA, REBUILT_TABLES, free_space_refusal,
-    kept_refusal_in, live_records_within, max_kept_records, staged_bytes_refusal,
+    kept_refusal_in, live_records_within, max_kept_records, pruned_run_start, staged_bytes_refusal,
 };
 
 pub(super) const STEP_LIVE: &str = "live";
@@ -533,17 +532,7 @@ fn finish_live(source: &Connection, staging: &Connection) -> anyhow::Result<()> 
         [],
         |row| row.get(0),
     )?;
-    let mut lo = u64::try_from(lo.context("the journal is empty")?)?.max(1);
-    // A run an earlier pass removed before the first record (its segments
-    // are gone) joins the first packed segment, so all that is left out
-    // before the first kept record is one pruned range. Each pass lowers
-    // `lo`, so the loop ends.
-    while lo > 1
-        && let Some(start) = range_ending_at(source, lo - 1)?
-        && start < lo
-    {
-        lo = start.max(1);
-    }
+    let lo = pruned_run_start(source, u64::try_from(lo.context("the journal is empty")?)?)?;
     let head = state_u64(staging, "live_head")?.max(state_u64(staging, "live_archive_end")?);
     let tx = staging.unchecked_transaction()?;
     set_state(&tx, "pack_next_start", &lo.to_string())?;

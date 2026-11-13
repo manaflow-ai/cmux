@@ -88,6 +88,7 @@ mod backup;
 mod build;
 mod chunks;
 mod codec;
+mod floor_rule;
 pub(crate) mod journal_compact;
 mod mode;
 mod pruned;
@@ -109,6 +110,7 @@ pub(super) use backup::{
     refuse_open_beside_backup, restore_interrupted_swap, roll_back_swap, rollback_possible,
 };
 pub(crate) use mode::CleanupMode;
+use pruned::pruned_run_start;
 pub(crate) use pruned::{PRUNED_RANGES_SCHEMA, pruned_gap};
 #[cfg(test)]
 pub(crate) use stage::set_put_records_limit_for_test;
@@ -508,7 +510,7 @@ const STAGED_WORK_CHANGED: &str = "the registry's sealed segments changed after 
 /// under the lock on a generated registry of 13 GB, 2026-11-13), so the
 /// retention pass makes it there.
 pub(crate) fn journal_rebuild_owed_on(source: &Connection, floor: u64) -> anyhow::Result<bool> {
-    stage::rebuild_owed(source, floor)
+    floor_rule::rebuild_owed(source, floor)
 }
 
 /// [`WorkspaceRegistry::journal_in_place_room`] on `source`, as
@@ -518,7 +520,7 @@ pub(crate) fn journal_in_place_room_on(
     floor: u64,
     deleted: u64,
 ) -> anyhow::Result<Option<u64>> {
-    stage::in_place_room(source, floor, deleted)
+    floor_rule::in_place_room(source, floor, deleted)
 }
 
 /// The registry meta key that marks the cleanup of `mode` done.
@@ -577,19 +579,19 @@ impl WorkspaceRegistry {
     /// that the rebuild beside the file removes them, not the retention pass
     /// (which would leave the file at its size).
     pub(crate) fn journal_rebuild_owed(&self, floor: u64) -> anyhow::Result<bool> {
-        stage::rebuild_owed(&self.connection.get(), floor)
+        floor_rule::rebuild_owed(&self.connection.get(), floor)
     }
 
     /// The records the retention pass may still delete in place in this
     /// start, after `deleted` of them, when no rebuild of this start takes
-    /// the run at or below `floor` (`stage::in_place_room`); `None`: no
+    /// the run at or below `floor` (`floor_rule::in_place_room`); `None`: no
     /// bound, the run is not worth a rebuild.
     pub(crate) fn journal_in_place_room(
         &self,
         floor: u64,
         deleted: u64,
     ) -> anyhow::Result<Option<u64>> {
-        stage::in_place_room(&self.connection.get(), floor, deleted)
+        floor_rule::in_place_room(&self.connection.get(), floor, deleted)
     }
 
     /// The cleanup of `mode` ran (or was not needed) for this registry.
