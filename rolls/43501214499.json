@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43501214499",
+  "recorded_at": "2026-11-13T20:43:15Z",
+  "reason": "cmux-tui e38ef6bf34c0 changes the image's cmux-tui (pinned b731784a979d)",
+  "dry_run": false,
+  "cmux_tui": "e38ef6bf34c0c3735c5c41eca26b6bf8eac3057e",
+  "fixes": [
+    {
+      "sha": "e38ef6bf34c0c3735c5c41eca26b6bf8eac3057e",
+      "mergedAt": "2026-11-13T11:58:21-08:00",
+      "subject": "fix(acpmux-book): remove rows from live ordering (#42662)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T20:43:15Z",
+    "snapshot_id": "sh-9332adc8f7b744ffab7c6264942e5efb",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43501214499): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "730f3b2c7911f1619bf5c7e867e3e2f880dad172",
+    "image": "cloud-native-auto-e38ef6bf-43501214499-1",
+    "revision": "ci-43501214499-1",
+    "at": "2026-11-13T20:43:15Z"
+  },
+  "rolled_back": false
+}
