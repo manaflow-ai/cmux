@@ -35,6 +35,16 @@ import Testing
         #expect(Metrics.standardWindowCornerRadius(macOSMajor: major) == CGFloat(radius))
     }
 
+    /// The window corner the chrome is concentric with is the one AppKit draws. macOS 15.7.4 reports a
+    /// 12 pt `_cornerRadius` but draws a 10 pt corner (measured from the window's pixels on a macOS 15
+    /// runner, 2026-11-08); macOS 26 reports and draws 16 pt, and more under a toolbar (20, 26).
+    @Test(arguments: [(15, 12.0 as Double?, 10.0), (14, 12.0, 10.0), (15, nil, 10.0), (26, 16.0, 16.0), (26, 26.0, 26.0),
+                      (27, nil, 16.0)] as [(Int, Double?, Double)])
+    func theWindowRadiusIsTheDrawnOne(major: Int, reported: Double?, drawn: Double) {
+        #expect(Metrics.drawnWindowCornerRadius(reported: reported.map { CGFloat($0) }, macOSMajor: major) == CGFloat(drawn),
+                "macOS \(major) reports \(String(describing: reported))")
+    }
+
     /// The running Mac's fallback matches what AppKit reports for a titled window here.
     @Test func theFallbackIsWhatAppKitDraws() {
         _ = NSApplication.shared
@@ -56,15 +66,18 @@ import Testing
         #expect(square == max(0, Metrics.standardWindowCornerRadius - CGFloat(inset)), "fullscreen keeps the windowed radius")
     }
 
-    /// By default the curved main pane is concentric with the window across the gutter, whatever the
-    /// window's radius; `layout.paneCornerRadius` still sets it.
+    /// By default the curved main pane rounds from its tabs (Chrome's tab radius plus the pill's inset),
+    /// at most the window's radius; `layout.paneCornerRadius` still sets it.
     @Test(arguments: [10.0, 16.0, 26.0])
-    func theMainPaneIsConcentricWithTheWindow(window: Double) {
+    func theMainPaneRoundsFromItsTabs(window: Double) {
         defer { load() }
         load()
         let gutter = Metrics.mainPaneGutter
         #expect(gutter > 0, "the default card has a gutter")
-        #expect(Metrics.mainPaneCornerRadius(windowCornerRadius: CGFloat(window)) == max(0, CGFloat(window) - gutter),
+        // Lawrence 2026-11-11, "same roundness as chrome": the card rounds from Chrome's tab radius
+        // plus the pill's inset, so the tabs stay concentric with it, at most the window's radius.
+        #expect(Metrics.mainPaneCornerRadius(windowCornerRadius: CGFloat(window))
+                == min(Metrics.chromeRowCornerRadius(height: Metrics.tabHeight) + Metrics.tabStripCardInset, CGFloat(window)),
                 "a \(window) pt window, \(gutter) pt gutter")
         load(radius: 12)
         #expect(Metrics.mainPaneCornerRadius(windowCornerRadius: CGFloat(window)) == min(12, CGFloat(window)), "the setting wins")
@@ -75,8 +88,9 @@ import Testing
     @Test func theTabsNestInTheWindowConcentricCard() {
         defer { load() }
         load()
-        let card = Metrics.standardWindowCornerRadius - Metrics.mainPaneGutter
+        let card = Metrics.chromeRowConcentricCardRadius(windowCornerRadius: Metrics.standardWindowCornerRadius)
         #expect(Metrics.tabStripCardRadius == card)
+        #expect(Metrics.tabCornerRadius == Metrics.chromeRowCornerRadius(height: Metrics.tabHeight), "Chrome's tab radius")
         #expect(Metrics.tabCornerRadius == min(max(0, card - Metrics.tabStripCardInset), Metrics.tabHeight / 2))
     }
 
@@ -85,7 +99,7 @@ import Testing
     @Test func theMoreButtonIsConcentricWithItsCorner() {
         defer { load() }
         load()
-        let card = Metrics.standardWindowCornerRadius - Metrics.mainPaneGutter
+        let card = Metrics.mainPaneCornerRadius(windowCornerRadius: Metrics.standardWindowCornerRadius)
         let inset = PaneToolbarView.trailingGap
         let side = TitlebarBandButton.side
         #expect(PaneToolbarView.moreCornerRadius(inset: inset) == min(max(0, card - inset), side / 2))

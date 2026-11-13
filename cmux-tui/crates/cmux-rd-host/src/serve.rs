@@ -83,11 +83,11 @@ fn say(line: AppLine) {
     let _ = out.flush();
 }
 
-fn hex(bytes: &[u8]) -> String {
+pub(crate) fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-fn unhex32(text: &str) -> Option<[u8; 32]> {
+pub(crate) fn unhex32(text: &str) -> Option<[u8; 32]> {
     let text = text.trim();
     if text.len() != 64 {
         return None;
@@ -173,6 +173,10 @@ impl Carrier for ServeCarrier {
         let result = self.link.receive(out);
         self.report_paths();
         result
+    }
+
+    fn take_path_rtt_us(&mut self) -> Option<u64> {
+        self.link.take_path_rtt_us()
     }
 
     fn send_datagram(&mut self, datagram: &[u8]) -> io::Result<()> {

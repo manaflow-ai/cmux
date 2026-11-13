@@ -69,7 +69,7 @@ fn subagent_stops(session: &str) -> Option<Value> {
 }
 
 /// A FIFO whose first write lets the parent's `child-gate:` turn (and its subagent) end.
-fn fifo(name: &str) -> std::path::PathBuf {
+pub(super) fn fifo(name: &str) -> std::path::PathBuf {
     let path = std::env::temp_dir().join(format!("w5m-{name}-{}", std::process::id()));
     let _ = std::fs::remove_file(&path);
     let c = std::ffi::CString::new(path.to_str().unwrap()).unwrap();
@@ -79,7 +79,7 @@ fn fifo(name: &str) -> std::path::PathBuf {
 }
 
 /// The parent runs a turn with one subagent running in it (fake_agent.py `child-gate:`).
-async fn parent_with_a_running_subagent(
+pub(super) async fn parent_with_a_running_subagent(
     hub: &Arc<Hub>,
     person: &mut Client,
     gate: &Path,
@@ -104,7 +104,7 @@ async fn parent_with_a_running_subagent(
 }
 
 /// The lane reports of turns in `parent`'s queue, not run yet (its turn is running).
-async fn queued_reports(person: &mut Client, parent: &str) -> Vec<Value> {
+pub(super) async fn queued_reports(person: &mut Client, parent: &str) -> Vec<Value> {
     let page = person.ok("_acpmux/events", json!({"sessionId": parent, "limit": 5000})).await;
     page["events"]
         .as_array()
@@ -123,7 +123,7 @@ fn queued_text(msg: &Value) -> String {
 }
 
 /// Waits until `lane`'s turn `turn` ended.
-async fn turn_ended(hub: &Arc<Hub>, lane: &str, turn: u64) {
+pub(super) async fn turn_ended(hub: &Arc<Hub>, lane: &str, turn: u64) {
     let s = hub.resolve(lane).unwrap();
     tokio::time::timeout(WAIT, async {
         loop {
@@ -175,6 +175,44 @@ async fn lane_report_subagent_a_reply_whose_caller_left_before_it_came_is_report
     tokio::time::sleep(Duration::from_millis(200)).await;
     person.ok("session/cancel", json!({"sessionId": lane})).await;
     person.exactly(&parent, 1).await;
+}
+
+/// Review F2 of #41361: a waiting send whose client cancels its request (`$/cancel_request`)
+/// and stays connected reads nothing any more. Its turn still settles, and its lane report goes
+/// to the lead, as for a caller that left.
+#[tokio::test]
+async fn lane_report_subagent_a_reply_whose_request_was_cancelled_is_reported() {
+    let hub = hub();
+    let mut person = Client::new(&hub);
+    let parent = person.new_session("parent", json!({})).await;
+    let lane =
+        Client::as_session(&hub, &parent).await.new_session("cancelled-lane", json!({})).await;
+    let mut waiting = Client::as_session(&hub, &parent).await;
+    waiting.send("session/prompt", subagent_prompt(&lane, "until-cancel", true)).await;
+    let id = waiting.2;
+    person
+        .ok("_acpmux/wait", json!({"sessions": [lane], "until": ["running"], "timeoutMs": 5000}))
+        .await;
+    // The CLI gives up on its call (a Ctrl-C it forwards) and its connection stays open.
+    let cancel =
+        Message::notification(acpmux::rpc::method::CANCEL_REQUEST, json!({"requestId": id}));
+    waiting.0.send(cancel.to_line()).await.unwrap();
+    let answer = loop {
+        let line = tokio::time::timeout(WAIT, waiting.1.recv()).await.expect("answered").unwrap();
+        let v: Value = serde_json::from_str(&line).unwrap();
+        if v.get("id") == Some(&json!(id)) {
+            break v;
+        }
+    };
+    assert_eq!(
+        answer["error"]["code"],
+        json!(acpmux::request_cancel::REQUEST_CANCELLED),
+        "{answer}"
+    );
+    // The cancelled prompt's turn is stopped and settles; nobody read its reply.
+    turn_ended(&hub, &lane, 1).await;
+    person.exactly(&parent, 1).await;
+    drop(waiting);
 }
 
 #[tokio::test]

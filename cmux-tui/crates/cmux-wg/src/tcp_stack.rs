@@ -55,6 +55,17 @@ pub(crate) const TCP_TIMEOUT: Duration = Duration::from_secs(60);
 /// Probe each idle TCP connection before its receive timeout. WireGuard
 /// keepalives and application heartbeats on another lane do not elicit its ACKs.
 const TCP_KEEP_ALIVE: Duration = Duration::from_secs(15);
+/// The floor under the retransmission timeout once an RTT is measured:
+/// Linux's `TCP_RTO_MIN`. smoltcp defaults to RFC 6298's 1 s, which turns one
+/// lost segment at the tail of a frame into a 1 s stall. Linux peers run
+/// with the same floor against each other's delayed ACKs, and smoltcp delays
+/// an ACK by 10 ms.
+const TCP_MIN_RTO: Duration = Duration::from_millis(200);
+/// How long a peer may hold an ACK, in the tail-loss probe timeout
+/// (`2 * SRTT` plus this). smoltcp peers delay ACKs 10 ms; the margin covers
+/// a kernel peer's first delayed ACK. A probe sent too early costs one
+/// segment resent.
+const TCP_PROBE_ACK_DELAY: Duration = Duration::from_millis(25);
 /// The ephemeral port range (IANA 49152-65535); allocation starts at a random
 /// port inside it and wraps, as a real stack does.
 pub(crate) const FIRST_EPHEMERAL_PORT: u16 = 49_152;
@@ -201,6 +212,14 @@ impl TcpStack {
         self.iface.poll(now, &mut self.device, &mut self.sockets);
     }
 
+    /// The tunnel moved to another route: every connection with data in
+    /// flight resends it at once, with its RTO back at the RTT estimate.
+    pub(crate) fn path_changed(&mut self) {
+        for conn in &self.conns {
+            self.sockets.get_mut::<tcp::Socket>(conn.handle).path_changed();
+        }
+    }
+
     /// When smoltcp next wants a poll, or `None` to wait for an event.
     pub(crate) fn poll_delay(&mut self) -> Option<Duration> {
         let now = self.now();
@@ -281,6 +300,16 @@ impl TcpStack {
         // Keystrokes are latency-bound; the OS dial path disables Nagle too.
         socket.set_nagle_enabled(false);
         socket.set_congestion_control(congestion);
+        socket.set_min_rto(smoltcp::time::Duration::from_micros(
+            u64::try_from(TCP_MIN_RTO.as_micros()).unwrap_or(u64::MAX),
+        ));
+        // A lone lost segment is resent after about two round trips, not the RTO.
+        socket.set_tail_loss_probe(Some(smoltcp::time::Duration::from_micros(
+            u64::try_from(TCP_PROBE_ACK_DELAY.as_micros()).unwrap_or(u64::MAX),
+        )));
+        // Under repeated loss, resend only the holes the peer's SACK blocks
+        // show, several per round trip, with one window cut per episode.
+        socket.set_sack_recovery(true);
         socket.set_timeout(Some(smoltcp::time::Duration::from_micros(
             u64::try_from(timeout.as_micros()).unwrap_or(u64::MAX),
         )));

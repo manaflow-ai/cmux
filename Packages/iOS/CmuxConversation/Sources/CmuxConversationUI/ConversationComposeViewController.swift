@@ -21,7 +21,7 @@ public final class ConversationComposeViewController: UIViewController {
     let serviceSubtitle = UILabel()
     let suggestionsTable = UITableView(frame: .zero, style: .plain)
     let composer = ConversationComposerView()
-    private let composerContainer = UIView()
+    private let composerContainer = ComposerHostView()
     private var composerHeight: NSLayoutConstraint?
     /// The docked keyboard's top edge: the composer sits on it.
     private var keyboardDock: MobileKeyboardDock?

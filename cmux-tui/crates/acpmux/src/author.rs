@@ -224,7 +224,7 @@ fn valid(key: &str, value: &str) -> bool {
 
 /// A character that breaks the one line or changes how it reads: a control, a line or
 /// paragraph separator, or a bidi or zero-width format mark (as `prompt_provenance.rs`).
-fn unshown(c: char) -> bool {
+pub(crate) fn unshown(c: char) -> bool {
     c.is_control()
         || (c.is_whitespace() && c != ' ')
         || matches!(

@@ -25,12 +25,25 @@ matter (lines before the first blank line):
 A highlight's gallery state is rendered and published by media/whats-new-gallery.py when the file
 merges (gallery_url); with --pr-media the notes take that picture, and its `before:` picture after it,
 each with a `role` ("after", "before"), when there is no clip. A picture not published yet is left out.
+With no `gallery:` line, a New or Improved highlight takes the state media/whats-new-gallery.py picked
+from the gallery files its commit changed, and an Improved one with no `before:` takes the same state
+rendered at the commit before it; both sit at fixed names (gallery_auto_url).
 
 A highlight's clip is its looping demo (scripts/cmux-next/media/whats-new-clips.py records it from
 release-notes/next/clips/ID.json, whose caption becomes its alt). It wins over --pr-media's picture,
 and a clip added to a highlight of the last CLIP_REANNOUNCE_DAYS rides along with the next build (its
 highlights and its What's New digest), so an update that already listed the item shows it again with
 its clip (the page keeps one copy). A malformed clip line is left out with a report.
+A highlight with a spec and no `clip:` line gets its clip recorded by the nightly media tour, and an
+improvement its before on the previous nightly's app, at fixed names (clip_auto_url); --pr-media takes
+those before the gallery pictures, role by role.
+
+A New or Improved highlight of the last LATE_PICTURE_DAYS whose gallery pictures or recorded clips were published after its
+nightly cut (the public feed's notes showed it without them) rides along with the next --pr-media build
+that finds them, the same way, once (late_pictures). One with a clip spec rides along again, for
+CLIP_REANNOUNCE_DAYS, once a recorded clip the notes did not show is published (a spec added after the
+highlight shipped, or a clip the nightly tour recorded later): the clip replaces its gallery still. An improvement that shipped with no picture rides
+along with its after alone when no before was published (a gallery state its own commit added has none).
 
 The rest is the body (Markdown). A build with no new highlight file uses its
 user-facing summary for the What's New digest. Each commit is
@@ -540,13 +553,107 @@ def reannounced(since, head, added):
     return out
 
 
+# Late gallery pictures: whats-new-gallery.yml publishes a highlight's pictures 10 to 15 minutes after its
+# file merges, and a nightly cut in between shows it with none. A highlight of the last LATE_PICTURE_DAYS
+# whose newest published notes (the public feed, newest LATE_PICTURE_BUILDS builds) showed it without its
+# pictures rides along with the next build that finds them, once: that build's notes show it pictured.
+LATE_PICTURE_DAYS = 2
+LATE_PICTURE_BUILDS = 30
+NOTES_FEED = os.environ.get("CMUX_RELEASE_NOTES_FEED", "https://files-next.cmux.com/nightly-next/notes/")
+
+
+def pictured(highlight):
+    """Shown with its pictures, as cmuxterm-hq's NOW whats_new counts it: media, and for an improvement a
+    before and an after."""
+    media = [m for m in highlight.get("media") or [] if isinstance(m, dict) and m.get("url")]
+    if highlight.get("category", "new") == "improved":
+        return {"before", "after"} <= {m.get("role") for m in media}
+    return bool(media)
+
+
+def late_pictures(head, skip, deadline, fixture):
+    """{path: whether its newest appearance had media} of the New and Improved highlights not in `skip`, with
+    no clip line, whose newest appearance in the published notes was not pictured (one of the last
+    LATE_PICTURE_DAYS), or did not show a recorded clip that is published now (one with a spec, of the last
+    CLIP_REANNOUNCE_DAYS: a clip recorded after the highlight shipped with its gallery stills, or with none,
+    replaces them; late_clip). A feed read that fails gives none."""
+    head_time = int(git("show", "-s", "--format=%ct", head).strip())
+    days = max(LATE_PICTURE_DAYS, CLIP_REANNOUNCE_DAYS)
+    since = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(head_time - days * 86400))
+    wanted, recent, specs, born = {}, set(), set(), head_time
+    for line in git("log", "--diff-filter=A", "--name-only", "--format=time %ct", f"--since={since}", head,
+                    "--", HIGHLIGHTS).splitlines():
+        if line.startswith("time "):
+            born = int(line[5:])
+            continue
+        path = line.strip()
+        if not path.endswith(".md") or path in skip or path in wanted.values():
+            continue
+        try:
+            highlight = parse_highlight(path, git("show", f"{head}:{path}"))
+        except (subprocess.CalledProcessError, SystemExit):
+            continue
+        if highlight["media"] or highlight.get("category", "new") not in {"new", "improved"}:
+            continue
+        has_spec = subprocess.run(["git", "cat-file", "-e", f"{head}:{CLIPS}/{highlight['id']}.json"],
+                                  capture_output=True).returncode == 0
+        is_recent = head_time - born <= LATE_PICTURE_DAYS * 86400
+        if not (is_recent or has_spec):
+            continue
+        wanted[highlight["id"]] = path
+        if is_recent:
+            recent.add(highlight["id"])
+        if has_spec:
+            specs.add(highlight["id"])
+    shown = {}
+    try:
+        index = json.loads(pr_download(NOTES_FEED + "index.json", fixture) or b"{}")
+        for entry in (index.get("builds") or [])[:LATE_PICTURE_BUILDS]:
+            if len(shown) == len(wanted) or time.monotonic() > deadline:
+                break
+            notes = json.loads(pr_download(f"{NOTES_FEED}{entry['build']}.json", fixture) or b"{}")
+            for highlight in notes.get("highlights") or []:
+                if isinstance(highlight, dict) and highlight.get("id") in wanted:
+                    shown.setdefault(highlight["id"], highlight)
+    except Exception as error:
+        print(f"late pictures: {type(error).__name__}: {error}; none ride along", file=sys.stderr)
+        return {}
+    out = {}
+    for highlight_id, path in wanted.items():
+        if highlight_id not in shown:
+            continue
+        before = shown[highlight_id]
+        if (highlight_id in recent and not pictured(before)) or (
+                highlight_id in specs and late_clip(highlight_id, before, deadline, fixture)):
+            out[path] = bool(before.get("media"))
+    return out
+
+
+def late_clip(highlight_id, shown, deadline, fixture):
+    """Whether a role of the highlight has a recorded clip published (clip_auto_url) that its appearance
+    `shown` (the published notes' copy) did not show."""
+    urls = {m.get("role") or "after": m.get("url") for m in shown.get("media") or [] if isinstance(m, dict)}
+    for role, url in clip_auto_urls({}, highlight_id, shown.get("category", "new")).items():
+        if urls.get(role) == url or time.monotonic() > deadline:
+            continue
+        try:
+            data = pr_download(url, fixture)
+        except Exception:  # a 404 until the nightly tour publishes it
+            data = None
+        if data and pr_media_picture(data):
+            return True
+    return False
+
+
 PR_SUFFIX = re.compile(r"^(?P<title>.*?)\s*\(#(?P<pr>\d+)\)\s*$")
 
 # Gallery pictures (Leo 2026-10-20: "vids and before/afters for our techincal stuff is p important"): a
 # highlight names the webview gallery state that shows it (`gallery: ENTRY/VARIANT`) and, for an
 # improvement, the state it replaced (`before:`). media/whats-new-gallery.py renders both (dark default
 # theme, normal pane width) when the file merges and puts them at gallery_url, a name fixed by the
-# highlight, the role and the state, so these notes find them with no write back to the file.
+# highlight, the role and the state, so these notes find them with no write back to the file. A highlight
+# with no `gallery:` line gets its state picked from its commit, and an improvement with no `before:` the
+# state at the commit before it, at names fixed by the highlight and the role (gallery_auto_url).
 GALLERY_STATE = re.compile(r"[a-z0-9][a-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*")
 GALLERY_ROLES = ("after", "before")
 
@@ -566,25 +673,66 @@ def gallery_url(highlight_id, role, state):
     return f"{CLIP_PREFIX}{highlight_id}/gallery-{hashlib.sha256(state.encode()).hexdigest()[:12]}-{role}.png"
 
 
+def gallery_auto_url(highlight_id, role):
+    """Where media/whats-new-gallery.py puts a picture no line names: the state it inferred from the
+    highlight's commit ("after"), or the state rendered at the commit before it ("before")."""
+    return f"{CLIP_PREFIX}{highlight_id}/gallery-auto-{role}.png"
+
+
+def gallery_urls(meta, highlight_id, category):
+    """{role: url} of a highlight's gallery pictures: a named state's own URL, else the inferred one for
+    the state, and for an Improved highlight with no `before:`, the state at the commit before it."""
+    states = gallery_states(meta)
+    urls = {role: gallery_url(highlight_id, role, state) for role, state in states.items()}
+    if "after" not in urls and "clip" not in meta and category in {"new", "improved"}:
+        urls["after"] = gallery_auto_url(highlight_id, "after")
+    if "after" in urls and "before" not in urls and category == "improved":
+        urls["before"] = gallery_auto_url(highlight_id, "before")
+    return urls
+
+
+def clip_auto_url(highlight_id, role):
+    """Where media/whats-new-clips.py publish-auto puts a clip the nightly tour recorded from the highlight's
+    spec (release-notes/next/clips/ID.json): on the new tip's app ("after"), the previous tip's ("before")."""
+    return f"{CLIP_PREFIX}{highlight_id}/clip-auto-{role}.webp"
+
+
+def clip_auto_urls(meta, highlight_id, category):
+    """{role: url} of a highlight's recorded clips: a New or Improved one with no `clip:` line, and for an
+    Improved one its before."""
+    if "clip" in meta or category not in {"new", "improved"}:
+        return {}
+    return {role: clip_auto_url(highlight_id, role) for role in GALLERY_ROLES[:2 if category == "improved" else 1]}
+
+
 def add_gallery_media(highlight, text, deadline):
-    """Gives `highlight` its published gallery pictures: the state first, then its before, each with a
-    role when both are there. True when it got the picture. A missing or unreadable one only leaves it out."""
-    states = gallery_states(front_matter(text)[0])
-    if not states:
+    """Gives `highlight` its published clip or gallery pictures: the state first, then its before, each with a
+    role when both are there; a recorded clip wins over a gallery picture, role by role. True when it got the
+    first. A missing or unreadable one only leaves it out."""
+    meta = front_matter(text)[0]
+    category = highlight.get("category", "new")
+    clips = clip_auto_urls(meta, highlight["id"], category)
+    pictures = gallery_urls(meta, highlight["id"], category)
+    candidates = {role: [url for url in (clips.get(role), pictures.get(role)) if url] for role in GALLERY_ROLES}
+    if not any(candidates.values()):
         return False
     fixture_path = os.environ.get("CMUX_RELEASE_NOTES_PR_FIXTURE")
     fixture = json.loads(Path(fixture_path).read_text()) if fixture_path else None
     media = []
     for role in GALLERY_ROLES:
-        if role not in states or time.monotonic() > deadline:
-            continue
-        url = gallery_url(highlight["id"], role, states[role])
-        try:
-            data = pr_download(url, fixture)
-        except Exception as error:
-            print(f"gallery: {highlight['id']} {role}: {type(error).__name__}: {error}; left out", file=sys.stderr)
+        url = data = None
+        for url in candidates[role]:
+            if time.monotonic() > deadline:
+                break
+            try:
+                data = pr_download(url, fixture)
+            except Exception as error:
+                print(f"gallery: {highlight['id']} {role}: {type(error).__name__}: {error}; left out", file=sys.stderr)
+                data = None
+            if data is not None and pr_media_picture(data):
+                break
             data = None
-        if data is None or not pr_media_picture(data):
+        if data is None:
             if role == "after":
                 return False
             continue
@@ -959,6 +1107,18 @@ def build(args):
             if not add_gallery_media(highlight, text, deadline):
                 add_pr_media(highlight, path, args.head, deadline)
         highlights.append(highlight)
+    if args.pr_media:
+        fixture_path = os.environ.get("CMUX_RELEASE_NOTES_PR_FIXTURE")
+        fixture = json.loads(Path(fixture_path).read_text()) if fixture_path else None
+        late = late_pictures(args.head, added | set(again), deadline, fixture)
+        for path in sorted(surviving_highlights(args.head, set(late))):
+            text = git("show", f"{args.head}:{path}")
+            highlight = parse_highlight(path, text)
+            # It rides along when it shows more than it did: its pictures, or a picture at all for an
+            # improvement whose before can't be rendered (its gallery state is new), once.
+            if add_gallery_media(highlight, text, deadline) and (pictured(highlight) or not late[path]):
+                highlights.append(highlight)
+                again.append(path)
     # "head": the commit these notes end at; the next build's span starts there (`since`), so a
     # build whose notes never published loses no change to the build after it.
     notes = {"version": 1, "build": args.build, "shortVersion": args.short, "date": args.date, "head": args.head,

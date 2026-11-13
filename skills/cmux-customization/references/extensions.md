@@ -4,7 +4,17 @@
 (`~/.config/cmux/customize`, id `local/customize`) plus the person's own actions
 in `~/.config/cmux/cmux-next.json`. Both reload on save: no compile, no restart,
 no install click. This page lists what an extension can call today, what is
-still missing, and four copy-paste folders that work as written.
+still missing, and the copy-paste folders that work as written.
+
+What people build, from a first widget to a pane of their own, and the gaps between
+what they asked for and these primitives: [ideas.md](ideas.md).
+
+An extension of its own (an id `local/NAME` beside the customize app, built from
+TypeScript) starts with `cmux ext new NAME` and loads with `cmux ext dev`; an
+agent runs `cmux ext dev --once --json` after each edit and reads its exit code,
+errors and `scene` (an outline of what rendered). Before saying it is done, it runs
+`cmux ext shot --json` and looks at `shot.path`, a picture of the cmux window that
+shows the extension ([docs/cmux-next/extensions/dev-loop.md](../../../docs/cmux-next/extensions/dev-loop.md)).
 
 ## Start from a template
 
@@ -25,7 +35,10 @@ cp templates/<name>/cmux-app.json templates/<name>/main.js ~/.config/cmux/custom
 | `sidebar-section` | The focused workspace's name and its tabs, redrawn on every workspace or tab change; a click focuses the tab. | `workspace:write` (for the click; reading needs nothing) |
 | `command-button` | Buttons that run the person's own `cmux-next.json` actions. | `actions:run` |
 | `pane` | A checklist that opens as a tab, and a sidebar row that opens it. | `storage:local` (keep the list), `actions:run` (the row) |
-| `threads` | Your agent chats as a thread list (`agent_chat.list`): cards with the folder, a status (Input, Failed, Done, Working with its duration) or the age, the title and what the chat does now; chats that need you first, running chats in a Working shelf and day-old chats in Earlier, both closed; a search field. Read again every two seconds. | `workspace:write` (a click shows the chat's workspace), `actions:run` (a chat with no workspace opens in a tab) |
+| `clock-weather` | A widget: the time, the date and the weather for a city you type (Open-Meteo, no key). The clock ticks every 15 s, the weather every 15 min. | `net:geocoding-api.open-meteo.com` and `net:api.open-meteo.com` (the weather), `storage:local` (keep the city) |
+| `my-prs` | Your open PRs and the reviews you owe, in the order you keep them (Move to top, up, down in a row's menu), read every minute and again when an agent chat changes. | `actions:run` (a click opens the PR), `storage:local` (keep the order), `net:api.github.com` (when GitHub is not connected) |
+| `design-links` | Figma, FigJam, Linear, Notion and Docs links: paste one, its file name becomes the row, a click opens it in a cmux browser tab beside the code. | `storage:local` (keep the links), `actions:run` (open) |
+| `threads` | Your agent chats as a thread list (`agent_chat.list`): cards with the folder, a status (Input, Failed, Done, Working with its duration) or the age, the title and what the chat does now; chats that need you first, running chats in a Working shelf and day-old chats in Earlier, both closed; a search field. Read again on `agent_chat.changed` (the app tells the daemon when a chat changes), not on a timer. | `workspace:write` (a click shows the chat's workspace), `actions:run` (a chat with no workspace opens in a tab) |
 
 Read scopes (`workspace:read`, `integration:github:read`, ...) are granted at
 install. Every other scope stays off until the person turns it on in
@@ -79,6 +92,7 @@ views" in the Command Palette (no scope), `cmux action run app.open --app local/
 | Run a built-in action | `cmux.actions.run(id, args)` from a click; ids from `cmux.actions.list()`. Actions that sign in, quit, change the system or act on live input are refused | `actions:run` |
 | Read the current workspace, pane, tab | `cmux.workspace.list()`, `cmux.pane.list({ workspace })`, `cmux.tab.list({ workspace })`; each row has `focused` | `workspace:read` |
 | Follow changes | `cmux.events.on("workspace.changed" \| "pane.changed" \| "tab.changed" \| "terminal.changed", fn)`; `cmux.live(op)` re-reads on `<family>.changed` | the op's read scope |
+| Show live data | `cmux.watch(name, params)` reads a signal source (`github.pulls`, `workspace.list`, `agent.list`; the list is `CmuxSignalMap` in `generated/cmux-app.d.ts`): one read per (name, params) for every section, re-read on push, polled behind the signal only when nothing pushes, the last value kept while it re-reads. Use it instead of `cmux.timer.every` polling. Recipe: `examples/extensions/pr-list` | the source's scopes |
 | Focus, rename, split | `cmux.tab.focus`, `cmux.workspace.rename`, `cmux.pane.split`, ... | `workspace:write` |
 | Run a shell command in a new terminal | `cmux.pane.run({ pane, argv })`, `cmux.workspace.run({ workspace, argv })` | `workspace:execute` |
 | Type into a terminal | `cmux.terminal.input.write` | `terminal:execute` |

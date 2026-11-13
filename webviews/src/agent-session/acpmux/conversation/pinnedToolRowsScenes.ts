@@ -1,9 +1,13 @@
 // l10n-allow-file: gallery fixtures (sample prompts, commands and replies), not shipped UI.
 // The tool-group entry's regroup scenes (ToolGroupSize.gallery.ts): a running turn, the reader
-// scrolled up to a call and opened it, then the agent's next call arrives and regroups the run's
-// folds. The call stays open and stays where it was on screen (Leo, 2026-11-08: "if i have a tool
+// scrolled up in it, then the agent's next call arrives (a second read after a lone one; a command
+// after two reads). Under the runs arm of liveTurnWork.experiment.ts the run regroups ("Read 2
+// files") and a call the reader opened stays open and in place (Leo, 2026-11-08: "if i have a tool
 // call expanded, the auto folding situation shouldn't collapse it when a new tool call comes in and
-// the folds reformat"). test/pinned-tool-rows-browser.test.ts plays both in Chromium.
+// the folds reformat"). These scenes pin the `line` arm, which draws no finished run while the turn runs, only the
+// reply and the one live line (turns.ts `codexRuns`), so there is no call to open and nothing to
+// regroup in view: these scenes check that the next call, and the turn's end in the group scene,
+// move nothing the reader reads. test/pinned-tool-rows-browser.test.ts plays them in Chromium.
 import { activity, assistant, chat, tool, user } from "../../../gallery/fixtures/acpmux";
 import type { Play } from "../../../gallery/play";
 import type { AcpmuxActivity } from "../model";
@@ -34,7 +38,7 @@ const reply = (version: number) =>
     version,
   });
 
-const snapshot = (items: AcpmuxActivity[], version: number) =>
+const snapshot = (items: AcpmuxActivity[], version: number, isWorking = true) =>
   chat(
     [
       ...head,
@@ -44,41 +48,33 @@ const snapshot = (items: AcpmuxActivity[], version: number) =>
     ],
     {
       title: "Retry loop",
-      isWorking: true,
+      isWorking,
     },
   );
 
 type Scene = {
   before: AcpmuxActivity[];
   after: AcpmuxActivity[];
-  opens: string[];
-  call: string;
-  line: RegExp;
-  /// The reader reads the text above, the opened call 100 px under the view's foot (its row still
-  /// drawn): the regroup moves the call, never the view.
+  /// The turn then ends: its work folds once (turnEndFold.ts) and the reply stays in place.
+  ends?: true;
+  /// The reader reads the text above, the reply 100 px under the view's foot: the next call moves
+  /// nothing in view.
   below?: true;
 };
 
-/// A lone read the reader opened; a second read groups it under "Read 2 files".
+/// A lone read; a second read arrives (the runs arm groups them under "Read 2 files").
 const lone: Scene = {
   before: [read("pin-c1", "fetch.ts")],
   after: [read("pin-c1", "fetch.ts"), read("pin-c2", "retry.ts")],
-  opens: [],
-  call: "pin-c1",
-  line: /^Read 2 files$/,
 };
-/// "Read 2 files" opened, its first read opened; a command joins and the group becomes the run's line.
+/// Two reads; a command joins the running turn's run, then the turn ends.
 const group: Scene = {
   before: [read("pin-g1", "fetch.ts"), read("pin-g2", "retry.ts")],
   after: [read("pin-g1", "fetch.ts"), read("pin-g2", "retry.ts"), command("pin-g3", "bun test fetch")],
-  opens: ["Read 2 files"],
-  call: "pin-g1",
-  line: /^read 2 files and ran a command$/i,
+  ends: true,
 };
 
 const scroller = (ctx: Parameters<Play>[0]) => ctx.document.querySelector<HTMLElement>(".acpmux-scroll")!;
-const call = (ctx: Parameters<Play>[0], id: string) =>
-  ctx.document.querySelector<HTMLElement>(`[data-row-id="${ROW}"] button[data-tool-id="${id}"]`);
 const fail = (what: string, seen: unknown): never => {
   throw new Error(`${what}: ${JSON.stringify(seen)}`);
 };
@@ -113,85 +109,99 @@ const bringTo = async (ctx: Parameters<Play>[0], line: HTMLElement, at = 200) =>
 
 declare global {
   interface Window {
-    /** What the regroup scene saw: the opened call's top before and after the next call arrived. */
+    /** What the regroup scene saw: the reply's top and the view's offset before and after the next call arrived. */
     cmuxPinnedToolRows?: {
       before: number;
       after: number;
-      open: boolean;
+      /// Rows of the running turn's run drawn after the next call arrived (the `line` draws none).
+      runs: number;
+      /// The live line is the turn's last row.
       line: boolean;
       fromEnd: number;
       scrollBefore: number;
       scrollAfter: number;
+      /// After the turn ended and its fold played (scenes that end the turn).
+      ended?: { after: number; scrollAfter: number };
     };
   }
 }
 
+const REPLY = '[data-row-id="pinned-tool-rows-reply"]';
+const replyRow = (ctx: Parameters<Play>[0]) => ctx.document.querySelector<HTMLElement>(REPLY);
+const runs = (ctx: Parameters<Play>[0]) => ctx.document.querySelectorAll(`[data-row-id="${ROW}"]`).length;
+const liveLine = (ctx: Parameters<Play>[0]) =>
+  ctx.document.querySelector('.acpmux-row[data-row-id="thinking-live"]') !== null;
+
+/// The scene as live-turn-work `line` (pinned) draws a running turn (liveTurnWork.experiment.ts):
+/// the reply in sight, one live line under it, and no finished run, so no call the reader could
+/// have opened. The reader reads the reply (or, `below`, the text above it, the reply under the
+/// view's foot); the next call arrives and moves nothing in view, and a turn that then ends moves
+/// nothing either.
 function scene(which: Scene): Play {
   return async (ctx) => {
     const view = ctx.document.defaultView!;
-    await ctx.waitFor(() => scroller(ctx) && ctx.document.querySelector(`[data-row-id="${ROW}"]`), { capMs: 10_000 });
+    await ctx.waitFor(() => scroller(ctx) && replyRow(ctx) && liveLine(ctx), { capMs: 10_000 });
     await settle(ctx);
-    for (const words of which.opens) {
-      const line = [...ctx.document.querySelectorAll<HTMLElement>(`[data-row-id="${ROW}"] button.is-run`)].find(
-        (each) => each.textContent?.includes(words),
-      );
-      if (!line) fail(`no line "${words}"`, ctx.document.querySelector(`[data-row-id="${ROW}"]`)?.textContent);
-      await bringTo(ctx, line!);
-      if (line!.getAttribute("aria-expanded") !== "true") {
-        line!.click();
-        await settle(ctx, () => line!.getAttribute("aria-expanded") === "true");
-      }
-    }
-    await ctx.waitFor(() => call(ctx, which.call), { capMs: 10_000 });
-    await bringTo(ctx, call(ctx, which.call)!);
-    call(ctx, which.call)!.click();
-    await settle(ctx, () => call(ctx, which.call)?.getAttribute("aria-expanded") === "true");
-    // The reader's wheel again: the click's own hold is over, the view is theirs.
-    await bringTo(ctx, call(ctx, which.call)!, which.below ? scroller(ctx).clientHeight + 100 : 200);
-    if (which.below && !call(ctx, which.call)) fail("the opened call's row is not drawn under the view", {});
-    const before = call(ctx, which.call)!.getBoundingClientRect().top;
+    if (runs(ctx)) fail("the running turn draws its finished run over the live line", runs(ctx));
+    await bringTo(ctx, replyRow(ctx)!, which.below ? scroller(ctx).clientHeight + 100 : 200);
+    const before = replyRow(ctx)!.getBoundingClientRect().top;
     const scrollBefore = scroller(ctx).scrollTop;
     view.cmuxAcpmuxBridge?.receive(structuredClone(snapshot(which.after, 2)));
-    const regrouped = () =>
-      [...ctx.document.querySelectorAll(`[data-row-id="${ROW}"] button.is-run`)].some((each) =>
-        which.line.test(each.querySelector(".cv-tool__summary")?.textContent?.trim() ?? ""),
-      );
-    await settle(ctx, regrouped);
+    await settle(ctx);
     const node = scroller(ctx);
-    const opened = call(ctx, which.call);
-    const seen = {
+    const seen: NonNullable<Window["cmuxPinnedToolRows"]> = {
       before,
-      after: opened?.getBoundingClientRect().top ?? Number.NaN,
-      open: opened?.getAttribute("aria-expanded") === "true",
-      line: regrouped(),
+      after: replyRow(ctx)?.getBoundingClientRect().top ?? Number.NaN,
+      runs: runs(ctx),
+      line: liveLine(ctx),
       fromEnd: node.scrollHeight - node.clientHeight - node.scrollTop,
       scrollBefore,
       scrollAfter: node.scrollTop,
     };
     view.cmuxPinnedToolRows = seen;
-    if (!seen.open) fail("the opened call closed when the next call arrived", seen);
+    if (seen.runs) fail("the next call drew the running turn's run", seen);
+    if (!seen.line) fail("the live line is gone", seen);
     if (which.below) {
       if (!(Math.abs(seen.scrollAfter - seen.scrollBefore) <= 1))
-        fail("a regroup under the view moved the text the reader was reading", seen);
-    } else if (!(Math.abs(seen.after - seen.before) <= 1))
-      fail("the opened call moved when the next call arrived", seen);
+        fail("the next call under the view moved the text the reader was reading", seen);
+    } else if (!(Math.abs(seen.after - seen.before) <= 1)) fail("the next call moved the reply in view", seen);
+    if (!which.ends) return;
+    // The turn ends: its work folds once (turnEndFold.ts). The view's offset holds and the reply stays
+    // drawn. Its top is recorded, not held: under `line` the end draws work that was not on screen
+    // above the reply (its Worked for, and the run turnEndHold.ts keeps open for the reply), so the
+    // reply moves down by it.
+    view.cmuxAcpmuxBridge?.receive(structuredClone(snapshot(which.after, 3, false)));
+    await settle(ctx, () => !liveLine(ctx) && !ctx.document.querySelector(".acpmux-thread[data-turn-end-folding]"));
+    seen.ended = {
+      after: replyRow(ctx)?.getBoundingClientRect().top ?? Number.NaN,
+      scrollAfter: scroller(ctx).scrollTop,
+    };
+    view.cmuxPinnedToolRows = seen;
+    if (!(Math.abs(seen.ended.scrollAfter - seen.scrollAfter) <= 1)) fail("the turn's end moved the view", seen);
+    if (!Number.isFinite(seen.ended.after)) fail("the reply is gone after the turn's end", seen);
   };
 }
 
+/// The arm these scenes are about, pinned so they keep it whatever the default.
+const LINE = { "live-turn-work": "line" };
+
 export const pinnedVariants = {
   "pinned-lone": {
-    note: "Play: a running turn, scrolled up to a lone read the reader opened; a second read arrives and groups it under “Read 2 files”. The read stays open and stays where it was.",
+    note: "Play: a running turn after a lone read, the reader scrolled up to the reply; a second read arrives. Under live-turn-work `line`, pinned: the reply and the live line, no finished run, and the reply stays where it was.",
     snapshot: snapshot(lone.before, 1),
     play: scene(lone),
+    experiments: LINE,
   },
   "pinned-below": {
-    note: "Play: a lone read the reader opened, then scrolled up so it sits under the view's foot; a second read groups it. The text in view stays where it is.",
+    note: "Play: the reader scrolled up so the reply sits under the view's foot; a second read arrives. The text in view stays where it is, and no finished run draws.",
     snapshot: snapshot(lone.before, 1),
     play: scene({ ...lone, below: true }),
+    experiments: LINE,
   },
   "pinned-group": {
-    note: "Play: “Read 2 files” opened and its first read opened; a command joins and the group becomes the run's line. Both stay open and the read stays where it was.",
+    note: "Play: two reads, then a command joins the running turn and the turn ends. While it runs the reply and the live line show and no finished run; the next call moves nothing in view; at the turn's end the view's offset holds and the reply moves down by the work drawn above it.",
     snapshot: snapshot(group.before, 1),
     play: scene(group),
+    experiments: LINE,
   },
 };

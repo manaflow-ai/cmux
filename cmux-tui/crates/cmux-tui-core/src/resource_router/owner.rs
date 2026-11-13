@@ -26,6 +26,8 @@ pub(super) enum OperationOwner {
     OpenUrl,
     /// `stash.*` (state/stash_router.rs).
     Stash,
+    /// `classic_import.*` (state/classic_import_router.rs).
+    ClassicImport,
     /// `conductor_import.*` (state/conductor_import_router.rs).
     ConductorImport,
     /// `palette.rank` (resource_router/palette_rank.rs): stateless.
@@ -83,6 +85,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::PaneFocusDirection
         | ResourceOperation::PaneNeighborGet
         | ResourceOperation::PaneSwap
+        | ResourceOperation::PaneMove
         | ResourceOperation::PaneZoom
         | ResourceOperation::PaneSplitRatioSet
         | ResourceOperation::PaneViewportWidthSet
@@ -152,7 +155,8 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::GitStatus
         | ResourceOperation::DiffCommentsList
         | ResourceOperation::DiffCommentsSave
-        | ResourceOperation::DiffCommentsDelete => OperationOwner::Git,
+        | ResourceOperation::DiffCommentsDelete
+        | ResourceOperation::DiffCommentsSend => OperationOwner::Git,
         ResourceOperation::HistoryEntriesList
         | ResourceOperation::HistoryEntriesRemove
         | ResourceOperation::HistorySiteRemove
@@ -175,6 +179,9 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::StashRestore
         | ResourceOperation::StashDelete
         | ResourceOperation::StashImport => OperationOwner::Stash,
+        ResourceOperation::ClassicImportPlan | ResourceOperation::ClassicImportRecord => {
+            OperationOwner::ClassicImport
+        }
         ResourceOperation::ConductorImportPlan | ResourceOperation::ConductorImportRecord => {
             OperationOwner::ConductorImport
         }
@@ -372,10 +379,15 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::CloudOwnerHandoffBeginTurn
         | ResourceOperation::CloudOwnerHarnessLoginCopy
         | ResourceOperation::CloudOwnerGithubApp
+        | ResourceOperation::CloudOwnerTurnCheckpoint
+        | ResourceOperation::CloudOwnerTurnRewind
+        | ResourceOperation::CloudOwnerTurns
         | ResourceOperation::CloudPreviewsRefresh
         | ResourceOperation::CloudPreviewsCreateLink
         | ResourceOperation::CloudPreviewsRevokeLink
         | ResourceOperation::CloudMachineIo
+        | ResourceOperation::CloudMachineChatAccess
+        | ResourceOperation::CloudMachineShareChat
         | ResourceOperation::OriginConfirmationIssue => OperationOwner::Connection,
         ResourceOperation::SettingsSchema
         | ResourceOperation::SettingsList
@@ -384,6 +396,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::SettingsSet
         | ResourceOperation::SettingsReset
         | ResourceOperation::SettingsResetAll
+        | ResourceOperation::SettingsEdit
         | ResourceOperation::KeybindingsGet
         | ResourceOperation::KeybindingsSet
         | ResourceOperation::KeybindingsRemove

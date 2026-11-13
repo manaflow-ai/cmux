@@ -1,3 +1,6 @@
+// The grid-rhythm cases test the `runs` arm of live-turn-work, not the shipped `line` arm: the tool rows
+// they measure are finished calls of a turn that still runs, which only `runs` draws
+// (support/liveTurnRuns.ts). The other cases take the shipped arms.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { mkdir } from "node:fs/promises";
@@ -11,6 +14,8 @@ import {
   TRANSCRIPT_FOOTER_GAP,
   gridLength,
 } from "../../src/agent-session/acpmux/transcriptGrid";
+import { pinLiveTurnRuns } from "../support/liveTurnRuns";
+import { CLOCK_ON_LINE, pinArms } from "../support/pinArms";
 import { requireBrowserLane } from "../support/requireBrowserLane";
 
 await requireBrowserLane("transcript-rhythm.test.ts", async () => {
@@ -47,6 +52,10 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
       const page = await browser.newPage({ viewport: { width, height: 900 } });
       try {
         const port = (vite.httpServer!.address() as { port: number }).port;
+        await pinLiveTurnRuns(page);
+        // The live line under the run, as the gaps below measure it; the clock over the work
+        // (liveTurnClock.experiment.ts `top`) is transcript-live-turn-clock.test.ts's.
+        await pinArms(page, CLOCK_ON_LINE);
         await page.goto(
           `http://127.0.0.1:${port}${galleryFrame("agent-pane.transcript", {
             variant: "grid-rhythm",
@@ -72,6 +81,8 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
             const prompt = rect('[data-row-id="grid-prompt"] .cv-user__bubble');
             const message = rect('[data-row-id="grid-message"] .cv-md');
             const group = rect(".acpmux-activity .cv-tools > .cv-tool");
+            // The whole run: a running turn keeps its calls in sight under the group's line (cmux#38339).
+            const run = rect(".acpmux-activity .cv-tools");
             const live = rect(
               ".acpmux-thinking .cv-worked, .acpmux-working .cv-worked, .acpmux-activityLine .cv-activity",
             );
@@ -122,8 +133,8 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
               chevron,
               copy,
               gaps: [message.top - header.bottom, group.top - message.bottom],
-              // The live state keeps the scaled run gap below completed activity.
-              liveUnderRun: live.top - group.bottom,
+              // The live state keeps the scaled run gap below completed activity, its last row.
+              liveUnderRun: live.top - run.bottom,
               inner: paragraphs[1]!.top - paragraphs[0]!.bottom,
               composerGap: composer.top - live.bottom,
               floating: Boolean(document.querySelector(".acpmux-main[data-dock=float]")),

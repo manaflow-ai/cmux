@@ -79,6 +79,14 @@ export async function open120Hz(
       `--remote-debugging-port=${port}`,
       "--enable-begin-frame-control",
       "--run-all-compositor-stages-before-draw",
+      // A clip-path animation runs on the compositor in Chromium, and under BeginFrame control its
+      // frames never finish: a sent prompt's bubble reveal (conversation.css SEND-ENTRANCE) hung the
+      // steer and tools turns at their 180 s limit. The app draws with WebKit, which animates
+      // clip-path on the main thread, so the page here does too. A background-color transition is
+      // the same: the Codex look's send button eases its color in once typed text makes it ready
+      // (composerStates.css), and the motion contract hung in "settle after typing" until its
+      // 180 s limit (run 43399332571).
+      "--disable-features=CompositeClipPathAnimation,CompositeBGColorAnimation",
     ],
   });
   let browser: Browser | undefined;

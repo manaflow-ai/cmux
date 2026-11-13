@@ -242,6 +242,7 @@ async fn a_peer_lease_never_takes_a_saved_peers_name() {
     cfg.peers.insert(
         "cloud-vm".into(),
         acpmux::config::PeerConfig {
+            link_host: None,
             wireguard: None,
             url: "ws://127.0.0.1:1".into(),
             token: None,
@@ -330,6 +331,7 @@ async fn a_reload_takes_a_saved_peers_vm_boundary_back() {
         cfg.peers.insert(
             "vm".into(),
             acpmux::config::PeerConfig {
+                link_host: None,
                 wireguard: None,
                 url: "ws://127.0.0.1:1".into(),
                 token: None,

@@ -33,7 +33,8 @@ public final class MessagesLabHomeView: NSView {
     ///   - replies: how an agent's running reply shows: ``HomeReplyDisplay/wholeMessages`` (default:
     ///     typing dots, then each message whole) or the older token-by-token stream bubble.
     public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, wake: any ChatWakeScheduler,
-                diagrams: (any HomeDiagramRendering)? = nil, replies: HomeReplyDisplay = .wholeMessages) {
+                diagrams: (any HomeDiagramRendering)? = nil,
+                replies: HomeReplyDisplay = .wholeMessages) {
         MessagesLabHomeView.liveFormatting()
         HomeMarkdownPolicy.install()
         // Before the projection maps its first messages, so a diagram never shows as text first.
@@ -50,6 +51,7 @@ public final class MessagesLabHomeView: NSView {
         wantsLayer = true
         addSubview(controller.host)
         HomeApprovalRowProvider.install()
+        HomeTurnFailureRowProvider.install()
         projection.start()
         // Reduce Motion changes (the system setting or the host's pin) still or restart the loops
         // already running (MessagesLabHomeView+Motion.swift).
@@ -468,6 +470,10 @@ public final class MessagesLabHomeView: NSView {
     /// The field's text view (the pane's primary input).
     public var primaryInput: NSView { controller.demo?.compose.textView.view ?? self }
 
+    /// Where the pane's keyboard goes when it gets focus or a key typed elsewhere in it: the open picture viewer
+    /// (its Esc, arrows and letters are its own), else ``primaryInput``.
+    public var keyboardTarget: NSView { controller.keyboardTarget ?? self }
+
     /// Whether focusing this view should move the keyboard from `responder`
     /// to ``primaryInput``.
     ///
@@ -583,6 +589,21 @@ public final class MessagesLabHomeView: NSView {
         NSApp.sendAction(action, to: item.target, from: item)
         return true
     }
+
+    /// Chooses `title` in the menu of the red "!" beside my Not Delivered bubble showing `text`
+    /// (the click's own path, `failedMarkMenu(at:)`); false when there is no mark or no such row.
+    public func debugChooseFailedMarkItem(_ title: String, onBubble text: String) -> Bool {
+        guard let hit = debugBubble(text: text),
+              let menu = controller.failedMarkMenu(at: CGPoint(x: hit.body.minX - 14, y: hit.body.midY)),
+              let item = menu.items.first(where: { ($0 as? MenuAction)?.label == title || $0.title == title }),
+              let action = item.action else { return false }
+        NSApp.sendAction(action, to: item.target, from: item)
+        return true
+    }
+
+    /// The localized titles of a failed send's Try Again and Delete rows.
+    public static var tryAgainMenuTitle: String { CmuxStrings.tryAgain }
+    public static var deleteFailedMenuTitle: String { CmuxStrings.deleteFailed }
 
     /// The localized title of a bubble's Forward… row.
     public static var forwardMenuTitle: String { CmuxStrings.forward }

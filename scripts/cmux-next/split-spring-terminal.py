@@ -89,6 +89,12 @@ if "--suite=split-scale" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "split-scale-bench.py")
     os.environ.setdefault("CMUX_BENCH_LAUNCH", "direct")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=split-scale"])
+# `--suite=hover-instant`: a sidebar row's hover card, pointer arrival to card, at 10 and 200 workspaces
+# (scripts/cmux-next/hover-instant-bench.py; the sidebar-hover-instant goal).
+if "--suite=hover-instant" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hover-instant-bench.py")
+    os.environ.setdefault("CMUX_BENCH_LAUNCH", "direct")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=hover-instant"])
 # `--suite=pane-perf` (through the allowlisted fleet entry scripts/measure/split-spring.sh): the whole pane
 # motion suite instead, scripts/cmux-next/pane-perf-terminal.py, with the same --tag/--app/--out/--json.
 # `--suite=budgets`: every perf budget row, scripts/cmux-next/perf-budgets.py (one table, one gate).

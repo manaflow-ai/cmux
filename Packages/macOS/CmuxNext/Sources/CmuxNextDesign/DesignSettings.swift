@@ -68,7 +68,9 @@ public final class DesignSettings {
     /// depend on the agent setting; a change event lets chat row measurement follow CSS immediately.
     public func interfaceScaleScript(pageZoom: Double? = nil) -> String {
         let effectivePageZoom = max(pageZoom ?? Double(uiScale), 0.01)
-        return "document.documentElement.style.setProperty('--cmux-interface-scale', '\(Typography.userScale)');"
+        return "document.documentElement.style.setProperty('--cmux-interface-scale', '\(Typography.pageScale)');"
+            + "document.documentElement.style.setProperty('--cmux-density-scale', '\(Typography.pageDensityScale)');"
+            + "document.documentElement.style.setProperty('--cmux-density-text-scale', '\(Typography.pageDensityTextScale)');"
             + "document.documentElement.style.setProperty('--cmux-ui-scale', '\(effectivePageZoom)');"
             + "window.dispatchEvent(new Event('cmux-ui-scale-change'))"
     }
@@ -122,8 +124,6 @@ public final class DesignSettings {
             BackdropImageStore.shared.desktop.tintEnabled = wallpaperTint
         }
     }
-    /// `ui.animations.bounce`: structural springs are critically damped or bounce subtly.
-    public var animationBounce: MotionBounce = .none
     /// The `ui.animations.{newTab,newWorkspace}` kinds on: new tabs by default
     /// (`AnimationKindsSetting.defaultEnabled`), new workspaces off.
     public var enabledAnimations: Set<MotionKind> = [.newTab]
@@ -198,13 +198,15 @@ public final class DesignSettings {
     /// `sidebar.hoverCards.delay`: pointer rest before a sidebar row's or a tab's card opens.
     /// Defaults to `HoverCardTiming.showDelay`.
     public var hoverCardDelay: Duration = HoverCardTiming.showDelay
+    /// `sidebar.hoverCards.delay` has a value in the file: its delay is a fixed wait, with no settle.
+    public var hoverCardDelayIsSet = false
     /// `sidebar.hoverCards.layout`, `.sections.*` and `.maxRows`: what a workspace card shows (u3320).
     public var workspaceHoverCard = WorkspaceHoverCardOptions()
     /// `sidebar.hoverCards.groups.*`: whether group headers and tab group chips open a card, after
     /// how long, and what it shows (Lawrence 2026-10-20).
     public var groupHoverCard = GroupHoverCardOptions()
     /// `layout.closeFocus`: who gets focus when the focused pane closes.
-    public var closeFocus: CloseFocusPolicy = .previousNeighbor
+    public var closeFocus: CloseFocusPolicy = .mostRecent
     /// `layout.defaultColumnWidth`: new column width, a viewport fraction.
     public var defaultColumnWidth: Double = 2.0 / 3.0
     /// `layout.newColumnWidth`: how a new column's width is chosen.
@@ -255,6 +257,10 @@ public final class DesignSettings {
     public var terminalConfigFontFamily: String? {
         didSet { repaintIfTerminalFaceChanged(from: terminalFontFamily ?? oldValue) }
     }
+    /// The full Ghostty `font-family` fallback chain, in config precedence order.
+    public var terminalConfigFontFamilies: [String] = [] {
+        didSet { if terminalConfigFontFamilies != oldValue { ThemeScope.app.store.repaintAll() } }
+    }
     /// The family the terminal draws in: cmux.json's, else the Ghostty config's; nil when
     /// neither names one (Ghostty's built-in face). Pages that show code follow it (`WebTheme`).
     public var effectiveTerminalFontFamily: String? { terminalFontFamily ?? terminalConfigFontFamily }
@@ -274,6 +280,20 @@ public final class DesignSettings {
     /// `appearance.chromeStyle`: the window look whose defaults the finer
     /// keys refine (`ChromeStyle`).
     public var chromeStyle: ChromeStyle = .default
+    /// `appearance.titleAreaContrast`: how strongly the chrome around the content (the titlebar, the tab
+    /// row and the sidebar) is shaded, as a share of the theme's shade
+    /// (``Metrics/mainPaneChromeShade(isDark:)``). 1, the default, is the shade as it was; lower is softer.
+    /// The shade follows through `WindowRootView.observeMainPane`; a change repaints the themed views too, so a
+    /// selected folder tab takes the selection fill where the softer shade no longer sets it apart
+    /// (``Palette/folderTabFill``).
+    public var titleAreaContrast: CGFloat = 1 {
+        didSet { if titleAreaContrast != oldValue { ThemeScope.app.store.repaintAll() } }
+    }
+    /// `appearance.titleAreaTone`: one colour (the default) or a subtle tone (``TitleAreaTone``,
+    /// ``Metrics/titleAreaShadeScale``); a change repaints, as the contrast does.
+    public var titleAreaTone: TitleAreaTone = .oneColor {
+        didSet { if titleAreaTone != oldValue { ThemeScope.app.store.repaintAll() } }
+    }
     /// `appearance.focusIndicator`: what marks the focused pane.
     public var focusIndicator: FocusIndicator = .tabs
     /// `focus.inactiveTabStyle`: how an unfocused pane's tabs draw subtler
@@ -305,6 +325,8 @@ public final class DesignSettings {
     public var tabBarOrder: TabBarOrder = .aboveToolbar
     /// `browser.toolbarPosition`: the omnibar row above or below the page.
     public var browserToolbarPosition: ToolbarPosition = .top
+    /// `browser.showLoadingBar`: the progress line under a loading page's toolbar. Off by default.
+    public var browserShowsLoadingBar = false
     /// `appearance.paneBackgrounds`: one background for the window or a copy per pane.
     public var paneBackgrounds: PaneBackgroundMode = .shared
 
@@ -346,7 +368,7 @@ public final class DesignSettings {
 
     /// Clamps the app-wide interface scale to the supported range.
     public static func clampedUIScale(_ value: CGFloat) -> CGFloat {
-        min(max(value, 0.85), 1.5)
+        min(max(value, 0.25), 5)
     }
 
     public static func clampedInterfaceScale(_ value: CGFloat) -> CGFloat {

@@ -164,14 +164,14 @@ impl ReconnectPolicy {
 
 /// The redial budget's state. Tokio's clock, so a paused test clock drives it.
 #[derive(Debug)]
-struct TokenBucket {
+pub(crate) struct TokenBucket {
     budget: RedialBudget,
     tokens: u32,
     refilled_at: tokio::time::Instant,
 }
 
 impl TokenBucket {
-    fn new(budget: RedialBudget, now: tokio::time::Instant) -> Self {
+    pub(crate) fn new(budget: RedialBudget, now: tokio::time::Instant) -> Self {
         Self { budget, tokens: budget.capacity, refilled_at: now }
     }
 
@@ -195,7 +195,7 @@ impl TokenBucket {
     }
 
     /// Spend a token, or say when the next one arrives.
-    fn take(&mut self, now: tokio::time::Instant) -> Result<(), tokio::time::Instant> {
+    pub(crate) fn take(&mut self, now: tokio::time::Instant) -> Result<(), tokio::time::Instant> {
         self.refill(now);
         if self.tokens == 0 {
             return Err(self.refilled_at + self.budget.refill_interval);
@@ -1135,6 +1135,10 @@ impl ClientConnection {
             self.set_diagnostics_state(ConnectionState::Reconnecting);
             let attempt_timeout = remaining(policy.attempt_timeout);
             let attempt_started = tokio::time::Instant::now();
+            // The attempt's report, owed even when this recovery is dropped:
+            // a reader whose `select!` sees the published generation first
+            // cancels the receive that runs it, after the new carrier is up.
+            let mut report = AttemptReport::new(self, attempt_started);
             // This dial starts on the network as it is now; only a change
             // while it is in flight abandons it.
             network.borrow_and_update();
@@ -1169,19 +1173,17 @@ impl ClientConnection {
             if self.closed.load(Ordering::Acquire) && result.is_ok() {
                 return Err(ConnectionError::Closed);
             }
-            if let Some(hooks) = self.resume_hooks() {
-                hooks.attempt_ended(result.as_ref().map(|_| ()), attempt_started.elapsed());
-            }
+            report.ended(result.as_ref().map(|_| ()));
+            // Every failed redial is the reason the link reports, a gone session too.
+            self.set_last_failure(result.as_ref().err().map(ToString::to_string));
             match result {
                 Ok(()) => {
-                    self.set_last_failure(None);
                     if !self.closed.load(Ordering::Acquire) {
                         self.set_diagnostics_state(ConnectionState::Connected);
                     }
                     return Ok(());
                 }
                 Err(error) if retryable_connection_error(&error) => {
-                    self.set_last_failure(Some(error.to_string()));
                     if policy.maximum_attempts.is_some_and(|maximum| attempt >= maximum) {
                         return Err(ConnectionError::ReconnectExhausted {
                             attempts: attempt,
@@ -1319,6 +1321,39 @@ impl ClientConnection {
     }
 }
 
+/// One resume attempt's [`ResumeHooks::attempt_ended`] call, made once:
+/// with the attempt's result, or, when the attempt is dropped before it
+/// ends (its caller was cancelled), `Ok` if it had already published a new
+/// generation and nothing otherwise.
+struct AttemptReport<'a> {
+    connection: &'a ClientConnection,
+    started: tokio::time::Instant,
+    generation: u64,
+    done: bool,
+}
+
+impl<'a> AttemptReport<'a> {
+    fn new(connection: &'a ClientConnection, started: tokio::time::Instant) -> Self {
+        let generation = *connection.generation.borrow();
+        Self { connection, started, generation, done: false }
+    }
+
+    fn ended(&mut self, result: Result<(), &ConnectionError>) {
+        self.done = true;
+        if let Some(hooks) = self.connection.resume_hooks() {
+            hooks.attempt_ended(result, self.started.elapsed());
+        }
+    }
+}
+
+impl Drop for AttemptReport<'_> {
+    fn drop(&mut self) {
+        if !self.done && *self.connection.generation.borrow() != self.generation {
+            self.ended(Ok(()));
+        }
+    }
+}
+
 async fn resolve_reconnect_group(
     source: &dyn ReconnectGroupSource,
     reconnect_attempt_timeout: Duration,
@@ -1383,7 +1418,7 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
         // for it held a blocked link up to 4 s past the change; give it the short one.
         let timeout =
             if network_moved { timeout.min(NETWORK_CHANGE_PROBE_TIMEOUT) } else { timeout };
-        let deadline = tokio::time::Instant::now() + timeout;
+        let mut deadline = tokio::time::Instant::now() + timeout;
         let send = connection.send_in_generation(
             Some(generation),
             Lane::Control,
@@ -1391,24 +1426,23 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
             Bytes::new(),
             FrameFlags::HEARTBEAT_REQUEST,
         );
-        let send_result = tokio::select! {
-            biased;
-            result = tokio::time::timeout_at(deadline, send) => result,
-            _ = close_state.changed() => return,
+        let Ok(send_result) = probe_by(send, &mut deadline, &mut network, &mut close_state).await
+        else {
+            return;
         };
         match send_result {
-            Ok(Ok(_)) => {}
-            Ok(Err(_)) => continue,
-            Err(_) => {
+            Some(Ok(_)) => {}
+            Some(Err(_)) => continue,
+            None => {
                 let _ = connection.recover(generation).await;
                 continue;
             }
         }
-        let live = tokio::select! {
-            biased;
-            result = tokio::time::timeout_at(deadline, connection.probe_liveness(generation, observed)) => result.unwrap_or(false),
-            _ = close_state.changed() => return,
+        let answer = connection.probe_liveness(generation, observed);
+        let Ok(live) = probe_by(answer, &mut deadline, &mut network, &mut close_state).await else {
+            return;
         };
+        let live = live.unwrap_or(false);
         if connection.closed.load(Ordering::Acquire)
             || connection.session.read().await.generation() != generation
         {
@@ -1416,6 +1450,30 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
         }
         if !live && connection.last_received() <= observed {
             let _ = connection.recover(generation).await;
+        }
+    }
+}
+
+/// Await one phase of a heartbeat probe until `deadline`: `Ok(None)` when it passes, `Err` when
+/// the connection closes. A network change meanwhile pulls `deadline` in to
+/// [`NETWORK_CHANGE_PROBE_TIMEOUT`] from the change, so a probe already stuck behind a write
+/// on the route that went away does not wait out the full answer window.
+async fn probe_by<T>(
+    phase: impl Future<Output = T>,
+    deadline: &mut tokio::time::Instant,
+    network: &mut watch::Receiver<u64>,
+    close_state: &mut watch::Receiver<CloseState>,
+) -> Result<Option<T>, ()> {
+    tokio::pin!(phase);
+    loop {
+        tokio::select! {
+            biased;
+            result = tokio::time::timeout_at(*deadline, phase.as_mut()) => return Ok(result.ok()),
+            _ = close_state.changed() => return Err(()),
+            Ok(()) = network.changed() => {
+                let short = tokio::time::Instant::now() + NETWORK_CHANGE_PROBE_TIMEOUT;
+                *deadline = (*deadline).min(short);
+            }
         }
     }
 }
@@ -1510,7 +1568,16 @@ async fn authenticate_one(
     let primary = lanes[0];
     let physical =
         group.open(LinkRequest { lane: primary, generation: context.generation }).await?;
-    let secure = initiate_secure_link(
+    // Every step of a link's setup shares the attempt's deadline, the daemon's welcome and its
+    // link-ready too: a link that stalls after the Noise exchange fails this attempt (so it is
+    // retried) instead of hanging it, and cannot hand back a session the daemon dropped meanwhile
+    // as an incomplete link group. An invitation is the exception: its welcome waits on a person's
+    // approval, so only its link-ready, once the welcome is in, has the deadline.
+    let timeout = config.reconnect.attempt_timeout;
+    let timed_out = || ConnectionError::Crypto(CryptoError::HandshakeTimeout { timeout });
+    let invitation = matches!(auth, ClientAuthMode::Invitation { .. });
+    let started = tokio::time::Instant::now();
+    let setup = initiate_secure_link(
         physical,
         ClientHandshake {
             identity: config.identity.clone(),
@@ -1525,9 +1592,19 @@ async fn authenticate_one(
             resume,
             handshake_timeout: config.reconnect.attempt_timeout,
         },
-    )
-    .await?;
-    let ready = match receive_control::<LinkHandshakeResponse>(&secure).await? {
+    );
+    let (secure, deadline) = if invitation {
+        let secure = setup.await?;
+        (secure, tokio::time::Instant::now() + timeout)
+    } else {
+        let deadline = started + timeout;
+        (tokio::time::timeout_at(deadline, setup).await.map_err(|_| timed_out())??, deadline)
+    };
+    let answer =
+        tokio::time::timeout_at(deadline, receive_control::<LinkHandshakeResponse>(&secure))
+            .await
+            .map_err(|_| timed_out())?;
+    let ready = match answer? {
         LinkHandshakeResponse::Ready(ready) => ready,
         LinkHandshakeResponse::Rejected(LinkRejected {
             rejected: LinkRejection::SessionUnavailable,

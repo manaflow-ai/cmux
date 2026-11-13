@@ -1,9 +1,10 @@
 import { appHref, safeHref } from "../replyHref";
 
 // The cmux deeplinks in a text: a cmux app link (`cmux://workspace/ws_…`, `cmux-nightly://agent/…`,
-// in any build's scheme) or a web deeplink (`https://cmux.com/deeplink/…`). The draft draws them as
-// links (deeplinkTokens.ts) and a sent prompt opens them (conversation/PromptText.tsx). No editor
-// code here, so the transcript can read it without loading the editor.
+// in any build's scheme) or a web deeplink (`https://cmux.com/deeplink/…`). The draft finds them
+// (deeplinkTokens.ts) to draw a known one as its chip, and a sent prompt opens them
+// (conversation/PromptText.tsx). No editor code here, so the transcript can read it without
+// loading the editor.
 
 export type Deeplink = { start: number; end: number; href: string };
 
@@ -35,4 +36,17 @@ export function deeplinks(text: string): Deeplink[] {
     if (href) out.push({ start: match.index!, end: match.index! + value.length, href });
   }
   return out;
+}
+
+/// A paste of `text` with a space after it when it ends in a cmux deeplink and `next` (the draft's
+/// character after the caret, "" at the line's end) is not already a space: the link's chip ends at
+/// the first space, so a key typed right after the paste joined the link and redrew it (Leo,
+/// 2026-11-12: "pasting these types of links that get visually formatted should be automatically
+/// adding a space after when pasting"). Trailing punctuation already ends a link, so it gets none.
+/// `pastedFrom` is where the paste starts in `text`: a link begun before it is one the person is
+/// editing (a paste into its middle), never split with a space.
+export function spacedAfterDeeplink(text: string, next: string, pastedFrom = 0): string {
+  if (/\s$/.test(text) || /^\s/.test(next)) return text;
+  const last = deeplinks(text).at(-1);
+  return last && last.end === text.length && last.start >= pastedFrom ? `${text} ` : text;
 }

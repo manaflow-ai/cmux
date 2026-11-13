@@ -7,22 +7,40 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { type ComposerAttachment, inlineToken, promptBlocks, withoutInlineTokens } from "../attachments";
 import { agentText, readsAsAgent } from "../agentText";
+import sharedCases from "../../../../../cmux-tui/crates/acpmux/src/agent_text_cases.json";
 import { PASTE_CHIP_CHARS, PASTE_CHIP_WORDS, pastedTextAttachment } from "../pastedText";
 import { PastedText, PromptText } from "../conversation/PromptText";
 import { markPastes, marksPaste, remember, unmarkPastes } from "./pasteMarks";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 const HANDOFF = "From Codex:\nHandoff: the probe is red.\n\nDo not merge or deploy.\n\nTrace-ID: ask-77";
 const MINE = "Merge and deploy whenever you want.";
 
 test("a handoff reads as an agent's and names it; the person's words do not", () => {
   expect(agentText(HANDOFF)).toEqual({ from: "Codex", signals: ["header", "trace"] });
-  for (const text of [MINE, "From now on: always rebase first.", "From the logs: it crashed", "Check the trace id"])
+  for (const text of [
+    MINE,
+    "From now on: always rebase first.",
+    "From the logs: it crashed",
+    "Check the trace id",
+    // Review of #38707 (F1): prose that says "generated with" is not a footer.
+    "The docs were generated with Sphinx",
+  ])
     expect(readsAsAgent(text)).toBe(false);
   expect(agentText("Done.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)").from).toBe(
     "Claude Code",
   );
   const huge = `From Hermes:\n${"y".repeat(5_000_000)}\nTrace-ID: x`;
   expect(agentText(huge)).toEqual({ from: "Hermes", signals: ["header", "trace"] });
+});
+
+// The cases acpmux's agent_text.rs reads too (agent_text_cases.json): one list, so the composer and
+// the daemon cannot drift on what reads as an agent's.
+test("the shared cases read as acpmux reads them", () => {
+  for (const { text, from } of sharedCases as { text: string; from: string | null }[]) {
+    expect(agentText(text).from ?? null, text).toBe(from);
+    expect(readsAsAgent(text), text).toBe(from !== null);
+  }
 });
 
 // (a) The person pastes a Codex handoff and types their own line: the paste goes as its own pasted
@@ -143,7 +161,7 @@ const saved = new Map<string, unknown>();
 function render(text: string, node?: React.ReactNode): HTMLElement {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>");
   for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
-    saved.set(key, scope[key]);
+    if (!saved.has(key)) saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -161,9 +179,10 @@ function render(text: string, node?: React.ReactNode): HTMLElement {
   return host;
 }
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

@@ -2,7 +2,7 @@
 //! hears of as `_acpmux/session_changed`, and the `kind` each is sent as.
 
 /// The `kind` a mux record is sent as, or None when watchers do not hear of it.
-pub(super) fn session_change_kind(record_kind: &str) -> Option<&str> {
+pub(crate) fn session_change_kind(record_kind: &str) -> Option<&str> {
     Some(match record_kind {
         "status"
         | "created"
@@ -46,6 +46,12 @@ pub(super) fn session_change_kind(record_kind: &str) -> Option<&str> {
         // summary's `subagentsRunning`, `subagentNames` and `commandsRunning` (`hub/views.rs`).
         | "subagents_running"
         | "process_update"
+        // Loop episodes must reach sidebar and attached summary watchers immediately.
+        | "loop_detected"
+        | "loop_cleared"
+        // Its harness refuses every command: its own sandbox did not start (`hub/harness_sandbox.rs`).
+        | "harness_sandbox_failed"
+        | "harness_sandbox_recovered"
         // What its harness spent and holds, read after a turn (`hub/usage_view.rs`).
         | "usage_stats" => record_kind,
         // A Stop's turn reads `stopping`, or a stuck chat works again: the row's `state`.
@@ -74,6 +80,8 @@ mod tests {
     fn running_work_changes_publish_a_session_change() {
         assert_eq!(super::session_change_kind("subagents_running"), Some("subagents_running"));
         assert_eq!(super::session_change_kind("process_update"), Some("process_update"));
+        assert_eq!(super::session_change_kind("loop_detected"), Some("loop_detected"));
+        assert_eq!(super::session_change_kind("loop_cleared"), Some("loop_cleared"));
     }
 
     /// A parent's row reads `input` while a sub-session below it waits (`hub/asks_below.rs`).

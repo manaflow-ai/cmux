@@ -5,13 +5,17 @@
 // hoverable as well, instead of just being, like, you know, here's the raw URL"). Each variant is
 // one look (chips/cmuxLinkLook.experiment.ts) of the same sent message: a local workspace link, a
 // chat on another machine (an agent link), a cmux.com agent link, and a workspace id nothing names,
-// which stays the link. Point at a chip for its card.
+// which stays the link. Point at a chip for its card. Two states from the review of #38166: a
+// peer's chat that only acpmux's resolve names, with its link card open, and Markdown links
+// (`[label](cmux://…)`) drawn as chips that keep the author's label.
 import { componentEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import type { AcpmuxSessionEntry } from "../sessionList";
 import { SessionHoverStore } from "../started/sessionHover";
 import { SessionHoverContext } from "../started/sessionHoverCardModel";
 import { PromptTyped } from "../conversation/PromptText";
+import { renderInline } from "../conversation/inlineMarkdown";
+import { setSessionRefResolver } from "../conversation/sessionRefs";
 import { setLinkPlaces } from "./cmuxLinkPlaces";
 import { CmuxLinkChip } from "./CmuxLinkChip";
 import { cmuxLinkLook, type CmuxLinkLook } from "./cmuxLinkLook.experiment";
@@ -57,9 +61,17 @@ store.set([
   } as AcpmuxSessionEntry,
 ]);
 
+/// A peer's chat the page does not list: acpmux's resolve names it (`_acpmux/resolve`).
+const PEER_AGENT = "cmux://agent/codex/4e8a2d6c-1b3f-4a5e-9c7d-0f1e2d3c4b5a?host=build-box&name=peer";
+setSessionRefResolver(async (query) =>
+  query === PEER_AGENT ? { session: { sessionId: "gallery-peer", name: "Peer review", host: "build-box" } } : null,
+);
+
+const MARKDOWN = `Pick up [the notice rows](${WORKSPACE}), ask [the reviewer](${AGENT}), and skip [the old one](${GONE}).`;
+
 const PROMPT = `In this chat, I feel like there was something weird here. ${WORKSPACE} Compare it with ${AGENT} and ${WEB_AGENT}; the old one ${GONE} is closed.`;
 
-type Props = { look: CmuxLinkLook; late?: boolean };
+type Props = { look: CmuxLinkLook; late?: boolean; peer?: boolean; markdown?: boolean };
 
 /// The late link's chip title, or undefined while it is the link.
 const lateTitle = (doc: Document) =>
@@ -85,8 +97,23 @@ async function pushAfterMount(ctx: PlayContext) {
   await ctx.waitFor(() => lateTitle(doc) === "Retry fix, take two");
 }
 
+/// The peer's chip, once acpmux's resolve named it, focused: its link card opens.
+async function openPeerCard(ctx: PlayContext) {
+  const chip = "[data-cmux-link-peer] a[data-cmux-link=chat]";
+  await ctx.waitFor(() => ctx.document.querySelector(chip), { capMs: 8000 });
+  await ctx.focus({ selector: chip });
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-cmux-link-card"));
+}
+
+/// The Markdown links' chips, drawn with their labels.
+async function markdownChips(ctx: PlayContext) {
+  await ctx.waitFor(
+    () => ctx.document.querySelectorAll("[data-cmux-link-markdown] a[data-cmux-link-label]").length === 2,
+  );
+}
+
 /// The prompt with every cmux link drawn in `look` (the sent message's own renderer, with the arm fixed).
-function Gallery({ look, late }: Props) {
+function Gallery({ look, late, peer, markdown }: Props) {
   // The sent message reads its look from the experiment; each variant fixes the arm.
   const scope = globalThis as { cmuxExperiments?: Record<string, string> };
   scope.cmuxExperiments = { ...scope.cmuxExperiments, [cmuxLinkLook.id]: look };
@@ -99,6 +126,13 @@ function Gallery({ look, late }: Props) {
         <p>
           A tab: <CmuxLinkChip href={TAB} look={look} fallback={<a href={TAB}>{TAB}</a>} />
         </p>
+        {peer && (
+          <p data-cmux-link-peer>
+            A peer&apos;s chat:{" "}
+            <CmuxLinkChip href={PEER_AGENT} look={look} fallback={<a href={PEER_AGENT}>{PEER_AGENT}</a>} />
+          </p>
+        )}
+        {markdown && <p data-cmux-link-markdown>{renderInline(MARKDOWN)}</p>}
         {late && (
           <div className="acpmux-user-bubble" data-cmux-link-late>
             <PromptTyped text={`Sent before the app named it: ${LATE}`} show={(text) => text} />
@@ -148,6 +182,16 @@ export default componentEntry<Props>({
       props: { look: "icon-title-host", late: true },
       note: "A message sent before the app named its workspace: the host's push after it drew turns the link into its chip, a rename retitles it, a close puts the link back and the next push names it again.",
       play: pushAfterMount,
+    },
+    "peer-chat-card": {
+      props: { look: "icon-title-host", peer: true },
+      note: "A peer's chat the list does not have, named by acpmux's resolve: focused, it shows the link card (the chat's name, \"Chat on <machine>\", the link), as a workspace's chip does.",
+      play: openPeerCard,
+    },
+    "markdown-links": {
+      props: { look: "icon-title-host", markdown: true },
+      note: "A reply's Markdown links to a workspace and a chat draw as their chips with the author's label in the title's place (the card still names the title); the closed workspace's link stays its labelled link.",
+      play: markdownChips,
     },
     link: {
       props: { look: "link" },

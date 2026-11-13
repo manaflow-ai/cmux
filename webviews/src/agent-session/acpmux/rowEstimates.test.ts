@@ -28,7 +28,6 @@ import { turnView } from "./conversation/turns";
 import { COLLAPSED_PROMPT_LINES, PROMPT_MORE_HEIGHT } from "./conversation/promptCollapse";
 import { currentChatMetrics } from "./chatDisplay";
 import { gridLength, TRANSCRIPT_FOOTER_CONTROL } from "./transcriptGrid";
-import { BUBBLE } from "./transcriptSpacing";
 import { setComposerSettings } from "./composerSettings";
 
 const reply = (id: string, text: string) => ({ id, version: 1, at: 0, kind: "assistant", text });
@@ -406,7 +405,7 @@ test("a Chief's waiting steer keeps Send now in its existing action row", () => 
 // Before: a prompt was estimated at its whole text, 2,000 lines tall.
 test("a 2,000-line prompt is estimated at its collapsed height, at most twenty lines", () => {
   const { lineHeight } = currentChatMetrics();
-  const padding = BUBBLE.oneLine - lineHeight;
+  const padding = 5 * gridLength("base");
   const text = Array.from({ length: 2000 }, (_, index) => `line ${index + 1}`).join("\n");
   const [long] = heightsOf([{ id: "u", version: 1, at: 0, kind: "user", text }]);
   expect(long).toBeCloseTo(padding + COLLAPSED_PROMPT_LINES * lineHeight + PROMPT_MORE_HEIGHT, 5);
@@ -417,7 +416,7 @@ test("a prompt of twenty lines or fewer is estimated whole, with no Show more li
   const { lineHeight } = currentChatMetrics();
   const text = Array.from({ length: 3 }, (_, index) => `line ${index + 1}`).join("\n\n");
   const [short] = heightsOf([{ id: "u", version: 1, at: 0, kind: "user", text }]);
-  expect(short!).toBeLessThan(BUBBLE.oneLine - lineHeight + COLLAPSED_PROMPT_LINES * lineHeight + 28 + 8);
+  expect(short!).toBeLessThan(5 * gridLength("base") + COLLAPSED_PROMPT_LINES * lineHeight + 28 + 8);
 });
 
 // A paste is part of the message's one text body (ask-14d16a6247): a long one is estimated as the
@@ -429,7 +428,7 @@ test("a prompt with a 2,300-line paste drawn as text is estimated at the prompt'
   const text = `${typed}\n${paste}`;
   const pasted = [{ start: typed.length + 1, end: text.length }];
   const [height] = heightsOf([{ id: "u", version: 1, at: 0, kind: "user", text, pasted }]);
-  expect(height).toBeCloseTo(BUBBLE.oneLine - lineHeight + COLLAPSED_PROMPT_LINES * lineHeight + PROMPT_MORE_HEIGHT, 5);
+  expect(height).toBeCloseTo(5 * gridLength("base") + COLLAPSED_PROMPT_LINES * lineHeight + PROMPT_MORE_HEIGHT, 5);
 });
 
 // A finished step of only quiet thoughts draws nothing (conversation/ThoughtRow.tsx), so it is
@@ -755,9 +754,9 @@ test("permission estimates use the grid frame and reserve a command preview only
 test("the first layout reserves every question option before placing the reply below", () => {
   const two = layoutConversation([questionAsk(2), reply("after", "Next")] as AcpmuxRow[], 720);
   const five = layoutConversation([questionAsk(5), reply("after", "Next")] as AcpmuxRow[], 720);
-  expect(two.heights[0]).toBeCloseTo(32 + 1 + 24 + 18 + 0.5 + 8 + 2 * 36 + 44);
-  expect(five.heights[0]! - two.heights[0]!).toBe(3 * 36);
-  expect(five.tops[1]! - two.tops[1]!).toBe(3 * 36);
+  expect(two.heights[0]).toBeCloseTo(32 + 24 + 24 + currentChatMetrics().lineHeight + 8 + 2 * 40 + 8 + 32);
+  expect(five.heights[0]! - two.heights[0]!).toBe(3 * 40);
+  expect(five.tops[1]! - two.tops[1]!).toBe(3 * 40);
 });
 
 test("question estimates follow description wrapping at the actual column width", () => {
@@ -806,8 +805,7 @@ test("plan and blocked-read asks reserve the parts their cards draw", () => {
 // its bubble draws, not its recorded text: a text file is its chip, never the body behind it, and a
 // placed paste joins its typed words as the draft had them, not on lines of its own.
 test("a sent text file is estimated as its chip, not its long body", () => {
-  const { lineHeight } = currentChatMetrics();
-  const padding = BUBBLE.oneLine - lineHeight;
+  const padding = 5 * gridLength("base");
   const typed = "Read this file";
   const fileRow = (body: string) => ({
     id: "u",
@@ -830,7 +828,7 @@ test("a sent text file is estimated as its chip, not its long body", () => {
 
 test("a placed paste is estimated as the one body its bubble draws", () => {
   const { lineHeight } = currentChatMetrics();
-  const padding = BUBBLE.oneLine - lineHeight;
+  const padding = 5 * gridLength("base");
   // Ten short pastes between typed words: the draft reads as one run of words; the record keeps
   // acpmux's join, a line each.
   const parts = Array.from({ length: 10 }, (_, index) => [
@@ -850,8 +848,7 @@ test("a placed paste is estimated as the one body its bubble draws", () => {
 // retained original, which the bubble does not draw, takes no room. At ac67fede each image was a
 // 128px-wide row of its own under the text, and a companion file a chip row too.
 test("a placed image is estimated at its own size, on its text's line", () => {
-  const { lineHeight } = currentChatMetrics();
-  const padding = BUBBLE.oneLine - lineHeight;
+  const padding = 5 * gridLength("base");
   const { y } = INLINE_ATTACHMENT_MARGIN;
   const row = (parts: unknown[]) => ({ id: "u", version: 1, at: 0, kind: "user", text: "look", inlineParts: parts });
   // A 1600x400 screenshot draws 320x80, whole.
@@ -866,8 +863,7 @@ test("a placed image is estimated at its own size, on its text's line", () => {
 });
 
 test("placed attachments wrap to a new line only when the line is full", () => {
-  const { lineHeight } = currentChatMetrics();
-  const padding = BUBBLE.oneLine - lineHeight;
+  const padding = 5 * gridLength("base");
   const { y } = INLINE_ATTACHMENT_MARGIN;
   const image = (id: string) => ({ kind: "image", id, mimeType: "image/png", placed: true });
   const row = (count: number) => ({
@@ -929,4 +925,33 @@ test("a strip prompt is estimated as its attachment row over a bubble of its tex
     image("b", false),
   ]);
   expect(heightsOf([withBand])[0]).toBeCloseTo(heightsOf([placedOnly])[0]! + tile, 5);
+});
+
+// Leo, 2026-11-08: "the text in this situation isn't from the subagent?". A turn the agent ran on
+// its own that draws as its own turn (no line over it) stands the turn gap from the row above, as a
+// prompt's turn does, in the first layout as in the drawn one (transcriptGrid.ts MARK_OPENS_TURN);
+// the rows inside it and the footer under it keep their own gaps. The subagent's line is estimated
+// with only its short note under it, never the agent's replies.
+test("a turn the agent ran on its own opens with the turn gap, its rows and footer as any turn's", () => {
+  const done = {
+    id: "subagentDone:fixer",
+    version: 1,
+    at: 0,
+    kind: "subagentDone",
+    subagents: [{ id: "fixer", parent: null, name: "fixer", state: "completed", startedAt: 0 }],
+  };
+  const own = (n: number) => [
+    { ...reply(`own-${n}`, "Hourly pass done. Every unmet goal now has a live owner."), inBackground: `bg-${n}` },
+    { ...footer(`backgroundEnd-bg-${n}`), inBackground: undefined },
+  ];
+  const rows = [reply("a", "Started a subagent."), footer("f"), done, ...own(1), ...own(2)];
+  const layout = layoutConversation(rows as never, 720);
+  const gapOver = (index: number) => layout.tops[index]! - layout.tops[index - 1]! - layout.heights[index - 1]!;
+  // Under the subagent's line, and under the first own turn's footer: the turn gap.
+  expect(gapOver(3)).toBe(gridLength("gap-turn"));
+  expect(gapOver(5)).toBe(gridLength("gap-turn"));
+  // The footer sits under its reply as any reply's does.
+  expect(gapOver(4)).toBe(gridLength("gap-footer"));
+  // The subagent's line is its one row: nothing of the agent's replies is counted in it.
+  expect(layout.heights[2]).toBe(layoutConversation([done] as never, 720).heights[0]);
 });

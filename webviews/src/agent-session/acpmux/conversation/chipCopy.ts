@@ -5,8 +5,9 @@
 // (selectionCopy.ts), math's (mathCopy.ts), the page's own copy of code and tables (``chipText``),
 // and the selection a quote or the message menu reads (selectionReplyModel.ts, messageMenu.ts).
 
-/// A cmux link's chip, whose words are a title.
-export const LINK_CHIP = "a[data-cmux-link]";
+/// A cmux link's chip, whose words are a title. A Markdown link's chip (`data-cmux-link-label`) shows
+/// the author's own words and copies as them, as its plain anchor did.
+export const LINK_CHIP = "a[data-cmux-link]:not([data-cmux-link-label])";
 
 function elementOf(node: Node): Element | null {
   return node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement;

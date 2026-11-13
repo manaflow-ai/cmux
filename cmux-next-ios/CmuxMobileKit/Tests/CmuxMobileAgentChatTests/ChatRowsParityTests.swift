@@ -124,6 +124,43 @@ import Testing
         #expect(AgentVideo.isVideoName("IMG_0001.MOV") && !AgentVideo.isVideoName("a.pdf"))
     }
 
+    /// The Mac's note read back (webviews sentVideos.ts): an hour-long video, a name with a
+    /// parenthesis, the note twice (text and parts), and a note with no link (nothing to open).
+    @Test func sentVideosReadTheirNotes() {
+        let lines = [
+            "Frames from the video take (2).mov (1:02:03, 1920×1080), in order, at: 0:00.0.",
+            "Frames from the video take (2).mov (1:02:03, 1920×1080), in order, at: 0:00.0.",
+            "Frames from the video gone.mov (0:05, 10×10), in order, at: 0:00.0.",
+        ]
+        let videos = AgentVideo.sentVideos(lines: lines, links: [.init(name: "take (2).mov", path: "/w/take (2).mov")],
+                                           images: [.init(id: "a", name: "take (2).mov frame at 0:00.0")])
+        #expect(videos.count == 1)
+        #expect(videos.first?.video == AgentVideo(durationMs: 3_723_000, width: 1920, height: 1080, frames: []))
+        #expect(videos.first?.posterID == "a")
+        // This phone's own video (its frames in memory) draws its first frame as its poster.
+        let own = AgentAttachment(id: "v", kind: .file, name: "clip.mov",
+                                  video: AgentVideo(durationMs: 1_000, width: 2, height: 2, frames: [.init(atMs: 0, jpeg: Data([9]))]))
+        #expect(own.picture?.data == Data([9]))
+        #expect(AgentAttachment(kind: .file, name: "a.txt").picture == nil)
+    }
+
+    /// A note whose length would overflow (a person's own text that reads like one) never traps the
+    /// record decoder: its video stays the link it was, a chip that opens the same file.
+    @Test func sentVideoWithAnOverflowingLengthStaysItsChip() {
+        let lines = [
+            "Frames from the video clip.mov (9223372036854775807:00, 640×360), in order, at: 0:00.0.",
+            "Frames from the video big.mov (99999999999999999999:00, 640×360), in order, at: 0:00.0.",
+            "Frames from the video wide.mov (0:05, 99999999999999999999×360), in order, at: 0:00.0.",
+        ]
+        let links: [AgentVideo.SentLink] = [.init(name: "clip.mov", path: "/w/clip.mov"), .init(name: "big.mov", path: "/w/big.mov"),
+                                            .init(name: "wide.mov", path: "/w/wide.mov")]
+        let videos = AgentVideo.sentVideos(lines: lines, links: links, images: [])
+        #expect(videos.map(\.name) == ["clip.mov", "big.mov", "wide.mov"])
+        #expect(videos.allSatisfy { $0.video == nil && $0.macPath != nil })
+        #expect(AgentVideo.lengthMs("9223372036854775807:00") == nil)
+        #expect(AgentVideo.lengthMs("1:02:03") == 3_723_000)
+    }
+
     @Test func sentBubbleLeavesTheFramesTextOut() {
         let names: [String?] = ["clip.mov frame at 0:02.0", "clip.mov frame at 0:06.0"]
         let text = "Look at this\nFrames from the video clip.mov (0:16, 1920×1080), in order, at: 0:02.0, 0:06.0.\nclip.mov frame at 0:02.0\nclip.mov frame at 0:06.0"

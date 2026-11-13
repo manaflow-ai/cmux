@@ -2,10 +2,12 @@
 // Keep the frame on the shared grid; interactive expansion is still measured by the transcript.
 import { layout, prepare, prepareWithSegments, layoutWithLines } from "@chenglou/pretext";
 import typeScale from "../../../../../schemas/type-scale/type-scale.json";
+import { chatDisplay, chatMetrics } from "../chatDisplay";
+import { chatUiFontVariables, chatUiMeasureStack, chatUiTracking } from "../chatUiFont";
 import type { AcpmuxPermission } from "../model";
 import { currentLanguage, translate } from "../i18n";
 import { plainText } from "../question/inlineText";
-import { consentChoice, itemAnswerText, type AgentQuestion } from "../question/model";
+import { consentChoice, hasPreviews, itemAnswerText, type AgentQuestion } from "../question/model";
 import { gridLength } from "../transcriptGrid";
 import {
   alwaysAllowScope,
@@ -23,16 +25,39 @@ const detail = step("detail");
 const caption = step("caption");
 const padding = gridLength("cards-padding");
 
-// The UI font's stack (type-scale.json font.stack, the macOS system font); it has no letter-spacing.
-const UI_FONT = typeScale.font.stack.join(", ");
+/// The face the card is drawn in, `--font-ui`: the chat's Interface Font (chatUiFont.ts) as the
+/// canvas can measure it, the macOS system stack by default. A canvas can't read CSS variables.
+export function cardFont(): string {
+  return chatUiMeasureStack(chatDisplay().uiFont);
+}
+
+/// The letter-spacing the card's text at `size` px is drawn with, in px: its type-scale step's
+/// `--text-STEP--letter-spacing`, which the Interface Font sets (System UI, tight and cmux Inter
+/// track; the stacks they share with System UI and Inter don't tell them apart). `step` names the
+/// token when it isn't the size's own: the buttons draw body-size labels with detail's tracking.
+export function cardLetterSpacing(size: number, step?: string): number {
+  const name = step ?? typeScale.steps.find((entry) => entry.size === size)?.name;
+  return name ? chatUiTracking(chatDisplay().uiFont, name) * size : 0;
+}
 
 // The same line breaker as prose estimates, using the card's UI font rather than chat text size.
-function textHeight(text: string, width: number, size: number, line: number, mono = false, weight = 400): number {
+function textHeight(
+  text: string,
+  width: number,
+  size: number,
+  line: number,
+  mono = false,
+  weight = 400,
+  typography?: { font: string; letterSpacing: number; preserveWhitespace: boolean },
+): number {
   const room = Math.max(1, width);
-  if (!mono) text = text.replace(/\s+/g, " ");
+  if (!mono && !typography?.preserveWhitespace) text = text.replace(/\s+/g, " ");
   try {
     return layout(
-      prepare(text, `${weight} ${size}px ${mono ? "monospace" : UI_FONT}`, { whiteSpace: "pre-wrap" }),
+      prepare(text, typography?.font ?? `${weight} ${size}px ${mono ? "monospace" : cardFont()}`, {
+        whiteSpace: "pre-wrap",
+        letterSpacing: typography?.letterSpacing ?? (mono ? 0 : cardLetterSpacing(size)),
+      }),
       room,
       line,
     ).height;
@@ -42,10 +67,16 @@ function textHeight(text: string, width: number, size: number, line: number, mon
   }
 }
 
-function textWidth(text: string, size: number, weight = 400): number {
+function textWidth(text: string, size: number, weight = 400, step?: string): number {
   try {
     return (
-      layoutWithLines(prepareWithSegments(text, `${weight} ${size}px ${UI_FONT}`), Infinity, size).lines[0]?.width ?? 0
+      layoutWithLines(
+        prepareWithSegments(text, `${weight} ${size}px ${cardFont()}`, {
+          letterSpacing: cardLetterSpacing(size, step),
+        }),
+        Infinity,
+        size,
+      ).lines[0]?.width ?? 0
     );
   } catch {
     return text.length * size * 0.55;
@@ -71,7 +102,8 @@ export function permissionCardHeight(permission: AcpmuxPermission | undefined, w
   if (!permission) return 2 * padding * scale + body.lineHeight * scale;
   // Immutable permission snapshots retain their estimate while unrelated reply tokens stream.
   // Keep only the current width per ask; old asks are released with their snapshot.
-  const key = `${width}/${scale}/${currentLanguage()}`;
+  // The font's stack and its name: two fonts that share a stack track differently.
+  const key = `${width}/${scale}/${currentLanguage()}/${cardFont()}/${chatDisplay().uiFont}/${chatDisplay().font}/${chatDisplay().fontSize}/${chatDisplay().lineHeight}`;
   const cached = estimates.get(permission);
   if (cached?.key === key) return cached.height;
   const height = estimatePermission(permission, width, scale);
@@ -86,6 +118,8 @@ const EDGE = 16;
 const BAND = 12;
 const GAP = 8;
 const CONTROL_ROW = 28;
+/// The width of the chevron segment a plan's Approve plan is joined to (styles.css `.acpmux-plan-build-chevron`).
+const PLAN_BUILD_CHEVRON = 26;
 
 function estimatePermission(permission: AcpmuxPermission, width: number, scale: number): number {
   if (permission.question) return questionHeight(permission.question, width / scale) * scale;
@@ -124,13 +158,20 @@ function estimatePermission(permission: AcpmuxPermission, width: number, scale: 
     ...(external ? [translate("permission.external.openSettings")] : []),
   ];
   const taken = new Set(labels);
-  // Buttons are 12px either side of their label.
-  const widths = labels.map((label, index) => textWidth(label, body.size, allowOnce && index === 0 ? 500 : 400) + 24);
+  // Buttons are 12px either side of their label, which tracks as the detail step (styles.css); a
+  // plan's Approve plan carries its build menu's chevron segment (PermissionCard `PlanBuildSplit`).
+  const button = (label: string, weight = 400) => textWidth(label, body.size, weight, "detail");
+  const widths = labels.map(
+    (label, index) =>
+      button(label, allowOnce && index === 0 ? 500 : 400) +
+      24 +
+      (plan && allowOnce && index === 0 ? PLAN_BUILD_CHEVRON : 0),
+  );
   for (const option of others) {
     const label = optionButtonLabel(option, translate, taken);
     taken.add(label);
     // Custom action labels are ellipsized at 14ch; transcript cards omit keyboard shortcuts.
-    widths.push(Math.min(textWidth(label, body.size), 14 * textWidth("0", body.size)) + 24);
+    widths.push(Math.min(button(label), 14 * button("0")) + 24);
   }
   const rows = wrappedRows(widths, room, GAP);
   height += BAND + EDGE + rows * CONTROL_ROW + Math.max(0, rows - 1) * GAP;
@@ -147,15 +188,52 @@ function questionHeight(question: AgentQuestion, width: number): number {
   if (question.state.kind === "answered") {
     const answer = question.state.answer;
     const by = answer.respondent;
+    const display = chatDisplay();
+    const metrics = chatMetrics(display);
+    const tracking = chatUiFontVariables(display.uiFont)["--cv-tracking"];
+    let letterSpacing = tracking ? Number.parseFloat(tracking) : 0;
+    if (tracking?.endsWith("em")) letterSpacing *= display.fontSize;
+    const bubbleRoom = Math.max(1, width * 0.7 - 32);
+    const bubbleText = (value: string) =>
+      textHeight(plainText(value), bubbleRoom, display.fontSize, metrics.lineHeight, false, 400, {
+        font: metrics.measureFont,
+        letterSpacing,
+        preserveWhitespace: true,
+      });
     return (
-      16 +
-      1 +
-      question.items.reduce((sum, item) => sum + text(item.prompt) + 2 + text(itemAnswerText(item, answer)) + 8, -8) +
+      20 +
+      question.items.reduce(
+        (sum, item) => sum + bubbleText(item.prompt) + 2 + bubbleText(itemAnswerText(item, answer)) + 8,
+        -8,
+      ) +
       (by && (by.displayName || by.device || by.isRemote) ? 8 + detail.lineHeight : 0)
     );
   }
   const item = question.items[0];
   if (!item) return 24;
+  const promptCard = question.source.harness !== "acp" && !consentChoice(question) && !question.items.some(hasPreviews);
+  if (promptCard) {
+    const contentSize = chatDisplay().fontSize;
+    const line = contentSize * chatDisplay().lineHeight;
+    const inner = Math.max(1, width - 32);
+    let height = 32 + 24 + 24 + text(item.prompt, inner, line, contentSize);
+    height +=
+      8 +
+      item.options.reduce(
+        (sum, option) =>
+          sum +
+          Math.max(
+            40,
+            16 +
+              text(option.label, inner - 52, line, contentSize) +
+              (option.detail ? 2 + text(option.detail, inner - 52, detail.lineHeight, detail.size) : 0),
+          ),
+        0,
+      );
+    // Custom input and the grouped actions share one footer; narrow cards wrap them.
+    height += 8 + (item.allowsOther ? Math.max(36, 16 + line) : 32) + (item.allowsOther && inner < 320 ? 40 : 0);
+    return height;
+  }
   const chip = item.header ? Math.min(room * 0.4, textWidth(item.header, caption.size, 600) + 16) + 8 : 0;
   const promptRoom = Math.max(1, room - chip);
   // Needs-input pill + gap, fieldset edges, then the 12px-padded header and its divider.

@@ -14,6 +14,10 @@ path = "tests/test_lint_feature_flags_scope.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_lint_process_gone_checks.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_lint_stored_dispatch_work_items.py"
 lane = "linux-guard"
 

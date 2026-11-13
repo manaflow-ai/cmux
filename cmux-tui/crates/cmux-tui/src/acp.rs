@@ -134,6 +134,74 @@ fn daemon_socket(configured: Option<&str>, home: &Path, uid: u32) -> PathBuf {
 pub(crate) fn install_daemon_acpmux(mux: &cmux_tui_core::Mux, socket: &Path) {
     mux.set_acpmux_starter(daemon_acpmux_starter(socket));
     mux.set_acpmux_handoff(daemon_acpmux_handoff(socket));
+    if let Some(sender) = daemon_feed_reply_sender() {
+        mux.set_feed_reply_sender(sender);
+    }
+}
+
+/// How long a Reports reply waits for acpmux to take it.
+#[cfg(unix)]
+const FEED_REPLY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// `feed.reports.reply` (plans/cmux-next/feed-page.md; Swift
+/// `AcpmuxReplySender`): this binary's `acp send --no-wait --no-steer
+/// --prompt-id <id> -- <session> -` with the acpmux home `cmux acp` uses and
+/// the text on stdin (never an argument: acpmux reads `-` from stdin), true
+/// when acpmux took it. The prompt id makes a retry deliver once. Bounded:
+/// a send past [`FEED_REPLY_TIMEOUT`] is killed and answers false.
+#[cfg(unix)]
+fn daemon_feed_reply_sender() -> Option<cmux_tui_core::feed_client::ReplySender> {
+    let home = daemon_acpmux_home()?;
+    let exe = std::env::current_exe().ok()?;
+    Some(std::sync::Arc::new(move |session: &str, text: &str, prompt_id: &str| {
+        send_feed_reply(&exe, &home, session, text, prompt_id)
+    }))
+}
+
+#[cfg(unix)]
+fn send_feed_reply(exe: &Path, home: &Path, session: &str, text: &str, prompt_id: &str) -> bool {
+    use std::io::Write;
+    if session.is_empty() || prompt_id.is_empty() {
+        return false;
+    }
+    let mut command = cmux_process::Command::new(exe);
+    for name in TERMINAL_IDENTITY_ENV {
+        command.env_remove(name);
+    }
+    let spawned = command
+        .env("ACPMUX_HOME", home)
+        .args([
+            "acp",
+            "send",
+            "--no-wait",
+            "--no-steer",
+            "--prompt-id",
+            prompt_id,
+            "--",
+            session,
+            "-",
+        ])
+        .stdin(cmux_process::Stdio::piped())
+        .stdout(cmux_process::Stdio::null())
+        .stderr(cmux_process::Stdio::null())
+        .spawn();
+    let Ok(mut child) = spawned else { return false };
+    if let Some(mut stdin) = child.stdin.take() {
+        // Closing stdin ends the prompt.
+        if stdin.write_all(text.as_bytes()).is_err() {
+            let _ = child.kill();
+            let _ = child.wait();
+            return false;
+        }
+    }
+    match child.wait_timeout(FEED_REPLY_TIMEOUT) {
+        Ok(Some(status)) => status.success(),
+        _ => {
+            let _ = child.kill();
+            let _ = child.wait();
+            false
+        }
+    }
 }
 
 /// How the session daemon starts the acpmux that [`daemon_socket_path`]
@@ -237,6 +305,25 @@ pub(crate) fn daemon_acpmux_home() -> Option<PathBuf> {
     }
     let home = PathBuf::from(env_value("HOME")?);
     Some(build_home(&home).unwrap_or_else(|| home.join(".acpmux")))
+}
+
+/// The acpmux home of this process's app, by [`daemon_acpmux_home`]'s rule
+/// but with no side effect (no adoption of a pre-isolation home): where this
+/// machine's WireGuard key lock lives (`cmux_link::key_holder`). `None`
+/// outside any cmux app and without `ACPMUX_HOME` (a test binary, a hand-run
+/// `cmux-tui`), which names no build's acpmux.
+#[cfg(unix)]
+pub(crate) fn key_lock_home() -> Option<PathBuf> {
+    if let Some(home) = env_value("ACPMUX_HOME")
+        && !crate::app_identity::this_process_in_other_apps_terminal()
+    {
+        return Some(PathBuf::from(home));
+    }
+    let identity = crate::app_identity::AppIdentity::detect(
+        |name| std::env::var(name).ok(),
+        std::env::current_exe().ok().as_deref(),
+    )?;
+    Some(identity.build().acpmux_home(Path::new(&env_value("HOME")?)))
 }
 
 #[cfg(unix)]

@@ -23,6 +23,10 @@ final class ScreenContentView: NSView {
     var geometry: ScreenGeometry
     internal(set) var paneFrames: [PaneID: AnimatedFrame] = [:]
     private(set) var dividerViews: [DividerHandleView.Kind: DividerHandleView] = [:]
+    /// The screen's splits whose divider draws no line (``LayoutScreen/hiddenDividers``); set by the root before each update.
+    var hiddenDividers: Set<SplitID> = [] {
+        didSet { if hiddenDividers != oldValue { hiddenDividersDidChange(from: oldValue) } }
+    }
     /// The hover and resize cursor of those handles from one tracking area (`ScreenDividerPointer`).
     private(set) lazy var dividerPointer = ScreenDividerPointer(screen: self)
     internal(set) var dividerFrames: [DividerHandleView.Kind: AnimatedFrame] = [:]
@@ -40,7 +44,7 @@ final class ScreenContentView: NSView {
     /// scroll takes the camera back to the scroll spring.
     var scrollRidesFrames = false
     /// A keyboard resize press moves this screen (`LayoutRootView.keyboardResizeWillChange`): until its spring lands,
-    /// every pane keeps its content at its size, clipped, and lays it out once at the landing (``PaneHostView``).
+    /// every pane is on the key hold (``PaneHostView``): content with a hold area follows its pane in every frame.
     var holdsContentForKeyResize = false
     /// A close waits for `syncScroll` to place its camera, then takes its first frame (`leadIfPending`).
     var leadsFrame = false
@@ -83,6 +87,9 @@ final class ScreenContentView: NSView {
     var resizeGesture = PaneResizeGesturePhase.idle
     /// The pane contents that heard the drag start; the end goes to them.
     var resizeGestureListeners: [PaneResizeGestureListener] = []
+    /// The pane views a resize drag or a zoom's spring moves post no frame notice until it ends (``FrameNoticeHold``):
+    /// no titlebar drag-shape walk in each of its frames' commits, the zoom key's turn included.
+    let paneFrameNotices = FrameNoticeHold()
     /// Overlay docked columns' glass rims, keyed by column.
     var backdrops: [ColumnID: DockBackdropView] = [:]
     /// The strip scrollbar; created on first use.
@@ -176,6 +183,7 @@ final class ScreenContentView: NSView {
     func settleMotion() {
         // Landed at once (window out of sight, Reduce Motion turned on): the key-resize hold ends with the motion.
         defer { holdsContentForKeyResize = false }
+        defer { releasePaneFrameNoticesIfSettled() }
         defer { if resizeGesture == .landing { finishResizeGesture() } }
         defer { releaseClosing() }
         presentHeldSnap()
@@ -231,6 +239,16 @@ final class ScreenContentView: NSView {
         if activeDrag == nil { rowDragPreview = nil }
         let moving = reconcile(animated: animated, structural: structural, unzooming: unzooming, zooming: zooming, presents: false,
                                snapWaitsForFrame: snapWaitsForFrame)
+        // A zoom or an unzoom on its spring: the zooming pane's views post no frame notice from the key's turn until it
+        // lands (ZOOM VARIANTS 8: 1.25 ms of the key's turn in AppKit's structural regions). Only that pane moves: the
+        // panes it covers stay still under it, and the ones an unzoom finds come back in place.
+        if structural, window != nil, let pane = zoomMotion.pane, let host = context.hosts[pane], host.superview === self,
+           !paneFrameNotices.isHolding || resizeGesture == .idle {
+            paneFrameNotices.hold([host])
+        } else if structural {
+            // The zooming pane left the layout before it landed (closed, moved away): its views post again now.
+            releasePaneFrameNoticesIfSettled()
+        }
         #if DEBUG
         if let shapeBefore { columnWidths.noteChange(from: shapeBefore, to: restColumns, viewportWidth: bounds.width) }
         #endif
@@ -389,6 +407,10 @@ final class ScreenContentView: NSView {
             } else {
                 view = DividerHandleView(kind: kind, axis: target.axis)
                 view.onDrag = { [weak self] event in self?.handleDrag(kind: kind, event: event) }
+                if case let .split(split) = kind {
+                    view.contextMenu = { [weak self] in self?.context.dividerMenu?(split) }
+                    view.isLineHidden = hiddenDividers.contains(split)
+                }
                 addSubview(view)
                 dividerViews[kind] = view
             }
@@ -518,6 +540,7 @@ final class ScreenContentView: NSView {
         // A drag on a screen that goes away gets no release either.
         endDrag()
         finishResizeGesture()
+        paneFrameNotices.release()
         holdsGrids = false
         for pane in paneFrames.keys where !context.livePanes.contains(pane) {
             context.release(pane)

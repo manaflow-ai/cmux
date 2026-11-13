@@ -233,3 +233,65 @@ test("a join never lends an earlier thread's unverified mark to a newest message
   expect(twin.unverified).toBeUndefined();
   expect(twin.messages!.at(-1)!.sender).toEqual({ session: "s-b" });
 });
+
+// cmux#38791 review (F2): a later record that names the same label but no session is not proof it
+// is the earlier session's chat: two chats can share a label. When either side names a session,
+// only the same session joins as one sender.
+test("a join never lends an earlier session to a later record of the same label with none", () => {
+  const earlier = thread("pr:9", "lane-a", 1, {
+    sender: { label: "vm-1/lane-a", session: "s-a" },
+    fromSession: "s-a",
+    fromHarness: "codex",
+  });
+  const later = joinNotices(
+    { threads: [earlier] },
+    { threads: [thread("pr:9", "lane-a", 1, { sender: { label: "vm-1/lane-a" } })] },
+  ).threads[0]!;
+  expect(later.sender).toEqual({ label: "vm-1/lane-a" });
+  expect(later.fromSession).toBeUndefined();
+  expect(later.fromHarness).toBeUndefined();
+  // Neither names a session: the same label is the same sender.
+  const unnamed = joinNotices(
+    { threads: [thread("pr:9", "lane-a", 1, { sender: { label: "vm-1/lane-a" }, fromHarness: "codex" })] },
+    { threads: [thread("pr:9", "lane-a", 1, { sender: { label: "vm-1/lane-a" } })] },
+  ).threads[0]!;
+  expect(unnamed.fromHarness).toBe("codex");
+});
+
+test("a snapshot after the last merges as a fresh read of it would, reading only past the last closed run", () => {
+  // Seeded, so a failure replays.
+  let seed = 7;
+  const random = () => (seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31;
+  let made = 0;
+  const any = (): AcpmuxRow => {
+    made += 1;
+    const pick = random();
+    return pick < 0.4
+      ? notice(`n${made}`, [thread(`pr:${made % 3}`, `lane-${made % 2}`)])
+      : pick < 0.55
+        ? hidden(`h${made}`)
+        : reply(`r${made}`);
+  };
+  const fresh = (rows: AcpmuxRow[]) => {
+    mergeInboxNotices([]);
+    return mergeInboxNotices([...rows]);
+  };
+  const shape = (rows: AcpmuxRow[]) => rows.map((row) => [row.id, row.joined ?? [], row.text]);
+  let rows = Array.from({ length: 40 }, any);
+  mergeInboxNotices(rows);
+  for (let step = 0; step < 400; step += 1) {
+    const next = rows.slice();
+    const pick = random();
+    if (pick < 0.5) next.push(any());
+    else if (pick < 0.8) next[next.length - 1 - Math.floor(random() * 3)] = any();
+    else next[Math.floor(random() * next.length)] = any();
+    const merged = mergeInboxNotices(next);
+    const expected = shape(fresh(next));
+    // The fresh read reset the last call: read the step again to carry on from it.
+    mergeInboxNotices([]);
+    mergeInboxNotices(rows);
+    expect(shape(mergeInboxNotices(next))).toEqual(expected);
+    expect(shape(merged)).toEqual(expected);
+    rows = next;
+  }
+});

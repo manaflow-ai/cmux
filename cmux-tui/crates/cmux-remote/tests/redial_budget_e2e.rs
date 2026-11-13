@@ -15,7 +15,9 @@
 //! - a heartbeat probe reads its own answer when the reader it waited on is cancelled;
 //! - a network change interrupts a write stuck on the old route;
 //! - a network change made before the watch is forwarded still reaches the link;
-//! - the link's own socket answers its state, and a wait by the caller's deadline.
+//! - the link's own socket answers its state, and a wait by the caller's deadline;
+//! - a network change while a heartbeat probe is already blocked shortens that probe;
+//! - every failed redial, a gone session too, is the reason the link reports.
 //!
 //! Run (from `cmux-tui/`): `cargo test -p cmux-remote --test redial_budget_e2e`.
 
@@ -289,12 +291,22 @@ async fn harness(reconnect: ReconnectPolicy) -> Harness {
 /// `discovery`: redials go through a [`TestSource`]. `reader`: an application reader always
 /// wants the link, as the service multiplexer does.
 async fn harness_with(reconnect: ReconnectPolicy, discovery: bool, reader: bool) -> Harness {
+    harness_leased(reconnect, discovery, reader, Duration::from_secs(600)).await
+}
+
+/// `resume_lease`: how long the daemon keeps a disconnected session for a reconnect.
+async fn harness_leased(
+    reconnect: ReconnectPolicy,
+    discovery: bool,
+    reader: bool,
+    resume_lease: Duration,
+) -> Harness {
     let dir = TempDir::new().unwrap();
     let auth = AuthDatabase::load_or_create(dir.path(), "redial-budget", false).unwrap();
     let (daemon, mut accepted) = RemoteDaemon::with_policy(
         auth,
         SessionLimits::default(),
-        DaemonSessionPolicy { resume_lease: Duration::from_secs(600) },
+        DaemonSessionPolicy { resume_lease },
     )
     .unwrap();
     // The daemon's application reads every session, which answers heartbeats.
@@ -690,4 +702,62 @@ async fn the_link_socket_answers_state_and_waits_by_the_deadline() {
     h.group.down.store(false, Ordering::Release);
     let status = link_call(&path, AdminRequest::AwaitReady { within_ms: 5_000 }).await;
     assert_eq!(status, LinkStatus { state: "connected".into(), reason: None });
+}
+
+/// A network change that comes while a heartbeat probe is already stuck behind a write on the
+/// dead route shortens that probe to 2 s from the change. The old probe only took the short
+/// window when the change started it, so this one waited out its 4 s (cmux#38850 review F1).
+#[tokio::test(start_paused = true)]
+async fn a_network_change_shortens_a_probe_already_blocked() {
+    let h = harness(policy()).await;
+    // Probes go out every 2 s from the connect; the one at 12 s queues behind the stuck write.
+    tokio::time::sleep(Duration::from_millis(10_100)).await;
+    let trace = trace_states(&h.client);
+    h.group.freeze(true, true);
+    let plain = h.client.clone();
+    tokio::spawn(async move {
+        let _ = plain
+            .send(Lane::Interactive, 1, Bytes::from_static(b"stuck"), FrameFlags::empty())
+            .await;
+    });
+    tokio::time::sleep(Duration::from_millis(2_900)).await;
+    let changed = Instant::now();
+    h.client.network_changed();
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    let first = h.group.first_dial_since(changed).expect("the blocked link was never redialed");
+    let took = first - changed;
+    assert!(
+        took <= Duration::from_millis(2_100),
+        "redialed {took:?} after the network change: {:?}",
+        lock(&trace)
+    );
+}
+
+/// A redial that finds the session gone (past the daemon's resume lease) after transport
+/// failures is the reason the link reports. The old code recorded only retryable failures, so
+/// link-state and await-ready kept naming the old transport error (cmux#38850 review F2).
+#[tokio::test(start_paused = true)]
+async fn a_gone_session_replaces_the_last_transport_failure() {
+    let h = harness_leased(policy(), false, true, Duration::from_secs(1)).await;
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    h.group.down.store(true, Ordering::Release);
+    h.group.cut_all();
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let transport = h.client.last_failure().expect("the failed burst left no reason");
+    // Past the resume lease the daemon forgets the session; the next redial is refused.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    h.group.down.store(false, Ordering::Release);
+    h.client.network_changed();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !h.client.session_unavailable() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the redial never found the session gone");
+    let reason = h.client.last_failure();
+    assert!(
+        reason.as_deref().is_some_and(|reason| reason.contains("no longer has")),
+        "the link still reports {reason:?} (was {transport:?})"
+    );
 }

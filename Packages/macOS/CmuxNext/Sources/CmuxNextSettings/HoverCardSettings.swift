@@ -9,6 +9,8 @@ public nonisolated struct HoverCardSettings: Sendable, Equatable {
     public var enabled = HoverCardSettings.enabledDefault
     /// Milliseconds the pointer rests before a card opens.
     public var delayMilliseconds = HoverCardSettings.delayDefault
+    /// The file sets `sidebar.hoverCards.delay` (even to the default): a fixed wait.
+    public var delayIsSet = false
     /// The workspace card's design (`sidebar.hoverCards.layout`).
     public var layout = HoverCardSettings.layoutDefault
     /// `sidebar.hoverCards.sections.*`: which parts the workspace card shows.
@@ -38,7 +40,7 @@ public nonisolated struct HoverCardSettings: Sendable, Equatable {
         var settings = Self()
         guard var reader = ConfigFieldReader(root, at: ["sidebar", "hoverCards"], diagnostics: &diagnostics) else { return settings }
         if let value = reader.bool("enabled") { settings.enabled = value }
-        if let value = reader.number("delay", range: delayRange) { settings.delayMilliseconds = value }
+        if let value = reader.number("delay", range: delayRange) { settings.delayMilliseconds = value; settings.delayIsSet = true }
         if let value = reader.choice("layout", HoverCardLayoutSetting.self) { settings.layout = value }
         if let value = reader.number("maxRows", range: maxRowsRange) { settings.maxRows = value.rounded() }
         diagnostics += reader.diagnostics

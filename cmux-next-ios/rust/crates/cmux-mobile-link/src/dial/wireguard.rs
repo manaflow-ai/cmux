@@ -19,6 +19,7 @@
 use std::collections::HashSet;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::task::{Context, Poll};
 use std::time::Duration;
@@ -26,7 +27,9 @@ use std::time::Duration;
 use base64::Engine;
 use bytes::Bytes;
 use cmux_transport::PathId;
-use cmux_wg::{InterfaceAddress, IpNetwork, Origin, Received, Underlay, WgConfig, WgNet};
+use cmux_wg::{
+    DueProbes, InterfaceAddress, IpNetwork, Origin, Received, UltraMode, Underlay, WgConfig, WgNet,
+};
 use tokio::io::ReadBuf;
 use tokio::net::UdpSocket;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -45,6 +48,8 @@ pub use super::turn::missing_turn;
 #[path = "wireguard_roam.rs"]
 mod roam;
 use roam::{Control, Session};
+#[path = "wireguard_paths.rs"]
+mod paths;
 pub use roam::{network_changed, rehome, roam_timeline};
 #[doc(hidden)]
 pub use roam::{roam_session, session_endpoints, simulate_network_loss, simulate_turn_loss};
@@ -587,8 +592,31 @@ struct HybridUnderlay {
     recv_waker: Option<std::task::Waker>,
     /// Our handshake initiation still waiting for an answer.
     handshake_repeat: Option<HandshakeRepeat>,
+    /// Every route as a path of the shared selector, probed in the tunnel
+    /// (`wireguard_paths.rs`): once one answers, the selector picks the
+    /// route and sprays around a quiet one; until then the rules above do.
+    paths: paths::Paths,
+    /// The selector held a route at the last send: when it lets go (every
+    /// path died), the route it chose is no longer trusted.
+    selector_held: bool,
+    /// Where the latest plain UDP and TURN datagrams came from: a probe's
+    /// answer goes back the way the probe came.
+    last_udp_source: Option<SocketAddr>,
+    last_turn_source: Option<SocketAddr>,
+    /// Peer addresses its authenticated datagrams came from that no
+    /// announcement named (a peer-reflexive NAT mapping), newest last: paths
+    /// too, so a direct route found that way can still win.
+    learned: Vec<SocketAddr>,
+    /// The selector's quiet route was replayed through the relays.
+    suspect_replayed: bool,
+    /// Test support (`DialOptions::impair_inbound`): received datagrams
+    /// held until their delivery time, and the timer for the first.
+    delayed: std::collections::VecDeque<(Instant, Vec<u8>, Origin)>,
+    delay_timer: Option<std::pin::Pin<Box<tokio::time::Sleep>>>,
 }
 
+/// Peer-reflexive addresses kept as paths at once (newest win).
+const MAX_LEARNED: usize = 4;
 const UDP_PATH: PathId = PathId(0);
 const TURN_PATH: PathId = PathId(2);
 
@@ -653,8 +681,17 @@ impl HybridUnderlay {
             replay_pending: false,
             recv_waker: None,
             handshake_repeat: None,
+            paths: paths::Paths::new(),
+            selector_held: false,
+            last_udp_source: None,
+            last_turn_source: None,
+            learned: Vec::new(),
+            suspect_replayed: false,
+            delayed: std::collections::VecDeque::new(),
+            delay_timer: None,
         };
         underlay.set_peer_endpoints(spec.peer_endpoints.to_vec());
+        underlay.sync_paths();
         underlay
     }
 
@@ -670,8 +707,70 @@ impl HybridUnderlay {
             if self.turn.is_some() { turn_targets(&self.peer_endpoints, &self.options) } else { Vec::new() };
     }
 
-    /// Apply the roaming side's changes.
+    /// Apply the roaming side's changes, then bring the selector's paths in
+    /// line with the routes they leave.
     fn apply(&mut self, control: Control) {
+        match &control {
+            Control::Rebind { .. } => {
+                // New mappings: what the old socket learned is stale.
+                self.learned.clear();
+                self.paths.forget_carrier(Carrier::Turn);
+                self.paths.on_network_change();
+            }
+            Control::Turn(_) | Control::Blackhole => self.paths.forget_carrier(Carrier::Turn),
+            _ => {}
+        }
+        self.apply_one(control);
+        self.sync_paths();
+    }
+
+    /// The routes this side can send on, as the selector's paths: plain UDP
+    /// to each usable peer endpoint and to its relayed addresses, and our
+    /// TURN allocation to each endpoint it reaches (with its permission).
+    fn sync_paths(&mut self) {
+        let mut wanted = Vec::new();
+        if !no_plain_udp(&self.options) {
+            let mut relayed: Vec<SocketAddr> = self.labels.peer_relayed.iter().copied().collect();
+            relayed.sort();
+            for addr in self.candidates.iter().copied().chain(self.learned.iter().copied()).chain(relayed) {
+                let route = Route { carrier: Carrier::Udp, addr };
+                if !self.refused.contains(&addr)
+                    && !wanted.iter().any(|want: &paths::Wanted| want.route == route)
+                {
+                    wanted.push(paths::Wanted { route, relayed: self.labels.peer_relayed.contains(&addr) });
+                }
+            }
+        }
+        if self.turn.as_ref().is_some_and(|turn| !turn.is_dead()) {
+            for addr in self.turn_targets.iter().copied() {
+                wanted.push(paths::Wanted { route: Route { carrier: Carrier::Turn, addr }, relayed: true });
+            }
+        }
+        self.paths.sync(&wanted);
+    }
+
+    /// An authenticated datagram came on plain UDP from a direct address
+    /// no announcement named: make it a path, probed like the others.
+    fn learn(&mut self, route: Route) {
+        let addr = route.addr;
+        if route.carrier != Carrier::Udp
+            || no_plain_udp(&self.options)
+            || self.labels.peer_relayed.contains(&addr)
+            || self.refused.contains(&addr)
+            || self.candidates.contains(&addr)
+            || self.learned.contains(&addr)
+        {
+            return;
+        }
+        if self.learned.len() >= MAX_LEARNED {
+            self.learned.remove(0);
+        }
+        tracing::debug!(%addr, "WireGuard learned a peer address from its datagrams");
+        self.learned.push(addr);
+        self.sync_paths();
+    }
+
+    fn apply_one(&mut self, control: Control) {
         let now = Instant::now();
         match control {
             Control::Rebind { socket, stun, reflexive, timeline } => {
@@ -830,7 +929,9 @@ impl HybridUnderlay {
             if self.pinned_until.is_some() {
                 self.pinned_until = Some(now + REACH_PIN);
             }
-        } else if let Some(route) = self.route_for(carrier, via_turn) {
+        } else if !self.paths.drives()
+            && let Some(route) = self.route_for(carrier, via_turn)
+        {
             // Both may work (copies on every route before confirmation): take
             // the named one only to upgrade to a direct route, or when the
             // current one has gone unconfirmed.
@@ -926,6 +1027,18 @@ impl HybridUnderlay {
             }
             self.last_replay = Some(now);
         }
+        let recent = self.replay_set(now);
+        if !recent.is_empty() {
+            tracing::debug!(count = recent.len(), "WireGuard resends recent datagrams on the new route");
+        }
+        for (datagram, class) in recent {
+            self.transmit(&datagram, class);
+        }
+    }
+
+    /// What a replay sends: the newest datagrams that fit [`REPLAY_BYTES`],
+    /// oldest first.
+    fn replay_set(&self, now: Instant) -> Vec<(Bytes, SendClass)> {
         let mut budget = REPLAY_BYTES;
         let mut recent: Vec<(Bytes, SendClass)> = self
             .recent
@@ -940,11 +1053,36 @@ impl HybridUnderlay {
             .map(|(_, datagram, class)| (datagram.clone(), *class))
             .collect();
         recent.reverse();
-        if !recent.is_empty() {
-            tracing::debug!(count = recent.len(), "WireGuard resends recent datagrams on the new route");
+        recent
+    }
+
+    /// The selector's route just went quiet: what went into it lately (and
+    /// was lost if it is cut) goes again through the relays only, our TURN
+    /// allocation and the peer's relayed addresses, so the tunnel's own
+    /// retransmit timers need not wait it out. One or two routes, inside
+    /// the replay budget and [`REPLAY_GAP`]; a replay to every candidate
+    /// overflowed the peer's socket buffer before.
+    fn replay_on_relays(&mut self) {
+        let now = Instant::now();
+        if self.last_replay.is_some_and(|last| now.duration_since(last) < REPLAY_GAP) {
+            return;
         }
+        let relayed: Vec<SocketAddr> = if no_plain_udp(&self.options) {
+            Vec::new()
+        } else {
+            self.labels.peer_relayed.iter().copied().filter(|addr| !self.refused.contains(addr)).collect()
+        };
+        if relayed.is_empty() && (self.turn.is_none() || self.turn_targets.is_empty()) {
+            return;
+        }
+        self.last_replay = Some(now);
+        let recent = self.replay_set(now);
+        tracing::debug!(count = recent.len(), "WireGuard resends recent datagrams through the relays");
         for (datagram, class) in recent {
-            self.transmit(&datagram, class);
+            for addr in &relayed {
+                let _ = self.send_udp(&datagram, *addr);
+            }
+            self.send_turn_targets(&datagram, class);
         }
     }
 
@@ -994,6 +1132,7 @@ impl HybridUnderlay {
         for addr in relayed {
             if !self.refused.contains(&addr) && !self.send_udp(datagram, addr) {
                 self.refused.insert(addr);
+                self.paths.remove(Route { carrier: Carrier::Udp, addr });
             }
         }
     }
@@ -1049,13 +1188,14 @@ impl HybridUnderlay {
     /// Send on `route`; `false` when it cannot carry anything (the OS
     /// refused the address, which is then never used for plain UDP again,
     /// or the TURN allocation is gone).
-    fn send_on(&mut self, route: Route, datagram: &[u8], class: SendClass) -> bool {
+    fn send_route(&mut self, route: Route, datagram: &[u8], class: SendClass) -> bool {
         match route.carrier {
             Carrier::Udp => {
                 if self.send_udp(datagram, route.addr) {
                     return true;
                 }
                 self.refused.insert(route.addr);
+                self.paths.remove(route);
                 false
             }
             Carrier::Turn => match &self.turn {
@@ -1068,16 +1208,22 @@ impl HybridUnderlay {
         }
     }
 
-    /// Plain UDP to every usable candidate but `except`.
+    /// Plain UDP to every usable candidate and learned peer address but
+    /// `except`.
     fn spray(&mut self, datagram: &[u8], except: Option<SocketAddr>) {
         let mut refused = Vec::new();
-        for candidate in self.candidates.clone() {
+        let learned = self.learned.iter().copied().filter(|addr| !self.candidates.contains(addr));
+        let targets: Vec<SocketAddr> = self.candidates.iter().copied().chain(learned).collect();
+        for candidate in targets {
             if Some(candidate) != except
                 && !self.refused.contains(&candidate)
                 && !self.send_udp(datagram, candidate)
             {
                 refused.push(candidate);
             }
+        }
+        for addr in &refused {
+            self.paths.remove(Route { carrier: Carrier::Udp, addr: *addr });
         }
         self.refused.extend(refused);
     }
@@ -1146,7 +1292,102 @@ impl HybridUnderlay {
         true
     }
 
+    /// Test support: [`DialOptions::impair_inbound`] drops `datagram` or
+    /// holds it for later (`true`: it is not delivered now).
+    fn impaired(&mut self, datagram: &[u8], origin: Origin) -> bool {
+        let Some(impair) = self.options.impair_inbound else { return false };
+        let Some(from) = origin.addr else { return false };
+        match impair(origin.path == TURN_PATH, &from) {
+            None => true,
+            Some(delay) if delay.is_zero() => false,
+            Some(delay) => {
+                // In delivery order: a slow (relayed) datagram must not hold
+                // back a fast (direct) one queued after it.
+                let at = Instant::now() + delay;
+                let index = self.delayed.partition_point(|(due, ..)| *due <= at);
+                self.delayed.insert(index, (at, datagram.to_vec(), origin));
+                true
+            }
+        }
+    }
+
+    /// The first held datagram whose time came, into `buffer`.
+    fn pop_delayed(&mut self, buffer: &mut [u8]) -> Option<Received> {
+        if self.delayed.front().is_none_or(|(at, ..)| *at > Instant::now()) {
+            return None;
+        }
+        let (_, datagram, origin) = self.delayed.pop_front()?;
+        let len = datagram.len().min(buffer.len());
+        buffer[..len].copy_from_slice(&datagram[..len]);
+        match origin.path {
+            TURN_PATH => self.last_turn_source = origin.addr,
+            _ => self.last_udp_source = origin.addr,
+        }
+        Some(Received { len, origin })
+    }
+
+    /// The selector's route, once one of its paths answered: it carries
+    /// everything (plus the upgrade sprays while it is relayed). A suspect
+    /// route sends on every route instead. `false`: the selector holds
+    /// nothing, and the route rules below decide.
+    fn transmit_selected(&mut self, datagram: &[u8], class: SendClass) -> bool {
+        let now = Instant::now();
+        let held = std::mem::replace(&mut self.selector_held, self.paths.drives());
+        if held && !self.selector_held {
+            // Every path died: the route it held may be dead too.
+            self.demote("the path selector lost every route");
+        }
+        if !self.paths.suspect() {
+            self.suspect_replayed = false;
+        }
+        if let Some(route) = self.paths.current() {
+            if self.direct != Some(route) {
+                tracing::debug!(?route, from = ?self.direct, "the path selector moves the route");
+                self.direct = Some(route);
+                self.route_since = now;
+                self.last_on_route = None;
+                self.pinned_until = None;
+                self.confirmed = true;
+                self.last_fit = Some(now);
+                // What went into the old route (and was lost if it went
+                // quiet) goes again on the new one, at most every REPLAY_GAP.
+                self.replay_recent(false);
+            }
+            if !self.confirmed {
+                // An answered probe proves both directions.
+                self.confirmed = true;
+                self.last_fit = Some(now);
+            }
+            self.publish_path();
+            if self.send_route(route, datagram, class) {
+                self.paths.sent(route, now);
+                self.maybe_spray(datagram, route);
+                return true;
+            }
+            // Refused: the path is gone; the selector picks another next time.
+            self.direct = None;
+            self.demote("send refused");
+            return false;
+        }
+        if self.paths.suspect() {
+            // The chosen route went quiet: every route until it answers or
+            // another one takes over.
+            if !self.suspect_replayed {
+                self.suspect_replayed = true;
+                self.replay_on_relays();
+            }
+            self.paths.sent_everywhere(now);
+            self.spray(datagram, None);
+            self.send_turn_targets(datagram, class);
+            return true;
+        }
+        false
+    }
+
     fn transmit(&mut self, datagram: &[u8], class: SendClass) {
+        if self.transmit_selected(datagram, class) {
+            return;
+        }
         if self.pinned_until.is_some_and(|until| Instant::now() >= until) {
             // The peer stopped confirming the route its `reach` chose.
             self.pinned_until = None;
@@ -1167,7 +1408,7 @@ impl HybridUnderlay {
         if self.direct_only()
             && let Some(route) = self.direct
         {
-            if self.send_on(route, datagram, class) {
+            if self.send_route(route, datagram, class) {
                 self.maybe_spray(datagram, route);
                 return;
             }
@@ -1178,7 +1419,7 @@ impl HybridUnderlay {
         // other way, since what we send may not arrive on it.
         match self.direct {
             Some(route) => {
-                if !self.send_on(route, datagram, class) {
+                if !self.send_route(route, datagram, class) {
                     self.direct = None;
                     self.publish_path();
                 }
@@ -1212,6 +1453,40 @@ impl Underlay for HybridUnderlay {
         self.note_initiation(datagram, class);
     }
 
+    /// A probe on one of the selector's paths goes on its route only. A
+    /// probe's answer (`path` is where the probe arrived) goes back on the
+    /// reverse of the route it came on, and nowhere else: an answered probe
+    /// proves both directions of one route, so a route that works only one
+    /// way (macOS Local Network privacy, a firewall) never becomes alive.
+    fn send_on(&mut self, path: PathId, datagram: &[u8]) {
+        self.drain_control();
+        let class = send_class(datagram);
+        if let Some(route) = self.paths.route_of(path) {
+            let _ = self.send_route(route, datagram, class);
+            return;
+        }
+        let reverse = match path {
+            UDP_PATH => self.last_udp_source.map(|addr| Route { carrier: Carrier::Udp, addr }),
+            TURN_PATH => self.last_turn_source.map(|addr| Route { carrier: Carrier::Turn, addr }),
+            _ => None,
+        };
+        match reverse {
+            Some(route) if route.carrier == Carrier::Turn || !no_plain_udp(&self.options) => {
+                let _ = self.send_route(route, datagram, class);
+            }
+            _ => self.transmit(datagram, class),
+        }
+    }
+
+    fn poll_probes(&mut self, now: Instant) -> DueProbes {
+        self.drain_control();
+        self.paths.poll(now)
+    }
+
+    fn on_pong(&mut self, path: PathId, id: u64, now: Instant) {
+        self.paths.on_pong(path, id, now);
+    }
+
     fn poll_recv(&mut self, cx: &mut Context<'_>, buffer: &mut [u8]) -> Poll<io::Result<Received>> {
         if !self.recv_waker.as_ref().is_some_and(|waker| waker.will_wake(cx.waker())) {
             self.recv_waker = Some(cx.waker().clone());
@@ -1220,6 +1495,9 @@ impl Underlay for HybridUnderlay {
             self.apply(control);
         }
         self.poll_handshake_repeat(cx);
+        if let Some(received) = self.pop_delayed(buffer) {
+            return Poll::Ready(Ok(received));
+        }
         loop {
             let mut read = ReadBuf::new(buffer);
             match self.socket.poll_recv_from(cx, &mut read) {
@@ -1232,10 +1510,12 @@ impl Underlay for HybridUnderlay {
                     {
                         continue;
                     }
-                    return Poll::Ready(Ok(Received {
-                        len,
-                        origin: Origin { path: UDP_PATH, addr: Some(source) },
-                    }));
+                    let origin = Origin { path: UDP_PATH, addr: Some(source) };
+                    if self.impaired(&buffer[..len], origin) {
+                        continue;
+                    }
+                    self.last_udp_source = Some(source);
+                    return Poll::Ready(Ok(Received { len, origin }));
                 }
                 // ICMP unreachable and friends: keep going on TURN.
                 Poll::Ready(Err(error)) => {
@@ -1250,12 +1530,28 @@ impl Underlay for HybridUnderlay {
                 Poll::Pending => break,
             }
         }
-        if let Some(turn) = &mut self.turn
+        while let Some(turn) = &mut self.turn
             && let Poll::Ready(Some((datagram, from))) = turn.inbound.poll_recv(cx)
         {
+            let origin = Origin { path: TURN_PATH, addr: Some(from) };
+            if self.impaired(&datagram, origin) {
+                continue;
+            }
             let len = datagram.len().min(buffer.len());
             buffer[..len].copy_from_slice(&datagram[..len]);
-            return Poll::Ready(Ok(Received { len, origin: Origin { path: TURN_PATH, addr: Some(from) } }));
+            self.last_turn_source = Some(from);
+            return Poll::Ready(Ok(Received { len, origin }));
+        }
+        if let Some(&(at, ..)) = self.delayed.front() {
+            let timer = self.delay_timer.get_or_insert_with(|| Box::pin(tokio::time::sleep_until(at)));
+            if timer.deadline() != at {
+                timer.as_mut().reset(at);
+            }
+            if timer.as_mut().poll(cx).is_ready()
+                && let Some(received) = self.pop_delayed(buffer)
+            {
+                return Poll::Ready(Ok(received));
+            }
         }
         Poll::Pending
     }
@@ -1271,6 +1567,8 @@ impl Underlay for HybridUnderlay {
         // The peer answered (or sent anything authenticated): the path works.
         self.handshake_repeat = None;
         let route = Route { carrier, addr };
+        self.learn(route);
+        self.paths.heard(route, now);
         if let Some(roam) = &self.roam {
             roam.mark("roam_first_packet");
         }
@@ -1311,7 +1609,9 @@ impl Underlay for HybridUnderlay {
         let downgrade = !arrival_direct
             && self.direct.is_some_and(|current| self.is_direct(current))
             && self.last_on_route.is_some_and(|at| now.duration_since(at) <= RELAYED_RECENT);
-        if !keep_udp && !refused && !pinned && !downgrade && self.direct != Some(route) {
+        // Once a path answered a probe the selector picks the route.
+        let selected = self.paths.drives();
+        if !keep_udp && !refused && !pinned && !downgrade && !selected && self.direct != Some(route) {
             if self.direct.is_some() {
                 // The peer confirmed the old route, not this one (our UDP may
                 // be dropped silently): send on every route until it confirms
@@ -1417,6 +1717,33 @@ struct TunnelSpec<'a> {
     stun: Vec<SocketAddr>,
 }
 
+/// Whether the device's network is cellular now, as the app last said
+/// ([`set_cellular_path`]). False until it says: an unknown path is not
+/// cellular, so ultra mode stays off.
+static CELLULAR_PATH: AtomicBool = AtomicBool::new(false);
+
+/// The device's network changed: `cellular` when its preferred route is a
+/// cellular interface (iOS `NWPath.usesInterfaceType(.cellular)`). Tunnels
+/// dialed from now on pick their ultra mode with it ([`ultra_for_dial`]);
+/// a live tunnel keeps the mode it started with until its next dial.
+pub fn set_cellular_path(cellular: bool) {
+    CELLULAR_PATH.store(cellular, Ordering::Relaxed);
+}
+
+/// The last value [`set_cellular_path`] stored.
+pub fn cellular_path() -> bool {
+    CELLULAR_PATH.load(Ordering::Relaxed)
+}
+
+/// The ultra mode a tunnel dialed now asks for: [`UltraMode::SETTING`] when
+/// the person turned on "Ultra mode on cellular" and the network is
+/// cellular, else none (off, unless `CMUX_WG_ULTRA` says otherwise). Wi-Fi
+/// stays off: the setting spends cellular data, where loss is common, and
+/// keeps a home network's bytes as they are.
+pub fn ultra_for_dial(ultra_on_cellular: bool, cellular: bool) -> Option<UltraMode> {
+    (ultra_on_cellular && cellular).then_some(UltraMode::SETTING)
+}
+
 fn start_tunnel(
     signaling: &SignalingClient,
     spec: TunnelSpec<'_>,
@@ -1453,6 +1780,7 @@ fn start_tunnel(
         endpoint: None,
         persistent_keepalive: Some(KEEPALIVE_SECONDS),
         peer_addresses: vec![IpAddr::V4(spec.peer_ip)],
+        ultra: ultra_for_dial(options.ultra_on_cellular, cellular_path()),
     };
     let net = WgNet::start_with_underlay(config, underlay).map_err(transport_error)?;
     let session = Session::register(roam::SessionParts {
@@ -1800,6 +2128,25 @@ impl Dialer for WireGuardDialer {
 mod tests {
     use super::*;
 
+    /// "Ultra mode on cellular" turns ultra on only for a dial over cellular.
+    #[test]
+    fn ultra_is_on_only_for_the_setting_over_cellular() {
+        assert_eq!(ultra_for_dial(true, true), Some(UltraMode::SETTING));
+        assert_eq!(ultra_for_dial(true, false), None, "Wi-Fi keeps its bytes");
+        assert_eq!(ultra_for_dial(false, true), None, "off by default");
+        assert_eq!(ultra_for_dial(false, false), None);
+        assert!(!DialOptions::default().ultra_on_cellular);
+    }
+
+    /// The app's last path report is what the next dial reads.
+    #[test]
+    fn the_cellular_path_is_the_last_one_reported() {
+        set_cellular_path(true);
+        assert!(cellular_path());
+        set_cellular_path(false);
+        assert!(!cellular_path());
+    }
+
     /// The Mac reaches a relay-only phone by plain UDP to the phone's TURN
     /// relayed address: that path is TURN (or TURN over TLS when the phone's
     /// allocation rides TLS), not direct.
@@ -1889,6 +2236,94 @@ mod tests {
         });
         underlay.authenticated(udp_from(new));
         assert_eq!(underlay.direct, Some(Route { carrier: Carrier::Udp, addr: new }));
+    }
+
+    /// The peer's datagrams come from a direct address no announcement named
+    /// (a NAT whose mapping differs from the STUN answer). Once the selector
+    /// holds the relay, only a learned path lets that address win: it is
+    /// probed, it answers, and the selector moves direct.
+    #[tokio::test]
+    async fn a_direct_address_learned_from_arrivals_wins_over_the_held_relay() {
+        let relayed: SocketAddr = "203.0.113.7:50000".parse().unwrap();
+        let mapped: SocketAddr = "198.51.100.20:41000".parse().unwrap();
+        let (reach_out, _reaches) = mpsc::unbounded_channel();
+        let (_control, control) = mpsc::unbounded_channel();
+        let mut underlay = HybridUnderlay::new(
+            UnderlaySpec {
+                socket: UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+                peer_endpoints: &[relayed.to_string()],
+                peer_relayed: &[relayed.to_string()],
+                peer_relayed_tls: &[],
+                peer_version: WG_VERSION,
+                turn: None,
+                reach_out,
+                path: watch::channel(LinkPath::NoPath).0,
+                control,
+            },
+            &DialOptions::default(),
+        );
+        let answer_all = |underlay: &mut HybridUnderlay, now: Instant| {
+            for (path, probe) in underlay.poll_probes(now).pings {
+                underlay.on_pong(path, probe, now + Duration::from_millis(5));
+            }
+        };
+        let now = Instant::now();
+        answer_all(&mut underlay, now);
+        let relay = Route { carrier: Carrier::Udp, addr: relayed };
+        assert_eq!(underlay.paths.current(), Some(relay), "the selector holds the relay");
+        underlay.authenticated(Origin { path: UDP_PATH, addr: Some(mapped) });
+        answer_all(&mut underlay, now + Duration::from_millis(10));
+        assert_eq!(underlay.paths.current(), Some(Route { carrier: Carrier::Udp, addr: mapped }));
+    }
+
+    /// The selector holds a learned (peer-reflexive) address and it turns
+    /// suspect: datagrams go on every route, the learned one among them, so
+    /// a working route that missed one probe still carries the stream.
+    #[tokio::test]
+    async fn a_suspect_learned_route_still_gets_the_spray() {
+        let relayed: SocketAddr = "203.0.113.7:50000".parse().unwrap();
+        let peer = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let mapped = peer.local_addr().unwrap();
+        let (reach_out, _reaches) = mpsc::unbounded_channel();
+        let (_control, control) = mpsc::unbounded_channel();
+        let mut underlay = HybridUnderlay::new(
+            UnderlaySpec {
+                socket: UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+                peer_endpoints: &[relayed.to_string()],
+                peer_relayed: &[relayed.to_string()],
+                peer_relayed_tls: &[],
+                peer_version: WG_VERSION,
+                turn: None,
+                reach_out,
+                path: watch::channel(LinkPath::NoPath).0,
+                control,
+            },
+            &DialOptions::default(),
+        );
+        let start = Instant::now();
+        underlay.authenticated(Origin { path: UDP_PATH, addr: Some(mapped) });
+        for (path, probe) in underlay.poll_probes(start).pings {
+            underlay.on_pong(path, probe, start + Duration::from_millis(1));
+        }
+        let learned = Route { carrier: Carrier::Udp, addr: mapped };
+        assert_eq!(underlay.paths.current(), Some(learned));
+        // Sent on, nothing back, the probe unanswered: suspect.
+        underlay.paths.sent(learned, start);
+        let mut at = start;
+        while !underlay.paths.suspect() && at < start + Duration::from_secs(2) {
+            at += Duration::from_millis(20);
+            let _ = underlay.poll_probes(at);
+        }
+        assert!(underlay.paths.suspect(), "the learned route turns suspect");
+        // A new socket's sends would block until the reactor saw it writable.
+        underlay.socket.writable().await.unwrap();
+        underlay.transmit(b"stream datagram", SendClass::Bulk);
+        let mut buffer = [0u8; 64];
+        let (len, _) = tokio::time::timeout(Duration::from_secs(1), peer.recv_from(&mut buffer))
+            .await
+            .expect("the spray reaches the learned address")
+            .unwrap();
+        assert_eq!(&buffer[..len], b"stream datagram");
     }
 
     /// A Mac on Ethernet and Wi-Fi with Tailscale (the user's laptop: en7

@@ -10,6 +10,13 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("risk_tier", ROOT / "scripts/ci/risk_tier.py")
@@ -678,6 +685,28 @@ class RecentRevertTests(unittest.TestCase):
         # A pure addition taken out again is a revert.
         self.assertTrue(risk.undoes("@@ -1,3 +1,1 @@\n-.a{}\n-.b{}\n ctx", "@@ -1 +1,3 @@\n+.a{}\n+.b{}\n ctx"))
 
+    def test_a_reflowed_list_does_not_take_back_the_line_it_rewraps(self):
+        # PR #38436 (2026-11-08): two exports added to a `pub use listen::{...}` list made rustfmt rewrap it.
+        # #37363 had added the line `verify_session_socket_directory,`; after the rewrap that name sits on a
+        # longer line, so line matching read the PR as taking #37363 back and held it.
+        commit = ("@@ -2746,6 +2746,7 @@ mod listen;\n pub use listen::{\n"
+                  "     connect_session_socket, prepare_socket_parent, serve, serve_bound, serve_paused,\n"
+                  "+    verify_session_socket_directory,\n };")
+        pr = ("@@ -2769,11 +2769,13 @@ mod listen;\n pub use listen::{\n"
+              "-    connect_session_socket, prepare_socket_parent, serve, serve_bound, serve_paused,\n"
+              "-    verify_session_socket_directory,\n"
+              "+    connect_session_socket, prepare_socket_parent, remove_socket_start_lock, serve, serve_bound,\n"
+              "+    serve_paused, socket_start_lock_path, verify_session_socket_directory,\n };")
+        self.assertFalse(risk.undoes(pr, commit))
+        # Really deleting the line still takes it back.
+        self.assertTrue(risk.undoes("@@ -2769,3 +2769,2 @@\n pub use listen::{\n"
+                                    "-    verify_session_socket_directory,\n };", commit))
+        # A line that loses a token is not a reflow: `foo(a, b)` to `foo(a)`, then back, is a revert.
+        shortened = "@@ -1,2 +1,2 @@\n-    foo(a, b);\n+    foo(a);\n ctx"
+        self.assertTrue(risk.undoes("@@ -1,2 +1,2 @@\n-    foo(a);\n+    foo(a, b);\n ctx", shortened))
+        widened = "@@ -1,2 +1,2 @@\n-    foo(a);\n+    foo(a, b);\n ctx"
+        self.assertTrue(risk.undoes("@@ -1,2 +1,2 @@\n-    foo(a, b);\n+    foo(a);\n ctx", widened))
+
     def test_a_revert_of_last_weeks_change_names_its_pull_request(self):
         now = time.time()
         with tempfile.TemporaryDirectory() as repo:
@@ -789,6 +818,41 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(risk.unowned_takebacks("", None), [])
         self.assertTrue(risk.missing_evidence("high", blocked=True))
         self.assertEqual(risk.unowned_takebacks("", []), [])
+
+    def test_a_held_takeback_names_the_line_to_paste_in_its_error(self):
+        """cmux#41154, a revert of #41113: merge_hold quoted only the check's error annotation, which said "the job
+        summary says how", so the revert sat refused until someone opened the summary. The annotation now carries the
+        line itself, its PR number filled in."""
+        self.assertEqual(risk.takeback_fix([41113]), "If the base is stale, merge it and push; if it's on purpose, "
+                                                     "add a line `Takes back #41113: <why>`")
+        self.assertIn("`Takes back #1: <why>` and `Takes back #2: <why>`", risk.takeback_fix([1, 2]))
+
+        def run(body):
+            saved = risk.gh_json, risk.gh_items, risk.recent_reverts, risk.merge_base_of
+            risk.gh_json = lambda *args: {"head": {"sha": HEAD}, "base": {"sha": "c" * 40}, "body": body,
+                                          "labels": [], "user": {"login": "a"}}
+            risk.gh_items = lambda endpoint: ([{"filename": "scripts/ci/base_red_excuse.py", "patch": "@@ -1 +1 @@\n-a\n+b"}]
+                                              if "/files" in endpoint else [])
+            risk.recent_reverts = lambda *args, **kwargs: {41113: ["scripts/ci/base_red_excuse.py"]}
+            risk.merge_base_of = lambda *args: "c" * 40
+            try:
+                with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
+                    out = Path(tmp) / "out"
+                    risk.main(["pr", "--repo", "o/r", "--number", "41154", "--github-output", str(out),
+                               "--repo-dir", tmp])
+                    return out.read_text()
+            finally:
+                risk.gh_json, risk.gh_items, risk.recent_reverts, risk.merge_base_of = saved
+        out = run("Reverts #41113.")
+        self.assertIn("takes_back=true", out)
+        self.assertIn("takes_back_fix=If the base is stale, merge it and push; if it's on purpose, add a line "
+                      "`Takes back #41113: <why>`\n", out)
+        out = run("Takes back #41113: its rule reached base before its purpose split")
+        self.assertIn("takes_back=false", out)
+        self.assertIn("takes_back_fix=\n", out)
+        held = (ROOT / ".github/workflows/risk-tier.yml").read_text()
+        self.assertIn("TAKES_BACK_FIX: ${{ steps.grade.outputs.takes_back_fix }}", held)
+        self.assertIn('echo "::error::risk:$TIER takes back a recent change. $TAKES_BACK_FIX"', held)
 
     def test_the_last_labeler_counts_and_a_removal_clears_it(self):
         added = {"event": "labeled", "label": {"name": "risk:human-ok"}, "actor": {"login": "leo"}}
@@ -971,6 +1035,66 @@ class SameAccountReceiptTests(unittest.TestCase):
         block = self.comment(f"Review (claude-review-subagent): BLOCK at {HEAD}", at="2026-10-21T20:05:00Z")
         self.assertIsNone(self.signed(other, block, body=no_agent))
         self.assertEqual(self.signed(other, body=no_agent), "review (codex)")
+
+    def test_the_agent_session_footer_names_the_author_agent(self):
+        # #42066: a lane PR body ends with `agent-identity footer`'s line and no Author-agent line. leo-workspace
+        # review_model.py read the footer's aid as the author, this gate did not, so the review service's SHIP was
+        # refused here after merge_hold had counted it.
+        author = "aid-98f665da0f19e1e599c6"
+        footer = f"## Summary\nx\n\nAgent session: [agent session](https://cmux.com/deeplink/agent?id={author})"
+        other = self.comment(f"Review (codex gpt-6-astra high, next-review, started by aid-dfce4beb7b68dc153e48): "
+                             f"SHIP at {HEAD}")
+        self.assertEqual(self.signed(other, body=footer),
+                         "review (codex gpt-6-astra high, next-review, started by aid-dfce4beb7b68dc153e48)")
+        self.assertIsNone(self.signed(self.comment(f"Review (codex, router-review, started by {author}): SHIP at {HEAD}"),
+                                      body=footer))
+        # Case does not hide it, and a later query parameter keeps the id.
+        upper = footer.replace(f"?id={author}", f"?id={author.upper()}&x=1")
+        self.assertIsNone(self.signed(self.comment(f"Review (codex, router-review, started by {author}): SHIP at {HEAD}"),
+                                      body=upper))
+        # Inside an HTML comment, or with a longer id, the footer names nobody, as Author-agent does.
+        for hidden in (f"## Summary\nx\n<!-- Agent session: [s](https://cmux.com/deeplink/agent?id={author}) -->",
+                       footer.replace(author, author + "0")):
+            self.assertIsNone(self.signed(other, body=hidden), hidden)
+        # The session form (`?harness=..&session=..&host=..`) carries no aid, so it names nobody either.
+        session = "Agent session: [lane](https://cmux.com/deeplink/agent?harness=claude&session=616eb19f&host=lane-6)"
+        self.assertEqual(risk.author_agents(session), set())
+        self.assertEqual(risk.author_agents(f"Author-agent: Claude-Author\n{footer}"), {"claude-author", author})
+
+    # The review service an author lane asks for (`router-review OWNER/REPO N --request`): next-review reviews the
+    # head and the cmux-bot App posts its receipt, so the author neither starts the reviewer nor writes the line.
+    def bot(self, body, at="2026-10-21T20:00:00Z", node_id="BOT_kgDOFMYsLQ", login="cmux-bot[bot]", kind="Bot"):
+        return {"body": body, "created_at": at, "submitted_at": at, "author_association": "NONE", "commit_id": HEAD,
+                "user": {"login": login, "type": kind, "node_id": node_id}}
+
+    def test_the_review_service_receipt_counts_and_an_author_started_one_still_fails(self):
+        service = self.bot(f"Review (codex gpt-6.1-sol xhigh, next-review): SHIP at {HEAD}")
+        self.assertEqual(self.signed(service), "review (codex gpt-6.1-sol xhigh, next-review)")
+        # Posted as a review body too.
+        self.assertEqual(risk.signed_off([], [dict(service, state="COMMENTED")], HEAD, self.AUTHOR, self.pr()),
+                         "review (codex gpt-6.1-sol xhigh, next-review)")
+        # The #38430 shape: the author lane started router-review itself; from its own account that never counts.
+        self.assertIsNone(self.signed(
+            self.comment(f"Review (codex, router-review, started by claude-author): SHIP at {HEAD}")))
+
+    def test_only_the_cmux_bot_app_by_node_id_counts_and_never_its_approval(self):
+        line = f"Review (codex gpt-6.1-sol xhigh, next-review): SHIP at {HEAD}"
+        for item in (self.bot(line, node_id="BOT_wrong"), self.bot(line, login="other-bot[bot]"),
+                     self.bot(line, kind="User")):
+            self.assertIsNone(self.signed(item), item["user"])
+        approval = dict(self.bot("cmux-bot approves it"), state="APPROVED")
+        self.assertIsNone(risk.signed_off([], [approval], HEAD, self.AUTHOR, self.pr()))
+        # An approval whose body mirrors a self-started receipt never counts, and never beats a BLOCK.
+        mirrored = dict(self.bot(f"Review (codex, router-review, started by claude-author): SHIP at {HEAD}",
+                                 at="2026-10-21T20:10:00Z"), state="APPROVED")
+        self.assertIsNone(risk.signed_off([], [mirrored], HEAD, self.AUTHOR, self.pr()))
+        block = self.comment(f"Review (codex-reviewer-7, started by lead): BLOCK at {HEAD}")
+        self.assertIsNone(risk.signed_off([block], [mirrored], HEAD, self.AUTHOR, self.pr()))
+
+    def test_a_later_service_block_beats_an_earlier_ship(self):
+        ship = self.comment(f"Review (codex-reviewer-7, started by lead): SHIP at {HEAD}", at="2026-10-21T20:00:00Z")
+        block = self.bot(f"Review (codex gpt-6.1-sol xhigh, next-review): BLOCK at {HEAD}", at="2026-10-21T20:05:00Z")
+        self.assertIsNone(self.signed(ship, block))
 
     def test_a_receipt_from_another_account_keeps_the_old_rule(self):
         line = f"Review (claude-review-subagent): SHIP at {HEAD}"

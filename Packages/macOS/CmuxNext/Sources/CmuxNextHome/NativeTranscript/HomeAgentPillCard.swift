@@ -46,7 +46,7 @@ final class HomeAgentPillCard {
             let button = ThemedDefaultButton(title: HomeAgentPillStrings.startNow, target: nil, action: #selector(HomeAgentPillAction.run))
             button.controlSize = .small
             button.keyHint = .return
-            button.toolTip = HomeAgentPillStrings.startNowHelp
+            button.themedToolTip = HomeAgentPillStrings.startNowHelp
             startNowButton = button
             rows.append(button)
         } else {

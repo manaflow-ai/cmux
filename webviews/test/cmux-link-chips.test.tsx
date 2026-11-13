@@ -27,6 +27,7 @@ import { SubsessionContext, SubsessionStore } from "../src/agent-session/acpmux/
 import { openOfferChat, openSenderChat } from "../src/agent-session/acpmux/rows/rowActions";
 import { chipSelectionText, selectionHtml } from "../src/agent-session/acpmux/conversation/selectionCopy";
 import { htmlMarkdown } from "../src/agent-session/acpmux/richClipboard";
+import { teardownDom } from "./support/domTeardown";
 
 const HEX = "16c92e4354fcaf05540386720d78e251";
 const WORKSPACE = `cmux-nightly://workspace/ws_${HEX}`;
@@ -103,14 +104,10 @@ afterEach(() => {
   host.replaceChildren();
 });
 
-afterAll(() => {
+afterAll(async () => {
   setLinkPlaces([]);
   setPageChats(undefined);
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const place = (title: string, extra: Record<string, unknown> = {}) => ({
@@ -739,10 +736,11 @@ test("the draft draws a known link as its chip and sends the link as pasted", as
   expect(sent).toEqual([typed]);
 });
 
-test("the draft keeps an unknown link a link, and a place pushed later turns it into the chip", async () => {
+test("the draft keeps an unknown link plain text, and a place pushed later turns it into the chip", async () => {
   await composer(`See ${WORKSPACE}`);
   expect(titled()).toEqual([]);
-  expect(host.querySelector(".acpmux-deeplink.is-link")?.textContent).toBe(WORKSPACE);
+  // Plain: the paragraph is the text alone, no element drawn around the link.
+  expect(host.querySelector(".acpmux-md p")?.innerHTML).toBe(`See ${WORKSPACE}`);
   await act(async () => setLinkPlaces([place("Retry fix")]));
   expect(titled()).toEqual([["Retry fix", WORKSPACE]]);
 });

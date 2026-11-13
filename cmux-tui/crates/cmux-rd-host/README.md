@@ -8,7 +8,7 @@ packetizer, reassembly, frame gate, congestion control, input, sessions and acce
 policy): `cmux-rd-core`.
 
 ```
-cmux-rd host    --listen-systemd --peer-uid 1000 [--display :99] [--xauthority PATH] [--idle-exit-s 120]   (Cloud machines; below)
+cmux-rd host    --listen-systemd --peer-uid 1000 [--display :99] [--xauthority PATH] [--idle-exit-s 120] [--no-udp-link] [--link-stun HOST:PORT,...]   (Cloud machines; below)
 cmux-rd host    --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99] [--port 4103] [--codec openh264] [--upstream-record DIR [--upstream-record-max-mb 1024]]
 cmux-rd bench   --addr HOST:4103 --token-fd N [--carrier udp|stream] [--samples 300] [--user USER] [--upstream mic|camera|screen --upstream-frames 100]
 cmux-rd testapp --display :99 --workload marker|text|motion|idle
@@ -28,6 +28,50 @@ from another Mac then measures latency (`--snapshot FILE.ppm` keeps the newest d
 Build on a fleet Mac: `cargo build --release --no-default-features --features bench`.
 
 ## Build
+
+### Observe a viewer's presented marker (macOS bench build)
+
+`observe` watches the **viewer display**, independently of the remote protocol.
+It measures from posting a key/click to the viewer PID until ScreenCaptureKit's
+display timestamp for the exact next marker counter. This is a compositor
+measurement, not physical glass-to-glass: panel scanout and pixel response are
+excluded. It is also distinct from `bench`, which ends at decode.
+
+```
+cmux-rd observe --pid VIEWER_PID --window CGWINDOW_ID --display main \
+  --marker-origin X,Y --cell-size N --at CLICK_X,CLICK_Y \
+  --input key --samples 200 --timeout-ms 1000 --seed 1
+```
+
+Use a dedicated viewer Mac with Screen Recording and Accessibility already
+granted. Open the intended connection in its real viewer, verify its remote
+host and quality setting, and focus the marker on the remote host. Run `key`
+and `click` separately; clicks go to the marker's gray pad, outside its 20
+black/white cells. This command does not open connections, choose quality,
+grant permission, or change focus. Its process-targeted events may be refused
+by a viewer; that is a failed run, not a latency result.
+
+All coordinates and cell size are **viewer capture pixels**, not remote pixels
+or macOS points. The capture retains the engine's fit-to-3840×2160 behavior;
+inspect the viewer at that scale and supply an integer cell width of at least
+two pixels. The JSON receipt records capture dimensions, global display bounds
+in points, marker coordinates and requested capture refresh rate. Use the same
+display, geometry and observer settings for every contender. The explicit
+window ID and PID must own the visible marker centers and input point before
+each input and after each response; another window from the same process does
+not qualify. This is an isolation check, not proof of remote authentication:
+the run's GUI evidence must establish the connection identity separately.
+
+Success writes `cmux.presented-marker/1` JSON with every latency in microseconds
+and nearest-rank p50/p95 in milliseconds. Each input has a deadline. Stale
+frames are ignored, wrong guards or skipped counters fail or time out, and an
+incomplete run emits no success percentile. Seeded 25–75 ms stimulus intervals
+avoid locking input to one refresh phase. Tests named `observe_` cover counter
+wrap, stale timestamps, scaled marker decoding, occlusion and quantiles.
+
+The current passive `bench`/WebRTC test viewers do not present windows, so this
+observer must be paired with a real renderer before comparing them to Apple.
+Native compilation and unit tests alone do not validate presentation latency.
 
 This crate is its own Cargo workspace (excluded from the cmux-tui workspace) because it
 builds C code: openh264 from source (bench builds), and x264 only with `--features x264`. Build it on Linux (a Testbox or a
@@ -136,7 +180,17 @@ it only on the owner's grant for service `desktop`. Only then does the server co
   button. The root property `_CMUX_RD_PERSON` exists exactly while the master does and names the
   window under the person's pointer, so an agent can wait while it exists before typing into
   Chromium (see `src/inject.rs`).
-- The stream carrier only. A hello that asks for UDP is refused (`StreamCarrierOnly`).
+- No UDP port in the hello. A hello that asks for one is refused (`StreamCarrierOnly`).
+- Media may move to a UDP link (cap `link.udp`, `src/hybrid.rs`). When the hello offers the cap,
+  the welcome lists it and caps `max_datagram` so a sealed datagram fits the link. The viewer
+  then sends `link_offer` (its cmux-rd-link key, a prologue and candidates) on the stream. The
+  host starts a Noise_XX link (one UDP socket, port picked by the kernel, reflexive candidate
+  from `--link-stun HOST:PORT,...`), answers `link_answer` with its own key, and sends its
+  candidates as `link_candidate`. Both keys cross the carrier's admitted stream, so the link
+  trusts only what the carrier trusts. A packet that is not that peer's Noise traffic is dropped.
+  Media datagrams use the link while one of its paths answers (`link_state up`). Before that,
+  and whenever no path answers, they stay on the stream (`link_state` down with a reason).
+  Control never leaves the stream. `--no-udp-link` turns the cap off.
 - The service runs as its own system user (`cmux-agent-rd.service`, `User=cmux-rd`, not in group
   `cmux`), reads the X cookie from `--xauthority` (set as `XAUTHORITY`), and exits after
   `--idle-exit-s` seconds (default 120) with no connection; the socket unit starts it again on the

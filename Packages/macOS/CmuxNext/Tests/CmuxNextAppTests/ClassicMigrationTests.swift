@@ -6,6 +6,7 @@ import CmuxNextDaemon
 @testable import CmuxNextImportCards
 import CmuxNextImportSuggestions
 import CmuxNextOnboarding
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -245,7 +246,7 @@ struct ClassicMigrationTests {
         let runs = CardRuns()
         let tree = try await launch(mac, answer: .unanswered) { services in
             services.onboarding.classicMigrationConfirmation = { _ in .accepted }
-            let defaults = try #require(UserDefaults(suiteName: "cn-migrate-cards-\(UUID().uuidString)"))
+            let defaults = try #require(UserDefaults(testSuiteName: "cn-migrate-cards-\(UUID().uuidString)"))
             let center = ImportSuggestionsCenter(defaults: defaults, ledgerURL: mac.root.appendingPathComponent("import-jobs.json"))
             center.scanThisMac = { _ in [ImportFinding(id: "cmux.classic", kind: .cmuxClassic, name: "cmux Classic", count: 3)] }
             var host = OnboardingHandlers.importCardsHost(services)

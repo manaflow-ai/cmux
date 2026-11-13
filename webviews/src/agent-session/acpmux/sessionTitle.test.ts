@@ -55,3 +55,14 @@ test("a last prompt cut inside a long relay head never titles the chat with the 
   // An opaque name still beats it, as it beats no prompt.
   expect(sessionTitle({ ...chat, name: "cloud-item-14", lastPrompt: cut }, t)).toBe("cloud-item-14");
 });
+
+// cmux#38791 review: acpmux's limit counts characters (Rust `chars`), not UTF-16 units. A whole
+// prompt under it that ends with its own "…" is not a cut however many units its emoji take, so
+// words that only start like a label still title the chat.
+test("a whole last prompt of wide characters ending in an ellipsis is not a cut", () => {
+  const t = (key: string) => key;
+  const chat = { sessionId: "e", name: "codex", harness: "codex" };
+  const own = `[message 1234abcd from ${"🙂".repeat(100)}…`;
+  expect(own.length).toBeGreaterThan(200);
+  expect(sessionTitle({ ...chat, lastPrompt: own }, t)).toBe(own);
+});

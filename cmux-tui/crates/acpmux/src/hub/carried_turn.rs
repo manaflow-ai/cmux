@@ -272,9 +272,10 @@ impl Hub {
         }
         let (hub, session, child) = (self.clone(), session.clone(), child.clone());
         let continues = Some(next.continues.clone());
-        tokio::spawn(Box::pin(async move {
-            hub.run_carried(session, child, turn, continues, slot).await
-        }));
+        self.scope.spawn_named(
+            "carried-turn",
+            Box::pin(async move { hub.run_carried(session, child, turn, continues, slot).await }),
+        );
     }
 
     /// A carried turn a restart cut before its prompt went to the agent host, whose Claude Code
@@ -316,9 +317,10 @@ impl Hub {
         self.set_status(session, SessionStatus::Running);
         let (hub, session, child) = (self.clone(), session.clone(), child.clone());
         // A recovered turn is not continued (`auto_resume.rs`).
-        tokio::spawn(Box::pin(
-            async move { hub.run_carried(session, child, turn, None, None).await },
-        ));
+        self.scope.spawn_named(
+            "recovered-carried-turn",
+            Box::pin(async move { hub.run_carried(session, child, turn, None, None).await }),
+        );
     }
 
     /// As a recovered turn (`hosts.rs` `recover_work`): a Web turn in an agent the sandbox did
@@ -405,7 +407,7 @@ impl Hub {
         // Closes before this point were before these turns (`respawn_stopped_agent`).
         let stops = session.stops.load(Ordering::SeqCst);
         loop {
-            Self::hold_stalled_count(&session);
+            self.hold_stalled_count(&session);
             self.set_status(&session, SessionStatus::Running);
             self.watch_silent_turn(&session, &turn.turn_id).await;
             // Debug builds only: `ACPMUX_TEST_CARRY_HOLD_MS` holds a carried turn before its

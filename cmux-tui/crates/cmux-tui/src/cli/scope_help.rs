@@ -69,11 +69,15 @@ never by a ws_ or tab_ id.
 
 next answers the tab the person should go to next, as JSON {target,
 queue_length, focused}: tabs where they must act first (a request, a blocked
-agent or program), then unread error and warning notifications, then other
-unread ones, each oldest first. target is the entry after the focused tab (or
-after --after), wrapping to the first, or null. It moves focus only with
---focus. list answers the whole queue as {queue}. The TUI key `Ctrl-b a`
-(next-attention) visits the same order; `Ctrl-b A` lists it.
+agent or program), then unread error and warning notifications, then
+finished agent turns nobody viewed (kind done), then other unread ones (a
+bell), each oldest first. target is the first entry, the most urgent one; with
+--after it is the entry after that tab, wrapping to the first, so a loop that
+passes the last target visits each entry once. null when nothing needs the
+person. It moves focus only with --focus. A blocked entry's reason is the
+agent's own message (the permission it asks for). list answers the whole
+queue as {queue}. The TUI key `Ctrl-b a` (next-attention) visits the same
+order from the tab the person looks at; `Ctrl-b A` lists it.
 ";
 
 pub(super) const NOTIFY_HELP: &str = "\

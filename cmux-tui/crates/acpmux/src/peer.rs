@@ -20,13 +20,29 @@ use std::time::Duration;
 use tokio::sync::{Mutex, Notify, mpsc, oneshot};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
+#[path = "peer_carried.rs"]
+mod carried;
+#[path = "peer_carriers.rs"]
+mod carriers;
+#[path = "peer_dual.rs"]
+mod dual;
+#[cfg(test)]
+#[path = "peer_dual_tests.rs"]
+mod dual_tests;
+pub(crate) use carriers::paired_install;
 #[path = "peer_carrier.rs"]
 mod carrier;
+pub use dual::DualStats;
 #[path = "peer_features.rs"]
 mod features;
 #[path = "peer_health.rs"]
 mod health;
+#[path = "peer_overlay.rs"]
+pub(crate) mod overlay;
 
+#[cfg(feature = "hub-carrier")]
+#[path = "peer_hub.rs"]
+mod hub_path;
 #[path = "peer_ssh.rs"]
 mod ssh_errors;
 #[path = "peer_tokens.rs"]
@@ -79,6 +95,12 @@ fn is_mirrored_session(summary: &Value) -> bool {
 /// presence for it, whatever it serves the link as (`server/view.rs`).
 pub const CLIENT_NAME: &str = "acpmux-peer";
 
+/// The link's own notice (never a peer's) that a chat it streams was attached again without
+/// history after a reconnect: what the peer sent between the links never came, and the hub tells
+/// that chat's local clients they lagged (`hub/peers.rs`), so each reads on from its own last
+/// record (`_acpmux/lagged {sessionIds}`).
+pub const REATTACHED_NOTICE: &str = "_acpmux/peer_reattached";
+
 /// The link's own `_acpmux/attach` of a peer's session `id`: it subscribes and reads no history,
 /// and names its byte limit all the same, as `bound_page` does for a client's attach. A peer on an
 /// older build reads `limit: 0` as no limit and has none of its own, so it answers with the whole
@@ -109,8 +131,16 @@ pub enum PeerNotice {
     Disconnected(String),
     /// The remote daemon sent WebSocket Close 1012; its rows stay usable while it restarts.
     Restarting,
-    /// Full session list from `_acpmux/watch` or a single `session_changed`.
-    Sessions(Vec<Value>),
+    /// Full session list from `_acpmux/watch` or a single `session_changed`: each row's compact
+    /// JSON, which the hub parses one row at a time.
+    Sessions(Vec<Arc<str>>),
+    /// What changed in the peer's list since the link's cursor (`hub/row_log.rs`): the rows
+    /// changed, each as its text, and the peer's own ids of the rows that went. The rest stand as
+    /// the peer last listed them.
+    SessionsPatch {
+        rows: Vec<Arc<str>>,
+        gone: Vec<String>,
+    },
     SessionChanged {
         session: Value,
         kind: String,
@@ -122,6 +152,25 @@ pub enum PeerNotice {
         /// The link it came on (`Peer::link_epoch` when it was read).
         link: u64,
     },
+}
+
+#[cfg(test)]
+impl PeerNotice {
+    /// A list of `rows`, each sent as its text, as a link sends it.
+    pub(crate) fn sessions_from_values(rows: Vec<Value>) -> Self {
+        Self::Sessions(rows.iter().map(row_text).collect())
+    }
+}
+
+/// The rows of a list as a test reads them.
+#[cfg(test)]
+pub(crate) fn parse_rows(rows: &[Arc<str>]) -> Vec<Value> {
+    rows.iter().map(|row| serde_json::from_str(row).unwrap_or(Value::Null)).collect()
+}
+
+/// A row as a list carries it: its compact JSON.
+fn row_text(row: &Value) -> Arc<str> {
+    Arc::from(serde_json::to_string(row).unwrap_or_default())
 }
 
 /// Which list a request's reply is, for the reader (`Peer::watch_key`).
@@ -146,9 +195,15 @@ pub const HANDSHAKE_PIPELINE_FEATURE: &str = "handshakePipeline";
 enum LinkEnd {
     Stopped,
     Restarting,
+    /// The link ended to move to another path of this peer (`peer_carriers.rs`): no outage,
+    /// the next connect runs at once and its chats resume from their cursors.
+    Switching,
 }
 
 pub struct Peer {
+    /// The owner of this peer's own tasks (its lent GitHub actions, its attach retries):
+    /// `stop` cancels them, and the hub's shutdown joins them (`Peer::close_tasks`).
+    scope: cmux_scope::Scope,
     pub name: String,
     /// Unique per `Peer` instance; a replacement under the same name gets a
     /// new one.
@@ -160,6 +215,54 @@ pub struct Peer {
     /// The `ssh -W` process carrying an `ssh://` peer's current connection.
     tunnel: Mutex<Option<tokio::process::Child>>,
     wireguard: std::sync::OnceLock<(Arc<crate::wireguard::Transport>, std::net::SocketAddr)>,
+    /// The daemon's hub carrier and the hub `daemonId` this peer's config names (its WireGuard
+    /// key), if any (`peer_hub.rs`).
+    #[cfg(feature = "hub-carrier")]
+    hub_carrier: std::sync::OnceLock<(crate::hub_carrier::HubCarrierSlot, Option<String>)>,
+    /// The paired install the cmux link dials for this peer (`peer_carriers.rs`).
+    link_host: std::sync::OnceLock<String>,
+    /// The peer's config names its own route (`wireguard` or `linkHost`): no overlay path is
+    /// found or recalled for it (`peer_overlay.rs`).
+    explicit_route: AtomicBool,
+    /// The cmux link's socket when known ahead of its registration (tests); else read per dial.
+    link_socket: std::sync::OnceLock<std::path::PathBuf>,
+    /// The peer's paths and which one carries the link (`peer_paths.rs`), made on first use.
+    paths: StdMutex<Option<crate::peer_paths::Paths>>,
+    /// The path the live link runs on, while it is open.
+    serving: StdMutex<Option<crate::peer_paths::Via>>,
+    /// The selector moved the session to another path: the link moves at its next quiet moment.
+    switch_wanted: AtomicBool,
+    /// The probes of this peer's other paths run (`Peer::start_probes`).
+    probing: AtomicBool,
+    /// Requests the peer sent this daemon that are still being answered (`Answering`).
+    answering: carriers::Answering,
+    /// The hub's last-known-good book (`peer_last_good.rs`).
+    last_good: std::sync::OnceLock<Arc<crate::peer_last_good::LastGood>>,
+    /// While the link's path is in doubt, the probe of another path that gets a copy of each
+    /// frame (`peer_dual.rs`).
+    shadow: StdMutex<Option<dual::Shadow>>,
+    /// The chats whose events either path may deliver, each once by its seq
+    /// (`Peer::merge_event`).
+    dual_sessions: StdMutex<HashSet<String>>,
+    /// The one merger both paths' chat events go through (`peer_dual.rs`).
+    dual_merge: Mutex<dual::Merger>,
+    /// Whether each path presented the peer token when it last opened: only such paths are the
+    /// peer's one principal there, and only they carry dual send (`Peer::dual_wanted`).
+    token_paths: StdMutex<HashMap<crate::peer_paths::Via, bool>>,
+    /// Chats a load, resume or attach is replaying now, with how many are in flight
+    /// (`Peer::replay_start`): read and set under `dual_merge`.
+    replaying: StdMutex<HashMap<String, u32>>,
+    /// Every link that carries each request still owed an answer, and the epoch it was sent
+    /// at (`peer_carried.rs`): what a cancel goes to, what a path switch sends again (a request
+    /// bound to its link's connection: a `session/load`, an attach), and which requests the
+    /// shadow carries a copy of.
+    carried: Arc<StdMutex<carried::Carriers>>,
+    /// The link ended to switch paths; its bound requests go again on the next link.
+    switched: AtomicBool,
+    /// This peer's own part of each dual id, and the frames copied so far.
+    dual_nonce: String,
+    dual_frames: AtomicU64,
+    dual_stats: dual::DualStats,
     /// Outbound frames, each tagged with the link epoch it was admitted on:
     /// `serve` drops one whose link is gone, so it never goes out on the next,
     /// and `fail_link_requests` fails the request it carries as not sent.
@@ -170,6 +273,9 @@ pub struct Peer {
     /// The pending keys whose frame `serve` wrote to the live link: when the link drops, only
     /// these may have run on the peer; every other request waiting fails as not sent.
     on_wire: OnWire,
+    /// Requests whose client cancelled them after they went to the peer (`request_cancel.rs`):
+    /// their late answers are dropped on purpose and logged.
+    cancelled: Arc<StdMutex<crate::request_cancel::Cancelled>>,
     /// Accepted prompt identities survive transport loss; reconnect only reads their outcome.
     prompts: Arc<StdMutex<HashMap<String, PendingPrompt>>>,
     /// The handshake finished on the live link (`initialize` and `_acpmux/watch` answered, the
@@ -180,6 +286,12 @@ pub struct Peer {
     /// no-session answer for it is not final (`Hub::no_session_is_final`). False from the
     /// hub's `Disconnected`.
     pub rows_ready: AtomicBool,
+    /// One more than the link epoch whose session list the hub applied last (its `Connected`
+    /// notice), 0 before any: the rows are that link's ([`Self::rows_current`]).
+    rows_link: AtomicU64,
+    /// The links whose `Connected` notice is on its way to the hub, oldest first: the hub takes
+    /// one with each `Connected` it applies, so it knows which link's list that one follows.
+    listed_links: StdMutex<std::collections::VecDeque<u64>>,
     /// The WebSocket is open, handshake or not: only the handshake's own requests go out
     /// while it is open and not `connected`.
     open: AtomicBool,
@@ -227,7 +339,7 @@ pub struct Peer {
     media_read: AtomicBool,
     /// Bumped each time a connection to the peer ends (and at `stop`): what the peer kept for
     /// the connection, like its media handles, went with it (`server/media_forward.rs`).
-    link_epoch: AtomicU64,
+    link_epoch: Arc<AtomicU64>,
     /// Whether the peer serves `_acpmux/subagent_transcript` (`hub/subagent_transcript.rs`).
     subagent_transcript: AtomicBool,
     /// Whether the peer serves `_acpmux/native_history` (`hub/native_history.rs`).
@@ -269,6 +381,13 @@ pub struct Peer {
     /// silently loses the gap between links). A chat marked in `attached` with no cursor has no
     /// baseline yet, and the next link attaches it without history as before.
     cursors: StdMutex<HashMap<String, u64>>,
+    /// The marked chats whose cursor a page settled ([`Self::note_baseline`]): for these a
+    /// cursor of 0 is a baseline too (the peer's chat held nothing yet, as a new Cloud chat
+    /// does), so a reconnect replays them from it instead of attaching them without history.
+    baselined: StdMutex<HashSet<String>>,
+    /// The chats whose attach failed on a live link and is being tried again on that link
+    /// ([`Self::retry_attach`]): one retry loop per chat.
+    attach_retries: StdMutex<HashSet<String>>,
     /// Highest live sequence observed while a session is being replayed. The
     /// payload is intentionally not retained: the next bounded page fetches it
     /// from the peer journal, so memory cannot grow with a long turn.
@@ -336,12 +455,14 @@ pub struct Peer {
     /// Whether the last handshake's peer listed [`HANDSHAKE_PIPELINE_FEATURE`]; kept past the
     /// link's end, unlike `features`, for the next link's handshake.
     pipelines: AtomicBool,
-    /// Whether the peer answers a watch's `known` with a delta, and the rows the last list read
-    /// held (`watch_delta.rs`).
-    watch_delta: AtomicBool,
-    known: StdMutex<crate::watch_delta::Known>,
-    /// Whether the list `known` holds was read with tools: a delta is asked for the same way.
-    known_tools: AtomicBool,
+    /// Whether the peer follows its list from a cursor (`hub/row_log.rs` `CAPABILITY`), and the
+    /// position of its list the hub holds (`listEpoch`, `listSeq`): set once a whole list or a
+    /// follow is read, moved on by each `session_changed`. The next link asks for what changed
+    /// after it, not the list.
+    list_follow: AtomicBool,
+    list_cursor: StdMutex<Option<(String, u64)>>,
+    /// Whether the list the cursor is in was read with tools: a follow is asked for the same way.
+    cursor_tools: AtomicBool,
     /// This link's messages from the peer so far: the bytes of their frames, and of their JSON
     /// text (more when the peer compresses them, `frame_compress.rs`).
     received: ReceivedBytes,
@@ -387,6 +508,7 @@ impl Peer {
     ) -> Arc<Self> {
         let (out, out_rx) = mpsc::channel(1024);
         Arc::new(Self {
+            scope: cmux_scope::Scope::new("acpmux peer"),
             name: name.to_owned(),
             generation: NEXT_GENERATION.fetch_add(1, Ordering::SeqCst),
             url: url.to_owned(),
@@ -394,14 +516,38 @@ impl Peer {
             peer_token,
             tunnel: Mutex::new(None),
             wireguard: std::sync::OnceLock::new(),
+            #[cfg(feature = "hub-carrier")]
+            hub_carrier: std::sync::OnceLock::new(),
+            link_host: std::sync::OnceLock::new(),
+            explicit_route: AtomicBool::new(false),
+            link_socket: std::sync::OnceLock::new(),
+            paths: StdMutex::new(None),
+            serving: StdMutex::new(None),
+            switch_wanted: AtomicBool::new(false),
+            probing: AtomicBool::new(false),
+            answering: carriers::Answering::default(),
+            last_good: std::sync::OnceLock::new(),
+            shadow: StdMutex::new(None),
+            dual_sessions: StdMutex::new(HashSet::new()),
+            dual_merge: Mutex::new(dual::Merger::default()),
+            token_paths: StdMutex::new(HashMap::new()),
+            replaying: StdMutex::new(HashMap::new()),
+            carried: Default::default(),
+            switched: AtomicBool::new(false),
+            dual_nonce: uuid::Uuid::now_v7().simple().to_string(),
+            dual_frames: AtomicU64::new(0),
+            dual_stats: dual::DualStats::default(),
             out,
             out_rx: Mutex::new(Some(out_rx)),
             next_id: AtomicI64::new(1),
             pending: Arc::new(Mutex::new(HashMap::new())),
             on_wire: Default::default(),
+            cancelled: Default::default(),
             prompts: Default::default(),
             connected: AtomicBool::new(false),
             rows_ready: AtomicBool::new(false),
+            rows_link: AtomicU64::new(0),
+            listed_links: StdMutex::new(std::collections::VecDeque::new()),
             open: AtomicBool::new(false),
             last_error: StdMutex::new(None),
             facts: StdMutex::new(carrier::LinkFacts::default()),
@@ -419,7 +565,7 @@ impl Peer {
             file_put: AtomicBool::new(false),
             file_put_chunks: AtomicBool::new(false),
             media_read: AtomicBool::new(false),
-            link_epoch: AtomicU64::new(0),
+            link_epoch: Arc::new(AtomicU64::new(0)),
             subagent_transcript: AtomicBool::new(false),
             native_history: AtomicBool::new(false),
             session_auth: AtomicBool::new(false),
@@ -436,6 +582,8 @@ impl Peer {
             attached: StdMutex::new(HashMap::new()),
             marks: AtomicU64::new(0),
             cursors: StdMutex::new(HashMap::new()),
+            baselined: StdMutex::new(HashSet::new()),
+            attach_retries: StdMutex::new(HashSet::new()),
             replay_highwater: StdMutex::new(HashMap::new()),
             replay_tail: StdMutex::new(HashMap::new()),
             notices,
@@ -463,9 +611,9 @@ impl Peer {
             watch_key: StdMutex::new(None),
             pipelined_key: StdMutex::new(None),
             pipelines: AtomicBool::new(false),
-            watch_delta: AtomicBool::new(false),
-            known: StdMutex::new(crate::watch_delta::Known::default()),
-            known_tools: AtomicBool::new(false),
+            list_follow: AtomicBool::new(false),
+            list_cursor: StdMutex::new(None),
+            cursor_tools: AtomicBool::new(false),
             received: ReceivedBytes::default(),
         })
     }
@@ -632,6 +780,8 @@ impl Peer {
 
     pub fn stop(&self) {
         self.stop.store(true, Ordering::SeqCst);
+        // Its own tasks stop with it; the hub's shutdown joins them (`close_tasks`).
+        self.scope.token().cancel();
         self.stop_changed.send_replace(true);
         self.link_ended();
         // Stores a permit when `serve` is not waiting yet.
@@ -642,6 +792,11 @@ impl Peer {
             }
             *t = None;
         }
+    }
+
+    /// Cancel this peer's own tasks and join them within `within` (the hub's shutdown).
+    pub(crate) async fn close_tasks(&self, within: std::time::Duration) -> cmux_scope::CloseReport {
+        self.scope.close(within).await
     }
 
     /// `ssh://user@host[:port]` -> (ssh destination, remote port); None for
@@ -664,13 +819,40 @@ impl Peer {
         ),
         String,
     > {
-        let (host, remote_port) = self.ssh_parts().ok_or_else(|| "not an ssh peer".to_owned())?;
+        let (_, remote_port) = self.ssh_parts().ok_or_else(|| "not an ssh peer".to_owned())?;
         // Under the tunnel lock, which `stop` takes to end the tunnel: a stop before this point
         // spawns nothing, and one while this holds the lock is seen below once the child is in.
         let mut tunnel = self.tunnel.lock().await;
         if self.stop.load(Ordering::SeqCst) {
             return Err("peer stopped".to_owned());
         }
+        let (child, stream, _, errors) = self.spawn_tunnel()?;
+        // Replacing the previous channel ends its ssh process.
+        *tunnel = Some(child);
+        if self.stop.load(Ordering::SeqCst) {
+            if let Some(mut child) = tunnel.take() {
+                let _ = child.start_kill();
+            }
+            return Err("peer stopped".to_owned());
+        }
+        Ok((stream, remote_port, errors))
+    }
+
+    /// Spawn an `ssh -W` stdio channel to the peer's WebSocket port, owned by the caller (it
+    /// ends when dropped). `open_tunnel` keeps the link's in `tunnel`; a path probe keeps its own.
+    #[allow(clippy::type_complexity)]
+    fn spawn_tunnel(
+        &self,
+    ) -> Result<
+        (
+            tokio::process::Child,
+            tokio::io::Join<tokio::process::ChildStdout, tokio::process::ChildStdin>,
+            u16,
+            ssh_errors::Capture,
+        ),
+        String,
+    > {
+        let (host, remote_port) = self.ssh_parts().ok_or_else(|| "not an ssh peer".to_owned())?;
         let mut child = self
             .ssh_command()
             .args(tunnel_argv(&host, remote_port, self.ssh_connect_secs()))
@@ -683,15 +865,7 @@ impl Peer {
         let errors = ssh_errors::Capture::start(child.stderr.take());
         let stdout = child.stdout.take().ok_or_else(|| "ssh stdout".to_owned())?;
         let stdin = child.stdin.take().ok_or_else(|| "ssh stdin".to_owned())?;
-        // Replacing the previous channel ends its ssh process.
-        *tunnel = Some(child);
-        if self.stop.load(Ordering::SeqCst) {
-            if let Some(mut child) = tunnel.take() {
-                let _ = child.start_kill();
-            }
-            return Err("peer stopped".to_owned());
-        }
-        Ok((tokio::io::join(stdout, stdin), remote_port, errors))
+        Ok((child, tokio::io::join(stdout, stdin), remote_port, errors))
     }
 
     /// End the owned ssh tunnel process, if any.
@@ -950,10 +1124,15 @@ impl Peer {
     ) {
         let me = self.clone();
         let epoch = link;
+        // Taken before the task runs and held until its answer is queued: the link does not
+        // move to a faster path while it runs (`Peer::switch_due`), for at most the action's
+        // own budget.
+        let answering = self.answering.start(crate::github_broker::ACTION_BUDGET);
+        let scope = &self.scope;
         // The slot is held until the answer is queued, within the request budget: at most
         // `OWNER_SLOTS` of these tasks exist per peer name, across reconnects, even when the link
         // stops reading.
-        tokio::spawn(async move {
+        scope.spawn_until_cancelled("peer-github-action", async move {
             // Lending that ends while it runs (`githubBroker` off, the peer removed, the link
             // ended) stops it: its `gh` is killed (`kill_on_drop`), and a link still up is told.
             let revoked = me.github_revoked.notified();
@@ -983,6 +1162,7 @@ impl Peer {
                 let frame = Outbound { epoch, key: None, line };
                 let _ = tokio::time::timeout(me.timings.request, me.out.send(frame)).await;
             }
+            drop(answering);
             drop(slot);
         });
     }
@@ -999,6 +1179,21 @@ impl Peer {
         self.github_revoked.notify_waiters();
     }
 
+    /// The hub applied a `Connected` notice of this peer: the rows are now those its link listed
+    /// at that handshake. A notice no link queued (a test's) stands for the live link.
+    pub(crate) fn note_rows_applied(&self) {
+        let link = self.listed_links.lock_or_recover().pop_front();
+        let link = link.unwrap_or_else(|| self.link_epoch());
+        self.rows_link.store(link + 1, Ordering::SeqCst);
+    }
+
+    /// The link is ready and the hub applied the session list it sent at its own handshake, so
+    /// its notices keep the rows current. A link that dropped and came back reads false until
+    /// the new link's list is applied: until then the rows are the link before's.
+    pub fn rows_current(&self) -> bool {
+        self.ready() && self.rows_link.load(Ordering::SeqCst) == self.link_epoch() + 1
+    }
+
     /// The WebSocket is open and the handshake has not finished.
     pub fn handshaking(&self) -> bool {
         self.open.load(Ordering::SeqCst) && !self.connected.load(Ordering::SeqCst)
@@ -1008,6 +1203,7 @@ impl Peer {
         let link = self.link();
         let observed = self.observed(&link);
         let (health, health_at) = self.health_summary();
+        let paths = self.paths_view();
         json!({
             "name": self.name,
             "url": self.url,
@@ -1032,6 +1228,7 @@ impl Peer {
             "attempts": link.attempts,
             "health": health,
             "healthAt": health_at,
+            "paths": paths,
         })
     }
 
@@ -1056,6 +1253,7 @@ impl Peer {
     pub fn clear_attached(&self, session_id: &str) {
         self.replay_highwater.lock_or_recover().remove(session_id);
         self.cursors.lock_or_recover().remove(session_id);
+        self.baselined.lock_or_recover().remove(session_id);
     }
 
     /// The link's own attach of the peer's chat `id` ([`hidden_attach`]), marked already. Its
@@ -1064,11 +1262,23 @@ impl Peer {
     /// peer takes no such attach) is no longer marked, so no reconnect asks for it again and the
     /// next prompt attaches it anew, unless a client marked it again while this attach was out:
     /// that client relies on the mark. Any other failure (the link dropped, a timeout, a full
-    /// queue) keeps the mark, and the next link's handshake attaches it again. Its answer, on
-    /// the link it went out on, is the chat's replay baseline.
-    pub async fn attach_hidden(&self, id: &str) -> Result<Value, RpcError> {
-        let ticket = self.attached.lock_or_recover().get(id).copied();
+    /// queue) keeps the mark, and is tried again on the same link while it stays up
+    /// ([`Self::retry_attach`]); the next link's handshake attaches it again in any case. Its
+    /// answer, on the link it went out on, is the chat's replay baseline.
+    pub async fn attach_hidden(self: &Arc<Self>, id: &str) -> Result<Value, RpcError> {
         let link = self.link_epoch();
+        let attached = self.attach_hidden_on(id, link).await;
+        if let Err(e) = &attached
+            && !refuses_attach(e)
+        {
+            self.retry_attach(id, link);
+        }
+        attached
+    }
+
+    /// One [`Self::attach_hidden`] on link `link`, with no retry.
+    async fn attach_hidden_on(&self, id: &str, link: u64) -> Result<Value, RpcError> {
+        let ticket = self.attached.lock_or_recover().get(id).copied();
         let attached = self.request_on(method::MUX_ATTACH, hidden_attach(id), Some(link)).await;
         match &attached {
             Ok(page) if self.link_epoch() == link => self.note_hidden_attach_page(id, page),
@@ -1088,12 +1298,76 @@ impl Peer {
         attached
     }
 
+    /// Chat `id`'s attach on link `link` failed without the peer refusing it (it timed out, the
+    /// queue was full): it streams nothing on this link, and a Cloud chat's output would just
+    /// stop until the next reconnect. It is attached again on the same link, after each of
+    /// [`ATTACH_RETRY_AFTER`] in turn, and once it is, its clients are told to read what they
+    /// missed ([`Self::tell_reattached`]). It stops when the link ends (the next link's
+    /// handshake attaches the chat), when the chat is no longer marked or the peer refuses it,
+    /// when another attach gave the chat a stream meanwhile, or after the last retry; the mark
+    /// stays for the next link.
+    pub(crate) fn retry_attach(self: &Arc<Self>, id: &str, link: u64) {
+        if !self.attach_wanted(id, link)
+            || !self.attach_retries.lock_or_recover().insert(id.to_owned())
+        {
+            return;
+        }
+        let (me, id) = (self.clone(), id.to_owned());
+        self.scope.spawn_until_cancelled("peer-attach-retry", async move {
+            for (n, after) in ATTACH_RETRY_AFTER.iter().enumerate() {
+                tokio::time::sleep(*after).await;
+                if !me.attach_wanted(&id, link) {
+                    break;
+                }
+                match me.attach_hidden_on(&id, link).await {
+                    Ok(_) => {
+                        if me.link_epoch() == link {
+                            me.tell_reattached(&id, link).await;
+                        }
+                        break;
+                    }
+                    Err(e) if refuses_attach(&e) => break,
+                    Err(_) if n + 1 == ATTACH_RETRY_AFTER.len() => {
+                        tracing::warn!(peer = %me.name, session = %id, "the peer's chat was not attached after {} retries; the next link attaches it", n + 1);
+                    }
+                    Err(_) => {}
+                }
+            }
+            me.attach_retries.lock_or_recover().remove(&id);
+        });
+    }
+
+    /// Whether chat `id`, whose attach on link `link` failed, still needs it: that link is up, the
+    /// chat is still marked, and no attach since gave it a stream (which sets its cursor again).
+    fn attach_wanted(&self, id: &str, link: u64) -> bool {
+        self.link_epoch() == link
+            && self.connected.load(Ordering::SeqCst)
+            && self.attached.lock_or_recover().contains_key(id)
+            && !self.cursors.lock_or_recover().contains_key(id)
+    }
+
+    /// Chat `sid` was attached again without history on link `link` ([`REATTACHED_NOTICE`]).
+    async fn tell_reattached(&self, sid: &str, link: u64) {
+        let notice = PeerNotice::Notification {
+            method: REATTACHED_NOTICE.to_owned(),
+            params: json!({"sessionId": sid}),
+            link,
+        };
+        let _ = self.notices.send((self.name.clone(), self.generation, notice)).await;
+    }
+
     /// Advance the reconnect cursor from a page returned by `_acpmux/attach`.
     /// The page's `lastSeq` includes records filtered out by `kinds`, so only
     /// the records actually delivered to the client may advance the cursor.
+    /// An empty page settles the baseline at its `pageThrough` (it holds every record through
+    /// it), so a chat first read with nothing in it is replayed after a reconnect; the caller
+    /// passes one only when the page held everything asked for (`server/peer_forward.rs`). A
+    /// page that says neither settles nothing.
     pub fn note_attached_page(&self, session_id: &str, page: &Value) {
-        let seq = page_max_seq(page).unwrap_or(0);
-        self.note_baseline(session_id, seq);
+        let seq = page_max_seq(page).or_else(|| page.get("pageThrough").and_then(Value::as_u64));
+        if let Some(seq) = seq {
+            self.note_baseline(session_id, seq);
+        }
     }
 
     /// Record an explicit `afterSeq` baseline together with the delivered page.
@@ -1130,6 +1404,7 @@ impl Peer {
             .entry(session_id.to_owned())
             .and_modify(|cursor| *cursor = (*cursor).max(seq))
             .or_insert(seq);
+        self.baselined.lock_or_recover().insert(session_id.to_owned());
     }
 
     /// Advance the cursor for a live event sent on this peer link.
@@ -1169,11 +1444,14 @@ impl Peer {
     ) -> Result<Value, RpcError> {
         // Read before the check: `run` moves the epoch on before it fails what
         // waits, so a request that is registered after that sees the change.
+        // One of any link that is bound to its connection goes again on the next link when
+        // this one switches paths under it (`resend_switched`).
+        let retry = epoch.is_none() && dual::bound(m);
         let epoch = epoch.unwrap_or_else(|| self.link_epoch());
         if !self.connected.load(Ordering::SeqCst) || self.admitting.load(Ordering::SeqCst) {
             return Err(self.unreachable_error());
         }
-        self.link_request_on(m, params, Some(epoch)).await
+        self.send_request_with(m, params, Some(epoch), ListKey::None, retry).await
     }
 
     /// Sends `m` on the link of epoch `epoch` (any link when None), with no check that the
@@ -1200,6 +1478,19 @@ impl Peer {
         epoch: Option<u64>,
         list: ListKey,
     ) -> Result<Value, RpcError> {
+        self.send_request_with(m, params, epoch, list, false).await
+    }
+
+    /// [`Self::send_request`]; `retry`: sent again on the next link if this one switches paths
+    /// before it answers (`peer_carried.rs`).
+    async fn send_request_with(
+        &self,
+        m: &str,
+        params: Value,
+        epoch: Option<u64>,
+        list: ListKey,
+        retry: bool,
+    ) -> Result<Value, RpcError> {
         // One deadline from here: a request that waits for room in the queue (a stalled link,
         // or a full queue ahead of it) times out on the schedule of one the peer is slow to
         // answer, never later.
@@ -1225,6 +1516,13 @@ impl Peer {
         if let Some(session) = params.get("sessionId").and_then(Value::as_str) {
             self.replay_tail.lock_or_recover().remove(session);
         }
+        // A load streams its chat's history: until it answers, the replay goes to the hub as
+        // it comes, never through the merger's drop below the cursor
+        // (`Peer::replay_start`).
+        let replaying = match params.get("sessionId").and_then(Value::as_str) {
+            Some(session) if dual::replays(m) => Some(self.replay_start(session).await),
+            _ => None,
+        };
         if m == method::SESSION_PROMPT
             && let (Some(session), Some(prompt)) = (
                 params.get("sessionId").and_then(Value::as_str),
@@ -1242,11 +1540,13 @@ impl Peer {
         }
         // A request that times out, or whose caller stops waiting, takes its
         // entry with it rather than leaving it until the connection drops.
-        let _forget = ForgetPending {
+        let mut forget = ForgetPending {
             pending: self.pending.clone(),
             on_wire: self.on_wire.clone(),
             prompts: self.prompts.clone(),
             key: Some(key.clone()),
+            cancel: None,
+            carried: self.carried.clone(),
         };
         // The link it was admitted on went down before it was registered: `run`
         // already failed what waited, and the next link drops its frame, so a
@@ -1267,12 +1567,32 @@ impl Peer {
                 *self.pipelined_key.lock_or_recover() = Some(key.clone());
             }
         }
+        // Only this link stamps a `dualId` (`peer_dual.rs`).
+        let mut params = params;
+        dual::drop_foreign_id(&mut params);
         // One frame larger than the peer reads with would drop the link and every chat on it.
         let line = Message::request(id, m, params).bounded_line().map_err(RpcError::too_large)?;
         let tag = epoch.unwrap_or_else(|| self.link_epoch());
+        // The link of `tag` carries it; bound to the link's connection, it is sent again on the
+        // next link if this one switches paths before it answers, never raced on two
+        // (`Peer::resend_switched`). Its entry goes with `forget`.
+        self.carried.lock_or_recover().sent(key.clone(), tag, retry.then(|| line.clone()));
+        // Its client may cancel it from here: every link that still carries it hears
+        // `$/cancel_request`, when the peer says it takes one (an older peer ignores the
+        // notification), and each late answer is dropped and logged either way.
+        let cancel = Some(carried::PeerCancel {
+            out: self.out.clone(),
+            link_epoch: self.link_epoch.clone(),
+            carried: self.carried.clone(),
+            id,
+            method: m.to_owned(),
+            cancelled: self.cancelled.clone(),
+            tell: self.lists(crate::request_cancel::FEATURE),
+            peer: self.name.clone(),
+        });
         let frame = Outbound { epoch: tag, key: Some(key), line };
         match tokio::time::timeout_at(deadline, self.out.send(frame)).await {
-            Ok(Ok(())) => {}
+            Ok(Ok(())) => forget.cancel = cancel,
             Ok(Err(_)) => {
                 return Err(RpcError::internal(format!("peer {} connection closed", self.name)));
             }
@@ -1283,6 +1603,10 @@ impl Peer {
         // across that drop; a forwarder whose client left drops it (`server/peer_forward.rs`).
         let answer =
             if turn_wait { Ok(rx.await) } else { tokio::time::timeout_at(deadline, rx).await };
+        // Its replay came before its answer on the link: the cursor is past it now.
+        if let Some(mark) = replaying {
+            mark.finish().await;
+        }
         match answer {
             // A full disk the peer reports is the peer's, not this machine's (`recovery.rs`).
             // No display line of the peer's own reaches this daemon's clients, on any route that
@@ -1310,7 +1634,41 @@ impl Peer {
         }
     }
 
-    pub async fn notify(&self, m: &str, params: Value) -> Result<(), RpcError> {
+    /// After a link that switched paths: the requests bound to the old link's connection that
+    /// it never answered, sent again on link `link` (`peer_carried.rs`).
+    async fn resend_switched(&self, link: u64) {
+        // Only those an earlier link carried: one made on this link went out on it already.
+        let due: Vec<String> = {
+            let pending = self.pending.lock().await;
+            let due = self.carried.lock_or_recover().bound_before(link);
+            due.into_iter().filter(|key| pending.contains_key(key)).collect()
+        };
+        for key in due {
+            let Ok(permit) = self.out.reserve().await else { return };
+            // Queued under the record's lock: a cancel that took the request first leaves
+            // nothing to send, and one after it finds the request on this link, behind its frame.
+            let mut carried = self.carried.lock_or_recover();
+            let Some(line) = carried.resend(&key, link) else { continue };
+            tracing::debug!(peer = %self.name, key = %key, "sending a bound request again after a path switch");
+            permit.send(Outbound { epoch: link, key: Some(key), line });
+        }
+    }
+
+    /// The peer accepted a prompt (`_acpmux/prompt_accepted`, on the link or the shadow): a
+    /// drop of the link from now on recovers its caller rather than failing it.
+    fn note_prompt_accepted(&self, p: &Value) {
+        let mut prompts = self.prompts.lock_or_recover();
+        for prompt in prompts.values_mut() {
+            if p.get("sessionId").and_then(Value::as_str) == Some(&prompt.session)
+                && p.get("promptId").and_then(Value::as_str) == Some(&prompt.prompt)
+            {
+                prompt.accepted = true;
+            }
+        }
+    }
+
+    pub async fn notify(&self, m: &str, mut params: Value) -> Result<(), RpcError> {
+        dual::drop_foreign_id(&mut params);
         // Read before the check, as in `request`: a frame tagged with a link
         // that went down is dropped by `serve`, never sent on the next one.
         let epoch = self.link_epoch();
@@ -1353,7 +1711,7 @@ impl Peer {
         }
         while !self.stop.load(Ordering::SeqCst) {
             let outcome = self.connect_once(&mut out_rx).await;
-            let restarting = matches!(&outcome, Ok(LinkEnd::Restarting));
+            let restarting = matches!(&outcome, Ok(LinkEnd::Restarting | LinkEnd::Switching));
             let was_ready = self.link().is_ready();
             let notice = self.finish_link(outcome, &mut backoff);
             // A ready link that just died (a dropped network, a wake from sleep) redials at once:
@@ -1407,6 +1765,18 @@ impl Peer {
         backoff: &mut Backoff,
     ) -> Option<PeerNotice> {
         *self.last_error.lock_or_recover() = outcome.as_ref().err().cloned();
+        if matches!(&outcome, Ok(LinkEnd::Switching)) {
+            // Another path of this peer answers: like a restart, its rows stay usable and the
+            // next connect runs at once, but the remote's tokens are still good, and the backoff
+            // stays as it is.
+            self.switched.store(true, Ordering::SeqCst);
+            self.link_ending(true);
+            self.link_ended();
+            self.open.store(false, Ordering::SeqCst);
+            self.connected.store(false, Ordering::SeqCst);
+            self.with_link(|l| l.restarting(crate::store::now_ms()));
+            return Some(PeerNotice::Restarting);
+        }
         self.link_ending(matches!(&outcome, Ok(LinkEnd::Restarting)));
         // The epoch moves first: a finishing handshake cannot leave a dead link ready.
         self.link_ended();
@@ -1439,11 +1809,18 @@ impl Peer {
         let mut pending = self.pending.lock().await;
         while out_rx.try_recv().is_ok() {}
         let on_wire = std::mem::take(&mut *self.on_wire.lock_or_recover());
+        // A link that switched paths keeps the requests bound to its connection: the next link
+        // sends them again (`resend_switched`).
+        let switched = self.switched.swap(false, Ordering::SeqCst);
         let mut survivors = HashMap::new();
         for (key, tx) in pending.drain() {
+            // An accepted prompt is recovered on the next link; a request sent on both paths
+            // waits for the other path's answer (`peer_dual.rs`).
             if !self.stop.load(Ordering::SeqCst)
                 && !tx.is_closed()
-                && self.prompts.lock_or_recover().get(&key).is_some_and(|p| p.accepted)
+                && (self.prompts.lock_or_recover().get(&key).is_some_and(|p| p.accepted)
+                    || self.dual_carried(&key)
+                    || (switched && self.carried.lock_or_recover().is_bound(&key)))
             {
                 survivors.insert(key, tx);
                 continue;
@@ -1459,6 +1836,8 @@ impl Peer {
             }));
         }
         *pending = survivors;
+        // What no live link carries leaves the record, but for what a switch sends again.
+        self.carried.lock_or_recover().link_ended(self.link_epoch(), switched);
     }
 
     /// Rebind the original caller to the ledger's result, never resend its prompt.
@@ -1505,6 +1884,8 @@ impl Peer {
                 }
                 let mut highwater = self.replay_highwater.lock_or_recover();
                 self.cursors.lock_or_recover().insert(sid.clone(), 0);
+                // Replayed from its start: 0 is its baseline now.
+                self.baselined.lock_or_recover().insert(sid.clone());
                 highwater.insert(sid.clone(), 0);
                 after = 0;
                 rewound = true;
@@ -1583,199 +1964,61 @@ impl Peer {
         Ok(())
     }
 
+    /// One link: dial this peer's paths (`peer_carriers.rs`), the one that carried it last
+    /// first and each other one `STAGGER` later, and serve the first that opens until it ends.
     async fn connect_once(
         self: &Arc<Self>,
         out_rx: &mut mpsc::Receiver<Outbound>,
     ) -> Result<LinkEnd, String> {
+        use crate::peer_paths::Via;
         self.facts.lock_or_recover().refused = false;
-        // An SSH peer may source this launch's application credentials over
-        // SSH. Resolve them before WG too, or a remote-origin handshake can
-        // reread a newer peer token and reconnect forever with the old one.
-        let mut ssh_tokens = if self.wireguard.get().is_some() && self.ssh_parts().is_some() {
-            Some(self.connect_tokens().await?)
-        } else {
-            None
-        };
-        let credentials = ssh_tokens
-            .as_ref()
-            .map(|((token, peer), _)| (token.as_str(), peer.as_deref()))
-            .or_else(|| self.token.as_deref().map(|token| (token, self.peer_token.as_deref())));
-        if let Some((transport, address)) = self.wireguard.get()
-            && let Some((token, peer_token)) = credentials
-        {
-            let req = self.ws_request(
-                &format!("ws://localhost:{}", address.port()),
-                Some(token),
-                peer_token,
-            )?;
-            let heard = crate::peer_link::Heard::default();
-            let opening = async {
-                let stream = transport.connect(*address).await.map_err(|e| e.to_string())?;
-                tokio_tungstenite::client_async_with_config(
-                    req,
-                    heard.wrap(stream),
-                    Some(crate::server::ws_config()),
-                )
-                .await
-                .map_err(|e| e.to_string())
-            };
-            let opened = tokio::select! {
-                biased;
-                _ = self.stop_signal.notified() => return Err("peer stopped".to_owned()),
-                result = tokio::time::timeout(self.timings.connect, opening) => result,
-            };
-            if let Ok(Ok((ws, _))) = opened {
-                *self.presented.lock().unwrap_or_else(|e| e.into_inner()) =
-                    peer_token.map(str::to_owned);
-                self.carried_by(crate::protocol::peer_state::Carrier::Direct);
-                return self.serve_heard(ws, out_rx, Some(heard)).await;
-            }
-            tracing::debug!(peer = %self.name, "WireGuard unavailable; trying the configured peer route");
+        #[cfg(test)]
+        if test_dial::refused() {
+            return Err("refused (test)".into());
         }
-        let mut restarted = false;
-        while self.ssh_parts().is_some() {
-            // A first connect with nothing read: the tunnel logs in while the read does, so the
-            // read costs no time of its own. A later one (a redial, a restarted remote that may
-            // not listen yet) opens its tunnel after the read, as one with kept tokens has none.
-            let reading = tokio::time::Instant::now();
-            let mut early = if ssh_tokens.is_none()
-                && self.read_tokens.get().is_none()
-                && !self.linked_once.load(Ordering::SeqCst)
-            {
-                Some(self.open_tunnel().await?)
-            } else {
-                None
-            };
-            let read = match ssh_tokens.take() {
-                Some(tokens) => Ok(tokens),
-                None => self.connect_tokens().await,
-            };
-            let ((token, peer_token), kept) = match read {
-                Ok(tokens) => tokens,
-                Err(error) => {
-                    self.end_tunnel().await;
-                    return Err(error);
-                }
-            };
-            // A read that waited for the remote's peer token (`TOKEN_REREADS`) outlasted the
-            // remote's upgrade deadline (5 s, `server::WS_HANDSHAKE_TIMEOUT`): a new tunnel.
-            if early.is_some() && reading.elapsed() > EARLY_TUNNEL_FOR {
-                early = None;
-                self.end_tunnel().await;
-            }
-            *self.presented.lock().unwrap_or_else(|e| e.into_inner()) = peer_token.clone();
-            let attempt = tokio::time::Instant::now();
-            let may_restart = !restarted && !self.waking();
-            let (stream, remote_port, errors) = match early {
-                Some(tunnel) => tunnel,
-                None => self.open_tunnel().await?,
-            };
-            let heard = crate::peer_link::Heard::default();
-            let mut refused = false;
-            let mut restart = false;
-            let outcome = async {
-                let req = self.ws_request(
-                    &format!("ws://127.0.0.1:{remote_port}"),
-                    Some(&token),
-                    peer_token.as_deref(),
-                )?;
-                // A peer forwards the pane's prompts and their images: the listener's limits.
-                let upgrade = tokio::time::timeout(
-                    self.timings.connect,
-                    tokio_tungstenite::client_async_with_config(
-                        req,
-                        heard.wrap(stream),
-                        Some(crate::server::ws_config()),
-                    ),
-                );
-                tokio::pin!(upgrade);
-                let upgraded = tokio::select! {
-                    upgraded = &mut upgrade => upgraded,
-                    () = self.next_ask_after(attempt + RESTART_AFTER), if may_restart => {
-                        restart = true;
-                        return Err("a client asked while the attempt was still connecting".to_owned());
-                    }
-                };
-                let (ws, _) = upgraded
-                    .map_err(|_| connect_timed_out(self.timings.connect))?
-                    .map_err(|e| {
-                        refused = tokens::refused(&e);
-                        e.to_string()
-                    })?;
-                self.carried_by(crate::protocol::peer_state::Carrier::Ssh);
-                self.serve_heard(ws, out_rx, Some(heard.clone())).await
-            }
-            .await;
-            // End the owned SSH process now, including when its next attempt is an hour away.
+        let (via, opened) = self.open_first().await?;
+        // A losing ssh attempt's process ends now.
+        if via != Via::Ssh {
             self.end_tunnel().await;
-            // A client asked while this attempt, sent while the network may have been down, was
-            // still connecting: once per connect, a new attempt with the same tokens, now.
-            if restart && !self.stop.load(Ordering::SeqCst) {
-                tracing::info!(peer = %self.name, "a client asked while the connect was pending; connecting again");
-                restarted = true;
-                ssh_tokens = Some(((token, peer_token), kept));
-                continue;
-            }
-            if refused {
-                self.token_refused();
-                self.read_tokens.forget();
-                // Kept tokens the remote no longer takes: read them again and retry once, now.
-                if kept && !self.stop.load(Ordering::SeqCst) {
-                    tracing::info!(peer = %self.name, "the remote refused the kept token; reading it again");
-                    continue;
-                }
-            }
-            return match outcome {
-                Ok(end) => Ok(end),
-                Err(error) => {
-                    let reason = errors.finish().await;
-                    self.note_ssh_failure(reason);
-                    Err(ssh_errors::describe(error, reason))
-                }
-            };
         }
-        *self.presented.lock().unwrap_or_else(|e| e.into_inner()) = None;
-        // The peer token never crosses a network in clear.
-        let peer_token = match self.peer_token.as_deref() {
-            Some(_) if !carries_peer_token(&self.url) => {
-                if !self.withheld.swap(true, Ordering::SeqCst) {
-                    tracing::warn!(peer = %self.name, "the peer runs as remote (Web): its transport is plain ws:// to a host that is not loopback, so the peer token is not sent; use ssh:// or wss://");
-                }
-                None
+        *self.presented.lock().unwrap_or_else(|e| e.into_inner()) = opened.presented;
+        self.carried_by(via.carrier().wire());
+        self.set_serving(Some(via));
+        self.start_probes();
+        let heard = Some(opened.heard);
+        let end = match opened.ws {
+            carriers::OpenedWs::Boxed(ws) => self.serve_heard(*ws, out_rx, heard).await,
+            carriers::OpenedWs::Url(ws) => self.serve_heard(*ws, out_rx, heard).await,
+        };
+        self.set_serving(None);
+        self.dual_link_ended();
+        let end = match (end, opened.ssh_errors) {
+            (Err(error), Some(errors)) => {
+                // End the owned SSH process now, including when its next attempt is an hour away.
+                self.end_tunnel().await;
+                let reason = errors.finish().await;
+                self.note_ssh_failure(reason);
+                Err(ssh_errors::describe(error, reason))
             }
-            other => other,
-        };
-        let req = self.ws_request(&self.url, self.token.as_deref(), peer_token)?;
-        let heard = crate::peer_link::Heard::default();
-        // `connect_async`'s steps, with the TCP stream's reads counted (`Heard`).
-        let connect = async {
-            let host = req.uri().host().ok_or_else(|| "the peer URL has no host".to_owned())?;
-            let host = host.trim_start_matches('[').trim_end_matches(']').to_owned();
-            let tls = req.uri().scheme_str() == Some("wss");
-            let port = req.uri().port_u16().unwrap_or(if tls { 443 } else { 80 });
-            let tcp = tokio::net::TcpStream::connect((host.as_str(), port))
-                .await
-                .map_err(|e| e.to_string())?;
-            // A peer forwards the pane's prompts and their images: the listener's limits.
-            tokio_tungstenite::client_async_tls_with_config(
-                req,
-                heard.wrap(tcp),
-                Some(crate::server::ws_config()),
-                None,
-            )
-            .await
-            .map_err(|e| {
-                if tokens::refused(&e) {
-                    self.token_refused();
+            (end, errors) => {
+                if errors.is_some() {
+                    self.end_tunnel().await;
                 }
-                e.to_string()
-            })
+                end
+            }
         };
-        let (ws, _) = tokio::time::timeout(self.timings.connect, connect)
-            .await
-            .map_err(|_| connect_timed_out(self.timings.connect))??;
-        self.carried_by(crate::protocol::peer_state::Carrier::Direct);
-        self.serve_heard(ws, out_rx, Some(heard)).await
+        match end {
+            // The path died while another answers: the link moves there without an outage.
+            Err(error) if !self.stop.load(Ordering::SeqCst) => {
+                self.path_failed(via);
+                if self.another_path_alive(via) && self.link().is_ready() {
+                    tracing::info!(peer = %self.name, via = via.as_str(), "the link's path failed ({error}); moving to another path");
+                    return Ok(LinkEnd::Switching);
+                }
+                Err(error)
+            }
+            end => end,
+        }
     }
 
     fn ws_request(
@@ -1837,7 +2080,8 @@ impl Peer {
         self.open.store(true, Ordering::SeqCst);
         // Gate existing streams before initialize/watch or outcome recovery can
         // produce events. A live record must not move the replay cursor past a gap.
-        let replay_cursors = replayable(&self.cursors.lock_or_recover());
+        let replay_cursors =
+            replayable(&self.cursors.lock_or_recover(), &self.baselined.lock_or_recover());
         *self.replay_highwater.lock_or_recover() = replay_cursors.into_iter().collect();
         self.replay_tail.lock_or_recover().clear();
         *self.last_error.lock_or_recover() = None;
@@ -1921,13 +2165,18 @@ impl Peer {
             set(&me.native_history, crate::hub::NATIVE_HISTORY_FEATURE);
             set(&me.session_auth, crate::hub::session_auth::FEATURE);
             set(&me.person_stop, crate::hub::cancel::PERSON_STOP_FEATURE);
-            set(&me.watch_delta, crate::watch_delta::FEATURE);
             set(&me.pipelines, HANDSHAKE_PIPELINE_FEATURE);
             // The rest are read from the list (`lists`): attachments, uploads, upload status,
             // and holding a prompt for the owner.
             let listed = init.pointer("/_meta/acpmux/features").and_then(Value::as_array);
             let listed = listed.into_iter().flatten().filter_map(Value::as_str);
             *me.features.lock_or_recover() = listed.map(str::to_owned).collect();
+            // Whether this daemon takes this link as its peer principal (`peer_dual.rs`):
+            // its own answer on this connection, read again on each link.
+            if let Some(via) = me.serving() {
+                let principal = init.pointer("/_meta/acpmux/dualPrincipal");
+                me.note_token_path(via, principal == Some(&Value::Bool(true)));
+            }
             let resumes = lists(crate::server::SESSION_RESUME_FEATURE);
             me.session_resume_link.store(if resumes { link + 1 } else { 0 }, Ordering::SeqCst);
             let messages = init
@@ -1937,6 +2186,11 @@ impl Peer {
                     ids.iter().any(|id| id.as_str() == Some(crate::capabilities::SESSION_MESSAGES))
                 });
             me.session_messages.store(messages, Ordering::SeqCst);
+            let follows =
+                init.pointer("/_meta/acpmux/capabilities").and_then(Value::as_array).is_some_and(
+                    |ids| ids.iter().any(|id| id.as_str() == Some(crate::hub::row_log::CAPABILITY)),
+                );
+            me.list_follow.store(follows, Ordering::SeqCst);
             let kept = me.keep_pipelined(pipelined.as_ref(), build.as_ref());
             let _ = kept_tx.send(kept);
             let mut sent = if kept {
@@ -1950,20 +2204,20 @@ impl Peer {
             // `session_changed` notices carry it) or `_acpmux/info`, never in the list. With
             // them one host's list was 23 MB for 3,700 rows (2026-10-31), past the message
             // limit, and every link to it built and was refused one list before reading it
-            // again without them; without them 16.6 MB. A delta is asked for as the list it
-            // patches was read (`known_tools`).
+            // again without them; without them 16.6 MB. A follow is asked for as the list it
+            // patches was read (`cursor_tools`).
             let watch = |tools: bool| json!({"enabled": true, "withTools": tools});
             let row_pages = build.is_some() && *me.row_pages_for.lock_or_recover() == build;
-            // A link that read the list before reads only what changed since (`watch_delta.rs`),
-            // with or without tools as that list was: a daemon serving it as a peer answers
-            // with a delta (`first_watch`). One too large to send is read as the whole list is.
+            // A link that read the list before reads only what changed since its cursor
+            // (`hub/row_log.rs`), with or without tools as that list was (`first_watch`). A peer
+            // that cannot follow it answers with the whole list, marked `reset`.
             let mut answered = None;
             if let Some((asked, tools)) =
-                me.first_watch(build.as_ref()).filter(|(asked, _)| asked.get("known").is_some())
+                me.first_watch(build.as_ref()).filter(|(asked, _)| asked.get("afterSeq").is_some())
             {
                 match me.watch_first(asked, link, sent.take()).await {
                     Err(e) if too_large(&e) => {
-                        tracing::warn!(peer = %me.name, "the watch delta is too large ({}); reading the whole list", e.message);
+                        tracing::warn!(peer = %me.name, "the watch follow is too large ({}); reading the whole list", e.message);
                     }
                     answer => answered = Some((answer?, tools)),
                 }
@@ -1995,11 +2249,12 @@ impl Peer {
             if let Some((first, tools)) = first {
                 me.watch_pages(first, tools, link).await?;
             }
-            // Read whole (its last page too, or the delta): the next delta is asked for as this
-            // list was read (`watch_delta.rs`).
-            me.known_tools.store(tools, Ordering::SeqCst);
+            // Read whole (its last page too, or the follow): the next follow is asked for as this
+            // list was read.
+            me.cursor_tools.store(tools, Ordering::SeqCst);
             me.recover_prompts(link).await?;
-            let attached = replayable(&me.cursors.lock_or_recover());
+            let attached =
+                replayable(&me.cursors.lock_or_recover(), &me.baselined.lock_or_recover());
             // Forwarders can register an attachment during the handshake before
             // request_on refuses their request. Gate those sessions too, without
             // replacing high-water marks already observed on this connection.
@@ -2047,20 +2302,32 @@ impl Peer {
                 "connected to {}",
                 lift_query_token(&me.url).0
             );
+            me.listed_links.lock_or_recover().push_back(link);
             let _ = me.notices.send((me.name.clone(), me.generation, PeerNotice::Connected)).await;
+            // The path it is ready on is the one to dial first next time, also after a restart.
+            me.note_ready_path();
+            // What the last link bound to its connection and never answered, on this one.
+            me.resend_switched(link).await;
             // Several at once: a chat the peer is slow on holds up no other's stream, and a
             // link with many chats does not fill its send queue with them.
             // Chats with a cursor were replayed above; the rest have no baseline yet.
             let attached: Vec<String> = {
                 let marks = me.attached.lock_or_recover();
                 let cursors = me.cursors.lock_or_recover();
-                let replayed = |sid: &String| cursors.get(sid).is_some_and(|c| *c > 0);
+                let baselined = me.baselined.lock_or_recover();
+                let replayed = |sid: &String| {
+                    cursors.get(sid).is_some_and(|c| *c > 0 || baselined.contains(sid))
+                };
                 marks.keys().filter(|sid| !replayed(sid)).cloned().collect()
             };
-            let link = &me;
+            // Each starts its stream anew at the peer's present, so what the peer sent since the
+            // last link is a hole: its clients are told they lagged, and read it themselves.
+            let (peer, epoch) = (&me, link);
             futures::stream::iter(attached.iter())
                 .for_each_concurrent(REATTACHES_AT_ONCE, |sid| async move {
-                    let _ = link.attach_hidden(sid).await;
+                    if peer.attach_hidden(sid).await.is_ok() && peer.link_epoch() == epoch {
+                        peer.tell_reattached(sid, epoch).await;
+                    }
                 })
                 .await;
             me.refresh_health();
@@ -2132,7 +2399,12 @@ impl Peer {
         // The rows of a watch list read in pages so far, and the changes the peer sent
         // meanwhile: published once the last page is in, the list first. A link that drops
         // before then publishes neither, so the hub keeps its last whole list.
-        let mut paged: Option<(Vec<Value>, Vec<PeerNotice>)> = None;
+        let mut paged: Option<(Vec<Arc<str>>, Vec<PeerNotice>)> = None;
+        // The position the watch list read so far is current to (`list_position`), and whether
+        // this link's list reached the hub: until it does, a change moves no cursor, since the
+        // hub holds the last link's list and misses what changed while no link was up.
+        let mut list_at: Option<(String, u64)> = None;
+        let mut listed = false;
         // A reply to this daemon's request: a watch list's (`watch_key`) is published here, before
         // the next frame is read.
         macro_rules! watch_reply {
@@ -2153,20 +2425,12 @@ impl Peer {
                 if let (true, Ok(list)) = (watch, &reply) {
                     let (mut rows, held) = paged.take().unwrap_or_default();
                     rows.extend(watch_sessions(list));
-                    // The whole list a delta stands for; the rows of a whole list,
-                    // kept for the next link's delta (`watch_delta.rs`).
-                    let delta = crate::watch_delta::read_delta(list).map(|(_, removed)| removed);
-                    let last = matches!(page_cursor(list), Ok(None));
-                    match delta {
-                        Some(removed) => {
-                            rows = self
-                                .known
-                                .lock_or_recover()
-                                .patched(std::mem::take(&mut rows), &removed)
-                        }
-                        None if last => self.known.lock_or_recover().listed(&rows),
-                        None => {}
+                    // The position the list is current to comes with its first page (the watch's
+                    // reply); the hub holds it once the last page is applied (`hub/row_log.rs`).
+                    if let Some(at) = list_position(list) {
+                        list_at = Some(at);
                     }
+                    let follow = list.get("follow") == Some(&Value::Bool(true));
                     match page_cursor(list) {
                         // More pages: the handshake asks for them.
                         Ok(Some(_)) => {
@@ -2179,7 +2443,14 @@ impl Peer {
                         Err(_) => {}
                         Ok(None) => {
                             let mut stopped = false;
-                            for notice in std::iter::once(PeerNotice::Sessions(rows)).chain(held) {
+                            *self.list_cursor.lock_or_recover() = list_at.take();
+                            listed = true;
+                            let list = if follow {
+                                PeerNotice::SessionsPatch { rows, gone: gone_ids(list) }
+                            } else {
+                                PeerNotice::Sessions(rows)
+                            };
+                            for notice in std::iter::once(list).chain(held) {
                                 if self
                                     .notices
                                     .send((self.name.clone(), self.generation, notice))
@@ -2287,6 +2558,12 @@ impl Peer {
                     break Err(timed_out(handshake_started));
                 }
                 _ = ping.tick() => {
+                    // The selector moved the session to a faster path: the link moves while no
+                    // request is out on it.
+                    self.paths_tick();
+                    if self.link().is_ready() && self.switch_due() {
+                        break Ok(LinkEnd::Switching);
+                    }
                     let now = tokio::time::Instant::now();
                     let gap = heard.as_ref().map_or_else(|| std::mem::take(&mut frame_gap), Heard::take_gap);
                     let (was, silence) = self.with_silence(|b| {
@@ -2308,7 +2585,8 @@ impl Peer {
                     }
                     check_wake!();
                     let until = write_deadline(tokio::time::Instant::now(), budget, wake_probe);
-                    match tokio::time::timeout_at(until, sink.send(Frame::Ping(Vec::new().into()))).await {
+                    // Stamped, so its pong measures this path's round trip (`peer_paths.rs`).
+                    match tokio::time::timeout_at(until, sink.send(Frame::Ping(carriers::ping_stamp().into()))).await {
                         Ok(Ok(())) => {}
                         Ok(Err(e)) => break Err(e.to_string()),
                         Err(_) => break Err(write_late(budget, wake_probe)),
@@ -2348,6 +2626,12 @@ impl Peer {
                             break Ok(LinkEnd::Restarting);
                         }
                         Frame::Close(_) => break Err("peer closed the connection".to_owned()),
+                        Frame::Pong(payload) => {
+                            if let (Some(rtt), Some(via)) = (carriers::pong_rtt(&payload), self.serving()) {
+                                self.path_pong(via, rtt);
+                            }
+                            continue;
+                        }
                         _ => continue,
                     };
                     let msg = match Message::parse(&text) {
@@ -2364,7 +2648,10 @@ impl Peer {
                             // Not held while a notice waits for room: a caller registers under it.
                             let tx = self.pending.lock().await.remove(&key);
                             self.on_wire.lock_or_recover().remove(&key);
-                            let Some(tx) = tx else { continue };
+                            let Some(tx) = tx else {
+                                self.cancelled.lock_or_recover().take_late(&key, "peer");
+                                continue;
+                            };
                             let reply = match error { Some(e) => Err(e), None => Ok(result.unwrap_or(Value::Null)) };
                             // A watch sent with `initialize` waits for the handshake to read that
                             // reply, and the changes after it wait with it (`paged`).
@@ -2393,12 +2680,7 @@ impl Peer {
                             // Record before publishing the acceptance: a link can drop before the
                             // hub consumes its notice, but the original client still owns the turn.
                             if m == method::MUX_PROMPT_ACCEPTED {
-                                let mut prompts = self.prompts.lock_or_recover();
-                                for prompt in prompts.values_mut() {
-                                    if p.get("sessionId").and_then(Value::as_str) == Some(&prompt.session)
-                                        && p.get("promptId").and_then(Value::as_str) == Some(&prompt.prompt)
-                                    { prompt.accepted = true; }
-                                }
+                                self.note_prompt_accepted(&p);
                             }
                             let cursor_event = matches!(m.as_str(), method::MUX_EVENT | method::SESSION_UPDATE)
                                 .then(|| {
@@ -2410,12 +2692,37 @@ impl Peer {
                             // A live frame can have been queued before the final replay page,
                             // yet be read after the gate opens. Its sequence already arrived.
                             if let Some((id, seq)) = &cursor_event {
-                                let mut tails = self.replay_tail.lock_or_recover();
-                                match tails.get(id) {
-                                    Some(tail) if *seq > 0 && tail >= seq => continue,
-                                    Some(_) => { tails.remove(id); }
-                                    None => {}
+                                let replayed = {
+                                    let mut tails = self.replay_tail.lock_or_recover();
+                                    match tails.get(id) {
+                                        Some(tail) if *seq > 0 && tail >= seq => true,
+                                        Some(_) => { tails.remove(id); false }
+                                        None => false,
+                                    }
+                                };
+                                if replayed {
+                                    continue;
                                 }
+                                // Sent on two paths while this one was in doubt: one merger
+                                // hands each event to the hub once and in order, and moves the
+                                // cursor as it does (`peer_dual.rs`).
+                                let link = self.link_epoch();
+                                let merged =
+                                    self.merge_event(id, *seq, m, p, dual::Source::Link, link).await;
+                                if merged == dual::Merged::Closed {
+                                    break Ok(LinkEnd::Stopped);
+                                }
+                                continue;
+                            }
+                            // Only the link itself says a chat was attached again.
+                            if m == REATTACHED_NOTICE {
+                                continue;
+                            }
+                            // The peer left out notices (a full queue, one too large, a lagging
+                            // reader): the hub's copy is no longer current to any position, so
+                            // the next link reads the whole list.
+                            if m == "_acpmux/lagged" {
+                                *self.list_cursor.lock_or_recover() = None;
                             }
                             let notice = if m == method::MUX_SESSION_CHANGED {
                                 let session = p.get("session").cloned().unwrap_or(Value::Null);
@@ -2426,6 +2733,14 @@ impl Peer {
                                     || is_mirrored_session(&session)
                                 {
                                     continue;
+                                }
+                                // The hub's copy of the list is current to here, once this link's
+                                // list reached it (`listed`).
+                                if listed
+                                    && let Some(seq) = p.get("listSeq").and_then(Value::as_u64)
+                                    && let Some((_, at)) = self.list_cursor.lock_or_recover().as_mut()
+                                {
+                                    *at = (*at).max(seq);
                                 }
                                 PeerNotice::SessionChanged {
                                     session,
@@ -2487,6 +2802,8 @@ impl Peer {
                         self.on_wire.lock_or_recover().insert(key.clone());
                     }
                     let text = line.trim_end_matches('\n').to_owned();
+                    // While this path is in doubt the frame goes on another path too.
+                    let text = self.dual_copy(text, prompt_key.map(String::as_str), link);
                     let until = write_deadline(tokio::time::Instant::now(), budget, wake_probe);
                     match tokio::time::timeout_at(until, sink.send(Frame::Text(text.into()))).await {
                         Ok(Ok(())) => {
@@ -2530,11 +2847,27 @@ fn lends_over(url: &str) -> bool {
 /// How many of a link's chats its handshake attaches again at once after a reconnect.
 const REATTACHES_AT_ONCE: usize = 16;
 
-/// The chats a reconnect replays from their cursor. A cursor still at 0 has no baseline yet (its
-/// first attach did not answer, or an older peer gave no `pageThrough`): replaying it would send
-/// its whole history again as live events, so it is attached without history after connect.
-fn replayable(cursors: &HashMap<String, u64>) -> Vec<(String, u64)> {
-    cursors.iter().filter(|(_, c)| **c > 0).map(|(sid, c)| (sid.clone(), *c)).collect()
+/// How long a link waits before each attach it tries again after one failed on it
+/// ([`Peer::retry_attach`]): about a minute in all, then the chat waits for the next link.
+const ATTACH_RETRY_AFTER: [Duration; 6] = [
+    Duration::from_secs(1),
+    Duration::from_secs(2),
+    Duration::from_secs(4),
+    Duration::from_secs(8),
+    Duration::from_secs(16),
+    Duration::from_secs(30),
+];
+
+/// The chats a reconnect replays from their cursor. A cursor still at 0 has no baseline yet
+/// unless a page settled it (`baselined`: the chat held nothing then); one with none (its first
+/// attach did not answer, or an older peer gave no `pageThrough`) would send its whole history
+/// again as live events if replayed, so it is attached without history after connect.
+fn replayable(cursors: &HashMap<String, u64>, baselined: &HashSet<String>) -> Vec<(String, u64)> {
+    cursors
+        .iter()
+        .filter(|(sid, c)| **c > 0 || baselined.contains(*sid))
+        .map(|(sid, c)| (sid.clone(), *c))
+        .collect()
 }
 
 /// The greatest event sequence an `_acpmux/attach` page holds, if it holds any.
@@ -2551,19 +2884,35 @@ fn page_max_seq(page: &Value) -> Option<u64> {
 /// the peer takes no such request. The link's own failures (dropped, timed out, too large, a
 /// full queue) are internal errors or carry `peer_unreachable` / `peer_disconnected`, never
 /// these codes.
-fn refuses_attach(e: &RpcError) -> bool {
+pub(crate) fn refuses_attach(e: &RpcError) -> bool {
     matches!(e.code, -32002 | -32601 | -32602)
 }
 
-/// The sessions an `_acpmux/watch` reply lists, without the rows the peer itself mirrors.
-fn watch_sessions(reply: &Value) -> Vec<Value> {
+/// The list position an `_acpmux/watch` reply is current to (`hub/row_log.rs`): its
+/// `listEpoch` and `listSeq`; None from a peer that keeps no row log.
+fn list_position(reply: &Value) -> Option<(String, u64)> {
+    let epoch = reply.get("listEpoch").and_then(Value::as_str)?;
+    Some((epoch.to_owned(), reply.get("listSeq").and_then(Value::as_u64)?))
+}
+
+/// The peer's own ids of the rows a follow says went, without the rows it mirrors.
+fn gone_ids(reply: &Value) -> Vec<String> {
+    let gone = reply.get("gone").and_then(Value::as_array).into_iter().flatten();
+    gone.filter(|row| row.get("peer").is_none_or(Value::is_null))
+        .filter_map(|row| row.get("sessionId").and_then(Value::as_str).map(str::to_owned))
+        .collect()
+}
+
+/// The sessions an `_acpmux/watch` reply lists, without the rows the peer itself mirrors, each
+/// as its text: no row is copied as a `Value`.
+fn watch_sessions(reply: &Value) -> Vec<Arc<str>> {
     reply
         .get("sessions")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .filter(|session| !is_mirrored_session(session))
-        .cloned()
+        .filter(|session| session.is_object() && !is_mirrored_session(session))
+        .map(row_text)
         .collect()
 }
 
@@ -2625,22 +2974,21 @@ impl Peer {
         }
     }
 
-    /// [`Self::watch_request_on`], asked again after the wait a peer's `list.paced` refusal
-    /// names (a pre-#28182 peer refuses a list it would make wait more than 30 s). The
-    /// handshake's deadline bounds the retries.
     /// The first `_acpmux/watch` a handshake asks for, and whether with tools, as the link knows
-    /// the peer now: a delta of the list the last link read when the peer serves this daemon as
-    /// a peer and answers with one, else the whole list without tools; None when the list is
-    /// read in pages of rows (`build` needed them last time).
+    /// the peer now: what changed after the cursor of the list the hub holds when the peer
+    /// serves this daemon as a peer and follows its list (`hub/row_log.rs`), else the whole list
+    /// without tools; None when the list is read in pages of rows (`build` needed them last
+    /// time).
     fn first_watch(&self, build: Option<&String>) -> Option<(Value, bool)> {
         let watch = |tools: bool| json!({"enabled": true, "withTools": tools});
-        let delta =
-            self.watch_delta.load(Ordering::SeqCst) && self.served_as().as_deref() == Some("peer");
-        let known = delta.then(|| self.known.lock_or_recover().to_param());
-        if let Some(known) = known.filter(|k| k.as_object().is_some_and(|k| !k.is_empty())) {
-            let tools = self.known_tools.load(Ordering::SeqCst);
+        let follows =
+            self.list_follow.load(Ordering::SeqCst) && self.served_as().as_deref() == Some("peer");
+        let cursor = follows.then(|| self.list_cursor.lock_or_recover().clone()).flatten();
+        if let Some((epoch, after)) = cursor {
+            let tools = self.cursor_tools.load(Ordering::SeqCst);
             let mut asked = watch(tools);
-            asked.set("known", known);
+            asked.set("afterSeq", json!(after));
+            asked.set("listEpoch", Value::String(epoch));
             return Some((asked, tools));
         }
         let row_pages = build.is_some() && self.row_pages_for.lock_or_recover().as_ref() == build;
@@ -2692,6 +3040,10 @@ impl Peer {
         }
     }
 
+    /// [`Self::watch_request_on`], asked again after the wait a peer's `list.paced` refusal
+    /// names: a daemon from before its pacer was deleted (W4, 2026-11-12) refuses a list it would
+    /// make wait more than 30 s. This one never refuses. The handshake's deadline bounds the
+    /// retries.
     async fn watch_paced(&self, m: &str, params: Value, link: u64) -> Result<Value, RpcError> {
         loop {
             match self.watch_request_on(m, params.clone(), link).await {
@@ -3044,6 +3396,10 @@ struct ForgetPending {
     on_wire: OnWire,
     prompts: Arc<StdMutex<HashMap<String, PendingPrompt>>>,
     key: Option<String>,
+    /// Set once its frame is queued to the peer: what a cancel of it needs.
+    cancel: Option<carried::PeerCancel>,
+    /// Its carriers (`peer_carried.rs`): its entry goes with it.
+    carried: Arc<StdMutex<carried::Carriers>>,
 }
 
 impl Drop for ForgetPending {
@@ -3051,12 +3407,25 @@ impl Drop for ForgetPending {
         let Some(key) = self.key.take() else { return };
         self.on_wire.lock_or_recover().remove(&key);
         self.prompts.lock_or_recover().remove(&key);
+        // Its client cancelled it: its entry goes first, and the peer hears the cancel on every
+        // link that still carries it, only if it still owed the answer (review F1 of #41285).
+        // An answer that took the entry first went to a waiter that is gone, and is dropped as
+        // late. The cancel takes its carriers itself (`PeerCancel::cancel`).
+        let cancel = self.cancel.take().filter(|_| crate::request_cancel::requested());
+        let carried = self.carried.clone();
+        let forget = move |map: &mut HashMap<String, _>| {
+            let owed = map.remove(&key).is_some();
+            match cancel {
+                Some(cancel) => cancel.cancel(&key, owed),
+                None => carried.lock_or_recover().forget(&key),
+            }
+        };
         if let Ok(mut map) = self.pending.try_lock() {
-            map.remove(&key);
+            forget(&mut map);
         } else if let Ok(rt) = tokio::runtime::Handle::try_current() {
             let pending = self.pending.clone();
             rt.spawn(async move {
-                pending.lock().await.remove(&key);
+                forget(&mut *pending.lock().await);
             });
         }
     }
@@ -3185,6 +3554,153 @@ mod link_epoch_tests {
         .expect("a prompt on a dead link must not wait");
         assert!(answer.is_err());
         assert_eq!(peer.pending_requests().await, 0, "no entry left behind");
+    }
+
+    /// A forwarded request its client cancels (`request_cancel.rs`): the peer hears
+    /// `$/cancel_request` for its id on the link it went out on, nothing waits on it any more,
+    /// and its id is kept so the late answer is dropped on purpose.
+    #[tokio::test]
+    async fn a_cancelled_request_tells_the_peer_and_waits_for_nothing() {
+        let (tx, _rx) = mpsc::channel(8);
+        let peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+        peer.connected.store(true, Ordering::SeqCst);
+        peer.open.store(true, Ordering::SeqCst);
+        peer.features.lock_or_recover().push(crate::request_cancel::FEATURE.to_owned());
+        let mut out = peer.out_rx.lock().await.take().unwrap();
+        let (cancel, cancelled) = oneshot::channel();
+        let asking = peer.clone();
+        let task = tokio::spawn(async move {
+            crate::request_cancel::until_cancelled(
+                cancelled,
+                asking.request(method::MUX_INFO, json!({"sessionId": "s"})),
+            )
+            .await
+        });
+        let sent = tokio::time::timeout(Duration::from_secs(5), out.recv()).await.unwrap().unwrap();
+        let request: Value = serde_json::from_str(&sent.line).unwrap();
+        assert_eq!(peer.pending_requests().await, 1);
+        cancel.send(()).unwrap();
+        assert!(task.await.unwrap().is_none(), "the request gave up");
+        let note = tokio::time::timeout(Duration::from_secs(5), out.recv()).await.unwrap().unwrap();
+        let note: Value = serde_json::from_str(&note.line).unwrap();
+        assert_eq!(note["method"], method::CANCEL_REQUEST);
+        assert_eq!(note["params"]["requestId"], request["id"]);
+        assert_eq!(peer.pending_requests().await, 0, "no entry left behind");
+        let key = request["id"].to_string();
+        assert!(peer.cancelled.lock_or_recover().take_late(&key, "peer"), "its answer is dropped");
+    }
+
+    /// Review F1 of #41285: the peer's answer comes between the cancel and the cleanup of its
+    /// entry (the pending map was busy as the request was dropped). It reaches a waiter that is
+    /// gone, so it is dropped and logged as late, never lost unlogged, and a peer that already
+    /// answered hears no cancel.
+    #[tokio::test]
+    async fn an_answer_between_the_cancel_and_the_cleanup_is_dropped_as_late() {
+        let (tx, _rx) = mpsc::channel(8);
+        let peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+        peer.connected.store(true, Ordering::SeqCst);
+        peer.open.store(true, Ordering::SeqCst);
+        peer.features.lock_or_recover().push(crate::request_cancel::FEATURE.to_owned());
+        let mut out = peer.out_rx.lock().await.take().unwrap();
+        let (cancel, cancelled) = oneshot::channel();
+        let asking = peer.clone();
+        let task = tokio::spawn(async move {
+            crate::request_cancel::until_cancelled(
+                cancelled,
+                asking.request(method::MUX_INFO, json!({"sessionId": "s"})),
+            )
+            .await
+        });
+        let sent = tokio::time::timeout(Duration::from_secs(5), out.recv()).await.unwrap().unwrap();
+        let request: Value = serde_json::from_str(&sent.line).unwrap();
+        let key = request["id"].to_string();
+        let mut busy = peer.pending.lock().await;
+        cancel.send(()).unwrap();
+        assert!(task.await.unwrap().is_none(), "the request gave up");
+        // The link's reader takes the answer's entry while the cleanup waits for the map.
+        let waiter = busy.remove(&key).expect("the entry is still there");
+        assert!(waiter.send(Ok(json!({}))).is_err(), "its waiter is gone");
+        drop(busy);
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        while peer.cancelled.lock_or_recover().dropped == 0
+            && tokio::time::Instant::now() < deadline
+        {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(peer.cancelled.lock_or_recover().dropped, 1, "dropped as late, and logged");
+        assert!(peer.cancelled.lock_or_recover().is_empty(), "no id kept for an answer that came");
+        assert_eq!(peer.pending_requests().await, 0);
+        assert!(out.try_recv().is_err(), "a peer that answered hears no cancel");
+    }
+
+    /// Review F2 of #41285: a cancel to a peer whose outbound queue is full is never dropped:
+    /// it goes out once there is room (an awaited send).
+    #[tokio::test]
+    async fn a_cancel_to_a_peer_with_a_full_queue_still_goes_out() {
+        let (tx, _rx) = mpsc::channel(8);
+        let peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+        peer.connected.store(true, Ordering::SeqCst);
+        peer.open.store(true, Ordering::SeqCst);
+        peer.features.lock_or_recover().push(crate::request_cancel::FEATURE.to_owned());
+        let mut out = peer.out_rx.lock().await.take().unwrap();
+        let (cancel, cancelled) = oneshot::channel();
+        let asking = peer.clone();
+        let task = tokio::spawn(async move {
+            crate::request_cancel::until_cancelled(
+                cancelled,
+                asking.request(method::MUX_INFO, json!({"sessionId": "s"})),
+            )
+            .await
+        });
+        let sent = tokio::time::timeout(Duration::from_secs(5), out.recv()).await.unwrap().unwrap();
+        let request: Value = serde_json::from_str(&sent.line).unwrap();
+        let mut filler = 0;
+        while peer
+            .out
+            .try_send(Outbound { epoch: sent.epoch, key: None, line: "{}".into() })
+            .is_ok()
+        {
+            filler += 1;
+        }
+        assert!(filler > 0, "the queue was filled");
+        cancel.send(()).unwrap();
+        assert!(task.await.unwrap().is_none(), "the request gave up");
+        for _ in 0..filler {
+            let frame = out.recv().await.unwrap();
+            assert_eq!(frame.line, "{}");
+        }
+        let note = tokio::time::timeout(Duration::from_secs(5), out.recv())
+            .await
+            .expect("the cancel went out once there was room")
+            .unwrap();
+        let note: Value = serde_json::from_str(&note.line).unwrap();
+        assert_eq!(note["method"], method::CANCEL_REQUEST);
+        assert_eq!(note["params"]["requestId"], request["id"]);
+        assert_eq!(peer.pending_requests().await, 0);
+    }
+
+    /// A peer that does not list the feature hears nothing more: an older daemon.
+    #[tokio::test]
+    async fn an_older_peer_gets_no_cancel_frame() {
+        let (tx, _rx) = mpsc::channel(8);
+        let peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+        peer.connected.store(true, Ordering::SeqCst);
+        peer.open.store(true, Ordering::SeqCst);
+        let mut out = peer.out_rx.lock().await.take().unwrap();
+        let (cancel, cancelled) = oneshot::channel();
+        let asking = peer.clone();
+        let task = tokio::spawn(async move {
+            crate::request_cancel::until_cancelled(
+                cancelled,
+                asking.request(method::MUX_INFO, json!({"sessionId": "s"})),
+            )
+            .await
+        });
+        tokio::time::timeout(Duration::from_secs(5), out.recv()).await.unwrap().unwrap();
+        cancel.send(()).unwrap();
+        assert!(task.await.unwrap().is_none());
+        assert!(tokio::time::timeout(Duration::from_millis(200), out.recv()).await.is_err());
+        assert_eq!(peer.pending_requests().await, 0);
     }
 
     /// Review of #24797 at 45ab6b1: lending was on for a plain `ws://` peer on another host, so
@@ -3410,5 +3926,40 @@ mod watch_order_tests {
         assert!(rows.is_empty(), "the purged row came back: {rows:?}");
         serving.abort();
         fake.abort();
+    }
+}
+
+/// Every dial on this thread fails at once, with no socket, and is recorded, so a test drives
+/// the whole run loop (`Peer::run`) under paused time and reads when each attempt went.
+#[cfg(test)]
+pub(crate) mod test_dial {
+    use std::cell::RefCell;
+
+    /// One dial: its monotonic instant and its wall-clock millisecond.
+    pub(crate) type Attempt = (tokio::time::Instant, u64);
+
+    thread_local!(static ATTEMPTS: RefCell<Option<Vec<Attempt>>> = const { RefCell::new(None) });
+
+    pub(crate) fn refuse_all() {
+        ATTEMPTS.with(|a| *a.borrow_mut() = Some(Vec::new()));
+    }
+
+    /// The dials so far; dials keep failing.
+    pub(crate) fn attempts() -> Vec<Attempt> {
+        ATTEMPTS.with(|a| a.borrow().clone().unwrap_or_default())
+    }
+
+    /// Dials go out for real again.
+    pub(crate) fn clear() {
+        ATTEMPTS.with(|a| *a.borrow_mut() = None);
+    }
+
+    pub(super) fn refused() -> bool {
+        ATTEMPTS.with(|a| {
+            let mut a = a.borrow_mut();
+            let Some(list) = a.as_mut() else { return false };
+            list.push((tokio::time::Instant::now(), crate::store::now_ms()));
+            true
+        })
     }
 }

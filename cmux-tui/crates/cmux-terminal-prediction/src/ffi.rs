@@ -227,6 +227,19 @@ pub unsafe extern "C" fn cmux_terminal_prediction_missed_output(
     with(prediction, false, |prediction| prediction.engine().missed_output(instant(now_us)))
 }
 
+/// The grid or the font changed under the glyphs with no output lost (a
+/// resize): what is drawn goes, and what the engine knows of the screen stays.
+///
+/// # Safety
+/// `prediction` is null or a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_terminal_prediction_layout_changed(
+    prediction: *const CmuxTerminalPrediction,
+    now_us: u64,
+) -> bool {
+    with(prediction, false, |prediction| prediction.engine().layout_changed(instant(now_us)))
+}
+
 /// A rendered frame reached the screen: held confirmations retire.
 ///
 /// # Safety
