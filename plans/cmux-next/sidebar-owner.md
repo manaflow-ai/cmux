@@ -2177,3 +2177,10 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
 - 2026-11-12 (https://github.com/manaflow-ai/cmux/issues/42373, Austin: "no label between pinned rows and the workspace
   list"): the one list's quiet "Workspaces" heading and its `sidebar.listHeading` toggle are gone; the first workspace
   row sits one row gap under the last pin. Regression: `SidebarTopRowsRhythmTests`. Sidebar-Look: no heading under the pins.
+- 2026-11-12 (a1158): the Update Ready card's What's New popup opens after a 500 ms rest on the card
+  (`SidebarUpdateCardView.notesOpenDelay`), not on the first enter or move; leaving first cancels it, a click opens
+  (and pins) it at once, and a popup still closing stays when the pointer comes back. Lawrence, verbatim (msg 30807):
+  "hovering on update should wait longer beefore opening the card to the right". Regression:
+  `UpdateReadyCardLayoutTests.aPassOverTheCardOpensNothing`, `restingOnTheCardOpensThePopupAfterTheDelayAndAClickAtOnce`.
+  Captures: `scripts/cmux-next/media/states/update-card-hover-early.json`, `update-card-hover-rested.json`.
+  Sidebar-Look: the update card's popup waits for a rest before it opens.
