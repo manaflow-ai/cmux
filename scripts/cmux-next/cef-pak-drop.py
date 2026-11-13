@@ -17,7 +17,14 @@ resources.pak:
   arrays in its data segments): a page's map is the run of entries with
   consecutive ids, and it goes only when the top-level .html files of that
   run are exactly one group of WEBUI_PAGES. An id that any other map also
-  lists, or that the header names, stays.
+  lists, or that the header names, stays. So does every entry Chromium's native
+  code may load as an image (native_image): a raster image (PNG, JPEG, GIF,
+  WebP) or a native Lottie, plain or gzip, and any entry whose compression the
+  script cannot read. A missing bitmap is LOG(FATAL) ("Unable to load bitmap
+  image with id N"); the omnibox popup's images/create_images.png (20900) is
+  one such entry, and dropping it crashed every launch (PR 42293). After the
+  trim the script checks that every such entry is still there and fails the
+  build when one is gone.
 
 locale.pak (--strings): the strings of STRING_PREFIXES (Chrome features
 cmux does not have) become empty. Their ids stay in the table, because
@@ -33,6 +40,7 @@ names, no maps or a pak in another format it prints a warning and leaves the
 file as it is. A missing resource id has no entry, and Chromium's resource
 bundle answers an empty resource for it.
 """
+import gzip
 import os
 import re
 import struct
@@ -223,6 +231,34 @@ def string_ids(header_text):
             if name.startswith(STRING_PREFIXES) and not name.startswith(KEEP_PREFIXES) and name not in KEEP_STRINGS}
 
 
+# Leading bytes of the entries Chromium's native code may decode as an image.
+IMAGE_MAGICS = (b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff", b"GIF87a", b"GIF89a", b"LOTTIE")
+GZIP_MAGIC = b"\x1f\x8b"
+BROTLI_MAGIC = b"\x1e\x9b"  # grit's brotli header; Python cannot read brotli
+
+
+def native_image(data):
+    """True when native code may load data as an image (a missing bitmap is LOG(FATAL)):
+    a raster image or native Lottie, plain or gzip, or an entry the script cannot read."""
+    if data.startswith(GZIP_MAGIC):
+        try:
+            data = gzip.decompress(data)
+        except (OSError, EOFError, ValueError):
+            return True
+    elif data.startswith(BROTLI_MAGIC):
+        return True
+    return data.startswith(IMAGE_MAGICS) or (data[:4] == b"RIFF" and data[8:12] == b"WEBP")
+
+
+def lost_images(before, after):
+    """Ids of entries native code may load as an image that are in pak before, not after."""
+    _, entries, aliases = parse(before)
+    images = {rid for rid, data in entries if native_image(data)}
+    images |= {rid for rid, idx in aliases if native_image(entries[idx][1])}
+    _, kept, kept_aliases = parse(after)
+    return sorted(images - {rid for rid, _ in kept} - {rid for rid, _ in kept_aliases})
+
+
 # --- WebUI resource maps in the framework binary --------------------------------------------
 
 CPU_ARM64, CPU_X86_64 = 0x0100000C, 0x01000007
@@ -372,7 +408,13 @@ def trim_resources(pak_path, header_path, framework):
         except (OSError, ValueError, struct.error, IndexError) as error:
             print(f"warning: cef-pak-drop: {framework}: {error}; resources.pak keeps its pages")
             pages = {}
-    new, dropped = remove(pak, lambda rid, data: (rid in sounds and data.startswith(MAGIC)) or rid in pages)
+    new, dropped = remove(pak, lambda rid, data: (rid in sounds and data.startswith(MAGIC))
+                          or (rid in pages and not native_image(data)))
+    lost = lost_images(pak, new)
+    if lost:
+        print(f"error: cef-pak-drop: the trim would drop {len(lost)} image resources native code may load"
+              f" ({', '.join(map(str, lost[:20]))}); a missing bitmap crashes Chromium at launch", file=sys.stderr)
+        return 1
     if not dropped:
         print(f"note: cef-pak-drop: nothing to drop in {pak_path}")
         return 0

@@ -276,6 +276,13 @@ def test_bitmaps_and_native_lottie_of_a_dropped_page_stay():
         assert all(after[rid] == data[rid] for rid in after)
 
 
+def test_the_build_guard_names_a_lost_image():
+    before = pak([(1, PNG), (2, b"js()"), (3, b"\x1e\x9b" + b"br" * 4)], [(4, 0)])
+    after = pak([(2, b"js()")])
+    assert tool.lost_images(before, after) == [1, 3, 4]
+    assert tool.lost_images(before, before) == []
+
+
 if __name__ == "__main__":
     tests = [value for name, value in sorted(globals().items()) if name.startswith("test_")]
     for test in tests:
