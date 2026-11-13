@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43359423487",
+  "recorded_at": "2026-11-13T03:42:38Z",
+  "reason": "cmux-tui dd4a8e85a4dc changes the image's cmux-tui (pinned eac9a0757c27)",
+  "dry_run": false,
+  "cmux_tui": "dd4a8e85a4dc16a8e8f28e6aeab011c06372b321",
+  "fixes": [
+    {
+      "sha": "7fe4cb3f401bc644f4a956a66a8d83dca4d5dd3a",
+      "mergedAt": "2026-11-12T19:06:04-08:00",
+      "subject": "Toggle Terminal and Chat (step A): the Rust route and catalog row for swapping an agent session between its terminal and its chat (#41954)"
+    },
+    {
+      "sha": "c476fdfd34938fdae50039bda7eb7e110bfbdab9",
+      "mergedAt": "2026-11-12T18:56:56-08:00",
+      "subject": "fix(cmux-tui): journal maintenance keeps 64 MiB of free pages instead of vacuuming every tick"
+    },
+    {
+      "sha": "6fbe8d65fb4616c6a28960bfd15940a29db3cbd8",
+      "mergedAt": "2026-11-12T18:56:56-08:00",
+      "subject": "test(cmux-tui): journal maintenance must not vacuum a small free-page backlog"
+    },
+    {
+      "sha": "515916acfd749c788b5b25aced8fa749cf085379",
+      "mergedAt": "2026-11-13T02:54:10Z",
+      "subject": "agent service v2 PR 5: the index and the list stream (#42133)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T03:42:38Z",
+    "snapshot_id": "sh-4cb8fd3f20cd4407ad748f1a092a102f",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43359423487): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "32387d368432627f59212ffff7828276f81e949b",
+    "image": "cloud-native-auto-dd4a8e85-43359423487-1",
+    "revision": "ci-43359423487-1",
+    "at": "2026-11-13T03:42:38Z"
+  },
+  "rolled_back": false
+}
