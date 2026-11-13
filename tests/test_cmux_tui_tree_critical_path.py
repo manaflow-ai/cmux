@@ -295,7 +295,7 @@ def main():
     _check("build-ok" not in all_jobs, "no build-ok job between the build and publish")
     publish = all_jobs["publish"]
     base = dict(owns, **{"__needs__": needs(publish), "needs.build-darwin-fallback.result": "skipped",
-                         "needs.darwin-fallback-plan.result": "skipped", "needs.build-linux.result": "success"})
+                         "needs.darwin-fallback-plan.result": "skipped"})
     for build, fallback, recovered, expected in (("success", "skipped", "", True), ("failure", "success", "false", True),
                                                  ("failure", "skipped", "true", True), ("failure", "failure", "false", False),
                                                  ("failure", "skipped", "", False), ("skipped", "skipped", "", False)):
@@ -305,9 +305,10 @@ def main():
                f"publish with build {build}, fallback {fallback}, recovered {recovered or '-'}: {'runs' if expected else 'skipped'}")
         _check(evaluate(all_jobs["sentry-dsyms"]["if"], values) == expected,
                f"sentry-dsyms with build {build}, fallback {fallback}: {'runs' if expected else 'skipped'}")
-    # The Linux targets build in build-linux: publish never runs without them.
-    _check(not evaluate(publish["if"], dict(base, **{"needs.build.result": "success", "needs.build-linux.result": "failure"})),
-           "publish with build success and build-linux failure: skipped")
+    # The shipped Linux targets build fat in `build`; build-linux is the Cloud machine channel's thin
+    # copy, which publish never reads or waits for.
+    _check("build-linux" not in needs(publish), "publish never waits for the machine channel's thin build-linux")
+    _check("build-linux" not in str(publish["if"]), "publish never reads build-linux's result")
 
     # 3b. FALLBACK_AFTER_TIMEOUT: the macOS fallback is planned after a build that its timeout cancelled
     # (2026-11-13, run 43346255778: the leg on an owned Mac ended `cancelled`, the plan read only `failure`,
@@ -320,8 +321,10 @@ def main():
                f"darwin-fallback-plan after build {build}: {'runs' if expected else 'skipped'}")
     _check(not evaluate(plan["if"], dict(planned, **{"needs.build.result": "cancelled"}), cancelled=True),
            "darwin-fallback-plan plans nothing in a cancelled run")
-    _check(not evaluate(plan["if"], dict(planned, **{"needs.build.result": "cancelled",
-                                                     "needs.build-linux.result": "failure"})),
+    # The Linux targets build in `build` too (fat, #41963), so a cancelled build may lack them: the plan's own
+    # step checks build's Linux artifacts and plans nothing when one is missing.
+    plan_steps = "\n".join(step.get("run", "") for step in plan.get("steps", []))
+    _check("the $linux build failed too" in plan_steps and 'echo "target_set=" >> "$GITHUB_OUTPUT"' in plan_steps,
            "darwin-fallback-plan plans nothing when the Linux targets failed too")
     _check(not evaluate(plan["if"], dict(planned, **{"needs.build.result": "cancelled",
                                                      "needs.tree-preflight.outputs.darwin_builder": "mac"})),
