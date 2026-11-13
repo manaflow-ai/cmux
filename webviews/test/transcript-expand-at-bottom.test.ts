@@ -239,7 +239,8 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
     const [x1, y1, x2, y2] = (bezier?.[1] ?? "").split(",").map(Number);
     if (x1 === undefined || y1 === undefined || x2 === undefined || y2 === undefined || Number.isNaN(x1 + y1 + x2 + y2))
       throw new Error(`a fold's curve this test cannot read: ${ease}`);
-    const along = (a: number, b: number, t: number) => 3 * (1 - t) * (1 - t) * t * a + 3 * (1 - t) * t * t * b + t * t * t;
+    const along = (a: number, b: number, t: number) =>
+      3 * (1 - t) * (1 - t) * t * a + 3 * (1 - t) * t * t * b + t * t * t;
     let low = 0;
     let high = 1;
     for (let round = 0; round < 40; round++) {
