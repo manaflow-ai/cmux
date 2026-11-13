@@ -52,7 +52,10 @@ fn full_tail_fixture(count: usize, generations: usize) -> (TempDir, u64) {
     for generation in 0..generations {
         let mut n = 0;
         while log.offset() < trigger {
-            log.append(summary(format!("row-{:05}", n % count), 0, "closed"))
+            // Keep the diagnostic tail from shadowing the snapshot's first
+            // page; this measures replay cost, while all-shadowed progress is
+            // covered by the physical-page regression tests.
+            log.append(summary(format!("tail-{generation}-{n:05}"), 0, "closed"))
                 .expect("append full tail");
             n += 1;
         }
