@@ -32,6 +32,7 @@ import sys
 import unittest
 from pathlib import Path
 from typing import Any, Callable, Mapping, NamedTuple
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
@@ -122,7 +123,19 @@ GH_API_VALUE_FLAGS = {"-X", "--method", "-f", "--raw-field", "-F", "--field", "-
                       "--jq", "-t", "--template", "--hostname", "--cache", "-p", "--preview"}
 GH_API_FIELD_FLAGS = {"-f", "-F", "--field", "--raw-field", "--input"}
 GRAPHQL_MUTATION = re.compile(r"(?<![A-Za-z0-9_])mutation(?![A-Za-z0-9_])")
-GRAPHQL_DYNAMIC = re.compile(r"[$`\\]|[<>]\(")
+GRAPHQL_DYNAMIC = re.compile(r"[$`\\\x00]|[<>]\(")
+
+
+def is_graphql_endpoint(path: str) -> bool:
+    """Whether a gh api path names GraphQL after URL and shell-path normalization."""
+    endpoint = path.split("?", 1)[0].split("#", 1)[0]
+    if "://" in endpoint:
+        endpoint = urlsplit(endpoint).path
+    else:
+        while endpoint.startswith("./"):
+            endpoint = endpoint[2:]
+        endpoint = endpoint.lstrip("/")
+    return endpoint.rstrip("/").casefold() == "graphql"
 
 
 def gh_api_writes_release(args: list[str]) -> bool:
@@ -174,7 +187,7 @@ def gh_api_writes_release(args: list[str]) -> bool:
                 index += 1
         elif not word.startswith("-"):
             paths.append(word)
-    if any(path in {"graphql", "/graphql"} for path in paths):
+    if any(is_graphql_endpoint(path) for path in paths):
         if graphql_input or not graphql_query_known or graphql_query is None:
             return True
         return bool(GRAPHQL_MUTATION.search(graphql_query))
