@@ -1017,11 +1017,10 @@ public final class LiveCoordinator {
         for session in sessions.values { session.link.send(.background) }
     }
 
-    /// Whether the app is in front when this coordinator starts (a sign-in or a launch that
-    /// restores one happens in front, and no scene phase change follows): the connectivity
-    /// incident detector watches only while it is.
-    public func startWatching(appActive: Bool) {
-        incidents.appActive(appActive)
+    /// The app's process (not a test): the connectivity incident watch follows UIKit's app state,
+    /// seeded with it now (a sign-in made in front has no scene change to start it).
+    public func followApplicationState() {
+        incidents.followApplicationState()
     }
 
     /// Before sign-out, while the token works: open connectivity incidents end and are sent.

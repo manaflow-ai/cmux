@@ -47,10 +47,10 @@ import Testing
         var now = start
         while now < end {
             now += 5
-            out += d.link(macID: "m1", name: "Studio", Self.failing("dial timed out"), at: at(now))
-            let tick = d.tick(at: at(now))
-            out += tick
-            if let id = checkID(tick) {
+            // A check can come from the phase change or the tick: answer whichever asks.
+            let step = d.link(macID: "m1", name: "Studio", Self.failing("dial timed out"), at: at(now)) + d.tick(at: at(now))
+            out += step
+            if let id = checkID(step) {
                 out += d.reachability(macID: "m1", checkID: id, internet: internet, service: service, at: at(now))
             }
         }

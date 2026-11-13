@@ -435,8 +435,8 @@ public struct RootView: View {
             Task { await auth.selectTeam(teamID) }
         }
         live = coordinator
-        // No scene phase change follows a sign-in made in front: start the incident watch now.
-        coordinator.startWatching(appActive: UIApplication.shared.applicationState == .active)
+        // The incident watch follows the app in front from UIKit, starting with its state now.
+        coordinator.followApplicationState()
         PushReplies.shared.attach(live: coordinator)
         // Before the session ends: stop pushes to this phone. The Macs keep
         // their approval of it (verify/persistence.md).

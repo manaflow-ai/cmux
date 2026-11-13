@@ -1,6 +1,9 @@
 import CmuxConnectivityTelemetry
 import Foundation
 import OSLog
+#if canImport(UIKit)
+import UIKit
+#endif
 
 private let log = Logger(subsystem: "dev.cmux.mobile", category: "connectivity-incidents")
 
@@ -166,6 +169,7 @@ public final class ConnectivityIncidentReporter {
     /// The one wait for the outbox head's backoff.
     private var retryTask: Task<Void, Never>?
     private var lastSave: Date = .distantPast
+    private var lifecycleObservers: [any NSObjectProtocol] = []
     public static let tickInterval: Duration = .seconds(5)
 
     public init(file: URL?, app: ConnectivityIncidentApp = .current(), rules: ConnectivityIncidentDetector.Rules = .init(),
@@ -186,6 +190,25 @@ public final class ConnectivityIncidentReporter {
         flush()
     }
 
+    /// Follows the app in front or not from UIKit itself (seeded with its state now), so the
+    /// watch never depends on a scene observer reaching the coordinator: an incident is only for
+    /// time the person had the app in front. The coordinator's own calls are then repeats.
+    public func followApplicationState() {
+        #if canImport(UIKit)
+        guard lifecycleObservers.isEmpty else { return }
+        let center = NotificationCenter.default
+        lifecycleObservers = [
+            center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.appActive(true) }
+            },
+            center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.appActive(false) }
+            },
+        ]
+        appActive(UIApplication.shared.applicationState == .active)
+        #endif
+    }
+
     /// The file a signed-in account's reports wait in.
     public static func file(account: String) -> URL? {
         guard let base = try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true) else { return nil }
@@ -199,6 +222,7 @@ public final class ConnectivityIncidentReporter {
     // MARK: Inputs
 
     public func appActive(_ active: Bool) {
+        if active != detector.isActive { log.info("app \(active ? "in front" : "in the background", privacy: .public)") }
         handle(detector.appActive(active, at: now()))
         if active { startTicking() } else { stopTicking() }
     }
@@ -230,6 +254,8 @@ public final class ConnectivityIncidentReporter {
     public func stop() {
         stopTicking()
         retryTask?.cancel()
+        for observer in lifecycleObservers { NotificationCenter.default.removeObserver(observer) }
+        lifecycleObservers = []
         handle(detector.appActive(false, at: now()).map { output in
             guard case .report(var incident) = output else { return output }
             incident.endReason = .signedOut
