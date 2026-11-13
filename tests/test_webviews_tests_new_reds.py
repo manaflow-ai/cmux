@@ -24,6 +24,13 @@ import subprocess
 import sys
 import tempfile
 import unittest
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 WRAPPER = ROOT / "scripts/ci/webviews-tests-new-reds.sh"
@@ -436,6 +443,7 @@ class Workflow(unittest.TestCase):
             (bins / "bun").write_text(FAKE_BUN)
             (bins / "bun").chmod(0o755)
             shutil.copy(ROOT / "scripts/ci/run-webviews-tests.sh", head / "scripts/ci/run-webviews-tests.sh")
+            shutil.copy(ROOT / "scripts/ci/timeout.sh", head / "scripts/ci/timeout.sh")  # the runner's GNU timeout stand-in
             # The old base reaches a named assertion after its former long deadline. It must
             # not supply a different file-level verdict from the head's bounded runner.
             (base / "scripts/ci/run-webviews-tests.sh").write_text('#!/bin/sh\nprintf \'{"test/hang.test.ts > late assertion": false}\\n\' > "$CMUX_WEB_TEST_RESULTS"\nexit 1\n')
@@ -582,7 +590,7 @@ class Workflow(unittest.TestCase):
             (bins / "bun").write_text(FAKE_BUN)
             (bins / "bun").chmod(0o755)
             (runner_temp / "head-results/runner").mkdir(parents=True)
-            for runner in (ROOT / "scripts/ci/run-webviews-tests.sh", COLLECT, COMPARE, HISTORY, REDS):  # as the head shard publishes them
+            for runner in (ROOT / "scripts/ci/run-webviews-tests.sh", ROOT / "scripts/ci/timeout.sh", COLLECT, COMPARE, HISTORY, REDS):  # as the head shard publishes them
                 shutil.copy(runner, runner_temp / "head-results/runner")
             head_results = runner_temp / "head-results/webviews-head-results.json"
             head_results.write_text(json.dumps({f"{red} > received preview opens": False}))
@@ -657,7 +665,7 @@ class Workflow(unittest.TestCase):
         (bins / "bun").write_text(FAKE_BUN)
         (bins / "bun").chmod(0o755)
         (runner_temp / "head-results/runner").mkdir(parents=True)
-        for runner in (ROOT / "scripts/ci/run-webviews-tests.sh", COLLECT, COMPARE, HISTORY, REDS):
+        for runner in (ROOT / "scripts/ci/run-webviews-tests.sh", ROOT / "scripts/ci/timeout.sh", COLLECT, COMPARE, HISTORY, REDS):
             shutil.copy(runner, runner_temp / "head-results/runner")
         head_results = runner_temp / "head-results/webviews-head-results.json"
         # The head shard's first run timed out on the frame and its retry budget was gone: the file is red unnamed.

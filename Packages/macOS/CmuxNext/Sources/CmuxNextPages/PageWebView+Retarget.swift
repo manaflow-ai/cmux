@@ -35,6 +35,7 @@ extension PageWebView {
         touched = false
         reinstallPageScripts(documentAttributes: documentAttributes)
         installDocumentStartTheme()
+        allowHealthInjection()
         let target = descriptor.url(route: route)
         guard let current = webView.url, Self.sameDocumentURL(current, target) else {
             noteLoadedClaim()

@@ -67,6 +67,28 @@ pub(crate) struct AppControlMessages {
     pub nightly: NightlyMessages,
     /// `cmux live start|stop|status` (cli/app/live.rs).
     pub live: LiveMessages,
+    /// `cmux app chat perf` (cli/app/chat_perf.rs).
+    pub chat_perf: ChatPerfMessages,
+}
+
+/// `cmux app chat perf`: a chat page's frames and record-to-paint times over a window. The JSON
+/// keys stay English; `{name}` placeholders are filled by cli/app/chat_perf.rs.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct ChatPerfMessages {
+    pub usage: &'static str,
+    pub seconds: &'static str,
+    pub header: &'static str,
+    pub page_hidden: &'static str,
+    pub no_frames: &'static str,
+    pub frames: &'static str,
+    pub long_tasks: &'static str,
+    pub long_tasks_unsupported: &'static str,
+    pub script: &'static str,
+    pub layout_shift: &'static str,
+    pub records: &'static str,
+    pub record: &'static str,
+    pub no_records: &'static str,
+    pub unpainted: &'static str,
 }
 
 /// `cmux live start|stop|status`: run a checkout's web UI dev server and point the running app at it.
@@ -201,6 +223,22 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         chromium_not_watching: "Chromium live: not watching (`cmux live start --chromium` in a cmux checkout starts it)",
         chromium_no_checkout: "no cmux checkout here: run this inside a clone of manaflow-ai/cmux, or pass --worktree PATH (it needs scripts/cmux-next/chromium-live.py)",
     },
+    chat_perf: ChatPerfMessages {
+        usage: "usage: cmux app chat perf --tab <tab> [--seconds <1-60>]\n  Measures the chat in <tab> as it runs, without focusing or showing it: frames, long tasks, layout\n  shift, and how long each record the chat receives takes to reach a painted frame, by kind. Default\n  5 seconds. A hidden or covered chat draws no frames, and the result says so. --json prints the report.",
+        seconds: "--seconds must be a whole number from 1 to 60",
+        header: "Chat {tab}: {seconds} s, page {visibility}",
+        page_hidden: "Measured nothing: the chat's page was hidden for most of the window. Show the chat, then run this again.",
+        no_frames: "Measured nothing: the chat's page drew no frames (its window is covered, minimized or on another Space). Uncover it, then run this again.",
+        frames: "Frames: {count}; interval p50 {p50} ms, p95 {p95} ms, p99 {p99} ms, max {max} ms; {over33} over 33 ms, {over50} over 50 ms",
+        long_tasks: "Long tasks ({source}): {count}, longest {longest} ms, blocking {blocking} ms",
+        long_tasks_unsupported: "Long tasks: this page does not report them",
+        script: "  {total} ms in {count}: {invoker} {source}",
+        layout_shift: "Layout shift: {sum} over {count} shifts",
+        records: "Records, arrival to first painted frame:",
+        record: "  {kind}: {count}, p50 {p50} ms, p95 {p95} ms, max {max} ms (applying it: max {apply} ms)",
+        no_records: "  no records arrived for this chat",
+        unpainted: "  {count} arrived with no painted frame before the window ended",
+    },
     search_text_usage: "usage: cmux {scope} search <text> [OPTIONS]; `cmux {scope} --help` lists the options",
     history_clear_range_usage: "usage: cmux history clear-range --range hour|today|week|month|all [--kind <kind,...>] [--profile <profile>]",
     history_text_bytes: "{what} must contain 1 to 1024 UTF-8 bytes",
@@ -293,6 +331,22 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
         cannot_run_swift: "チェックアウトの live-mode.py を実行できませんでした: {error}",
         chromium_not_watching: "Chromium ライブ: 監視していません (cmux のチェックアウトで `cmux live start --chromium` を実行すると開始します)",
         chromium_no_checkout: "ここに cmux のチェックアウトがありません。manaflow-ai/cmux のクローン内で実行するか、--worktree パス を指定してください (scripts/cmux-next/chromium-live.py が必要です)",
+    },
+    chat_perf: ChatPerfMessages {
+        usage: "使い方: cmux app chat perf --tab <タブ> [--seconds <1-60>]\n  <タブ> のチャットを、フォーカスも表示もせずに動作中のまま計測します: フレーム、長いタスク、レイアウトシフト、\n  チャットが受け取る各レコードが描画済みフレームに届くまでの時間 (種類別)。既定は 5 秒。非表示や\n  隠れたチャットはフレームを描かず、結果にそう示されます。--json でレポートを表示します。",
+        seconds: "--seconds は 1 から 60 までの整数にしてください",
+        header: "チャット {tab}: {seconds} 秒、ページ {visibility}",
+        page_hidden: "計測できませんでした: 期間の大半でチャットのページが非表示でした。チャットを表示してから、もう一度実行してください。",
+        no_frames: "計測できませんでした: チャットのページがフレームを描きませんでした (ウインドウが隠れている、しまわれている、または別の操作スペースにあります)。見える状態にしてから、もう一度実行してください。",
+        frames: "フレーム: {count}、間隔 p50 {p50} ms、p95 {p95} ms、p99 {p99} ms、最大 {max} ms、33 ms 超 {over33}、50 ms 超 {over50}",
+        long_tasks: "長いタスク ({source}): {count}、最長 {longest} ms、ブロック {blocking} ms",
+        long_tasks_unsupported: "長いタスク: このページは報告しません",
+        script: "  {total} ms ({count} 回): {invoker} {source}",
+        layout_shift: "レイアウトシフト: {sum} ({count} 回)",
+        records: "レコード (到着から最初の描画済みフレームまで):",
+        record: "  {kind}: {count}、p50 {p50} ms、p95 {p95} ms、最大 {max} ms (適用: 最大 {apply} ms)",
+        no_records: "  このチャットにレコードは届きませんでした",
+        unpainted: "  {count} 件は期間の終わりまでに描画済みフレームがありませんでした",
     },
     search_text_usage: "使い方: cmux {scope} search <テキスト> [オプション]。オプションは `cmux {scope} --help` で表示",
     history_clear_range_usage: "使い方: cmux history clear-range --range hour|today|week|month|all [--kind <種類,...>] [--profile <プロファイル>]",

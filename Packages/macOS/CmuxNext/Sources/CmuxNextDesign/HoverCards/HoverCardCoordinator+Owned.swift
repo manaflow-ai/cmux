@@ -31,16 +31,17 @@ extension HoverCardCoordinator {
     ///   - anchor: What the card describes, on screen.
     ///   - parent: The window the card is a child of.
     ///   - interactive: The card takes clicks and scrolls.
+    ///   - group: The sources the card morphs with (``HoverCardGroup``); default the sidebar, whose
+    ///     cards (Update Ready, Updated, a pull request badge) are the owners today.
     ///   - ended: Runs once when the card left the window: after its owner's close faded it out,
     ///     or at once when a target took the card (the body is out of the window by then).
     public func presentOwned(_ id: HoverTargetID, body: HoverCardBody, anchor: CGRect, parent: NSWindow,
-                             interactive: Bool = true, ended: @escaping @MainActor () -> Void) {
+                             interactive: Bool = true, group: HoverCardGroup = .sidebar, ended: @escaping @MainActor () -> Void) {
         if let current = owned, current.id != id { finishOwned() }
         let again = owned?.id == id
         owned = HoverCardOwned(id: id, ended: ended)
         send(.owned(true))
-        let panel = panel ?? HoverCardPanel()
-        self.panel = panel
+        let panel = cardWindow(for: cardKey(group, in: parent))
         panel.present(body: body.view, anchor: anchor, placement: body.placement, parent: parent, themeAnchor: body.themeAnchor,
                       sliding: !again, interactive: interactive, cornerRadius: body.cornerRadius, applyTheme: body.applyTheme)
     }

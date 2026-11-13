@@ -12,3 +12,10 @@ extension AgentPaneModel {
         for waiter in waiters { waiter() }
     }
 }
+
+extension AgentPaneView {
+    /// Whether this page shows drawn and takes keys: it is in a window and not hidden, it drew its first frame
+    /// (``AgentPaneModel/hasPainted``, so its loading state left) and its handshake ran. The instant-create bench's
+    /// `ready_ms` for Cmd-N and Cmd-T.
+    public var isShownReady: Bool { window != nil && !isHidden && model.hasPainted && model.hasHandshake }
+}

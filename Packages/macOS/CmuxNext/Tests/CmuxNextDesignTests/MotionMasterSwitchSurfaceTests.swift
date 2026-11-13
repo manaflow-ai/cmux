@@ -34,15 +34,15 @@ import CmuxNextDesignTokens
         let spring = gate.set(layer, "position", to: CGPoint(x: 40, y: 40), spring: .move, from: CGPoint.zero)
         let shrink = gate.set(layer, "transform.scale", to: 0.98, movementFade: .fadeOut, from: 1)
         gate.transaction(.fadeIn) { layer.backgroundColor = CGColor(gray: 1, alpha: 1) }
-        gate.transaction(spring: .move) { layer.bounds = CGRect(x: 0, y: 0, width: 80, height: 20) }
+        gate.transaction(spring: .move, in: nil) { layer.bounds = CGRect(x: 0, y: 0, width: 80, height: 20) }
         let view = NSView(frame: .zero)
         gate.animate(.move, in: view) { view.animator().frame = CGRect(x: 0, y: 0, width: 50, height: 50) }
         return fade == nil && spring == nil && shrink == nil
             && (layer.animationKeys() ?? []).isEmpty && layer.opacity == 0 && layer.position == CGPoint(x: 40, y: 40)
             && view.frame.width == 50 && gate.animation(.fadeIn) == nil
             && gate.spinAnimation() == nil && gate.stepAnimation(steps: 8) == nil && gate.pulseAnimation(low: 0.3) == nil
-            && gate.flashAnimation() == nil && gate.passOverAnimation(.move) == nil
-            && MotionMove.tween(.tabMove, in: gate) == nil && MotionMove.spring(.scroll, in: gate) == nil
+            && gate.flashAnimation() == nil && gate.passOverAnimation(.move, in: nil) == nil
+            && MotionMove.tween(.tabMove, in: gate, window: nil) == nil && MotionMove.spring(.scroll, in: gate, window: nil) == nil
             && gate.marqueeAnimation(keyPath: "transform.translation.x", travel: 300, sign: -1, now: 0) == nil
             && gate.duration(.fadeIn) == 0 && gate.duration(.move) == 0 && gate.period(.spinner) == nil
             && !gate.animatesMovement && !gate.animatesFades && !gate.animatesLoops

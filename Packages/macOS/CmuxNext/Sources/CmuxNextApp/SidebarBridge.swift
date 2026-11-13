@@ -50,12 +50,9 @@ final class SidebarBridge {
     let groupEditor = PersonalGroupEditorState()
     /// Rows of the spaces beside the current one, for swipe pages (R99).
     let spaceCache = SpaceSectionsCache()
-    /// Each listed row's content, observed per row: a status change patches one row, not the sidebar (rows lane).
-    /// Its flushes run on the display frame, so a frame's row patches and its scroll update commit together.
-    let rowFeed: SidebarRowFeed = {
-        let frames = FrameBatcher(owner: "SidebarRows")
-        return SidebarRowFeed(schedule: { work in frames.scheduleFrame(work) })
-    }()
+    /// Each row's content, observed per row: a status change patches one row, not the sidebar (rows lane). Its flushes
+    /// run on the display frame (one commit with the scroll update); it keeps the rows of the window's other spaces.
+    let rowFeed: SidebarRowFeed
     let faceBuffers = SidebarFaceBatch() // the face rules' buffers its passes and band items reuse (`sections(faces:)`)
 
     static func driveMenuItem(_ services: AppServices) -> (CmuxNextSidebar.WorkspaceID, SidebarDriveCommand, String) -> NSMenuItem? { // the agent's terminals from its tab's daemon
@@ -65,6 +62,8 @@ final class SidebarBridge {
     init(services: AppServices, state: WindowState) {
         self.services = services
         self.state = state
+        let frames = FrameBatcher(owner: "SidebarRows") // `state.id` is read on each call: the launch window adopts a saved id
+        rowFeed = SidebarRowFeed(schedule: { frames.scheduleFrame($0) }, keeps: { [weak services, weak state] id in state.map { services?.windows.registry.value.owner(of: id.rawValue) == $0.id } ?? false })
         container = SidebarContainerView(model: model)
         model.onIntent = { [weak self] intent in self?.handle(intent) }
         // Link rows draw the favicon at their item's icon address, from this app's favicons.

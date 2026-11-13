@@ -31,5 +31,10 @@ path = "tests/test_check_swift_acpmux_protocol.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_check_test_redefinitions.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Pins scripts/cmux-next/check-test-redefinitions.py (a name defined twice in one body of a tests/ file, ruff F811; cmux#41779's shadowed count_fetches dropped its lock) and its local pre-push gate row; run python3 tests/test_check_test_redefinitions.py yourself after changing either (seconds, stdlib python3 and git, no build)."
+
+[[test]]
 path = "tests/test_check_toast_targets.py"
 lane = "linux-guard"

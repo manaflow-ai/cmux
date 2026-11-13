@@ -22,6 +22,10 @@ pub const DEFAULT_TIMEOUT_SECONDS: u64 = 30 * 60;
 /// 30 minutes of [`DEFAULT_TIMEOUT_SECONDS`], with the composer's start card silent all along.
 pub const START_CHAT_LEDGER_TIMEOUT_SECONDS: u64 = 60;
 
+/// `link start-chat preflight`: its count stops at the copy's limits, so a huge folder answers in
+/// seconds; two minutes covers a slow disk, and past it the start goes on to the copy's own count.
+pub const START_CHAT_PREFLIGHT_TIMEOUT_SECONDS: u64 = 120;
+
 /// One CLI's answer line.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -50,6 +54,12 @@ pub struct Answer {
     pub seed_phase: Option<String>,
     pub seed_started_at: Option<f64>,
     pub seed_finished_at: Option<f64>,
+    /// `link start-chat plan`'s refusal of the platform's Cloud table (cmux-platform#1192): the
+    /// same send may pass later (a busy machine, a rate limit, an outage), so the card offers
+    /// Retry; false for a cap or any line that does not say.
+    pub retryable: bool,
+    /// With `retryable`, a rate limit's window in seconds: a Retry before it meets the limit again.
+    pub retry_after_s: Option<u64>,
 }
 
 impl Answer {
@@ -141,6 +151,8 @@ pub fn parse(output: &Output) -> (Answer, Option<Map<String, Value>>) {
         seed_phase: string(&object, "seed_phase"),
         seed_started_at: object.get("seed_started_at").and_then(Value::as_f64),
         seed_finished_at: object.get("seed_finished_at").and_then(Value::as_f64),
+        retryable: boolean(&object, "retryable").unwrap_or(false),
+        retry_after_s: object.get("retry_after_s").and_then(Value::as_u64),
     };
     (answer, Some(object))
 }
@@ -245,6 +257,10 @@ pub struct StartChatPlan {
     pub create_sent: bool,
     pub environment_id: Option<String>,
     pub setup: Option<Setup>,
+    /// `machine` was made for this send by this plan (the platform's workspace machine it created
+    /// now): a start that can't go on after it deletes it, as it deletes one the app made for it.
+    /// A machine it found, or a reserved warm one it bound, is never this send's to delete.
+    pub made_for_send: bool,
 }
 
 /// The plan an answer names. An ok answer without its keys is no answer: a create or open
@@ -266,6 +282,12 @@ pub fn start_chat_plan(
         create_sent: boolean(object, "create_sent").unwrap_or(false),
         environment_id: info.environment_id,
         setup: info.setup,
+        made_for_send: string(object, "machine").is_some()
+            && object
+                .get("ensured")
+                .and_then(Value::as_object)
+                .and_then(|ensured| boolean(ensured, "created"))
+                == Some(true),
     };
     if answer.ok && (plan.create_key.is_empty() || plan.tab_key.is_empty()) {
         return (
@@ -324,6 +346,14 @@ pub struct FrozenSync {
     pub socket: String,
     pub local: String,
     pub remote: String,
+    /// Machine to machine (Move to another Cloud machine): the source machine's link socket.
+    /// `local` is then the folder on that machine, and the copy is `cmux link sync relay`.
+    #[serde(default)]
+    pub from_socket: Option<String>,
+    /// With `from_socket`: the folder on this Mac a Move to Cloud seeded the source from. Its
+    /// seed record follows the chat to the new machine, so Bring Back Local still merges there.
+    #[serde(default)]
+    pub seed_local: Option<String>,
 }
 
 /// One CLI call: its verb and the facts its arguments carry.
@@ -415,9 +445,21 @@ pub enum Call {
         machine: String,
         pane: String,
     },
+    /// `link start-chat strand`: a start that can't go on gives up the machine made for it; the
+    /// answer's `delete` says whether no other send is on it.
+    StartChatStrand {
+        key: String,
+        account: String,
+        machine: String,
+    },
     /// `link start-chat import`: the sends the app kept itself before.
     StartChatImport {
         entries: String,
+    },
+    /// `link start-chat preflight --local FOLDER`: whether a start may copy `local` at all, asked
+    /// before any machine or lease is made for it.
+    StartChatPreflight {
+        local: String,
     },
     /// `link start-chat copy`: with `store` (the access token on stdin) through the content-addressed store.
     StartChatCopy {
@@ -433,6 +475,12 @@ pub enum Call {
         acpmux_home: Option<String>,
         #[serde(default)]
         store: bool,
+    },
+    /// `link start-chat trust`: this Mac's acpmux trust level for the folder a start would copy, read
+    /// before any machine is taken (the copy is trusted there only when this Mac trusts it).
+    StartChatTrust {
+        folder: String,
+        acpmux_home: String,
     },
 }
 
@@ -460,10 +508,13 @@ pub fn agent_move_flags(
 ) -> Vec<String> {
     let mut flags = words(&["--interrupt"]);
     for sync in syncs {
+        if let Some(from) = &sync.from_socket {
+            flags.extend(words(&["--sync", "relay", "--sync-from-socket", from]));
+        }
         let kind = if sync.pull { "pull" } else { "seed" };
+        let kind = if sync.from_socket.is_some() { None } else { Some(kind) };
+        flags.extend(kind.map(|kind| words(&["--sync", kind])).unwrap_or_default());
         flags.extend(words(&[
-            "--sync",
-            kind,
             "--sync-socket",
             &sync.socket,
             "--sync-local",
@@ -471,6 +522,9 @@ pub fn agent_move_flags(
             "--sync-remote",
             &sync.remote,
         ]));
+        if let (Some(_), Some(seed_local)) = (&sync.from_socket, &sync.seed_local) {
+            flags.extend(words(&["--sync-seed-local", seed_local]));
+        }
     }
     if ask_first {
         flags.push("--ask-first".to_owned());
@@ -625,9 +679,27 @@ pub fn invocation(call: &Call) -> Invocation {
             "--pane",
             pane,
         ])),
+        Call::StartChatStrand { key, account, machine } => ledger(words(&[
+            "link",
+            "start-chat",
+            "strand",
+            "--key",
+            key,
+            "--account",
+            account,
+            "--machine",
+            machine,
+        ])),
         Call::StartChatImport { entries } => {
             ledger(words(&["link", "start-chat", "import", "--entries", entries]))
         }
+        // The count stops at the copy's limits (seconds on a huge folder); past this the start goes on
+        // and the copy's own count refuses it.
+        Call::StartChatPreflight { local } => Invocation {
+            args: words(&["link", "start-chat", "preflight", "--local", local]),
+            timeout_seconds: Some(START_CHAT_PREFLIGHT_TIMEOUT_SECONDS),
+            min_timeout_seconds: None,
+        },
         Call::StartChatCopy {
             key,
             account,
@@ -669,7 +741,40 @@ pub fn invocation(call: &Call) -> Invocation {
             }
             plain(args)
         }
+        // A local file read: a short fixed bound, so a stuck run never holds the start.
+        Call::StartChatTrust { folder, acpmux_home } => Invocation {
+            args: words(&[
+                "link",
+                "start-chat",
+                "trust",
+                "--folder",
+                folder,
+                "--acpmux-home",
+                acpmux_home,
+            ]),
+            timeout_seconds: Some(START_CHAT_TRUST_TIMEOUT_SECONDS),
+            min_timeout_seconds: None,
+        },
     }
+}
+
+/// How long `link start-chat trust` may take: it reads this Mac's trust files only.
+pub const START_CHAT_TRUST_TIMEOUT_SECONDS: u64 = 15;
+
+/// `link start-chat trust`'s answer: the level this Mac's acpmux answers for the folder
+/// (`trusted`, `untrusted` or `unknown`); none when the answer failed or names no level.
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+pub struct StartChatTrust {
+    pub level: Option<String>,
+}
+
+/// The level an answer names, only from an ok answer.
+pub fn start_chat_trust(answer: &Answer, object: Option<&Map<String, Value>>) -> StartChatTrust {
+    let level = object
+        .filter(|_| answer.ok)
+        .and_then(|object| string(object, "level"))
+        .filter(|level| matches!(level.as_str(), "trusted" | "untrusted" | "unknown"));
+    StartChatTrust { level }
 }
 
 /// How an answer is read, by the verb that gave it.
@@ -680,6 +785,7 @@ pub enum Reading {
     MachineUpdate,
     StartChatPlan,
     StartChatCopy,
+    StartChatTrust,
     /// The answer object itself, else a bad answer's.
     Reservation,
 }
@@ -707,6 +813,11 @@ pub fn read(reading: Reading, output: &Output) -> Value {
             let (answer, copy) = start_chat_copy(answer, object.as_ref());
             reply.insert("answer".into(), to_value(&answer));
             reply.insert("copy".into(), to_value(&copy));
+        }
+        Reading::StartChatTrust => {
+            let trust = start_chat_trust(&answer, object.as_ref());
+            reply.insert("answer".into(), to_value(&answer));
+            reply.insert("trust".into(), to_value(&trust));
         }
         Reading::Reservation => {
             reply.insert("answer".into(), to_value(&answer));
