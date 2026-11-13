@@ -455,7 +455,7 @@ impl SummaryIndex {
         let key = row.key();
         if !self.shadowed.contains(&key) && !self.by_id.contains_key(&key) {
             self.by_id.insert(key, row.clone());
-            self.ordered.insert(SortKey::of(&row), row);
+            self.ordered.insert(SortKey::of(&row), row.clone());
             if row.is_live() {
                 self.live_ordered.insert(SortKey::of(&row), row);
             }
@@ -482,7 +482,7 @@ impl SummaryIndex {
             next.live_ordered.remove(&SortKey::of(old));
         }
         next.by_id.insert(row.key(), row.clone());
-        next.ordered.insert(SortKey::of(&row), row);
+        next.ordered.insert(SortKey::of(&row), row.clone());
         if row.is_live() {
             next.live_ordered.insert(SortKey::of(&row), row);
         }

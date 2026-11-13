@@ -61,7 +61,7 @@ impl SummaryIndex {
             }
         };
         let mut rows = Vec::new();
-        let mut bytes_read = 0;
+        let mut bytes_read: usize = 0;
         for row in candidates.iter().take(limit) {
             let size = row.encoded_len().saturating_add(1);
             if bytes_read.saturating_add(size) > max_bytes {
