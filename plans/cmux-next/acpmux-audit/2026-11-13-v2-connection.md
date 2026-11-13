@@ -23,3 +23,20 @@ the operation. The detector is the raw-extension delta round-trip regression,
 which compares the original JSON bytes, plus live list delivery through the
 connection. Linux run 43376789216 exposed this class; the next run's regression
 passed after the decoder changed.
+
+A reserved reply must transfer its reserved bytes to the queue under the same
+lock as the enqueue. A synchronous request handler is not an exclusion boundary:
+an actor on another runtime thread can offer between its locks. The detector is
+`ordinary_reply_consumes_reserve_before_another_thread_offers`, which offers in
+that interval and requires the frame to fit without dropping its subscription.
+
+A delivery cursor and a viewport anchor have different lifetimes. Advancing or
+replacing the cursor must preserve the anchor needed when retained history is
+insufficient. The detector is
+`expired_list_resume_and_live_lag_keep_the_original_anchor`: both credit-driven
+resume and live lag must return the anchored rows at the new exact cursor.
+
+Returning a transport from an I/O task changes its drop lifetime. A v1 writer
+must still drop its half when its last line finishes, even while request handlers
+hold the outbound sender. The stream writer regressions cover that behavior;
+the upgrade retains a write half only to hand it to the framed connection.

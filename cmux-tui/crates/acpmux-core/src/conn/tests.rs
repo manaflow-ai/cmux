@@ -904,3 +904,65 @@ fn source_failure_frees_queued_frames_and_uses_a_bounded_notice_slot() {
     assert_eq!(state.metrics.notices(), 0);
     assert_eq!(state.metrics.outside_budget_bytes(), 0);
 }
+
+#[test]
+fn ordinary_reply_consumes_reserve_before_another_thread_offers() {
+    let mut state = ConnectionState::default();
+    for sid in ["prefill-a", "prefill-b"] {
+        state.subscribe(sid, Cursor(0)).unwrap();
+        assert_eq!(state.offer(sid, frame(MAX_FRAME_BYTES - 5), Cursor(1)), Offer::Taken);
+    }
+    state.subscribe("other", Cursor(0)).unwrap();
+    assert!(state.reserve_reply());
+    state.offer_reply(frame(MAX_FRAME_BYTES - 5)).unwrap();
+    // This is the interleaving after process_frame unlocks and before the
+    // connection reacquires the lock to release_reply. A source may run on a
+    // different thread even though the connection itself has not awaited.
+    assert_eq!(state.offer("other", frame(16), Cursor(1)), Offer::Taken);
+    assert_eq!(state.metrics.notices(), 0);
+    state.release_reply();
+}
+
+#[tokio::test]
+async fn expired_list_resume_and_live_lag_keep_the_original_anchor() {
+    let (mut client, task, hub, mut writer, source) = list_pair();
+    for n in 0..20 {
+        let mut row = Summary::new(format!("row-{n}"));
+        row.last_activity = n;
+        writer.apply(row).unwrap();
+    }
+    hello(&mut client).await;
+    send(
+        &mut client,
+        json!({"method":"sub","params":{
+            "sid":"anchored", "stream":"list", "window":3,
+            "anchor":{"key":{"lastActivity":10,"chatId":"row-10"},"side":"after"}
+        }}),
+    )
+    .await;
+    let initial: Window<Summary> = receive(&mut client).await.decode_json().unwrap();
+    let expected: Vec<_> = initial.rows.iter().map(|row| row.chat_id.clone()).collect();
+    assert_eq!(expected.len(), 3);
+    let mut cursor = initial.cursor;
+    for credit_resume in [true, false] {
+        // No await lets the source consume this burst. It exceeds retention,
+        // forcing a window both via credit/resume and via a live receiver's lag.
+        for n in 0..17000 {
+            writer.apply(summary(100_000 + n)).unwrap();
+        }
+        if credit_resume {
+            source.resume("anchored", Cursor(cursor));
+        }
+        let frame = receive(&mut client).await;
+        assert_eq!(frame.kind, FrameKind::Window);
+        let window: Window<Summary> = frame.decode_json().unwrap();
+        assert_eq!(window.rows.iter().map(|row| row.chat_id.clone()).collect::<Vec<_>>(), expected);
+        assert_eq!(window.cursor, hub.snapshot().seq());
+        assert!(window.cursor > cursor);
+        cursor = window.cursor;
+    }
+    drop(client);
+    task.await.unwrap().unwrap();
+    assert_eq!(source.task_count(), 0);
+    assert_eq!(hub.subscriber_count(), 0);
+}

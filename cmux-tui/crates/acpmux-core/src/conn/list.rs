@@ -87,11 +87,9 @@ impl Source for HubSource {
             .lock()
             .map_err(|_| ConnError::InvalidRequest("list source poisoned".into()))?;
         let held = Arc::new(Held::default());
-        let mut resumed = sub.clone();
-        resumed.anchor = None;
         let join = self.scope.spawn(pump(
             self.hub.clone(),
-            resumed,
+            sub.clone(),
             sink,
             delivery.receiver,
             delivery.mode,
@@ -214,8 +212,9 @@ async fn pump(
     loop {
         if resume.has_changed().unwrap_or(false) {
             held.paused.store(false, Ordering::Release);
+            // Keep the original viewport anchor for a fresh window if the
+            // cursor has fallen outside retained history. It does not affect replay.
             sub.cursor = Some(*resume.borrow_and_update());
-            sub.anchor = None;
             sub.edition = Some(0);
             let Ok(delivery) = open(&hub, &sub) else {
                 sink.fail(&sub.sid);
@@ -241,7 +240,6 @@ async fn pump(
             // changed() marks the version seen; retain the cursor as a pending resume.
             held.paused.store(false, Ordering::Release);
             sub.cursor = Some(*resume.borrow());
-            sub.anchor = None;
             sub.edition = Some(0);
             let Ok(delivery) = open(&hub, &sub) else {
                 sink.fail(&sub.sid);
@@ -274,7 +272,6 @@ async fn pump(
         };
         let result = if matches!(item, ListItem::Lagged { .. }) {
             sub.cursor = None;
-            sub.anchor = None;
             match open(&hub, &sub) {
                 Ok(delivery) => {
                     receiver = delivery.receiver;

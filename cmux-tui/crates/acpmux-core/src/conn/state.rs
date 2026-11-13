@@ -291,6 +291,9 @@ impl ConnectionState {
             return Err(ConnError::ReplyBudget);
         }
         self.queued_bytes += frame.encoded_len();
+        // A source on another runtime thread may offer before release_reply.
+        // The bytes now queued have consumed this much of the request's reserve.
+        self.reserved = self.reserved.saturating_sub(frame.encoded_len());
         self.queue.push_back(Queued::Data(FrameLease {
             sid: None,
             control: None,
