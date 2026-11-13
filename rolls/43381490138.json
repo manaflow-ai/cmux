@@ -1,0 +1,77 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43381490138",
+  "recorded_at": "2026-11-13T06:58:44Z",
+  "reason": "cmux-tui d4eb2fdd3978 changes the image's cmux-tui (pinned e21d4f7653ef)",
+  "dry_run": false,
+  "cmux_tui": "d4eb2fdd3978e8ad883e58443030c3963887287b",
+  "fixes": [
+    {
+      "sha": "d4eb2fdd3978e8ad883e58443030c3963887287b",
+      "mergedAt": "2026-11-13T06:29:21Z",
+      "subject": "test(cmux-tui): one read timeout rule for a test socket whose peer can have closed (#42408)"
+    },
+    {
+      "sha": "212bc33cd0487ccb3ebe2f55f94fb359e98b7e07",
+      "mergedAt": "2026-11-13T06:22:35Z",
+      "subject": "cmux-source-scan: a name a block defines stays in that block (#41581 F1) (#42384)"
+    },
+    {
+      "sha": "ea823751e3d4b1c3908c344cda0ab10cfaf5667c",
+      "mergedAt": "2026-11-13T00:11:43-06:00",
+      "subject": "cmux-tui journal: tests, memory equals disk after a dropped resize; a stalled commit does not block terminal I/O"
+    },
+    {
+      "sha": "3e25439fee6be655c52d201ad864c2e309e0cba3",
+      "mergedAt": "2026-11-13T00:11:42-06:00",
+      "subject": "cmux-tui journal: the writer never stops for good while the daemon runs; a dropped record owes a marker"
+    },
+    {
+      "sha": "602a94156b01d7e5fe1384231fe0450ed12b7d83",
+      "mergedAt": "2026-11-13T00:11:42-06:00",
+      "subject": "cmux-tui journal: red tests, one late commit stops the session journal writer for good"
+    },
+    {
+      "sha": "a9c4770a3b48063e1912087c3b705ec7e98d51dc",
+      "mergedAt": "2026-11-13T00:11:42-06:00",
+      "subject": "cmux-tui journal: tests use the production 30 s deadline; a deadline test sets 2 s on its own session"
+    },
+    {
+      "sha": "d749cc82c85a6f0c520612e8d935b2214174ad5f",
+      "mergedAt": "2026-11-12T22:09:36-08:00",
+      "subject": "measure(rd): observe viewer compositor marker transitions (#42358)"
+    },
+    {
+      "sha": "d2224293ff7e4fa516e602f1004dd1092de70f0b",
+      "mergedAt": "2026-11-12T22:06:16-08:00",
+      "subject": "fix(acpmux): back off tiny-window list expiry retries (#42170)"
+    },
+    {
+      "sha": "5383d99d70b267680d1f4f46c164f5e7b86af5d1",
+      "mergedAt": "2026-11-12T22:04:39-08:00",
+      "subject": "iOS: a drag over man scrolls it again (process-info names a shell script's program) (#42423)"
+    },
+    {
+      "sha": "2eb15a2906c5960a4bd0610d17e9a2eda5f1dd34",
+      "mergedAt": "2026-11-12T22:01:53-08:00",
+      "subject": "Agent chat: no \"Try again\" for a request the host refuses as malformed, and a detector for every param the page sends (#42326)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T06:58:44Z",
+    "snapshot_id": "sh-3178fcedff3d4b159406a6c06d967769",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43381490138): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "076caf9aabc099c389f68f93b5757849dd7ab70c",
+    "image": "cloud-native-auto-d4eb2fdd-43381490138-1",
+    "revision": "ci-43381490138-1",
+    "at": "2026-11-13T06:58:44Z"
+  },
+  "rolled_back": false
+}
