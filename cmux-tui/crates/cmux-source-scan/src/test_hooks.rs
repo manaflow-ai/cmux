@@ -50,7 +50,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;
 use std::path::Path;
 
-use crate::source::{line_of, rel_path, rust_files, snippet};
+use crate::source::{ReadError, line_of, read_source, rel_path, rust_files, snippet};
 use proc_macro2::{Span, TokenStream, TokenTree};
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
@@ -169,14 +169,15 @@ impl fmt::Display for Finding {
 
 /// Every finding in the crate at `crate_dir` (its `src`), paths from the repository root. A
 /// path into another file of the crate (`crate::a::B`, `super::B`, a `use` of one) is followed
-/// there ([`Crate`]).
-pub fn judge_tree(crate_dir: &Path) -> Vec<Finding> {
+/// there ([`Crate`]). Err names a path of `src` the check could not read (a missing `src` too):
+/// a source it skipped would read as clean.
+pub fn judge_tree(crate_dir: &Path) -> Result<Vec<Finding>, ReadError> {
     let src = crate_dir.join("src");
     let mut files = Vec::new();
     let mut krate = Crate::default();
-    for path in rust_files(&src) {
+    for path in rust_files(&src)? {
         let rel = rel_path(crate_dir, &path);
-        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        let text = read_source(&path)?;
         let module = module_of(&rel_path(&src, &path));
         let parsed = syn::parse_file(&text);
         if let (Ok(file), Some(module)) = (&parsed, &module) {
@@ -192,7 +193,7 @@ pub fn judge_tree(crate_dir: &Path) -> Vec<Finding> {
         let at = module.as_deref().map(|module| (&krate, module, &memo));
         found.extend(judge_parsed(&format!("{CRATE_REL}{rel}"), text, parsed, at));
     }
-    found
+    Ok(found)
 }
 
 /// The findings of one file, `rel` its path from the repository root. A name from another file
