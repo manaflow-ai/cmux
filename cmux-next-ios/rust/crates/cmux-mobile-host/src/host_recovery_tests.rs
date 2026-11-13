@@ -25,6 +25,38 @@ impl Drop for Tasks {
     }
 }
 
+/// hostd's config for the rig: device `mac` of user `owner` in team `team`, state in `dir`.
+fn rig_config(base_url: String, dir: &std::path::Path) -> HostConfig {
+    HostConfig {
+        base_url,
+        team_id: "team".into(),
+        device_id: "mac".into(),
+        device_name: "Test Mac".into(),
+        host_uuid: None,
+        machine_id_override: None,
+        app_support: dir.into(),
+        state_dir: dir.into(),
+        tokens: TokenSource::Access("user:owner".into()),
+        owner_user_id: Some("owner".into()),
+        include_loopback: true,
+        exclude_cgnat: true,
+        session_exposure: None,
+        services: ServiceConfig {
+            tui_socket_dir: dir.into(),
+            default_session: "main".into(),
+            default_socket: None,
+            file_roots: vec![],
+            acpmux: AcpmuxTarget::Home(dir.into()),
+            pairing: None,
+            agent_tab_host: None,
+            uploads_dir: dir.into(),
+            chief_socket: None,
+            browser: crate::browser::BrowserConfig::new(None, 1),
+            surface: crate::surface::SurfaceConfig::new(None, 1),
+        },
+    }
+}
+
 async fn recovery_sample(wake: bool) -> Duration {
     let backend = FakeSignaling::start(FakeOptions::default()).await;
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -87,34 +119,7 @@ async fn recovery_sample(wake: bool) -> Duration {
         }
     }));
     let dir = tempfile::tempdir().unwrap();
-    let config = HostConfig {
-        base_url,
-        team_id: "team".into(),
-        device_id: "mac".into(),
-        device_name: "Test Mac".into(),
-        host_uuid: None,
-        machine_id_override: None,
-        app_support: dir.path().into(),
-        state_dir: dir.path().into(),
-        tokens: TokenSource::Access("user:owner".into()),
-        owner_user_id: Some("owner".into()),
-        include_loopback: true,
-        exclude_cgnat: true,
-        session_exposure: None,
-        services: ServiceConfig {
-            tui_socket_dir: dir.path().into(),
-            default_session: "main".into(),
-            default_socket: None,
-            file_roots: vec![],
-            acpmux: AcpmuxTarget::Home(dir.path().into()),
-            pairing: None,
-            agent_tab_host: None,
-            uploads_dir: dir.path().into(),
-            chief_socket: None,
-            browser: crate::browser::BrowserConfig::new(None, 1),
-            surface: crate::surface::SurfaceConfig::new(None, 1),
-        },
-    };
+    let config = rig_config(base_url, dir.path());
     let (changes, receiver) = watch::channel(0);
     tasks.0.push(tokio::spawn(async move {
         run_with_changes(config, receiver).await.unwrap();
@@ -165,4 +170,50 @@ async fn wake_recovery_performance() {
         after.as_secs_f64() * 1000.0,
         after.as_secs_f64() * 1000.0 - before.as_secs_f64() * 1000.0
     );
+}
+
+/// A device id another account registered first (an id an older build kept for whoever signed in
+/// first): the service refuses it every time, so hostd must stop instead of retrying forever.
+#[tokio::test]
+async fn a_device_id_another_account_registered_stops_hostd() {
+    let backend = FakeSignaling::start(FakeOptions::default()).await;
+    cmux_mobile_link::api::ApiClient::new(&backend.base_url, "user:someone-else")
+        .register_device(&cmux_mobile_link::api::DeviceRegistration {
+            device_id: "mac".into(),
+            kind: "mac".into(),
+            name: "Their Mac".into(),
+            team_id: "team".into(),
+            wg_public_key: None,
+            machine_id: None,
+            sibling_device_ids: Vec::new(),
+        })
+        .await
+        .unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let (_changes, receiver) = watch::channel(0);
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        run_with_changes(rig_config(backend.base_url.clone(), dir.path()), receiver),
+    )
+    .await
+    .expect("hostd stops instead of retrying the refused id")
+    .unwrap();
+}
+
+/// The same id registered by its own account again is accepted (a relaunch, a sign-in again).
+#[tokio::test]
+async fn the_owner_registering_its_id_again_is_accepted() {
+    let backend = FakeSignaling::start(FakeOptions::default()).await;
+    let api = cmux_mobile_link::api::ApiClient::new(&backend.base_url, "user:owner");
+    let registration = cmux_mobile_link::api::DeviceRegistration {
+        device_id: "mac".into(),
+        kind: "mac".into(),
+        name: "Test Mac".into(),
+        team_id: "team".into(),
+        wg_public_key: None,
+        machine_id: None,
+        sibling_device_ids: Vec::new(),
+    };
+    api.register_device(&registration).await.unwrap();
+    api.register_device(&registration).await.unwrap();
 }

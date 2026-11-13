@@ -48,6 +48,9 @@ struct State {
     /// sessionId → the two devices in it.
     sessions: HashMap<String, (String, String)>,
     refused_binary_frames: u64,
+    /// `POST /v1/devices`: device id → the user who registered it first (the real service
+    /// answers `403 not_owner` to anyone else).
+    owners: HashMap<String, String>,
 }
 
 pub struct FakeSignaling {
@@ -123,7 +126,7 @@ async fn serve(stream: tokio::net::TcpStream, state: Arc<Mutex<State>>, options:
     let mut stream = stream;
     match peek_head(&stream).await {
         Some(head) if !head.to_ascii_lowercase().contains("upgrade: websocket") => {
-            answer_http(&mut stream, &head, &ice).await;
+            answer_http(&mut stream, &head, &ice, &state).await;
             return;
         }
         Some(_) => {}
@@ -319,7 +322,12 @@ async fn peek_head(stream: &tokio::net::TcpStream) -> Option<String> {
     None
 }
 
-async fn answer_http(stream: &mut tokio::net::TcpStream, head: &str, ice: &[crate::api::IceServer]) {
+async fn answer_http(
+    stream: &mut tokio::net::TcpStream,
+    head: &str,
+    ice: &[crate::api::IceServer],
+    state: &Mutex<State>,
+) {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let length = head
         .lines()
@@ -334,7 +342,11 @@ async fn answer_http(stream: &mut tokio::net::TcpStream, head: &str, ice: &[crat
     }
     let body: Value = serde_json::from_slice(&request[head.len()..]).unwrap_or(Value::Null);
     let line = head.lines().next().unwrap_or_default();
-    let authorized = head.lines().any(|l| l.to_ascii_lowercase().starts_with("authorization: bearer user:"));
+    let user = head.lines().find_map(|l| {
+        let (name, value) = l.split_once(':')?;
+        name.eq_ignore_ascii_case("authorization").then(|| value.trim().strip_prefix("Bearer user:"))?.map(str::to_owned)
+    });
+    let authorized = user.is_some();
     let (status, reply) = if line.starts_with("GET /v1/health") {
         ("200 OK", json!({"ok": true, "version": "fake"}))
     } else if !authorized {
@@ -346,7 +358,20 @@ async fn answer_http(stream: &mut tokio::net::TcpStream, head: &str, ice: &[crat
         }));
         ("200 OK", json!({"iceServers": servers, "ttl": 3600, "turn": !ice.is_empty()}))
     } else if line.starts_with("POST /v1/devices") {
-        ("200 OK", json!({"device": body}))
+        // A device id belongs to the user who registered it first (PROTOCOL.md `POST /v1/devices`).
+        let id = body.get("deviceId").and_then(Value::as_str).unwrap_or_default().to_owned();
+        let user = user.unwrap_or_default();
+        let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
+        match state.owners.get(&id) {
+            Some(owner) if *owner != user => (
+                "403 Forbidden",
+                json!({"error": {"code": "not_owner", "message": "this deviceId belongs to another user"}}),
+            ),
+            _ => {
+                state.owners.insert(id, user);
+                ("200 OK", json!({"device": body}))
+            }
+        }
     } else {
         ("404 Not Found", json!({"error": "not_found"}))
     };
