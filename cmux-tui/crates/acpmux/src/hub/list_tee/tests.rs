@@ -39,6 +39,18 @@ fn removing_a_deadline_prevents_a_late_mark() {
     assert!(state.take().is_empty());
 }
 
+#[test]
+fn origin_remove_is_preserved_before_a_reconnect() {
+    let state = TeeState::default();
+    state.origin("peer", OriginState::Removed, 10);
+    state.origin("peer", OriginState::Connected, 20);
+    state.origin("peer", OriginState::Down, 30);
+
+    assert_eq!(state.take_origins(1), vec![("peer".to_owned(), OriginState::Removed, 10)]);
+    assert_eq!(state.take_origins(1), vec![("peer".to_owned(), OriginState::Down, 30)]);
+    assert!(state.take_origins(1).is_empty());
+}
+
 #[tokio::test]
 async fn one_hundred_thousand_stream_appends_do_not_mark() {
     let hub = memory_hub();
@@ -297,7 +309,7 @@ async fn startup_reconciles_local_rows_and_marks_purge_and_recreation() {
     let tee = tokio::spawn(task);
     let mut summaries = HashSet::new();
     let mut gone = HashSet::new();
-    for _ in 0..3 {
+    for _ in 0..4 {
         match next(&subscribed.receiver).await {
             ListItem::Summary(event) => {
                 summaries.insert(event.summary.chat_id.clone());
@@ -305,12 +317,12 @@ async fn startup_reconciles_local_rows_and_marks_purge_and_recreation() {
             ListItem::Gone { chat_id, .. } => {
                 gone.insert(chat_id);
             }
-            _ => panic!("a three-row walk must not lag"),
+            _ => panic!("the startup walk must not lag"),
         }
     }
     assert_eq!(summaries, HashSet::from(["existing".to_owned(), "new".to_owned()]));
-    assert_eq!(gone, HashSet::from(["gone-while-down".to_owned()]));
-    assert!(v2.hub.snapshot().get_row(&RowKey::new("peer", "peer-chat")).is_some());
+    assert_eq!(gone, HashSet::from(["gone-while-down".to_owned(), "peer-chat".to_owned()]));
+    assert!(v2.hub.snapshot().get_row(&RowKey::new("peer", "peer-chat")).is_none());
     let session = v1.sessions.lock().unwrap().remove("existing").unwrap();
     let mut purged = super::super::row_log::row_event("existing");
     Arc::make_mut(&mut purged.record).kind = "purged".into();
@@ -326,6 +338,79 @@ async fn startup_reconciles_local_rows_and_marks_purge_and_recreation() {
     let _ = tee.await;
     v2.hub.close();
     writer.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn saved_peer_cache_waits_for_remote_reconciliation() {
+    let mut config = crate::config::Config::default();
+    config.store.mode = crate::config::StoreMode::Memory;
+    config.peers.insert(
+        "saved".into(),
+        crate::config::PeerConfig {
+            link_host: None,
+            wireguard: None,
+            url: "ws://127.0.0.1:9/saved".into(),
+            token: None,
+            peer_token: None,
+            vm_boundary: false,
+            github_broker: false,
+        },
+    );
+    let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+    let v1 = Hub::new(config, store);
+    let mut cached = Summary::new("cached");
+    cached.origin = "saved".into();
+    let mut missing = Summary::new("missing");
+    missing.origin = "saved".into();
+    let mut forgotten = Summary::new("forgotten");
+    forgotten.origin = "forgotten-peer".into();
+    let index = acpmux_book::index::SummaryIndex::new()
+        .apply(1, cached.clone())
+        .apply(2, missing)
+        .apply(3, forgotten);
+    let (hub, writer) = acpmux_core::hub::Hub::new(index);
+    let v2 = V2::new(hub, writer);
+    let subscription = v2.hub.subscribe(&acpmux_core::wire::Sub::new("test", "list")).unwrap();
+    let state = TeeState::default();
+
+    // The local half runs before the deferred peer-start gate. A cached row is not
+    // treated as gone while v1 has not loaded the peer's table yet.
+    let _ = reconcile(&v1, &v2, &state).await;
+    assert!(subscription.receiver.try_next().is_none());
+    assert!(v2.hub.snapshot().get_row(&RowKey::new("saved", "cached")).is_some());
+    assert!(v2.hub.snapshot().get_row(&RowKey::new("saved", "missing")).is_some());
+
+    // A running peer may mark a row before the saved-peer cache is loaded. The tee
+    // observes the mark but must not turn the cache's temporary absence into a gone.
+    state.mark_remote("saved", "missing");
+    let mut expiries = Expiries::default();
+    drain_marks(&v1, &v2, &state, &mut expiries);
+    assert!(subscription.receiver.try_next().is_none());
+    assert!(v2.hub.snapshot().get_row(&RowKey::new("saved", "missing")).is_some());
+
+    // This remote row models load_peer_cache after start_saved_peers. The remote half now
+    // compares the complete table, so the missing row is gone and a removed origin is cut.
+    let remote = Hub::remote_summary(
+        "saved",
+        serde_json::json!({"sessionId":"cached", "name":"cached", "status":"idle"}),
+    );
+    let receipt = crate::session_identity::SessionReceipt::new("saved", "cached", None, 1);
+    v1.remote_sessions.write().insert(
+        "saved/cached".into(),
+        RemoteSession { peer: "saved".into(), summary: remote.into(), receipt },
+    );
+    state.remote_ready();
+    reconcile_remote(&v1, &v2, &state).await;
+    while state.has_pending() {
+        drain_marks(&v1, &v2, &state, &mut expiries);
+    }
+    v2.hub.close();
+    v2.take_writer().unwrap().run().await.unwrap();
+
+    let snapshot = v2.hub.snapshot();
+    assert!(snapshot.get_row(&RowKey::new("saved", "cached")).is_some());
+    assert!(snapshot.get_row(&RowKey::new("saved", "missing")).is_none());
+    assert!(snapshot.get_row(&RowKey::new("forgotten-peer", "forgotten")).is_none());
 }
 
 #[tokio::test]

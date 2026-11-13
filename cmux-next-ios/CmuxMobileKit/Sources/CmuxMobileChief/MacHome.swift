@@ -59,6 +59,16 @@ public struct MacConversationRoute: Hashable, Sendable {
     public let title: String
 }
 
+/// A Cloud conversation New Message opened on this phone (a DM or group with
+/// teammates, another Cloud Chief's conversation): read and written with this
+/// account's token, as the Cloud Chief's is.
+public struct CloudConversationRoute: Hashable, Sendable {
+    public let conversationID: String
+    public let title: String
+    /// The Chief's agent id when the conversation is a Chief's.
+    public let chief: String?
+}
+
 /// One or two letters for a name's monogram ("Build Bot" → "BB").
 func homeInitials(_ name: String) -> String {
     let words = name.split(whereSeparator: \.isWhitespace)
@@ -457,6 +467,33 @@ public final class MacHomeFeed {
             return MacHomeRow.pooled(wire: wire)
         }, complete: true)
         self.macID = macID
+    }
+
+    /// New Message's demo (verify/new-message): a Mac's Home with its Chief, two more Chiefs and
+    /// a few other conversations, with no link.
+    public func seedNewMessageRows(macID: String, macChief: String? = nil) {
+        let chiefRow = macChief ?? "conv-mac-chief"
+        let stamp = ISO8601DateFormatter()
+        let rows: [(id: String, kind: String, name: String, chief: String?, minutes: Double, preview: String)] = [
+            (chiefRow, "chief", "Chief", "agent_mux", 4, "The nightly is green. Two flaky tests were retried."),
+            ("conv-builder", "chief", "Builder", "agent_builder", 52, "I opened the release branch and bumped the version."),
+            ("conv-reviewer", "chief", "Reviewer", "agent_reviewer", 60 * 26, "Three PRs are waiting for your review."),
+            // A second Chief named like the first: New Message tells them apart by their last activity.
+            ("conv-builder-2", "chief", "Builder", "agent_builder_2", 60 * 50, "Nightly packaging is done."),
+            ("conv-infra", "group", "Infra", nil, 90, "Lawrence: the mini fleet is back up."),
+            ("conv-design", "channel", "Design", nil, 60 * 5, "New tab bar mocks are in the folder."),
+        ]
+        setRows(rows.compactMap { row -> MacHomeRow? in
+            var wire: [String: Any] = ["id": row.id, "kind": row.kind, "name": row.name, "unread": 0, "preview": row.preview,
+                                       "activity_at": stamp.string(from: Date().addingTimeInterval(-row.minutes * 60))]
+            if let chief = row.chief {
+                wire["chief"] = chief
+                wire["chief_state"] = "idle"
+            }
+            return MacHomeRow(wire: wire)
+        }, complete: true)
+        self.macID = macID
+        macChiefID = chiefRow
     }
     #endif
 
