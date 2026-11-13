@@ -42,6 +42,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_WEB_TOKEN_ROTATE,
     method::MUX_HARNESSES,
     method::MUX_COMPLETE,
+    method::MUX_HUNK_SUMMARY,
     method::MUX_RELOAD_CONFIG,
     method::MUX_WATCH,
     method::MUX_HARNESS_INVENTORY_WATCH,
@@ -71,6 +72,9 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_PROMPT_WITHDRAW,
     // So is a chat's inbox drained (`hub/inbox_digest.rs`).
     method::MUX_INBOX_DIGEST,
+    // A registration is for the caller's own session on this daemon (`hub/register.rs`): its
+    // NAME is the name to take, never a peer session to forward to, and its token stays here.
+    method::MUX_REGISTER,
     // A message to deliver is this daemon's (`outbox.rs`), whatever session it names.
     method::MUX_SEND_QUEUE,
     method::MUX_SEND_STATUS,
@@ -437,6 +441,15 @@ async fn forward_inner(
         if super::trust_gate::gated(conn.origin, params) && !peer.supports_trust_gate() {
             return Err(super::trust_gate::peer_unsupported(&peer.name));
         }
+        // A switch onto another harness goes only to a peer that takes one: an older build forks
+        // on the chat's own harness and the next message would reach the old provider (review of
+        // cmux#41030, F3).
+        if m == method::SESSION_FORK
+            && super::fork_through::asks_retarget(params)
+            && !peer.lists(super::fork_through::RETARGET_FEATURE)
+        {
+            return Err(super::fork_through::retarget_unsupported(&peer.name));
+        }
         // A conditional stop runs only where the session lives: an older peer would ignore the
         // condition and stop it anyway (`hub/stop_if_idle.rs`).
         if m == method::MUX_KILL && crate::hub::stop_if_idle::StopCondition::asked(params) {
@@ -653,6 +666,7 @@ async fn forward_inner(
                 | method::SESSION_LOAD
                 | method::SESSION_RESUME
                 | method::SESSION_FORK
+                | method::ACP_SESSION_FORK
         ) {
             if m == method::MUX_ATTACH {
                 let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
@@ -957,7 +971,7 @@ async fn forward_inner(
         if m == method::MUX_PERMISSION_GROUPS && result.is_object() {
             mac_group_read(&mut result, conn.is_person() && hub.person.macs.has_own());
         }
-        if m == method::SESSION_FORK
+        if matches!(m, method::SESSION_FORK | method::ACP_SESSION_FORK)
             && let Some(new_id) = result.get("sessionId").and_then(Value::as_str)
         {
             super::view::subscribe_remote(hub, conn, new_id, None);
@@ -1136,6 +1150,13 @@ pub(super) fn strip_new_meta(p: &mut Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A registration's NAME is never a destination: it is not forwarded to a peer session of that
+    /// name, so the caller's messaging token never leaves this daemon.
+    #[test]
+    fn a_registration_is_never_forwarded_to_a_peer() {
+        assert!(!names_a_session(method::MUX_REGISTER));
+    }
 
     /// A phone's read of a peer chat keeps within the kinds an older peer takes: the sudo card's
     /// kinds, which a peer chat never has, are dropped (review F1 of cc3c3cf).

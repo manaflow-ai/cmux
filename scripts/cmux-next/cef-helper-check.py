@@ -25,6 +25,7 @@ import argparse, base64, glob, json, os, plistlib, subprocess, sys, tempfile, ti
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_cli_storm import Client  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 # openBrowser takes http(s) and file URLs, not data: URLs ("is not a URL cmux can open").
 PAGE_HTML = ("<!doctype html><title>start</title><script>document.title='js-ran-'+(6*7)</script>"
@@ -207,9 +208,9 @@ def main():
     os.makedirs(os.path.dirname(os.path.abspath(opts.json)), exist_ok=True)
     with open(opts.json, "w") as f:
         json.dump(res, f, indent=1)
-    print(json.dumps({k: v for k, v in res.items() if k not in ("processes", "window_png_base64")}, indent=1))
+    safe_print(json.dumps({k: v for k, v in res.items() if k not in ("processes", "window_png_base64")}, indent=1))
     for p in res.get("processes", []):
-        print(f"  {p['pid']:>7} {p['type']:<12} {p['exe']}")
+        safe_print(f"  {p['pid']:>7} {p['type']:<12} {p['exe']}")
     return 0 if res["ok"] else 1
 
 

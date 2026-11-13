@@ -35,7 +35,10 @@ pub(super) fn prepare(
     let conversation = fields["conversation"].as_str().unwrap_or_default().to_owned();
     let tail = fields["tail"].as_u64().and_then(|t| u32::try_from(t).ok()).unwrap_or(50);
     let stream_id = resource_stream_id(request)?;
-    let events = mux.subscribe();
+    // Conversation events only: the stream reads nothing else, and every
+    // other daemon event filled its bounded mailbox while its reader was
+    // slow, which ended the stream with a gap it did not have.
+    let events = mux.subscribe_conversations();
     let (summary, messages) = mux
         .with_conversations(|store| {
             store.check_typing(&conversation, &principal)?;

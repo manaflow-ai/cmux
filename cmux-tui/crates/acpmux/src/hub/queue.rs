@@ -205,9 +205,15 @@ pub(super) enum Wait<'a> {
 }
 
 /// What a prompt, or a change to the queue or the draft, gets while the chat is being moved to
-/// another daemon (`transfer_out.rs`).
-pub(super) fn moving_error() -> RpcError {
-    RpcError::new(-32000, "transfer.moving: this chat is being moved to another daemon")
+/// another daemon (`transfer_out.rs`). One whose move committed keeps its move's mark for good
+/// (`MOVED_AWAY` after a restart), and answers where it went: no move of it is under way.
+pub(super) fn moving_error(session: &Session) -> RpcError {
+    match session.read_meta(|m| m.moved_to.clone()) {
+        Some(to) => super::transfer_out::moved_error(&to),
+        None => {
+            RpcError::new(-32000, "transfer.moving: this chat is being moved to another daemon")
+        }
+    }
 }
 
 /// What a withdrawn prompt's `session/prompt` answers: no turn ran.
@@ -260,7 +266,7 @@ fn approved_rules(run: PromptRun, approval: Option<&Value>) -> PromptRun {
 
 /// Whether a prompt waits in the chat's queue that a failed turn does not hold, read under the
 /// queue's lock.
-fn queue_waits(session: &Session) -> bool {
+pub(super) fn queue_waits(session: &Session) -> bool {
     let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     queue.iter().any(|q| !q.aside())
 }
@@ -298,7 +304,7 @@ impl Hub {
             Some((turn_id, Some(waits))) => (turn_id, Some(waits)),
             Some((turn_id, None)) => return Err(Ok(withdrawn_reply(p.prompt_id, &turn_id))),
             // A chat being moved takes no prompt: its new daemon does (`transfer_out.rs`).
-            None if session.moving().is_some() => return Err(Err(moving_error())),
+            None if session.moving().is_some() => return Err(Err(moving_error(session))),
             // A watched chat takes no prompt until it is taken over (`watch.rs`).
             None if session.meta().watching.is_some() => {
                 return Err(Err(super::watch::read_only()));
@@ -411,7 +417,7 @@ impl Hub {
                 }
                 // A move began while it waited for the lock (`transfer_out.rs`): it runs nowhere.
                 if session.moving().is_some() {
-                    return Err(Err(moving_error()));
+                    return Err(Err(moving_error(session)));
                 }
                 // A turn whose task takes the lock after it runs (the turn its agent ran on into
                 // as the one before ended, `carried_turn.rs`; one recovered from a host): this
@@ -1075,7 +1081,7 @@ impl Hub {
         from_agents_only: bool,
     ) -> Result<Withdrawn, RpcError> {
         if session.moving().is_some() {
-            return Err(moving_error());
+            return Err(moving_error(session));
         }
         self.remove_queued_by(session, prompt_id, None, editor, from_agents_only)
     }
@@ -1222,35 +1228,50 @@ impl Hub {
             if pending || self.logged_prompt(session, &prompt_id).is_some() {
                 continue;
             }
-            let Some(blocks) = self.logged_prompt_blocks(session, &e.msg) else {
+            let Some(queued) = self.queued_copy(session, &e.msg, &turn_id) else {
                 tracing::warn!(session = %session.id, prompt = %prompt_id, "an unstarted prompt cannot be rebuilt; a resend runs it");
                 continue;
             };
-            let mut queued = json!({
-                "text": field("text"),
-                "client": e.msg.get("client").cloned().unwrap_or(json!("acpmux")),
-                "position": 0,
-                "promptId": prompt_id,
-                "turnId": turn_id,
-                "prompt": blocks,
-                // Gated as it came: a prompt from the CLI's unix socket never was, so a restart
-                // does not hold it on a trust question nobody asked (cmux#37231). The gated ones
-                // are checked again, since the folder's trust may have changed across the
-                // restart, as is one from a log from before `user_message` recorded its gate.
-                "trustGate": e.msg.get("trustGate").and_then(Value::as_bool).unwrap_or(true),
-                "restored": "unstarted",
-            });
-            for k in ["control", "cloudMobile", "images", "inlineParts", "pasted", "_meta"] {
-                if let Some(v) = e.msg.get(k) {
-                    queued.set(k, v.clone());
-                }
-            }
             let (record, stored) = self.append_logged(session, "mux", "queued", queued, None);
             if stored {
                 copies.push(record);
             }
         }
         copies
+    }
+
+    /// The `queued` record that puts the prompt logged as `msg` (its `user_message`) back at the
+    /// head of the queue under turn `turn_id`, with what it came with that its run checks again
+    /// (`requeue_unstarted`, `unread_steer.rs`). None when its blocks cannot be rebuilt (hidden
+    /// context, a document).
+    pub(super) fn queued_copy(
+        &self,
+        session: &Session,
+        msg: &Value,
+        turn_id: &str,
+    ) -> Option<Value> {
+        let field = |k: &str| msg.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
+        let blocks = self.logged_prompt_blocks(session, msg)?;
+        let mut queued = json!({
+            "text": field("text"),
+            "client": msg.get("client").cloned().unwrap_or(json!("acpmux")),
+            "position": 0,
+            "promptId": field("promptId"),
+            "turnId": turn_id,
+            "prompt": blocks,
+            // Gated as it came: a prompt from the CLI's unix socket never was, so a restart
+            // does not hold it on a trust question nobody asked (cmux#37231). The gated ones
+            // are checked again, since the folder's trust may have changed across the
+            // restart, as is one from a log from before `user_message` recorded its gate.
+            "trustGate": msg.get("trustGate").and_then(Value::as_bool).unwrap_or(true),
+            "restored": "unstarted",
+        });
+        for k in ["control", "cloudMobile", "images", "inlineParts", "pasted", "_meta"] {
+            if let Some(v) = msg.get(k) {
+                queued.set(k, v.clone());
+            }
+        }
+        Some(queued)
     }
 
     pub(super) fn restore_queue(&self, session: &Arc<Session>) {

@@ -73,6 +73,13 @@ extension UpdaterService {
         send(.installRequested)
     }
 
+    /// Reads the feed and the pulled list now while an update waits on Update Ready, so a Restart
+    /// to Update soon after decides at once (``StagedUpdateRefresh/prefetch(updater:)``). Called
+    /// when cmux becomes active; a no-op otherwise.
+    public func prefetchForInstallClick() {
+        stagedRefresh.prefetch(updater: self)
+    }
+
     /// The quit is decided: with `updates.installOnQuit` off, or a staged build known pulled
     /// (``stagedPulledHeld``), cancel the staged update's installer before the app exits. A pulled
     /// build whose installer this app does not hold (Sparkle's silent cycle still resuming) cannot
@@ -98,11 +105,12 @@ extension UpdaterService {
     }
 
     /// Why the update flow failed, as Sparkle reported it (a failed check, download or install
-    /// preflight), else the read-only probe's failure on a build without Sparkle; nil otherwise.
+    /// preflight) in plain words (``UpdateFailureText``), else the read-only probe's failure on a
+    /// build without Sparkle; nil otherwise.
     public var failureReason: String? {
         if let controller, disabledReason == nil {
             guard case .error(let failure) = controller.model.effectiveState else { return nil }
-            return failure.error.localizedDescription
+            return UpdateFailureText.plain(failure.error)
         }
         return lastProbeError
     }
@@ -202,7 +210,7 @@ extension UpdaterService {
         followNewestFetch(phase, previous: previous)
         followInstall(phase)
         followStagedUpdate(phase)
-        stagedRefresh.follow(phase, updater: self)
+        stagedRefresh.follow(phase, previous: previous, updater: self)
         tipCheck.refresh(self)
         followReleasePush()
         // A pulled running build read while a check ran is followed once the check ends.
@@ -309,7 +317,8 @@ extension UpdaterService {
         let required = requiredMinimumVersion != nil
         let enabled = (downloadSetting.enabled || required) && !isOffManagedChannel && !policy.disablesUpdates
         let downloads = UpdateNetworkPolicy.downloadsAutomatically(setting: enabled, mode: required ? .download : downloadSetting.metered,
-                                                                   constrained: network.constrained, expensive: network.expensive)
+                                                                   constrained: network.constrained || networkPending,
+                                                                   expensive: network.expensive || networkPending)
         // The tip app reads its feed every few minutes only where found updates download by
         // themselves and the policy allows updates.
         defer {
@@ -321,7 +330,7 @@ extension UpdaterService {
         downloadsFoundUpdates = downloads
         if let controller, controller.downloadsUpdatesInBackground != downloads {
             controller.downloadsUpdatesInBackground = downloads
-            log.append("automatic downloads \(downloads ? "on" : "deferred") (setting \(downloadSetting.enabled), required \(required), off managed channel \(isOffManagedChannel), constrained \(network.constrained), expensive \(network.expensive))")
+            log.append("automatic downloads \(downloads ? "on" : "deferred") (setting \(downloadSetting.enabled), required \(required), off managed channel \(isOffManagedChannel), constrained \(network.constrained), expensive \(network.expensive), link pending \(networkPending))")
         }
         // Downloads came on (the setting, the link or the policy): an update a check found while they
         // were off downloads now instead of waiting for a click (the driver's own state decides; a
@@ -330,20 +339,27 @@ extension UpdaterService {
         if resumed && (required || !runsPickedBuild) { acceptAvailable() }
     }
 
-    /// Follows the link's Low Data Mode and cost (path events, no polling).
+    /// Follows the link's Low Data Mode and cost (path events, no polling). Until the first path
+    /// arrives the link counts as metered (``networkPending``).
     func followNetwork() {
         guard pathMonitor == nil else { return }
         let monitor = NWPathMonitor()
         monitor.pathUpdateHandler = { [weak self] path in
             let state = (constrained: path.isConstrained, expensive: path.isExpensive)
-            Task { @MainActor in
-                guard let self, self.network != state else { return }
-                self.network = state
-                self.applyDownloadPolicy()
-            }
+            Task { @MainActor in self?.networkChanged(constrained: state.constrained, expensive: state.expensive) }
         }
+        networkPending = true
         monitor.start(queue: DispatchQueue(label: "cmux.updates.network"))
         pathMonitor = monitor
+    }
+
+    /// A path event: the link's Low Data Mode and cost as the monitor reports them.
+    func networkChanged(constrained: Bool, expensive: Bool) {
+        let state = (constrained: constrained, expensive: expensive)
+        guard networkPending || network != state else { return }
+        networkPending = false
+        network = state
+        applyDownloadPolicy()
     }
 }
 

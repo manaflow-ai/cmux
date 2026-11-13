@@ -71,28 +71,6 @@ impl SpringParameters {
         Self::new(self.response * scale, self.damping_fraction)
     }
 
-    /// SwiftUI `Spring(duration:bounce:)`: `duration` is the perceptual
-    /// duration (the response); `bounce` 0 is critically damped, above 0
-    /// overshoots (0.15 is a subtle bounce), below 0 is over-damped.
-    pub fn from_duration_bounce(duration: f64, bounce: f64) -> Self {
-        let damping_fraction = if bounce >= 0. { 1. - bounce } else { 1. / (1. + bounce) };
-        Self::new(duration, damping_fraction)
-    }
-
-    /// SwiftUI's bounce for this damping fraction (0 critically damped).
-    pub fn bounce(&self) -> f64 {
-        if self.damping_fraction <= 1. {
-            1. - self.damping_fraction
-        } else {
-            1. / self.damping_fraction - 1.
-        }
-    }
-
-    /// The same response with `bounce` (SwiftUI semantics).
-    pub fn with_bounce(&self, bounce: f64) -> Self {
-        Self::from_duration_bounce(self.response, bounce)
-    }
-
     /// Closed-form position of a unit step (0 -> 1, from rest) after `t`
     /// seconds. Used as an easing curve for GPUI's timed `Animation`.
     pub fn step_response(&self, t: f64) -> f64 {

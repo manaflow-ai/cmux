@@ -37,6 +37,8 @@ export type LaneNoticeThread = {
   /// The newest sender's key (`LaneNoticeDelivery.lookup`).
   readonly lookup?: string;
   readonly preview?: string;
+  /// The newest message whole, for a thread with no messages (inboxNotice.ts `newest`).
+  readonly newest?: string;
   readonly messages?: readonly LaneNoticeDelivery[];
   readonly label?: string;
   readonly promptIds?: readonly string[];

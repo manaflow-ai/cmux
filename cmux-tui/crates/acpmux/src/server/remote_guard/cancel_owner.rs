@@ -49,8 +49,13 @@ pub(in crate::server) fn check(
 
 /// The person's own daemon on another machine, by the proof its link presented: the peer token,
 /// not forwarding for its Web client (`Control::Peer`) nor for a paired machine (`via: device`).
-/// A paired device's own credential (`ConnAuth::Device`) is never the owner here.
-fn owner(origin: crate::server::Origin, auth: crate::server::ConnAuth, params: &Value) -> bool {
+/// A paired device's own credential (`ConnAuth::Device`) is never the owner here. The side
+/// session guard (`_acpmux/btw`, `remote_guard.rs`) asks the same question.
+pub(super) fn owner(
+    origin: crate::server::Origin,
+    auth: crate::server::ConnAuth,
+    params: &Value,
+) -> bool {
     origin == crate::server::Origin::Peer
         && auth.peer_daemon()
         && crate::hub::vm_boundary::owner(auth, super::control_of(origin, auth, params), params)

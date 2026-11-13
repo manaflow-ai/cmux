@@ -127,6 +127,9 @@ use std::sync::atomic::Ordering;
 
 /// The provenance kind of a notice.
 pub const NOTICE_KIND: &str = "inbox_notice";
+
+/// What every notice's prompt id starts with (`deliver_notice`).
+const NOTICE_ID_PREFIX: &str = "inbox-notice-";
 /// On a chat's first work's provenance (module docs): set by acpmux only, as no client's
 /// provenance keeps a field it does not name (`prompt_provenance.rs`).
 pub const FIRST_WORK: &str = "firstWork";
@@ -141,6 +144,13 @@ pub const FLUSH_MS: u64 = 10 * 60 * 1000;
 const PREVIEW_CHARS: usize = 120;
 /// A notice holds its messages whole when their text is this many bytes or less ([`render`]).
 const WHOLE_BYTES: usize = 4 * 1024;
+/// Past [`WHOLE_BYTES`], a thread's part still holds its newest message whole (`newest`) when that
+/// message is this many bytes or less, so the transcript draws it at once instead of a first line
+/// that grows into it when the thread is read ([`render`]).
+const NEWEST_BYTES: usize = 8 * 1024;
+/// The most the parts of one notice hold of newest messages past [`WHOLE_BYTES`], in bytes: the
+/// threads past it draw their preview and read the rest, as before.
+const NEWEST_TOTAL_BYTES: usize = 32 * 1024;
 /// Messages a chat keeps in memory; the oldest read ones go first (the log keeps them all).
 const KEEP: usize = 500;
 /// The client a notice goes under.
@@ -602,7 +612,11 @@ fn display_sender_name(sender: &Value, fallback: &str) -> String {
     let label = sender.get("label").and_then(Value::as_str).filter(|v| !v.is_empty());
     let declared = sender.get("labelDeclared").and_then(Value::as_bool) == Some(true);
     let authenticated = sender.get("authenticated").and_then(Value::as_bool) == Some(true);
+    // A name this host's sender token proved (`sender_token.rs`) is no self-declared label.
+    let token = sender.get(crate::sender_token::VERIFIED_BY_KEY).and_then(Value::as_str)
+        == Some(crate::sender_token::VERIFIED_BY);
     match (label, declared, authenticated) {
+        (Some(label), true, false) if token => label.to_owned(),
         (Some(label), true, false) => format!("{label} (self-declared, unauthenticated)"),
         (Some(label), true, true) if fallback.is_empty() => label.to_owned(),
         (Some(label), true, true) => format!("{fallback} (label: {label})"),
@@ -738,7 +752,9 @@ pub(crate) fn relay_body(text: &str) -> &str {
 ///
 /// The parts (the notice's provenance `threads`) are what the transcript draws: per thread its
 /// id, label, senders, new messages, whether it holds a blocker, the newest one's preview and its
-/// sender's session, and the messages whole when the notice holds them.
+/// sender's session, and the messages whole when the notice holds them; past that, the newest one
+/// whole (`newest`) while it is [`NEWEST_BYTES`] or less and the notice's newest ones stay within
+/// [`NEWEST_TOTAL_BYTES`]. Only the parts carry it: the agent's text keeps its previews.
 pub(super) fn render(items: &[&Item]) -> (String, Value) {
     let mut threads: Vec<(&str, Vec<&Item>)> = Vec::new();
     for item in items {
@@ -763,6 +779,7 @@ pub(super) fn render(items: &[&Item]) -> (String, Value) {
         );
     }
     let mut parts = Vec::new();
+    let mut newest_left = NEWEST_TOTAL_BYTES;
     for (key, list) in &threads {
         let last = list.iter().max_by_key(|i| i.at).copied();
         // The agent's text names a self-declared sender so; the transcript's parts name it alone.
@@ -846,6 +863,9 @@ pub(super) fn render(items: &[&Item]) -> (String, Value) {
                 })
                 .collect();
             part.set("messages", json!(messages));
+        } else if let Some(last) = last.filter(|i| i.text.len() <= NEWEST_BYTES.min(newest_left)) {
+            newest_left -= last.text.len();
+            part.set("newest", json!(last.text));
         }
         parts.push(part);
     }
@@ -1348,7 +1368,12 @@ impl Hub {
             self.append(session, "mux", "inbox", msg);
             self.note_delegator(session, provenance);
         }
+        // `resent`: a resend of one it holds or a notice carries, not a message kept now
+        // (`sender_harness::on_kept` writes no claim for it).
         let mut accepted = json!({"sessionId": session.id, "promptId": prompt_id, "queued": true, "inbox": true, "threadId": thread});
+        if !fresh {
+            accepted.set("resent", json!(true));
+        }
         if held {
             accepted.set(crate::cli::output::HELD_IN_INBOX, json!(true));
         }
@@ -1475,13 +1500,18 @@ impl Hub {
         }
     }
 
-    /// Whether a turn is still coming for session `id` with nothing more sent: a message this
-    /// daemon's outbox has not delivered to it yet, or its inbox's ([`turn_coming`]). A wait for
-    /// its turn's end does not answer with the idle state from before (`server/wait.rs`).
+    /// Whether a turn is still coming for session `id` with nothing more sent: a prompt queued
+    /// behind its turn that is not held aside (between a turn's end and the next one's start no
+    /// turn runs), a message this daemon's outbox has not delivered to it yet, or its inbox's
+    /// ([`turn_coming`]). A wait for its turn's end does not answer with the idle state from
+    /// before (`server/wait.rs`).
     pub(crate) fn work_coming(&self, id: &str) -> bool {
         let Ok(session) = self.resolve(id) else { return false };
         if session.id != id {
             return false;
+        }
+        if session.meta().status != SessionStatus::Closed && super::queue::queue_waits(&session) {
+            return true;
         }
         let name = session.meta().name;
         let named = |target: &str| {
@@ -1635,7 +1665,7 @@ impl Hub {
     /// Sends the notice of every new message, as a steer or (`steer` false) a turn of its own,
     /// and answers their waiting `session/prompt`s with how it went in.
     fn deliver_notice(self: &Arc<Self>, session: &Arc<Session>, steer: bool) {
-        let notice_id = format!("inbox-notice-{}", uuid::Uuid::now_v7());
+        let notice_id = format!("{NOTICE_ID_PREFIX}{}", uuid::Uuid::now_v7());
         let (text, whole, parts, ids) = {
             let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
             if inbox.in_flight.is_some() {
@@ -1809,6 +1839,65 @@ impl Hub {
             self.append(session, "mux", "inbox_answered", msg);
         }
         self.inbox_review(session);
+    }
+
+    /// A notice's own turn that a restart adopted ended (`hosts.rs` `recover_work`): the
+    /// messages it carried get the turn's answer, and the log says so (`inbox_answered`), as
+    /// `notice_done` writes it for a notice this daemon started. A sender's resend of one of them
+    /// is answered from that record (`logged_inbox_answer`); without it, the resend answered
+    /// "interrupted" for a message its agent had read and answered. Nothing for a turn that was
+    /// no notice's, or a notice answered already.
+    pub(super) fn recovered_notice_done(
+        &self,
+        session: &Arc<Session>,
+        notice_id: &str,
+        result: &super::queue::Answer,
+    ) {
+        // Every notice's prompt id has the prefix: another turn's end reads no log.
+        if !notice_id.starts_with(NOTICE_ID_PREFIX) {
+            return;
+        }
+        let (mut ids, mut answered) = (None::<Vec<String>>, false);
+        let kinds = ["inbox_noticed", "inbox_answered"];
+        let scanned = self.store.scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
+            if e.dir == "mux"
+                && e.msg.get("noticePromptId").and_then(Value::as_str) == Some(notice_id)
+            {
+                if e.kind == "inbox_answered" {
+                    answered = true;
+                } else {
+                    let carried = e.msg.get("promptIds").and_then(Value::as_array);
+                    let carried = carried.into_iter().flatten().filter_map(Value::as_str);
+                    ids = Some(carried.map(str::to_owned).collect());
+                }
+            }
+            true
+        });
+        let Some(ids) = ids.filter(|ids| scanned.is_ok() && !answered && !ids.is_empty()) else {
+            return;
+        };
+        let answer = if super::queue::closing(session) {
+            Err(super::queue::closing_error())
+        } else {
+            result.clone()
+        };
+        {
+            let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+            for item in inbox.items.iter_mut().filter(|i| ids.contains(&i.prompt_id)) {
+                item.answered = Some(answer.clone());
+            }
+            inbox.settled.notify_waiters();
+        }
+        let mut msg = json!({"noticePromptId": notice_id, "promptIds": ids});
+        match answer {
+            Ok(answer) => {
+                msg.set("answer", answer);
+            }
+            Err(error) => {
+                msg.set("error", json!(error));
+            }
+        }
+        self.append(session, "mux", "inbox_answered", msg);
     }
 
     /// Ends notice `notice_id`, carrying `ids`, as one refused before its prompt was written.

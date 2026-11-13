@@ -139,7 +139,7 @@ impl ControlLedger {
         let saved = (|| -> anyhow::Result<()> {
             if let Some(parent) = path.parent() {
                 let existed = parent.is_dir();
-                std::fs::create_dir_all(parent)?;
+                crate::home_fs::create_dirs(parent)?;
                 // A newly made parent must survive a crash too, or a durable file inside it
                 // could disappear with the directory entry and allow the operation to repeat.
                 #[cfg(unix)]
