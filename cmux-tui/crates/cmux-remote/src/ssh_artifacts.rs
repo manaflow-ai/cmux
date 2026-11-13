@@ -828,11 +828,30 @@ fn prune_cache(directory: &Path, keep: &str) {
 }
 
 /// The download cache's lock for one build, waiting while another process fetches it.
-fn lock_download(lock_path: &Path) -> std::io::Result<std::fs::File> {
+fn lock_download(lock_path: &Path) -> std::io::Result<DownloadLock> {
     std::fs::create_dir_all(lock_path.parent().unwrap_or(Path::new(".")))?;
     let lock = std::fs::File::options().create(true).truncate(false).write(true).open(lock_path)?;
     lock.lock()?;
-    Ok(lock)
+    Ok(DownloadLock(lock))
+}
+
+/// [`lock_download`]'s lock, held until dropped. The drop unlocks before the
+/// file closes: a child another thread started meanwhile keeps a copy of the
+/// open file until it execs or exits, and a close alone would leave the lock
+/// held in that copy.
+struct DownloadLock(std::fs::File);
+
+impl Drop for DownloadLock {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
+#[cfg(unix)]
+impl std::os::fd::AsFd for DownloadLock {
+    fn as_fd(&self) -> std::os::fd::BorrowedFd<'_> {
+        std::os::fd::AsFd::as_fd(&self.0)
+    }
 }
 
 #[cfg(all(test, unix))]

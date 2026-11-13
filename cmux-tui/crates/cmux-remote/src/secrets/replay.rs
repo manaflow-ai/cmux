@@ -52,7 +52,23 @@ struct Stored {
 
 /// The exclusive lock of one `secrets-v1` request; released when dropped.
 /// Every write takes a `&Lock`, so none happens outside a request.
-pub struct Lock(#[allow(dead_code, reason = "held only to keep the flock")] std::fs::File);
+/// The drop unlocks before the file closes: a child another daemon thread
+/// started meanwhile keeps a copy of the open file until it execs or exits,
+/// and a close alone would leave the lock held in that copy.
+pub struct Lock(std::fs::File);
+
+impl Drop for Lock {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
+#[cfg(unix)]
+impl std::os::fd::AsFd for Lock {
+    fn as_fd(&self) -> std::os::fd::BorrowedFd<'_> {
+        std::os::fd::AsFd::as_fd(&self.0)
+    }
+}
 
 /// How long a request waits for the machine config applier's lock before it
 /// answers the retryable `busy`.
@@ -67,7 +83,7 @@ const CONFIG_LOCK: &str = ".cmux/machine-config/lock";
 pub fn lock_machine_config(
     home: &Path,
     wait: std::time::Duration,
-) -> std::io::Result<Option<std::fs::File>> {
+) -> std::io::Result<Option<Lock>> {
     use std::os::fd::AsRawFd;
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
     let path = home.join(CONFIG_LOCK);
@@ -95,7 +111,7 @@ pub fn lock_machine_config(
     loop {
         // SAFETY: `file` is an open descriptor for the whole call.
         if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
-            return Ok(Some(file));
+            return Ok(Some(Lock(file)));
         }
         let error = std::io::Error::last_os_error();
         if error.kind() != std::io::ErrorKind::WouldBlock
@@ -111,10 +127,7 @@ pub fn lock_machine_config(
 }
 
 #[cfg(not(unix))]
-pub fn lock_machine_config(
-    _: &Path,
-    _: std::time::Duration,
-) -> std::io::Result<Option<std::fs::File>> {
+pub fn lock_machine_config(_: &Path, _: std::time::Duration) -> std::io::Result<Option<Lock>> {
     Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "secrets-v1 writes need Linux"))
 }
 
