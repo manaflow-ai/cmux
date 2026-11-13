@@ -388,6 +388,138 @@ fn malformed_harness_lines_are_counted_and_do_not_block_replay() {
     assert_eq!(state.counters().invalid_records, 2);
 }
 
+fn json_value_end(bytes: &[u8], start: usize) -> Option<usize> {
+    let first = *bytes.get(start)?;
+    if first == b'"' {
+        let mut escaped = false;
+        for (offset, byte) in bytes.iter().enumerate().skip(start + 1) {
+            if escaped {
+                escaped = false;
+            } else if *byte == b'\\' {
+                escaped = true;
+            } else if *byte == b'"' {
+                return Some(offset + 1);
+            }
+        }
+        return None;
+    }
+    if matches!(first, b'[' | b'{') {
+        let mut depth = 0usize;
+        let mut escaped = false;
+        let mut string = false;
+        for (offset, byte) in bytes.iter().enumerate().skip(start) {
+            if string {
+                if escaped {
+                    escaped = false;
+                } else if *byte == b'\\' {
+                    escaped = true;
+                } else if *byte == b'"' {
+                    string = false;
+                }
+                continue;
+            }
+            match *byte {
+                b'"' => string = true,
+                b'[' | b'{' => depth = depth.saturating_add(1),
+                b']' | b'}' => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        return Some(offset + 1);
+                    }
+                }
+                _ => {}
+            }
+        }
+        return None;
+    }
+    let mut end = start;
+    while let Some(byte) = bytes.get(end) {
+        if matches!(byte, b',' | b'}' | b']' | b'\n' | b'\r') {
+            break;
+        }
+        end += 1;
+    }
+    Some(end)
+}
+
+fn leaf_mutations(line: &str) -> Vec<Vec<u8>> {
+    let bytes = line.as_bytes();
+    let mut mutations = Vec::new();
+    let replacements = [
+        "7".to_owned(),
+        format!("\"{}\"", "x".repeat(300)),
+        "null".to_owned(),
+        "[]".to_owned(),
+        "{}".to_owned(),
+    ];
+    let mut colon = 0;
+    while let Some(relative) =
+        bytes.get(colon..).and_then(|tail| tail.iter().position(|b| *b == b':'))
+    {
+        colon += relative + 1;
+        let mut start = colon;
+        while bytes.get(start).is_some_and(u8::is_ascii_whitespace) {
+            start += 1;
+        }
+        let Some(end) = json_value_end(bytes, start) else { break };
+        if end > start {
+            for replacement in &replacements {
+                let mut mutated = Vec::with_capacity(bytes.len() + replacement.len());
+                mutated.extend_from_slice(&bytes[..start]);
+                mutated.extend_from_slice(replacement.as_bytes());
+                mutated.extend_from_slice(&bytes[end..]);
+                mutations.push(mutated);
+            }
+        }
+        colon = end;
+    }
+    mutations
+}
+
+fn assert_leaf_mutations(harness: Harness, lines: &[String]) {
+    let mut state = State::default();
+    for line in lines {
+        for mutated in leaf_mutations(line) {
+            let mut candidate = state.clone();
+            let before = candidate.checkpoint().unwrap();
+            let invalid = candidate.counters().invalid_records;
+            translate(&mut candidate, harness, mutated.as_slice()).unwrap();
+            if candidate.counters().invalid_records > invalid {
+                assert_eq!(candidate.checkpoint().unwrap(), before, "invalid leaf changed state");
+            }
+            assert_eq!(candidate.counters().line_errors, 0, "leaf mutation caused a late error");
+        }
+        translate(&mut state, harness, line.as_bytes()).unwrap();
+    }
+}
+
+#[test]
+fn every_json_leaf_is_total_and_does_not_mutate_on_rejection() {
+    let mut v1 = Vec::new();
+    for fixture in [
+        SEED,
+        include_str!("fixtures/r1-reply-1.ndjson"),
+        include_str!("fixtures/r1-reply-2.ndjson"),
+    ] {
+        v1.extend(fixture.lines().map(str::to_owned));
+    }
+    for seed in 0..256 {
+        v1.extend(chat(seed).0);
+    }
+    assert_leaf_mutations(Harness::V1, &v1);
+
+    let claude = [
+        r#"{"type":"user","uuid":"p","message":{"content":"Question"}}"#,
+        r#"{"type":"assistant","message":{"id":"a","content":[{"type":"thinking","thinking":"reason"},{"type":"tool_use","id":"t","name":"Read","input":{"path":"a"}}]}}"#,
+        r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t","content":"output"}]}}"#,
+        r#"{"type":"assistant","message":{"id":"a","content":[{"type":"text","text":"Answer"}],"stop_reason":"end_turn"}}"#,
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect::<Vec<_>>();
+    assert_leaf_mutations(Harness::Claude, &claude);
+}
+
 #[test]
 fn duplicate_sequences_are_noops_but_new_replayed_prompts_start_a_turn() {
     let line = mux(1, "user_message", r#"{"text":"first","promptId":"p","turnId":"t1"}"#);

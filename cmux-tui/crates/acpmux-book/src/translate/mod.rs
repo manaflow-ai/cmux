@@ -478,7 +478,7 @@ impl State {
                 prompt.row.turn = self.turn;
             }
             prompt.read = true;
-            prompt.row.field("state", "sent");
+            debug_assert!(!prompt.row.field("state", "sent"));
             prompt.row.fields.insert("steer".into(), "true".into());
             out.row(&prompt.row);
             // A v1 read can precede both queued and echo. It has no body to settle yet.
@@ -515,7 +515,7 @@ impl State {
         }
         let prior = self.prompts.remove(&hash);
         let mut row = if let Some(p) = prior { p.row } else { self.row(RowKind::User, out)? };
-        row.field("state", "sent");
+        debug_assert!(!row.field("state", "sent"));
         if notice {
             row.fields.insert("notice".into(), "true".into());
         }
@@ -599,7 +599,7 @@ impl State {
             let mut row =
                 self.row(if thinking { RowKind::Thinking } else { RowKind::Text }, out)?;
             row.group = group;
-            row.field("messageId", key);
+            debug_assert!(!row.field("messageId", key));
             out.row(&row);
             row.fields.clear();
             let mut facts = fold::Reply::default();
@@ -726,9 +726,9 @@ impl State {
             row.fields.insert("insideLine".into(), "true".into());
         }
         if let Some(marker) = stream.block.fence_marker() {
-            row.field("fence", &marker);
+            debug_assert!(!row.field("fence", &marker));
         }
-        row.field("messageId", &stream.message);
+        debug_assert!(!row.field("messageId", &stream.message));
         out.row(&row);
         row.fields.clear();
         stream.row = row;
@@ -832,7 +832,7 @@ impl State {
         } else {
             // Background rows after a settled turn live outside that group.
             let mut row = self.row(RowKind::Sub, out)?;
-            row.field("book", key);
+            debug_assert!(!row.field("book", key));
             row
         };
         if !status.is_empty() && row.field("status", status) {
@@ -873,7 +873,7 @@ impl State {
         } else {
             let mut row = self.row(RowKind::Tool, out)?;
             row.group = self.group.as_ref().map(|g| g.id);
-            row.field("callId", key);
+            debug_assert!(!row.field("callId", key));
             if let Some(group) = &mut self.group {
                 let n = group.fields.get("calls").and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
                 group.fields.insert("calls".into(), n.saturating_add(1).to_string());
