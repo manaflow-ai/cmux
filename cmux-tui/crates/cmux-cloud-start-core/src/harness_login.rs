@@ -280,10 +280,10 @@ pub struct Decision {
     /// were one in flight on its machine: it reads and copies onto the machine, for a provider the
     /// warm copies ([`warm_copies`]). Only such a start waits on that copy; any other never waits.
     pub warm_copy_conflict: bool,
-    /// One line for the log and the `cloud.machines` row; no token, path or provider output.
     /// A known login on an owned spare can be reused without another guest read.
     /// `Working` is deliberately excluded: it also represents an unreachable provider.
     pub warm_verified: bool,
+    /// One line for the log and the `cloud.machines` row; no token, path or provider output.
     pub summary: String,
 }
 

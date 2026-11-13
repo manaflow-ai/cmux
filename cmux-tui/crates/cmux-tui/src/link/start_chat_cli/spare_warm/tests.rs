@@ -3,6 +3,17 @@ use base64::Engine as _;
 use std::cell::Cell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+/// `run_reporting` with no login report: what each warm, claim and ready test asks.
+pub(super) fn run(
+    flags: &Flags,
+    state: &Path,
+    now_ms: u64,
+    stdin: &mut dyn std::io::BufRead,
+    transport: Transport<'_>,
+) -> Option<Value> {
+    run_reporting(flags, state, now_ms, stdin, transport, &|_, _, _, _| {})
+}
+
 const MACHINE: &str = "vm_0123456789abcdefghij";
 const TEAM: &str = "team_0123456789abcdef0123";
 
