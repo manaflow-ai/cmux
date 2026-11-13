@@ -101,6 +101,8 @@ public final class CmuxToastOverlayHost: CmuxToastHosting, CmuxToastReanchoring 
             stacks[key] = stack
         }
         stack.center = center
+        // The look the new toasts take: Debug Settings > Toasts as of now.
+        let tuning = center.tuning
 
         let wanted = Set(toasts.map(\.serial))
         let known = Set(stack.entries.map(\.serial))
@@ -129,7 +131,7 @@ public final class CmuxToastOverlayHost: CmuxToastHosting, CmuxToastReanchoring 
                 }
                 entries.append(entry)
             } else {
-                let view = makeView(shown, in: window)
+                let view = makeView(shown, tuning: tuning)
                 presented.append((shown, view))
                 entries.append(nil)
             }
@@ -164,7 +166,7 @@ public final class CmuxToastOverlayHost: CmuxToastHosting, CmuxToastReanchoring 
         for (entry, anchor) in zip(stack.entries, placed) {
             if fresh.contains(where: { $0.serial == entry.serial }) {
                 entry.handle.update(anchor: anchor)
-                if !(inPlace && entry.serial == toasts.last?.serial) { CmuxToastMotion.appear(entry.view) }
+                if !(inPlace && entry.serial == toasts.last?.serial) { CmuxToastMotion.appear(entry.view, rise: entry.view.tuning.rise) }
             } else {
                 CmuxToastMotion.move(entry.view) { entry.handle.update(anchor: anchor) }
             }
@@ -185,8 +187,8 @@ public final class CmuxToastOverlayHost: CmuxToastHosting, CmuxToastReanchoring 
         retireIfEmpty(stack, in: window)
     }
 
-    private func makeView(_ shown: CmuxToastShown, in window: NSWindow) -> CmuxToastView {
-        let view = CmuxToastView(toast: shown.toast, reduceTransparency: reduceTransparency)
+    private func makeView(_ shown: CmuxToastShown, tuning: CmuxToastTuning) -> CmuxToastView {
+        let view = CmuxToastView(toast: shown.toast, reduceTransparency: reduceTransparency, tuning: tuning)
         view.showsUndoKey = shown.showsUndoKey
         if shown.showsDetails { view.setShowsDetails(true) }
         size(view)
@@ -205,6 +207,7 @@ public final class CmuxToastOverlayHost: CmuxToastHosting, CmuxToastReanchoring 
     private func present(_ view: CmuxToastView, serial: Int, stack: Stack, in window: NSWindow) -> Entry {
         view.onAction = { [weak stack] in stack?.center?.personRanAction(serial: serial) }
         view.onClose = { [weak stack] in stack?.center?.personClosed(serial: serial) }
+        view.onNeverShow = { [weak stack] in stack?.center?.personChoseNeverShow(serial: serial) }
         view.onHover = { [weak stack] hovered in stack?.center?.pointer(onToast: serial, hovered) }
         let options = OverlayOptions(kind: .toast, anchor: window.contentView?.bounds, passesThroughClicks: false)
         let handle = WindowOverlayHost.host(for: window).present(view, options: options)
@@ -235,6 +238,7 @@ public final class CmuxToastOverlayHost: CmuxToastHosting, CmuxToastReanchoring 
         handle.stopTakingMouse()
         entry.view.onAction = nil
         entry.view.onClose = nil
+        entry.view.onNeverShow = nil
         let key = ObjectIdentifier(entry.view)
         stack.fading[key] = entry.view
         CmuxToastMotion.disappear(entry.view, animated: animated) { [weak self, weak window, weak stack] in

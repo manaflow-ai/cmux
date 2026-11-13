@@ -12,7 +12,7 @@ exclusively or not at all: in a mktemp folder of the run's own, or in the user's
 home). scripts/check-test-determinism.py's predictable-tmp-path covers fixed names in tests and git hooks; this
 covers the rest of scripts/ and .github/.
 
-The detector, ported from cmuxterm-hq tests/test_noclobber_sweep.py (the same two greps):
+The detector, ported from the upstream sweep's tests (the same two greps):
 
     git grep -nE 'set -[a-zA-Z]*C\\b|set -o noclobber' -- scripts .github
     git grep -nE '((/private)?/tmp|\\$\\{?TMPDIR(:-/tmp)?\\}?)/[A-Za-z0-9._-]*(\\$\\$|\\$\\{?[A-Za-z_]|\\$\\(|\\{[A-Za-z_])' -- scripts .github
@@ -30,12 +30,14 @@ import hashlib
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 import importlib.util as _git_fixture_importlib  # noqa: E402
 from os import path as _git_fixture_path  # noqa: E402
 # The scratch repositories below are git writes: the helper drops an inherited GIT_DIR and turns maintenance off.
@@ -70,6 +72,22 @@ APP_NAMES = {
 # (path, a piece of the line[, which occurrence]): why the grep's hit is safe. The occurrence counts, in file order,
 # the hits of PATH this piece holds (approves()); left out, it is 1. An entry approves that one hit only.
 ALLOWED = {
+    ("scripts/cmux-next/austins-day/austins-day.sh", '"${TMPDIR:-/tmp}/austins-day-$(date -u +%Y%m%dT%H%M%SZ).XXXXXX"'):
+        "a mktemp -d template; shell_tree exempts nothing in this file because it sources $repo/scripts/cmux-next/"
+        "capture-host-env.sh through a variable it cannot follow (it may redefine mktemp); that file defines no "
+        "mktemp, and its one eval runs the capture host's route helper, whose output sets the ssh routes to the "
+        "capture hosts (that file's own header)",
+    ("scripts/cmux-next/restore-journey-slot.sh", '"/tmp/restore-journey-$job-$(date +%H%M%S).XXXXXX"'):
+        "a mktemp -d template; shell_tree follows the source of capture-host-env.sh but exempts nothing, since that "
+        "file evals the capture host's route helper's output (it may redefine mktemp); that output sets the ssh "
+        "routes to the capture hosts (that file's own header)",
+    ("scripts/reload.sh", '"${TMPDIR:-/tmp}/cmux-launch-${TAG_SLUG}.XXXXXX"'):
+        "a mktemp -d template; shell_tree exempts nothing in this file because it sources "
+        "$PWD/scripts/lib/dev-backend-origin.sh, a path it cannot follow (it may redefine mktemp), and that file "
+        "defines none",
+    ("scripts/server-release/install.sh.in", "#!/bin/sh"):
+        "a template, not shell until scripts/server-release/render.py fills it: its @@UNIX_CASES@@ line sits where "
+        "a case pattern must, so the whole file is unparsed; its one temp name is a mktemp -d template",
     ("scripts/cmux-next/push-from-host.sh", '"mktemp -d /tmp/$NAME-XXXXXX"'):
         "a mktemp template in the command string ssh runs on HOST: mktemp makes it there, and the line after checks it",
     ("scripts/check-test-determinism.py", "lib/git-fixture.sh took ${TMPDIR:-/tmp}/cmux-git-fixture-$UID"):
@@ -135,8 +153,8 @@ def code(line: str) -> str:
     return shell_tree.code(line)
 
 
-# A mktemp template word is found in the line's parse tree (shell_tree.py beside this file, the same bytes in
-# manaflow-ai/cmux, manaflow-ai/cmux-platform, manaflow-ai/cmuxterm-hq and teamleaderleo/leo-workspace). Shell read by
+# A mktemp template word is found in the line's parse tree (shell_tree.py beside this file, vendored byte for byte
+# from a pinned upstream blob: SHELL_TREE_SHA256 below). Shell read by
 # regex, then by token masking, let a guessable name through three times, and a comment cut at any # once more
 # (shell_tree.MISSES): a line with XXXXXX was exempt whole; a redirection's target was taken for mktemp's argument;
 # overlapping template spans shifted each other, and a template word exempted the substitutions inside it. Now only the
@@ -145,8 +163,13 @@ def code(line: str) -> str:
 # shell_tree.corpus() is the detector's own check: every unsafe write in it is flagged and no safe template is.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import shell_tree  # noqa: E402
+# tests/process_gone.py by path, as each other test file loads it: `import process_gone` here made a second module
+# object of that file beside theirs (tests/test_script_module_loads.py names it).
+_process_gone_spec = _git_fixture_importlib.spec_from_file_location("process_gone", ROOT / "tests" / "process_gone.py")
+process_gone = _git_fixture_importlib.module_from_spec(_process_gone_spec)
+_process_gone_spec.loader.exec_module(process_gone)
 
-SHELL_TREE_SHA256 = "b7c1cf41d30eae39a099f54bafd92449e0d948f50d5e7f1388efe24cab227aeb"
+SHELL_TREE_SHA256 = "aa41e3640d1b4995c343676c9ad1bc493202afc5c05ea4252aa92b49ce7cf61d"
 
 
 def without_templates(line: str) -> str:
@@ -191,9 +214,15 @@ def hits(root: Path = ROOT) -> list[tuple[str, int, str, str]]:
         if shell_tree.shebang(text) == "unresolved":
             first = text.split("\n", 1)[0]
             out.append((path, 1, first, first))
+        # A shell block shell_tree cannot parse is a hit of its own, its first line: what it runs is unknown, and its
+        # raw text is scanned besides, never read line by line (shell_tree.unparsed).
+        text_lines = text.split("\n")
+        for n in shell_tree.unparsed(path, text):
+            out.append((path, n, text_lines[n - 1].strip(), text_lines[n - 1].strip()))
         # The file is read whole where it is shell (shell_tree.scan_file), so a here-document, a continued line or
         # a quote across lines keeps its context; the hit keeps the line's own text.
-        for n, (line, scan) in enumerate(zip(text.split("\n"), shell_tree.scan_file(path, text)), 1):
+        scans = shell_tree.scan_file(path, text, root=str(root))  # a source in the repository is followed
+        for n, (line, scan) in enumerate(zip(text.split("\n"), scans), 1):
             for m in [*NOCLOBBER.finditer(scan), *SHARED_TMP.finditer(scan)]:
                 out.append((path, n, code(line).strip() or line.strip(), m.group(0)))
     return out
@@ -279,7 +308,7 @@ class NoclobberSweep(unittest.TestCase):
             self.assertFalse(flagged(code(line)), line)
 
     def test_a_mktemp_template_exempts_only_itself(self):
-        """Review of manaflow-ai/cmux-platform#1262, F2: a line with XXXXXX was exempt whole; of #1265, F1: a
+        """A downstream review, F2: a line with XXXXXX was exempt whole; another, F1: a
         template-shaped redirection target beside a bare mktemp was exempt too (shell parsed by regex)."""
         for line in ('d=$(mktemp -d ".../safe.XXXXXX"); printf secret > /tmp/out.$$',
                      "d=$(mktemp -d) > /tmp/out.$$.XXXXXX", "mktemp /tmp/a.XXXXXX > /tmp/b.$$.XXXXXX",
@@ -291,9 +320,9 @@ class NoclobberSweep(unittest.TestCase):
                      # whole template word exempted the substitution inside it (shell read by token masking).
                      'mktemp "$(mktemp /tmp/$USER.XXXXXX).XXXXXX"; echo > /tmp/out.$$',
                      'mktemp "/tmp/$(printf secret > /tmp/out.$$)x.XXXXXX"',
-                     # Review of teamleaderleo/leo-workspace#4346, F1: the same overlap with the write on the outer
-                     # mktemp; of manaflow-ai/cmuxterm-hq#9338: XXXXXX only inside substitutions made the word a
-                     # template, masked whole; of leo-workspace#4346, F2: code() cut the line at a quoted #.
+                     # Review of upstream #4346, F1: the same overlap with the write on the outer
+                     # mktemp; of a downstream review: XXXXXX only inside substitutions made the word a
+                     # template, masked whole; of upstream #4346, F2: code() cut the line at a quoted #.
                      'mktemp "$(mktemp /tmp/a.XXXXXX).XXXXXX" > /tmp/out.$$',
                      'mktemp "$(printf /tmp/a.XXXXXX)$(printf secret > /tmp/out.$$)"',
                      "printf '%s' 'foo # bar' > /tmp/out.$$",
@@ -302,7 +331,7 @@ class NoclobberSweep(unittest.TestCase):
                      # exempts nothing.
                      'mktemp "$(mktemp /tmp/a.XXXXXX)" > /tmp/out.$$', "mktemp /tmp/a.$$.XXXXXX)",
                      # Review of manaflow-ai/cmux#41306 at 7e60a832, F1: an array's words read as a command; of
-                     # manaflow-ai/cmuxterm-hq#9338 at 0ea8b97f, F1: a process substitution in ${ } read as text.
+                     # a downstream review at 0ea8b97f, F1: a process substitution in ${ } read as text.
                      "paths=(mktemp ';' /tmp/out.$$.XXXXXX); printf secret > \"${paths[2]}\"",
                      "mktemp ${TMPDIR:-<(printf secret > /tmp/out.$$)}/x.XXXXXX"):
             self.assertTrue(flagged(code(line)), line)
@@ -317,12 +346,14 @@ class NoclobberSweep(unittest.TestCase):
         self.assertTrue(shutil.which("bash"), "bash is needed to read the corpus; a host without it fails, never skips")
         bad = [line for line, _ in shell_tree.corpus() if line not in shell_tree.NOT_SHELL
                and subprocess.run(["bash", "-n", "-c", line], capture_output=True).returncode != 0]
+        # -O extglob: bash -n runs no shopt, and a FILES case turns extglob on (the upstream's extglob rows).
         bad += [path for path, text, _ in shell_tree.FILES if not path.endswith(".yml")
-                and subprocess.run(["bash", "-n"], input=text, capture_output=True, text=True).returncode != 0]
+                and subprocess.run(["bash", "-O", "extglob", "-n"], input=text, capture_output=True,
+                                   text=True).returncode != 0]
         self.assertEqual(bad, [])
 
     def test_a_whole_file_is_read_in_context(self):
-        """Review of manaflow-ai/cmuxterm-hq#9338 at 0ea8b97f, F2: read line by line, a here-document's
+        """A downstream review at 0ea8b97f, F2: read line by line, a here-document's
         `# $(...)` was a comment, though bash runs the substitution. hits() runs on each of shell_tree.FILES (here-
         documents, continued lines, quotes across lines, case, arrays, a workflow's run block) in a scratch repo."""
         files = shell_tree.FILES
@@ -331,39 +362,39 @@ class NoclobberSweep(unittest.TestCase):
 
     def test_a_bash_timeout_is_a_named_unavailable_answer(self):
         """manaflow-ai/cmux#41336 review at 911fed64, F1: a bash past its timeout raised TimeoutExpired and stopped
-        the sweep. It is the row's own answer, oracle unavailable, and the row's processes are stopped."""
+        the sweep. It is the row's own answer, a named OracleUnavailable (falsy, never agreement), and the row's
+        processes are stopped."""
+        spin = "while :; do :; done"
         started = time.monotonic()
-        verdict = shell_tree.bash_writes("while :; do :; done", timeout=1)
+        [late] = shell_tree.bash_verdicts([spin], timeout=1)
         self.assertLess(time.monotonic() - started, 8)
-        self.assertIsInstance(verdict, shell_tree.OracleUnavailable)
-        self.assertIn("past 1 s", verdict.reason)
-        self.assertEqual(shell_tree.oracle_failures(["while :; do :; done"], [verdict]),
-                         ["oracle unavailable for 'while :; do :; done': bash ran past 1 s"])
-        with self.assertRaises(TypeError):  # an unavailable answer read as a verdict is an error, never a pass
-            bool(verdict)
+        self.assertIsInstance(late, shell_tree.BashTimeout)
+        self.assertFalse(late, "no answer is never read as an answer")
+        [message] = shell_tree.no_oracle([spin], [late])
+        self.assertIn("no answer from bash", message)
+        self.assertIn(spin, message)
 
     def test_every_oracle_row_is_within_its_budget(self):
         """F1 of the same review: _deep(200) ran bash out of processes. A depth fixture meant for the parser is tree-
-        only, with its reason, and has a bash-sized twin; every other row is within the oracle's substitution budget,
-        and one over it is unavailable, never run."""
+        only, with its reason, and has a bash-sized twin bash answers; a row over MAX_BASH_PROCESSES is unavailable,
+        never run."""
         corpus = dict(shell_tree.corpus())
         self.assertIn(shell_tree._deep(200), shell_tree.TREE_ONLY)
         for line, why in shell_tree.TREE_ONLY.items():
             with self.subTest(line=line[:60]):
                 self.assertIn(line, corpus)
                 self.assertGreater(len(why.strip()), 20)
-        depth = shell_tree.ORACLE_DEPTH
-        self.assertIn(shell_tree._deep(depth), corpus)
-        self.assertTrue(corpus[shell_tree._deep(depth, "; echo > /tmp/out.$$")])
+        [wide] = shell_tree.bash_verdicts([shell_tree._deep(200)])
+        self.assertIsInstance(wide, shell_tree.OracleUnavailable)
+        self.assertIn("MAX_BASH_PROCESSES", wide.reason)
+        depth = shell_tree.BASH_TWIN_DEPTH
         self.assertGreaterEqual(depth, 16)
-        over = [line[:60] for line in corpus if line not in shell_tree.TREE_ONLY
-                and shell_tree.substitutions(line) > shell_tree.ORACLE_SUBS]
-        self.assertEqual(over, [], "rows over the oracle's budget: give each a bash-sized twin and list it in TREE_ONLY")
-        self.assertIsInstance(shell_tree.bash_writes("echo " + "$(echo " * 40 + ")" * 40),
-                              shell_tree.OracleUnavailable)
+        twins = [shell_tree._deep(depth), shell_tree._deep(depth, "; echo > /tmp/out.$$")]
+        self.assertEqual([corpus.get(t) for t in twins], [False, True])
+        self.assertEqual(shell_tree.bash_verdicts(twins), [False, True])
 
     def test_bash_agrees_with_the_tree(self):
-        """The differential detector (teamleaderleo/leo-workspace#4368 review at 3aa1ae3e: the parser kept quoting or
+        """The differential detector (upstream #4368 review at 3aa1ae3e: the parser kept quoting or
         line state bash does not). Each corpus line and each shell file in FILES is run by bash in a scratch folder
         (shell_tree.bash_verdicts); every one with which bash makes a name no mktemp made must be flagged by the tree
         and called unsafe by the corpus. The other way round is the sweep's design: it flags a guessable name outside a
@@ -373,20 +404,20 @@ class NoclobberSweep(unittest.TestCase):
         shell = [f for f in shell_tree.FILES if not f[0].endswith(".yml")]
         file_verdicts = shell_tree.bash_verdicts([text for _, text, _ in shell])
         # A row bash gave no answer for (past its time, unable to fork) fails here, with why: UNKNOWN is not a pass.
-        self.assertEqual(shell_tree.oracle_failures([line for line, _ in corpus], verdicts)
-                         + shell_tree.oracle_failures([text for _, text, _ in shell], file_verdicts), [],
+        self.assertEqual(shell_tree.no_oracle([line for line, _ in corpus], verdicts)
+                         + shell_tree.no_oracle([text for _, text, _ in shell], file_verdicts), [],
                          "rows the bash oracle could not answer")
-        lines = [c for c, wrote in zip(corpus, verdicts) if wrote]
+        lines = [c for c, wrote in zip(corpus, verdicts) if wrote is True]
         self.assertEqual([line for line, unsafe in lines if not (unsafe and flagged(code(line)))], [],
                          "lines bash writes a guessable name with, which the tree passes or the corpus calls safe")
-        files = [f for f, wrote in zip(shell, file_verdicts) if wrote]
+        files = [f for f, wrote in zip(shell, file_verdicts) if wrote is True]
         found = scratch_hits(files)
         self.assertEqual([p for p, _, unsafe in files if not (unsafe and p in found)], [],
                          "files bash writes a guessable name with, which hits() passes or FILES calls safe")
         self.assertGreater(len(lines), 300)
 
     def test_an_allowance_approves_only_its_own_hit(self):
-        """Review of manaflow-ai/cmuxterm-hq#9370, F2: an allowance approved its whole line, so an unsafe name on the
+        """A downstream review, F2: an allowance approved its whole line, so an unsafe name on the
         line of an approved one passed. Each hit is matched with its own entry, by its own text."""
         line = 'ssh host "mktemp -d /tmp/$NAME-XXXXXX" && printf s > /tmp/out.$$'
         allowlist = {("scripts/a.sh", '"mktemp -d /tmp/$NAME-XXXXXX"'): "made on the host by mktemp"}
@@ -421,16 +452,140 @@ class NoclobberSweep(unittest.TestCase):
         self.assertEqual([u.split(":")[1] for u in unapproved(found, both)], ["2"], found)
         self.assertIsNone(approves(("scripts/a.sh", '"/tmp/x-$tag"', 4), found))
 
+    def own_runs(self) -> list[str]:
+        """The scratch folders bash_writes() makes from here on, each the HOME of every process its run starts; at
+        cleanup each process whose environment names one (made by mkdtemp, so this test's alone) is killed."""
+        roots: list[str] = []
+        real = tempfile.mkdtemp
+
+        def mkdtemp(*args, **kwargs):
+            got = real(*args, **kwargs)
+            if kwargs.get("prefix") == "shell-tree-":
+                roots.append(got)
+            return got
+
+        def kill_left():
+            try:
+                self.assertEqual(left(roots), [], "processes of the run outlived it")
+            finally:
+                # Cleanup must not make the assertion pass by killing its evidence first.
+                for pid in live_in_roots(roots):
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                self.assertEqual(left(roots), [], "processes survived test cleanup")
+
+        patcher = mock.patch.object(shell_tree.tempfile, "mkdtemp", mkdtemp)
+        patcher.start()
+        self.addCleanup(kill_left)
+        self.addCleanup(patcher.stop)
+        return roots
+
+    def test_a_reaper_that_fails_is_no_answer(self):
+        """A review of this copy, F2 (the detector for its class): a reaper that crashed exited 1, and bash_writes()
+        read the scratch folder as bash's answer, False, while bash ran on. A reaper that fails, whatever the reason,
+        is OracleUnavailable, never True or False, and what it left running is stopped."""
+        roots = self.own_runs()
+        crash = shell_tree.REAPER.replace("\nwhile reap(False):", "\nraise RuntimeError('injected')\nwhile reap(False):")
+        self.assertNotEqual(crash, shell_tree.REAPER)
+        with mock.patch.object(shell_tree, "REAPER", crash):
+            for text in ("SECONDS=0; while ((SECONDS < 20)); do :; done", ": > /tmp/out.$$; SECONDS=0; "
+                         "while ((SECONDS < 20)); do :; done"):
+                with self.subTest(text=text):
+                    with self.assertRaises(shell_tree.OracleUnavailable) as raised:
+                        shell_tree.bash_writes(text, timeout=5)
+                    self.assertIn("reaper exited 1", raised.exception.reason)
+                    self.assertFalse(raised.exception.skipped)
+        self.assertEqual(len(roots), 2)
+        self.assertEqual(left(roots), [], "processes of the run outlived it")
+
+    def test_a_reaper_with_no_sigtimedwait_still_answers(self):
+        """A review of this copy, F2: macOS has no signal.sigtimedwait, so the reaper crashed on every row there. With
+        it taken away, the reaper still waits for every process the run leaves and answers as it does with it."""
+        self.own_runs()
+        portable = "import signal\ndel signal.sigtimedwait\n" + shell_tree.REAPER
+        rows = [(": > /tmp/out.$$", True), ("d=$(mktemp -d /tmp/x.XXXXXX)", False)]
+        if os.path.isdir("/proc/self"):  # the child subreaper waits for an orphan (Linux)
+            rows.append(("{ x=0; while ((x < 20000)); do ((x++)); done; : > /tmp/late.$$; } & exit 0", True))
+        with mock.patch.object(shell_tree, "REAPER", portable):
+            for text, wrote in rows:
+                with self.subTest(text=text):
+                    self.assertIs(shell_tree.bash_writes(text, timeout=10), wrote)
+
+    def test_bash_source_in_a_sourced_file_is_that_file(self):
+        """A review of this copy, F1: a test for "0" in the argument took ${BASH_SOURCE[0]} for $0, so a source inside
+        a sourced file resolved against the script's folder. $0 is the script's in every file; each BASH_SOURCE form
+        is the file being read. lib/b.sh defines mktemp(), b.sh (beside the script) does not: the template is a hit
+        only when the source is read as lib/b.sh."""
+        use = 'd=$(mktemp -d /tmp/x.$$.XXXXXX)\n'
+        here = 'here=$(cd "$(dirname "$0")" && pwd)\n'
+        rows = []
+        for form in ('"${BASH_SOURCE[0]}"', '"${BASH_SOURCE}"', '"$BASH_SOURCE"'):
+            rows.append((f'h2=$(cd "$(dirname {form})" && pwd)\n. "$h2/b.sh"\n', True))
+            rows.append((f'. "$(dirname {form})/b.sh"\n', True))
+        for form in ('"$0"', "$0", '"${0}"'):
+            rows.append((f'h2=$(cd "$(dirname {form})" && pwd)\n. "$h2/b.sh"\n', False))
+            rows.append((f'. "$(dirname {form})/b.sh"\n', False))
+        with tempfile.TemporaryDirectory() as tmp:
+            for n, (lib, hit) in enumerate(rows):
+                root = Path(tmp) / str(n)
+                files = {"s.sh": here + '. "$here/lib/a.sh"\n' + use, "lib/a.sh": lib, "b.sh": "",
+                         "lib/b.sh": "mktemp() { :; }\n"}
+                for path, text in files.items():
+                    (root / path).parent.mkdir(parents=True, exist_ok=True)
+                    (root / path).write_text(text)
+                with self.subTest(row=n, lib=lib):
+                    scan = "\n".join(shell_tree.scan_file("s.sh", files["s.sh"], root=str(root)))
+                    self.assertEqual(bool(SHARED_TMP.search(scan)), hit, scan)
+
     def test_shell_tree_is_the_shared_copy(self):
-        """shell_tree.py is one file in four repos (its docstring); a change to it lands in all four, with this pin."""
+        """shell_tree.py is vendored byte for byte from a pinned upstream blob (its docstring); this pin is its
+        SHA-256."""
         digest = hashlib.sha256(Path(shell_tree.__file__).read_bytes()).hexdigest()
-        self.assertEqual(digest, SHELL_TREE_SHA256, "shell_tree.py is not the shared copy: change it in manaflow-ai/"
-                         "cmux, cmux-platform, cmuxterm-hq and teamleaderleo/leo-workspace together, and each pin")
+        self.assertEqual(digest, SHELL_TREE_SHA256, "shell_tree.py was edited here: change it upstream, then copy "
+                         "the blob byte for byte and update this pin")
 
     def test_an_app_name_excuses_only_app_names(self):
         self.assertTrue(app_named('sock="/tmp/cmux-debug-$tag.sock"'))
         self.assertFalse(app_named('cp "/tmp/cmux-debug-$tag.log" "/tmp/mine-$$.log"'))
         self.assertFalse(app_named('f=/tmp/out.$$'))
+
+
+def left(roots: list[str]) -> list[int]:
+    """Wait for the run's process groups to exit, then report any live owned processes.
+
+    A reaper's exit and SIGKILL delivery do not mean its children have finished exiting. Share one deadline
+    across the groups, using the zombie-aware wait also used by the other process tests. The 20-second fixture
+    still fails if its kill never happened; this wait is bounded to process_gone.WITHIN (10 seconds).
+    """
+    deadline = time.monotonic() + process_gone.WITHIN
+    groups = set()
+    for pid in live_in_roots(roots):
+        try:
+            groups.add(os.getpgid(pid))
+        except ProcessLookupError:
+            pass
+    for pgid in groups:
+        process_gone.group_died(pgid, within=max(0, deadline - time.monotonic()))
+    return live_in_roots(roots)
+
+
+def live_in_roots(roots: list[str]) -> list[int]:
+    """The pids of live (not zombie) processes whose environment has HOME set to one of ROOTS (Linux: /proc)."""
+    marks = [b"HOME=" + r.encode() + b"\0" for r in roots]
+    out = []
+    for d in os.listdir("/proc") if marks and os.path.isdir("/proc/self") else ():
+        try:
+            with open(f"/proc/{d}/environ", "rb") as f:
+                env = f.read()
+            with open(f"/proc/{d}/stat") as f:
+                state = f.read().rsplit(")", 1)[1].split()[0]
+        except (OSError, IndexError):
+            continue
+        if state != "Z" and any(m in env for m in marks):
+            out.append(int(d))
+    return out
 
 
 if __name__ == "__main__":
