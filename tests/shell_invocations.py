@@ -1465,7 +1465,9 @@ def _shell_text(args: list[str]) -> str | None:
 
 
 def _word_token(text: str) -> Token:
-    return Token("word", text, True, dynamic=_unreadable(text))
+    # Synthetic argv tails are parsed as shell words, so wrapper recognition (notably `sh -c`) must see them as
+    # unquoted command words; dynamic text still remains opaque through the token's dynamic bit.
+    return Token("word", text, False, dynamic=_unreadable(text))
 
 
 def _expand(invocation: Invocation, defined: set[str], depth: int, found: list[list[str]]) -> None:
@@ -1531,6 +1533,8 @@ def _expand(invocation: Invocation, defined: set[str], depth: int, found: list[l
     for word in args:
         if (program in _RUNS_ARGUMENTS or program in _WRAPPERS) and _unreadable(word):
             found.append([])  # env -S "$CMD", su -c "$CMD", ssh host "$CMD": runtime text may run anything
+        elif (program in _RUNS_ARGUMENTS or program in _WRAPPERS) and word.startswith("-") and re.search(r"\s", word):
+            found.append([])  # env -S'cmd' / su --command='cmd': an attached option value is executable text
         elif re.search(r"\s", word):
             _nested(word, defined, depth + 1, found)
     operand_seen = False
