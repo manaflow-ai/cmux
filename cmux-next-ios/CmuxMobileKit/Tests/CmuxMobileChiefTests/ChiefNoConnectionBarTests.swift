@@ -1,3 +1,4 @@
+#if os(iOS)
 import Foundation
 import Testing
 @testable import CmuxMobileChief
@@ -26,3 +27,4 @@ import Testing
         #expect(ChiefQuestionBar.displayed(nil) == nil)
     }
 }
+#endif
