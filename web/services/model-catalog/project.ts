@@ -129,7 +129,7 @@ function byGroupThenNewest(
     if (date > (groupNewest.get(group) ?? "")) groupNewest.set(group, date);
   }
   const familyOf = new Map(listed.map(({ model }) => [model.id, groupKey(override, model.id, text(model.family))]));
-  const ranked = Object.keys(override.familyNames ?? {});
+  const ranked = override.familyOrder ?? Object.keys(override.familyNames ?? {});
   const rank = (group: string) => (ranked.includes(group) ? ranked.indexOf(group) : ranked.length);
   return (a, b) => {
     const groupA = familyOf.get(a.id) ?? "";

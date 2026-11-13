@@ -4,6 +4,7 @@
 // version only when the body changes. Gated like the other *-db-behavior tests.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import postgres, { type Sql } from "postgres";
 
 import feed from "./fixtures/model-feed.json";
@@ -37,6 +38,28 @@ describe("model catalog tables", () => {
     const rows = await repo.listOverrides();
     expect(overridesFromRows(rows)).toEqual(overridesFromRows(seedRows()));
     expect(rows.every((row) => row.author === "seed" && row.active)).toBe(true);
+  });
+
+  dbTest("release metadata migration updates old seeds and preserves curator rows", async () => {
+    const migration = readFileSync(new URL("../db/migrations/20261113010000_model_catalog_release_order/migration.sql", import.meta.url), "utf8");
+    const original = { familyNames: { "gemini-pro": "Pro" }, defaultModel: "gemini-3.1-pro-preview" };
+    await sql!.begin(async (tx) => {
+      await tx`create temp table catalog_overrides (like public.catalog_overrides including defaults) on commit drop`;
+      for (const author of ["seed", "curator"]) {
+        await tx`insert into catalog_overrides (kind, harness_id, value, author)
+          values ('harness', 'gemini', ${JSON.stringify(original)}::jsonb, ${author})`;
+      }
+      await tx.unsafe(migration);
+      const first = await tx`select author, value from catalog_overrides order by author`;
+      await tx.unsafe(migration);
+      expect(await tx`select author, value from catalog_overrides order by author`).toEqual(first);
+      expect(first.find((row) => row.author === "curator")?.value).toEqual(original);
+      expect(first.find((row) => row.author === "seed")?.value).toEqual({
+        ...original,
+        familyNames: { ...original.familyNames, "gemini-carbon": "Carbon", "gemini-hydrogen": "Hydrogen" },
+        familyOrder: ["gemini-carbon", "gemini-hydrogen", "gemini-pro", "gemini-flash", "gemini-flash-lite"],
+      });
+    });
   });
 
   dbTest("ingest dedupes, publish versions only on change, and the store serves the newest", async () => {

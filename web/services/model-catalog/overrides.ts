@@ -36,9 +36,10 @@ export interface HarnessOverride {
   dropEfforts?: EffortValue[];
   /** Text removed from the start of a model name for the composer chip ("Claude "). */
   shortNamePrefix?: string;
-  /** Group labels by feed family id ("claude-opus" -> "Opus"), in display order; unknown families
-   *  keep the feed id and follow, newest first. */
+  /** Group labels by feed family id ("claude-opus" -> "Opus"). */
   familyNames?: Record<string, string>;
+  /** Display order independent of JSON object key order; unknown families follow newest first. */
+  familyOrder?: string[];
   /** Group by the model's provider (multi-provider harnesses) instead of its family. */
   groupByProvider?: boolean;
   /** Short alias ids the harness accepts for the newest model of a family ("opus"). */
@@ -155,6 +156,7 @@ export const HARNESS_OVERRIDES: HarnessOverride[] = [
       "gemini-flash": "Flash",
       "gemini-flash-lite": "Flash Lite",
     },
+    familyOrder: ["gemini-carbon", "gemini-hydrogen", "gemini-pro", "gemini-flash", "gemini-flash-lite"],
   },
   // Every other harness acpmux runs (discover.rs), so the picker lists them installed or not (Leo
   // 2026-10-26: "show all harnesses, all models (pi, opencode, prime intellect, etc…)").
