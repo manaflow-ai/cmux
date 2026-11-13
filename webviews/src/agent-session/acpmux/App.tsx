@@ -7600,6 +7600,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           : sandboxHoldsChat && !sandboxDraftMoved
             ? "sandbox_holds_chat"
             : undefined),
+    runPlace: () => ({
+      runMode: sandbox.mode ?? null,
+      checked: sandbox.checked,
+      freshChat,
+      sessionId: snapshot.sessionId ?? null,
+      summarySessionId: snapshot.summary?.sessionId ?? null,
+      switchingPhase: snapshot.switching?.phase ?? null,
+      selection: sessionSelection?.state ?? null,
+      surface,
+      offered: sandboxOffered,
+      cloudPickedNotOffered,
+    }),
   };
   useEffect(() => {
     window.React = React;
@@ -7887,6 +7899,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           runMode: () => automationCompose.current?.runMode(),
           setRunMode: (mode) => automationCompose.current?.setRunMode(mode) ?? false,
           cloudStart: () => automationCompose.current?.cloudStart() ?? null,
+          blocked: () => automationCompose.current?.blocked?.(),
+          runPlace: () => automationCompose.current?.runPlace?.() ?? {},
         },
       },
     });

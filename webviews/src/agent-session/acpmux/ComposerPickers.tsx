@@ -57,6 +57,7 @@ import {
   useFullAccessProbe,
   useStartMode,
 } from "./startMode";
+import { chipProbe } from "./chipProbe";
 import type { PickerCatalog } from "./modelCatalogData";
 import { catalogProfiles } from "./pickerProfiles";
 import { switchTargets } from "./cmuxCommands";
@@ -1089,6 +1090,37 @@ export function ComposerPickers({
     const description = unrestricted(namedStart.modeId) ? t(PICKER_LABELS.fullAccessWarning) : undefined;
     return [{ id: namedStart.modeId, name: startModeName ?? namedStart.modeId, description }, ...known];
   })();
+  // The access chip's inputs as this render saw them, for the debug `chat_state` verb (chipProbe.ts).
+  useEffect(() => {
+    chipProbe.last = {
+      chipHarness: chipHarness ?? null,
+      summaryHarness: harness ?? null,
+      faceHarness: pickerFaceHarness(pickerEntries) ?? null,
+      pickerHarnesses: pickerEntries.map((entry) => entry.id),
+      catalog: snapshot.catalog.map((entry) => entry.id),
+      sessionId: snapshot.sessionId ?? null,
+      summarySessionId: summary?.sessionId ?? null,
+      origin: snapshot.origin ?? null,
+      startsOnCloud: snapshot.startsOnCloud === true,
+      cloudStartMode: snapshot.cloudStartMode ?? null,
+      switchingPhase: snapshot.switching?.phase ?? null,
+      opening,
+      fresh,
+      awaiting,
+      local,
+      reportedModes: modes.map((choice) => choice.id),
+      currentModeId: summary?.modes?.currentModeId ?? null,
+      cloudAgent,
+      cloudAsking: cloudAsking ?? null,
+      cloudPick: cloudPick ?? null,
+      startAnswer: startAnswer ?? null,
+      highest: highest ?? null,
+      startMode: startMode ?? null,
+      startModeName: startModeName ?? null,
+      accessModes: accessModes.map((choice) => choice.id),
+      pendingAccessModes: pendingAccessModes.map((choice) => choice.id),
+    };
+  });
   useEffect(() => {
     if (!awaiting && chipHarness && summary?.sessionId && effortShown)
       rememberLastChips(chipHarness, { effort: effortShown });

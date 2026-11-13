@@ -310,6 +310,10 @@ _POOL_READ_WHY = ("its secretless Linux jobs read vars.RUNNER_POOLS.linux (cmux#
                   "on a live Linux member; the queue janitor re-runs a job queued on a dead one, and no owned Mac is "
                   "involved for the rescue to move")
 UNRESCUED_WORKFLOW_PATHS = {
+    ".github/workflows/cloud-composer-journey.yml":
+        "never takes an owned pool: pick-runner runs e2e_runner_pool.py with --owned 0 and keeps only a Blacksmith "
+        "macOS 26 label, because the journey job holds a Stack account pair; a re-run takes the declared macos_26 "
+        "pool, and the scheduled dispatcher on main starts the next run",
     ".github/workflows/ios-reliability-matrix.yml":
         "feat-cmux-next only, with no copy on main to list in SIDE_WORKFLOW_PATHS yet: its phone cells take the kit "
         "lane's pick (an owned simulator mini) on attempt 1 and Blacksmith macOS 26 from attempt 2, so a stuck or "

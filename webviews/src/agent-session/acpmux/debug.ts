@@ -16,6 +16,7 @@ import type { IdleProbeOptions } from "./idleProbe";
 import { queuedRowsState } from "./queuedRowsState";
 import { composerAttachmentsState } from "./composerAttachmentsState";
 import { cloudSignedInForDebug } from "./cloudMachines";
+import { chipProbe } from "./chipProbe";
 import type { SeedSnapshotFields } from "./waitingSteersFixture";
 import type { PasteProbeOptions } from "./pasteProbe";
 
@@ -391,6 +392,10 @@ export function createAcpmuxDebug(
             subagentOf: document.querySelector(".cv-subagent-of__parent")?.textContent ?? null,
             // The composer's chips as drawn (model, effort, access), keyed by their menu label.
             composer: composerChips(),
+            // What the access chip decided its face from on its last render (chipProbe.ts).
+            composerInputs: chipProbe.last,
+            // What decides whether the run row is offered now.
+            runPlace: host.automation.compose?.runPlace?.() ?? null,
             // The composer's attachment tiles as drawn: loading (with its upload's percent), failed (why) or staged.
             attachments: composerAttachmentsState(),
             // The Cloud auth state consumed by EnvironmentPicker; undefined is the fresh-home
