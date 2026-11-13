@@ -290,6 +290,21 @@ fn the_deadline_cancel_says_what_happened() {
     }
 }
 
+/// #39022 review at a5563b2d, F2: a cleanup cmux gave up on is this Run's receipt, and says the
+/// machine is left for the person to delete, never that cmux keeps trying.
+#[test]
+fn an_abandoned_cleanup_says_the_machine_is_left_to_delete() {
+    let messages = &crate::localization::catalog_for_locale("en").sandbox_run;
+    let snapshot = json!({ "receipt": {
+        "schema": "cmux.run.receipt/v1", "runId": "run-1", "environment": "sandboxed",
+        "status": "succeeded", "cleanup": "abandoned",
+    } });
+    let receipt = run_receipt(&snapshot, "run-1").expect("an abandoned cleanup is still a receipt");
+    let text = receipt_text(receipt, messages);
+    assert!(text.ends_with(messages.cleanup_abandoned), "{text}");
+    assert_ne!(messages.cleanup_abandoned, messages.cleanup_pending);
+}
+
 #[test]
 fn a_receipt_counts_only_when_it_is_this_runs_finished_sandbox_receipt() {
     let full = json!({ "receipt": {

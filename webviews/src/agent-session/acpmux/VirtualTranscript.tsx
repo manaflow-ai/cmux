@@ -208,6 +208,7 @@ import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrolle
 import { editableTarget, wheelScrollsDown } from "./conversation/wheelChain";
 import { OlderAhead } from "./conversation/olderAhead";
 import { type OlderReserve, olderReserve } from "./conversation/olderReserve";
+import { type ChatOpen, type ChatRows, drawnKey, happenedAfterOpen, openChat } from "./conversation/openBreakpoint";
 import { hasPromptTops, keepPromptTops, knownPromptTop } from "./conversation/transcriptHeights";
 import { holdWebSwap, WEB_SWAP_KEPT_SCROLL } from "../../pages/shared/webSwap";
 import { playChatSwitch, type ChatSwitchPlay } from "./chatSwitch";
@@ -1385,6 +1386,7 @@ function TranscriptView({
   coldOpen,
   onColdOpenShown,
   loading = false,
+  clockOffset = 0,
   afterLatest,
   sinceKey,
   promptAuthor,
@@ -1485,6 +1487,9 @@ function TranscriptView({
   /// once on their first mount (shared/loadFade.ts) instead of popping in. Rows drawn at the first
   /// paint, rows a scroll mounts and rows already on screen never fade.
   loading?: boolean;
+  /// How far this computer's clock is ahead of the agent host's (the snapshot's `clockOffsetMs`):
+  /// a row's time is the host's, and the open's breakpoint is this computer's (openBreakpoint.ts).
+  clockOffset?: number;
   /// The rows of open `coldOpen` have shown. The pane keeps that, not this transcript, so a
   /// transcript mounted again (back from New Tab or a replay) does not fade the same open twice.
   onColdOpenShown?: (open: number) => void;
@@ -2319,6 +2324,11 @@ function TranscriptView({
   loadFade.current ??= new LoadFadeWindow();
   if (sessionChanged) loadFade.current.clear();
   loadFade.current.phase(loading);
+  // The tick the reader opened this chat (a click into it, a restart's first load): what it held
+  // before is history and never enters; only what happened after it does (openBreakpoint.ts).
+  // One per open of a chat: the page's record of it is read here and written only on commit.
+  const opened = useMemo(() => openChat(sessionKey), [sessionKey]);
+  const chatRowsDrawn = opened.drawn;
   // A switched chat starts over: its row ids are its own, and may repeat the last chat's.
   // Keyed by frame (model.ts `rowFrameKey`): a row drawn in a frame already on screen is not new.
   if (knownRows.current === null || sessionChanged) {
@@ -2329,6 +2339,8 @@ function TranscriptView({
     // (conversation.css SEND-ENTRANCE). A transcript mounted again over an older chat does not.
     if (
       mounting &&
+      // A transcript mounted again over rows this page drew for the chat is not a first send.
+      !opened.drewBefore &&
       sends > 0 &&
       coldOpen === undefined &&
       rows.length <= LIVE_ROWS_PER_UPDATE &&
@@ -2366,14 +2378,22 @@ function TranscriptView({
     for (let index = from; index < rows.length; index += 1) {
       const row = rows[index]!;
       const key = rowFrameKey(row);
+      // A row that takes over a frame on screen (OrderedRows `adoptFrames`) is drawn all the same.
+      const redrawn = chatRowsDrawn.has(drawnKey(row));
       if (knownRows.current.has(key) && !(row.below && index === rows.length - 1 && key !== liveBefore)) continue;
+      knownRows.current.add(key);
+      // A row this page already drew for the chat, under another frame now (a reconnect's replay, a
+      // transcript cleared and refilled), draws in place: it is not news and does not fade again.
+      if (redrawn) continue;
       if (index < oldFirst) {
         olderLate ??= readerAtLoadedTop(ref.current, olderRoom.current?.room ?? 0);
         if (olderLate) olderRows.current.add(row.id);
         else if (loadArrival) loadFade.current.arrive(row.id);
       } else if (loadArrival) loadFade.current.arrive(row.id);
-      else if (!readerIsMoving) arrived.push(row);
-      knownRows.current.add(key);
+      // History the chat held before the reader opened it (the read behind the first slice, a
+      // reconnect's replay) is not live: it draws in place (Leo, 2026-11-12: "you don't bother
+      // trying to replay the animations").
+      else if (!readerIsMoving && happenedAfterOpen(row, opened.at, clockOffset)) arrived.push(row);
     }
     // A row that arrived while the chat is hidden (another tab or workspace shows), or that lands
     // before its first frame back, came while the user was away: it draws in place. WebKit
@@ -2394,6 +2414,17 @@ function TranscriptView({
     }
   }
   knownFor.current = rows;
+  // The rows a commit drew are the page's (openBreakpoint.ts `ChatDrawn`): those from the first one
+  // that differs from the last commit's on, so a render React drops leaves no trace and a StrictMode
+  // second render records what the first one did. O(changed rows).
+  const committedRows = useRef<{ drawn: ChatRows; rows: readonly AcpmuxRow[] } | undefined>(undefined);
+  useLayoutEffect(() => {
+    const last = committedRows.current?.drawn === chatRowsDrawn ? committedRows.current.rows : NO_ROWS;
+    let from = 0;
+    while (from < rows.length && from < last.length && rows[from] === last[from]) from += 1;
+    for (let index = from; index < rows.length; index += 1) chatRowsDrawn.add(drawnKey(rows[index]!));
+    committedRows.current = { drawn: chatRowsDrawn, rows };
+  }, [rows, chatRowsDrawn]);
   const onEntered = useCallback((id: string) => void enteringRows.current.delete(id), []);
   const onLoadFaded = useCallback((id: string) => loadFade.current?.shown(id), []);
   const onOlderShown = useCallback((id: string) => olderRows.current?.shown(id), []);
@@ -2883,6 +2914,8 @@ function TranscriptView({
   useEffect(() => () => stopReadingAloud(), [sessionId]);
   // A cold open's rows fade in on the first frame that draws them, before that frame paints.
   const fadedOpen = useRef<number | undefined>(undefined);
+  /// The open (`opened` above) whose cold fade played: a later cold open of the same open does not.
+  const fadedSession = useRef<ChatOpen | undefined>(undefined);
   /// The chat switch motion's arm, read once per transcript (a changed arm applies on reload).
   const [switchArm] = useState(() => experimentArm(chatSwitchMotion));
   /// The fade running on this transcript. The transcript stays mounted across a switch, so a fade
@@ -2926,10 +2959,14 @@ function TranscriptView({
     if (coldOpen === undefined || rows.length === 0 || fadedOpen.current === coldOpen) return;
     fadedOpen.current = coldOpen;
     openFade.current?.cancel();
-    // A switch under a chat switch motion (chatSwitch.ts) is drawn by its own play instead.
-    openFade.current = switchPending.current ? undefined : fadeInOpenedChat(ref.current);
+    // A switch under a chat switch motion (chatSwitch.ts) is drawn by its own play instead. A chat
+    // this page already drew, or already faded in since it was opened, shows at once: a reload over
+    // it (a reconnect, a cleared and refilled transcript) is not a first load (openBreakpoint.ts).
+    const shownBefore = opened.drewBefore || fadedSession.current === opened;
+    fadedSession.current = opened;
+    openFade.current = switchPending.current || shownBefore ? undefined : fadeInOpenedChat(ref.current);
     onColdOpenShown?.(coldOpen);
-  }, [coldOpen, rows.length, onColdOpenShown]);
+  }, [coldOpen, rows.length, onColdOpenShown, opened]);
   const previousSession = useRef(sessionId);
   // A layout effect: the first measure lands before the first paint, so a mounted transcript (a page
   // load, a new chat's first send, back from Harnesses) never draws a frame at a guessed size.
