@@ -11,6 +11,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 mod read;
+#[cfg(test)]
+mod scale_tests;
 mod seek;
 mod write;
 pub use write::SortedSnapshot;
