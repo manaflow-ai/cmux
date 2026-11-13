@@ -66,6 +66,8 @@ const start: CloudStartProgress = {
   network: "limited",
 };
 
+// The experiments global as the file found it (the test preload may set one): put back after each test, never deleted.
+const experimentsAtStart = Object.getOwnPropertyDescriptor(globalThis, "cmuxExperiments");
 const arm = (name: string) => {
   (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "cloud-start-look": name };
 };
@@ -80,7 +82,8 @@ afterEach(async () => {
     else scope[key] = value;
   }
   saved.clear();
-  delete (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments;
+  if (experimentsAtStart) Object.defineProperty(globalThis, "cmuxExperiments", experimentsAtStart);
+  else delete (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments;
 });
 
 test("a start on its way reads as a local first turn: the message and the Thinking line, no Cloud rows", () => {
