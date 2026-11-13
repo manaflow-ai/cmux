@@ -195,6 +195,8 @@ type VariantBase = {
 
 /** The whole agent pane (AcpmuxApp) on the pane bridge, as the app hosts it. */
 export type AgentPaneVariant = VariantBase & {
+  /** The composer's initial look, before the pane mounts; absent uses the app's default. */
+  composerLook?: import("../agent-session/acpmux/composerLook").ComposerLook;
   /** Fields of the `ready` answer the app sends (newTab, draft, newSession, machineName, ...). */
   ready?: Record<string, unknown>;
   /** Fields over the theme the app pushes (`applyTheme`, AgentPaneTheme.swift), such as a Debug

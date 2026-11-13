@@ -267,8 +267,9 @@ test("asides split the runs' counts; the turn's Worked for line counts every cal
   );
   const now = lines(container).map((line) => line.text);
   expect(now).toEqual(["Ran 3 commands", "Ran 2 commands"]);
-  // Claude's and the other Worked-for families' outer line counts the whole turn; Codex's says the time alone.
-  expect(turnFoldStyle("claude", () => false).countsCalls).toBe(true);
+  // Every family's outer line says the time alone, as the Codex app's (Lucas, 2026-11-12); the label
+  // still reads a count a row carries.
+  expect(turnFoldStyle("claude", () => false).countsCalls).toBe(false);
   expect(turnFoldStyle("codex").countsCalls).toBe(false);
   const t = translatorFor("en");
   const worked: AcpmuxRow = { id: "w", version: 1, at: 1, kind: "worked", durationMs: 137_000, workedCalls: 6 };
