@@ -510,10 +510,10 @@ where
                 let method =
                     value.get("method").and_then(Value::as_str).unwrap_or("unknown").to_owned();
                 let code = value.get("code").and_then(Value::as_str).unwrap_or("error").to_owned();
-                if method == "page" {
-                    if let Some(sid) = sid.as_deref() {
-                        self.pages.remove(sid);
-                    }
+                if method == "page"
+                    && let Some(sid) = sid.as_deref()
+                {
+                    self.pages.remove(sid);
                 }
                 if sid.is_some() && method == "sub" && code != "not_ready" {
                     self.subscriptions.remove(sid.as_deref().unwrap_or_default());

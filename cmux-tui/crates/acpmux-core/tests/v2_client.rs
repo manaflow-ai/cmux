@@ -92,7 +92,7 @@ async fn client_reconnect_before_first_window_keeps_anchor() {
     let (mut stream, task) = pair(hub.clone());
     hello(&mut client, &mut stream).await;
     client.subscribe(Sub::new("s", "list").around(wire::Anchor::End, 10)).unwrap();
-    let request = client.take_send().unwrap();
+    let _request = client.take_send().unwrap();
     drop(stream);
     task.await.unwrap().unwrap();
     client.disconnected();
