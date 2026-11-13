@@ -211,28 +211,28 @@ impl Io for Machine {
 
 /// `cmux host run`'s first step on a Cloud machine, before the session host and
 /// the roles: on a machine an image made, the channel's build within [`BOUND`].
-/// Returns `Ok` when this process stays (the image's build is current, or the step
+/// Returns true when this process stays (the image's build is current, or the step
 /// did not finish in time); after a flip it execs the unit's command again and
-/// never returns, or answers `Err` when that exec failed: the caller exits, and
+/// never returns, or answers false when that exec failed: the caller exits, and
 /// the service starts the new build that `current` already links.
-pub fn run(paths: &Paths) -> Result<(), ()> {
+pub fn run(paths: &Paths) -> bool {
     use std::os::unix::process::CommandExt as _;
     if !paths.is_system_root() || not_first(paths).is_some() {
-        return Ok(());
+        return true;
     }
     let args: Vec<_> = std::env::args_os().collect();
     let Some(program) = args.first().map(Path::new).filter(|p| p.starts_with(CURRENT_BIN)) else {
-        return Ok(());
+        return true;
     };
-    let Some(target) = channel::local_target() else { return Ok(()) };
+    let Some(target) = channel::local_target() else { return true };
     let started = Instant::now();
     let deadline = started + BOUND;
     let first = role::within(deadline, || before_ready(paths, target, deadline, &mut Machine));
     log(&format!("before the first ready: {first:?} in {} ms", started.elapsed().as_millis()));
     if !matches!(first, First::Flipped(_)) {
-        return Ok(());
+        return true;
     }
     let err = std::process::Command::new(program).args(&args[1..]).exec();
     log(&format!("exec {}: {err}; exiting so the service starts the new build", program.display()));
-    Err(())
+    false
 }

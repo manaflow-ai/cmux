@@ -317,7 +317,7 @@ fn run_agent(mut cfg: Config) -> u8 {
     // A machine an image made takes the channel's build first, within a bound, so
     // its first Cloud report (ready) and its session host come from that build: before
     // anything starts. After a flip this execs the unit's command and never returns.
-    if crate::updater::first_ready::run(&cfg.paths).is_err() {
+    if !crate::updater::first_ready::run(&cfg.paths) {
         return code(1);
     }
     // Without a layout the agent still binds and supervises; roles only
