@@ -97,4 +97,23 @@ import Testing
 
         #expect(decision == .confirm(expected))
     }
+
+    @Test func connectionGateUsesHumanMetadataAndPlainSafetyCopy() {
+        let target = RemoteConnectionTarget(name: "Nightly desktop", status: "Running", region: "us-west", kind: .desktop)
+        let text = RemoteViewUnavailableView.text(for: .confirmTarget(target))
+        #expect(text.title == "Open Nightly desktop")
+        #expect(text.metadata == "Running  •  us-west")
+        #expect(text.detail.contains("desktop"))
+        #expect(text.detail.contains("approval"))
+        #expect(!text.detail.contains("script"))
+        #expect(!text.detail.contains("machine:"))
+    }
+
+    @Test(arguments: RemoteConnectionTarget.Kind.allCases)
+    func connectionGateCopyNamesEveryTarget(_ kind: RemoteConnectionTarget.Kind) {
+        let target = RemoteConnectionTarget(name: "Studio", kind: kind)
+        let text = RemoteViewUnavailableView.text(for: .confirmTarget(target))
+        #expect(text.title == "Open Studio")
+        #expect(text.detail.contains(kind == .ports ? "port preview" : kind.rawValue))
+    }
 }
