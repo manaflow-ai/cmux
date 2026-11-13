@@ -115,7 +115,7 @@ STRINGS_HEADER = """\
 """
 
 LOCALE = pak(
-    [(320, b"Untitled"), (900, b"New Tab"), (901, b"Default"), (902, b"Gemini"), (903, b"Shared"),
+    [(320, b"Untitled"), (900, b"New Tab"), (901, b"Default"), (902, b"Assistant"), (903, b"Shared"),
      (904, b"Help me write"), (905, b"Settings")],
     # 906 is a kept string whose text is the same as 903's, so the pak aliases it.
     [(906, 4)],
@@ -137,7 +137,7 @@ def test_trimmed_strings_read_empty_and_keep_their_ids():
     for rid in after:
         if rid not in (900, 902):
             assert after[rid] == before[rid], rid
-    assert len(LOCALE) - len(new) == len(b"New Tab") + len(b"Gemini")
+    assert len(LOCALE) - len(new) == len(b"New Tab") + len(b"Assistant")
     assert tool.empty_strings(new, tool.string_ids(STRINGS_HEADER)) == (new, [])
 
 

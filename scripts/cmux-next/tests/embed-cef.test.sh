@@ -37,7 +37,7 @@ else
   : > "$fw/Chromium Embedded Framework"
   # resources.pak (format 5) with one intro sound and one other resource; the
   # artifact's header names the sound, so the embedded pak keeps only the other.
-  # en.lproj/locale.pak with a Gemini string, which the embed empties, and a
+  # en.lproj/locale.pak with an AI assistant string, which the embed empties, and a
   # tab title, which it keeps. The framework binary is empty here, so the
   # WebUI pages are left as they are, with a warning.
   mkdir -p "$dist/include" "$fw/Resources/en.lproj"
@@ -84,7 +84,7 @@ STUB
   fi
   locale="$TMP/build/app.app/Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A/Resources/en.lproj/locale.pak"
   if grep -q gemini-text "$locale" || ! grep -q untitled-text "$locale"; then
-    echo 'embedded locale.pak still has the Gemini string, or lost the tab title' >&2; exit 1
+    echo 'embedded locale.pak still has the AI assistant string, or lost the tab title' >&2; exit 1
   fi
   syms=$(nm -a "$lib")
   grep -qE ' T _?vk_icdGetInstanceProcAddr$' <<<"$syms" || { printf 'the exported symbol is gone:\n%s\n' "$syms" >&2; exit 1; }

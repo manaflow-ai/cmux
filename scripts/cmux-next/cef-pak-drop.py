@@ -11,7 +11,7 @@ resources.pak:
   with the FLAC magic.
 - With --webui, the chrome:// pages of WEBUI_PAGES: Chrome's own browser UI
   (New Tab page, History, Bookmarks, Password Manager, the omnibox popup,
-  side panels, Gemini, Lens, first-run). cmux shows its own page instead, or
+  side panels, its AI assistant, first run). cmux shows its own page instead, or
   never opens them. CEF's header does not name these resources, so they are
   found from the framework binary's own WebUI resource maps (path -> id
   arrays in its data segments): a page's map is the run of entries with
@@ -68,14 +68,14 @@ WEBUI_PAGES = {
     "profile picker": {"profile_picker.html"},
     "default browser prompt": {"default_browser_modal.html"},
     "search engine choice": {"search_engine_choice.html", "search_engine_choice_refresh.html"},
-    # Google's Gemini, Lens and writing help.
-    "Gemini": {"glic.html", "glic_overlay.html"},
-    "Gemini selection overlay": {"selection_overlay.html"},
-    "Gemini context hub": {"context_hub.html", "save_to_memory_bank.html", "topic_details.html"},
-    "Gemini contextual tasks": {"contextual_tasks.html", "ghost_loader.html", "toolbar.html"},
-    "Gemini skills": {"skills.html", "skills_dialog.html"},
+    # Chrome's AI assistant, visual search and writing help.
+    "AI assistant": {"glic.html", "glic_overlay.html"},
+    "AI assistant selection overlay": {"selection_overlay.html"},
+    "AI assistant context hub": {"context_hub.html", "save_to_memory_bank.html", "topic_details.html"},
+    "AI assistant contextual tasks": {"contextual_tasks.html", "ghost_loader.html", "toolbar.html"},
+    "AI assistant skills": {"skills.html", "skills_dialog.html"},
     "AI overlay": {"ai_overlay_dialog.html"},
-    "Lens overlay": {"lens_overlay.html"},
+    "visual search overlay": {"lens_overlay.html"},
     "Help me write": {"compose.html"},
 }
 
@@ -111,9 +111,9 @@ STRING_PREFIXES = (
     "IDS_TUTORIAL_",                 # Chrome's feature tutorials
     "IDS_IWA_",                      # installing web apps
     "IDS_WEB_APP_",
-    "IDS_GLIC_",                     # Gemini in Chrome
+    "IDS_GLIC_",                     # Chrome's AI assistant
     "IDS_CONTEXTUAL_TASKS_",
-    "IDS_LENS_",                     # Google Lens
+    "IDS_LENS_",                     # visual search
     "IDS_COMPOSE_",                  # Help me write
     "IDS_OMNIBOX_PEDAL_",            # Chrome's omnibox; cmux has its own omnibar
     "IDS_ACC_OMNIBOX_",

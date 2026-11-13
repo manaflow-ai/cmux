@@ -184,7 +184,7 @@ if [[ ! -f "$source_stamp" || ! -L "$frameworks/$FW_NAME/Versions/Current" || "$
   # Chrome's first-run intro sounds (IDR_INTRO_SOUND_*, 4.8 MB of FLAC that does
   # not compress) and the chrome:// pages cmux never shows (New Tab page,
   # History, Bookmarks, Password Manager, Chrome's omnibox popup and side
-  # panels, Gemini, Lens: 4.8 MB), and the strings of those Chrome features in
+  # panels, its AI assistant: 4.8 MB), and the strings of those Chrome features in
   # every locale.pak (3.8 MB). Ids come from the artifact's own headers and the
   # framework's own WebUI resource maps; with none it leaves the paks as they are.
   if [[ -f "$fw/Versions/A/Resources/resources.pak" ]]; then
