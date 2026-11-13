@@ -17,11 +17,18 @@ use serde_json::value::RawValue;
 use std::cmp::Ordering;
 use std::ops::Bound::{Excluded, Unbounded};
 
+mod codec;
 mod edition;
+mod log;
+mod snapshot;
+#[cfg(test)]
+mod storage_tests;
 pub use edition::IndexEdition;
-use std::fs::{self, File, OpenOptions};
-use std::io::{self, BufRead, BufReader, BufWriter, Seek, SeekFrom, Write};
-use std::path::{Path, PathBuf};
+pub use log::{IndexLog, replay_log, replay_log_from};
+pub use snapshot::{DiskSnapshot, SortedSnapshot};
+
+use std::io;
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 
@@ -40,6 +47,7 @@ impl RowKey {
 
     pub fn validate(&self) -> io::Result<()> {
         if self.origin.len() > MAX_FIELD_BYTES || self.chat_id.len() > MAX_FIELD_BYTES {
+            REJECTED_KEYS.fetch_add(1, AtomicOrdering::Relaxed);
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "row key exceeds 256 bytes"));
         }
         Ok(())
@@ -83,6 +91,25 @@ pub type SummaryRecord = Summary;
 /// one harness supplied title or opaque extension.
 pub const MAX_TITLE_BYTES: usize = 256;
 pub const MAX_SUMMARY_BYTES: usize = 2 * 1024;
+/// Text JSON plus three raw row keys, a folder, fork seq, and fixed framing.
+pub const MAX_INDEX_RECORD_BYTES: usize = MAX_SUMMARY_BYTES + 3 * (4 + 512) + 1026 + 8 + 32;
+static REJECTED_KEYS: AtomicUsize = AtomicUsize::new(0);
+static OMITTED_FOLDERS: AtomicUsize = AtomicUsize::new(0);
+static CUT_FIELDS: AtomicUsize = AtomicUsize::new(0);
+static EMPTY_EXTRAS: AtomicUsize = AtomicUsize::new(0);
+
+pub fn rejected_keys() -> usize {
+    REJECTED_KEYS.load(AtomicOrdering::Relaxed)
+}
+pub fn omitted_folders() -> usize {
+    OMITTED_FOLDERS.load(AtomicOrdering::Relaxed)
+}
+pub fn cut_fields() -> usize {
+    CUT_FIELDS.load(AtomicOrdering::Relaxed)
+}
+pub fn empty_extras() -> usize {
+    EMPTY_EXTRAS.load(AtomicOrdering::Relaxed)
+}
 const MAX_FIELD_BYTES: usize = 256;
 
 fn empty_object() -> Box<RawValue> {
@@ -145,13 +172,20 @@ impl Summary {
         if self.folder.as_ref().is_some_and(|folder| folder.len() > 1024) {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "folder exceeds 1024 bytes"));
         }
-        if self.encoded_len() > MAX_SUMMARY_BYTES {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "whole keys exceed summary budget",
-            ));
+        if codec::text_len(self) > MAX_SUMMARY_BYTES {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "summary texts exceed budget"));
         }
         Ok(())
+    }
+
+    pub fn prepare(mut self) -> io::Result<Self> {
+        if self.folder.as_ref().is_some_and(|folder| folder.len() > 1024) {
+            self.folder = None;
+            OMITTED_FOLDERS.fetch_add(1, AtomicOrdering::Relaxed);
+        }
+        let summary = self.bounded();
+        summary.validate()?;
+        Ok(summary)
     }
 
     pub fn is_live(&self) -> bool {
@@ -170,16 +204,17 @@ impl Summary {
         self.harness = truncate_utf8(&self.harness, MAX_FIELD_BYTES);
         self.state = truncate_utf8(&self.state, MAX_FIELD_BYTES);
         self.workspace = self.workspace.map(|value| truncate_utf8(&value, MAX_FIELD_BYTES));
-        if self.encoded_len() > MAX_SUMMARY_BYTES {
+        if codec::text_len(&self) > MAX_SUMMARY_BYTES {
             self.extra = empty_object();
+            EMPTY_EXTRAS.fetch_add(1, AtomicOrdering::Relaxed);
         }
-        if self.encoded_len() > MAX_SUMMARY_BYTES {
+        if codec::text_len(&self) > MAX_SUMMARY_BYTES {
             self.title = truncate_utf8(&self.title, MAX_TITLE_BYTES / 2);
         }
         // JSON escaping can make a 256-byte UTF-8 field larger than its text
         // length. Keep shrinking textual fields until the serialized record,
         // including opaque bytes, is inside the wire bound.
-        while self.encoded_len() > MAX_SUMMARY_BYTES {
+        while codec::text_len(&self) > MAX_SUMMARY_BYTES {
             let mut changed = false;
             macro_rules! shrink {
                 ($value:expr) => {
@@ -191,13 +226,13 @@ impl Summary {
                 };
             }
             shrink!(self.title);
-            if self.encoded_len() > MAX_SUMMARY_BYTES {
+            if codec::text_len(&self) > MAX_SUMMARY_BYTES {
                 shrink!(self.harness);
             }
-            if self.encoded_len() > MAX_SUMMARY_BYTES {
+            if codec::text_len(&self) > MAX_SUMMARY_BYTES {
                 shrink!(self.state);
             }
-            if self.encoded_len() > MAX_SUMMARY_BYTES
+            if codec::text_len(&self) > MAX_SUMMARY_BYTES
                 && let Some(value) = self.workspace.as_mut()
             {
                 shrink!(*value);
@@ -214,6 +249,7 @@ fn truncate_utf8(value: &str, max: usize) -> String {
     if value.len() <= max {
         return value.to_owned();
     }
+    CUT_FIELDS.fetch_add(1, AtomicOrdering::Relaxed);
     let mut end = max;
     while end > 0 && !value.is_char_boundary(end) {
         end -= 1;
@@ -338,13 +374,17 @@ impl SummaryIndex {
     /// Exclusive keyset seek: tree search plus only the requested rows.
     pub fn after(&self, key: Option<&SortKey>, limit: usize) -> Vec<Arc<Summary>> {
         let lower = key.map_or(Unbounded, Excluded);
-        self.ordered.range((lower, Unbounded)).take(limit).map(|(_, row)| row.clone()).collect()
+        self.ordered
+            .range::<_, SortKey>((lower, Unbounded))
+            .take(limit)
+            .map(|(_, row)| row.clone())
+            .collect()
     }
 
     pub fn before(&self, key: &SortKey, limit: usize) -> Vec<Arc<Summary>> {
         let mut rows: Vec<_> = self
             .ordered
-            .range((Unbounded, Excluded(key)))
+            .range::<_, SortKey>((Unbounded, Excluded(key)))
             .rev()
             .take(limit)
             .map(|(_, row)| row.clone())
@@ -383,327 +423,11 @@ impl SummaryIndex {
     }
 }
 
-/// The append-only `index.log` writer.
-pub struct IndexLog {
-    file: BufWriter<File>,
-    path: PathBuf,
-    next_seq: u64,
-    offset: u64,
-}
-
-impl IndexLog {
-    pub fn open(path: impl AsRef<Path>) -> io::Result<Self> {
-        let requested = path.as_ref().to_owned();
-        let snapshot_path = requested.with_extension("snap");
-        let (path, snapshot_seq) = match SortedSnapshot::metadata(&snapshot_path)? {
-            Some(snapshot) => {
-                let candidate = snapshot.log_name.as_deref().map(|name| {
-                    snapshot_path.parent().unwrap_or_else(|| Path::new(".")).join(name)
-                });
-                let active = candidate.filter(|candidate| candidate.exists()).unwrap_or(requested);
-                (active, snapshot.seq)
-            }
-            None => (requested, 0),
-        };
-        let bytes = match fs::read(&path) {
-            Ok(bytes) => bytes,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Vec::new(),
-            Err(error) => return Err(error),
-        };
-        let mut offset = 0usize;
-        let mut next_seq = 0;
-        for line in bytes.split_inclusive(|byte| *byte == b'\n') {
-            let end = offset + line.len();
-            let text = line.strip_suffix(b"\n").unwrap_or(line);
-            match serde_json::from_slice::<IndexRecord>(text) {
-                Ok(record) => {
-                    next_seq = next_seq.max(record.seq);
-                    offset = end;
-                }
-                Err(_) => break,
-            }
-        }
-        if offset < bytes.len() {
-            let file = OpenOptions::new().write(true).open(&path)?;
-            file.set_len(offset as u64)?;
-        } else if offset > 0 && bytes.get(..offset).is_some_and(|head| !head.ends_with(b"\n")) {
-            let mut file = OpenOptions::new().append(true).open(&path)?;
-            file.write_all(b"\n")?;
-            offset += 1;
-        }
-        let file = OpenOptions::new().create(true).append(true).open(&path)?;
-        Ok(Self {
-            file: BufWriter::new(file),
-            path,
-            next_seq: next_seq.max(snapshot_seq),
-            offset: offset as u64,
-        })
-    }
-
-    pub fn append(&mut self, summary: Summary) -> io::Result<IndexRecord> {
-        let summary = summary.bounded();
-        summary.validate()?;
-        self.next_seq = self.next_seq.saturating_add(1);
-        let record = IndexRecord {
-            seq: self.next_seq,
-            origin: summary.origin.clone(),
-            chat_id: summary.chat_id.clone(),
-            summary,
-            gone: false,
-        };
-        let mut bytes = serde_json::to_vec(&record).map_err(io::Error::other)?;
-        bytes.push(b'\n');
-        self.file.write_all(&bytes)?;
-        self.offset = self.offset.saturating_add(bytes.len() as u64);
-        Ok(record)
-    }
-
-    pub fn append_remove(&mut self, chat_id: impl Into<String>) -> io::Result<IndexRecord> {
-        self.append_gone(&RowKey::new("local", chat_id.into()))
-    }
-
-    pub fn append_gone(&mut self, key: &RowKey) -> io::Result<IndexRecord> {
-        key.validate()?;
-        self.next_seq = self.next_seq.saturating_add(1);
-        let chat_id = key.chat_id.to_string();
-        let record = IndexRecord {
-            seq: self.next_seq,
-            chat_id: chat_id.clone(),
-            origin: key.origin.to_string(),
-            summary: Summary::new(chat_id),
-            gone: true,
-        };
-        let mut bytes = serde_json::to_vec(&record).map_err(io::Error::other)?;
-        bytes.push(b'\n');
-        self.file.write_all(&bytes)?;
-        self.offset = self.offset.saturating_add(bytes.len() as u64);
-        Ok(record)
-    }
-
-    pub fn flush(&mut self) -> io::Result<()> {
-        self.file.flush()
-    }
-
-    pub fn sync(&mut self) -> io::Result<()> {
-        self.file.flush()?;
-        self.file.get_ref().sync_data()
-    }
-
-    pub fn next_seq(&self) -> u64 {
-        self.next_seq
-    }
-
-    pub fn offset(&self) -> u64 {
-        self.offset
-    }
-
-    pub fn path(&self) -> &Path {
-        &self.path
-    }
-
-    /// Writes a sorted snapshot and starts a fresh log. The snapshot is
-    /// replaced atomically before the old log is truncated, so a crash can
-    /// replay duplicate records but cannot lose a committed summary.
-    pub fn compact(
-        &mut self,
-        snapshot_path: impl AsRef<Path>,
-        index: &SummaryIndex,
-    ) -> io::Result<()> {
-        self.sync()?;
-        let parent = self.path.parent().unwrap_or_else(|| Path::new(".")).to_owned();
-        let stem = self.path.file_name().and_then(|name| name.to_str()).unwrap_or("index.log");
-        let generation = parent.join(format!("{stem}.{}", index.seq()));
-        let generation_file =
-            OpenOptions::new().create(true).write(true).truncate(true).open(&generation)?;
-        generation_file.sync_all()?;
-        SortedSnapshot::write_with_offset_and_name(
-            &snapshot_path,
-            index,
-            0,
-            generation.file_name().and_then(|name| name.to_str()),
-        )?;
-        self.file.flush()?;
-        let old_path = self.path.clone();
-        self.file = BufWriter::new(OpenOptions::new().create(true).append(true).open(&generation)?);
-        self.path = generation;
-        self.offset = 0;
-        self.next_seq = index.seq();
-        if old_path != self.path {
-            let _ = fs::remove_file(old_path);
-        }
-        if let Ok(dir) = File::open(&parent) {
-            dir.sync_all()?;
-        }
-        Ok(())
-    }
-}
-
-/// Reads the log's tail into a persistent index. A malformed or partial final
-/// line is ignored so a torn append does not hide earlier summaries.
-pub fn replay_log(path: impl AsRef<Path>, index: SummaryIndex) -> io::Result<SummaryIndex> {
-    replay_log_from(path, 0, index)
-}
-
-/// Replays only the log tail not covered by a sorted snapshot.
-pub fn replay_log_from(
-    path: impl AsRef<Path>,
-    offset: u64,
-    mut index: SummaryIndex,
-) -> io::Result<SummaryIndex> {
-    let file = match File::open(path) {
-        Ok(file) => file,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(index),
-        Err(error) => return Err(error),
-    };
-    let mut reader = BufReader::new(file);
-    reader.seek(SeekFrom::Start(offset))?;
-    for line in reader.lines() {
-        let line = line?;
-        if line.trim().is_empty() {
-            continue;
-        }
-        let record: IndexRecord = match serde_json::from_str(&line) {
-            Ok(record) => record,
-            Err(_) => break,
-        };
-        index = if record.gone {
-            index
-                .remove_row(record.seq, &RowKey::new(record.origin, record.chat_id))
-                .unwrap_or(index)
-        } else {
-            index.apply(record.seq, record.summary)
-        };
-    }
-    Ok(index)
-}
-
-/// A sorted `index.snap` file. Snapshot writes are atomic at the caller's
-/// boundary; this helper only emits the deterministic compact representation.
-pub struct SortedSnapshot;
-
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SnapshotFile {
-    version: u32,
-    seq: u64,
-    log_offset: u64,
-    #[serde(default)]
-    log_name: Option<String>,
-    summaries: Vec<Summary>,
-}
-
-impl SortedSnapshot {
-    pub const VERSION: u32 = 1;
-
-    pub fn write(path: impl AsRef<Path>, index: &SummaryIndex) -> io::Result<()> {
-        Self::write_with_offset(path, index, 0)
-    }
-
-    pub fn write_with_offset(
-        path: impl AsRef<Path>,
-        index: &SummaryIndex,
-        log_offset: u64,
-    ) -> io::Result<()> {
-        Self::write_with_offset_and_name(path, index, log_offset, None)
-    }
-
-    fn write_with_offset_and_name(
-        path: impl AsRef<Path>,
-        index: &SummaryIndex,
-        log_offset: u64,
-        log_name: Option<&str>,
-    ) -> io::Result<()> {
-        let path = path.as_ref();
-        let temp = path.with_extension("snap.tmp");
-        let file = File::create(&temp)?;
-        let mut writer = BufWriter::new(file);
-        serde_json::to_writer(
-            &mut writer,
-            &SnapshotFile {
-                version: Self::VERSION,
-                seq: index.seq,
-                log_offset,
-                log_name: log_name.map(str::to_owned),
-                summaries: index.summaries(),
-            },
-        )
-        .map_err(io::Error::other)?;
-        writer.flush()?;
-        writer.get_ref().sync_all()?;
-        fs::rename(&temp, path)?;
-        if let Some(parent) = path.parent()
-            && let Ok(dir) = File::open(parent)
-        {
-            dir.sync_all()?;
-        }
-        Ok(())
-    }
-
-    pub fn read(path: impl AsRef<Path>) -> io::Result<Option<SummaryIndex>> {
-        let file = match File::open(path) {
-            Ok(file) => file,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(error),
-        };
-        let snapshot: SnapshotFile =
-            serde_json::from_reader(BufReader::new(file)).map_err(io::Error::other)?;
-        if snapshot.version != Self::VERSION {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "unknown index snapshot version",
-            ));
-        }
-        let mut index = SummaryIndex::new();
-        for summary in snapshot.summaries {
-            index = index.apply(snapshot.seq, summary);
-        }
-        index.seq = snapshot.seq;
-        Ok(Some(index))
-    }
-
-    fn metadata(path: impl AsRef<Path>) -> io::Result<Option<SnapshotFile>> {
-        let file = match File::open(path) {
-            Ok(file) => file,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(error),
-        };
-        let snapshot: SnapshotFile =
-            serde_json::from_reader(BufReader::new(file)).map_err(io::Error::other)?;
-        if snapshot.version != Self::VERSION {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "unknown index snapshot version",
-            ));
-        }
-        Ok(Some(snapshot))
-    }
-
-    pub fn read_with_offset(path: impl AsRef<Path>) -> io::Result<Option<(SummaryIndex, u64)>> {
-        let file = match File::open(path) {
-            Ok(file) => file,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(error),
-        };
-        let snapshot: SnapshotFile =
-            serde_json::from_reader(BufReader::new(file)).map_err(io::Error::other)?;
-        if snapshot.version != Self::VERSION {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "unknown index snapshot version",
-            ));
-        }
-        let mut index = SummaryIndex::new();
-        for summary in snapshot.summaries {
-            index = index.apply(snapshot.seq, summary);
-        }
-        index.seq = snapshot.seq;
-        Ok(Some((index, snapshot.log_offset)))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::OpenOptions;
+    use std::io::Write;
     use tempfile::tempdir;
 
     fn summary(id: &str, at: u64, extra: &str) -> Summary {
@@ -758,7 +482,7 @@ mod tests {
         assert_eq!(log.offset(), 0);
         let mut escaped = Summary::new("\u{0001}".repeat(256));
         escaped.origin = "\u{0002}".repeat(256);
-        assert!(log.append(escaped).is_err());
+        assert!(log.append(escaped).is_ok());
     }
 
     #[test]
