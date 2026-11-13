@@ -1,5 +1,6 @@
 //! I/O-free client state machine for agent-service v2.
 
+pub mod ffi;
 pub mod wire;
 
 use serde::{Serialize, de::DeserializeOwned};
