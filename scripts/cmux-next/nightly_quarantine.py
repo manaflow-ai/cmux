@@ -6,15 +6,21 @@ requests: "ugh we can just warn/pre-whatever/quarantine stuff idk", and "like ru
 push/some direct pushes potentially". cmux adds no CI for it (CLAUDE.md: "Never add CI gates ... CI jobs or steps"):
 cmuxterm-hq's base-red-watch reads feat-cmux-next's own push runs, and when a confirmed red's every suspect is a direct
 push it posts CONTEXT `failure` on that commit, then `success` on the tip once it is fixed or reverted. Nothing is
-reverted. This reads those statuses only: walking the branch's history from the oldest commit read, a red CONTEXT
-opens the quarantine and a green one closes it; pending, errored and absent statuses change nothing.
+reverted. This reads those statuses only: walking TIP's first-parent history (the commits request-nightly-next.sh
+promotes from) from the oldest commit read, a red CONTEXT opens the quarantine and a green one closes it; pending,
+errored and absent statuses change nothing. A commit off the first-parent line is not read, so a side branch's
+status can neither open nor lift it.
+
+Only the publisher's statuses count: CONTEXT from any creator but CREATOR (the cmux-bot app that cmuxterm-hq's trusted
+publisher posts as) is ignored, with one line on stderr. Anyone with write access can post a status with that
+context; a forged success must not lift a quarantine, nor a forged failure set one.
 
     quarantined --repo R --tip SHA
         Prints one line per quarantined commit of TIP's recent history: "<sha> <culprit> <pusher>". Exit 1 when the
         history cannot be read. With GH_TICK_CACHE set (nightly-next-tick), the answer is kept there for TIP.
 
-Descriptions (posted by cmuxterm-hq's base_red_watch.direct_push_verdicts): "red: base <sha40> since <sha12> by
-<login>", "cleared: base <sha40> since <sha12>".
+Descriptions (posted by cmuxterm-hq's tools/fleet-reconcilers/direct_push_publish.py): "red: base <sha40> since
+<sha12> by <login>", "cleared: base <sha40> since <sha12>".
 """
 from __future__ import annotations
 
@@ -27,13 +33,20 @@ import subprocess
 import sys
 
 CONTEXT = "cmux-next/direct-push-gates"
-DEPTH = 100  # commits read: the nightly promotes from the tip's recent history
+DEPTH = 100  # first-parent commits read: request-nightly-next.sh promotes from the tip's newest 99
+CREATOR = "cmux-bot[bot]"  # the trusted publisher's app login: only its CONTEXT statuses are read
+SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 BASE_RE = re.compile(r"\bbase ([0-9a-f]{40})\b")
 SINCE_RE = re.compile(r"\bsince ([0-9a-f]{7,40})\b")
 BY_RE = re.compile(r"\bby @?([A-Za-z0-9][A-Za-z0-9-]*(?:\[bot\])?)")
-QUERY = ("query($o:String!,$n:String!,$oid:GitObjectID!){repository(owner:$o,name:$n){object(oid:$oid){"
-         f"... on Commit{{history(first:{DEPTH}){{nodes{{oid author{{user{{login}} name}} "
-         f'status{{context(name:"{CONTEXT}"){{state description}}}}}}}}}}}}}}}}')
+COMMIT_FIELDS = (f'... on Commit{{oid author{{user{{login}} name}} '
+                 f'status{{context(name:"{CONTEXT}"){{state description creator{{login}}}}}}}}')
+
+
+def query(shas: list[str]) -> str:
+    """One GraphQL read of exactly these commits (GraphQL's history follows every parent, not the first one)."""
+    lookups = " ".join(f'c{i}:object(oid:"{sha}"){{{COMMIT_FIELDS}}}' for i, sha in enumerate(shas))
+    return f"query($o:String!,$n:String!){{repository(owner:$o,name:$n){{{lookups}}}}}"
 
 
 def gh(*args: str) -> str:
@@ -42,11 +55,18 @@ def gh(*args: str) -> str:
 
 def quarantine_walk(nodes: list) -> tuple[dict | None, list[tuple[str, dict]]]:
     """(the open quarantine after the newest node, [(sha, quarantine)] for each node it holds), from GraphQL history
-    nodes, newest first. A red CONTEXT opens it, a green one closes it; anything else changes nothing."""
+    nodes, newest first. A red CONTEXT opens it, a green one closes it; anything else changes nothing. CONTEXT from a
+    creator other than CREATOR is ignored."""
     found, held = None, []
     for node in reversed([n for n in nodes or [] if isinstance(n, dict) and isinstance(n.get("oid"), str)]):
         ctx = (node.get("status") or {}).get("context") if isinstance(node.get("status"), dict) else None
-        state = (ctx or {}).get("state")
+        ctx = ctx if isinstance(ctx, dict) else {}
+        creator = str((ctx.get("creator") or {}).get("login") or "") if isinstance(ctx.get("creator"), dict) else ""
+        if ctx and creator != CREATOR:
+            print(f"direct-push quarantine: ignored a {CONTEXT} status ({ctx.get('state')}) on {node['oid'][:12]} "
+                  f"from {creator or 'an unknown creator'}; only {CREATOR} posts it", file=sys.stderr)
+            ctx = {}
+        state = ctx.get("state")
         if state == "SUCCESS":
             found = None
         elif state == "FAILURE" and found is None:
@@ -60,16 +80,28 @@ def quarantine_walk(nodes: list) -> tuple[dict | None, list[tuple[str, dict]]]:
     return found, held
 
 
+def first_parents(tip: str) -> list[str]:
+    """TIP's newest DEPTH first-parent commits, newest first: the line request-nightly-next.sh promotes from."""
+    out = subprocess.run(["git", "rev-list", "--first-parent", "-n", str(DEPTH), tip], check=True,
+                         capture_output=True, text=True, timeout=60).stdout.split()
+    shas = [sha for sha in out if SHA_RE.match(sha)]
+    if not shas:
+        raise ValueError(f"{tip}'s first-parent history unreadable")
+    return shas
+
+
 def history(repo: str, oid: str) -> list:
+    """GraphQL nodes for OID's first-parent commits, newest first; a commit GitHub does not know is left out."""
+    shas = first_parents(oid)
     owner, name = repo.split("/", 1)
-    out = json.loads(gh("api", "graphql", "-f", f"query={QUERY}", "-f", f"o={owner}", "-f", f"n={name}",
-                        "-f", f"oid={oid}"))
+    out = json.loads(gh("api", "graphql", "-f", f"query={query(shas)}", "-f", f"o={owner}", "-f", f"n={name}"))
     if out.get("errors"):
         raise ValueError(f"graphql errors: {str(out['errors'])[:200]}")
-    nodes = ((((out.get("data") or {}).get("repository") or {}).get("object") or {}).get("history") or {}).get("nodes")
-    if not isinstance(nodes, list):
+    found = (out.get("data") or {}).get("repository")
+    if not isinstance(found, dict):
         raise ValueError(f"{oid}'s history unreadable")
-    return nodes
+    by_oid = {n["oid"]: n for n in found.values() if isinstance(n, dict) and isinstance(n.get("oid"), str)}
+    return [by_oid[sha] for sha in shas if sha in by_oid]
 
 
 def quarantined(args: argparse.Namespace) -> int:
@@ -79,7 +111,7 @@ def quarantined(args: argparse.Namespace) -> int:
         return 0
     try:
         _, held = quarantine_walk(history(args.repo, args.tip))
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, ValueError, KeyError) as error:
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired, ValueError, KeyError) as error:
         print(f"direct-push quarantine unreadable: {str(getattr(error, 'stderr', '') or error)[-200:]}",
               file=sys.stderr)
         return 1

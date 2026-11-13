@@ -125,7 +125,7 @@ if [[ "\$1" == api && "\$2" == repos/*/actions/workflows/cmux-tui-artifacts.yml/
 fi
 # The direct-push quarantine's history read: $TMP/gh-graphql's answer, else no status anywhere.
 if [[ "\$1 \$2" == "api graphql" ]]; then
-  if [[ -f "$TMP/gh-graphql" ]]; then cat "$TMP/gh-graphql"; else echo '{"data":{"repository":{"object":{"history":{"nodes":[]}}}}}'; fi
+  if [[ -f "$TMP/gh-graphql" ]]; then cat "$TMP/gh-graphql"; else echo '{"data":{"repository":{}}}'; fi
   exit 0
 fi
 [[ "\$1" == api ]] || exit 0
@@ -172,8 +172,18 @@ request --sha "$head" --release-compile-green
 # A direct push red on feat-cmux-next's push runs quarantines its commit (the status cmuxterm-hq's base-red-watch
 # posts, read by scripts/cmux-next/nightly_quarantine.py): it is not promoted until a later push is green. The shape is
 # 11-12's e0d3bb0ec2f0 by lawrencecchen.
+# The read is one lookup per first-parent commit (c0, c1, ...); only cmux-bot[bot]'s statuses count.
+status_node() { # <commit> <state> [creator]
+  printf '{"oid":"%s","author":{"user":{"login":"lawrencecchen"},"name":"Lawrence Chen"},"status":{"context":{"state":"%s","description":"red: base %s since e0d3bb0ec2f0 by lawrencecchen","creator":{"login":"%s"}}}}' \
+    "$1" "$2" "$(printf '4%.0s' {1..40})" "${3:-cmux-bot[bot]}"
+}
+statuses() { # <node>...: the GraphQL answer
+  local body="" i=0 node
+  for node in "$@"; do body+="${body:+,}\"c$i\":$node"; i=$((i + 1)); done
+  printf '{"data":{"repository":{%s}}}\n' "$body" > "$TMP/gh-graphql"
+}
 quarantine() { # <state> <commit>
-  printf '{"data":{"repository":{"object":{"history":{"nodes":[{"oid":"%s","author":{"user":{"login":"lawrencecchen"},"name":"Lawrence Chen"},"status":{"context":{"state":"%s","description":"red: base %s since e0d3bb0ec2f0 by lawrencecchen"}}}]}}}}}\n' "$2" "$1" "$(printf '4%.0s' {1..40})" > "$TMP/gh-graphql"
+  statuses "$(status_node "$2" "$1")"
 }
 quarantine FAILURE "$head"
 request --sha "$head" --release-compile-green
@@ -185,6 +195,25 @@ GH_TICK_CACHE="$TMP/tick" request --sha "$head" --release-compile-green
 GH_TICK_CACHE="$TMP/tick" request --sha "$head" --release-compile-green
 ! dispatched "$head" || fail "a cached quarantine must still hold the commit:" "$(cat "$TMP/gh.log")"
 [[ "$(grep -c '^api graphql ' "$TMP/gh.log")" == 0 ]] || fail "the tick's second call must read the quarantine from its cache:" "$(cat "$TMP/gh.log")"
+# Anyone with write access can post the context: a status from another creator neither sets nor lifts it, and the
+# script says it ignored one.
+statuses "$(status_node "$head" FAILURE someone)"
+request --sha "$head" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$head" || fail "a failure from another creator must not quarantine:" "$out"
+parent=$(git -C "$src" rev-parse "$head^")
+statuses "$(status_node "$head" SUCCESS someone)" "$(status_node "$parent" FAILURE)"
+request --sha "$head" --release-compile-green
+! dispatched "$head" || fail "a success from another creator must not lift the quarantine:" "$(cat "$TMP/gh.log")"
+log=$(cd "$src" && PATH="$TMP/bin:$PATH" python3 scripts/cmux-next/nightly_quarantine.py quarantined --repo o/r --tip "$head" 2>&1 >/dev/null)
+grep -q "ignored a cmux-next/direct-push-gates status (SUCCESS) on ${head:0:12} from someone" <<<"$log" \
+  || fail "the ignored status must be named with its creator:" "$log"
+# Only the first-parent line the nightly promotes from is read: a side branch's success does not lift it (Codex F1 on
+# #42248), and the read asks for exactly those commits.
+statuses "$(status_node "$(printf '5%.0s' {1..40})" SUCCESS)" "$(status_node "$parent" FAILURE)"
+request --sha "$head" --release-compile-green
+! dispatched "$head" || fail "a success off the first-parent line must not lift the quarantine:" "$(cat "$TMP/gh.log")"
+grep -q "object(oid:\"$head\")" "$TMP/gh.log" && grep -q "object(oid:\"$parent\")" "$TMP/gh.log" \
+  || fail "the read must ask for the first-parent commits:" "$(cat "$TMP/gh.log")"
 quarantine SUCCESS "$head"
 request --sha "$head" --release-compile-green
 [[ "$status" == 0 ]] && dispatched "$head" || fail "once a push's gates pass the commit is promoted:" "$out"
