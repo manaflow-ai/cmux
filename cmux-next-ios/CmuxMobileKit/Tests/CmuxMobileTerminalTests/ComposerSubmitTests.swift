@@ -42,6 +42,19 @@ import Testing
     @Test func sendWithoutReturnOnlyPastes() {
         #expect(ComposerSubmit(text: "ls", pressReturn: false).steps == [.paste("ls")])
     }
+
+    /// Live logs (2026-11-13): a paste and its Return sent as two requests
+    /// lost the Return when the link stalled between them. A paste followed
+    /// by Return is one unit a submit-capable session takes as one request;
+    /// typed text (a full-screen app) keeps its delayed Return.
+    @Test func aPasteAndItsReturnAreOneUnit() {
+        #expect(ComposerSubmit(text: "echo hi", pressReturn: true).pasteThenReturn == "echo hi")
+        #expect(ComposerSubmit(text: "a\nb", pressReturn: true, fullScreenApp: true).pasteThenReturn == "a\nb")
+        #expect(ComposerSubmit(attachmentPaths: ["/tmp/a.png"], text: "hi").pasteThenReturn == "/tmp/a.png hi")
+        #expect(ComposerSubmit(text: ":q", pressReturn: true, fullScreenApp: true).pasteThenReturn == nil)
+        #expect(ComposerSubmit(text: "ls", pressReturn: false).pasteThenReturn == nil)
+        #expect(ComposerSubmit(text: "", pressReturn: true).pasteThenReturn == nil)
+    }
 }
 
 /// Codex QA F1 re-check: Send with an image and text submits in one go.

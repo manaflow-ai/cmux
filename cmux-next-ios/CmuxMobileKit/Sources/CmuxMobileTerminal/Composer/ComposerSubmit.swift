@@ -3,7 +3,8 @@ import Foundation
 /// How the composer's Send reaches the program (Codex QA F1). The draft goes
 /// as one paste (bracketed when the program turned bracketed paste on, as
 /// Codex, zsh and vim do), and Return goes as its own keystroke after the
-/// paste was written. Sent back to back as typed text plus Enter, Codex's
+/// paste was written: in the same request when the session takes both
+/// (`pasteThenReturn`, `TerminalSession.submit`), else a moment later. Sent back to back as typed text plus Enter, Codex's
 /// paste-burst detection took the Enter for a newline inside the burst: the
 /// prompt stayed a draft until a second, empty Send. Portable, unit tested.
 public struct ComposerSubmit: Equatable, Sendable {
@@ -63,6 +64,15 @@ public struct ComposerSubmit: Equatable, Sendable {
         let safe = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/._-+,:@%")
         if !path.isEmpty, path.unicodeScalars.allSatisfy({ safe.contains($0) }) { return path }
         return "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    /// The draft of a paste followed by Return: what a session that writes
+    /// text and Return in one request takes as one (`TerminalSession.submit`),
+    /// so the two never arrive apart. Nil for typed text (a full-screen app
+    /// keeps its delayed Return), a bare Return or a paste without one.
+    public var pasteThenReturn: String? {
+        guard steps.count == 2, case .paste(let draft) = steps[0], steps[1] == .enter else { return nil }
+        return draft
     }
 
     /// Whether Return waits (it follows a paste or typed text: `enterWait`).
