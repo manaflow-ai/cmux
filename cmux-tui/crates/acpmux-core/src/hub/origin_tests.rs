@@ -555,6 +555,39 @@ fn wrong_source_cannot_replace_a_rightful_held_row_or_gone_after_takeover() {
 }
 
 #[test]
+fn held_updates_claim_an_unregistered_replayed_origins_source() {
+    for owner in [Source::V1, Source::Mirror] {
+        let original = remote("replayed", 1);
+        let key = original.key();
+        let (hub, mut writer) = Hub::new(SummaryIndex::new().apply(1, original));
+        assert!(hub.sources.load().is_empty());
+        writer.origin("peer", OriginState::Removed, 2).unwrap();
+        writer.origin("peer", OriginState::Connected, 3).unwrap();
+        assert!(matches!(
+            writer.apply_from(Source::Local, remote("replayed", 4)),
+            Err(HubError::SourceRefused { .. })
+        ));
+        let rightful = remote("replayed", 5);
+        writer.apply_from(owner, rightful.clone()).unwrap();
+        for wrong in [Source::Local, Source::V1, Source::Mirror] {
+            if wrong == owner {
+                continue;
+            }
+            assert!(matches!(
+                writer.apply_from(wrong, remote("replayed", 6)),
+                Err(HubError::SourceRefused { .. })
+            ));
+            assert!(matches!(
+                writer.remove_from(wrong, "peer", "replayed"),
+                Err(HubError::SourceRefused { .. })
+            ));
+        }
+        drive(&mut writer, 4);
+        assert!(hub.snapshot().get_row(&key).unwrap().same_content(&rightful));
+    }
+}
+
+#[test]
 fn a_leaving_origin_holds_at_most_16384_distinct_rows_but_accepts_replacements() {
     let (hub, mut writer) = Hub::new(SummaryIndex::new());
     seed(&mut writer, 500);

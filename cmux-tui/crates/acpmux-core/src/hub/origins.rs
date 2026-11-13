@@ -147,6 +147,12 @@ impl HubWriter {
                     owner,
                 });
             }
+            if owner.is_none() {
+                // Replayed rows precede the producer's startup walk. Claim
+                // their source before coalescing, just as an ordinary apply
+                // does, so another producer cannot replace this held value.
+                self.check_source(*source, key.origin())?;
+            }
         }
         let row_key = match &key {
             UpdateKey::Row(key) => Some(key.clone()),
