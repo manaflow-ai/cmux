@@ -317,7 +317,23 @@ impl Hub {
     /// Sends a mux record of `kind` for `chat`, as a change of its row does.
     #[cfg(test)]
     pub(crate) fn row_changed_for_test(&self, chat: &str, kind: &str) {
-        let _ = self.events.send(HubEvent {
+        let _ = self.events.send(Self::mux_event_for_test(chat, kind));
+    }
+
+    /// Sends a mux record of `kind` for `chat` that changes its own row only, as `append` sends a
+    /// rename (`Events::send_row`): the other closed rows keep their bytes.
+    #[cfg(test)]
+    pub(crate) fn own_row_changed_for_test(&self, chat: &str, kind: &str) {
+        if let Some(session) = self.session_by_id(chat) {
+            // A record dates its chat (`append`): it goes to the top of the list.
+            session.meta.lock().unwrap_or_else(|e| e.into_inner()).updated_at = now_ms();
+            let _ = self.events.send_row(&session, Self::mux_event_for_test(chat, kind));
+        }
+    }
+
+    #[cfg(test)]
+    fn mux_event_for_test(chat: &str, kind: &str) -> HubEvent {
+        HubEvent {
             session_id: chat.to_owned(),
             record: Arc::new(EventRecord {
                 seq: 0,
@@ -331,7 +347,7 @@ impl Hub {
             update_line: Default::default(),
             row: Default::default(),
             list_seq: 0,
-        });
+        }
     }
 }
 

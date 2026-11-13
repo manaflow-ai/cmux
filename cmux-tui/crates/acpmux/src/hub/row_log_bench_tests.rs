@@ -19,7 +19,7 @@ fn p95(mut samples: Vec<Duration>) -> Duration {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "bench: prints the before and after numbers"]
 async fn list_follow_bench() {
-    let (mut follow, mut pages) = (Vec::new(), Vec::new());
+    let (mut follow, mut pages, mut renamed_pages) = (Vec::new(), Vec::new(), Vec::new());
     for chats in [525, 11_000] {
         let hub = hub_with(chats, 0, 0).await;
         let mut link = Client::new(&hub, Origin::Peer).await;
@@ -101,6 +101,19 @@ async fn list_follow_bench() {
         eprintln!(
             "PERF first page parts chats={chats}: list_cursor {cursor_at:?}, list_rows {rows_at:?}, pick_page {pick_at:?}, build {build_at:?}, serialize {text_at:?}"
         );
+        // The same first page after a rename, which changes its own row only (`append` sends it
+        // with `Events::send_row`): the other closed rows keep their bytes.
+        let mut renamed = Vec::new();
+        for n in 0..20 {
+            hub.own_row_changed_for_test(&format!("chat-{}", n % chats), "renamed");
+            let mut app = Client::new(&hub, Origin::Local).await;
+            let started = Instant::now();
+            app.call(method::MUX_WATCH, json!({"enabled": true, "limit": 200})).await;
+            renamed.push(started.elapsed());
+        }
+        let renamed = p95(renamed);
+        eprintln!("PERF open chats={chats}: first page after a rename p95 {renamed:?}");
+        renamed_pages.push(renamed);
         let (f, w) = (p95(samples), p95(whole));
         eprintln!("PERF reconnect chats={chats}: follow p95 {f:?}, whole list p95 {w:?}");
         let (p, r) = (p95(page), p95(read));
@@ -118,16 +131,22 @@ async fn list_follow_bench() {
         "PERF first page god/small p95 ratio {:.2}",
         pages[1].as_secs_f64() / pages[0].as_secs_f64()
     );
+    eprintln!(
+        "PERF first page after a rename god/small p95 ratio {:.2}",
+        renamed_pages[1].as_secs_f64() / renamed_pages[0].as_secs_f64()
+    );
 
-    // The first frame with 525 chats and 30 peers of 20 rows, while 30 links reconnect.
-    for storm in ["whole", "follow"] {
+    // The app's first frame after its socket is up (from connect, through `initialize`, to the
+    // first page's reply) with 525 chats and 30 peers of 20 rows: alone ("quiet"), and while 30
+    // links reconnect.
+    for storm in ["quiet", "whole", "follow"] {
         let hub = hub_with(525, 30, 20).await;
         let (head, epoch) = {
             let (h, e) = hub.list_cursor();
             (h, e.to_owned())
         };
         let mut links = Vec::new();
-        for _ in 0..30 {
+        for _ in 0..if storm == "quiet" { 0 } else { 30 } {
             let hub = hub.clone();
             let epoch = epoch.clone();
             links.push(tokio::spawn(async move {
@@ -182,7 +201,7 @@ async fn list_follow_bench() {
             link.await.unwrap();
         }
         eprintln!(
-            "PERF first frame, 525 chats + 30 peers, 30 links reconnecting ({storm}): p95 {:?}, max {:?}, refused {refused}/20",
+            "PERF first frame after socket ready, 525 chats + 30 peers, links reconnecting ({storm}): p95 {:?}, max {:?}, refused {refused}/20",
             p95(frames.clone()),
             frames.iter().max().unwrap()
         );
