@@ -31,7 +31,7 @@ impl FolderKey {
 }
 
 /// The two edges a summary contributes to the kin view.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default)]
 pub struct KinTables {
     /// Parent -> direct children, ordered by stable row key.
     children: OrdMap<RowKey, OrdSet<RowKey>>,
@@ -41,6 +41,26 @@ pub struct KinTables {
     /// Folder pages can return these rows directly without a second index lookup.
     folders: OrdMap<FolderKey, OrdMap<SortKey, Arc<Summary>>>,
 }
+
+impl PartialEq for KinTables {
+    fn eq(&self, other: &Self) -> bool {
+        if self.children != other.children
+            || self.forks != other.forks
+            || self.folders.len() != other.folders.len()
+        {
+            return false;
+        }
+        self.folders.iter().all(|(folder, rows)| {
+            let Some(other_rows) = other.folders.get(folder) else { return false };
+            rows.len() == other_rows.len()
+                && rows.iter().all(|(sort, row)| {
+                    other_rows.get(sort).is_some_and(|other| row.as_ref().same_content(other))
+                })
+        })
+    }
+}
+
+impl Eq for KinTables {}
 
 impl KinTables {
     pub fn new() -> Self {

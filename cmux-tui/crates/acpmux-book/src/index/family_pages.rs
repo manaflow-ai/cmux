@@ -110,7 +110,7 @@ impl SummaryIndex {
         });
         let mut pending = if inclusive { path.last().cloned() } else { None };
         let mut walk = FamilyWalk::new(self, root, path, anchor.is_some(), &mut lookups)?;
-        let mut rows = Vec::new();
+        let mut rows: Vec<Arc<Summary>> = Vec::new();
         let mut before_key = None;
         let mut after_key = None;
         let mut bytes = 0usize;
@@ -188,13 +188,13 @@ impl FamilyWalk<'_> {
         self.frames.last().is_some_and(|frame| !frame.children.is_empty())
     }
 
-    fn new(
-        index: &SummaryIndex,
-        root: &RowKey,
+    fn new<'a>(
+        index: &'a SummaryIndex,
+        root: &'a RowKey,
         path: Vec<Arc<Summary>>,
         started: bool,
         lookups: &mut usize,
-    ) -> io::Result<FamilyWalk<'_>> {
+    ) -> io::Result<FamilyWalk<'a>> {
         let mut frames = Vec::with_capacity(path.len() + 1);
         let root_children = index.kin().children(root).cloned().unwrap_or_default();
         *lookups += 1;
