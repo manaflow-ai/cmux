@@ -943,7 +943,7 @@ extension LiveCoordinator {
     /// A Mac's terminal tabs say it is offline once its link has been down
     /// for a bounded time, or at once when presence says so (T-LIFE-13:
     /// offline label ≤ 5 s), never "Reattaching…" for 20 minutes (D4).
-    private func updateTerminalsOffline(_ session: MacSession) {
+    func updateTerminalsOffline(_ session: MacSession) {
         let phase = session.link.phase
         let now = ContinuousClock.now
         if phase.isConnected || phase == .idle {

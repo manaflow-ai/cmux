@@ -195,7 +195,7 @@ public struct CloudMachinePlan: Hashable, Sendable {
     /// "2 of 3", or just "2" when the plan sets no limit: the service sends a limit it does not
     /// enforce as a huge number (`Number.MAX_SAFE_INTEGER`, 9007199254740991), never shown.
     public static func count(_ used: Int, of limit: Int) -> String {
-        limit <= 0 || limit >= unlimited ? "\(used)" : String(localized: "\(used) of \(limit)")
+        limit >= unlimited ? "\(used)" : String(localized: "\(used) of \(limit)")
     }
 
     /// At or above this, a limit is no limit (JavaScript's largest safe integer is far above it).

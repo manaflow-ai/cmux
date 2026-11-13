@@ -296,11 +296,17 @@ public struct WorkspaceInbox: Hashable, Sendable {
                     if !searching, scope.macID == nil, rows.isEmpty, context.listState(mac.id) == .live {
                         return Fold(mac: mac, reason: .cloudEmpty, workspaces: [], isForcedOpen: false)
                     }
-                    // Running, but its daemon has not listed anything yet (the carrier is dialing just
-                    // after a Start): it is still waking to the person, never a line that vanishes.
-                    if !searching, scope.macID == nil, rows.isEmpty,
-                       [.loading, .notConnected].contains(context.listState(mac.id)) {
-                        return Fold(mac: mac, reason: .cloudWaking, workspaces: [], isForcedOpen: false)
+                    // Running, its carrier dialing, and nothing listed yet (just after a Start, or a
+                    // redial after its link closed): it is still waking to the person, never a line
+                    // that vanishes. One not dialed (the link cap left it out) falls through to the
+                    // not-connected line, whose Connect links it.
+                    if !searching, scope.macID == nil, rows.isEmpty {
+                        switch context.listState(mac.id) {
+                        case .loading, .cached(updating: true):
+                            return Fold(mac: mac, reason: .cloudWaking, workspaces: [], isForcedOpen: false)
+                        default:
+                            break
+                        }
                     }
                 }
             }

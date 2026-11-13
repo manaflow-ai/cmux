@@ -62,8 +62,14 @@ extension LiveCoordinator {
         // went offline does: its link closes (the cap leaves it out, as it is not online), its open
         // terminals say it is offline instead of "Reattaching…" for ever, and once it runs again
         // they reattach on the same session. Only a machine that left the list forgets it.
-        for machine in machines where !machine.isOnline {
+        for machine in machines {
             guard let session = sessions[machine.id] else { continue }
+            if machine.isOnline {
+                // Running (again): what its terminals say follows its link, as for any Mac, so a
+                // stop that was called off (one read said pausing) never leaves them offline.
+                if session.terminalsOffline { updateTerminalsOffline(session) }
+                continue
+            }
             session.terminalsOffline = true
             session.terminals.removeAll { $0.session == nil }
             for terminal in session.terminals { terminal.session?.setMacOffline(true) }

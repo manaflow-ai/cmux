@@ -76,6 +76,7 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
     /// Signed out: nothing more is read, and no Cloud machine is listed.
     public func stop() {
         stopped = true
+        stopGeneration &+= 1
         pollTask?.cancel()
         pollTask = nil
         for task in creationTasks.values { task.cancel() }
@@ -90,6 +91,8 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
 
     /// Stopped (signed out, or Cloud turned off): an action still in flight lists nothing again.
     @ObservationIgnored private var stopped = false
+    /// Bumped by each stop: work begun before it never touches what came after.
+    @ObservationIgnored private var stopGeneration = 0
     /// Starts in flight, by machine, so `stop` cancels them.
     @ObservationIgnored private var startTasks: [String: Task<Void, Never>] = [:]
 
@@ -189,11 +192,13 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
         // Waking at once on the list, before the op answers.
         starting.insert(machineID)
         publish()
+        let generation = stopGeneration
         startTasks[machineID] = Task { [weak self] in
             guard let self else { return }
             let outcome = await self.model.start(machine)
+            // A Start from before a stop (sign-out, then sign-in again) touches nothing of the new one.
+            guard self.stopGeneration == generation, !self.stopped else { return }
             self.startTasks[machineID] = nil
-            guard !self.stopped else { return }
             self.starting.remove(machineID)
             self.publish()
             self.report(outcome)
@@ -262,6 +267,8 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
             let phase = store.macDataPhase(id)
             return phase == .live || phase == .empty
         }, clock: clock, budget: Self.daemonBudget).value && coordinator?.cloudDaemonReady(id) == true
+        // Stopped (signed out) or cancelled while it waited: nothing to say or open.
+        if Task.isCancelled || stopped { return }
         guard ready, let workspace = createWorkspace?(made.id) else {
             return fail(creation, String(localized: "\(creation.name) is running, but this iPhone couldn't reach it yet. Open it from the list."))
         }

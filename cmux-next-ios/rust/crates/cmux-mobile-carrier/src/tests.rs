@@ -346,3 +346,71 @@ fn the_watchers_backstop_spares_a_recovery_and_ends_one_that_gave_up() {
     let (_, end) = backstop(Disconnected, None, t0);
     assert_eq!(end, Some(t0 + RESUME_DEADLINE + GAVE_UP_MARGIN));
 }
+
+/// The key is stored a moment after the first ask (the machine just bound): the dial waits for it
+/// with ticket-only asks, then asks for a grant again, once, and goes on to the relay. Two grants
+/// in all, never one per wait. The relay here is a local address nothing answers, so the dial ends
+/// at the relay step; what counts is that the wait ended and how many grants it cost.
+#[tokio::test]
+async fn a_key_stored_during_the_wait_ends_it_with_one_more_grant() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let grants = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let tickets = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let (granted, ticketed) = (grants.clone(), tickets.clone());
+    let server = tokio::spawn(async move {
+        loop {
+            let Ok((stream, _)) = listener.accept().await else { return };
+            let (read, mut write) = tokio::io::split(stream);
+            let mut reader = BufReader::new(read);
+            let mut length = 0;
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).await.unwrap_or(0) == 0 {
+                    break;
+                }
+                if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                    length = value.trim().parse().unwrap();
+                }
+                if line == "\r\n" {
+                    break;
+                }
+            }
+            let mut body = vec![0; length];
+            let _ = reader.read_exact(&mut body).await;
+            let grant_ask = String::from_utf8_lossy(&body).contains("noise_key");
+            if grant_ask {
+                granted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            } else {
+                ticketed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+            // Bound after the second ticket-only ask: from then on every answer has the key.
+            let bound = ticketed.load(std::sync::atomic::Ordering::SeqCst) >= 2;
+            let mut value = answer();
+            value["relay"] = json!("relay+ws://127.0.0.1:9");
+            if !bound {
+                value.as_object_mut().unwrap().remove("daemon_key");
+            }
+            let reply = json!({"ok": true, "value": value}).to_string();
+            let head = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                reply.len()
+            );
+            let _ = write.write_all(head.as_bytes()).await;
+            let _ = write.write_all(reply.as_bytes()).await;
+        }
+    });
+    let platform = Arc::new(Platform::new(&base, None, MACHINE, "token".into()).unwrap());
+    let identity = StaticIdentity::from_private([3; 32]);
+    // Long enough for two waits and the second grant ask, short enough that the unanswered relay
+    // ends the dial quickly.
+    let deadline = Instant::now() + Duration::from_millis(2_500);
+    let error = CarrierSession::dial(platform, identity, "iPhone".into(), deadline).await.err().unwrap();
+    assert!(
+        !matches!(&error, CarrierError::Refused { code, .. } if code == NO_DAEMON_KEY),
+        "the wait ended once the key was stored: {error:?}"
+    );
+    assert!(tickets.load(std::sync::atomic::Ordering::SeqCst) >= 2, "it waited with ticket-only asks");
+    assert!(grants.load(std::sync::atomic::Ordering::SeqCst) >= 2, "a grant again once the key was there");
+    server.abort();
+}

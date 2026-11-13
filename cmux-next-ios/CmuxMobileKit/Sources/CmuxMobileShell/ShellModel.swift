@@ -381,8 +381,8 @@ final class ShellModel {
                 AnyView(WorkspaceScreen(store: store, workspaceID: workspace.id, terminal: terminalTabs, creator: creator,
                                         openWorkspace: { self?.show(workspace: $0) }, screenSharing: self?.screenSharing)
                     // On the Settings stack: the tab bar hides while it is on screen, as on Workspaces.
-                    .onAppear { self?.workspacesInSettings += 1 }
-                    .onDisappear { self.map { $0.workspacesInSettings = max(0, $0.workspacesInSettings - 1) } })
+                    .onAppear { self?.workspacesInSettings.insert(workspace.id) }
+                    .onDisappear { self?.workspacesInSettings.remove(workspace.id) })
             },
             shown: { [weak live] machineID in live?.touch(machineID) }
         )
@@ -567,7 +567,8 @@ final class ShellModel {
     /// that decides it (`ShellTabs` applies it to each tab). A screen pushed on
     /// Home, Workspaces or the Feed (a workspace and its pages, a chat, a
     /// conversation) owns the bottom edge (SPEC 3.1), so the bar hides while
-    /// that stack is not at its root; Settings pages keep it.
+    /// that stack is not at its root; Settings pages keep it, except a workspace
+    /// a Cloud machine's page opens there (`workspacesInSettings`).
     ///
     /// Pushed screens never hide it themselves: SwiftUI applied a pushed
     /// screen's `.toolbar(.hidden, for: .tabBar)` only when it was pushed on
@@ -576,13 +577,15 @@ final class ShellModel {
     /// showed over the bar, and a screen that hid it in some branches only
     /// (a conversation still loading) showed it in the others.
     func showsTabBar(on tab: RootTab) -> Bool {
-        if tab == .settings { return workspacesInSettings == 0 }
+        if tab == .settings { return workspacesInSettings.isEmpty }
         return depth(of: tab) == 0
     }
 
-    /// Workspaces open on the Settings stack (a Cloud machine's page opens its workspaces there,
-    /// so swipe-back returns to it): like a workspace on any other tab they own the bottom edge.
-    var workspacesInSettings = 0
+    /// Workspaces on screen on the Settings stack (a Cloud machine's page opens its workspaces
+    /// there, so swipe-back returns to it): like a workspace on any other tab they own the bottom
+    /// edge. A set by workspace, so an appear that repeats (a cancelled swipe-back, a sheet) never
+    /// counts twice and its disappear always clears it.
+    var workspacesInSettings: Set<String> = []
 
     /// The drawer pan only opens from a tab root (stack depth 1).
     private func updateInteractiveOpen() {

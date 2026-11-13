@@ -127,7 +127,8 @@ extension AccountCloudTests {
     @Test func anUnlimitedPlanLimitIsNotShownAsANumber() {
         #expect(CloudMachinePlan.count(2, of: 3) == "2 of 3")
         #expect(CloudMachinePlan.count(2, of: 9_007_199_254_740_991) == "2")
-        #expect(CloudMachinePlan.count(0, of: 0) == "0")
+        // A real limit of 0 (no saved machines on this plan) is shown, never hidden.
+        #expect(CloudMachinePlan.count(0, of: 0) == "0 of 0")
     }
 
     @Test func cloudMachineGrowOnlyGoesUp() async throws {

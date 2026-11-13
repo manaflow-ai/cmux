@@ -198,7 +198,7 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         #expect(live.focusedMacID == "m1")
     }
 
-    @Test func pausedAndStartingMachinesAreNotDialed() async {
+    @Test func pausedAndStartingMachinesAreNotDialed() async throws {
         let store = emptyStore()
         let cloud = RecordingCloudDialer()
         let live = coordinator(store: store, cloud: cloud)
@@ -215,17 +215,24 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         live.applyCloudMachines([machine(.running)])
         await settle { store.macDataPhase(vm) == .live }
         let session = live.sessions[vm]
+        // A terminal of it is open (registered with its session, as an open tab's is).
+        let terminal = try #require(live.terminalSession(tabID: "s1", programName: "zsh", macID: vm))
         live.applyCloudMachines([machine(.paused)])
         await drain()
         #expect(live.sessions[vm] === session, "the session stays")
         #expect(live.sessions[vm]?.link.target == nil, "its link closed")
         #expect(live.sessions[vm]?.terminalsOffline == true, "its terminals say it is offline")
+        if case .offline = terminal.connectionState {} else {
+            Issue.record("the open terminal says offline, not \(terminal.connectionState)")
+        }
         #expect(store.workspaces.contains { $0.macID == vm })
-        // It runs again: the same session dials again.
+        // It runs again: the same session dials again, and its terminal is no longer offline.
         live.applyCloudMachines([machine(.running)])
         await settle { store.macDataPhase(vm) == .live }
         #expect(live.sessions[vm] === session)
         #expect(cloud.dials(vm) == 2)
+        #expect(live.sessions[vm]?.terminalsOffline == false)
+        if case .offline = terminal.connectionState { Issue.record("still offline after it runs again") }
         // Gone from the list (deleted): its rows go too.
         live.applyCloudMachines([])
         #expect(!store.workspaces.contains { $0.macID == vm })

@@ -45,11 +45,16 @@ import Testing
     /// not listed anything yet. Its line keeps saying it is waking, never vanishing in between
     /// (live capture at 9e7c5fc6: no Cloud line for 4-7 s after "Waking up…").
     @Test func aRunningMachineWithNothingListedYetIsStillWaking() {
-        for phase in [MacDataMachine.Phase.idle, .loading] {
+        // Dialing for the first time, or again after its link closed (an earlier answer is cached).
+        for phase in [MacDataMachine.Phase.loading, .cached(.connecting)] {
             let inbox = WorkspaceInbox(scope: .all, macs: [mac, cloud("vm_r", .running)], workspaces: [ws("a", on: "m", age: 0)],
                                        context: .init(phases: ["m": .live, "vm_r": phase]))
             #expect(inbox.folds.first { $0.mac.id == "vm_r" }?.reason == .cloudWaking, "\(phase)")
         }
+        // Not dialed (the link cap left it out): never "Waking up…" for ever; its line offers Connect.
+        let capped = WorkspaceInbox(scope: .all, macs: [mac, cloud("vm_r", .running)], workspaces: [ws("a", on: "m", age: 0)],
+                                    context: .init(phases: ["m": .live, "vm_r": .idle]))
+        #expect(capped.folds.first { $0.mac.id == "vm_r" }?.reason == .notConnected)
         // Once its daemon answers with nothing, it is the empty machine (New Workspace).
         let empty = WorkspaceInbox(scope: .all, macs: [mac, cloud("vm_r", .running)], workspaces: [],
                                    context: .init(phases: ["m": .live, "vm_r": .empty]))

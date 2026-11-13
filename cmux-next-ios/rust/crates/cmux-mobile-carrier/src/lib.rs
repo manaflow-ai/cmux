@@ -489,17 +489,23 @@ impl CarrierSession {
         // minted) until the key is stored, then ask for the grant: a machine still binding
         // costs no grant per retry.
         let mut awaiting_key = false;
+        // Why the key wait last failed to ask, when it was the network (reported at the deadline
+        // instead of `no_daemon_key`, so the app retries the network rather than holding a refusal).
+        let mut last_transport: Option<CarrierError> = None;
         loop {
             if awaiting_key {
+                // The platform puts `daemon_key` in every answer to a person, a ticket-only one too
+                // (cmux-platform CarrierRoute.ts; the Mac's carrier relies on it, client.rs
+                // `pin_while_parked`), so the wait mints no grant.
                 match platform.fetch(None).await {
                     Ok(answer) if answer.daemon_key.is_some() => awaiting_key = false,
-                    Ok(_) => {}
+                    Ok(_) => last_transport = None,
                     Err(error) if !error.retryable() => return Err(error),
-                    Err(_) => {}
+                    Err(error) => last_transport = Some(error),
                 }
                 if awaiting_key {
                     if Instant::now() + wait >= deadline {
-                        return Err(no_daemon_key());
+                        return Err(last_transport.unwrap_or_else(no_daemon_key));
                     }
                     // An intentional, bounded retry delay inside the dial's deadline.
                     tokio::time::sleep(wait).await;
@@ -509,10 +515,14 @@ impl CarrierSession {
             }
             match attempt(&platform, &identity, &device_name, deadline).await {
                 Ok(session) => return Ok(session),
-                Err(CarrierError::Refused { ref code, .. }) if code == NO_DAEMON_KEY => awaiting_key = true,
                 Err(error) if error.retryable() && Instant::now() + wait < deadline => {
-                    tracing::debug!(%error, "carrier attempt failed; retrying");
-                    // An intentional, bounded retry delay inside the dial's deadline.
+                    if matches!(&error, CarrierError::Refused { code, .. } if code == NO_DAEMON_KEY) {
+                        awaiting_key = true;
+                    } else {
+                        tracing::debug!(%error, "carrier attempt failed; retrying");
+                    }
+                    // An intentional, bounded retry delay inside the dial's deadline: the next grant
+                    // ask (after the key wait, too) is never made at once.
                     tokio::time::sleep(wait).await;
                     wait = (wait * 2).min(Duration::from_secs(4));
                 }
