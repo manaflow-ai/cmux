@@ -67,7 +67,8 @@ const row = (id: string, kind: "user" | "assistant", text: string, version = 1):
   kind,
   text,
   version,
-  at: 1,
+  // Made when it arrives: a row from before the chat's open never enters (openBreakpoint.ts).
+  at: Date.now(),
 });
 
 const turns = (from: number, count: number) =>

@@ -2,9 +2,10 @@ name: Cloud capture account provision
 
 # Makes (or finds) the staging Cloud test account the team's Cloud capture runs sign in as, gives it a
 # fresh random password and the `pro` operator plan, and seals the email and password to the capture
-# environment's GitHub public key (scripts/ci/cloud_capture_provision.py). The run publishes only that
-# ciphertext (artifact `sealed-secrets`, 1 day); only GitHub can open it. A maintainer then stores it with
-# `python3 scripts/ci/sealed_secrets.py put sealed-secrets.json` (docs/ci-sealed-secrets.md).
+# environment's GitHub public key (scripts/ci/cloud_capture_provision.py). The journey target fans its
+# staging pair into both cmux-next-vm-image-dev and cmux-next-cloud-journey under distinct names. The run publishes only
+# ciphertext (artifact `sealed-secrets`, 1 day); only GitHub can open it. A maintainer then stores every bundle with
+# `python3 scripts/ci/sealed_secrets.py put sealed-secrets/` (docs/ci-sealed-secrets.md).
 #
 # The password exists only inside the Provision step: masked as soon as it is made, sent to Stack, sealed
 # and dropped. Every run is a rotation, so rerunning is how the credential is replaced.
@@ -135,13 +136,13 @@ jobs:
           NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: ${{ vars.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY }}
           STACK_SECRET_SERVER_KEY: ${{ secrets.STACK_SECRET_SERVER_KEY }}
           TARGET: ${{ inputs.target || 'capture' }}
-        run: python3 scripts/ci/cloud_capture_provision.py --target "$TARGET" --out "$RUNNER_TEMP/sealed-secrets.json"
+        run: python3 scripts/ci/cloud_capture_provision.py --target "$TARGET" --out "$RUNNER_TEMP/sealed-secrets"
 
       - name: Upload the sealed bundle (ciphertext only)
         if: inputs.grant_email == '' && !inputs.team_only && inputs.probe_teams == 0
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sealed-secrets
-          path: ${{ runner.temp }}/sealed-secrets.json
+          path: ${{ runner.temp }}/sealed-secrets
           retention-days: 1
           if-no-files-found: error

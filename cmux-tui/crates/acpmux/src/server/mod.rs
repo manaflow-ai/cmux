@@ -2091,6 +2091,9 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             let owner = ev.remote.as_ref().map(|r| r.peer.as_str());
             !conn.message_notices.lock_or_recover().live(owner, &ev.session_id, rec.seq)
         };
+        // Whether this record went out (or a replay sent it): a peer daemon's link hears of one
+        // that did not by its seq alone (`MUX_UNSENT`).
+        let mut sent = repeat || sub.event_stream;
         if repeat {
             // Sent by the replay.
         } else if sub.event_stream {
@@ -2131,13 +2134,25 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                         None => conn.send(&message()),
                     }
                 }
+                sent = true;
             }
             if rec.dir == "mux" {
                 conn.send(&Message::notification(
                     method::MUX_EVENT,
                     routed(event_value(&ev.session_id, rec)),
                 ));
+                sent = true;
             }
+        }
+        // The owner's copy of this chat takes a live record only next to what it covers
+        // (`hub/peer_snapshot.rs` `take_record`): without this, the turn's own `session/prompt`
+        // stopped it until the next page, so a move during a long turn found a copy without
+        // the running turn or the prompts queued behind it.
+        if !sent && rec.seq > 0 && conn.origin == Origin::Peer && ev.remote.is_none() {
+            conn.send(&Message::notification(
+                method::MUX_UNSENT,
+                json!({"sessionId": ev.session_id, "seq": rec.seq}),
+            ));
         }
         if message && heard && !repeat {
             // Routed as the event beside it: a peer's chat id alone may match one here.
