@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43347005829",
+  "recorded_at": "2026-11-13T01:52:08Z",
+  "reason": "cmux-tui 6767357b5316 changes the image's cmux-tui (pinned 8985ce1fab4e)",
+  "dry_run": false,
+  "cmux_tui": "6767357b531644dcfb44fb334fd523cd7adad0b1",
+  "fixes": [
+    {
+      "sha": "6767357b531644dcfb44fb334fd523cd7adad0b1",
+      "mergedAt": "2026-11-13T01:16:18Z",
+      "subject": "Align agent chat turns, recovery and questions with Codex (#42247)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T01:52:08Z",
+    "snapshot_id": "sh-5e87257187a548c1824b795ad7841bdc",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43347005829): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "b5567cd6006369da5575f9eff1ee36f8af62c5bf",
+    "image": "cloud-native-auto-6767357b-43347005829-1",
+    "revision": "ci-43347005829-1",
+    "at": "2026-11-13T01:52:08Z"
+  },
+  "rolled_back": false
+}
