@@ -518,6 +518,12 @@
   height: var(--acpmux-composer-trail-glyph);
   stroke-width: var(--acpmux-composer-trail-stroke);
 }
+/* Continue's ▶ (SendSlotGlyph media.play, 14 px) draws at 14/16 of the trailing glyph, so it grows and shrinks with
+   the density as Send's ↑ does (Lucas 2026-11-14: it stayed 14 px at Spacious). */
+:is(.acpmux-composer, .nt-composer) .acpmux-send.acpmux-resume svg {
+  width: calc(var(--acpmux-composer-trail-glyph) * 14 / 16);
+  height: calc(var(--acpmux-composer-trail-glyph) * 14 / 16);
+}
 /* Interrupt (or Steer) and Plan: the chips' inset and radius. */
 .acpmux-composer-bar .acpmux-steer,
 .acpmux-composer-bar .acpmux-plan {
@@ -1366,8 +1372,10 @@
      shield's center is 17 px into its chip, so the chip starts the control inset less 3 px in (5 px
      in the chat; New Tab's taller row has a wider inset, so its + glyph and shield move in together).
      (-5 px was measured in a gallery that applied styles.css after this sheet, so the row kept the
-     bar's 10 px padding there and nowhere in the app.) */
-  margin-inline-start: calc(var(--acpmux-composer-inset, 8px) - 3px);
+     bar's 10 px padding there and nowhere in the app.) The 3 px is the shield's 17 less the control's 14, both at
+     the composer's density, so it scales with them (Lucas 2026-11-14: the shield stood 1.2 px right of + at
+     Spacious). */
+  margin-inline-start: calc(var(--acpmux-composer-inset, 8px) - 3px * var(--acpmux-density, 1));
 }
 .acpmux-composer-foot .acpmux-chips > .acpmux-mode:not(:first-child) { padding-inline-start: 0; }
 /* The context ring left of the model chip (Lawrence and Lucas 2026-11-11): it starts the
