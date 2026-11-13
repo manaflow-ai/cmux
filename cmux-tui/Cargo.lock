@@ -1185,6 +1185,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-browser-import"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "plist",
+ "rusqlite",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "cmux-build-identity"
 version = "0.1.0"
 dependencies = [
@@ -2276,6 +2287,7 @@ dependencies = [
  "cmux-app-manifest",
  "cmux-bookmarks-core",
  "cmux-bookmarks-ops",
+ "cmux-browser-import",
  "cmux-classic-import",
  "cmux-cloud-api",
  "cmux-conductor-import",
