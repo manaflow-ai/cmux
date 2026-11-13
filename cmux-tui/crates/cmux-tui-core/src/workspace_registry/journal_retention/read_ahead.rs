@@ -93,6 +93,10 @@ pub(super) const HOLD_ROW_READS: [(&str, &str); 4] = [
 /// A read-only connection to the registry file for one retention pass, on
 /// the maintenance thread. It shares nothing with the registry connection
 /// or its mutex.
+///
+/// Its three reads are never inlined: a sample of the daemon's stacks then
+/// names a read apart from the hold after it
+/// (`scripts/measure/registry-migration-proof.py`, the in-place-stacks arm).
 pub(crate) struct RetentionReadAhead {
     connection: Connection,
 }
@@ -109,6 +113,7 @@ impl RetentionReadAhead {
     /// (`WorkspaceRegistry::delete_pruned_segment_rows`) as that hold will:
     /// the hold's last record, then each row at or below it through each
     /// index of its table. The caller holds no lock.
+    #[inline(never)]
     pub(crate) fn read_hold_rows(&self, segment: &PrunedSegment) -> anyhow::Result<()> {
         let through = hold_through(&self.connection, i64::try_from(segment.end)?)?;
         for (_, read) in HOLD_ROW_READS {
@@ -122,6 +127,7 @@ impl RetentionReadAhead {
 
     /// `WorkspaceRegistry::journal_rebuild_owed`, read here: a row of each
     /// sealed segment at or below `floor`. The caller holds no lock.
+    #[inline(never)]
     pub(crate) fn rebuild_owed(&self, floor: u64) -> anyhow::Result<bool> {
         let owed = journal_rebuild_owed_on(&self.connection, floor)?;
         self.ended()?;
@@ -130,6 +136,7 @@ impl RetentionReadAhead {
 
     /// `WorkspaceRegistry::journal_in_place_room`, read here, as
     /// [`Self::rebuild_owed`].
+    #[inline(never)]
     pub(crate) fn in_place_room(&self, floor: u64, deleted: u64) -> anyhow::Result<Option<u64>> {
         let room = journal_in_place_room_on(&self.connection, floor, deleted)?;
         self.ended()?;
