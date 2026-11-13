@@ -128,6 +128,10 @@ fn judge_row(row: &Row) -> Option<String> {
             let Some(hit) = lines.iter().find(|l| l.contains(&row.what)) else {
                 return Some(format!("no finding names `{}`:\n{shown}", row.what));
             };
+            // Exactly what the row names: one more finding fails it as a missing one does.
+            if lines.len() != 1 {
+                return Some(format!("found more than `{}`:\n{shown}", row.what));
+            }
             (row.kind != "-" && !hit.contains(&row.kind))
                 .then(|| format!("want kind {}, got {hit}", row.kind))
         }

@@ -46,7 +46,10 @@ fn judge_row(args: &str, source: &str) -> Option<String> {
     let ok = match (kind, first) {
         ("passes", _) | ("chain", "passes") => found.is_empty(),
         ("chain", "refused") => !found.is_empty(),
-        ("refused", _) => found.iter().any(|f| f.starts_with(&at) && f.contains(words)),
+        // Exactly what the row names: one more finding fails it as a missing one does.
+        ("refused", _) => {
+            !found.is_empty() && found.iter().all(|f| f.starts_with(&at) && f.contains(words))
+        }
         ("clear", _) => !found.iter().any(|f| f.starts_with(&at)),
         _ => return Some(format!("no such row kind: {args}")),
     };

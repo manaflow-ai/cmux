@@ -48,15 +48,14 @@ fn rows() -> Vec<Row> {
     out
 }
 
-/// What the row's check says, or None when it says what the row does.
+/// What the row's check says, or None when it says what the row does: a refused or flagged row
+/// holds exactly the one finding it names, so a missing or an extra finding fails it.
 fn judge(row: &Row) -> Option<String> {
-    let found: Vec<String> = match row.check.as_str() {
+    // Each finding, and whether it is the one the row names.
+    let found: Vec<(bool, String)> = match row.check.as_str() {
         "test_hooks" => judge_source(HOOKS_REL, &row.source)
             .iter()
-            .filter(|f| {
-                row.verdict != "refused" || (f.name == row.what && f.why.contains(&row.words))
-            })
-            .map(ToString::to_string)
+            .map(|f| (f.name == row.what && f.why.contains(&row.words), f.to_string()))
             .collect(),
         "timing" => match scan_text(
             TIMING_REL,
@@ -68,16 +67,20 @@ fn judge(row: &Row) -> Option<String> {
             Err(error) => return Some(format!("does not parse: {error}")),
         }
         .iter()
-        .filter(|f| row.verdict != "flagged" || (f.text == row.what && f.kind == row.words))
-        .map(ToString::to_string)
+        .map(|f| (f.text == row.what && f.kind == row.words, f.to_string()))
         .collect(),
         other => return Some(format!("no check `{other}`")),
     };
+    let named = found.iter().filter(|(hit, _)| *hit).count();
+    let all: Vec<&String> = found.iter().map(|(_, f)| f).collect();
     match row.verdict.as_str() {
-        "refused" | "flagged" if found.is_empty() => {
-            Some(format!("no finding `{} {}`", row.what, row.words))
+        "refused" | "flagged" if named == 0 => {
+            Some(format!("no finding `{} {}`; found {all:?}", row.what, row.words))
         }
-        "passes" | "clean" if !found.is_empty() => Some(format!("found {found:?}")),
+        "refused" | "flagged" if all.len() != 1 => {
+            Some(format!("found more than `{} {}`: {all:?}", row.what, row.words))
+        }
+        "passes" | "clean" if !all.is_empty() => Some(format!("found {all:?}")),
         "refused" | "flagged" | "passes" | "clean" => None,
         other => Some(format!("no verdict `{other}`")),
     }
@@ -131,13 +134,19 @@ fn each_known_miss_of_the_timing_check_stays_a_miss() {
 }
 
 /// What is wrong with the tree's scan against the KNOWN_MISSES sites marked `in_tree`: one line
-/// each, none when the scan holds exactly them.
+/// each, none when the scan parsed every file and holds exactly them.
 fn tree_drift(scan: &Scan, known: &BTreeSet<String>) -> Vec<String> {
     let sites: BTreeSet<String> =
         scan.found.iter().map(|f| format!("{} {} {}", f.rel, f.test, f.text)).collect();
     let new: Vec<&String> = sites.difference(known).collect();
     let gone: Vec<&String> = known.difference(&sites).collect();
     let mut out = Vec::new();
+    if !scan.unparsed.is_empty() {
+        out.push(format!(
+            "files the scan could not parse, so it judged them no further: {:?}",
+            scan.unparsed
+        ));
+    }
     if !new.is_empty() {
         out.push(format!(
             "a new instance of a shape the timing check misses (KNOWN_MISSES in \
