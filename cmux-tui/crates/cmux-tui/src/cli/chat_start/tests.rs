@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use super::{
     Parsed, Reads, Route, Start, TAKES_VALUE, USAGE, cloud_words, global_words, here_preflight,
-    here_wait, here_words, in_environment, names_cloud, new_args, parse, parse_with, pick_target,
-    read_setting, route, route_start, setting_stream, start_words,
+    here_wait, here_words, in_environment, names_cloud, new_args, parse, parse_with, peer_words,
+    pick_target, read_setting, route, route_start, setting_stream, start_words,
 };
 
 fn words(list: &[&str]) -> Vec<String> {
@@ -54,6 +54,24 @@ fn listed() -> Value {
     ]})
 }
 
+/// The `_acpmux/peers` answer of the acpmux a chat here starts in: the machines New Agent Chat's
+/// Environment picker lists (an ssh peer the person added, one reconnecting, one only the hub
+/// reaches, and `box`, which the catalog also has as an ssh device with no route of its own).
+fn peers() -> Value {
+    json!({"peers": [
+        {"name": "studio", "url": "ssh://studio", "connected": true, "state": "connected"},
+        {"name": "box", "url": "ssh://box", "connected": true, "state": "connected"},
+        {"name": "napping", "url": "ssh://napping", "connected": false, "state": "reconnecting"},
+        {"name": "old", "url": "ws://old", "connected": true},
+        {"name": "far", "connected": true, "state": "connected", "via": "hub"},
+    ]})
+}
+
+/// A peers read a route must not make.
+fn unread_peers() -> Result<Value, String> {
+    panic!("peers read")
+}
+
 /// `route` with the fixtures, signed in or not.
 fn at(on: &str, signed_in: bool) -> Result<Route, Value> {
     route(
@@ -62,6 +80,7 @@ fn at(on: &str, signed_in: bool) -> Result<Route, Value> {
             catalog: || Ok(catalog()),
             signed_in: || signed_in,
             cloud_machines: || Ok(listed()),
+            peers: || Ok(peers()),
         },
     )
 }
@@ -96,7 +115,12 @@ fn no_target_is_a_chat_here() {
         ])
     );
     let unread = || -> Result<Value, Value> { panic!("read") };
-    let reads = Reads { catalog: unread, signed_in: || panic!("asked"), cloud_machines: unread };
+    let reads = Reads {
+        catalog: unread,
+        signed_in: || panic!("asked"),
+        cloud_machines: unread,
+        peers: unread_peers,
+    };
     assert_eq!(route(None, reads), Ok(Route::Here));
     assert_eq!(at("here", false), Ok(Route::Here));
 }
@@ -243,6 +267,7 @@ fn a_cloud_chat_takes_an_environment_and_auto_is_none() {
         catalog: || -> Result<Value, Value> { panic!("no catalog read") },
         signed_in: move || signed_in,
         cloud_machines: || -> Result<Value, Value> { panic!("no VM is looked at") },
+        peers: unread_peers,
     };
     assert_eq!(route_start(&picked, reads(true)), Ok(Route::Cloud(Machine::New)));
     let signed_out = route_start(&picked, reads(false)).unwrap_err();
@@ -325,6 +350,7 @@ fn on_vm(listed: Value) -> Result<Route, Value> {
             catalog: || -> Result<Value, Value> { panic!("catalog") },
             signed_in: || true,
             cloud_machines: || Ok(listed),
+            peers: unread_peers,
         },
     )
 }
@@ -371,6 +397,7 @@ fn vm_reuses_my_vm_and_makes_one_only_when_i_have_none() {
             catalog: || -> Result<Value, Value> { panic!("catalog") },
             signed_in: || true,
             cloud_machines: || Ok(unloaded),
+            peers: unread_peers,
         },
     )
     .unwrap_err();
@@ -382,7 +409,12 @@ fn vm_reuses_my_vm_and_makes_one_only_when_i_have_none() {
     let unloaded = json!({"account": {"signed_in": true}, "loaded": false, "machines": []});
     let device = route(
         Some("machine_vm"),
-        Reads { catalog: || Ok(catalog()), signed_in: || true, cloud_machines: || Ok(unloaded) },
+        Reads {
+            catalog: || Ok(catalog()),
+            signed_in: || true,
+            cloud_machines: || Ok(unloaded),
+            peers: unread_peers,
+        },
     )
     .unwrap_err();
     assert_eq!(
@@ -404,6 +436,7 @@ fn devices_are_checked_against_the_daemons_catalog() {
             false
         },
         cloud_machines: || -> Result<Value, Value> { panic!("listed") },
+        peers: unread_peers,
     };
     // The local device needs no sign-in, and is not asked for one.
     assert_eq!(route(Some("machine_mac"), reads), Ok(Route::Here));
@@ -430,7 +463,12 @@ fn devices_are_checked_against_the_daemons_catalog() {
 fn the_object_catalog_reads_like_the_daemons_array() {
     let object = || Ok(json!({"machines": catalog()}));
     for on in ["machine_mac", "dev", "twin", "machine_box", "machine_gone"] {
-        let reads = Reads { catalog: object, signed_in: || true, cloud_machines: || Ok(listed()) };
+        let reads = Reads {
+            catalog: object,
+            signed_in: || true,
+            cloud_machines: || Ok(listed()),
+            peers: || Ok(peers()),
+        };
         assert_eq!(route(Some(on), reads), at(on, true), "{on}");
     }
 }
@@ -442,7 +480,12 @@ fn a_cloud_device_is_an_existing_cloud_vm() {
     let with = |listed: Value| {
         route(
             Some("machine_vm"),
-            Reads { catalog: || Ok(catalog()), signed_in: || true, cloud_machines: || Ok(listed) },
+            Reads {
+                catalog: || Ok(catalog()),
+                signed_in: || true,
+                cloud_machines: || Ok(listed),
+                peers: unread_peers,
+            },
         )
     };
     assert_eq!(
@@ -502,6 +545,7 @@ fn a_vm_target_signed_out_says_to_sign_in() {
     let reads = Reads {
         catalog: || -> Result<Value, Value> { panic!("catalog") },
         signed_in: || false,
+        peers: unread_peers,
         cloud_machines: || Ok(json!({"account": {"signed_in": false}, "machines": []})),
     };
     assert_eq!(code(route(Some("vm:dev"), reads)), "chat_target.signed_out");
@@ -723,4 +767,84 @@ fn a_refused_or_unset_setting_is_no_setting() {
         Ok(None)
     );
     finish(app);
+}
+
+/// `cmux chat --on studio` used to refuse every machine but this Mac and a Cloud VM
+/// (`chat_target.no_route`, "the CLI cannot start one there yet"), though New Agent Chat starts
+/// chats on the machines it lists. Now a name the catalog does not route is the acpmux peer of
+/// that exact name, as the composer's Environment picker starts one.
+#[test]
+fn a_machine_new_agent_chat_lists_is_a_peer_route() {
+    // Not in the catalog: the peer.
+    assert_eq!(at("studio", true), Ok(Route::Peer("studio".into())));
+    assert_eq!(at("old", true), Ok(Route::Peer("old".into())), "no state: connected decides");
+    // In the catalog with no route of its own, and a peer by that name: the peer.
+    assert_eq!(at("box", true), Ok(Route::Peer("box".into())));
+    // Named by its catalog id, which no peer has: still no route, and the message says why.
+    let by_id = at("machine_box", true).unwrap_err();
+    assert_eq!(by_id["code"], "chat_target.no_route");
+    assert!(by_id["message"].as_str().unwrap().contains("New Agent Chat lists"), "{by_id}");
+    // A peer not connected now: refused with its state, to retry.
+    let napping = at("napping", true).unwrap_err();
+    assert_eq!(
+        (napping["code"].as_str(), napping["retryable"].as_bool()),
+        (Some("chat_target.unavailable"), Some(true))
+    );
+    assert!(napping["message"].as_str().unwrap().contains("reconnecting"), "{napping}");
+    // A machine only the hub reaches is no peer a chat starts on.
+    assert_eq!(code(at("far", true)), "chat_target.no_route");
+    // This Mac, a Cloud VM and a device's own refusal never become a peer.
+    assert_eq!(at("local", true), Ok(Route::Here));
+    assert_eq!(at("dev", true), Ok(Route::Cloud(Machine::Target("vm-dev".into()))));
+    assert_eq!(code(at("machine_term", true)), "chat_target.not_permitted");
+    assert_eq!(code(at("twin", true)), "chat_target.ambiguous_device");
+    // Neither a device nor a peer.
+    assert_eq!(code(at("nowhere", true)), "chat_target.unknown_device");
+    // The peers cannot be read: the catalog's refusal, saying so.
+    let unread = route(
+        Some("studio"),
+        Reads {
+            catalog: || Ok(catalog()),
+            signed_in: || true,
+            cloud_machines: || Ok(listed()),
+            peers: || Err("no acpmux".to_owned()),
+        },
+    )
+    .unwrap_err();
+    assert_eq!(unread["code"], "chat_target.unknown_device");
+    assert_eq!(unread["details"]["peers_unread"], "no acpmux");
+}
+
+/// A chat on a peer is `agents chat new --peer PEER` with the start's settings; what it cannot
+/// take is refused, never dropped.
+#[test]
+fn a_peer_chat_is_agents_chat_new_with_the_peer() {
+    let go = start(&["--on", "studio", "--agent", "codex", "--cwd", "/srv/app", "go"]);
+    assert_eq!(
+        peer_words(&words(&["--json"]), &go, "studio").unwrap(),
+        words(&[
+            "--json",
+            "agents",
+            "chat",
+            "new",
+            "--peer",
+            "studio",
+            "--harness",
+            "codex",
+            "--cwd",
+            "/srv/app",
+            "--",
+            "go"
+        ])
+    );
+    for refused in [
+        &["--on", "studio", "--wait", "go"][..],
+        &["--on", "studio", "--from-folder", ".", "go"],
+        &["--on", "studio", "--repo", "manaflow-ai/cmux", "go"],
+        &["--on", "studio", "--cwd", "relative", "go"],
+    ] {
+        assert!(peer_words(&[], &start(refused), "studio").is_err(), "{refused:?}");
+    }
+    let environment = start(&["--on", "studio", "--environment", "env_1", "go"]);
+    assert!(in_environment(&environment, Route::Peer("studio".into())).is_err());
 }

@@ -267,6 +267,12 @@ pub(in crate::cli) fn app_acpmux(global: &GlobalArgs) -> Option<PathBuf> {
     (same(&acp::own_socket()) != same(&app)).then_some(app)
 }
 
+/// The peers of the acpmux `chat new` starts chats in (the app's own, else the one `cmux acp`
+/// reaches): its `_acpmux/peers` answer, the machines New Agent Chat's Environment picker lists.
+pub(in crate::cli) fn chat_peers(global: &GlobalArgs) -> Result<Value, String> {
+    acp::peers(app_acpmux(global).as_deref())
+}
+
 /// A workspace key in one comparable form: lowercase, without dashes (the
 /// app hands sessions the key's uppercase UUID form). As the daemon's
 /// `agent_message_policy::workspace_key`.
@@ -826,21 +832,24 @@ pub(super) mod acp {
     }
 
     /// Starts a chat in `cwd` with `meta` as its `_meta.acpmux`; the
-    /// `session/new` reply.
+    /// `session/new` reply. No `cwd`: the peer `meta` names picks the folder (`acpmux new --on`).
     pub(in crate::cli) fn new_session(
-        cwd: &str,
+        cwd: Option<&str>,
         meta: Value,
         socket: Option<&Path>,
     ) -> Result<Value, String> {
+        let mut params = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
+        if let Some(cwd) = cwd {
+            params["cwd"] = json!(cwd);
+        }
         block_on(async {
-            client(socket)
-                .await?
-                .request(
-                    acpmux::rpc::method::SESSION_NEW,
-                    json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": meta}}),
-                )
-                .await
+            client(socket).await?.request(acpmux::rpc::method::SESSION_NEW, params).await
         })
+    }
+
+    /// The acpmux's peers (`_acpmux/peers`), as `acpmux host` reads them.
+    pub(super) fn peers(socket: Option<&Path>) -> Result<Value, String> {
+        block_on(async { client(socket).await?.request("_acpmux/peers", json!({})).await })
     }
 
     /// Queues `text` as a prompt of `session` and returns once acpmux accepted it (started, or
