@@ -489,6 +489,11 @@
   padding-top: 0;
   padding-bottom: calc(2 * var(--acpmux-location-fill-drop));
 }
+/* A chip's leading glyph (the computer's laptop, the folder) drops 1 pt as a project's picture does (above), so the
+   tray's marks share one line beside its lowercase names (Lucas 2026-11-14: "make sure the laptop icon is aligned"). */
+.nt-above .acpmux-location-button > .ui-ghost-icon:first-child {
+  translate: 0 1px;
+}
 /* The badge centers on the chip's line as the folder and computer glyphs do: it sat 1 px under them. */
 :is(.acpmux-composer, .nt-composer) .acpmux-location-button > .acpmux-project-badge:first-child {
   align-self: center;
