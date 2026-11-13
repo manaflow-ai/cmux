@@ -18,6 +18,14 @@
 //! 3. [`WorkspaceRegistry::finish_journal_segment_prune`] deletes the
 //!    segment's row with its content, when no row of its records is left.
 //!
+//! A hold of step 2 deletes each row through each index of its table, and
+//! each of those is a page of the file that the registry connection reads
+//! under the lock: about 10,500 pages a hold on a generated registry of a
+//! long-lived session, 85 % or more of the hold (2026-11-13). So before each
+//! hold the pass reads those rows on a connection of its own, with no lock
+//! ([`RetentionReadAhead`], the file `read_ahead.rs`): the hold then finds
+//! its pages in the file cache of the system.
+//!
 //! Between two of those the segment is at or below the floor with rows for
 //! a part of its records. No reader may take those rows for the segment:
 //! a subject page starts above the floor, and a kind-scoped read decodes
@@ -62,8 +70,10 @@
 //! floor that has no base does not move.
 
 mod base;
+mod read_ahead;
 
 pub(crate) use base::{reducer_bases_possible, save_reducer_bases, usable_reducer_base};
+pub(crate) use read_ahead::RetentionReadAhead;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use super::WorkspaceRegistry;
@@ -107,7 +117,6 @@ const PRUNED_ROW_TABLES: [(&str, &str); 4] = [
 pub(crate) enum RetentionStep {
     /// The rows of the hold that deletes through this record were read on a
     /// connection that the registry lock does not guard. The read is over.
-    #[allow(dead_code)]
     ReadBeforeHold { through: i64 },
     /// One hold deletes the rows of the records through this one
     /// ([`WorkspaceRegistry::delete_pruned_segment_rows`]). Inside the hold.
@@ -147,6 +156,42 @@ impl PrunedSegment {
     pub(crate) fn records(&self) -> u64 {
         self.records
     }
+}
+
+/// The last record of the next row hold of a segment that ends at `end`:
+/// the [`RETENTION_RECORDS_PER_HOLD`]th lowest record that still has a row
+/// at or below `end`, or `end` when fewer records have one. Each table
+/// gives its lowest sequences from its own index, so the read is of one
+/// hold's rows and not of the segment's.
+///
+/// The hold and the read before it ([`RetentionReadAhead::read_hold_rows`])
+/// both ask here, so they name the same rows. A second bound of a hold (its
+/// subject rows, say) is one more term of this statement.
+fn hold_through(connection: &Connection, end: i64) -> anyhow::Result<i64> {
+    let last: Option<i64> = connection
+        .prepare_cached(
+            "SELECT sequence FROM (
+               SELECT sequence FROM (
+                 SELECT sequence FROM journal_segment_reducer_records
+                 WHERE sequence <= ?1 ORDER BY sequence LIMIT ?2)
+               UNION
+               SELECT sequence FROM (
+                 SELECT DISTINCT sequence FROM journal_subject_index
+                 WHERE sequence <= ?1 ORDER BY sequence LIMIT ?2)
+               UNION
+               SELECT sequence FROM (
+                 SELECT sequence FROM journal_event_index
+                 WHERE sequence <= ?1 ORDER BY sequence LIMIT ?2)
+               UNION
+               SELECT journal_sequence FROM (
+                 SELECT journal_sequence FROM journal_ingress_receipts
+                 WHERE journal_sequence <= ?1 ORDER BY journal_sequence LIMIT ?2)
+             ) ORDER BY sequence LIMIT 1 OFFSET ?2 - 1",
+        )?
+        .query_row(params![end, i64::try_from(RETENTION_RECORDS_PER_HOLD)?], |row| row.get(0))
+        .optional()?;
+    // Fewer records than a hold takes: all of them, through the end.
+    Ok(last.unwrap_or(end))
 }
 
 /// The oldest sealed segment that ends at or below `floor`, never the
@@ -436,33 +481,9 @@ impl WorkspaceRegistry {
         let db = self.connection.get();
         let tx = db.unchecked_transaction()?;
         let end = i64::try_from(segment.end)?;
-        // The last record of this hold: each table gives its lowest
-        // sequences from its own index, so the read is of this hold's rows
-        // and not of the segment's.
-        let last: Option<i64> = tx
-            .prepare_cached(
-                "SELECT sequence FROM (
-                   SELECT sequence FROM (
-                     SELECT sequence FROM journal_segment_reducer_records
-                     WHERE sequence <= ?1 ORDER BY sequence LIMIT ?2)
-                   UNION
-                   SELECT sequence FROM (
-                     SELECT DISTINCT sequence FROM journal_subject_index
-                     WHERE sequence <= ?1 ORDER BY sequence LIMIT ?2)
-                   UNION
-                   SELECT sequence FROM (
-                     SELECT sequence FROM journal_event_index
-                     WHERE sequence <= ?1 ORDER BY sequence LIMIT ?2)
-                   UNION
-                   SELECT journal_sequence FROM (
-                     SELECT journal_sequence FROM journal_ingress_receipts
-                     WHERE journal_sequence <= ?1 ORDER BY journal_sequence LIMIT ?2)
-                 ) ORDER BY sequence LIMIT 1 OFFSET ?2 - 1",
-            )?
-            .query_row(params![end, i64::try_from(RETENTION_RECORDS_PER_HOLD)?], |row| row.get(0))
-            .optional()?;
-        // Fewer records than a hold takes: all of them, through the end.
-        let through = last.unwrap_or(end);
+        // The last record of this hold, asked again under the lock: the
+        // hold is right with no read before it.
+        let through = hold_through(&tx, end)?;
         #[cfg(test)]
         retention_step_for_test(RetentionStep::RowHold { through });
         for (table, column) in PRUNED_ROW_TABLES {
@@ -509,5 +530,7 @@ impl WorkspaceRegistry {
 mod hold_tests;
 #[cfg(test)]
 mod part_deleted_tests;
+#[cfg(test)]
+mod read_ahead_tests;
 #[cfg(test)]
 mod tests;
