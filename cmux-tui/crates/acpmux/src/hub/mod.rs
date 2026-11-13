@@ -170,6 +170,7 @@ pub use model_options::{
     current_effort, current_model, current_option, resolve_config_id, web_url, web_url_for_session,
 };
 pub mod ledger;
+mod list_order;
 mod model_hint;
 mod model_probe;
 mod models_view;
@@ -762,12 +763,10 @@ pub struct Hub {
     /// Session ids whose metadata is still live. Closed records remain in `sessions` and on
     /// disk for history, search, export and restore, but list/peer hot paths never walk them.
     pub(super) live_session_ids: StdMutex<std::collections::HashSet<String>>,
-    /// Serialized summaries for closed sessions, in list order (`closed_rows.rs`). Metadata
-    /// commits replace the row before the next full list, so full callers do not rebuild
-    /// closed-session projections, and a list neither parses nor sorts them.
+    /// Serialized summaries for closed sessions (`closed_rows.rs`). Metadata commits replace the
+    /// row before the next list, so no list rebuilds closed-session projections, and a list
+    /// page copies their bytes unparsed.
     pub(super) closed_summary_cache: StdMutex<closed_rows::ClosedRows>,
-    /// One walk of the closed rows at a time (`Hub::own_rows_in_order`).
-    pub(super) closed_rows_walk: StdMutex<()>,
     /// The closed sessions' chat activity, built once for every chats reader (`chats/activity.rs`).
     pub(crate) chat_activity_cache: crate::chats::ActivityCache,
     /// The transcript rows of the chats a client reads rows of (`rows/serve.rs`).
@@ -780,7 +779,7 @@ pub struct Hub {
     pub(super) closed_summary_parses: AtomicU64,
     /// Session summaries built, live or closed, with tools or without (tests).
     #[cfg(test)]
-    pub(super) summaries_built: AtomicU64,
+    pub(crate) summaries_built: AtomicU64,
     /// Projection-only message repairs in flight, keyed by destination and delivery id. These
     /// retries never resend a prompt and are bounded in `message_events.rs`.
     pub(super) message_repairs: StdMutex<std::collections::HashSet<(String, String)>>,
@@ -792,10 +791,12 @@ pub struct Hub {
     /// parent env their transcript cleanup reads (`btw.rs` `InlineOwned`). A creation that fails
     /// and is discarded inside `new_session` or `fork` removes that harness transcript too.
     pub(super) inline_btw: StdMutex<HashMap<String, InlineBtwOwner>>,
-    /// Every change watchers hear of, counted for the session list guard (`list_guard.rs`).
+    /// Every change watchers hear of, each a list position (`list_guard.rs`, `row_log.rs`).
     pub(super) events: list_guard::Events,
-    /// The shared, paced full session list (`list_guard.rs`).
+    /// A test's hold on list requests (`list_guard.rs`).
     pub(crate) list_guard: list_guard::ListGuard,
+    /// This daemon's rows in list order, kept as they change (`list_order.rs`).
+    pub(super) list_order: list_order::ListOrder,
     /// Client requests every connection serves now, each holding its work slot
     /// (`server/in_flight.rs`, `Hub::requests_in_flight`).
     pub(crate) requests_in_flight: Arc<std::sync::atomic::AtomicUsize>,
@@ -1278,7 +1279,6 @@ impl Hub {
             sessions: StdMutex::new(HashMap::new()),
             live_session_ids: StdMutex::new(std::collections::HashSet::new()),
             closed_summary_cache: StdMutex::new(Default::default()),
-            closed_rows_walk: StdMutex::new(()),
             chat_activity_cache: Default::default(),
             rows: Default::default(),
             #[cfg(test)]
@@ -1294,6 +1294,7 @@ impl Hub {
             inline_btw: StdMutex::new(HashMap::new()),
             events,
             list_guard: Default::default(),
+            list_order: Default::default(),
             requests_in_flight: Default::default(),
             usage_stats: Default::default(),
             ledger,
@@ -1685,7 +1686,9 @@ impl Hub {
         sessions.insert(session.id.clone(), session.clone());
         drop(sessions);
         self.update_live_session_index(&session);
-        // A session that came may be another row's parent: every closed row is built again.
+        // A session read from the store may be another row's parent: every closed row is built
+        // again, and no cursor from before it is followed (`Events::changed`), which costs one
+        // barrier, not a walk of every session per session read at start.
         self.events.changed();
     }
 
@@ -1965,6 +1968,8 @@ impl Hub {
     #[cfg(test)]
     pub(crate) fn edit_test_meta(&self, session: &Session, edit: impl FnOnce(&mut SessionMeta)) {
         edit(&mut session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+        // A change no record carries, as any direct metadata write is (`list_order.rs`).
+        self.events.row_changed(session);
     }
 
     #[cfg(test)]
@@ -1973,7 +1978,7 @@ impl Hub {
         let session = self.make_session(meta);
         self.sessions.lock().unwrap().insert(id, session.clone());
         self.update_live_session_index(&session);
-        self.events.changed();
+        self.session_came(&session);
         session
     }
 
@@ -2589,7 +2594,9 @@ impl Hub {
             {
                 self.events.send_live_stream(event)
             } else if list_guard::reaches_other_rows(&record.dir, &record.kind) {
-                self.events.send(event)
+                let sent = self.events.send(event);
+                self.note_rows_reading(session);
+                sent
             } else {
                 // Any other record changes its own chat's row only: the other closed rows keep
                 // their bytes (`list_guard::Events::send_row`).
@@ -2634,6 +2641,9 @@ impl Hub {
             meta.composer_draft = draft.clone();
             meta.updated_at = now_ms();
         }
+        // It dates the chat with no record: told before the next list read, and placed again in
+        // the list's order (`list_order.rs`).
+        self.events.row_changed(session);
         self.chat_activity_cache.note(
             &session.id,
             "composer_draft",
