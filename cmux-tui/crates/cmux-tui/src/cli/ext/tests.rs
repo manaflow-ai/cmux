@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use serde_json::{Value, json};
 
 use super::dev::{self, Phase};
-use super::{DevOptions, Request, exit, parse, scaffold};
+use super::{DevOptions, Request, exit, parse, scaffold, scene, shot};
 use crate::cli::GlobalArgs;
 
 fn words(text: &str) -> Vec<String> {
@@ -411,7 +411,9 @@ fn serve(stream: UnixStream, local: &Path, app: &str, installed: bool, seen: &Mu
                         "reason": "init: dist/main.js:2:12 SyntaxError: unexpected token"}));
                 } else {
                     out.push(json!({"event": "apps-log", "app": app, "level": "info", "message": "rendered"}));
-                    out.push(json!({"event": "apps-scene", "mount_id": mount_id, "ops": []}));
+                    out.push(
+                        json!({"event": "apps-scene", "mount_id": mount_id, "ops": hello_scene()}),
+                    );
                 }
             }
             // The capability manifest, when the test put a live types file
@@ -599,4 +601,163 @@ fn the_fingerprint_follows_contents_and_skips_dot_files() {
     assert_eq!(dev::fingerprint(&dir), before, "an editor's swap file is no change");
     std::fs::write(dir.join("src/main.ts"), "export function renderSection() {}\n").unwrap();
     assert_ne!(dev::fingerprint(&dir), before);
+}
+
+#[test]
+fn parses_shot_as_one_reload_with_an_out_path() {
+    let Ok(Request::Shot(options)) = parse(&words("shot")) else { panic!("shot") };
+    assert_eq!(options.dev.dir, PathBuf::from("."));
+    assert!(options.dev.once && !options.dev.install, "one reload, no install card");
+    assert_eq!(options.out, None);
+    let Ok(Request::Shot(options)) = parse(&words("shot ext/x --out a.png --build make")) else {
+        panic!("shot with options")
+    };
+    assert_eq!(options.dev.dir, PathBuf::from("ext/x"));
+    assert_eq!(options.out, Some(PathBuf::from("a.png")));
+    assert_eq!(options.dev.build.as_deref(), Some("make"));
+    assert_eq!(parse(&words("shot --help")), Ok(Request::Help));
+    for bad in [
+        "shot --out",
+        "shot --out -",
+        "shot a b",
+        "shot --once",
+        "shot --remove-on-exit",
+        "shot --bogus",
+    ] {
+        assert!(parse(&words(bad)).is_err(), "{bad}");
+    }
+}
+
+/// A scene as the app host sends it: a create per node, children, the root.
+fn hello_scene() -> Value {
+    json!([
+        {"op": "create", "id": "n1", "type": "VStack", "props": {}},
+        {"op": "create", "id": "n2", "type": "Text", "props": {"text": "Hello  from\nhello", "font": "headline"}},
+        {"op": "create", "id": "n3", "type": "Button", "props": {"title": "Refresh", "icon": "arrow.clockwise", "tint": "accent"}},
+        {"op": "create", "id": "n4", "type": "Badge", "props": {"count": 3}},
+        {"op": "children", "id": "n1", "children": ["n2", "n3", "n4"]},
+        {"op": "root", "id": "n1"},
+    ])
+}
+
+#[test]
+fn the_outline_prints_the_scene_from_its_root_in_order() {
+    let scene = hello_scene();
+    assert_eq!(
+        scene::outline(&[&scene]),
+        vec![
+            "VStack".to_string(),
+            "  Text text=\"Hello from hello\" font=headline".into(),
+            "  Button title=\"Refresh\" icon=arrow.clockwise tint=accent".into(),
+            "  Badge count=3".into(),
+        ]
+    );
+    // A later batch updates, removes and reorders, as the runtime's diffs do.
+    let later = json!([
+        {"op": "update", "id": "n3", "props": {"title": "Reload", "tint": null}},
+        {"op": "remove", "id": "n4"},
+        {"op": "children", "id": "n1", "children": ["n3", "n2"]},
+    ]);
+    assert_eq!(
+        scene::outline(&[&scene, &later]),
+        vec![
+            "VStack".to_string(),
+            "  Button title=\"Reload\" icon=arrow.clockwise".into(),
+            "  Text text=\"Hello from hello\" font=headline".into(),
+        ]
+    );
+    // A node two parents name prints once (the runtime never sends this; the walk stays bounded).
+    let shared = json!([
+        {"op": "create", "id": "r", "type": "VStack", "props": {}},
+        {"op": "create", "id": "s", "type": "Text", "props": {}},
+        {"op": "children", "id": "r", "children": ["s", "s"]},
+        {"op": "root", "id": "r"},
+    ]);
+    assert_eq!(scene::outline(&[&shared]), vec!["VStack".to_string(), "  Text".into()]);
+    // No root: nothing rendered yet.
+    assert!(
+        scene::outline(&[&json!([{"op": "create", "id": "a", "type": "Text", "props": {}}])])
+            .is_empty()
+    );
+    // A huge scene stops at the cap and says how many more.
+    let mut ops = vec![json!({"op": "create", "id": "r", "type": "List", "props": {}})];
+    let ids: Vec<String> = (0..scene::MAX_LINES + 5).map(|i| format!("t{i}")).collect();
+    for id in &ids {
+        ops.push(json!({"op": "create", "id": id, "type": "Text", "props": {"text": id}}));
+    }
+    ops.push(json!({"op": "children", "id": "r", "children": ids}));
+    ops.push(json!({"op": "root", "id": "r"}));
+    let big = scene::outline(&[&Value::Array(ops)]);
+    assert_eq!(big.len(), scene::MAX_LINES + 1);
+    assert_eq!(big.last().unwrap(), "… 6 more");
+}
+
+#[test]
+fn the_picture_is_read_from_the_screenshot_reply_or_its_refusal() {
+    let reply = r#"{"ok":true,"run":{"result":{"path":"/tmp/s.png","width":2880,"height":1800,"scale":2.0,"method":"window"}}}"#;
+    assert_eq!(
+        shot::picture_from(0, reply, ""),
+        Ok(shot::Picture { path: "/tmp/s.png".into(), width: Some(2880), height: Some(1800) })
+    );
+    let refused = r#"{"ok":false,"error":{"code":"screenshot.unavailable","reason":"the window is not on screen"}}"#;
+    let problem = shot::picture_from(1, refused, "").unwrap_err();
+    assert_eq!(problem.message, "no picture: the window is not on screen");
+    let problem = shot::picture_from(1, "", "cmux: no app is running\n").unwrap_err();
+    assert_eq!(problem.message, "no picture: cmux: no app is running");
+    assert_eq!(
+        shot::screenshot_argv(&words("--socket /s"), Some(Path::new("/o.png"))),
+        words("--socket /s window screenshot --out /o.png --json")
+    );
+    assert_eq!(shot::screenshot_argv(&[], None), words("window screenshot --json"));
+    // `cmux --json ext shot`: the child takes one output mode, its own.
+    assert_eq!(
+        shot::screenshot_argv(&words("--json --socket /s"), None),
+        words("--socket /s window screenshot --json")
+    );
+}
+
+#[test]
+fn shot_outlines_what_rendered_and_takes_no_picture_of_a_preview() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = new_extension(root.path(), "pic");
+    let local = root.path().join("state/apps/local");
+    let fake = FakeDaemon::start(&local, "local/pic", false);
+    let outcome = dev::once(&global(&fake.socket), &dev_options(&dir), false);
+    assert_eq!(outcome.phase, Phase::Done, "{:?}", outcome.errors);
+    assert_eq!(outcome.scene, scene::outline(&[&hello_scene()]));
+    assert_eq!(outcome.to_json(&dir)["scene"][1], "  Text text=\"Hello from hello\" font=headline");
+    // Not installed: it rendered as a preview, which no window shows.
+    assert!(!shot::shown(&outcome));
+    let (text, code) = shot::report(&outcome, &dir, None, false);
+    assert_eq!(code, exit::SHOT_FAILED);
+    assert!(text.contains("rendered cmux.section/1:\n  VStack\n    Text"), "{text}");
+    assert!(text.contains("no picture: cmux apps install local/pic"), "{text}");
+    let (json_text, _) = shot::report(&outcome, &dir, None, true);
+    let json: Value = serde_json::from_str(&json_text).unwrap();
+    assert_eq!((json["ok"].clone(), json["phase"].clone()), (json!(false), json!("shot")));
+    assert_eq!(json["exitCode"], exit::SHOT_FAILED);
+    assert!(json["shot"]["error"].as_str().unwrap().starts_with("no picture"));
+
+    // Installed and shown: the picture is reported with where the extension is.
+    let fake = FakeDaemon::start(&local, "local/pic", true);
+    let outcome = dev::once(&global(&fake.socket), &dev_options(&dir), false);
+    assert!(shot::shown(&outcome), "{:?}", outcome.placed);
+    let picture =
+        Ok(shot::Picture { path: "/tmp/p.png".into(), width: Some(10), height: Some(20) });
+    let (text, code) = shot::report(&outcome, &dir, Some(&picture), false);
+    assert_eq!(code, exit::OK);
+    assert!(
+        text.ends_with("picture of the window (10x20): /tmp/p.png; the extension is in the sidebar, bottom region"),
+        "{text}"
+    );
+    let (json_text, _) = shot::report(&outcome, &dir, Some(&picture), true);
+    let json: Value = serde_json::from_str(&json_text).unwrap();
+    assert_eq!((json["ok"].clone(), json["phase"].clone()), (json!(true), json!("done")));
+    assert_eq!(json["shot"]["path"], "/tmp/p.png");
+
+    // A failed load is reported as ext dev reports it: its own exit code, no picture.
+    std::fs::write(dir.join("dist/main.js"), "// THROW_AT_INIT\n").unwrap();
+    let broken = dev::once(&global(&fake.socket), &dev_options(&dir), false);
+    let (_, code) = shot::report(&broken, &dir, None, false);
+    assert_eq!(code, exit::LOAD_FAILED);
 }

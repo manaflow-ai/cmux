@@ -56,6 +56,9 @@ function sameRowDraw(before: AcpmuxRow, after: AcpmuxRow): boolean {
     return sameFields(before, after);
   return (
     before.id === after.id &&
+    // Recreated chats can reuse local ids and versions. A different message must reach its
+    // renderer so the reply's identity key can discard the previous body's reveal state.
+    before.at === after.at &&
     before.version === after.version &&
     before.below === after.below &&
     before.ended === after.ended &&

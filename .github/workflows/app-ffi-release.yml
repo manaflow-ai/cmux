@@ -32,8 +32,11 @@
 # only other path: docs/ci/app-ffi-release.md is the runbook.
 #
 # The push paths are the FFI inputs that scripts/cmux-next/check-app-ffi-pin.sh
-# derives from the Cargo path dependencies of cmux-app-ffi (--list-inputs);
-# scripts/cmux-next/tests/app-ffi-release-paths.test.sh keeps them in step.
+# derives from the Cargo path dependencies of cmux-app-ffi (--list-inputs),
+# less each crate's tests/, benches/ and examples/ (--list-excluded: Cargo never
+# builds them into the library), except one a library file names (re-added
+# after the exclusions); scripts/cmux-next/tests/app-ffi-release-paths.test.sh
+# keeps them in step.
 name: app FFI release
 
 on:
@@ -68,10 +71,19 @@ on:
       - "cmux-tui/crates/cmux-remote-browser/**"
       - "cmux-tui/crates/cmux-tasks-core/**"
       - "cmux-tui/crates/cmux-terminal-prediction/**"
+      - "cmux-tui/crates/cmux-unix-socket/**"
       - "cmux-tui/crates/cmux-window-rules/**"
       - "cmux-tui/rust-toolchain.toml"
       - "scripts/cmux-next/build-app-ffi.sh"
       - ".github/workflows/app-ffi-release.yml"
+      - "!cmux-tui/crates/*/tests/**"
+      - "!cmux-tui/crates/*/benches/**"
+      - "!cmux-tui/crates/*/examples/**"
+      - "!cmux-tui/bindings/rust/tests/**"
+      - "!cmux-tui/bindings/rust/benches/**"
+      - "!cmux-tui/bindings/rust/examples/**"
+      # cmux-rd-ffi's line reader test includes cmux-rd-proto/tests/vectors/app_lines.json.
+      - "cmux-tui/crates/cmux-rd-proto/tests/**"
   workflow_dispatch:
 
 # No run-level group: with one (cancel-in-progress: false) a newer FFI push
@@ -102,7 +114,7 @@ jobs:
   # concurrency group for an older build starts on that reading.
   placement:
     name: place the build
-    if: github.ref == 'refs/heads/feat-cmux-next' && github.repository_owner == 'manaflow-ai'
+    if: github.ref == 'refs/heads/feat-cmux-next' && github.repository_owner == 'manaflow-ai' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ${{ vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     # The routing App's read-only key, in the environment cmux-next's placement uses.
@@ -484,7 +496,7 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: CCmuxAppFFI.xcframework
-          path: assets
+          path: ${{ runner.temp }}/assets
 
       # Exactly one of these two runs. The token is for this repository only.
       - name: Mint release App token
@@ -519,8 +531,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          (cd assets && sha256sum --check --strict SHA256SUMS)
-          [[ "$(tr -d '[:space:]' < assets/SOURCE_SHA)" == "$GITHUB_SHA" ]]
+          (cd "$RUNNER_TEMP/assets" && sha256sum --check --strict SHA256SUMS)
+          [[ "$(tr -d '[:space:]' < "$RUNNER_TEMP/assets/SOURCE_SHA")" == "$GITHUB_SHA" ]]
           notes="The cmux app FFI (remote desktop core + sidebar layout reducer) as CCmuxAppFFI.xcframework (one static library, universal macOS arm64/x86_64). Source $GITHUB_SHA. SwiftPM binaryTarget checksum (SHA-256 of the zip): $CHECKSUM"
           # Only gh's "release not found" means absent; any other failed read
           # (a 502) is asked again, so a rerun never creates over its release.
@@ -546,9 +558,9 @@ jobs:
             fi
             echo "release $TAG already has the matching archive"
           elif ! gh release create "$TAG" \
-              assets/CCmuxAppFFI.xcframework.zip \
-              assets/CCmuxAppFFI.xcframework.zip.sha256 \
-              assets/SHA256SUMS assets/SOURCE_SHA \
+              "$RUNNER_TEMP"/assets/CCmuxAppFFI.xcframework.zip \
+              "$RUNNER_TEMP"/assets/CCmuxAppFFI.xcframework.zip.sha256 \
+              "$RUNNER_TEMP"/assets/SHA256SUMS "$RUNNER_TEMP"/assets/SOURCE_SHA \
               --target "$GITHUB_SHA" --title "$TAG" --notes "$notes" --prerelease --latest=false; then
             echo "::error title=Publish by hand::the release App token could not create release $TAG (see the gh error above, for example HTTP 403). Publish by hand: $HAND_PUBLISH"
             exit 1
@@ -631,7 +643,12 @@ jobs:
     name: open the re-pin pull request
     needs: [build, publish]
     # always(): a run that ends with no release (its build failed or was cancelled) still re-pins the newest published
-    # release, since a newer run's pending build holds the re-pin of an older one (publish-app-ffi-repin.sh).
+    # release, since a newer run's pending build holds the re-pin of an older one (publish-app-ffi-repin.sh). A normal
+    # cancel of the whole run by hand also re-pins (the newest published release; if the cancel came after the
+    # publish, that can be this run's own release): one normal cancel cannot stop a re-pin, as app-ffi-repin.yml says.
+    # Known gap (accepted, ffi-pin-rev-5 N2 on #40150): a force-cancel skips always() and the failure step, so a run
+    # force-cancelled before its re-pin job completes re-pins nothing, and an older run that held for it does not
+    # re-pin either, until the next FFI push or pin merge; dispatch app-ffi-repin.yml by hand after any force-cancel.
     if: always() && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     environment: ffi-release
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}

@@ -50,7 +50,11 @@ inputs=(cmux-next-ios/rust cmux-tui/crates/cmux-wg cmux-tui/crates/cmux-transpor
   cmux-tui/crates/cmux-rd-proto cmux-tui/crates/cmux-rd-core
   cmux-tui/crates/cmux-rd-engine cmux-tui/crates/cmux-rd-ffi cmux-tui/Cargo.toml
   cmux-tui/vendor/smoltcp)
-key_material=""
+# The app's copy is built for size like cmux-tui's: fat LTO, one codegen unit. Only this
+# build gets it: the workspace profile stays as it is for the iPhone's xcframework. The
+# profile is part of the key, so a host cached before the change is not reused.
+size_profile=(CARGO_PROFILE_RELEASE_LTO=fat CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1)
+key_material="${size_profile[*]}"$'\n'
 for input in "${inputs[@]}"; do
   key_material+="$(git -C "$repo_root" rev-parse "HEAD:$input" 2>/dev/null || echo "missing:$input")"$'\n'
 done
@@ -117,7 +121,7 @@ mkdir -p "$build_root" "$cache_dir"
 slices=()
 for target in "${rust_targets[@]}"; do
   echo "==> building cmux-mobile-host ($source_key, $target)"
-  (cd "$rust_root" && CARGO_TARGET_DIR="$build_root" cargo build --locked --release --package cmux-mobile-host --bin cmux-mobile-host --target "$target")
+  (cd "$rust_root" && env "${size_profile[@]}" CARGO_TARGET_DIR="$build_root" cargo build --locked --release --package cmux-mobile-host --bin cmux-mobile-host --target "$target")
   slice="$build_root/$target/release/cmux-mobile-host"
   [[ -x "$slice" ]] || { echo "error: cargo did not produce $slice" >&2; exit 1; }
   slices+=("$slice")

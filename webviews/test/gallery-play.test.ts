@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { runPlay, selectTextWithDriver, syntheticKey, syntheticPointer } from "../src/gallery/frame/playRunner";
 import { isSubpixelLayoutShift, longFramePart } from "../src/gallery/play";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -35,12 +36,8 @@ beforeAll(() => {
   });
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 describe("gallery shell keyboard emulation", () => {
@@ -270,6 +267,128 @@ describe("where a long frame's time went", () => {
       0,
     );
     expect(long).toContain(`scripts 60.0 ms: ${"x".repeat(80)}… 60.0 ms`);
+  });
+});
+
+describe("which long frames are a step's", () => {
+  // The engine reports a Long Animation Frame after the frame ends, and a step's observer hears each
+  // report that comes while the step runs. A frame that ENDED before the step began was counted in
+  // the step and failed it: on a CI shard the gallery entry's own module load, a 52.0 ms frame that
+  // began 56.8 ms before `click .acpmux-summary-button` and so ended 4.8 ms before it (job
+  // 130436819024). The step's own frame begins a little before the step (a step with no driver
+  // starts inside the frame callback that ended the last settle) and ends in it: that one is the
+  // step's. The frames here end 40 ms before the step, so a slow machine does not change the case.
+  //
+  // A report can also be late the other way: the engine has queued it and has not delivered it when
+  // the step ends. Only `takeRecords()` gives it then, and a step that drops it reads green with a
+  // long frame or a layout shift in it.
+  type Heard = (list: { getEntries(): unknown[] }) => void;
+  /// One focus step on a stage whose engine reports `type` entries. `entry` is made when the step's
+  /// observer starts, right after the step's start. "delivered": its report comes in a later task.
+  /// "queued": it is still in the observer's queue when the step ends.
+  const stepWithReport = async (
+    type: "long-animation-frame" | "layout-shift",
+    how: "delivered" | "queued",
+    entry: (stepStart: number) => unknown,
+  ) => {
+    const root = document.getElementById("root")!;
+    root.innerHTML = '<div id="row">Row</div><button id="plain">Plain</button>';
+    const restore = ["requestAnimationFrame", "PerformanceObserver", "Element", "innerWidth", "innerHeight"].map(
+      (key) => [key, key in scope, scope[key]] as const,
+    );
+    Object.assign(scope, {
+      requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
+      Element: dom.window.Element,
+      innerWidth: 800,
+      innerHeight: 600,
+      PerformanceObserver: class {
+        static supportedEntryTypes = [type];
+        private readonly heard: Heard;
+        private queued: unknown[] = [];
+        constructor(heard: Heard) {
+          this.heard = heard;
+        }
+        observe(options: { type?: string }) {
+          if (options.type !== type) return;
+          const made = entry(performance.now());
+          if (how === "queued") this.queued.push(made);
+          else setTimeout(() => this.heard({ getEntries: () => [made] }), 0);
+        }
+        takeRecords() {
+          const taken = this.queued;
+          this.queued = [];
+          return taken;
+        }
+        disconnect() {}
+      },
+    });
+    Object.defineProperty(dom.window, "innerWidth", { configurable: true, value: 800 });
+    Object.defineProperty(dom.window, "innerHeight", { configurable: true, value: 600 });
+    try {
+      const report = await runPlay((ctx) => ctx.focus({ selector: "#plain" }), {});
+      return report.steps[0]!;
+    } finally {
+      for (const [key, had, value] of restore) {
+        if (had) scope[key] = value;
+        else delete scope[key];
+      }
+      delete (dom.window as unknown as Record<string, unknown>).innerWidth;
+      delete (dom.window as unknown as Record<string, unknown>).innerHeight;
+    }
+  };
+  const stepWithFrame = (
+    frame: (stepStart: number) => { startTime: number; duration: number },
+    how: "delivered" | "queued" = "delivered",
+  ) => stepWithReport("long-animation-frame", how, frame);
+
+  test("a long frame that ended before the step began is not counted in the step", async () => {
+    const step = await stepWithFrame((start) => ({ startTime: start - 92, duration: 52 }));
+    expect(step.frameSource).toBe("long-animation-frame");
+    expect(step.longFrames).toEqual([]);
+    expect(step.longFrameParts).toBeUndefined();
+    expect(step.problems.join("\n")).not.toMatch(/frame\(s\) over/);
+  });
+
+  test("a long frame that began before the step and ended in it is the step's, and fails it", async () => {
+    const step = await stepWithFrame((start) => ({ startTime: start - 1.9, duration: 71.4 }));
+    expect(step.longFrames).toEqual([71.4]);
+    expect(step.longFrameParts?.length).toBe(1);
+    expect(step.status).toBe("fail");
+    expect(step.problems.join("\n")).toMatch(/1 frame\(s\) over 33 ms \(longest 71\.4 ms\)/);
+  });
+
+  test("a long frame whose report is still queued when the step ends is the step's, and fails it", async () => {
+    const step = await stepWithFrame((start) => ({ startTime: start + 2, duration: 71.4 }), "queued");
+    expect(step.frameSource).toBe("long-animation-frame");
+    expect(step.longFrames).toEqual([71.4]);
+    expect(step.longFrameParts?.length).toBe(1);
+    expect(step.status).toBe("fail");
+    expect(step.problems.join("\n")).toMatch(/1 frame\(s\) over 33 ms \(longest 71\.4 ms\)/);
+  });
+
+  test("a queued report of a long frame that ended before the step is not counted in the step", async () => {
+    const step = await stepWithFrame((start) => ({ startTime: start - 92, duration: 52 }), "queued");
+    expect(step.longFrames).toEqual([]);
+    expect(step.problems.join("\n")).not.toMatch(/frame\(s\) over/);
+  });
+
+  test("a layout shift whose report is still queued when the step ends is the step's, and fails it", async () => {
+    // The row before the button moved 40 px down: not the focused button's own expansion.
+    const step = await stepWithReport("layout-shift", "queued", () => ({
+      value: 0.2,
+      hadRecentInput: false,
+      sources: [
+        {
+          node: document.getElementById("row"),
+          previousRect: { x: 0, y: 0, width: 100, height: 20 },
+          currentRect: { x: 0, y: 40, width: 100, height: 20 },
+        },
+      ],
+    }));
+    expect(step.layoutShift).toBeCloseTo(0.2, 6);
+    expect(step.shifts.map((shift) => shift.sources)).toEqual([["div [0 40 0 0]"]]);
+    expect(step.status).toBe("fail");
+    expect(step.problems.join("\n")).toMatch(/layout shift 0\.2000/);
   });
 });
 

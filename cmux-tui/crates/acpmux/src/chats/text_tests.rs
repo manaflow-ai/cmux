@@ -365,7 +365,7 @@ fn search_bench() {
 
 /// A save under the held home is whole or not there: its copy is written and synced beside the
 /// file, then renamed over it in the same folder. Interrupted between the two (the process ends
-/// at `config::seams::BEFORE_RENAME`), the old copy is still there, whole.
+/// at `config::seams::on_before_rename`), the old copy is still there, whole.
 #[test]
 fn a_held_save_interrupted_before_its_rename_leaves_the_old_copy() {
     crate::lost_home_race_tests::isolated(
@@ -376,12 +376,10 @@ fn a_held_save_interrupted_before_its_rename_leaves_the_old_copy() {
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(&path, "old").unwrap();
             crate::config::hold_home();
-            crate::config::seams::BEFORE_RENAME
-                .set(|_| {
-                    println!("held-before-rename");
-                    std::process::exit(0);
-                })
-                .unwrap();
+            let _hold = crate::config::seams::on_before_rename(|_| {
+                println!("held-before-rename");
+                std::process::exit(0);
+            });
             let text = ChatText::new(path);
             text.update(&[chat("a", 1)], &|_| Some(vec![turn("x", "new words")]));
         },

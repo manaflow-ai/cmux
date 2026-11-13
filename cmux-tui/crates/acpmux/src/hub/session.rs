@@ -129,6 +129,36 @@ pub struct Session {
     /// step (`queue.rs` `queue_slot`): two prompts that come together never both find the chat
     /// free. A leaf lock, held for no await.
     pub(super) admit: StdMutex<()>,
+    /// Set under `admit` while a journal restore holds the chat (`journal_restore.rs`): a prompt
+    /// admitted meanwhile waits for `restore_done` before it takes its place, so nothing it logs
+    /// (its `queued` record, its turn) goes between the restore's check and its settle.
+    pub(super) restoring: AtomicBool,
+    pub(super) restore_done: tokio::sync::Notify,
+    /// A restore that stopped short holds this chat until the owner's next try (`journal_restore.rs`):
+    /// the number of the hold, so its lapse ends only the hold it was set for. `restoring` stays
+    /// set while it is held. Taken under `admit`; a leaf lock.
+    pub(super) restore_lease: StdMutex<Option<u64>>,
+    /// Its log was read for a journal restore with its recovery still to run (`log_load.rs`
+    /// `load_session_log_for_restore`): the restore runs it after its records, or when it is
+    /// refused or its hold lapses.
+    pub(super) recovery_pending: AtomicBool,
+    /// Records appended while a journal restore owns this chat, kept until it ends
+    /// (`restore_writer.rs`); Some from its admission. Taken under `append_lock`.
+    pub(super) parked: StdMutex<Option<Vec<super::restore_writer::Parked>>>,
+    /// Records kept while a restore owned this chat that the store refused when it ended: they
+    /// go in first, in order, at the next append (`restore_writer.rs`). Taken under
+    /// `append_lock`.
+    pub(super) unparked: StdMutex<Vec<super::restore_writer::Parked>>,
+    /// Records kept here that a drain stored in the journal before a flush of it succeeded:
+    /// every write of the kept list on disk holds them until one does, or a crash could lose a
+    /// record from both (review of #37284 at 23e76b07, F1). Taken under `append_lock`.
+    pub(super) unflushed: StdMutex<Vec<super::restore_writer::Parked>>,
+    /// The kept list an earlier run left on disk is read back (`Hub::take_back_kept`), or there
+    /// was none: until it is, the chat is not caught up and its log not read (review of #37284 at
+    /// 23e76b07, F2). Taken under `append_lock`.
+    pub(super) kept_read: AtomicBool,
+    /// The restore try whose thread writes this chat meanwhile (0: none).
+    pub(super) restore_token: AtomicU64,
     /// Serializes the handoff of a turn's prompt and a session-wide cancel. A compacting Stop
     /// settles the logical turn before its cancel reaches the harness; keeping this lock until
     /// that cancel is handed to the child prevents the next turn's prompt from overtaking it.
@@ -210,6 +240,10 @@ pub struct Session {
     pub(super) asks_in_flight: std::sync::atomic::AtomicUsize,
     pub(super) asks_landed: Notify,
     pub(super) rehydrate: AtomicBool,
+    /// What the rehydrated transcript's note tells the agent, when not the restore's own: a fork
+    /// onto another harness says it was forked from the chat (`fork.rs` `Retarget`). Taken with
+    /// `rehydrate`.
+    pub(super) rehydrate_note: StdMutex<Option<String>>,
     /// The agent's context was emptied (`/clear`, `/compact`): its next
     /// prompt is told every forum rule again (`hub/forum.rs`).
     pub(super) forum_retell: AtomicBool,
@@ -356,6 +390,13 @@ pub struct Session {
     pub(super) attached: std::sync::atomic::AtomicUsize,
     /// Of those, the ones that do not show the chat (`hub/seen.rs`).
     pub(super) hidden: std::sync::atomic::AtomicUsize,
+    /// Of the ones that show it, those whose person is not attending: idle past the client's
+    /// window, or its window not key (`_acpmux/view` `attending`, `hub/seen.rs`). They keep the
+    /// chat shown (its process, recap and presence) but see nothing: read state skips them.
+    pub(super) idle: std::sync::atomic::AtomicUsize,
+    /// The log seq right after the last turn ended (`turns.rs`): a person who stopped attending
+    /// before it did not see that turn end (`Hub::left_off`).
+    pub(super) turn_ended_seq: AtomicU64,
     /// Last stderr lines of the current turn, quoted when the agent
     /// process dies without an answer ("Not logged in", a launcher error).
     pub(super) stderr_tail: StdMutex<std::collections::VecDeque<String>>,
@@ -457,6 +498,10 @@ pub struct Session {
     /// Tool calls that run `gh pr create`, and the URL each printed so far, until they end
     /// (`pull_requests.rs`).
     pub(super) pr_creates: StdMutex<std::collections::HashMap<String, Option<String>>>,
+    /// Tool calls that run `gh pr merge` or `gh pr close`, and what each settles, until they end
+    /// (`pull_requests.rs`).
+    pub(super) pr_closes:
+        StdMutex<std::collections::HashMap<String, super::pull_requests::Closing>>,
     /// Files its tool calls just edited, for the who-else notice (`touched.rs`).
     pub(super) touch_queue: StdMutex<Vec<(String, String)>>,
     /// The sessions it was told share its files, once each (`touched.rs`).
@@ -1022,9 +1067,9 @@ impl SessionStderr {
     }
 }
 
-/// A held `spawn_lock` that a list sees: taking it and letting it go each count as a change
-/// (`list_guard::Events::changed`), so a cached session list never shows a start that began or
-/// ended since it was built. A row's `starting` reads the lease; an update waits on it.
+/// A held `spawn_lock` that a list sees: taking it and letting it go each change the row
+/// (`list_guard::Events::row_changed`), told before the next list read, so a follow never misses a
+/// start that began or ended. A row's `starting` reads the lease; an update waits on it.
 pub(super) struct SpawnLease<'a> {
     guard: Option<tokio::sync::MutexGuard<'a, ()>>,
     session: &'a Session,
@@ -1033,7 +1078,7 @@ pub(super) struct SpawnLease<'a> {
 
 impl Drop for SpawnLease<'_> {
     fn drop(&mut self) {
-        // Released first, then counted: a list built after the count reads it free.
+        // Released first, then marked: a row built after the mark reads it free.
         drop(self.guard.take());
         self.events.row_changed(self.session);
     }
