@@ -71,6 +71,8 @@ impl SummaryIndex {
         let mut cold_after = false;
         let mut physical_before_key = None;
         let mut physical_after_key = None;
+        let mut selected_rows = Vec::new();
+        let mut cold_rows = Vec::new();
         if let Some(disk) = self.disk()
             && !disk.is_empty()
         {
@@ -78,11 +80,14 @@ impl SummaryIndex {
             bytes_read = piece.bytes_read;
             physical_before_key = piece.rows.first().map(|row| SortKey::of(row));
             physical_after_key = piece.rows.last().map(|row| SortKey::of(row));
+            cold_before = piece.has_before;
+            cold_after = piece.has_after;
+            let snapshot_rows = piece.rows;
             let family_row = |row: &Summary| {
-                if self.get_row(&row.key()).is_none()
-                    && !self.is_shadowed(&row.key())
-                    && row.fork_of.as_ref().is_some_and(|fork| fork.key == *root)
-                {
+                if self.get_row(&row.key()).is_some() || self.is_shadowed(&row.key()) {
+                    return false;
+                }
+                if row.fork_of.as_ref().is_some_and(|fork| fork.key == *root) {
                     return true;
                 }
                 let mut parent = row.parent.clone();
@@ -92,23 +97,24 @@ impl SummaryIndex {
                         return true;
                     }
                     if seen.contains(&key) {
-                        break;
+                        return false;
                     }
                     seen.push(key.clone());
-                    parent = piece
-                        .rows
+                    parent = snapshot_rows
                         .iter()
                         .find(|candidate| candidate.key() == key)
                         .and_then(|candidate| candidate.parent.clone());
                 }
                 false
             };
-            cold_before = piece.has_before && piece.rows.iter().any(|row| family_row(row));
-            cold_after = piece.has_after && piece.rows.iter().any(|row| family_row(row));
-            // The snapshot piece supplies bounded progress flags; the hot
-            // answer remains sourced exclusively from the kin table.
+            for row in &snapshot_rows {
+                if family_row(row) && filter.matches(row) {
+                    let mut row = row.as_ref().clone();
+                    row.depth = Some(1);
+                    cold_rows.push(Arc::new(row));
+                }
+            }
         }
-        let mut selected_rows = Vec::new();
         let mut start = 0;
         let mut end = items.len();
         if let Some(anchor) = anchor
@@ -161,6 +167,12 @@ impl SummaryIndex {
             let mut row = row.as_ref().clone();
             row.depth = Some(item.depth);
             let size = row.encoded_len() + 1;
+            if bytes == 0 && size > max_bytes {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "page byte budget cannot fit the next row",
+                ));
+            }
             if selected_positions.len() == limit || bytes.saturating_add(size) > max_bytes {
                 break;
             }
@@ -168,8 +180,23 @@ impl SummaryIndex {
             selected_positions.push(position);
             selected_rows.push((position, Arc::new(row)));
         }
-        selected_rows.sort_by_key(|(position, _)| *position);
-        let rows = selected_rows.into_iter().map(|(_, row)| row).collect::<Vec<_>>();
+        for row in cold_rows {
+            let size = row.encoded_len() + 1;
+            if bytes == 0 && size > max_bytes {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "page byte budget cannot fit the next row",
+                ));
+            }
+            if selected_rows.len() == limit || bytes.saturating_add(size) > max_bytes {
+                break;
+            }
+            bytes += size;
+            selected_rows.push((usize::MAX, row));
+        }
+        selected_rows.sort_by_key(|(_, row)| SortKey::of(row));
+        let mut rows = selected_rows.into_iter().map(|(_, row)| row).collect::<Vec<_>>();
+        rows.truncate(limit);
         let first_position = selected_positions.iter().copied().min();
         let last_position = selected_positions.iter().copied().max();
         let before = first_position.is_some_and(|position| position > 0) || cold_before;
@@ -218,6 +245,7 @@ impl SummaryIndex {
             for row in piece.rows {
                 let key = row.key();
                 if self.get_row(&key).is_none()
+                    && !self.is_shadowed(&key)
                     && FolderKey::of(&row).as_ref() == Some(folder)
                     && filter.matches(&row)
                 {
@@ -285,6 +313,12 @@ impl SummaryIndex {
         for position in selected_positions {
             let Some(row) = rows.get(position) else { continue };
             let size = row.encoded_len() + 1;
+            if bytes == 0 && size > max_bytes {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "page byte budget cannot fit the next row",
+                ));
+            }
             if accepted_positions.len() == limit || bytes.saturating_add(size) > max_bytes {
                 after = side != ReadSide::Before;
                 break;
