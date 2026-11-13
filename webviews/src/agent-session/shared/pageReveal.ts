@@ -58,6 +58,8 @@ function watch(doc: Document): RevealState {
   const created: RevealState = { settling: false, generation: 0 };
   state = created;
   states.set(doc, created);
+  // A stand-in document (a unit test's) has no events: it never settles, only hides.
+  if (typeof doc.addEventListener !== "function") return created;
   doc.addEventListener("visibilitychange", () => {
     created.generation += 1;
     finishPageAnimations(doc);
