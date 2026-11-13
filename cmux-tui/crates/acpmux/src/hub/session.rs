@@ -149,6 +149,14 @@ pub struct Session {
     /// go in first, in order, at the next append (`restore_writer.rs`). Taken under
     /// `append_lock`.
     pub(super) unparked: StdMutex<Vec<super::restore_writer::Parked>>,
+    /// Records kept here that a drain stored in the journal before a flush of it succeeded:
+    /// every write of the kept list on disk holds them until one does, or a crash could lose a
+    /// record from both (review of #37284 at 23e76b07, F1). Taken under `append_lock`.
+    pub(super) unflushed: StdMutex<Vec<super::restore_writer::Parked>>,
+    /// The kept list an earlier run left on disk is read back (`Hub::take_back_kept`), or there
+    /// was none: until it is, the chat is not caught up and its log not read (review of #37284 at
+    /// 23e76b07, F2). Taken under `append_lock`.
+    pub(super) kept_read: AtomicBool,
     /// The restore try whose thread writes this chat meanwhile (0: none).
     pub(super) restore_token: AtomicU64,
     /// Serializes the handoff of a turn's prompt and a session-wide cancel. A compacting Stop

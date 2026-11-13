@@ -206,7 +206,7 @@ impl Hub {
         }
         // Read once, even when it fails: a second read would restore its queue twice. A chat
         // whose read failed answers from the session list, as a failed load did.
-        let mut loaded = Loaded(loaded, &session.log_loaded);
+        let mut loaded = Loaded(loaded, &session.log_loaded, false);
         // Debug builds only: a test makes the load fail as a corrupt log could
         // (`durable_agents.rs`). Release builds have no seam.
         #[cfg(debug_assertions)]
@@ -215,6 +215,15 @@ impl Hub {
             panic!("ACPMUX_TEST_PANIC_IN_LOAD_LOGS");
         }
         self.catch_up(session);
+        if !session.caught_up.load(Ordering::SeqCst) {
+            // What an earlier run kept on disk did not read (`take_back_kept`): nothing recovers
+            // or rebuilds its queue without it (review of #37284 at 23e76b07, F2). The log stays
+            // unread, so the next request for the chat (or a restore's try) reads it again.
+            tracing::warn!(session = %session.id, "this chat's log waits for the records kept on disk to read");
+            session.log_skipped.store(true, Ordering::SeqCst);
+            loaded.2 = true;
+            return;
+        }
         if let Err(error) = self.restore_ownership_epoch(session) {
             session.invalidate_ownership_epoch();
             tracing::warn!(session = %session.id, "ownership epoch unreadable: {error}");
@@ -611,7 +620,8 @@ impl Hub {
 }
 
 /// Marks a chat's log read when its load ends, however it ends (`load_session_log`).
-struct Loaded<'a>(std::sync::MutexGuard<'a, bool>, &'a AtomicBool);
+/// The third field: the read is to be tried again, so it is not marked done.
+struct Loaded<'a>(std::sync::MutexGuard<'a, bool>, &'a AtomicBool, bool);
 
 impl Loaded<'_> {
     fn done(&mut self) {
@@ -625,7 +635,9 @@ impl Drop for Loaded<'_> {
         if std::thread::panicking() {
             tracing::error!("reading a chat log panicked; it answers from the session list");
         }
-        self.done();
+        if !self.2 {
+            self.done();
+        }
     }
 }
 

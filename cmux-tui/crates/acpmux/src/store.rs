@@ -2279,6 +2279,10 @@ impl Store for LocalStore {
     }
 
     fn kept_parked(&self, id: &str) -> Result<Option<Vec<u8>>> {
+        #[cfg(test)]
+        if fails_kept_read(id) {
+            anyhow::bail!("a test failed this read of {id}'s kept records");
+        }
         let path = self.dir(id).join(PARKED);
         match crate::config::private_state_file(&path) {
             Ok(file) => {
@@ -2530,6 +2534,25 @@ fn between_segments(id: &str) {
     if let Some(crash) = crash {
         crash();
     }
+}
+
+/// Tests only: the chats whose next read of their kept records (`parked.json`,
+/// `Store::kept_parked`) fails, once each, as a transient read error does (review of #37284 at
+/// 23e76b07, F2). Per chat: tests run at once.
+#[cfg(test)]
+static FAIL_KEPT_READ: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// Tests only: arms [`FAIL_KEPT_READ`] for chat `id`, once.
+#[cfg(test)]
+pub(crate) fn fail_kept_read_once(id: &str) {
+    FAIL_KEPT_READ.lock().unwrap_or_else(|e| e.into_inner()).push(id.to_owned());
+}
+
+#[cfg(test)]
+fn fails_kept_read(id: &str) -> bool {
+    let mut armed = FAIL_KEPT_READ.lock().unwrap_or_else(|e| e.into_inner());
+    let at = armed.iter().position(|a| a == id);
+    at.map(|at| armed.swap_remove(at)).is_some()
 }
 
 #[cfg(test)]

@@ -552,7 +552,7 @@ impl Hub {
     /// `od::proofs_past`); one that ends at or before it has nothing to give back.
     fn journal_ends(&self, peer: &str) -> (Vec<Row>, HashMap<String, (u64, u64)>) {
         let old = self.at_8b5f();
-        let map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+        let map = self.remote_sessions.read();
         let mut rows = Vec::new();
         let mut lasts = HashMap::new();
         for (_, r) in map.of_peer(peer) {

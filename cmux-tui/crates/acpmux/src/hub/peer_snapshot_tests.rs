@@ -1999,7 +1999,7 @@ fn an_unsent_seq_continues_a_copy_only_next_to_it() {
     let peer = add_idle_peer(&hub, PEER);
     let row = json!({"sessionId": "m1", "name": "lane", "status": "running", "createdAt": 42,
                      "updatedAt": 5});
-    hub.apply_peer_notice(PEER, peer.generation, PeerNotice::Sessions(vec![row]));
+    hub.apply_peer_notice(PEER, peer.generation, PeerNotice::sessions_from_values(vec![row]));
     let link = peer.link_epoch();
     let page = json!({"session": {"createdAt": 42}, "events": recs(1..=2), "hasMore": false,
                       "lastSeq": 2});
@@ -2270,7 +2270,8 @@ fn a_delivery_again_goes_to_its_pinned_session_after_a_rename_and_the_names_reus
         json!({"sessionId": id, "name": name, "status": "idle", "createdAt": created,
                "updatedAt": 5})
     };
-    hub.apply_peer_notice(PEER, peer.generation, PeerNotice::Sessions(vec![row("m1", "moved", 7)]));
+    let first = PeerNotice::sessions_from_values(vec![row("m1", "moved", 7)]);
+    hub.apply_peer_notice(PEER, peer.generation, first);
     let by_name = format!("{PEER}/moved");
     let (_, named, _) = hub.resolve_remote(&by_name).expect("the name resolves");
     assert_eq!(named, "m1");
@@ -2288,7 +2289,7 @@ fn a_delivery_again_goes_to_its_pinned_session_after_a_rename_and_the_names_reus
     hub.apply_peer_notice(
         PEER,
         peer.generation,
-        PeerNotice::Sessions(vec![row("m1", "moved-before", 7), row("m2", "moved", 9)]),
+        PeerNotice::sessions_from_values(vec![row("m1", "moved-before", 7), row("m2", "moved", 9)]),
     );
     let (_, holder, _) = hub.resolve_remote(&by_name).expect("the name resolves");
     assert_eq!(holder, "m2", "the name is the other session's now");

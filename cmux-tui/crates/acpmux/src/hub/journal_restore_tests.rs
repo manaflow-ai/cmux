@@ -856,7 +856,7 @@ async fn crashed_between_records(rules: u8) -> (u64, u64, bool, bool) {
     // The next start, on what the store held at the crash.
     let (hub, _) = crashing_hub(&inner, rules);
     let meta = inner.load(&id).unwrap().expect("the chat is gone");
-    hub.install_stored_session(meta, false, false);
+    hub.install_stored_session(meta, false, false, true);
     let session = hub.sessions.lock().unwrap().get(&id).cloned().unwrap();
     hub.load_session_log(&session);
     let said = session.meta().last_seq;
@@ -1136,20 +1136,17 @@ fn restarted(
 ) -> (Arc<Hub>, Arc<Session>) {
     let hub = hub_on_disk(dir, rules, segment_bytes);
     let meta = hub.store.load(id).unwrap().expect("the chat is gone");
-    hub.install_stored_session(meta, false, false);
+    hub.install_stored_session(meta, false, false, true);
     let session = hub.sessions.lock().unwrap().get(id).cloned().unwrap();
     hub.load_session_log(&session);
     (hub, session)
 }
 
-/// Two prompts waiting on a machine on disk; a restore that stops short; while it holds the
-/// chat, the first is edited and the second removed, each answered done; then the daemon
-/// crashes. Each waiting prompt's id and preview after the next start reads the chat's log.
-async fn edits_during_a_hold_then_crashed(rules: u8) -> Vec<(String, String)> {
-    let run = uuid::Uuid::now_v7();
-    let dir = std::env::temp_dir().join(format!("acpmux-hold-crash-{run}"));
-    let crashed = std::env::temp_dir().join(format!("acpmux-hold-crash-{run}-after"));
-    let hub = hub_on_disk(&dir, rules, None);
+/// A chat on disk with two prompts waiting; a restore that stops short; while it holds the chat,
+/// the first is edited and the second removed, each answered done. The hub, its folder, the
+/// chat, and the try that goes on.
+async fn edited_during_a_hold_on_disk(dir: &Path, rules: u8) -> (Arc<Hub>, Arc<Session>, Value) {
+    let hub = hub_on_disk(dir, rules, None);
     let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
     let session = hub.new_session(req).await.unwrap();
     for p in ["p1", "p2"] {
@@ -1175,14 +1172,33 @@ async fn edits_during_a_hold_then_crashed(rules: u8) -> Vec<(String, String)> {
     let edited = hub.queue_edit(&session, &edit, Control::Local, false, None).await.unwrap();
     assert_eq!(edited["ok"], json!(true), "{edited}");
     assert!(hub.remove_queued(&session, "p2"));
+    (hub, session, params)
+}
+
+/// Each waiting prompt's id and preview.
+fn waiting(session: &Session) -> Vec<(String, String)> {
+    let queue = session.queue.lock().unwrap();
+    queue.iter().map(|q| (q.prompt_id.clone(), q.preview.clone())).collect()
+}
+
+/// Two folders for a crash test: the daemon's, and the copy a crash leaves.
+fn crash_dirs(name: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+    let run = uuid::Uuid::now_v7();
+    let dir = std::env::temp_dir().join(format!("acpmux-{name}-{run}"));
+    let crashed = std::env::temp_dir().join(format!("acpmux-{name}-{run}-after"));
+    (dir, crashed)
+}
+
+/// [`edited_during_a_hold_on_disk`], then the daemon crashes. Each waiting prompt's id and
+/// preview after the next start reads the chat's log.
+async fn edits_during_a_hold_then_crashed(rules: u8) -> Vec<(String, String)> {
+    let (dir, crashed) = crash_dirs("hold-crash");
+    let (hub, session, _) = edited_during_a_hold_on_disk(&dir, rules).await;
     // The crash: what the disk holds now, every acknowledged journal record in it.
     assert!(hub.store.wait_durable(Duration::from_secs(20)).unwrap());
     copy_tree(&dir, &crashed);
     let (after, reopened) = restarted(&crashed, rules, &session.id, None);
-    let queue: Vec<(String, String)> = {
-        let queue = reopened.queue.lock().unwrap();
-        queue.iter().map(|q| (q.prompt_id.clone(), q.preview.clone())).collect()
-    };
+    let queue = waiting(&reopened);
     drop((hub, after));
     let _ = std::fs::remove_dir_all(&dir);
     let _ = std::fs::remove_dir_all(&crashed);
@@ -1201,6 +1217,102 @@ async fn a_queue_edited_during_a_hold_keeps_the_edits_through_a_crash() {
     assert_ne!(old, edited, "b7496c3f kept them");
     let now = edits_during_a_hold_then_crashed(0).await;
     assert_eq!(now, edited);
+}
+
+/// [`edited_during_a_hold_on_disk`]; the next try stores the edit and the removal, and the
+/// flush after it fails; before that try ends, the first prompt is edited again, which writes
+/// the kept list anew. Then the machine crashes with the journal as it was before that try (its
+/// flush failed, so what the try stored may not be on disk) and the kept list as last written.
+/// Each waiting prompt's id and preview after the next start reads the chat's log.
+async fn kept_through_a_failed_flush_then_crashed(rules: u8) -> Vec<(String, String)> {
+    let (dir, crashed) = crash_dirs("unflushed-crash");
+    let (hub, session, params) = edited_during_a_hold_on_disk(&dir, rules).await;
+    assert!(hub.store.wait_durable(Duration::from_secs(20)).unwrap());
+    copy_tree(&dir, &crashed);
+    let kept = hub.store.session_dir(&session.id).unwrap().join("parked.json");
+    let kept_after = crashed.join(kept.strip_prefix(&dir).unwrap());
+    super::restore_writer::fail_flush_after_drain_once(&session.id);
+    let (h, s, rt) = (hub.clone(), session.clone(), tokio::runtime::Handle::current());
+    super::journal_restore::after_drain_once(
+        &session.id,
+        Box::new(move || {
+            let edit = json!({"sessionId": s.id, "promptId": "p1", "op": "update",
+                              "text": "p1 newest words"});
+            let edited = rt.block_on(h.queue_edit(&s, &edit, Control::Local, false, None)).unwrap();
+            assert_eq!(edited["ok"], json!(true), "{edited}");
+            // The crash: the kept list as this edit wrote it.
+            match std::fs::read(&kept) {
+                Ok(bytes) => std::fs::write(&kept_after, bytes).unwrap(),
+                Err(_) => {
+                    let _ = std::fs::remove_file(&kept_after);
+                }
+            }
+        }),
+    );
+    hub.journal_restore(&params).await.unwrap();
+    let (after, reopened) = restarted(&crashed, rules, &session.id, None);
+    let queue = waiting(&reopened);
+    drop((hub, after));
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&crashed);
+    queue
+}
+
+/// Review of #37284 at 23e76b07, F1: what a drain stored stays in every write of the kept list
+/// on disk until a flush of the journal succeeds, so a crash after a failed flush loses no
+/// answered edit or removal: the edits stand, and the removed prompt does not wait again. At
+/// 23e76b07 a later write of the list left them out, and they were in neither place; under
+/// b7496c3f's rules nothing was kept on disk.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_answered_edit_survives_a_crash_after_a_failed_flush() {
+    let edited = vec![("p1".to_owned(), "p1 newest words".to_owned())];
+    let old = kept_through_a_failed_flush_then_crashed(super::journal_restore::AT_B749).await;
+    assert_ne!(old, edited, "b7496c3f kept them");
+    let now = kept_through_a_failed_flush_then_crashed(0).await;
+    assert_eq!(now, edited);
+}
+
+/// Each waiting prompt's id and preview ([`waiting`]).
+type Waiting = Vec<(String, String)>;
+
+/// What a start after [`edited_during_a_hold_on_disk`] and a crash sees when its first read of
+/// the kept list fails: the waiting prompts then, whether the chat is caught up, whether its log
+/// reads as read; and the waiting prompts once the next request reads it.
+async fn kept_list_unread_once(rules: u8) -> (Waiting, bool, bool, Waiting) {
+    let (dir, crashed) = crash_dirs("unread-kept");
+    let (hub, session, _) = edited_during_a_hold_on_disk(&dir, rules).await;
+    assert!(hub.store.wait_durable(Duration::from_secs(20)).unwrap());
+    copy_tree(&dir, &crashed);
+    drop(hub);
+    crate::store::fail_kept_read_once(&session.id);
+    let (after, reopened) = restarted(&crashed, rules, &session.id, None);
+    let first = waiting(&reopened);
+    let caught_up = reopened.caught_up.load(Ordering::SeqCst);
+    let loaded = after.session_log_loaded(&reopened);
+    // The next request for the chat reads its log again.
+    after.load_session_log(&reopened);
+    let then = waiting(&reopened);
+    drop(after);
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&crashed);
+    (first, caught_up, loaded, then)
+}
+
+/// Review of #37284 at 23e76b07, F2: a read of the kept list that fails leaves the chat not
+/// caught up and its log unread, so no queue is rebuilt without the edit and the removal it
+/// holds (no prompt waits, and the removed one never runs); the next request reads it, and the
+/// edit stands. At 23e76b07 the chat went on as caught up, and the removed prompt waited to run
+/// again; under b7496c3f's rules nothing was kept on disk.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_kept_list_that_does_not_read_holds_the_chat_until_it_does() {
+    let edited = vec![("p1".to_owned(), "p1 new words".to_owned())];
+    let (old, ..) = kept_list_unread_once(super::journal_restore::AT_B749).await;
+    assert!(old.iter().any(|(id, _)| id == "p2"), "b7496c3f dropped the removed prompt: {old:?}");
+    let (first, caught_up, loaded, then) = kept_list_unread_once(0).await;
+    assert_eq!(first, Vec::new(), "a queue was rebuilt without the kept records");
+    assert!(!caught_up, "the chat is caught up without its kept records");
+    assert!(!loaded, "the chat's log reads as read without its kept records");
+    assert_eq!(then, edited);
 }
 
 /// A chat on disk with small segments, cut mid-turn and read by a restart, whose recovery

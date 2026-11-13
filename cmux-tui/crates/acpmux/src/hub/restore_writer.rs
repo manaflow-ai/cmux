@@ -393,6 +393,11 @@ impl Hub {
             }
             let mut deferral = session.log_deferral.lock().unwrap_or_else(|e| e.into_inner());
             deferral.stored(&record.dir, &record.kind, &record.msg);
+            drop(deferral);
+            if !self.at_b749() {
+                // In the journal, maybe not on disk yet: kept on disk until a flush says it is.
+                session.unflushed.lock().unwrap_or_else(|e| e.into_inner()).push(next);
+            }
         }
     }
 
@@ -415,6 +420,11 @@ impl Hub {
     ) -> Result<(EventRecord, bool), (Value, log_deferral::Kept)> {
         let waits = !session.unparked.lock().unwrap_or_else(|e| e.into_inner()).is_empty();
         if !waits {
+            // Stored, their flush failed: the next append flushes again, and once it succeeds
+            // the copy on disk lets them go.
+            if !session.unflushed.lock().unwrap_or_else(|e| e.into_inner()).is_empty() {
+                self.keep_durably_after_drain(session);
+            }
             return Err((msg, kept));
         }
         if self.store_unparked(session) {
@@ -514,29 +524,41 @@ impl Hub {
     /// [`Self::keep_durably`] after a drain stored kept records in the journal: what it stored
     /// reaches the disk before the copy kept here shrinks, or a record dropped from the copy is
     /// in neither place after a machine crash (review of #37284 at dd52b1d3, F1). On a failed
-    /// flush the copy on disk stays as it was.
+    /// flush the copy on disk stays as it was, and what the drain stored stays in every later
+    /// write of it ([`Session::unflushed`]) until a flush succeeds (review of #37284 at
+    /// 23e76b07, F1: a later write left them out, and a crash lost an answered edit).
     fn keep_durably_after_drain(&self, session: &Session) -> bool {
         if self.at_b749() {
             return true;
         }
-        if let Err(e) = self.store.flush_session(&session.id) {
+        let flushed = if fails_flush_after_drain(&session.id) {
+            Err(anyhow::anyhow!("a test failed this flush"))
+        } else {
+            self.store.flush_session(&session.id)
+        };
+        if let Err(e) = flushed {
             tracing::warn!(session = %session.id, "the journal did not flush, so the records kept on disk stay: {e:#}");
             return false;
         }
+        session.unflushed.lock().unwrap_or_else(|e| e.into_inner()).clear();
         self.keep_durably(session)
     }
 
-    /// Writes every record kept for `session` (those the store refused, then those parked) to
-    /// the store, durably, as one list; removes it when none is (`Store::keep_parked`). Answers
-    /// whether it is on disk. b7496c3f kept them in memory only. The caller holds `append_lock`.
+    /// Writes every record kept for `session` (those stored and not flushed yet, those the store
+    /// refused, then those parked) to the store, durably, as one list; removes it when none is
+    /// (`Store::keep_parked`). Answers whether it is on disk. b7496c3f kept them in memory only.
+    /// A restart leaves out those the journal holds ([`Self::take_back_kept`]). The caller holds
+    /// `append_lock`.
     fn keep_durably(&self, session: &Session) -> bool {
         if self.at_b749() {
             return true;
         }
         let kept: Vec<Value> = {
+            let unflushed = session.unflushed.lock().unwrap_or_else(|e| e.into_inner());
             let unparked = session.unparked.lock().unwrap_or_else(|e| e.into_inner());
             let parked = session.parked.lock().unwrap_or_else(|e| e.into_inner());
-            unparked.iter().chain(parked.iter().flatten()).map(Parked::to_json).collect()
+            let kept = unflushed.iter().chain(unparked.iter());
+            kept.chain(parked.iter().flatten()).map(Parked::to_json).collect()
         };
         let bytes = if kept.is_empty() {
             None
@@ -562,24 +584,34 @@ impl Hub {
     /// ([`Self::keep_durably`]) is kept again, as records the store refused: they go in first at
     /// the next append, and a rebuild of the queue reads them meanwhile. Those the journal holds
     /// already (stored before that run removed the list) are left out. The caller holds
-    /// `append_lock`, once per run (`catch_up_locked`).
-    pub(super) fn take_back_kept(&self, session: &Session) {
-        if self.at_b749() {
-            return;
+    /// `append_lock` (`catch_up_locked`); once read, or found absent, it is not read again.
+    ///
+    /// Answers whether it read (none on disk reads as none): a list that does not read now is
+    /// read again at the next try, and until then the chat is not caught up, so nothing rebuilds
+    /// its queue without the edits and removals it holds (review of #37284 at 23e76b07, F2: the
+    /// chat went on as caught up, and a removed prompt could run).
+    pub(super) fn take_back_kept(&self, session: &Session) -> bool {
+        if self.at_b749() || session.kept_read.load(Ordering::SeqCst) {
+            return true;
         }
         let bytes = match self.store.kept_parked(&session.id) {
             Ok(Some(bytes)) => bytes,
-            Ok(None) => return,
+            Ok(None) => {
+                session.kept_read.store(true, Ordering::SeqCst);
+                return true;
+            }
             Err(e) => {
-                tracing::warn!(session = %session.id, "records kept while a restore held this chat do not read: {e:#}");
-                return;
+                tracing::warn!(session = %session.id, "records kept while a restore held this chat do not read; the chat waits for them: {e:#}");
+                return false;
             }
         };
         let kept: Vec<Parked> = match serde_json::from_slice::<Vec<Value>>(&bytes) {
             Ok(values) => values.iter().filter_map(Parked::from_json).collect(),
             Err(e) => {
+                // Read, and no try reads more of it.
                 tracing::warn!(session = %session.id, "records kept while a restore held this chat do not parse: {e}");
-                return;
+                session.kept_read.store(true, Ordering::SeqCst);
+                return true;
             }
         };
         // Stored in order, each past where the journal ended when it was kept.
@@ -593,12 +625,14 @@ impl Hub {
         });
         if let Err(e) = scanned {
             tracing::warn!(session = %session.id, "the journal does not read to match the records kept while a restore held this chat: {e:#}");
-            return;
+            return false;
         }
+        session.kept_read.store(true, Ordering::SeqCst);
         let left: Vec<Parked> = kept.into_iter().skip(stored).collect();
         tracing::info!(session = %session.id, stored, left = left.len(), "records kept while a restore held this chat before a restart are kept again");
         session.unparked.lock().unwrap_or_else(|e| e.into_inner()).extend(left);
         self.keep_durably_after_drain(session);
+        true
     }
 
     /// [`Hub::append`] of a record whose caller answers a client that its change is made (a
@@ -622,6 +656,29 @@ impl Hub {
         }
         Ok(record)
     }
+}
+
+/// Tests only: the chats whose next flush after a drain ([`Hub::keep_durably_after_drain`])
+/// fails, once each, as a failed sync of the journal does. Per chat: tests run at once.
+#[cfg(test)]
+static FAIL_FLUSH_AFTER_DRAIN: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// Tests only: arms [`FAIL_FLUSH_AFTER_DRAIN`] for chat `id`, once.
+#[cfg(test)]
+pub(crate) fn fail_flush_after_drain_once(id: &str) {
+    FAIL_FLUSH_AFTER_DRAIN.lock().unwrap_or_else(|e| e.into_inner()).push(id.to_owned());
+}
+
+#[cfg(test)]
+fn fails_flush_after_drain(id: &str) -> bool {
+    let mut armed = FAIL_FLUSH_AFTER_DRAIN.lock().unwrap_or_else(|e| e.into_inner());
+    let at = armed.iter().position(|a| a == id);
+    at.map(|at| armed.swap_remove(at)).is_some()
+}
+
+#[cfg(not(test))]
+fn fails_flush_after_drain(_: &str) -> bool {
+    false
 }
 
 #[cfg(test)]

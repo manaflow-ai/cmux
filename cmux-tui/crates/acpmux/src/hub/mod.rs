@@ -1783,8 +1783,15 @@ impl Hub {
             session.seq.fetch_max(last, Ordering::SeqCst);
         }
         // What an earlier run kept while a restore held the chat, and had not stored, is kept
-        // again (review of #37284 at b7496c3f, F1).
-        self.take_back_kept(session);
+        // again (review of #37284 at b7496c3f, F1). Until that list reads, the chat is not
+        // caught up: the next append or read tries again, and its log is not read, so no queue
+        // is rebuilt without the edits and removals it holds (review of #37284 at 23e76b07, F2).
+        if !self.take_back_kept(session) {
+            if rebuilt {
+                self.save_meta(session);
+            }
+            return;
+        }
         session.caught_up.store(true, Ordering::SeqCst);
         // Kept, so the next start scans only past what this one read.
         if rebuilt {
@@ -1858,6 +1865,8 @@ impl Hub {
             recovery_pending: AtomicBool::new(false),
             parked: StdMutex::new(None),
             unparked: StdMutex::new(Vec::new()),
+            unflushed: StdMutex::new(Vec::new()),
+            kept_read: AtomicBool::new(false),
             restore_token: AtomicU64::new(0),
             restore_lease: StdMutex::new(None),
             input_handoff: std::sync::Arc::new(Mutex::new(())),
