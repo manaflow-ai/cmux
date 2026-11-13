@@ -32,7 +32,7 @@ extension DiffPageRuntime {
     static let warmLimit = 4
 
     /// Precomputes the default diff of the repository `folder` is in, read through `git` (the session
-    /// host's `git.status` for the repository, `git.diff` for the fingerprint).
+    /// host's `git.status` for the repository, `git.fingerprint` for the fingerprint).
     public func warm(folder: URL, git: any DiffGitRunning) {
         guard warmSidecar != nil, !isRemote, !git.isRemote else { return }
         let key = folder.standardizedFileURL.path
@@ -113,12 +113,6 @@ extension DiffPageRuntime {
         case "branch": scope = source["baseRef"]?.stringValue == "HEAD" ? .uncommitted : .branch
         default: return nil
         }
-        guard let diff = try? await git.diff(repository, scope: scope, includePatch: true) else { return nil }
-        return await Self.hash(diff)
-    }
-
-    /// The hash of a whole diff, off the main thread (a big diff is megabytes of JSON).
-    @concurrent private static func hash(_ diff: JSONValue) async -> String {
-        DiffPageProvider.fingerprint(diff)
+        return try? await git.fingerprint(repository, scope: scope)
     }
 }

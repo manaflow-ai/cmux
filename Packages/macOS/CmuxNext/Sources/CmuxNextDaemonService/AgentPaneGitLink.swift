@@ -37,7 +37,10 @@ public final class AgentPaneGitLink {
     }
 
     /// Session host read `operation` with `params` as sent (the Files page's `git.files.list`).
-    public func read(_ operation: String, params: [String: JSONValue]) async throws(AgentPaneGitFailure) -> Data {
+    /// With a `capability` (the diff tab's `git.fingerprint`), a session host that does not
+    /// advertise it gets no request: the read throws ``AgentPaneGitFailure/unsupported``.
+    public func read(_ operation: String, params: [String: JSONValue],
+                     requiring capability: String? = nil) async throws(AgentPaneGitFailure) -> Data {
         let connection: DaemonConnection
         do {
             connection = try await self.connection()
@@ -46,7 +49,7 @@ public final class AgentPaneGitLink {
             throw AgentPaneGitFailure.notConnected
         }
         do {
-            let result = try await GitResourceClient(connection: connection).read(operation, params: params)
+            let result = try await GitResourceClient(connection: connection).read(operation, params: params, requiring: capability)
             return try await Self.encode(result)
         } catch {
             throw AgentPaneGitFailure(reading: error)
@@ -255,6 +258,8 @@ extension AgentPaneGitFailure {
             self.init(code: code, details: json, retryable: retryable, origin: .sessionHost)
         case DaemonError.notConnected:
             self = .notConnected
+        case DaemonError.missingCapabilities:
+            self = .unsupported
         case DaemonError.timedOut, DaemonError.connectionClosed, DaemonError.daemonShutdown:
             self = .timedOut
         default:

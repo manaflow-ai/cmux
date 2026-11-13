@@ -2,7 +2,6 @@ public import CmuxNextAgentPane
 public import CmuxNextDaemonService
 import CmuxNextPages
 public import CmuxNextSettings
-import CryptoKit
 import Foundation
 
 /// Runs the diff tab's git reads and writes (cx-ueuc8) in a repository: the agent pane's git
@@ -18,6 +17,11 @@ public protocol DiffGitRunning: AnyObject {
     /// A diff with explicit paths and context, used for bounded remote full-file reads.
     func diff(_ repository: String, scope: AgentPaneGitScope, includePatch: Bool,
               options: AgentPaneGitDiffOptions) async throws(AgentPaneGitFailure) -> JSONValue
+    /// The session host's `git.fingerprint` of `repository` in `scope`: 64 hex digits that stay
+    /// while the scope's diff stays. The session host makes them from the changed files, with no
+    /// patch. Throws ``AgentPaneGitFailure/unsupported``, with nothing sent, for a session host
+    /// that is older than the read.
+    func fingerprint(_ repository: String, scope: AgentPaneGitScope) async throws(AgentPaneGitFailure) -> String
     /// The session host's commit or push in `repository`, under the request's key.
     func write(_ request: AgentPaneGitWrite, in repository: String) async throws(AgentPaneGitFailure) -> JSONValue
     /// `git add` / `git restore --staged` (or one hunk) in `repository`; nil on success, else
@@ -36,6 +40,11 @@ extension DiffGitRunning {
         try await diff(repository, scope: scope, includePatch: includePatch)
     }
 
+    /// A git without the fingerprint read (tests), as a session host older than it.
+    public func fingerprint(_ repository: String, scope: AgentPaneGitScope) async throws(AgentPaneGitFailure) -> String {
+        throw AgentPaneGitFailure.unsupported
+    }
+
     /// A git without checkpoint reads (tests): every turn read fails.
     public func checkpointDiff(_ repository: String, from: String, to: String) async throws(AgentPaneGitFailure) -> JSONValue {
         throw AgentPaneGitFailure.failed
@@ -44,8 +53,10 @@ extension DiffGitRunning {
 
 /// The diff tab's Stage, Commit and Push (cx-ueuc8): `cmux.diff.git.status {}`,
 /// `cmux.diff.git.diff {scope}` (the files only, for Commit's "Include new files"),
-/// `cmux.diff.git.fingerprint {scope}` (a hash of the scope's diff, patches included, so the
-/// viewer sees an agent's edit without moving the diff over the bridge; cx-9ce.34),
+/// `cmux.diff.git.fingerprint {scope}` (the session host's `git.fingerprint`: digits that move
+/// when the scope's diff moves, so the viewer sees an agent's edit and no diff is made or moved
+/// for the question; cx-9ce.34. A session host older than the read answers `native.unsupported`
+/// with nothing sent, and the page then reloads the diff when the person comes back to it),
 /// `cmux.diff.git.commit` and `cmux.diff.git.push` with the changes view's params (no
 /// `session_id`), and `cmux.diff.git.stage`, `.unstage`, `.stageHunk`, `.unstageHunk` with
 /// `{paths, hunk?}`. Each runs in the tab's own repository, the one its grant covers: a `cwd`
@@ -75,7 +86,7 @@ extension DiffPageProvider {
             switch method {
             case "git.status": return try await git.status(repository)
             case "git.diff": return try await git.diff(repository, scope: scope, includePatch: false)
-            case "git.fingerprint": return ["fingerprint": .string(Self.fingerprint(try await git.diff(repository, scope: scope, includePatch: true)))]
+            case "git.fingerprint": return ["fingerprint": .string(try await git.fingerprint(repository, scope: scope))]
             default: break
             }
         } catch {
@@ -121,11 +132,6 @@ extension DiffPageProvider {
         return .object(members)
     }
 
-    /// SHA-256 of the diff's compact JSON, hex.
-    nonisolated static func fingerprint(_ diff: JSONValue) -> String {
-        SHA256.hash(data: Data(diff.compactText.utf8)).map { String(format: "%02x", $0) }.joined()
-    }
-
     /// The repository the tab's grant covers.
     func gitRepository() async throws -> String {
         guard let ready else { throw PageError(code: "sidecarUnavailable", message: "No repository is open") }
@@ -158,6 +164,9 @@ extension DiffPageProvider {
 
 /// The running app's diff git: the agent pane's local git link and its staging.
 public final class DiffAgentGit: DiffGitRunning {
+    /// What a session host with `git.fingerprint` advertises (cmux-tui `git_ops.rs`).
+    static let fingerprintCapability = "git-fingerprint-v1"
+
     let link: AgentPaneGitLink
 
     public init(link: AgentPaneGitLink) {
@@ -177,6 +186,14 @@ public final class DiffAgentGit: DiffGitRunning {
     public func diff(_ repository: String, scope: AgentPaneGitScope, includePatch: Bool,
                      options: AgentPaneGitDiffOptions) async throws(AgentPaneGitFailure) -> JSONValue {
         try Self.parse(try await link.read(.diff(cwd: repository, scope: scope, includePatch: includePatch, options: options)))
+    }
+
+    public func fingerprint(_ repository: String, scope: AgentPaneGitScope) async throws(AgentPaneGitFailure) -> String {
+        let reply = try Self.parse(try await link.read(
+            "git.fingerprint", params: ["path": .string(repository), "scope": .string(scope.rawValue)],
+            requiring: Self.fingerprintCapability))
+        guard let fingerprint = reply["fingerprint"]?.stringValue else { throw AgentPaneGitFailure.failed }
+        return fingerprint
     }
 
     public func write(_ request: AgentPaneGitWrite, in repository: String) async throws(AgentPaneGitFailure) -> JSONValue {
