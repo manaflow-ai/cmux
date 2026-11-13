@@ -418,3 +418,23 @@ fn id_tokens_are_checked_for_issuer_audience_expiry_nonce_and_signature() {
 fn form_encoding_escapes_reserved_bytes() {
     assert_eq!(form_encode(&[("a b", "x&y=z/é"), ("k", "v")]), "a+b=x%26y%3Dz%2F%C3%A9&k=v");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_machine_credential_is_refreshed_to_ten_minutes_left() {
+    let s = setup(FULL_SCOPE).await;
+    sign_in(&s, &[("code", "c1"), ("client_id", ISSUED)]).await;
+    let mut record = store::read(&s.places.home, "chatgpt").unwrap().unwrap();
+    record.expires_at = now() + 8 * 60;
+    store::write(&s.places.home, "chatgpt", &record).unwrap();
+    // Eight minutes left is enough for the gateway's 5-minute margin ...
+    let (token, _) = s.service.token(&s.places.home, "chatgpt").await.unwrap();
+    assert_eq!(token, "access-0");
+    // ... but a machine launch needs ten.
+    let (token, expires_at) = s
+        .service
+        .token_lasting(&s.places.home, "chatgpt", super::CREDENTIAL_MARGIN_SECS)
+        .await
+        .unwrap();
+    assert_eq!(token, "access-r1");
+    assert!(expires_at - now() >= super::CREDENTIAL_MARGIN_SECS);
+}

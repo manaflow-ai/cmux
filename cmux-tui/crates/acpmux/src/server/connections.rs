@@ -42,6 +42,8 @@ pub(super) const METHODS: &[&str] = &[
     method::MUX_CONNECTIONS_CHATGPT_WAIT,
     method::MUX_CONNECTIONS_CHATGPT_CANCEL,
     method::MUX_CONNECTIONS_CHATGPT_TOKEN,
+    method::MUX_CONNECTIONS_CLAUDE_TOKEN_ADD,
+    method::MUX_CONNECTIONS_CREDENTIAL,
 ];
 
 /// The key a watch note carries a `ConnectionsState` under (`harness_admin::watch_note`).
@@ -147,6 +149,17 @@ struct Facts {
     builtin: bool,
 }
 
+/// Whether a connection can serve a Cloud chat (Revision 2: its credential goes to the
+/// machine's agent): a ChatGPT plan, a Claude Code token, an Anthropic or OpenAI key. The Mac's
+/// CLI logins and added subscription accounts serve local chats only.
+pub(super) fn serves_cloud(kind: &str, provider: &str) -> bool {
+    match kind {
+        "chatgpt-plan" | "claude-token" => true,
+        "api-key" => matches!(provider, "anthropic" | "openai"),
+        _ => false,
+    }
+}
+
 fn connection(route: &Route, facts: Facts, b: &Bindings) -> Connection {
     let default_for = facts
         .families
@@ -154,6 +167,7 @@ fn connection(route: &Route, facts: Facts, b: &Bindings) -> Connection {
         .filter(|f| accounts::is_default(b, f, &route.id, facts.builtin))
         .cloned()
         .collect();
+    let serves_cloud = serves_cloud(facts.kind, &facts.provider);
     Connection {
         id: route.id.clone(),
         kind: facts.kind,
@@ -165,7 +179,7 @@ fn connection(route: &Route, facts: Facts, b: &Bindings) -> Connection {
         signed_in: facts.signed_in,
         enabled: !route.file.disabled,
         default_for,
-        serves_cloud: true,
+        serves_cloud,
     }
 }
 
@@ -252,6 +266,15 @@ pub(super) fn list(dir: Option<&Path>, home: &Path, b: &Bindings) -> Vec<Connect
                     builtin: false,
                 }
             }
+            RouteKind::ClaudeToken => Facts {
+                kind: "claude-token",
+                provider: "anthropic".into(),
+                families: vec!["claude".into()],
+                signed_in: file.secret.is_some(),
+                email: None,
+                plan: None,
+                builtin: false,
+            },
             _ => continue,
         };
         out.push(connection(&route, facts, b));
@@ -400,6 +423,93 @@ pub(super) fn add_key(
     // `add` validates: an inline key is refused (route.secret_inline).
     routes::add(dir, &id, &file, false).map_err(|e| route_error(&e))?;
     Ok((id, state(dir, home)))
+}
+
+/// Adds Claude Code's `claude setup-token` token as a secret reference (`keychain:ITEM`).
+pub(super) fn add_claude_token(
+    dir: Option<&Path>,
+    home: &Path,
+    secret: &str,
+    label: Option<&str>,
+) -> Result<(String, Value), RpcError> {
+    let id = std::iter::once("claude-token".to_owned())
+        .chain((2..1000).map(|n| format!("claude-token-{n}")))
+        .find(|id| routes::find(dir, id).is_err())
+        .ok_or_else(|| RpcError::invalid_params("too many Claude tokens"))?;
+    let file = RouteFile {
+        name: Some(
+            label
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .unwrap_or("Claude Code token")
+                .to_owned(),
+        ),
+        kind: RouteKind::ClaudeToken,
+        families: vec!["claude".into()],
+        anthropic_base_url: None,
+        openai_base_url: None,
+        auth: None,
+        secret: Some(secret.to_owned()),
+        headers: Default::default(),
+        health_url: None,
+        fallback: vec![],
+        auto_fallback: false,
+        notes: Some("claude setup-token: served to Cloud machines' Claude agents".into()),
+        account_home: None,
+        shadow_of: None,
+        disabled: false,
+        provider: Some("anthropic".into()),
+    };
+    // `add` validates: an inline token is refused (route.secret_inline).
+    routes::add(dir, &id, &file, false).map_err(|e| route_error(&e))?;
+    Ok((id, state(dir, home)))
+}
+
+/// What a Cloud machine's agent needs from a secret-reference connection: its family, kind,
+/// the variable it is delivered in and the reference. A ChatGPT plan is not one (its token is
+/// the daemon's own, `chatgpt::Service::token_lasting`).
+pub(super) fn credential_plan(
+    dir: Option<&Path>,
+    home: &Path,
+    id: &str,
+) -> Result<(String, &'static str, &'static str, Option<String>), RpcError> {
+    let found = list(dir, home, &routes::bindings(home))
+        .into_iter()
+        .find(|c| c.id == id)
+        .ok_or_else(|| RpcError::not_found(format!("no connection {id:?}")))?;
+    if !found.serves_cloud {
+        return Err(RpcError::invalid_params(format!("{id} does not serve Cloud chats"))
+            .with_data(json!({"reason": "connections.not_cloud", "id": id})));
+    }
+    let family = found.families.first().cloned().unwrap_or_default();
+    let var = match (found.kind, found.provider.as_str()) {
+        ("chatgpt-plan", _) => {
+            return Ok((family, "chatgpt-plan", "CMUX_CHATGPT_ACCESS_TOKEN", None));
+        }
+        ("claude-token", _) => "CLAUDE_CODE_OAUTH_TOKEN",
+        ("api-key", "anthropic") => "ANTHROPIC_API_KEY",
+        ("api-key", _) => "OPENAI_API_KEY",
+        _ => unreachable_kind(id)?,
+    };
+    let route = routes::find(dir, id).map_err(|e| route_error(&e))?;
+    let secret = route.file.secret.ok_or_else(|| {
+        RpcError::invalid_params(format!("{id} has no secret"))
+            .with_data(json!({"reason": "connections.no_secret", "id": id}))
+    })?;
+    Ok((family, found.kind, var, Some(secret)))
+}
+
+fn unreachable_kind(id: &str) -> Result<&'static str, RpcError> {
+    Err(RpcError::invalid_params(format!("{id} does not serve Cloud chats"))
+        .with_data(json!({"reason": "connections.not_cloud", "id": id})))
+}
+
+/// The secret a reference names; the error says why it did not resolve, never a value.
+fn resolve(id: &str, reference: &str) -> Result<String, RpcError> {
+    routes::resolve_reference(reference).map_err(|why| {
+        RpcError::invalid_params(format!("{id}'s secret did not resolve: {why}"))
+            .with_data(json!({"reason": "connections.secret_unresolved", "id": id}))
+    })
 }
 
 fn failure(f: chatgpt::Failure) -> RpcError {
@@ -565,6 +675,37 @@ pub(super) async fn handle(
             let status = hub.chatgpt.cancel(&attempt).await.map_err(failure)?;
             Ok(json!({"attempt": attempt, "status": status.as_str()}))
         }
+        method::MUX_CONNECTIONS_CLAUDE_TOKEN_ADD => {
+            let secret = need("secret")?;
+            let label = text("label").map(str::to_owned);
+            let (_, state) = blocking(move || {
+                add_claude_token(dir.as_deref(), &home, &secret, label.as_deref())
+            })
+            .await??;
+            announce_later(hub);
+            Ok(state)
+        }
+        method::MUX_CONNECTIONS_CREDENTIAL => {
+            let id = need("id")?;
+            let (d, h, i) = (dir.clone(), home.clone(), id.clone());
+            let (family, kind, var, reference) =
+                blocking(move || credential_plan(d.as_deref(), &h, &i)).await??;
+            let (value, expires_at) = match reference {
+                None => {
+                    let (token, expires_at) = hub
+                        .chatgpt
+                        .token_lasting(&home, &id, chatgpt::CREDENTIAL_MARGIN_SECS)
+                        .await
+                        .map_err(failure)?;
+                    (token, Some(expires_at))
+                }
+                // The keychain may ask: off the runtime's threads.
+                Some(reference) => (blocking(move || resolve(&id, &reference)).await??, None),
+            };
+            Ok(
+                json!({"family": family, "kind": kind, "env": {var: value}, "expires_at": expires_at}),
+            )
+        }
         method::MUX_CONNECTIONS_CHATGPT_TOKEN => {
             let id = need("id")?;
             let (access_token, expires_at) =
@@ -694,13 +835,99 @@ mod tests {
         assert_eq!(key["families"], json!(["claude", "codex"]));
         assert_eq!(key["label"], "Mine");
         assert_eq!(key["signed_in"], true);
-        assert_eq!(key["serves_cloud"], true);
+        assert_eq!(key["serves_cloud"], false, "Revision 2: only Anthropic and OpenAI keys");
         let (second, _) =
             add_key(Some(&d.routes), &d.home, "openrouter", "keychain:cmux-or-2", None).unwrap();
         assert_eq!(second, "openrouter-key-2");
         let route = routes::find(Some(&d.routes), "openrouter-key").unwrap();
         assert_eq!(route.file.secret.as_deref(), Some("keychain:cmux-or"));
         assert_eq!(route.file.provider.as_deref(), Some("openrouter"));
+    }
+
+    fn secret_file(d: &Dirs, name: &str, value: &str) -> String {
+        let path = d._root.path().join(name);
+        std::fs::write(&path, format!("{value}\n")).unwrap();
+        crate::router_socket::owner_only(&path);
+        format!("file:{}", path.display())
+    }
+
+    fn find<'a>(state: &'a Value, id: &str) -> &'a Value {
+        state["connections"].as_array().unwrap().iter().find(|c| c["id"] == id).unwrap()
+    }
+
+    #[test]
+    fn which_connections_serve_cloud() {
+        for (kind, provider, cloud) in [
+            ("chatgpt-plan", "openai", true),
+            ("claude-token", "anthropic", true),
+            ("api-key", "anthropic", true),
+            ("api-key", "openai", true),
+            ("api-key", "openrouter", false),
+            ("api-key", "google", false),
+            ("api-key", "xai", false),
+            ("codex-login", "openai", false),
+            ("claude-login", "anthropic", false),
+            ("subscription", "openai", false),
+        ] {
+            assert_eq!(serves_cloud(kind, provider), cloud, "{kind} {provider}");
+        }
+        let d = dirs();
+        let s = state(Some(&d.routes), &d.home);
+        assert_eq!(find(&s, "codex-login")["serves_cloud"], false);
+        assert_eq!(find(&s, "claude-login")["serves_cloud"], false);
+    }
+
+    #[test]
+    fn a_claude_token_is_added_as_a_reference_and_delivered_as_the_oauth_token() {
+        let d = dirs();
+        let inline = add_claude_token(Some(&d.routes), &d.home, "sk-ant-oat01-abc", None);
+        assert_eq!(inline.unwrap_err().data.unwrap()["reason"], "route.secret_inline");
+        let reference = secret_file(&d, "claude-token", "sk-ant-oat01-secret");
+        let (id, state) = add_claude_token(Some(&d.routes), &d.home, &reference, None).unwrap();
+        assert_eq!(id, "claude-token");
+        let c = find(&state, "claude-token");
+        assert_eq!(c["kind"], "claude-token");
+        assert_eq!(c["provider"], "anthropic");
+        assert_eq!(c["families"], json!(["claude"]));
+        assert_eq!(c["label"], "Claude Code token");
+        assert_eq!(c["signed_in"], true);
+        assert_eq!(c["serves_cloud"], true);
+        let route = routes::find(Some(&d.routes), "claude-token").unwrap();
+        assert_eq!(route.file.secret.as_deref(), Some(reference.as_str()), "only the reference");
+        assert!(matches!(
+            routes::env_for(&route, "claude", &d.home),
+            Err(routes::RouteError::Unavailable(_))
+        ));
+        let (family, kind, var, secret) =
+            credential_plan(Some(&d.routes), &d.home, "claude-token").unwrap();
+        assert_eq!(
+            (family.as_str(), kind, var),
+            ("claude", "claude-token", "CLAUDE_CODE_OAUTH_TOKEN")
+        );
+        assert_eq!(resolve("claude-token", &secret.unwrap()).unwrap(), "sk-ant-oat01-secret");
+    }
+
+    #[test]
+    fn keys_are_delivered_in_their_providers_variable_and_logins_not_at_all() {
+        let d = dirs();
+        let anthropic = secret_file(&d, "a", "sk-ant-api-1");
+        let openai = secret_file(&d, "o", "sk-proj-1");
+        add_key(Some(&d.routes), &d.home, "anthropic", &anthropic, None).unwrap();
+        add_key(Some(&d.routes), &d.home, "openai", &openai, None).unwrap();
+        add_key(Some(&d.routes), &d.home, "openrouter", "keychain:cmux-or", None).unwrap();
+        let (family, kind, var, _) =
+            credential_plan(Some(&d.routes), &d.home, "anthropic-key").unwrap();
+        assert_eq!((family.as_str(), kind, var), ("claude", "api-key", "ANTHROPIC_API_KEY"));
+        let (family, _, var, secret) =
+            credential_plan(Some(&d.routes), &d.home, "openai-key").unwrap();
+        assert_eq!((family.as_str(), var), ("codex", "OPENAI_API_KEY"));
+        assert_eq!(resolve("openai-key", &secret.unwrap()).unwrap(), "sk-proj-1");
+        for id in ["openrouter-key", "codex-login", "claude-login"] {
+            let e = credential_plan(Some(&d.routes), &d.home, id).unwrap_err();
+            assert_eq!(e.data.unwrap()["reason"], "connections.not_cloud", "{id}");
+        }
+        let e = credential_plan(Some(&d.routes), &d.home, "nope").unwrap_err();
+        assert_eq!(e.code, RpcError::not_found("").code);
     }
 
     #[test]
@@ -740,6 +967,14 @@ mod tests {
         assert!(plan.signed_in);
         assert_eq!(plan.email.as_deref(), Some("alex@example.com"));
         assert_eq!(plan.plan.as_deref(), Some("plus"));
+        assert!(plan.serves_cloud);
+        let (family, kind, var, secret) =
+            credential_plan(Some(&d.routes), &d.home, "chatgpt").unwrap();
+        assert_eq!(
+            (family.as_str(), kind, var),
+            ("codex", "chatgpt-plan", "CMUX_CHATGPT_ACCESS_TOKEN")
+        );
+        assert!(secret.is_none(), "the daemon's own token, not a reference");
         // A local chat never spawns on it.
         let route = routes::find(Some(&d.routes), "chatgpt").unwrap();
         assert!(matches!(
