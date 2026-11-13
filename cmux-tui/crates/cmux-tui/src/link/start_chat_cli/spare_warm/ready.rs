@@ -6,7 +6,7 @@
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
-use super::{COPY_BUDGET_MS, Copying, ReceiptScope, Record, State};
+use super::{COPY_BUDGET_MS, Copying, Record, Request, State};
 
 /// `ready: M` (under the lock) for `account` in `team`. No copy when one is already covered: a receipt for M (an
 /// installed login within its life, kept trimmed by the caller), a copy onto M in flight (or a warm still waiting
@@ -15,14 +15,15 @@ use super::{COPY_BUDGET_MS, Copying, ReceiptScope, Record, State};
 /// and answered, and M's record marks it given, without marking M claimed.
 pub(super) fn ready(
     file: &mut State,
-    account: &str,
+    request: &Request,
     team: &str,
     machine: &str,
     now_ms: u64,
     copy: Value,
     generation: Option<String>,
-    scope: Option<ReceiptScope>,
 ) -> Value {
+    let account = request.account.as_str();
+    let scope = request.scope.clone();
     let ours = |other_account: &str, other_team: Option<&str>| {
         other_account == account && other_team == Some(team)
     };
