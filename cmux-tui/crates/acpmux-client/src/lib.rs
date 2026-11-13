@@ -98,6 +98,7 @@ pub struct Client<T = acpmux_book::index::Summary> {
     send: VecDeque<Vec<u8>>,
     changes: VecDeque<QueuedChange<T>>,
     subscriptions: HashMap<String, SubState>,
+    retired_sids: std::collections::HashSet<String>,
     pages: HashMap<String, PageState>,
     limits: Limits,
     line: Vec<u8>,
@@ -138,6 +139,7 @@ where
             send: VecDeque::new(),
             changes: VecDeque::new(),
             subscriptions: HashMap::new(),
+            retired_sids: std::collections::HashSet::new(),
             pages: HashMap::new(),
             limits: Limits::default(),
             line: Vec::new(),
@@ -251,7 +253,7 @@ where
                 self.protocol_error("malformed upgrade reply");
                 return bytes.len();
             };
-            if value.get("error").is_some() {
+            if value.get("error").is_some_and(Value::is_object) {
                 self.phase = Phase::Fallback;
                 let rest = bytes.get(end.saturating_add(1)..).unwrap_or_default().to_vec();
                 self.push_change(Change::Fallback(rest), None, 0, false);
@@ -508,6 +510,11 @@ where
                 let method =
                     value.get("method").and_then(Value::as_str).unwrap_or("unknown").to_owned();
                 let code = value.get("code").and_then(Value::as_str).unwrap_or("error").to_owned();
+                if method == "page" {
+                    if let Some(sid) = sid.as_deref() {
+                        self.pages.remove(sid);
+                    }
+                }
                 if sid.is_some() && method == "sub" && code != "not_ready" {
                     self.subscriptions.remove(sid.as_deref().unwrap_or_default());
                 }
@@ -576,14 +583,19 @@ where
             return;
         }
         let replay = match value.get("replay").and_then(Value::as_str) {
-            Some("replay") => true,
-            Some("end") | None => false,
+            Some("replay") | Some("end") => {
+                self.subscriptions.get(&sid).is_some_and(|sub| sub.replaying)
+            }
+            None => false,
             Some(_) => {
                 self.protocol_error("invalid replay mark");
                 return;
             }
         };
         let replay_end = value.get("replay").and_then(Value::as_str) == Some("end");
+        if let Some(sub) = self.subscriptions.get_mut(&sid) {
+            sub.window_taken = true;
+        }
         let Some(ops) = value.get("ops").and_then(Value::as_array) else {
             self.protocol_error("malformed delta operations");
             return;
@@ -694,10 +706,15 @@ where
         let new_sid = loop {
             let candidate = format!("s{}", self.next_sid);
             self.next_sid = self.next_sid.saturating_add(1);
-            if wire::identifier_fits(&candidate) && !self.subscriptions.contains_key(&candidate) {
+            if wire::identifier_fits(&candidate)
+                && !self.subscriptions.contains_key(&candidate)
+                && !self.retired_sids.contains(&candidate)
+                && candidate != drop.sid
+            {
                 break candidate;
             }
         };
+        self.retired_sids.insert(drop.sid.clone());
         let cursor = drop.cursor;
         sub.request.sid = new_sid.clone();
         sub.request.cursor = cursor;
@@ -1047,9 +1064,9 @@ tail"#;
         .unwrap()
         .encode();
         client.received(&hello);
-        client.subscribe(Sub::new("s", "list").from_cursor(3)).unwrap();
+        client.subscribe(Sub::new("s1", "list").from_cursor(3)).unwrap();
         while client.take_send().is_some() {}
-        let dropped = Frame::json(FrameKind::Dropped, &serde_json::json!({"sid":"s","cursor":3}))
+        let dropped = Frame::json(FrameKind::Dropped, &serde_json::json!({"sid":"s1","cursor":3}))
             .unwrap()
             .encode();
         client.received(&dropped);
@@ -1058,15 +1075,63 @@ tail"#;
             Change::Dropped { new_sid: Some(new_sid), .. } => new_sid,
             other => panic!("unexpected change: {other:?}"),
         };
+        assert!(new_sid != "s1");
         assert!(String::from_utf8(client.take_send().unwrap()).unwrap().contains(&new_sid));
         let old_frame = Frame::json(
             FrameKind::Window,
-            &serde_json::json!({"sid":"s","cursor":4,"rows":[],"hasBefore":false,"hasAfter":false,"edition":1}),
+            &serde_json::json!({"sid":"s1","cursor":4,"rows":[],"hasBefore":false,"hasAfter":false,"edition":1}),
         )
         .unwrap()
         .encode();
         client.received(&old_frame);
         assert!(client.next_change().is_none());
+    }
+
+    #[test]
+    fn page_error_releases_the_request_slot() {
+        let mut client = Client::<Value>::connected_v2();
+        let hello = Frame::json(
+            FrameKind::Hello,
+            &wire::HelloReply { daemon_id: "d".into(), limits: Limits::default() },
+        )
+        .unwrap()
+        .encode();
+        client.received(&hello);
+        client.subscribe(Sub::new("s", "list")).unwrap();
+        while client.take_send().is_some() {}
+        client.page(Page::new("s", "list", wire::PageSide::After, 1)).unwrap();
+        let error = Frame::json(
+            FrameKind::Error,
+            &serde_json::json!({"method":"page","sid":"s","code":"invalid_page"}),
+        )
+        .unwrap()
+        .encode();
+        client.received(&error);
+        let _ = client.next_change();
+        assert!(client.page(Page::new("s", "list", wire::PageSide::After, 1)).is_ok());
+    }
+
+    #[test]
+    fn final_replay_frame_marks_its_operations_as_replay() {
+        let mut client = Client::<Value>::connected_v2();
+        let hello = Frame::json(
+            FrameKind::Hello,
+            &wire::HelloReply { daemon_id: "d".into(), limits: Limits::default() },
+        )
+        .unwrap()
+        .encode();
+        client.received(&hello);
+        client.subscribe(Sub::new("s", "list").from_cursor(0)).unwrap();
+        while client.take_send().is_some() {}
+        let frame = Frame::json(
+            FrameKind::Delta,
+            &serde_json::json!({"sid":"s","replay":"end","ops":[{"op":"queue","seq":1,"bytes":1}]}),
+        )
+        .unwrap()
+        .encode();
+        client.received(&frame);
+        assert!(matches!(client.next_change(), Some(Change::Queue { replay: true, .. })));
+        assert!(matches!(client.next_change(), Some(Change::ResumeEnd { .. })));
     }
 
     #[test]
@@ -1169,5 +1234,31 @@ tail"#;
             .unwrap();
         drop(tx);
         let _ = task.await;
+    }
+
+    #[cfg(feature = "tokio")]
+    #[tokio::test]
+    async fn tokio_driver_returns_fallback_transport_and_held_bytes() {
+        use tokio::io::{AsyncWriteExt, duplex, sink};
+        let (mut input, reader) = duplex(4096);
+        let (out_tx, _out_rx) = tokio::sync::mpsc::channel(2);
+        let task = tokio::spawn(tokio_driver::drive(
+            Client::<Value>::new(["list"]),
+            reader,
+            sink(),
+            out_tx,
+        ));
+        input
+            .write_all(
+                br#"{"jsonrpc":"2.0","id":1,"error":{"code":-32601}}
+tail"#,
+            )
+            .await
+            .unwrap();
+        let exit = task.await.unwrap().unwrap();
+        let tokio_driver::DriveExit::Fallback { bytes, .. } = exit else {
+            panic!("driver did not return fallback transport")
+        };
+        assert_eq!(bytes, b"tail");
     }
 }
