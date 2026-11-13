@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextDaemon
 import CmuxNextHistory
 import CmuxNextHistoryDaemon
 import Foundation
