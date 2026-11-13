@@ -686,6 +686,9 @@ pub fn check(paths: &Paths, honor: Honor) -> (Outcome, Option<HoldKind>) {
     }
     state.last = Some(line);
     state.last_at = now();
+    // The same outcome as codes, for the machine's Cloud status report (`look.rs`).
+    state.look =
+        Some(super::look::Look::next(state.look.take(), super::look::seen_of(&outcome), wall_ms()));
     let _ = save_state(paths, &state);
     (outcome, skipped)
 }
