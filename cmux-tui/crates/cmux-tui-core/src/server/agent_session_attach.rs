@@ -41,10 +41,11 @@ use crate::state::conversation_tabs_store::ConversationTabRecord;
 pub use agent_session_folders::AGENT_SESSION_FOLDERS_CAPABILITY;
 use agent_session_link::{AcpmuxLink, Inbound, LinkError};
 pub use agent_session_start::{
-    AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_KEYED_REASON_CAPABILITY,
-    AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_NO_CWD_CAPABILITY,
-    AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY, AGENT_SESSION_START_PERMISSION_MODE_CAPABILITY,
-    AGENT_SESSION_START_VM_KIND_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
+    AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_CREDENTIALS_CAPABILITY,
+    AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_START_MODEL_CAPABILITY,
+    AGENT_SESSION_START_NO_CWD_CAPABILITY, AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY,
+    AGENT_SESSION_START_PERMISSION_MODE_CAPABILITY, AGENT_SESSION_START_VM_KIND_CAPABILITY,
+    AcpmuxStarter, AgentStartHost, AgentStartHostSource,
 };
 pub use agent_session_trust::{
     AGENT_SESSION_TRUST_CAPABILITY, AGENT_SESSION_TRUST_VM_KIND_CAPABILITY,
@@ -924,6 +925,13 @@ pub(super) fn try_handle(
     if cmd == "agent-session-start" {
         return Some(start(mux, client, id, object, writer));
     }
+    // The owner's refreshed model credential: never a teammate's, guest's or member's link.
+    if cmd == "agent-session-credentials" {
+        if author.is_some() {
+            return Some(refuse(writer, id, Refusal::NotTrusted));
+        }
+        return Some(credentials(mux, client, id, object, writer));
+    }
     if cmd == "agent-session-trust" {
         return Some(trust(mux, client, id, object, writer));
     }
@@ -993,6 +1001,86 @@ fn start(
     };
     agent_session_start::start(mux, client, id, socket, params, writer)
 }
+
+/// `agent-session-credentials {surface, env, vm_kind}`: the owner's refreshed model credential
+/// for the chat tab `surface` shows (a refreshed ChatGPT token), relayed to acpmux as
+/// `agent/credentials.update` on that tab's own session, which restarts its agent on it and
+/// resumes the chat. Only the owner's own app on the owner's own Cloud VM
+/// ([`agent_session_start::credentials_admitted`]), through the start verb's trust checks.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CredentialsParams {
+    surface: SurfaceId,
+    env: std::collections::BTreeMap<String, String>,
+    #[serde(default, deserialize_with = "crate::server::command_args::present_nullable")]
+    vm_kind: Option<Option<String>>,
+}
+
+fn credentials(
+    mux: &Arc<Mux>,
+    client: u64,
+    id: Option<Value>,
+    params: serde_json::Map<String, Value>,
+    writer: &MessageWriter,
+) -> bool {
+    let Ok(CredentialsParams { surface, env, vm_kind }) =
+        serde_json::from_value(Value::Object(params))
+    else {
+        return refuse(writer, id, Refusal::BadRequest);
+    };
+    let credential = agent_session_start::StartCredentials { env };
+    if !credential.valid() {
+        return refuse(writer, id, Refusal::BadRequest);
+    }
+    if !mux.agent_carrier_allowed(client) {
+        return refuse(writer, id, Refusal::NotTrusted);
+    }
+    if !agent_session_start::credentials_admitted(mux, client, &vm_kind) {
+        return refuse(writer, id, Refusal::OwnerOnly);
+    }
+    // The tab's own session, of a tab this store hosts: never a session id the caller names.
+    let session =
+        mux.surface(surface).and_then(|runtime| match mux.conversation_tab_of(&runtime) {
+            Some(ConversationTabRecord::AgentSession { host, session: Some(session), .. })
+                if host == agent_session_start::store_host(mux) =>
+            {
+                Some(session)
+            }
+            _ => None,
+        });
+    let Some(session) = session else {
+        return refuse(writer, id, Refusal::UnknownTab);
+    };
+    let Some(socket) = mux.control_clients.agent_sessions.socket() else {
+        return refuse(writer, id, Refusal::Unavailable);
+    };
+    let (worker_mux, worker_writer, worker_id) = (mux.clone(), writer.clone(), id.clone());
+    let spawned =
+        std::thread::Builder::new().name("mux-agent-credentials".into()).spawn(move || {
+            let answer = agent_session_start::connect(&worker_mux, &socket).and_then(|link| {
+                let mut params = credential.wire();
+                params["sessionId"] = json!(session);
+                // A restart waits for the agent's new process (spawn, initialize, resume).
+                let reply = link.call("agent/credentials.update", params, CREDENTIALS_TIMEOUT);
+                link.close();
+                reply.map_err(Refusal::of)
+            });
+            match answer {
+                Ok(reply) => {
+                    let restart = reply.get("restart").cloned().unwrap_or(Value::Null);
+                    ok(&worker_writer, worker_id, json!({"surface": surface, "restart": restart}))
+                }
+                Err(refusal) => refuse(&worker_writer, worker_id, refusal),
+            };
+        });
+    if spawned.is_err() {
+        return refuse(writer, id, Refusal::Limit);
+    }
+    true
+}
+
+/// A credential update restarts the agent between turns and waits for its new process.
+const CREDENTIALS_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// `agent-session-trust` (agent_session_trust.rs), with the same checks.
 fn trust(

@@ -51,6 +51,8 @@ final class CloudService {
     @ObservationIgnored let hostReplica: CloudHostReplicaFollower
     /// Chief hands: levels, the presence key and requests waiting for the owner (cx-om025).
     @ObservationIgnored let hands: HandsService
+    /// The owner's model credentials for Cloud chats and their refresh (``CloudAgentCredentials``); read wired in AgentTabs+Wiring.
+    @ObservationIgnored let agentCredentials = CloudAgentCredentials()
     @ObservationIgnored let gateway: PersonalGateway // this Mac answers its person's Cloud machines' model calls (``PersonalGateway``)
     @ObservationIgnored private let machines: MachineRegistry
     /// The plan gate for a create, from the last machine list's limits.
