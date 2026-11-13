@@ -217,7 +217,7 @@ fn subagent_line(name: &str, sub: &Subagent, hooked: bool, japanese: bool) -> St
 
 /// Whether `env`'s locale (LC_ALL, LC_MESSAGES, LANG, the first set) is Japanese, as
 /// `cli/harness.rs` `add_help` reads it.
-fn japanese(env: impl Fn(&str) -> Option<String>) -> bool {
+pub(crate) fn japanese(env: impl Fn(&str) -> Option<String>) -> bool {
     ["LC_ALL", "LC_MESSAGES", "LANG"]
         .iter()
         .find_map(|k| env(k).filter(|v| !v.is_empty()))

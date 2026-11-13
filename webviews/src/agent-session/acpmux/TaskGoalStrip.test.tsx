@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { TaskGoalStrip } from "./TaskGoalStrip";
 import { loopNextText } from "./taskGoalStripModel";
+import { settleReact } from "../../../test/support/domTeardown";
 
 const never = async () => {
   throw new Error("a loop has no command");
@@ -34,10 +35,12 @@ test("a self-wake loop shows only when it checks back, never its wake prompt", (
   expect(html).toContain('data-kind="loop"');
   expect(visible).toBe("Checking back in 15 min.");
   expect(visible).not.toContain("b2mqa7gwr");
-  // One button: it opens the prompt on demand. Claude Code has no way to stop or pause a loop from
-  // outside its turn, so no button pretends to.
+  // The line itself is its one button: it opens the prompt on demand, with no icon of its own
+  // (Leo, 2026-11-12: "idk what the point of it is rn quite"). Claude Code has no way to stop or
+  // pause a loop from outside its turn, so no button pretends to.
   expect(html.match(/<button/g)?.length).toBe(1);
-  expect(html).toContain('aria-label="Loop prompt"');
+  expect(html).toContain('class="acpmux-goal-copy acpmux-goal-loop-toggle"');
+  expect(html).not.toContain("acpmux-goal-action");
   expect(html).toContain('aria-expanded="false"');
 });
 
@@ -220,6 +223,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -264,6 +268,8 @@ test("a clock tick changes the goal's time and re-renders nothing else of the ro
   );
   const time = () => host.querySelector(".acpmux-goal-time")?.textContent;
   const first = time();
+  // The shared Clock holds the minute shape's widest text, so a tick never moves the chevron.
+  expect(host.querySelector(".acpmux-goal-time .ui-clock")?.getAttribute("data-clock-size")).toBe("00m 00s");
   const before = rowRenders;
   await act(async () => {
     // fixed-wait: the page clock's real one-second tick is what this measures; two pass.

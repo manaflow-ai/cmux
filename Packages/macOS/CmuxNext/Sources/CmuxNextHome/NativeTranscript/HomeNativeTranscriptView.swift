@@ -175,6 +175,8 @@ public final class HomeNativeTranscriptView: NSView {
     let headerPanels = HomeHeaderPanelBar()
     /// The section pinned under the header (HomeNativeTranscriptView+PinnedSection.swift) and its measured height.
     var pinned: (view: NSView, height: CGFloat?)?
+    /// The Set Up cmux card under the pinned section (HomeNativeTranscriptView+PinnedSection.swift) and its height.
+    var setupCard: (view: NSView, height: CGFloat)?
     /// The window's key and occlusion observers; each token removes itself when released (on any thread).
     private var observers: [MainActorObservation] = []
     /// The window's typing hold for the compose field's cursor rects (HomeCursorRectHold).
@@ -183,10 +185,9 @@ public final class HomeNativeTranscriptView: NSView {
     let showsHeader = HomeTunables.chatHeader.value
 
     /// - Parameter diagrams: draws Mermaid fences as diagrams (the app's ``OndineMermaidRenderer``); nil keeps them as text.
-    /// - Parameter widgets: runs agents' widget parts natively (the app's ``HomeWidgetHosting`` over its app host); nil shows their fallback text.
     /// - Parameter openPanel: the app's made-ahead file picker (`AppServices.openPanel`) for the "+"; nil (tests) opens none.
     public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, diagrams: (any HomeDiagramRendering)? = nil,
-                widgets: (any HomeWidgetHosting)? = nil, openPanel: MadeAheadOpenPanel? = nil) {
+                openPanel: MadeAheadOpenPanel? = nil) {
         attachmentPanel = openPanel.map { HomeAttachmentPanel(openPanel: $0) }
         HomeReduceMotion.install()
         self.me = me
@@ -197,8 +198,7 @@ public final class HomeNativeTranscriptView: NSView {
         // first pass installs it at the newest message, as it does a chat another
         // view holds open (https://github.com/manaflow-ai/cmux/issues/26397).
         binding = HomeStoreBinding(store: store, conversation: conversation)
-        transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake(), diagrams: diagrams,
-                                         widgets: widgets)
+        transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake(), diagrams: diagrams)
         // The running indicator's look (Debug Settings > Home), read at each of its ticks.
         transcript.turnProgressStyle = { HomeTunables.turnProgress.value.style }
         attachmentPreparer = store
@@ -250,7 +250,6 @@ public final class HomeNativeTranscriptView: NSView {
     }
 
     required init?(coder: NSCoder) { nil }
-
 
     /// The hover cards of link chips (``enableLinkPreviews(coordinator:previewer:)``), nil until the host enables them.
     private(set) var linkPreviews: HomeLinkChipHoverSource?
@@ -359,6 +358,10 @@ public final class HomeNativeTranscriptView: NSView {
     /// The primary input (spec/app-screens.md section 3): the message box's
     /// text view. Hosts focus this view, not the transcript.
     public var primaryInput: NSView { transcript.primaryInput }
+
+    /// Where the keyboard goes when Home gets focus or a key typed elsewhere in it: the picture viewer while it is
+    /// open over the chat (its Esc, arrows and letters are its own), else ``primaryInput``.
+    public var keyboardTarget: NSView { transcript.keyboardTarget }
 
     /// The home (`$MUX_HOME`) of the Chief that answers here, when its host runs on this Mac: `/` in the
     /// message box then lists its skills, the person's Claude Code skills and their plugins' skills (the

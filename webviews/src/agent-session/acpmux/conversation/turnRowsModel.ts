@@ -1,5 +1,6 @@
-import type { AcpmuxRow } from "../model";
-import { groupId, runStretches, type RunStretch, type ToolGroup } from "./toolGroups";
+import type { AcpmuxActivity, AcpmuxRow } from "../model";
+import { isToolDiscoveryNoise } from "./mcpPresentation";
+import { runStretches, type RunStretch, type ToolGroup } from "./toolGroups";
 
 /// A run of tool calls and thoughts between two pieces of text, in groups (toolGroups.ts). The
 /// Codex-style runs fold a finished run (`foldRun`) of two or more entries under one summary line
@@ -31,7 +32,7 @@ export function thoughtIds(groups: readonly ToolGroup[]): number[] {
 /// commands" to "Finished a background task and ran 4 commands") and its row is shaped anew (the
 /// turn's end, a short aside that joins two rows). Undefined for an entry with no line of its own.
 export function groupDisclosureKey(group: ToolGroup, index: number, rowId: string): string | undefined {
-  if (group.type === "group") return `group:${group.kind}:${groupId(group.items) || `${rowId}:${index}`}`;
+  if (group.type === "group") return `group:${group.kind}:${keyCallId(group.items) || `${rowId}:${index}`}`;
   if (group.type === "mcp") return `group:mcp:${group.items[0]!.tool!.id || `${rowId}:${index}`}`;
   return undefined;
 }
@@ -40,8 +41,21 @@ export function groupDisclosureKey(group: ToolGroup, index: number, rowId: strin
 /// run's line keeps the reader's choice when the row it sits in changes id (an ended turn's edits
 /// row, two runs joined around an aside) or a card splits the run.
 export function runDisclosureKey(stretch: Pick<RunStretch, "items" | "from">, rowId: string): string {
-  const first = stretch.items.find((item) => item.tool)?.tool?.id;
+  const first = keyCallId(stretch.items);
   return first ? `run:${first}` : `run:${rowId}:${stretch.from}`;
+}
+
+/// The call a line's key names: its first call the transcript draws, so the key is the same whether
+/// or not Find shows the hidden discovery calls (mcpPresentation.ts `visibleToolItems`) before it; a
+/// line of hidden calls alone, drawn only while Find shows them, takes its first.
+export function keyCallId(items: readonly AcpmuxActivity[]): string | undefined {
+  let first: string | undefined;
+  for (const item of items) {
+    if (!item.tool) continue;
+    if (!isToolDiscoveryNoise(item.tool)) return item.tool.id || undefined;
+    first ??= item.tool.id || undefined;
+  }
+  return first;
 }
 
 /// A row's groups and runs, in a word: each stretch's fold, and each group's kind and size. It changes

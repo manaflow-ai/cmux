@@ -81,6 +81,7 @@ import type { OutputArtifact } from "./outputsSectionModel";
 import { ServersSection } from "./ServersSection";
 import { SubagentLimitStepper } from "./SubagentLimitStepper";
 import { SubagentCountsMeta, SubagentsSection } from "./SubagentsSection";
+import type { ResumeActions } from "../subagents/ResumeControl";
 import { AlsoHereSection } from "./AlsoHereSection";
 import { useAlsoHere } from "./alsoHereSectionModel";
 import { sessionStatus } from "./childSessionRowsModel";
@@ -352,6 +353,7 @@ export function SessionInfo({
   agents = [],
   waiting = new Set(),
   onOpenSubagent,
+  resumeSubagent,
   statuses = {},
   processes = [],
   listed = false,
@@ -383,6 +385,7 @@ export function SessionInfo({
   onOpenChanges,
   onOpenOutputFile,
   onShowCall,
+  onShowTurn,
   allSessions,
   usageSessions = allSessions,
   alsoHere: shownAlsoHere,
@@ -429,6 +432,8 @@ export function SessionInfo({
   agents?: readonly Subagent[];
   waiting?: ReadonlySet<string>;
   onOpenSubagent?: (id: string) => void;
+  /// Resume on a stopped subagent's line (subagents/ResumeControl.tsx).
+  resumeSubagent?: ResumeActions;
   /// What the App read of the pull requests, by URL.
   statuses?: Readonly<Record<string, SessionInfoPullRequestStatus>>;
   /// The chat's background processes, in the order they started.
@@ -501,6 +506,7 @@ export function SessionInfo({
   /// Shows the Bash call that started a background command in the transcript: what its row opens
   /// in a chat whose terminal cannot open here (TasksSection).
   onShowCall?: (toolCallId: string) => boolean;
+  onShowTurn?: (turnId: string) => void;
   /// The body's first line: whose panel it is (a subagent's, SubagentBanner).
   banner?: ReactNode;
   /// The subagent it lists: its Context is the tokens and tool uses the harness reports for it.
@@ -854,6 +860,7 @@ export function SessionInfo({
           agents={listedAgents}
           waiting={waiting}
           onOpen={onOpenSubagent}
+          resume={resumeSubagent}
           sessions={sessions}
           onOpenSession={onOpenSession}
           harness={summary?.harness}
@@ -914,10 +921,11 @@ export function SessionInfo({
   );
   // Usage shows once acpmux reports what this chat or any listed chat spends.
   const ownUsage = summary?.usageStats;
+  const timeBreakdown = summary?.timeBreakdown;
   const usageValue = usageMeta(t, ownUsage, language);
   const planLimits = typeof summary?.usageLimits === "object" ? summary.usageLimits : undefined;
   // acpmux reads a chat's spend from its harness records, so a new chat has none for a few minutes.
-  const hasUsage = Boolean(ownUsage || anyUsage || planLimits);
+  const hasUsage = Boolean(ownUsage || anyUsage || planLimits || timeBreakdown);
   const usageSection = (hasUsage || !agent) && (
     <SessionInfoSection
       id="usage"
@@ -938,6 +946,8 @@ export function SessionInfo({
         locale={language}
         ownRowLayout={usageOwnRowLayout}
         cacheLayout={usageCacheLayout}
+        timeBreakdown={timeBreakdown}
+        onShowTurn={onShowTurn}
       />
     </SessionInfoSection>
   );

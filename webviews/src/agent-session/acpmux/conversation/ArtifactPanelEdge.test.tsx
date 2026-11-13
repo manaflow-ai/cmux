@@ -2,6 +2,7 @@
 // as a split divider does (Leo, 2026-11-09: "it opened up on the right split, but then it's like there's
 // this supposed divider-looking thing that I can't actually drag, and it just looks super awkward").
 import { afterEach, expect, test } from "bun:test";
+import { settleReact } from "../../../../test/support/domTeardown";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -59,17 +60,23 @@ function render(node: React.ReactNode): Document {
     matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
     IS_REACT_ACT_ENVIRONMENT: true,
   });
+  // The page reads its width from the window, which JSDOM sizes at 1024.
+  Object.defineProperty(win, "innerWidth", { configurable: true, value: 1000 });
   root ??= createRoot(win.document.getElementById("root")!);
   act(() => root!.render(node));
   return win.document;
 }
 let frames: (() => void)[] = [];
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
   dom?.window.localStorage.clear();
-  for (const [key, value] of saved) scope[key] = value;
+  await settleReact();
+  for (const [key, value] of saved) {
+    if (value === undefined) delete scope[key];
+    else scope[key] = value;
+  }
   saved.clear();
   dom?.window.close();
   dom = undefined;

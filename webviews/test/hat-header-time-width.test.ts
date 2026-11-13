@@ -39,14 +39,21 @@ await requireBrowserLane("hat-header-time-width.test.ts", async () => {
     await server?.close();
   });
 
-  // The capture's pane was about 415 px wide: the header's names truncate there.
-  for (const width of [420, 760])
+  // The capture's header cut its names; the fixture's are short, so they cut only in a narrow pane (280, 300).
+  for (const width of [280, 300, 420, 760])
     test(`the folded header's names and counts hold still as its time grows (${width} px)`, async () => {
       const port = (server.httpServer!.address() as { port: number }).port;
       const page = await browser.newPage({ viewport: { width, height: 560 }, reducedMotion: "reduce" });
       try {
         await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { variant })}`);
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+        const head = page.locator(".acpmux-running-tray__head").first();
+        await head.waitFor();
+        // The stage opens the hat; the capture's header was folded, naming what runs and "+N more".
+        if ((await head.getAttribute("aria-expanded")) === "true") await head.click();
+        await page.waitForFunction(
+          () => document.querySelector(".acpmux-running-tray__head")?.getAttribute("aria-expanded") === "false",
+        );
         const time = page.locator(".acpmux-running-tray__head > .acpmux-running-tray__time").first();
         await time.waitFor();
         // The header's counts slide in once (trayMotion.tsx `Tick`): measure after its row has painted
@@ -98,6 +105,9 @@ await requireBrowserLane("hat-header-time-width.test.ts", async () => {
         const shown: Awaited<ReturnType<typeof at>>[] = [];
         for (const text of ticks) shown.push(await at(text));
         const first = shown[0]!;
+        // The folded header names what runs and counts the rest: both are measured, never absent.
+        expect(first.title, "the folded header shows no names").toBeDefined();
+        expect(first.more, "the folded header shows no +N more").toBeDefined();
         for (const [index, step] of shown.entries()) {
           expect(step.text).toBe(ticks[index]!);
           expect(step.timeCut, `the time was cut at ${step.text}`).toBe(false);

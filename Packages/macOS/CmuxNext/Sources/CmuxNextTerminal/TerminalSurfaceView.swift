@@ -162,8 +162,10 @@ public final class TerminalSurfaceView: NSView {
 
     // MARK: Lifecycle
 
-    init(io mode: ghostty_surface_io_mode_e, input: TerminalInputSink, session: TerminalSession?) {
-        let bridge = SurfaceBridge(input: input)
+    /// `prediction`: the session's predictive echo engine, fed this surface's input and parsed output.
+    init(io mode: ghostty_surface_io_mode_e, input: TerminalInputSink, session: TerminalSession?,
+         prediction: TerminalEchoPrediction? = nil) {
+        let bridge = SurfaceBridge(input: input, prediction: prediction)
         self.bridge = Unmanaged.passRetained(bridge)
         self.session = session
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
@@ -222,6 +224,8 @@ public final class TerminalSurfaceView: NSView {
             return
         }
         self.surface = surface
+        // Before anything can draw: every frame the layer shows is reported (``TerminalPresents``).
+        bridge.takeUnretainedValue().presents.install(on: surface, layer: layer.map(ObjectIdentifier.init), userdata: userdata)
         // The drawable follows the size this view sets (`setFrameSize`), not
         // its layer's bounds: one synchronous frame per size change at the
         // next display pass, no draw for a bounds change alone.
@@ -232,8 +236,7 @@ public final class TerminalSurfaceView: NSView {
         // Light/dark themes (default Apple System Colors) follow the app.
         GhosttyRuntime.shared.registerColorScheme(of: self)
         lane = TerminalOutputLane(surface: surface, label: "com.cmuxterm.next.terminal.output",
-                                  frameLayer: layer.map(ObjectIdentifier.init))
-        if TypingLatencyProbe.isEnabled, let layer { TypingFrameProbe.install(on: layer) }
+                                  frameLayer: layer.map(ObjectIdentifier.init), prediction: bridge.takeUnretainedValue().prediction)
         registerForDraggedTypes([.fileURL, .URL, .string, .png, .tiff])
         updateContentScale()
         updateSurfaceSize(forceReport: true)
@@ -398,7 +401,6 @@ public final class TerminalSurfaceView: NSView {
         if resized, isShown, !frameOwnership.landing { updateSurfaceSize() }
         // A landing runs under the Core Animation lock: its cursor box follows after it (``frameDidLand()``).
         if !frameOwnership.landing { copyMode.syncCursor() }
-        if resized { selectionHint.resized() }
     }
 
     /// `ghostty_surface_set_content_scale` + `ghostty_surface_set_display_id`

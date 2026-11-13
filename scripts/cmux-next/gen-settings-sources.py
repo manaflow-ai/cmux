@@ -807,7 +807,7 @@ PAGE_SOURCE = "schemas/settings/source/page-layout.json"
 PAGE_SWIFT = SCHEMA_DIR + "/SettingsSchema+PageLayout.generated.swift"
 PAGE_CATEGORIES_SWIFT = SCHEMA_DIR + "/SettingsSchema+PageLayoutCategories.generated.swift"
 PAGE_FIELDS = {"$comment", "default_category", "max_rows_per_card", "cards", "section_actions", "sidebar_sections"}
-PAGE_CATEGORY_FIELDS = {"id", "title", "symbol", "note", "groups", "lead", "trail", "actions", "aliases", "dev_only"}
+PAGE_CATEGORY_FIELDS = {"id", "title", "symbol", "note", "groups", "lead", "trail", "actions", "aliases", "legacy_ids", "dev_only"}
 PAGE_GROUP_FIELDS = {"group", "keys", "lead_keys", "title", "note"}
 ACTION_ID = __import__("re").compile(r"^[A-Za-z][A-Za-z0-9]*(\.[A-Za-z][A-Za-z0-9]*)*$")
 
@@ -835,7 +835,7 @@ def load_page_layout(section_ids):
     for section, ids in actions.items():
         if not isinstance(ids, list) or len(set(ids)) != len(ids) or not all(isinstance(i, str) and ACTION_ID.match(i) for i in ids):
             fail(src, "section_actions.%s is a list of unique action ids" % section)
-    category_ids, group_keys, claimed = [], set(), set()
+    category_ids, group_keys, claimed, legacy_ids = [], set(), set(), []
     for run in data["sidebar_sections"]:
         if set(run) != {"id", "title", "categories"} or not IDENT.match(run["id"]) or not run["categories"]:
             fail(src, "a sidebar section has id, title (or null) and a non-empty categories list: %r" % run.get("id"))
@@ -862,6 +862,11 @@ def load_page_layout(section_ids):
                     fail(src, "%s.%s: unique ids of %s" % (cid, field, "cards" if known is cards else "sections"))
             if not isinstance(category.get("dev_only", False), bool):
                 fail(src, "%s.dev_only is a bool" % cid)
+            legacy = category.get("legacy_ids", [])
+            if not isinstance(legacy, list) or len(set(legacy)) != len(legacy) \
+                    or not all(isinstance(i, str) and IDENT.match(i) and i not in section_ids for i in legacy):
+                fail(src, "%s.legacy_ids: unique ids of retired categories (not sections)" % cid)
+            legacy_ids.extend(legacy)
             for index, group in enumerate(category["groups"]):
                 where = "%s group %d" % (cid, index)
                 if set(group) - PAGE_GROUP_FIELDS or not ("group" in group or "title" in group):
@@ -877,6 +882,8 @@ def load_page_layout(section_ids):
                         if not isinstance(row, str) or not row or any(not part for part in row.split(".")) or row in claimed:
                             fail(src, "%s: bad row key or a row claimed twice: %r" % (where, row))
                         claimed.add(row)
+    if len(set(legacy_ids)) != len(legacy_ids) or set(legacy_ids) & set(category_ids):
+        fail(src, "a legacy id opens one category and is no category's own id")
     if data["default_category"] not in category_ids:
         fail(src, "default_category %r is not a category" % data["default_category"])
     return data
@@ -936,6 +943,8 @@ public nonisolated struct SettingsPageLayout: Sendable {{
         public var aliases: [SettingsSection] = []
         /// Shown only in DEV builds: the page hides it when the host says it is not one.
         public var devOnly = false
+        /// Ids of retired categories (old `#/settings/<id>` links) that open this category.
+        public var legacyIDs: [String] = []
     }}
 
     /// A titled run of categories in the page's sidebar (the lead run is untitled).
@@ -1027,15 +1036,17 @@ def page_categories_swift(data):
                     if group.get("lead_keys"):
                         args.append("leadKeys: " + swift_list(group["lead_keys"]))
                     out.append("            GroupSpec(%s)," % ", ".join(args))
-                out.append("        ]" + ("," if any(category.get(f) for f in ("lead", "trail", "actions", "aliases", "dev_only")) else ""))
+                out.append("        ]" + ("," if any(category.get(f) for f in ("lead", "trail", "actions", "aliases", "dev_only", "legacy_ids")) else ""))
             else:
-                out.append("        groups: []" + ("," if any(category.get(f) for f in ("lead", "trail", "actions", "aliases", "dev_only")) else ""))
+                out.append("        groups: []" + ("," if any(category.get(f) for f in ("lead", "trail", "actions", "aliases", "dev_only", "legacy_ids")) else ""))
             rest = []
             for field, label in (("lead", "lead"), ("trail", "trail"), ("actions", "actions"), ("aliases", "aliases")):
                 if category.get(field):
                     rest.append("%s: %s" % (label, cases(category[field])))
             if category.get("dev_only"):
                 rest.append("devOnly: true")
+            if category.get("legacy_ids"):
+                rest.append("legacyIDs: " + swift_list(category["legacy_ids"]))
             if rest:
                 out.append("        " + ", ".join(rest))
             out.append("    )")
@@ -1340,6 +1351,34 @@ def row_fact_outputs():
 SECTIONS = load_generator_sections()
 
 
+EXPORT = "schemas/settings/settings-schema.json"
+
+
+def export_key_drift(loaded):
+    """What the committed export (settings-schema.json, written by the Swift export on a Mac) says
+    that the sources do not: a source row missing from its rows, a row no source has, or a retired
+    key back in it. The export is a generated file, but a PR can carry one made from an older base
+    (#40382 merged an export from before agents.chats.coldArchive and with the retired
+    ui.animations.bounce), and the Mac check that compares it with a fresh export does not run on
+    every event. Every row comes from a source, so the key sets are equal; this reads only JSON, so
+    it runs everywhere --check does."""
+    path = os.path.join(ROOT, EXPORT)
+    if not os.path.exists(path):
+        return []
+    with open(path, encoding="utf-8") as handle:
+        exported = {row["key"] for row in json.load(handle)["rows"]}
+    sourced = {row["key"] for _, data in loaded for entry in data["lists"] for row in entry["rows"]}
+    retired = {entry["key"] for entry in load_retired()}
+    problems = []
+    if sourced - exported:
+        problems.append("source rows missing from the export: %s" % sorted(sourced - exported))
+    if exported - sourced - retired:
+        problems.append("export rows no source has: %s" % sorted(exported - sourced - retired))
+    if exported & retired:
+        problems.append("retired keys back in the export: %s" % sorted(exported & retired))
+    return problems
+
+
 def main():
     check = "--check" in sys.argv[1:]
     outputs = {RETIRED_SWIFT: retired_swift(load_retired())}
@@ -1382,6 +1421,12 @@ def main():
         else:
             os.remove(os.path.join(ROOT, path))
             print("removed " + path)
+    stale_export = export_key_drift(loaded)
+    if stale_export:
+        print("%s is not the sources' export (an export from another base?):\n  %s\nregenerate it: "
+              "scripts/cmux-next/regenerate-settings-exports.sh (a Mac or the PR's cmux-next-generated-patch artifact)"
+              % (EXPORT, "\n  ".join(stale_export)), file=sys.stderr)
+        return 1
     if drifted:
         print("generated settings copies differ from schemas/settings:\n  %s\nrun: python3 scripts/cmux-next/gen-settings-sources.py"
               % "\n  ".join(drifted), file=sys.stderr)

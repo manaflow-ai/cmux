@@ -127,3 +127,161 @@ public struct TerminalTUIMomentum: Equatable, Sendable {
         return began ? TerminalTUIScroll.Wheel(dy: 0, momentum: .ended) : nil
     }
 }
+
+/// Whether a tap over a full-screen app is a click (Leo, 2026-11-12: "this
+/// terminal projection nigh unusable due to me scroll and thumb land on
+/// subagent depiction"). A tap is the app's click when it asked for the
+/// mouse, so a thumb flicking through a Claude Code transcript clicked
+/// whatever row it landed on (a background agent, which opened its view).
+/// A tap clicks only when it is a deliberate tap: it lands when the app is
+/// not scrolling (``quietAfterScroll`` after the last wheel, as a tap on a
+/// moving UIScrollView only stops it), stays within ``maximumMovement`` and
+/// lifts within ``maximumHold``. A touch that lands while the app scrolls
+/// does nothing else either (``Verdict/ignore``); a slow or moving tap
+/// still focuses the terminal, without the click.
+public struct TerminalTUITapClick: Equatable, Sendable {
+    public enum Verdict: Equatable, Sendable {
+        /// The app's click, and the terminal takes the keyboard.
+        case click
+        /// Only the terminal takes the keyboard.
+        case focusOnly
+        /// Nothing: the touch was part of scrolling.
+        case ignore
+    }
+
+    /// A touch that lands this soon after a wheel (seconds) is still scrolling.
+    public static let quietAfterScroll: TimeInterval = 0.5
+    /// A tap held longer than this (seconds) is a resting thumb, not a click
+    /// (under the 0.5 s long press that selects).
+    public static let maximumHold: TimeInterval = 0.45
+    /// A tap that moved farther than this (points) is a short flick.
+    public static let maximumMovement: CGFloat = 6
+
+    private var lastWheel: TimeInterval?
+
+    public init() {}
+
+    /// A wheel event went to the app at `time` (seconds, the touch clock).
+    public mutating func scrolled(at time: TimeInterval) {
+        lastWheel = time
+    }
+
+    /// The tap whose finger landed at `downAt`, lifted at `upAt` and moved
+    /// `moved` points between.
+    public func verdict(downAt: TimeInterval, upAt: TimeInterval, moved: CGFloat) -> Verdict {
+        if let lastWheel, downAt - lastWheel < Self.quietAfterScroll { return .ignore }
+        guard upAt - downAt <= Self.maximumHold, moved <= Self.maximumMovement else { return .focusOnly }
+        return .click
+    }
+}
+
+/// Where a finger's vertical drag over the terminal goes: the one rule every
+/// pan, fling and wheel on the phone follows (Leo, 2026-11-12: "this terminal
+/// projection nigh unusable due to me scroll and thumb land on subagent
+/// depiction", then on less and man no longer scrolling: "Okay. But can't we
+/// do something here?").
+///
+/// A drag is a scroll. On the primary screen it moves the phone's own copy of
+/// the scrollback (the shell's page, Claude Code's inline transcript),
+/// sending nothing. On the alternate screen the history lives in the app:
+/// the drag reaches it as wheel reports when it asked for the mouse (DECSET
+/// 1000/1002/1003), which is the app saying a wheel scrolls it.
+///
+/// Without mouse reporting, Ghostty on the Mac turns the wheel into cursor
+/// up/down keys (alternate scroll, DECSET 1007, on by default), which is
+/// how a trackpad scrolls less, man and vim there. The phone does the same,
+/// through Ghostty's own path (it reads 1007 and DECCKM itself), but only
+/// for a program that pages with those keys (``TerminalAlternateScroll``):
+/// Claude Code's full-screen renderer without mouse capture sets exactly
+/// less's modes, and arrows there walked its prompt history and its
+/// background-agent list. Every other program, and a program not known
+/// yet, gets nothing: the page stays put and no byte goes out.
+public enum TerminalPanRoute: Equatable, Sendable {
+    /// The phone's own scrollback scrolls; nothing is sent.
+    case localScrollback
+    /// The app gets wheel reports (it asked for the mouse).
+    case wheelReports
+    /// The app gets Ghostty's alternate scroll: one cursor up/down key per
+    /// row (a pager or an editor on the alternate screen, no mouse reporting).
+    case cursorKeys
+    /// Nothing moves and nothing is sent (any other alternate-screen app
+    /// without mouse reporting).
+    case none
+
+    /// `foregroundProgram`: the terminal's foreground program on the Mac
+    /// (``TerminalAlternateScroll/program(processInfo:)``), nil while not known.
+    public static func route(alternateScreen: Bool, appReportsMouse: Bool, foregroundProgram: String? = nil) -> TerminalPanRoute {
+        guard alternateScreen else { return .localScrollback }
+        if appReportsMouse { return .wheelReports }
+        return TerminalAlternateScroll.pagesWithArrows(foregroundProgram) ? .cursorKeys : .none
+    }
+
+    /// Whether the drag (and its fling) reaches the app.
+    public var reachesApp: Bool { self == .wheelReports || self == .cursorKeys }
+}
+
+/// Which foreground programs a drag scrolls with cursor keys on the
+/// alternate screen (``TerminalPanRoute/cursorKeys``), and the whole rows a
+/// drag moves.
+///
+/// The program is the Mac's own reading of the terminal's foreground job
+/// (`process-info` `foreground_program`: the foreground process group
+/// leader's name, or the script a leading shell runs), never a guess from the screen: Claude Code without mouse
+/// capture and less set the same modes (alternate screen, application cursor
+/// keys, no mouse). So the list names programs that page or edit with the
+/// arrows, and anything else (claude, codex, node, ssh, tmux, a wrapper
+/// script's sh) keeps a drag at zero bytes. git is here for its pager
+/// (`git log`, `git diff`: git leads the job, less runs under it), as are
+/// systemctl and journalctl. man on macOS is a shell script: its leader is
+/// sh, and the Mac names the job by the script it runs (`man`).
+public enum TerminalAlternateScroll {
+    public static let programs: Set<String> = [
+        "less", "more", "most", "pg", "man", "info", "pinfo",
+        "git", "bat", "batcat", "delta", "journalctl", "systemctl",
+        "vim", "vi", "nvim", "view", "vimdiff", "nvi", "elvis",
+    ]
+
+    /// The foreground program a `process-info` reply's data names:
+    /// `foreground_program` (the job's program; a shell script's own name,
+    /// `man` on macOS), else `foreground_executable` (the job leader's
+    /// executable) from a Mac that predates it. Nil when neither is there.
+    public static func program(processInfo reply: [String: Any]) -> String? {
+        let data = reply["data"] as? [String: Any] ?? reply
+        return data["foreground_program"] as? String ?? data["foreground_executable"] as? String
+    }
+
+    /// Whether `program` (a path or a name) pages with cursor keys.
+    public static func pagesWithArrows(_ program: String?) -> Bool {
+        guard let program, !program.isEmpty else { return false }
+        var name = program.split(separator: "/").last.map(String.init) ?? program
+        if name.hasPrefix("-") { name.removeFirst() }
+        return programs.contains(name)
+    }
+
+    /// The whole rows of a drag, for ``TerminalPanRoute/cursorKeys``: one key
+    /// per row the wheel moved, the part of a row kept for the next move,
+    /// and nothing carried into the next drag (a drag and its fling end on a
+    /// row). Ghostty drops the part of a row left over whenever it scrolls,
+    /// so a wheel it gets is always whole rows plus ``slack``.
+    public struct Rows: Equatable, Sendable {
+        /// A sliver over the whole rows, so float rounding never loses one.
+        public static let slack: CGFloat = 0.01
+        private var pending: CGFloat = 0
+
+        public init() {}
+
+        /// A new drag: no row left over from the last one.
+        public mutating func began() { pending = 0 }
+
+        /// The wheel for `dy` points of movement with rows `rowHeight`
+        /// points tall: whole rows (positive up), or nil until a row is due.
+        public mutating func take(_ dy: CGFloat, rowHeight: CGFloat) -> CGFloat? {
+            guard rowHeight > 0 else { return nil }
+            pending += dy
+            let rows = (pending / rowHeight).rounded(.towardZero)
+            guard rows != 0 else { return nil }
+            pending -= rows * rowHeight
+            return (rows + (rows > 0 ? Self.slack : -Self.slack)) * rowHeight
+        }
+    }
+}

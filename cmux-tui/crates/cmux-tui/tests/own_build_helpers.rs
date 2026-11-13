@@ -352,3 +352,67 @@ fn own_build_status_says_where_it_looked_for_screen_detection() {
     drop(daemon);
     let _ = fs::remove_dir_all(&root);
 }
+
+/// W5-Q (bench round 4 orchestration #3): every pane names this daemon's
+/// own `cmux` in `CMUX_TUI_CLI`, an absolute path that runs this build as
+/// `cmux` (the `cmux` on PATH can be an older install without `skill
+/// show`). A build whose file is `cmux-tui` gets a `cmux` link of its own; a
+/// build with a `cmux` beside it that is the same file uses that one.
+#[test]
+fn w5q_pane_env_names_this_builds_cmux() {
+    let root = unique_root();
+    let home = root.join("home");
+    let data = root.join("data");
+    for dir in [&home, &data] {
+        fs::create_dir_all(dir).unwrap();
+    }
+    let log = root.join("hook.log");
+    // The npm shape: only `cmux-tui`.
+    let bare = install_build(&root.join("build-bare"), "build-bare", &log);
+    // The app shape: `cmux` and `cmux-tui` are one file.
+    let paired = install_build(&root.join("build-pair"), "build-pair", &log);
+    let sibling = root.join("build-pair/cmux");
+    std::os::unix::fs::symlink(&paired, &sibling).unwrap();
+
+    for (exe, session) in [(&bare, "ob-cli-bare"), (&paired, "ob-cli-pair")] {
+        let mut daemon = Daemon::start(&root, exe, session, &home, &data, "/usr/bin:/bin");
+        let out = root.join(format!("{session}.txt"));
+        let tag = daemon.run(
+            session,
+            &format!(
+                "printf '%s\\n' \"$CMUX_TUI_CLI\" > '{out}.tmp'; \
+                 \"$CMUX_TUI_CLI\" skill show 2>&1 | head -3 >> '{out}.tmp'; mv '{out}.tmp' '{out}'; \
+                 sleep 600",
+                out = out.display()
+            ),
+        );
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while !out.exists() {
+            assert!(Instant::now() < deadline, "{tag} never wrote: {}", daemon.screen(&tag));
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let text = fs::read_to_string(&out).unwrap();
+        let cli = PathBuf::from(text.lines().next().unwrap_or_default());
+        assert!(cli.is_absolute(), "{session}: CMUX_TUI_CLI is not an absolute path: {text:?}");
+        assert_eq!(
+            cli.file_name().and_then(|name| name.to_str()),
+            Some("cmux"),
+            "{session}: CMUX_TUI_CLI must run this build as `cmux`: {text:?}"
+        );
+        assert_eq!(
+            fs::canonicalize(&cli).ok(),
+            fs::canonicalize(exe).ok(),
+            "{session}: CMUX_TUI_CLI runs another build: {text:?}"
+        );
+        if exe == &paired {
+            assert_eq!(cli, sibling, "the build's own `cmux` beside it is the one: {text:?}");
+        }
+        // The bench's old `cmux` said `unknown resource scope "skill"`.
+        assert!(
+            text.lines().count() > 1 && !text.contains("unknown"),
+            "{session}: `$CMUX_TUI_CLI skill show` failed: {text:?}"
+        );
+        drop(daemon);
+    }
+    let _ = fs::remove_dir_all(&root);
+}

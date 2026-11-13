@@ -129,16 +129,16 @@ impl LocalOutput {
                 }
             }
             if self.title_changed.swap(false, Ordering::Relaxed) {
-                // A program that rewrites the same title (a spinner's
-                // resting frame, a prompt redraw) announces nothing.
+                // A program that rewrites the same title (a prompt redraw)
+                // or only steps its spinner announces nothing (D2).
                 let title = crate::terminal_title::read(&term);
-                let mut stored = pty.title.lock().unwrap();
-                if *stored != title {
-                    *stored = title.clone();
+                if let Some(title) =
+                    crate::terminal_title::store(&mut pty.title.lock().unwrap(), title)
+                {
                     title_update = Some(title);
                 }
             }
-            pty.record_directory(term.pwd());
+            pty.record_terminal_directory(&term);
             if before != after {
                 scroll_changed = Some(after);
                 broadcast_render_scroll_locked(pty, after);

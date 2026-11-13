@@ -1,6 +1,7 @@
 // l10n-allow-file: gallery fixtures, public-safe sample sessions, repos and models.
 // Costs (History > Costs, LedgerScreen.tsx): three looks of the same week of agent spend, and its
-// states. `bars` ships: each row's share is a tonal fill behind it, the cost at the end.
+// states. `bars` ships: each row's share is a tonal fill behind it, the cost at the end. Every look
+// shows cache reads and cache writes and each row's share from cache; Save writes a CSV or JSON file.
 import type { ComponentProps } from "react";
 import { minutesAgo } from "../../../gallery/clock";
 import { componentEntry } from "../../../gallery/format";
@@ -37,6 +38,7 @@ const session = (
   inputTokens: Math.round(cost * 180_000),
   outputTokens: Math.round(cost * 21_000),
   cacheReadTokens: Math.round(cost * 900_000),
+  cacheWriteTokens: Math.round(cost * 30_000),
   cacheSavedUsd: Math.round(cost * 900_000 * 3.8) / 1e6,
   turns: Math.max(1, Math.round(cost * 6)),
   toolCalls: Math.round(cost * 40),
@@ -137,7 +139,30 @@ const many = {
   ),
 };
 
-const base: Props = { load: async () => reply, openSession: () => undefined, copy: async () => true };
+const base: Props = {
+  load: async () => reply,
+  openSession: () => undefined,
+  copy: async () => true,
+  save: async () => "saved",
+};
+
+/// A week whose prompt cache went cold: most prompt tokens written again, few read.
+const coldRows = rows.map((row) => ({
+  ...row,
+  cacheReadTokens: Math.round(row.cacheReadTokens / 20),
+  cacheWriteTokens: Math.round(row.cacheReadTokens / 4),
+  cacheSavedUsd: Math.round(row.cacheSavedUsd * 50) / 1000,
+}));
+const cold = {
+  ...reply,
+  rows: coldRows,
+  totals: {
+    ...totals,
+    cacheReadTokens: coldRows.reduce((sum, row) => sum + row.cacheReadTokens, 0),
+    cacheWriteTokens: coldRows.reduce((sum, row) => sum + row.cacheWriteTokens, 0),
+    cacheSavedUsd: coldRows.reduce((sum, row) => sum + row.cacheSavedUsd, 0),
+  },
+};
 
 export default componentEntry<Props>({
   id: "agent-pane.costs",
@@ -151,12 +176,24 @@ export default componentEntry<Props>({
   anchors: [{ selector: ".cst" }],
   variants: {
     bars: {
-      note: "Shipped: each session's share is a tonal fill behind its row, the cost at the end with its source mark.",
+      note: "Shipped: each session's share is a tonal fill behind its row, the cost at the end with its source mark. Each row's detail ends with its share from cache.",
       props: base,
     },
     table: {
-      note: "Alternative: a column per measure, the share as a thin line under the row.",
+      note: "Alternative: a column per measure (cache reads, cache writes and share from cache beside tokens in), the share as a thin line under the row.",
       props: { ...base, look: "table" },
+    },
+    "save-open": {
+      note: "Save's menu open: a CSV or JSON file of the range and grouping, every session, through the host's save panel.",
+      props: { ...base, initialSaveOpen: true },
+    },
+    "cold-cache": {
+      note: "A week whose prompt cache went cold: writes outnumber reads, and the share from cache drops in the note line and on every row.",
+      props: { ...base, load: async () => cold },
+    },
+    "table-cold-cache": {
+      note: "The table look over the cold week: the From cache column reads low.",
+      props: { ...base, look: "table", load: async () => cold },
     },
     stacked: {
       note: "Alternative: two-line labels with the share bar beneath.",
@@ -175,7 +212,7 @@ export default componentEntry<Props>({
       props: { ...base, initialGroup: "account" },
     },
     "no-copy": {
-      note: "A host with no clipboard path: no Copy CSV button.",
+      note: "A host with no clipboard path and no save panel: no Copy CSV and no Save.",
       props: { load: base.load, openSession: base.openSession },
     },
     many: {

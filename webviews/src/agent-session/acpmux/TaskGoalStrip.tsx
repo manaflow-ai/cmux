@@ -1,10 +1,11 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { experimentArm } from "../../experiments/experiment";
 import { Tooltip } from "../../ui/Tooltip";
+import { Clock as ClockText } from "../../ui/Typography";
 import { usePageNow } from "../../ui/pageClock";
 import type { TaskGoal } from "./goal";
 import { usePaneLanguage, useT } from "./i18n";
-import { ChevronDown, Clock, Close, Expand, PauseCircle, Pencil, PlayTriangle } from "./conversation/icons";
+import { ChevronDown, Clock, Close, PauseCircle, Pencil, PlayTriangle } from "./conversation/icons";
 import { formatDuration } from "./conversation/turns";
 import { goalHatPlace } from "./goalHat.experiment";
 import { cssTimeMs } from "./conversation/fold";
@@ -62,26 +63,34 @@ function LoopStrip({ goal, now }: { goal: TaskGoal; now: () => number }) {
   const prompt = goal.autonomous ? undefined : goal.objective.trim() || undefined;
   const tooltip = [prompt ?? t("goal.loopAutonomous"), goal.reason].filter(Boolean).join("\n\n");
   const hasDetails = Boolean(prompt || goal.reason || goal.steps?.length || goal.detail);
+  const copy = (
+    <>
+      <span className="acpmux-goal-loop-mark" aria-hidden="true">
+        <Clock size={14} />
+      </span>
+      <span className="acpmux-goal-state acpmux-goal-loop-label">{label}</span>
+    </>
+  );
+  // One quiet line with no button of its own (Leo, 2026-11-12, of its expand icon and the reason
+  // under it: "idk what the point of it is rn quite"): with something behind it, the line itself
+  // opens it; the reason and prompt stay hidden until then.
   return (
     <section className="acpmux-goal" data-state={goal.status} data-kind="loop" aria-label={t("goal.label")}>
-      <span className="acpmux-goal-copy" title={tooltip}>
-        <span className="acpmux-goal-loop-mark" aria-hidden="true">
-          <Clock size={14} />
-        </span>
-        <span className="acpmux-goal-state acpmux-goal-loop-label">{label}</span>
-      </span>
-      {hasDetails && (
+      {hasDetails ? (
         <button
           type="button"
-          className="acpmux-goal-action"
+          className="acpmux-goal-copy acpmux-goal-loop-toggle"
+          title={tooltip}
           aria-expanded={expanded}
           aria-controls={expanded ? panelId : undefined}
-          aria-label={t("goal.loopPrompt")}
-          title={t("goal.loopPrompt")}
           onClick={() => setExpanded((value) => !value)}
         >
-          <Expand size={16} />
+          {copy}
         </button>
+      ) : (
+        <span className="acpmux-goal-copy" title={tooltip}>
+          {copy}
+        </span>
       )}
       {expanded && (
         <div className="acpmux-goal-details acpmux-goal-loop-details" id={panelId}>
@@ -310,7 +319,7 @@ function GoalStrip({
   );
   return (
     <section
-      className="acpmux-goal"
+      className="ui-glass ui-glass-floats acpmux-stack-material acpmux-goal"
       data-look={place}
       data-state={goal.status}
       data-provider={provider}
@@ -453,7 +462,8 @@ function keepTrailWidth(trail: HTMLElement | null | undefined) {
 }
 
 /** The goal's elapsed time, a leaf of its own: the page clock's tick re-renders only this text, never
- *  the row, the hat or the composer around it. Its width changes only when a unit is added. */
+ *  the row, the hat or the composer around it. A `Clock` like the running lines' times, so its width
+ *  changes only when a unit is added. */
 function GoalTime({ goal, live }: { goal: TaskGoal; live: boolean }) {
   const node = useRef<HTMLTimeElement>(null);
   const current = useNow(live);
@@ -468,7 +478,7 @@ function GoalTime({ goal, live }: { goal: TaskGoal; live: boolean }) {
   useLayoutEffect(() => keepTrailWidth(node.current?.parentElement), [text]);
   return text === undefined ? null : (
     <time ref={node} className="acpmux-goal-time">
-      {text}
+      <ClockText text={text} />
     </time>
   );
 }

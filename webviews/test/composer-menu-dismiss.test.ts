@@ -9,7 +9,8 @@
 // - With one menu open, a press on another chip opens that one at once: no press to dismiss first.
 // - A press anywhere else only closes the menu: nothing under it is clicked (the mic does not start
 //   dictation, the field takes no click), as a macOS menu swallows the click that dismisses it.
-// - Escape closes the menu and puts the keyboard back on its chip, with the chip's focus ring.
+// - Escape closes the menu and puts the keyboard back on its chip, with no ring or pill: Escape
+//   cancels the ring (FOCUS-RING, src/ui/focusModality.ts; Leo 2026-11-06: "BE ABLE TO CANCEL IT").
 // - Picking a permission mode hands the keyboard back to the prompt. A level in columns applies
 //   while the menu stays open; Return closes it and returns to the prompt.
 //
@@ -422,12 +423,27 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
               (selector) => ({
                 open: document.querySelectorAll(".ui-popup").length,
                 onChip: document.activeElement === document.querySelector(selector),
-                ring: document.activeElement?.matches(":focus-visible") ?? false,
+                // What draws (focusRingShown): keyboard focus the keyboard earned. Escape earns none.
+                ring:
+                  (document.activeElement?.matches(":focus-visible") ?? false) &&
+                  document.documentElement.dataset.focusModality !== "pointer",
+                modality: document.documentElement.dataset.focusModality,
               }),
               chip(name),
             );
+            // The pointer leaves the chip so its hover pill is not read as focus's (the root already
+            // reads `pointer` from the Escape, above, so the move changes nothing else).
+            await page.mouse.move(1, 1);
+            const pill = await page
+              .locator(chip(name))
+              .first()
+              .evaluate((element) => getComputedStyle(element).backgroundImage.includes("gradient"));
             await page.close();
-            expect({ name, focus }).toEqual({ name, focus: { open: 0, onChip: true, ring: true } });
+            expect({ name, focus, pill }).toEqual({
+              name,
+              focus: { open: 0, onChip: true, ring: false, modality: "pointer" },
+              pill: false,
+            });
           }
         });
 

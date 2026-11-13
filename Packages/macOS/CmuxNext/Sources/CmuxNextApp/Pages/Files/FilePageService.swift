@@ -1,6 +1,7 @@
 import CmuxNextFiles
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemonService
 import CmuxNextBrowser
@@ -215,15 +216,14 @@ final class FilePageService: InternalPageProvider {
             return .invalidID
         }
         if tabs[key]?.stopFlush == nil, let page = tabs[key]?.page {
-            let op = kind.op("flush")
-            tabs[key]?.stopFlush = document.addFlusher { [weak page] in
+            tabs[key]?.stopFlush = document.addFlusher { [weak page, op = kind.op("flush")] in
                 guard let page, let answer = try? await page.router.callPage(op, params: .object([:])) else { return true }
                 return answer["dirty"]?.boolValue ?? true
             }
         }
         let accepted = document.edited(text: text, baseHash: baseHash)
         if accepted == .tooLarge, warnedTooLarge.insert(url.path).inserted, let window = tabs[key]?.page?.window {
-            _ = CmuxToastCenter.shared.show(CmuxToast(id: "file-recovery:\(url.path)", message: FilePageStrings.noRecovery(url.lastPathComponent),
+            _ = CmuxToastCenter.shared.show(CmuxToast(id: "file-recovery:\(url.path)", kind: "file-recovery", message: FilePageStrings.noRecovery(url.lastPathComponent),
                                                      duration: .seconds(8)), in: window)
         }
         return accepted
@@ -374,6 +374,20 @@ final class FilePageService: InternalPageProvider {
         services.linkOpener.openFile(url, from: pane(of: key), markdown: FilePageKind.isMarkdown(url))
     }
 
+    /// A runbook's Run (a new terminal beside the page, ``LinkOpener``) or Run all (an agent chat whose prompt is
+    /// the person's own), only in a pane of this Mac where `cwd` is; false when none opened.
+    fileprivate func run(_ run: RunbookRun, cwd: String, from key: String) -> Bool {
+        guard let pane = pane(of: key), pane.daemon.isLocal else { return false }
+        guard run.target == .terminal else {
+            pane.openAgentTab(seed: AgentPaneSeedSource(AgentPaneSeed(cwd: cwd, prompt: run.text, promptBy: .person)))
+            return true
+        }
+        return services.linkOpener.open(from: pane) { target, placed in
+            target.newTerminalTab(cwd: cwd, typing: run.text.hasSuffix("\n") ? run.text : run.text + "\n", placementOwner: placed != nil, then: placed)
+            return true
+        }
+    }
+
     // MARK: InternalPageProvider
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
@@ -402,6 +416,8 @@ final class FilePageService: InternalPageProvider {
         // One menu: Copy; Comment…, Quote in Chat, Send to Chief and Send To… on a selection; Reset
         // Column Widths on a table (viewer-comments-DESIGN.md).
         installSelectionMenu(on: page, key: key, then: kind == .markdown ? Self.tableMenu(provider: provider, page: page) : nil)
+        // Unsaved edits app health's reload must keep: reported ones no save has covered (a remote file's has no crash draft) or the shared quit document's.
+        page.holdsUnsavedEdits = { [weak self, weak provider] in provider?.reportedEdits.held == true || provider?.file.flatMap { self?.documents.existing($0) }?.hasUnsavedChanges == true }
         tab.page = page
         tab.provider = provider
         tab.host = host
@@ -542,6 +558,7 @@ final class FilePageTabHost: FilePageHosting {
         service?.edited(url, text: text, baseHash: baseHash, writable: writable, from: key) ?? .kept
     }
     func saved(_ url: URL, hash: String) { service?.saved(url, hash: hash) }
+    func run(_ run: RunbookRun, cwd: String) -> Bool { service?.run(run, cwd: cwd, from: key) ?? false }
     var showsOmnibar: Bool { service?.showsOmnibar(key) ?? false }
     func historyChanged(canBack: Bool, canForward: Bool) { service?.historyChanged(canBack: canBack, canForward: canForward, in: key) }
     func isRecent(_ path: String) -> Bool { service?.isRecent(path) ?? false }

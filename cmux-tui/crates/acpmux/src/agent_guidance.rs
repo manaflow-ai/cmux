@@ -8,11 +8,12 @@
 //!
 //! Each harness gets it through its own mechanism:
 //! - Claude Code: the `cmux:cmux-chat` skill in the session plugin (`agent_tools::SKILL_FILES`;
-//!   only its description reaches the prompt) plus [`CLAUDE_GUIDANCE`], a few lines of
-//!   first-turn context that say when to read it. The person's skills are a second session
-//!   plugin, `cmux-user` ([`materialize_user_plugin`]), so Claude Code lists them natively.
-//! - Codex and every other harness: [`AGENT_GUIDANCE`] in the first-turn context, the channel
-//!   Codex itself uses for AGENTS.md (a hidden user-role block), and an index of cmux's own
+//!   only its description reaches the prompt) plus [`CLAUDE_GUIDANCE`], the cmux rules, in its
+//!   system prompt (`--append-system-prompt`, `context_inventory::launch_args`). The person's
+//!   skills are a second session plugin, `cmux-user` ([`materialize_user_plugin`]), so Claude
+//!   Code lists them natively.
+//! - Codex and every other harness: [`AGENT_GUIDANCE`], as Codex's developer instructions
+//!   (`-c developer_instructions`) or else in the first-turn context, and an index of cmux's own
 //!   skills whose tools the chat has (`agent_tools::skill_index`) and of the person's skills
 //!   (name, description, path) so the agent reads one when it applies.
 //!
@@ -374,31 +375,33 @@ fn materialize_within(
     if dir.join(".claude-plugin/plugin.json").is_file() {
         return Ok(Some(dir));
     }
+    // Written through the folder this daemon holds (`home_fs`): a home replaced after the check
+    // never gets the plugin.
     crate::config::refuse_lost_home(state_dir)?;
-    std::fs::create_dir_all(state_dir)?;
+    crate::home_fs::create_dir_all(state_dir, 0o777)?;
     let tmp = state_dir.join(format!(".tmp-user-{}", uuid::Uuid::now_v7()));
     let write = || -> anyhow::Result<()> {
         for (path, bytes) in &files {
             let file = tmp.join(path);
             if let Some(parent) = file.parent() {
-                std::fs::create_dir_all(parent)?;
+                crate::home_fs::create_dir_all(parent, 0o777)?;
             }
-            std::fs::write(file, bytes)?;
+            crate::home_fs::write_synced(&file, bytes)?;
         }
         Ok(())
     };
     if let Err(e) = write() {
-        let _ = std::fs::remove_dir_all(&tmp);
+        let _ = crate::home_fs::remove_dir_all(&tmp);
         return Err(e);
     }
-    match std::fs::rename(&tmp, &dir) {
+    match crate::home_fs::rename(&tmp, &dir) {
         Ok(()) => Ok(Some(dir)),
         Err(_) if dir.join(".claude-plugin/plugin.json").is_file() => {
-            let _ = std::fs::remove_dir_all(&tmp);
+            let _ = crate::home_fs::remove_dir_all(&tmp);
             Ok(Some(dir))
         }
         Err(e) => {
-            let _ = std::fs::remove_dir_all(&tmp);
+            let _ = crate::home_fs::remove_dir_all(&tmp);
             Err(e.into())
         }
     }

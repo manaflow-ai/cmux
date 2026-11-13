@@ -75,7 +75,7 @@ nav input {
   letter-spacing: var(--text-control--letter-spacing);
 }
 
-nav input:focus {
+nav input:focus-visible {
   border-color: var(--activity-control-line);
 }
 
@@ -87,13 +87,14 @@ nav input:focus {
   padding: 1px;
   min-width: 0;
   border: 1px solid var(--activity-line);
-  border-radius: 7px;
+  /* Concentric: the segment's corner plus the 1px padding and 1px border. */
+  border-radius: calc(var(--ds-radius-control) + var(--grid-half-step));
 }
 
 .segment {
   position: relative;
   padding: 1px 10px;
-  border-radius: 5px;
+  border-radius: var(--ds-radius-control);
   font-size: var(--text-control);
   line-height: var(--text-control--line-height);
   cursor: default;
@@ -116,7 +117,7 @@ nav input:focus {
   font-weight: 500;
 }
 
-.segment:focus-within {
+.segment:is(:focus-visible, :has(:focus-visible)) {
   outline: 2px solid var(--activity-control-line);
   outline-offset: -1px;
 }
@@ -258,7 +259,7 @@ section h3 {
 .actions button {
   height: 22px;
   border: 1px solid var(--activity-control-line);
-  border-radius: 5px;
+  border-radius: var(--ds-radius-control);
   padding: 0 8px;
   background: transparent;
   font-size: var(--text-control);
@@ -366,7 +367,7 @@ section h3 {
   height: 24px;
   padding: 0;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--ds-radius-control);
   background: transparent;
   color: var(--activity-text-2);
   cursor: default;

@@ -86,10 +86,13 @@ export function swapChatSnapshot(): void {
   requestAnimationFrame(() => removeChatSnapshot());
 }
 
-/// How long the live page may take to draw the chat before the copy goes anyway: the page's own
-/// bound for its first paint (App.tsx CHAT_DRAW_HOLD_MS), so a page that never draws one never
-/// keeps an old frame up.
-const SNAPSHOT_HOLD_MS = 10_000;
+/// How long the live page may take to draw the chat before the copy goes anyway, so a page that
+/// never draws one never keeps an old frame up. Past the page's own bounds for its first paint: a
+/// quiet failed handshake is said after hostRetry.ts HOST_ERROR_DEADLINE_MS (25 s, while acpmux
+/// restarts after an update), and an attach is waited on for App.tsx CHAT_DRAW_HOLD_MS (10 s)
+/// after the handshake. At 10 s the copy went while acpmux was still starting, and the pane went
+/// blank until the chat came (Leo, 2026-11-09: "flickered in and out").
+const SNAPSHOT_HOLD_MS = 40_000;
 
 /// Ends the drawn copy's input watch (``reportChatSnapshot``) while one runs.
 let stopCopyInput: (() => void) | undefined;

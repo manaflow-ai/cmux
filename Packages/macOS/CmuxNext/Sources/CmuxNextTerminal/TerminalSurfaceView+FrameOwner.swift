@@ -28,6 +28,13 @@ struct TerminalFrameOwnership {
     /// The presenter's refresh in which `ahead` and its grid went (``TerminalFramePresenter/currentEpoch``): the hold for
     /// the program's redraw at that grid counts from it (RESIZE P0 12).
     var aheadSentEpoch: UInt64?
+    /// The presenter's refresh in which this view's last grid went to the PTY owner (``TerminalGridReporter``): a grid
+    /// the coalescer held to a later refresh than its request's starts the hold's bound there (RESIZE P0 23).
+    var gridSentEpoch: UInt64?
+    /// The presenter's refresh in which its pane's spring or a key press's snap gave it the size drawn ahead
+    /// (``TerminalSurfaceView/drawAhead(_:)``): a held snap's bound starts one refresh later when the size's grid went in
+    /// a later refresh than this (``TerminalSurfaceView/aheadAwaitsProgram(refreshesWaited:)``, RESIZE P0 24).
+    var aheadAskedEpoch: UInt64?
 }
 
 /// FRAME OWNER REFACTOR S4, cmux-ad m18, m19 (no switch) and m26 (draw ahead): a terminal's bounds change only in the
@@ -137,14 +144,31 @@ extension TerminalSurfaceView {
     /// screen: it goes in the presenter's pass, and a real key and the display tick can run in one wake of the main run
     /// loop, with no pass between them. Shown then, the snap's placement asked for the size only at the tick, and the
     /// pane showed its new size with the terminal at its old one (films px-keys-held-2-s1r-claude RM, HID shrink presses).
+    ///
+    /// The bound counts from the refresh the program got the grid in, as the presenter's hold does (RESIZE P0 23 and 24):
+    /// the snap waits while the size's grid still waits in the coalescer's window (a grid went earlier in the press's
+    /// refresh, so it goes at the next one), and a grid that went a refresh after the press adds that refresh to the bound.
+    /// Counted from the press, that program had 2 of the bound's 3 refreshes. At most one refresh more: the coalescer's
+    /// window ends at the next refresh, so a snap waits at most ``TerminalFramePresenter/resizeHoldTicks`` + 1 ticks.
     func aheadAwaitsProgram(refreshesWaited: Int) -> Bool {
-        guard refreshesWaited >= 0, UInt64(refreshesWaited) < TerminalFramePresenter.resizeHoldTicks else { return false }
+        let bound = TerminalFramePresenter.resizeHoldTicks
+        guard refreshesWaited >= 0, UInt64(refreshesWaited) < bound + 1 else { return false }
         if frameOwnership.pendingAhead != nil { return true }
         guard frameOwnership.ahead != nil, programHoldTicks > 0 else { return false }
+        if gridReports.isWaiting { return true }
+        guard UInt64(refreshesWaited) < bound + aheadGridLateRefreshes else { return false }
         switch hostFrame(present: false) {
         case GHOSTTY_HOST_FRAME_READY, GHOSTTY_HOST_FRAME_PENDING, GHOSTTY_HOST_FRAME_HELD: return true
         default: return false
         }
+    }
+
+    /// Refreshes the size drawn ahead's grid went after the refresh that asked for the size (0 or 1): the coalescer held
+    /// it to the next refresh, or the size went to Ghostty only in a later refresh's pass (a key and the display tick in
+    /// one wake of the main run loop). Both stamps are the window presenter's refreshes.
+    private var aheadGridLateRefreshes: UInt64 {
+        guard let asked = frameOwnership.aheadAskedEpoch, let sent = frameOwnership.gridSentEpoch, sent > asked else { return 0 }
+        return min(sent &- asked, 1)
     }
 
     /// Its pane's spring gives this view `size` at the next refresh (``TerminalHostView`` `drawAhead(nextHostSize:)`): the
@@ -153,6 +177,7 @@ extension TerminalSurfaceView {
         guard frameOwnership.embedderPresents, isShown, let presenter = framePresenter, size.width >= 1, size.height >= 1,
               size != (frameOwnership.wanted?.size ?? bounds.size) else { return }
         frameOwnership.pendingAhead = size
+        frameOwnership.aheadAskedEpoch = presenter.currentEpoch
         presenter.drawAhead(self)
     }
 
@@ -236,6 +261,9 @@ extension TerminalSurfaceView {
         applyHeldScale()
         frameOwnership.ahead = nil
         frameOwnership.pendingAhead = nil
+        // Epochs are the old window's presenter's: the next hold counts from a send in the new window.
+        frameOwnership.gridSentEpoch = nil
+        frameOwnership.aheadAskedEpoch = nil
         guard frameOwnership.inFlight != nil, let wanted = frameOwnership.wanted else { return }
         frameOwnership.inFlight = nil
         if frame != wanted { frame = wanted }

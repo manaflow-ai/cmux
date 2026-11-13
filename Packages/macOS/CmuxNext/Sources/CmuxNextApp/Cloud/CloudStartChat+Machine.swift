@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextCloudCredentials
 import CmuxNextCloudUI
 import CmuxNextDaemon
 import Foundation
@@ -81,10 +82,9 @@ extension CloudStartChat {
                 plan.createSent = false
             }
         }
-        if let id = plan.machine {
-            invocation.arguments["machine"] = .string(id)
-        } else {
+        if let id = plan.machine { invocation.arguments["machine"] = .string(id) } else {
             if !plan.createSent {
+                if let refused = await cloud.agentCheck.newMachineRefusal(harness: start.harness, model: start.model, login: .init(), userID: cloud.auth.user?.id, teamID: cloud.auth.teamID, otherTeams: cloud.auth.loginScopes, dogfood: DevTools.isEnabled)?.limitWords { throw CloudMove.Failure(message: refused) } // before a new machine: an agent that cannot run (a used-up Claude limit) leases none
                 _ = try Self.checked(await cli.startChatCreateBegin(key: start.key, account: CloudStartCore().accountText(account), name: plan.newName ?? "cloud-chats", createKey: plan.createKey))
             }
             var request = CloudMachineRequest(startChatKey: plan.createKey, sizedFor: await pick(), team: plan.createTeam ?? (account.last ?? nil))
@@ -107,13 +107,14 @@ extension CloudStartChat {
             _ = try Self.checked(await cli.startChatPin(key: start.key, account: CloudStartCore().accountText(account), machine: created.machineID, workspace: workspace))
             invocation.arguments["machine"] = .string(created.machineID)
         }
+        invocation.arguments["machine"]?.stringValue.map { Self.warmSpare(services, claimed: $0) } // the claim's copy overlaps the dial; the install waits on it
         return (try await CloudMove(services: services).machine(invocation, pick: pick), plan)
     }
 
     /// `answer`, or its error as the person reads it.
     static func checked<T>(_ answer: (CloudMoveCLI.Answer, T)) throws -> T {
         guard answer.0.ok else {
-            throw CloudMove.Failure(message: CloudMoveStrings.moveFailed(answer.0.error ?? answer.0.errorCode ?? ""))
+            throw answer.0.errorCode == "cloud.plan.required" ? CloudAPIError.planRequired(message: nil, upgradeURL: nil) as any Error : CloudMove.Failure(message: CloudMoveStrings.moveFailed(answer.0.error ?? answer.0.errorCode ?? ""))
         }
         return answer.1
     }

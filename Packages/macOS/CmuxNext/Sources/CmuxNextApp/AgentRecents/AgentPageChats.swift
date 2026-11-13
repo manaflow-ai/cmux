@@ -139,7 +139,7 @@ final class AgentPageChats {
 
     /// Sandboxed sends run through `services`' signed-in Cloud client (hq#3367), only while Labs >
     /// Show Preview Features is on and Cloud isn't turned off by policy. Each waits for its Run's
-    /// receipt through ``CloudAPIClient/runSandbox(task:agent:timeoutMs:idempotencyKey:teardown:callsMargin:now:)``,
+    /// receipt through ``CloudAPIClient/runSandbox(task:agent:timeoutMs:idempotencyKey:incognito:teardown:callsMargin:now:follow:)``,
     /// which answers by the task timeout plus teardown whatever the calls do. The Run's wait is
     /// ``SandboxRunNotices``': it goes on after the tab closes and notifies when the Run ends.
     static func wireSandbox(_ tabs: AgentTabStore, services: AppServices) {
@@ -151,16 +151,16 @@ final class AgentPageChats {
         tabs.pageChats.cloudRepick = CloudStartChat.repickRunner(tabs, services: services)
         tabs.pageChats.cloudReservation = { [weak services] request in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
-            if !request.release { CloudStartChat.warmSpare(services) } // never awaited: Send's gesture ticket waits only on the reserve
-            return await request.run(allowed: !services.registry.disabledFeatures.contains(.cloud) && services.cloud.mayCallCloud,
-                                     binary: services.cloud.move.cli, configuration: services.cloud.configuration, auth: services.cloud.auth,
-                                     install: { try await services.cloud.installIdentity.installToken() })
+            if !request.release, services.cloud.mayCallCloud { CloudStartChat.warmSpare(services); Task { await services.cloud.capability.prefetch(services.cloud.installIdentity) } } // never awaited (task-owner: fire and forget): Send's gesture ticket waits only on the reserve; the pre-approval while they type
+            return await request.run(allowed: !services.registry.disabledFeatures.contains(.cloud) && services.cloud.mayCallCloud, binary: services.cloud.move.cli,
+                                     configuration: services.cloud.configuration, auth: services.cloud.auth, install: { try await services.cloud.installIdentity.installToken() },
+                                     reserved: { CloudStartChat.warmSpare(services, claimed: $0) }) // the reserve's own machine gets the login copy (never awaited)
         }
         tabs.pageChats.cloudEnvironment = { [weak services] request in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
             return await request.run(
                 allowed: !services.registry.disabledFeatures.contains(.cloud) && services.cloud.mayCallCloud,
-                connection: services.machines.local.connection, platform: ArtifactsPageProvider.apiBaseURL()) {
+                connection: services.machines.local.connection, platform: services.cloud.configuration.artifactsAPIBaseURL()) {
                     let team = try await services.cloud.auth.accessTokenTeam(requested: nil)
                     return (try await services.cloud.installIdentity.accessToken(team: team)).accessToken
                 }
@@ -178,17 +178,14 @@ final class AgentPageChats {
                 return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled")
             }
             // Not behind Labs (Leo, 2026-10-30: "i dont like putting so much stuff in labs"): the
-            // person picked Sandboxed and sent, Cloud is allowed and they are signed in.
-            guard services.cloud.isSignedIn else { return AgentPaneReply.failure(code: "not_signed_in", message: "not_signed_in") }
-            // The send, its create's retry and its waits stay with the team it began with (and the
-            // create's retry with its account: CloudAPIClient.runSandbox).
-            // The Run is followed in the team it was created in (SandboxRunNotices).
-            let team = await services.cloud.api.currentTeam()
-            let api = services.cloud.api.pinningTeam(team)
+            // person picked Sandboxed and sent, Cloud is allowed and they are signed in. `account` is the account and team
+            // they sent under, read now: the daemon starts the Run only while the app is still on them (CloudAPIClient.runSandbox).
+            guard services.cloud.isSignedIn, let account = services.cloud.auth.runAccount else { return AgentPaneReply.failure(code: "not_signed_in", message: "not_signed_in") }
+            let team = account.team, api = services.cloud.machineAPI.sending(as: account, classic: services.cloud.api) // the Stack team, as followed
             let follow: @Sendable (String) async throws -> Data = { id in
                 try await notices.follow(id: id, task: task, key: key, team: team, incognito: incognito)
             }
-            return await AgentPaneReply.sandbox({ try await api.runSandbox(task: task, agent: agent, idempotencyKey: key, follow: follow) },
+            return await AgentPaneReply.sandbox({ try await api.runSandbox(task: task, agent: agent, idempotencyKey: key, incognito: incognito, follow: follow) },
                                                 code: AgentPageChats.sandboxCode)
         }
     }

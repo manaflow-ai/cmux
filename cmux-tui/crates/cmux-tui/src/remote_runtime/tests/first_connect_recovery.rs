@@ -321,7 +321,10 @@ fn ssh_refusals_are_permanent_and_unreachable_hosts_are_not() {
         "sign_and_send_pubkey: signing failed for ED25519 \"/Users/leo/.ssh/id_ed25519\" from agent: agent refused operation",
         "send_pubkey_test: no mutual signature algorithm",
     ] {
-        for transport in ["Connection closed by 10.0.0.2 port 22", "ssh: connect to host build port 22: Connection timed out"] {
+        for transport in [
+            "Connection closed by 10.0.0.2 port 22",
+            "ssh: connect to host build port 22: Connection timed out",
+        ] {
             let stderr = format!("{warning}\n{transport}");
             assert!(ssh_bootstrap_failure_is_retryable(&failure(&stderr)), "{stderr}");
         }

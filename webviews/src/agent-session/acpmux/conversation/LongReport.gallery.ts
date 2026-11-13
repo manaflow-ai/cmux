@@ -8,6 +8,7 @@ import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, session, summary, tool, user, SESSION_ID } from "../../../gallery/fixtures/acpmux";
 import type { AcpmuxSessionEntry } from "../sessionList";
 import { finishedTaskLook } from "./taskLine.experiment";
+import { openEndedStretch } from "./endedStretchPlay";
 
 const REPO = "acme/atlas-web";
 const pr = (number: number) => `[#${number}](https://github.com/${REPO}/pull/${number})`;
@@ -88,7 +89,10 @@ const PROGRESS = [
   "The month-wide review is turning up links my samples missed: sandboxing, durable agent state, machine lifecycle, rendering speed and the release pipeline under all of it. It is also tracing follow-up fixes, because a merged title doesn't always mean the problem was solved.",
 ];
 
-const leadRows = (finished: boolean) => [
+/// `startEnded`: the stretch that started the review ended with its summary while the chat works on,
+/// so its start card is in sight: under the live-turn-work `line` a stretch still running
+/// draws none of its calls, only its replies and the live line (turns.ts `codexRuns`).
+const leadRows = (finished: boolean, startEnded = false) => [
   user("How did October go? Look at what I worked on.", 30),
   assistant(
     "These landed on the release branch, so I'm separating what was built from what shipped. Together they form one product, not a handful of maintenance fixes.",
@@ -107,6 +111,7 @@ const leadRows = (finished: boolean) => [
     ],
     21,
   ),
+  ...(startEnded ? [summary(20.5, { durationMs: 60_000, toolCount: 1 })] : []),
   assistant(PROGRESS[0]!, 20),
   assistant(PROGRESS[1]!, 8),
   ...(finished
@@ -137,8 +142,8 @@ const leadRows = (finished: boolean) => [
     : []),
 ];
 
-const lead = (finished: boolean, task = finished ? DONE : RUNNING) => {
-  const snapshot = chat(leadRows(finished), {
+const lead = (finished: boolean, task = finished ? DONE : RUNNING, startEnded = false) => {
+  const snapshot = chat(leadRows(finished, startEnded), {
     title: "How did October go?",
     isWorking: !finished,
   });
@@ -188,9 +193,12 @@ export default agentPaneEntry({
       snapshot: lead(false),
     },
     "lead-running-hover": {
-      note: "The sub-session's line under the pointer: its name lights all the way through, as a tool row's words do (Leo, 2026-11-09).",
-      snapshot: lead(false),
-      play: async (ctx) => ctx.hover({ selector: "button.cv-disclosure__open .cv-disclosure__label" }),
+      note: "The pointer on the sub-session's name: only its chip lights, the chat's one opener (Leo, 2026-11-05: \"subagents need to have their clickable bit be highlighted instead of the whole line click\"). The stretch that started it ended, so its card is in sight while the lead works on.",
+      snapshot: lead(false, RUNNING, true),
+      play: async (ctx) => {
+        await openEndedStretch(ctx);
+        await ctx.hover({ selector: ".cv-disclosure__open button.cv-agent-tag.is-open" });
+      },
     },
     "lead-finished": {
       note: "The lead chat once the review finished: its work folds, and the review stays in sight as one line that opens its report.",

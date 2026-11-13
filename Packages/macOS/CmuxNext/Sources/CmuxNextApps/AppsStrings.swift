@@ -34,6 +34,8 @@ nonisolated enum AppsStrings {
     static var failureCopied: String { t("apps.failure.copied", "Copied") }
     static var failureDetails: String { t("apps.failure.details", "Details") }
     static var failureHideDetails: String { t("apps.failure.hideDetails", "Hide Details") }
+    /// The marker under a kept app view whose last save did not load; the file and line follow it.
+    static var reloadFailed: String { t("apps.mount.reloadFailed", "Not reloaded") }
     /// The second line of an app's toast detail (`cmux.toast`): the app that showed it.
     static func toastSource(_ app: String) -> String { String(format: t("apps.toast.source", "From %@"), app) }
     static var discover: String { t("store.tab.discover", "Discover") }
@@ -71,14 +73,13 @@ nonisolated enum AppsStrings {
     static var noneInstalled: String { t("store.empty.noneInstalled", "No apps installed") }
     static var selectApp: String { t("store.empty.select", "Select an app") }
     static func unknownApp(_ id: String) -> String { String(format: t("apps.client.unknownApp", "No app %@"), id) }
-    static var unavailableHelp: String { t("apps.store.disconnected.help", "Nothing can change until then.") }
 
     private static var notConnected: String { t("apps.store.disconnected.notConnected", "This machine isn't connected") }
 
     /// Why the app supervisor cannot be reached (store banner, app sections).
     static func unavailable(_ reason: AppsUnavailableReason) -> String {
         switch reason {
-        case .needsNewerDaemon: t("apps.store.disconnected.needsNewer", "Needs a newer cmux")
+        case .noAppHost: t("apps.store.disconnected.noAppHost", "Apps can’t run in this build of cmux")
         case .notConnected: notConnected
         case .notReady(let cause): "\(notConnected): \(cause)"
         case .turnedOff(let reason): reason

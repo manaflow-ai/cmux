@@ -162,6 +162,13 @@ struct InstallState {
     source: Source,
     version: Option<String>,
     update: Option<String>,
+    /// Why the app is not running when it should: `off: safe mode`, or
+    /// `failed: <reason>` (apps/safe_mode.rs). Absent when nothing holds it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    run_state: Option<String>,
+    /// `apps.rollback` can restore the last version that loaded and
+    /// mounted (apps/rollback.rs).
+    can_rollback: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -226,6 +233,8 @@ fn state(record: &Record, package: Option<&Package>) -> InstallState {
         source: record.source,
         version: package.filter(|_| record.installed).map(|p| p.version.clone()),
         update: None,
+        run_state: None,
+        can_rollback: false,
     }
 }
 
@@ -254,6 +263,15 @@ fn listing(package: &Package, record: Option<&Record>) -> Listing {
             .collect(),
         hide_only: package.tier == Tier::FirstParty,
         install: record.map(|r| state(r, Some(package))),
+    }
+}
+
+/// Fills the run facts of `app` (safe mode, a failed host, rollback).
+fn annotate(inner: &super::supervisor::Inner, app: &str, state: Option<&mut InstallState>) {
+    if let Some(state) = state {
+        let (run_state, can_rollback) = Supervisor::run_facts(inner, app);
+        state.run_state = run_state;
+        state.can_rollback = can_rollback;
     }
 }
 
@@ -331,6 +349,7 @@ impl Supervisor {
             "apps.uninstall" => {
                 params(args).and_then(|p| self.store_install(client, p, origin, false))
             }
+            "apps.rollback" => params(args).and_then(|p| self.rollback(p, origin)),
             other => self.panel_call(client, other, args, origin).unwrap_or_else(|| {
                 Err(ApiError::new("apps.op.unknown", format!("{op} is not an App Store op")))
             }),
@@ -363,7 +382,11 @@ impl Supervisor {
             .iter()
             .skip(offset)
             .take(limit)
-            .map(|package| listing(package, inner.mirror.apps.get(&package.id)))
+            .map(|package| {
+                let mut row = listing(package, inner.mirror.apps.get(&package.id));
+                annotate(&inner, &package.id, row.install.as_mut());
+                row
+            })
             .collect();
         // A cursor is a wire value: never overflow on it.
         let end = offset.saturating_add(limit);
@@ -390,11 +413,9 @@ impl Supervisor {
                 });
             }
         }
-        Ok(AppDetail {
-            listing: listing(package, inner.mirror.apps.get(&p.app)),
-            scopes,
-            deploy: deploy_facts(&package.manifest),
-        })
+        let mut listing = listing(package, inner.mirror.apps.get(&p.app));
+        annotate(&inner, &p.app, listing.install.as_mut());
+        Ok(AppDetail { listing, scopes, deploy: deploy_facts(&package.manifest) })
     }
 
     fn installed_list(&self) -> InstalledListResult {
@@ -406,6 +427,7 @@ impl Supervisor {
             .filter(|(_, record)| record.installed)
             .map(|(app, record)| {
                 let mut row = installed_app(app, record, inner.catalog.packages.get(app));
+                annotate(&inner, app, Some(&mut row.state));
                 row.instance = self.instance_json(app);
                 row
             })
@@ -420,6 +442,7 @@ impl Supervisor {
         let fallback = super::mirror::absent(Source::User, None);
         let record = inner.mirror.apps.get(app).unwrap_or(&fallback);
         let mut row = installed_app(app, record, inner.catalog.packages.get(app));
+        annotate(&inner, app, Some(&mut row.state));
         row.instance = self.instance_json(app);
         let result = SetResult { revision: inner.mirror.revision, app: row };
         to_value(result)

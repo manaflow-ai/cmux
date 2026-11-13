@@ -15,6 +15,12 @@
 //! ships (`catalog/models-v1.json`) for the others. A model no source prices is left out. A
 //! missing cache read price bills cache reads as input; a missing cache write price bills them
 //! nothing (those vendors do not charge for writes).
+//!
+//! A cache write is billed by its tier. `cacheWrite` is the 5-minute rate; the hour-long writes a
+//! turn reports (`TurnUsage::cache_write_1h_tokens`, the tier cmux asks Claude Code for by
+//! default, `prompt_cache_env.rs`) bill at an entry's `cacheWrite1h`, else at twice its input
+//! price (Anthropic's rule), or nothing where the vendor charges no writes at all (no `cacheWrite`,
+//! or `"cacheWrite": 0`).
 
 use std::sync::LazyLock;
 
@@ -32,6 +38,19 @@ pub struct Price {
     pub cache_read: Option<f64>,
     #[serde(default)]
     pub cache_write: Option<f64>,
+    /// The hour-long cache write rate, when it is not twice the input price.
+    #[serde(default, rename = "cacheWrite1h")]
+    pub cache_write_1h: Option<f64>,
+}
+
+impl Price {
+    /// The hour-long cache write rate: the entry's own, else twice the input price for a vendor
+    /// that charges writes. A vendor that charges none, by a missing or an explicit zero
+    /// `cacheWrite` (`"cacheWrite": 0`), bills neither tier.
+    pub fn cache_write_1h_rate(&self) -> f64 {
+        let charged = self.cache_write.is_some_and(|rate| rate > 0.0);
+        self.cache_write_1h.unwrap_or(if charged { self.input * 2.0 } else { 0.0 })
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -117,22 +136,29 @@ impl PriceTable {
     }
 
     /// What `usage` costs at `model`'s price; None when the table does not list it, or when the
-    /// harness reported no token counts at all (absent is not zero: such a turn is unpriced).
+    /// harness reported no token counts at all (absent is not zero: such a turn is unpriced). An
+    /// hour-long write count alone is a report: with no aggregate writes it bills as 0 writes,
+    /// as `hub/turn_usage.rs` records it.
     pub fn cost(&self, model: &str, usage: &crate::store::TurnUsage) -> Option<f64> {
         if usage.input_tokens.is_none()
             && usage.output_tokens.is_none()
             && usage.cache_read_tokens.is_none()
             && usage.cache_write_tokens.is_none()
+            && usage.cache_write_1h_tokens.is_none()
         {
             return None;
         }
         let (_, p) = self.lookup(model)?;
         let per = |tokens: Option<u64>, price: f64| tokens.unwrap_or(0) as f64 * price / 1e6;
+        // The writes' hour-long part at its tier, the rest at the 5-minute rate.
+        let write = usage.cache_write_tokens.unwrap_or(0);
+        let write_1h = usage.cache_write_1h_tokens.unwrap_or(0).min(write);
         Some(
             per(usage.input_tokens, p.input)
                 + per(usage.output_tokens, p.output)
                 + per(usage.cache_read_tokens, p.cache_read.unwrap_or(p.input))
-                + per(usage.cache_write_tokens, p.cache_write.unwrap_or(0.0)),
+                + per(Some(write - write_1h), p.cache_write.unwrap_or(0.0))
+                + per(Some(write_1h), p.cache_write_1h_rate()),
         )
     }
 
@@ -197,6 +223,7 @@ mod tests {
             output_tokens: Some(100_000),
             cache_read_tokens: Some(1_000_000),
             cache_write_tokens: Some(1_000_000),
+            cache_write_1h_tokens: None,
         };
         // 4 + 2 + 0.2 + 5
         let cost = table().cost("claude-opus-5-5", &usage).unwrap();
@@ -207,6 +234,68 @@ mod tests {
         assert!(table().cost("claude-opus-5-5", &none).is_none());
         let zero = TurnUsage { input_tokens: Some(0), ..TurnUsage::default() };
         assert_eq!(table().cost("claude-opus-5-5", &zero), Some(0.0));
+    }
+
+    #[test]
+    fn hour_long_cache_writes_bill_at_their_tier() {
+        let t = table();
+        let usage = |write_1h: Option<u64>| TurnUsage {
+            cache_write_tokens: Some(1_000_000),
+            cache_write_1h_tokens: write_1h,
+            ..TurnUsage::default()
+        };
+        // Opus 5.5: input 4, 5-minute writes 5, hour-long writes twice the input (8).
+        let cost = |write_1h| t.cost("claude-opus-5-5", &usage(write_1h)).unwrap();
+        assert!((cost(None) - 5.0).abs() < 1e-9, "{}", cost(None));
+        assert!((cost(Some(1_000_000)) - 8.0).abs() < 1e-9, "{}", cost(Some(1_000_000)));
+        // A quarter hour-long: 0.75 * 5 + 0.25 * 8.
+        assert!((cost(Some(250_000)) - 5.75).abs() < 1e-9, "{}", cost(Some(250_000)));
+        // A count past the writes is the writes.
+        assert!((cost(Some(5_000_000)) - 8.0).abs() < 1e-9, "{}", cost(Some(5_000_000)));
+        // A tier count with no aggregate writes is reported usage (priced, not unpriced), and
+        // bills as no writes: the aggregate counts as 0 (#39324 review F2).
+        let tier_only =
+            TurnUsage { cache_write_1h_tokens: Some(1_000_000), ..TurnUsage::default() };
+        assert_eq!(t.cost("claude-opus-5-5", &tier_only), Some(0.0));
+
+        // An entry's own hour-long rate wins; a vendor that charges no writes bills none.
+        let custom = PriceTable::parse(
+            r#"{"version": "t", "currency": "USD", "vendors": {"v": {"models": [
+                {"id": "own", "input": 1, "output": 1, "cacheWrite": 1.25, "cacheWrite1h": 3},
+                {"id": "free", "input": 1, "output": 1},
+                {"id": "zero", "input": 1, "output": 1, "cacheWrite": 0},
+                {"id": "zero-own", "input": 1, "output": 1, "cacheWrite": 0, "cacheWrite1h": 2}
+            ]}}}"#,
+        )
+        .unwrap();
+        assert_eq!(custom.cost("own", &usage(Some(1_000_000))), Some(3.0));
+        assert_eq!(custom.cost("free", &usage(Some(1_000_000))), Some(0.0));
+        // An explicit zero write price is free at both tiers, not twice the input.
+        assert_eq!(custom.cost("zero", &usage(Some(1_000_000))), Some(0.0));
+        assert_eq!(custom.cost("zero", &usage(None)), Some(0.0));
+        // Unless the entry names an hour-long rate of its own.
+        assert_eq!(custom.cost("zero-own", &usage(Some(1_000_000))), Some(2.0));
+    }
+
+    #[test]
+    fn bundled_entries_that_charge_no_writes_bill_no_hour_long_writes() {
+        let t = PriceTable::parse(BUNDLED).unwrap();
+        let free: Vec<&str> = t
+            .entries
+            .iter()
+            .filter(|(_, _, p)| p.cache_write.is_none_or(|rate| rate == 0.0))
+            .map(|(id, _, p)| {
+                assert_eq!(p.cache_write_1h_rate(), p.cache_write_1h.unwrap_or(0.0), "{id}");
+                id.as_str()
+            })
+            .collect();
+        // The bundled table lists such vendors (glm-5.2 has `"cacheWrite": 0`).
+        assert!(free.contains(&"glm-5.2"), "{free:?}");
+        for (id, _, p) in &t.entries {
+            if p.cache_write.is_some_and(|rate| rate > 0.0) && p.cache_write_1h.is_none() {
+                assert_eq!(p.cache_write_1h_rate(), p.input * 2.0, "{id}");
+            }
+        }
     }
 
     #[test]

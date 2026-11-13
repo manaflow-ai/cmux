@@ -51,10 +51,15 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
     private let backlog = Mutex(Backlog())
     /// The layer whose frames show this lane's output (the typing probe's ``TypingLatencyProbe/Mark/contents``).
     let frameLayer: ObjectIdentifier?
+    /// The terminal's predictive echo engine (nil: it does not predict). It sees each chunk right after Ghostty
+    /// parsed it, in stream order, so the overlay never reads a cursor that has not moved for bytes the engine saw.
+    let prediction: TerminalEchoPrediction?
 
-    init(surface: ghostty_surface_t, label: String, highWater: Int = 2 << 20, frameLayer: ObjectIdentifier? = nil) {
+    init(surface: ghostty_surface_t, label: String, highWater: Int = 2 << 20, frameLayer: ObjectIdentifier? = nil,
+         prediction: TerminalEchoPrediction? = nil) {
         self.surface = surface
         self.frameLayer = frameLayer
+        self.prediction = prediction
         self.highWater = highWater
         self.queue = DispatchQueue(label: label, qos: .userInteractive)
     }
@@ -62,7 +67,9 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
     /// Bytes queued but not parsed yet.
     var pendingBytes: Int { backlog.withLock { $0.bytes } }
 
-    func processOutput(_ data: Data) {
+    /// `replacesScreen`: a VT replay of the whole screen, not output the remote sent after the keys typed (the echo
+    /// engine starts over once it is parsed).
+    func processOutput(_ data: Data, replacesScreen: Bool = false) {
         guard !data.isEmpty else { return }
         backlog.withLock { $0.bytes += data.count }
         queue.async { [self] in
@@ -71,6 +78,11 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
             data.withUnsafeBytes { buffer in
                 guard let base = buffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
                 ghostty_surface_process_output(surface, base, UInt(buffer.count))
+            }
+            if let prediction {
+                // A replay starts the engine over, then its bytes set the modes they leave on (conceal, say).
+                if replacesScreen { prediction.missedOutput(alternateScreen: Self.readsAlternateScreen(surface)) }
+                prediction.output(data)
             }
             TypingLatencyProbe.shared.mark(.outputParsed, source: .object(ObjectIdentifier(self)), next: frameLayer.map(TypingLatencyProbe.Source.object))
             noteScreen(surface, after: data)
@@ -97,7 +109,10 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
                 return ghostty_surface_restore_snapshot(surface, base, buffer.count, phase)
             }
             if ready { readyRestored.store(restored, ordering: .releasing) }
-            if restored { noteScreen(surface, after: nil) }
+            if restored {
+                noteScreen(surface, after: nil)
+                prediction?.restoredSnapshot(alternateScreen: ready ? Self.readsAlternateScreen(surface) : nil)
+            }
             #if DEBUG || CMUX_BENCH_HOOKS
             if NewTerminalTrace.shared.isArmed, restored { NewTerminalTrace.shared.parsed(lane: ObjectIdentifier(self), nil) }
             #endif
@@ -133,6 +148,7 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
             // A local READY replaces the old one: no history chunk may follow it.
             readyRestored.store(false, ordering: .releasing)
             noteScreen(surface, after: nil)
+            prediction?.restoredSnapshot(alternateScreen: Self.readsAlternateScreen(surface))
             if result != Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_RESTORED.rawValue) {
                 Self.logger.error("local-history restore result \(result) (\(data.count) bytes)")
             }
@@ -191,6 +207,12 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
             surface = nil
             MainDelivery().run { teardown.run() }
         }
+    }
+
+    /// Whether a full-screen program owns the parsed screen (read on the lane, after the parse).
+    private static func readsAlternateScreen(_ surface: ghostty_surface_t) -> Bool {
+        var metrics = ghostty_surface_grid_metrics_s()
+        return ghostty_surface_grid_metrics(surface, &metrics) && metrics.alternate_screen
     }
 
     /// On `queue`, after `surface` parsed `data` (nil: a snapshot restore, which can change anything): reads whether

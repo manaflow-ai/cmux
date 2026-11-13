@@ -158,10 +158,51 @@ fn a_repo_cd_clones_through_add_repository_in_the_background_and_asks_until_it_e
     assert_eq!(answer["session_id"], "s-2");
     assert_eq!(fake.paused, POLL_PAUSE);
     let start = &fake.scripts[0];
-    assert!(start.contains("cloud repo add --session s-1 --repo acme/api --ref main"), "{start}");
+    assert!(
+        start.contains(
+            "\"$1\" --session cloud cloud repo add --session s-1 --repo acme/api --ref main"
+        ),
+        "{start}"
+    );
     assert!(start.contains("nohup sh"), "{start}");
     assert!(start.contains("s-1--acme_api--main"), "{start}");
     assert!(fake.scripts[3].contains("--cwd /home/cmux/chats/s-1/api"), "{}", fake.scripts[3]);
+}
+
+/// The read-back on a Cloud machine: a bare `cmux-tui cloud repo add` there reached session
+/// `main`, which no Cloud machine runs, and answered `repo.unavailable` ("Connect to the Cloud
+/// machine and retry: No such file or directory"). Add repository is the machine daemon's own,
+/// session `cloud`.
+#[test]
+fn the_machines_add_repository_reaches_its_own_daemon_not_session_main() {
+    let words = guest_repo_add("s-1", "acme/api", Some("main"));
+    let Ok((global, command)) = crate::cli::parse_globals(&words) else { panic!("{words:?}") };
+    assert_eq!(
+        command,
+        strings(&[
+            "cloud",
+            "repo",
+            "add",
+            "--session",
+            "s-1",
+            "--repo",
+            "acme/api",
+            "--ref",
+            "main"
+        ])
+    );
+    let (socket, _) =
+        crate::cli::wire::resolve_socket_with_env(&global, |_| None).expect("a socket");
+    assert_eq!(socket, cmux_tui_core::server::try_default_socket_path("cloud").expect("cloud"));
+    assert_ne!(socket, cmux_tui_core::server::try_default_socket_path("main").expect("main"));
+
+    // An agent's own `CMUX_TUI_SOCKET` on the machine does not pull it elsewhere either.
+    let (socket, _) = crate::cli::wire::resolve_socket_with_env(&global, |name| {
+        (name == "CMUX_TUI_SOCKET").then(|| "/tmp/elsewhere.sock".into())
+    })
+    .expect("a socket");
+    assert_eq!(socket, cmux_tui_core::server::try_default_socket_path("cloud").expect("cloud"));
+    assert_eq!(guest_repo_add("s-1", "acme/api", None).len(), 9);
 }
 
 #[test]
@@ -204,4 +245,20 @@ fn a_fork_the_machine_refuses_names_its_words() {
 #[test]
 fn chat_cd_is_not_a_chat_start_with_the_prompt_cd() {
     assert!(crate::cli::chat_start::OTHER_VERBS.contains(&"cd"));
+}
+
+/// Leo (2026-11-09): a folderless Cloud chat picks its repository later. Such a chat runs in the
+/// fresh folder its machine made (`~/chats/<chat>`); `cmux chat cd` never reads that folder, so a
+/// cd from it is the same two steps as from any folder: the target is checked, then the chat forks
+/// into it. `~` is the machine's home, the folder a folderless chat's `/cd ~/...` names too.
+#[test]
+fn a_folderless_chat_cds_to_a_folder_on_its_machine() {
+    let mut fake = Fake::new(vec![out("@@folder\n/home/cmux\n"), forked("s-2")]);
+    let answer = run(&mut fake, &cd(&["peer-7", "~"]), "vm-1").expect("moved");
+    assert_eq!(answer["cwd"], "/home/cmux");
+    assert_eq!(answer["forked_from"], "peer-7");
+    assert_eq!(answer["follow_up"]["cd"], "cmux chat cd s-2 DIR|--repo OWNER/NAME");
+    assert_eq!(fake.scripts.len(), 2, "{:?}", fake.scripts);
+    assert!(fake.scripts.iter().all(|script| !script.contains("/chats/")), "{:?}", fake.scripts);
+    assert!(fake.scripts[1].contains("acp session fork peer-7 --cwd /home/cmux --json"));
 }

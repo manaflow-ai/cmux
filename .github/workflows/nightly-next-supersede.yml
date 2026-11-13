@@ -1,0 +1,77 @@
+name: nightly-next supersede
+
+# Latest wins (Leo, 2026-11-11: "aren't there things we can just be like 'ok just get this one in asap'";
+# 2026-11-06: nothing queues). nightly.yml keeps nightly-next pushes and the loop's retries in one
+# concurrency group and the sign stages in another, never cancelling a started run, and GitHub keeps
+# only one newer run pending per group. On 2026-11-10/11 runs whose remaining jobs waited on a runner
+# label that had gone held both groups for hours, and every tip run behind them was replaced while
+# pending and never started. nightly.yml cannot clear that itself: the waiting run has no jobs.
+#
+# This runs beside each nightly-next push (a promotion; the file is on nightly-next because the branch
+# carries feat-cmux-next's tree) and by dispatch (scripts/ci/nightly_now.py). It cancels an older run
+# holding the push or sign group only when none of its build, sign or publish jobs has started and the
+# newer run waiting on that group has waited on it (scripts/ci/nightly_next_supersede.py, which reads
+# main's scripts/ci/delivery_workflows.py for the light-job list and the started rule). It never cancels
+# a started job, the tip's push run, or the newest sign stage. Only promotion pushes start it, about
+# as often as nightly-next moves, so it spends a few reads per promotion.
+#
+# A holder that is still inside its 5-minute ready wait when the settle ends must not wait for the next
+# promotion: the run then dispatches itself again (input chain, at most 12 links after one push), and the
+# next link waits on this group, settles and judges again. A schedule cannot do this: GitHub runs a cron
+# only from the default branch's files, and this file lives on nightly-next. The chain ends as soon as no
+# holder lacks only time.
+on:
+  push:
+    branches: [nightly-next]
+  workflow_dispatch:
+    inputs:
+      chain:
+        description: "Link of the re-dispatch chain (0 starts one; the script sets it)"
+        type: string
+        default: '0'
+
+permissions: {}
+
+jobs:
+  supersede:
+    if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    # Reads, at most one settle wait of up to 6 minutes, and at most two cancels.
+    timeout-minutes: 12
+    # One runs and the newest waits; each reads every nightly-next run when it starts, so a replaced
+    # pending one loses nothing.
+    concurrency:
+      group: nightly-next-supersede
+      cancel-in-progress: false
+    permissions:
+      # actions: write cancels a superseded run that never started, and dispatches the next link.
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          path: .supersede-tooling
+          sparse-checkout: |
+            scripts/ci/nightly_next_supersede.py
+          sparse-checkout-cone-mode: false
+
+      # The stale rule's one definition (LIGHT_JOBS, build_started) is main's, which the queue janitor
+      # and the agents' cancel guard read too.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: main
+          path: .main-rules
+          sparse-checkout: |
+            scripts/ci/delivery_workflows.py
+          sparse-checkout-cone-mode: false
+
+      - name: Drop an older nightly-next run that holds the tip's group and never started
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHAIN: ${{ inputs.chain || '0' }}
+        run: >-
+          python3 -u .supersede-tooling/scripts/ci/nightly_next_supersede.py "$GITHUB_REPOSITORY"
+          --rules .main-rules/scripts/ci/delivery_workflows.py --settle --chain "$CHAIN"
