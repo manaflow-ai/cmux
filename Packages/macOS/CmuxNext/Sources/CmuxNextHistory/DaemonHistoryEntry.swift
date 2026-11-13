@@ -146,6 +146,12 @@ public nonisolated struct DaemonHistoryList: Decodable, Sendable {
         pendingKinds = Set(try c.decodeIfPresent([String].self, forKey: .pendingKinds)?.compactMap(HistoryEntry.Kind.init(rawValue:)) ?? [])
     }
 
+    /// The list's agent sessions as sessions of `machine`, and whether they are the whole list: not while
+    /// `pending_kinds` names `agent` (the daemon's fold is behind, these are the sessions that it has reached).
+    public func agentSessions(machine: String) -> (sessions: [AgentSession], isComplete: Bool) {
+        (entries.compactMap { $0.agentSession(machine: machine) }, !pendingKinds.contains(.agent))
+    }
+
     /// Whether `id` is not among the entries only because its kind's entries are not complete yet:
     /// the entry is then not known, which is not "gone".
     public func isStillLoading(id: String) -> Bool {

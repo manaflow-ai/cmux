@@ -33,7 +33,7 @@ final class VaultHostView: NSView {
         ])
         setAccessibilityIdentifier("cmux.vault")
         // On screen: in a visible window and not hidden (nil when this view is gone).
-        vault.reads.addSurface { [weak self] in self.map { $0.window?.isVisible == true && !$0.isHiddenOrHasHiddenAncestor } }
+        vault.addSurface { [weak self] in self.map { $0.window?.isVisible == true && !$0.isHiddenOrHasHiddenAncestor } }
     }
 
     @available(*, unavailable)

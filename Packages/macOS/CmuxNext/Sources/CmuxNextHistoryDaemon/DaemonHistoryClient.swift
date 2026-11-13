@@ -39,8 +39,7 @@ public struct DaemonHistoryClient: Sendable {
     /// that list is complete. While the daemon's fold is behind (`pending_kinds` names `agent`) it is not: these
     /// are the sessions the fold has reached.
     public func agentSessions(machine: String) async throws -> (sessions: [AgentSession], isComplete: Bool) {
-        let reply = try await list(kinds: [.agent], text: "", range: .all, limit: 5_000)
-        return (reply.entries.compactMap { $0.agentSession(machine: machine) }, !reply.pendingKinds.contains(.agent))
+        try await list(kinds: [.agent], text: "", range: .all, limit: 5_000).agentSessions(machine: machine)
     }
 
     /// Runs `read` up to `attempts` times, spaced by `backoff` (a busy daemon times out once, then
