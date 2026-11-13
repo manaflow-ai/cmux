@@ -1,6 +1,8 @@
 //! One v1 list mark queue and one summary builder, until chat actors own rows.
 mod summary;
 use super::*;
+#[cfg(test)]
+use acpmux_book::index::IndexPage;
 use acpmux_book::index::{ReadSide, RowKey, SortKey, Summary};
 use acpmux_core::life::V2;
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -48,6 +50,10 @@ struct TeeState {
     all: AtomicBool,
     #[cfg(test)]
     walk_peak_page_bytes: AtomicU64,
+    #[cfg(test)]
+    walk_peak_cold_bytes: AtomicU64,
+    #[cfg(test)]
+    walk_peak_page_total_bytes: AtomicU64,
     #[cfg(test)]
     walk_peak_id_bytes: AtomicU64,
     #[cfg(test)]
@@ -98,14 +104,55 @@ impl TeeState {
     }
 
     #[cfg(test)]
-    fn record_walk_page_memory(&self, page_bytes: usize) {
+    fn record_walk_page_memory(&self, page_bytes: usize, cold_bytes: usize) {
         self.walk_peak_page_bytes.fetch_max(page_bytes as u64, Ordering::Relaxed);
+        self.walk_peak_cold_bytes.fetch_max(cold_bytes as u64, Ordering::Relaxed);
+        self.walk_peak_page_total_bytes
+            .fetch_max(page_bytes.saturating_add(cold_bytes) as u64, Ordering::Relaxed);
     }
 
     #[cfg(test)]
-    pub(crate) fn walk_peak_memory(&self) -> (u64, u64) {
+    fn summary_owned_bytes(row: &Summary) -> usize {
+        let string_bytes = row.chat_id.capacity()
+            + row.title.capacity()
+            + row.harness.capacity()
+            + row.state.capacity()
+            + row.origin.capacity()
+            + row.workspace.as_ref().map_or(0, String::capacity)
+            + row.folder.as_ref().map_or(0, String::capacity);
+        let key_bytes =
+            |key: &RowKey| std::mem::size_of::<RowKey>() + key.origin.len() + key.chat_id.len();
+        let parent_bytes = row.parent.as_ref().map_or(0, key_bytes);
+        let fork_bytes = row.fork_of.as_ref().map_or(0, |fork| key_bytes(&fork.key));
+        let raw_bytes =
+            row.extra.get().len() + row.peer_form.as_ref().map_or(0, |peer| peer.get().len());
+        // The Arc header and the Summary's owned fields are allocated with the
+        // decoded cold row. Hot rows only charge their Arc slot in the page.
+        std::mem::size_of::<Summary>()
+            + 2 * std::mem::size_of::<usize>()
+            + string_bytes
+            + parent_bytes
+            + fork_bytes
+            + raw_bytes
+    }
+
+    #[cfg(test)]
+    fn walk_page_owned_bytes(page: &IndexPage) -> (usize, usize) {
+        let slots = page.rows.capacity().saturating_mul(std::mem::size_of::<Arc<Summary>>());
+        let cold_rows = if page.bytes_read > 0 {
+            page.rows.iter().map(|row| Self::summary_owned_bytes(row)).sum()
+        } else {
+            0
+        };
+        (slots, cold_rows)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn walk_peak_memory(&self) -> (u64, u64, u64, u64) {
         (
             self.walk_peak_page_bytes.load(Ordering::Relaxed),
+            self.walk_peak_cold_bytes.load(Ordering::Relaxed),
+            self.walk_peak_page_total_bytes.load(Ordering::Relaxed),
             self.walk_peak_id_bytes.load(Ordering::Relaxed),
         )
     }
@@ -130,6 +177,8 @@ struct Expiries {
     stalled_by_id: HashMap<String, u64>,
     stalled_ordered: BTreeSet<(u64, String)>,
     stalled_fired: HashMap<String, u64>,
+    stalled_fired_ordered: BTreeSet<(u64, String)>,
+    stalled_fired_cursor: Option<(u64, String)>,
 }
 
 impl Expiries {
@@ -147,6 +196,12 @@ impl Expiries {
         if let Some(old) = self.stalled_by_id.remove(id) {
             self.stalled_ordered.remove(&(old, id.to_owned()));
         }
+        if let Some(old) = self.stalled_fired.get(id).copied()
+            && next != Some(old)
+        {
+            self.stalled_fired.remove(id);
+            self.stalled_fired_ordered.remove(&(old, id.to_owned()));
+        }
         match next {
             Some(next) if self.stalled_fired.get(id).copied() != Some(next) => {
                 self.stalled_by_id.insert(id.to_owned(), next);
@@ -157,6 +212,11 @@ impl Expiries {
                 self.stalled_fired.remove(id);
             }
         }
+    }
+
+    fn has_due(&self, now: u64) -> bool {
+        self.ordered.first().is_some_and(|(at, _)| *at <= now)
+            || self.stalled_ordered.first().is_some_and(|(at, _)| *at <= now)
     }
 
     fn mark_due(&mut self, state: &TeeState, now: u64) {
@@ -179,9 +239,36 @@ impl Expiries {
             let Some((at, id)) = self.stalled_ordered.pop_first() else { break };
             self.stalled_by_id.remove(&id);
             self.stalled_fired.insert(id.clone(), at);
+            self.stalled_fired_ordered.insert((at, id.clone()));
             due.push((at, id));
         }
         due
+    }
+
+    fn fired_for_recheck(&mut self) -> Vec<(u64, String)> {
+        let mut due = Vec::with_capacity(BATCH);
+        if let Some(cursor) = self.stalled_fired_cursor.as_ref() {
+            due.extend(
+                self.stalled_fired_ordered
+                    .range((std::ops::Bound::Excluded(cursor.clone()), std::ops::Bound::Unbounded))
+                    .take(BATCH)
+                    .cloned(),
+            );
+            if due.len() < BATCH {
+                due.extend(self.stalled_fired_ordered.iter().take(BATCH - due.len()).cloned());
+            }
+        } else {
+            due.extend(self.stalled_fired_ordered.iter().take(BATCH).cloned());
+        }
+        self.stalled_fired_cursor = due.last().cloned();
+        due
+    }
+
+    fn clear_fired(&mut self, at: u64, id: &str) {
+        if self.stalled_fired.get(id).copied() == Some(at) {
+            self.stalled_fired.remove(id);
+            self.stalled_fired_ordered.remove(&(at, id.to_owned()));
+        }
     }
 
     #[cfg(test)]
@@ -272,9 +359,9 @@ async fn reconcile(v1: &Hub, v2: &V2, state: &TeeState) -> Expiries {
             }
         };
         #[cfg(test)]
-        state.record_walk_page_memory(
-            page.rows.capacity().saturating_mul(std::mem::size_of::<Arc<Summary>>()),
-        );
+        let (page_slots, cold_rows) = TeeState::walk_page_owned_bytes(&page);
+        #[cfg(test)]
+        state.record_walk_page_memory(page_slots, cold_rows);
         for row in &page.rows {
             if row.origin == "local" {
                 unseen.remove(&row.chat_id);
@@ -312,12 +399,13 @@ pub(crate) fn start_v2_tee(
         let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
-            tokio::select! {
+            let clock_tick = tokio::select! {
                 biased;
-                _ = tick.tick() => {},
-                _ = state.notify.notified() => {},
-                _ = std::future::ready(()), if state.has_pending() => {},
-            }
+                _ = tick.tick() => true,
+                _ = state.notify.notified() => false,
+                _ = std::future::ready(()), if state.has_pending()
+                    || expiries.has_due(crate::store::now_ms()) => false,
+            };
             let now = crate::store::now_ms();
             expiries.mark_due(&state, now);
             for (scheduled, id) in expiries.take_stalled_due(now) {
@@ -334,6 +422,37 @@ pub(crate) fn start_v2_tee(
                     // A model sign may have arrived on an unmarked chunk. Move
                     // the crossing forward without emitting a row operation.
                     expiries.set_stalled(&id, current);
+                }
+            }
+            // A fired turn remains tracked without a full-list scan. An
+            // unmarked model chunk can advance its deadline; only that fired
+            // ID is rechecked and rescheduled, while an unchanged deadline
+            // stays quiet until a later marked event is needed.
+            // Rechecking quiet live turns belongs to the clock, not to each
+            // marked change. A large set of stalled turns must not multiply
+            // the work of draining a single row's mark.
+            let mut fired_left = if clock_tick { expiries.stalled_fired.len() } else { 0 };
+            while fired_left > 0 {
+                let batch = expiries.fired_for_recheck();
+                if batch.is_empty() {
+                    break;
+                }
+                fired_left = fired_left.saturating_sub(batch.len());
+                for (fired, id) in batch {
+                    let Some(session) = session_by_id(&v1, &id) else {
+                        expiries.clear_fired(fired, &id);
+                        continue;
+                    };
+                    let live = session
+                        .read_meta(|meta| meta.status != crate::store::SessionStatus::Closed);
+                    let current = stalled_deadline(&v1, &session, live);
+                    if current != Some(fired) {
+                        expiries.clear_fired(fired, &id);
+                        expiries.set_stalled(&id, current);
+                    }
+                }
+                if fired_left > 0 {
+                    tokio::task::yield_now().await;
                 }
             }
             drain_marks(&v1, &v2, &state, &mut expiries);

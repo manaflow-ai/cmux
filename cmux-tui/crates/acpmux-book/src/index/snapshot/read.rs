@@ -302,11 +302,13 @@ impl DiskSnapshot {
         next_ordinal: u64,
         bytes_read: usize,
     ) -> SnapshotPiece {
+        // A piece that skipped only damaged frames has no row from which to
+        // continue. An ordinary empty seek past the end retains its direction
+        // flags; its caller already supplied an anchor on the sound snapshot.
+        let only_damage = rows.is_empty() && physical_count > 0;
         SnapshotPiece {
-            // An empty terminal piece has no row from which to continue.
-            // Streaming callers still retain its physical offset and ordinal.
-            has_before: !rows.is_empty() && first_ordinal > 0,
-            has_after: !rows.is_empty() && next_ordinal < self.len(),
+            has_before: !only_damage && first_ordinal > 0,
+            has_after: !only_damage && next_ordinal < self.len(),
             rows: rows.into_iter().map(|row| row.summary).collect(),
             physical_count,
             next_ordinal,

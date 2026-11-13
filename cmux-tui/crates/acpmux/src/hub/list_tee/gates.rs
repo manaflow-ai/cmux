@@ -2,7 +2,7 @@
 //! actual 20/11k workloads used by the v2 registry, rather than unit-test fixtures or estimates.
 
 use super::*;
-use acpmux_book::index::SummaryIndex;
+use acpmux_book::index::{SortedSnapshot, SummaryIndex};
 use acpmux_client::wire::{ListKey, ListView, Page, PageResult, PageSide, Sub, Window};
 use acpmux_core::hub::Hub as CoreHub;
 use serde_json::json;
@@ -239,7 +239,11 @@ async fn walk_rss_child(count: usize) -> (u128, u128, u128, u128, usize) {
     // Keep a populated stale index so reconciliation reads real page-sized
     // slices. An empty index would exercise only the unseen-id pass and report
     // zero page bytes.
-    let (hub, writer) = CoreHub::new(index_for(&v1, 0));
+    let index_root = tempfile::tempdir().expect("walk index tempdir");
+    let stale = index_for(&v1, 0);
+    SortedSnapshot::write(index_root.path().join("index.snap"), &stale)
+        .expect("write walk index snapshot");
+    let (hub, writer) = CoreHub::open(index_root.path(), 1, || 7).expect("open walk index");
     let v2 = Arc::new(V2::new(hub, writer));
     let (handle, task) = start_v2_tee(v1.clone(), v2.clone());
     let metrics = handle.clone();
@@ -270,16 +274,18 @@ async fn walk_rss_child(count: usize) -> (u128, u128, u128, u128, usize) {
     peak = peak.max(rss_bytes());
     let after = rss_bytes();
     let retained = v2.hub.snapshot().iter().map(|row| serde_json::to_vec(row).unwrap().len()).sum();
-    let (walk_page_bytes, walk_id_bytes) = metrics.state.walk_peak_memory();
+    let (walk_page_bytes, walk_cold_bytes, walk_page_total_bytes, walk_id_bytes) =
+        metrics.state.walk_peak_memory();
     let (store_load_ns, mark_all_ns) = metrics.state.load_and_mark_all_ns();
     tee_task.abort();
     let _ = tee_task.await;
     eprintln!(
-        "WALK_MEMORY_CHILD label={:?} page_bytes={} id_bytes={} additive={}",
+        "WALK_MEMORY_CHILD label={:?} page_slots_bytes={} cold_row_bytes={} id_bytes={} additive={}",
         if count == 20 { "small" } else { "god" },
         walk_page_bytes,
+        walk_cold_bytes,
         walk_id_bytes,
-        walk_page_bytes.saturating_add(walk_id_bytes),
+        walk_page_total_bytes.saturating_add(walk_id_bytes),
     );
     eprintln!(
         "WALK_TIMING_CHILD store_load_ns={} tee_wait_store_ns={} mark_all_ns={}",

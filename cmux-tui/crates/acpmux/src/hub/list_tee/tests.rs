@@ -59,21 +59,51 @@ fn a_stalled_deadline_marks_once_until_a_new_turn_deadline() {
 }
 
 #[test]
+fn fired_stalled_rechecks_rotate_past_one_batch() {
+    let mut expiries = Expiries::default();
+    for n in 0..(BATCH * 2) {
+        expiries.set_stalled(&format!("chat-{n}"), Some(100));
+    }
+    let _ = expiries.take_stalled_due(100);
+    let _ = expiries.take_stalled_due(100);
+    let first = expiries.fired_for_recheck();
+    let second = expiries.fired_for_recheck();
+    assert_eq!(first.len(), BATCH);
+    assert_eq!(second.len(), BATCH);
+    assert!(first.iter().all(|entry| !second.contains(entry)));
+}
+
+#[test]
 fn walk_memory_accounts_a_page_and_each_pending_id() {
     let state = TeeState::default();
     let ids = HashSet::from(["one".to_owned(), "long-id".to_owned()]);
     state.record_walk_id_memory(&ids);
-    state.record_walk_page_memory(123);
+    state.record_walk_page_memory(123, 0);
     assert_eq!(state.walk_peak_memory().0, 123);
     assert_eq!(
-        state.walk_peak_memory().1,
+        state.walk_peak_memory().2,
         (ids.iter().map(String::capacity).sum::<usize>()
             + ids.capacity().next_power_of_two().max(8) * WALK_ID_STATE_BYTES
             + std::mem::size_of::<[usize; 2]>()) as u64
     );
     state.record_walk_id_memory(&HashSet::new());
-    state.record_walk_page_memory(100);
-    assert_eq!(state.walk_peak_memory(), (123, state.walk_peak_memory().1));
+    state.record_walk_page_memory(100, 0);
+    assert_eq!(state.walk_peak_memory(), (123, 0, 123, state.walk_peak_memory().3));
+}
+
+#[test]
+fn walk_memory_counts_cold_summary_storage_in_addition_to_arc_slots() {
+    let mut row = Summary::new("cold");
+    row.title = "title with spare capacity".repeat(4);
+    let expected_floor = std::mem::size_of::<Summary>()
+        + 2 * std::mem::size_of::<usize>()
+        + row.chat_id.capacity()
+        + row.title.capacity()
+        + row.harness.capacity()
+        + row.state.capacity()
+        + row.origin.capacity()
+        + row.extra.get().len();
+    assert!(TeeState::summary_owned_bytes(&row) >= expected_floor);
 }
 
 #[tokio::test]
@@ -295,6 +325,7 @@ async fn reconcile_corrects_a_stale_typed_archived_bit() {
     .await
     .expect("reconcile did not replace the stale archive bit");
     tee.abort();
+    let _ = tee.await;
     v2.hub.close();
     writer.await.unwrap().unwrap();
 }
@@ -338,18 +369,38 @@ async fn quiet_live_turn_crossing_marks_without_another_record() {
     tokio::time::sleep(std::time::Duration::from_millis(1_600)).await;
     assert!(subscription.receiver.try_next().is_none(), "the old crossing must be rescheduled");
 
-    let next =
+    let crossing =
         tokio::time::timeout(std::time::Duration::from_secs(2), next(&subscription.receiver))
             .await
             .expect("quiet-turn deadline did not mark the row");
-    let acpmux_core::hub::ListItem::Summary(next) = next else {
+    let acpmux_core::hub::ListItem::Summary(crossing) = crossing else {
         panic!("quiet-turn crossing was not a summary");
     };
-    let next_extra: serde_json::Value = serde_json::from_str(next.summary.extra.get()).unwrap();
-    assert!(next_extra.pointer("/turn/stalledSince").and_then(serde_json::Value::as_u64).is_some());
-    assert!(next.summary.same_content(&summary_from_session(&v1, &session).unwrap()));
+    let crossing_extra: serde_json::Value =
+        serde_json::from_str(crossing.summary.extra.get()).unwrap();
+    assert!(
+        crossing_extra.pointer("/turn/stalledSince").and_then(serde_json::Value::as_u64).is_some()
+    );
+    assert!(crossing.summary.same_content(&summary_from_session(&v1, &session).unwrap()));
     assert!(subscription.receiver.try_next().is_none(), "the crossing emits one summary");
+
+    // A second unmarked chunk after the first crossing must be observed from
+    // the fired-turn set and get its own later crossing, without a chunk mark.
+    v1.append(&session, "in", "agent_message_chunk", serde_json::json!({"delta": "y"}));
+    session.last_model_at.store(crate::store::now_ms(), Ordering::Relaxed);
+    tokio::time::sleep(std::time::Duration::from_millis(1_600)).await;
+    assert!(subscription.receiver.try_next().is_none(), "the fired crossing must be rescheduled");
+    let second =
+        tokio::time::timeout(std::time::Duration::from_secs(2), next(&subscription.receiver))
+            .await
+            .expect("repeated quiet-turn deadline did not mark the row");
+    let acpmux_core::hub::ListItem::Summary(second) = second else {
+        panic!("repeated quiet-turn crossing was not a summary");
+    };
+    assert!(second.summary.same_content(&summary_from_session(&v1, &session).unwrap()));
+    assert!(subscription.receiver.try_next().is_none(), "the repeated crossing emits one summary");
     tee.abort();
+    let _ = tee.await;
     v2.hub.close();
     writer.await.unwrap().unwrap();
 }
@@ -672,4 +723,19 @@ async fn a_tag_expiry_reaches_the_subscriber_without_another_record() {
     let _ = tee.await;
     v2.hub.close();
     writer.await.unwrap().unwrap();
+}
+
+#[test]
+fn due_clock_work_continues_without_waiting_for_another_tick() {
+    let state = TeeState::default();
+    let mut expiries = Expiries::default();
+    for n in 0..(BATCH + 1) {
+        expiries.set_stalled(&format!("quiet-{n}"), Some(100));
+    }
+    expiries.mark_stalled_due(&state, 100);
+    assert!(expiries.has_due(100));
+    assert_eq!(state.take().len(), BATCH);
+    expiries.mark_stalled_due(&state, 100);
+    assert!(!expiries.has_due(100));
+    assert_eq!(state.take().len(), 1);
 }

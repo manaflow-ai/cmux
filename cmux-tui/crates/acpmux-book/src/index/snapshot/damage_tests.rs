@@ -280,3 +280,43 @@ fn malformed_snapshot_structure_is_one_typed_error() {
         assert!(is_fatal_snapshot_read(&error), "{fault}: {error}");
     }
 }
+
+#[test]
+fn undecodable_payload_with_valid_crc_is_an_absent_complete_frame() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("payload.snap");
+    write_rows(&path, 3);
+    let mut bytes = fs::read(&path).unwrap();
+    let start = super::HEADER_BYTES;
+    let body_len =
+        u32::from_le_bytes(bytes.get(start..start + 4).unwrap().try_into().unwrap()) as usize;
+    // Unknown record kind, with a repaired checksum: this exercises decode
+    // failure separately from CRC failure while retaining both frame lengths.
+    *bytes.get_mut(start + 8).unwrap() = u8::MAX;
+    let crc = crc32fast::hash(bytes.get(start + 8..start + 8 + body_len).unwrap());
+    bytes.get_mut(start + 4..start + 8).unwrap().copy_from_slice(&crc.to_le_bytes());
+    fs::write(&path, bytes).unwrap();
+    let snapshot = DiskSnapshot::open(&path).unwrap().unwrap();
+    let page = snapshot.first_rows(3, PAGE_BYTES).unwrap();
+    assert_eq!(
+        page.rows.iter().map(|row| row.chat_id.as_str()).collect::<Vec<_>>(),
+        ["row-0001", "row-0002"]
+    );
+}
+
+#[test]
+fn damaged_around_anchor_uses_the_first_sound_ordinal() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("around-damage.snap");
+    let index = write_rows(&path, 3);
+    damage_frame(&path, 0);
+    let snapshot = DiskSnapshot::open(&path).unwrap().unwrap();
+    let anchor = SortKey::of(&index.get("row-0000").unwrap());
+    let page = snapshot.read_piece(Some(&anchor), ReadSide::Around, true, 2, PAGE_BYTES).unwrap();
+    assert_eq!(page.first_ordinal, 1);
+    assert_eq!(
+        page.rows.iter().map(|row| row.chat_id.as_str()).collect::<Vec<_>>(),
+        ["row-0001", "row-0002"]
+    );
+    assert!(!page.has_after);
+}

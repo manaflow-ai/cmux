@@ -6,6 +6,20 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
+// Mark audit for this fixture:
+//
+// | change | mark source | why this test uses it |
+// |---|---|---|
+// | title, status, unread | `edit_test_meta` plus `append`/`attach_count` | the helper is the test seam for v1's `row_changed`; records and seen use production paths |
+// | child and fork creation | `insert_test_session`/`session_came` | the helper emits the same creation mark and parent fanout |
+// | parent archive edges | `note_rows_reading` then `list_head` | flushes v1's production dependent-row propagation |
+// | peer saved | `send_remote` | production peer events intentionally never mark the local tee |
+// | purge | `sessions.remove` plus a `purged` row event | avoids unrelated filesystem/audit cleanup while retaining v1's list transition |
+//
+// Deliberately omitted from equality: `usageStats` is a v1-only usage read and is not a summary
+// field. Peer rows are excluded because this tee owns local v1 sessions; the remote assertion
+// above verifies that the peer path does not add one.
+
 fn roundtrip_hub() -> Arc<Hub> {
     let mut config = crate::config::Config::default();
     config.store.mode = crate::config::StoreMode::Memory;
@@ -34,6 +48,16 @@ fn without_usage_stats(mut row: Value) -> Value {
     row
 }
 
+fn indexed_v1_row(index: &SummaryIndex, id: &str) -> Option<Value> {
+    let summary = index.get(id)?;
+    let parent = summary.parent.as_ref().and_then(|key| index.get_row(key));
+    Some(acpmux_client::v1_row(
+        &summary,
+        acpmux_client::wire::OriginState::Connected,
+        parent.as_deref(),
+    ))
+}
+
 fn assert_roundtrip(v1: &Hub, index: &SummaryIndex) {
     let sessions = v1.session_handles();
     let expected_ids: HashSet<_> = sessions.iter().map(|session| session.id.clone()).collect();
@@ -45,13 +69,7 @@ fn assert_roundtrip(v1: &Hub, index: &SummaryIndex) {
     );
 
     for session in sessions {
-        let summary = summary_from_session(v1, &session).unwrap();
-        let parent = summary.parent.as_ref().and_then(|key| index.get_row(key));
-        let expected = acpmux_client::v1_row(
-            &summary,
-            acpmux_client::wire::OriginState::Connected,
-            parent.as_deref(),
-        );
+        let expected = indexed_v1_row(index, &session.id).expect("the id set check found this row");
         let actual = v1.session_list_summary(&session);
         // usageStats is intentionally a v1-only usage read; all other fields and
         // the bounded text values are compared exactly.
@@ -74,13 +92,9 @@ async fn wait_roundtrip(v1: &Hub, v2: &V2) {
             if ids == expected
                 && snapshot.iter().all(|row| row.origin == "local")
                 && sessions.iter().all(|session| {
-                    let Ok(summary) = summary_from_session(v1, session) else { return false };
-                    let parent = summary.parent.as_ref().and_then(|key| snapshot.get_row(key));
-                    let expected = acpmux_client::v1_row(
-                        &summary,
-                        acpmux_client::wire::OriginState::Connected,
-                        parent.as_deref(),
-                    );
+                    let Some(expected) = indexed_v1_row(&snapshot, &session.id) else {
+                        return false;
+                    };
                     without_usage_stats(v1.session_list_summary(session))
                         == without_usage_stats(expected)
                 })
