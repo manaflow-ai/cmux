@@ -117,7 +117,8 @@ public final class MacScreenPages {
     /// The record a Machines row should open. Machine registries and the device hub use different
     /// ids in some builds, so a missing match deliberately falls back to the Mac Screen home.
     public func record(forMachine machine: String) -> MacScreenRecord {
-        guard let device = hub?.devices.first(where: { $0.id == machine || $0.name == machine }) else {
+        let candidate = machine.hasPrefix("joined:") ? String(machine.dropFirst("joined:".count)) : machine
+        guard let device = hub?.devices.first(where: { $0.id == candidate || $0.name == candidate }) else {
             return MacScreenRecord(macID: nil)
         }
         return MacScreenRecord(deviceID: device.id)

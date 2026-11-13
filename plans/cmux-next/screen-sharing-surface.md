@@ -11,7 +11,7 @@ Zoom puts Share Screen in the meeting toolbar, then offers Desktop, a specific W
 
 ## cmux NEXT surfaces
 
-The Machines sidebar gives connected Mac and Cloud rows a `View screen` control. A local Mac and a connected macOS host also receive `Share`. The control is available at rest, uses the existing row rhythm, and keeps the existing New Workspace action in the same trailing cluster. The action opens the Mac Screen viewer directly when the hub can resolve the row to a device and otherwise opens the Mac Screen home so the person can select a device.
+The Machines sidebar gives connected remote Mac and Cloud rows a `View screen` control. This Mac receives `Share`; a remote row never shares this Mac. The screen action is the one visible primary action at rest, while workspace and management actions stay in the trailing overflow on hover, focus, or an open menu so names and captions retain their space. The action opens the Mac Screen viewer directly when the hub can resolve the row to a device and otherwise opens the Mac Screen home so the person can select a device. Joined ids are normalized before the hub lookup.
 
 The host state is a compact anchored bar at the top of the Machines section. It uses `--ds-space-*`, `--ds-control-*`, `--ds-radius-control`, `--ds-color-success-subtle`, `--ds-color-danger`, `--page-text`, and `--page-text-2`. Its title says “You are sharing this Mac”; the detail names the viewer and `View Only` or `Full Control`; `Stop sharing` ends the current host session in one click. The existing menu bar indicator remains the system-wide fallback and carries the same stop action.
 

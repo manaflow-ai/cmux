@@ -146,13 +146,12 @@ export function joinedCaption(
  * reached through the mesh alone. */
 export const isLinked = (row: MachineRow) => !row.joined || row.id !== `joined:${row.joined.id}`;
 
-/** Mac and Cloud rows can open the shared-screen viewer. A joined macOS row carries the same ability. */
+/** Connected Cloud and remote macOS rows can open the shared-screen viewer. */
 export const canViewScreen = (row: MachineRow) =>
-  row.isConnected && (row.kind === "local" || row.kind === "cloud" || row.joined?.platform?.toLowerCase() === "macos");
+  row.isConnected && (row.kind === "cloud" || row.joined?.platform?.toLowerCase() === "macos");
 
-/** Sharing is a host action, so it is offered on this Mac and joined macOS hosts. */
-export const canShareScreen = (row: MachineRow) =>
-  row.isConnected && (row.kind === "local" || row.joined?.platform?.toLowerCase() === "macos");
+/** Sharing is a host action owned by this app, so it is offered only on This Mac. */
+export const canShareScreen = (row: MachineRow) => row.isConnected && row.isLocal;
 
 /** One line of the section, top to bottom. */
 export type SectionItem =

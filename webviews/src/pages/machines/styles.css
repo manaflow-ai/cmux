@@ -138,6 +138,21 @@ html[data-cmux-page="machines"] body {
 .machines-action:hover:not(:disabled),
 .machines-row[data-menu-open] .machines-more { background: var(--page-hover); }
 .machines-action:disabled { color: var(--page-text-disabled); }
+.machines-action:not(.machines-screen-action):not(.machines-share-action) {
+  width: 0;
+  margin-inline: calc(-1 * var(--ds-space-1));
+  overflow: hidden;
+  pointer-events: none;
+}
+.machines-row:hover .machines-action:not(.machines-screen-action):not(.machines-share-action),
+.machines-row:has([data-popup-open]) .machines-action:not(.machines-screen-action):not(.machines-share-action),
+.machines-row:focus-within .machines-action:not(.machines-screen-action):not(.machines-share-action),
+.machines-row[data-menu-open] .machines-action:not(.machines-screen-action):not(.machines-share-action) {
+  width: var(--machines-button);
+  margin-inline: 0;
+  overflow: visible;
+  pointer-events: auto;
+}
 .machines-action:focus-visible,
 .machines-add:focus-visible {
   outline: var(--cmux-focus-ring-width, 1.5px) solid var(--ds-color-focus);

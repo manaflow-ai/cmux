@@ -53,6 +53,11 @@ final class DeviceAgent {
     private(set) var identity: DeviceIdentity?
     private(set) var hub: DeviceHub?
     private(set) var state: ScreenSharingState
+    private(set) var relayOnly = false
+    /// The app owns host tickets while any app channel is open. The worker is
+    /// then identity and push relay only, so it must not end or replace the
+    /// app-owned session when a reused ticket arrives.
+    var mayHostSessions: Bool { !relayOnly }
     let sessions = HostSessions()
     let banner = ApprovalBanner()
     let indicator = ShareIndicator()
@@ -129,6 +134,20 @@ final class DeviceAgent {
         sessions.consentChanged()
     }
 
+    /// While the app has a channel open it owns host tickets and approvals. The
+    /// worker remains the identity and push relay, but must not race the app host.
+    func setRelayOnly(_ relayOnly: Bool) {
+        guard self.relayOnly != relayOnly else { return }
+        self.relayOnly = relayOnly
+        if relayOnly {
+            sessions.closeAll()
+            banner.update([])
+        } else if let hub {
+            followPending(hub)
+        }
+        changed()
+    }
+
     /// The hub refused this identity (removed): a new one; the app registers it.
     func renewIdentity() async -> DeviceIdentity? {
         stopHub()
@@ -167,7 +186,9 @@ final class DeviceAgent {
 
     private func handle(_ push: DeviceHubPush) {
         switch push {
-        case let .sessionTicket(ticket): sessions.serve(ticket)
+        case let .sessionTicket(ticket):
+            guard mayHostSessions else { break }
+            sessions.serve(ticket)
         case let .sessionRevoked(id, _), let .sessionEnded(id, _): sessions.sessionOver(id)
         default: break
         }
@@ -176,9 +197,13 @@ final class DeviceAgent {
 
     /// The banner follows the hub's pending requests (Observation, no poll).
     private func followPending(_ hub: DeviceHub) {
+        guard !relayOnly else {
+            banner.update([])
+            return
+        }
         let requests = withObservationTracking { hub.pendingRequests } onChange: { [weak self, weak hub] in
             Task { @MainActor [weak self, weak hub] in
-                guard let self, let hub, self.hub === hub else { return }
+                guard let self, let hub, self.hub === hub, !self.relayOnly else { return }
                 followPending(hub)
             }
         }

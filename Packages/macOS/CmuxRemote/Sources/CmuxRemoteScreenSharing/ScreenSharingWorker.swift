@@ -20,6 +20,7 @@ public final class ScreenSharingWorker: NSObject, NSApplicationDelegate {
     let agent: DeviceAgent
     private let control = LineChannel(read: STDIN_FILENO, write: STDOUT_FILENO)
     private var statusQueued = false
+    private(set) var appChannels = 0
     /// The app's hub subscriptions, by channel.
     private var subscribers: [ObjectIdentifier: LineChannel] = [:]
 
@@ -120,6 +121,7 @@ public final class ScreenSharingWorker: NSObject, NSApplicationDelegate {
         LocalSocket.serve(listener, name: "remote-screen-app") { [weak self] channel in
             // Only the host connects here (it splices the app's channel through).
             guard channel.peer?.pid == getppid() else { return channel.close() }
+            Task { @MainActor [weak self] in self?.appChannelOpened() }
             while let object = channel.readObject() {
                 let request = WorkerRequest(object)
                 Task { @MainActor [weak self] in
@@ -127,13 +129,34 @@ public final class ScreenSharingWorker: NSObject, NSApplicationDelegate {
                     if let answer = await handleApp(request.method, request.params, id: request.id, channel: channel) { channel.write(answer) }
                 }
             }
-            Task { @MainActor [weak self] in self?.unsubscribe(channel) }
+            Task { @MainActor [weak self] in
+                self?.unsubscribe(channel)
+                self?.appChannelClosed()
+            }
             channel.close()
         }
     }
 
+    @MainActor
+    func appChannelOpened() {
+        appChannels += 1
+        agent.setRelayOnly(true)
+    }
+
+    @MainActor
+    func appChannelClosed() {
+        appChannels = max(0, appChannels - 1)
+        if appChannels == 0 { agent.setRelayOnly(false) }
+    }
+
     private func handleApp(_ method: String, _ params: [String: Any], id: Any?, channel: LineChannel) async -> Data? {
         switch method {
+        case "host.mode":
+            guard params["mode"] as? String == "relay-only" else {
+                return RemoteWire.failure(id: id, code: "bad_request", message: "mode relay-only is required")
+            }
+            agent.setRelayOnly(true)
+            return RemoteWire.answer(id: id, result: ["mode": "relay-only"])
         case "device.identity", "device.renew":
             let identity = method == "device.renew" ? await agent.renewIdentity() : await agent.loadIdentity()
             guard let identity else { return RemoteWire.failure(id: id, code: "identity", message: "no device identity (Secure Enclave or Keychain)") }

@@ -125,6 +125,7 @@ struct MacScreenDeviceRecordTests {
         let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
         pages.hub = hub
         #expect(pages.record(forMachine: deviceID) == MacScreenRecord(deviceID: deviceID))
+        #expect(pages.record(forMachine: "joined:\(deviceID)") == MacScreenRecord(deviceID: deviceID))
         #expect(pages.record(forMachine: "Air Blue") == MacScreenRecord(deviceID: deviceID))
         #expect(pages.record(forMachine: "missing-machine").isHome)
         pages.hub = nil

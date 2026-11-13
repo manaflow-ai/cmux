@@ -110,11 +110,11 @@ export default componentEntry<Props>({
       props: { snapshot: { rows: [thisMac, ...many], style: "compact", busy: [], failed: {} } },
     },
     "screen-actions": {
-      note: "Mac and Cloud rows expose View screen at rest; This Mac also exposes Share beside the existing workspace action.",
+      note: "The one primary screen action stays visible at rest: This Mac exposes Share, while connected Cloud and joined Mac rows expose View screen; workspace and overflow actions reveal on hover.",
       props: {
         snapshot: {
           ...sampleSnapshot,
-          rows: [thisMac, sampleRows[1]!, sampleRows[4]!],
+          rows: [thisMac, sampleRows[1]!, joinedRows[2]!],
           style: "compact",
           busy: [],
           failed: {},
@@ -122,11 +122,11 @@ export default componentEntry<Props>({
       },
     },
     "screen-sharing": {
-      note: "Persistent host bar names the viewer and scope, with one-click Stop sharing.",
+      note: "The persistent host bar names the viewer and scope; one-click Stop sharing stays together with the rows and their primary actions.",
       props: {
         snapshot: {
           ...sampleSnapshot,
-          rows: [thisMac, sampleRows[1]!],
+          rows: [thisMac, sampleRows[1]!, joinedRows[2]!],
           style: "compact",
           busy: [],
           failed: {},
@@ -135,11 +135,11 @@ export default componentEntry<Props>({
       },
     },
     "screen-awaiting": {
-      note: "A connecting Cloud machine keeps its quiet spinner; View screen appears as soon as the link is ready.",
+      note: "A connecting Cloud machine keeps its quiet spinner; the joined Mac keeps its caption space and View screen remains the primary action.",
       props: {
         snapshot: {
           ...sampleSnapshot,
-          rows: [thisMac, sampleRows[1]!, sampleRows[2]!],
+          rows: [thisMac, sampleRows[1]!, sampleRows[2]!, joinedRows[2]!],
           style: "grouped",
           busy: [],
           failed: {},

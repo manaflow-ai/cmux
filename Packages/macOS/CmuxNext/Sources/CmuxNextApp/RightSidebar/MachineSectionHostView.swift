@@ -22,10 +22,14 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
             style: { ServerTunables.machinesStyle.value }, joined: { joined },
             newWorkspace: { registry.perform("workspace.newOnMachine", invocation: ActionInvocation(arguments: ["machine": .string($0)])) },
             viewScreen: { machine in
-                services.openMacScreen(for: machine, in: services.windows.active?.focusedPane)
+                let resolved = JoinedMachine.linkedMachine(machine, in: joined.machines)
+                services.openMacScreen(for: resolved, in: services.windows.active?.focusedPane)
                 return true
             },
-            shareScreen: { _ in registry.perform("macScreen.shareThisMac") },
+            shareScreen: { machine in
+                guard machine == MachineRegistry.localID else { return false }
+                return registry.perform("macScreen.shareThisMac")
+            },
             stopSharing: {
                 services.macScreenPages.hubHost.stopSession() != nil
             },

@@ -129,15 +129,29 @@ test("connected Mac and Cloud rows expose direct screen actions and the host bar
   });
   const local = rowNamed("This Mac");
   const cloud = rowNamed("atlas-web");
-  expect(local.querySelector('[aria-label="View screen"]')).not.toBeNull();
   expect(local.querySelector('[aria-label="Share"]')).not.toBeNull();
   expect(cloud.querySelector('[aria-label="View screen"]')).not.toBeNull();
-  act(() => local.querySelector<HTMLButtonElement>('[aria-label="View screen"]')!.click());
   act(() => local.querySelector<HTMLButtonElement>('[aria-label="Share"]')!.click());
   act(() => host.querySelector<HTMLButtonElement>(".machines-stop-sharing")!.click());
-  expect(ops(provider, MachinesOps.viewScreen).map((call) => call.params)).toEqual([{ machine: "local" }]);
+  expect(ops(provider, MachinesOps.viewScreen)).toHaveLength(0);
   expect(ops(provider, MachinesOps.shareScreen).map((call) => call.params)).toEqual([{ machine: "local" }]);
   expect(ops(provider, MachinesOps.stopSharing)).toHaveLength(1);
+});
+
+test("sharing is offered only on This Mac; a joined Mac keeps View screen", async () => {
+  const { provider } = await mount({
+    ...sampleSnapshot,
+    rows: [sampleRows[0]!, joinedRows[2]!],
+    screenSharing: undefined,
+  });
+  const local = rowNamed("This Mac");
+  const joinedMac = rowNamed("studio-mini");
+  expect(local.querySelector('[aria-label="Share"]')).not.toBeNull();
+  expect(joinedMac.querySelector('[aria-label="View screen"]')).not.toBeNull();
+  expect(joinedMac.querySelector('[aria-label="Share"]')).toBeNull();
+  act(() => joinedMac.querySelector<HTMLButtonElement>('[aria-label="View screen"]')!.click());
+  expect(ops(provider, MachinesOps.viewScreen).map((call) => call.params)).toEqual([{ machine: "joined:m_mini" }]);
+  expect(ops(provider, MachinesOps.shareScreen)).toHaveLength(0);
 });
 
 test("a joined machine needs a link for New Workspace", async () => {

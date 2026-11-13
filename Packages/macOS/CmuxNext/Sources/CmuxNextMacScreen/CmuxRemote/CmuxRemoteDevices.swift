@@ -33,8 +33,11 @@ public nonisolated final class CmuxRemoteDevices: Sendable {
         if let live = control.withLock({ $0 }), live.isOpen { return live }
         let fresh = RemoteDeviceChannel(socket: try await open())
         if let source = consentNow.load() {
+            _ = try await fresh.call("host.mode", ["mode": "relay-only"])
             let consent = await source()
             _ = try? await fresh.call("consent", ["enabled": consent.enabled, "view": consent.view, "full": consent.full])
+        } else {
+            _ = try await fresh.call("host.mode", ["mode": "relay-only"])
         }
         control.withLock { $0 = fresh }
         return fresh
@@ -88,6 +91,7 @@ public nonisolated final class CmuxRemoteDevices: Sendable {
     /// The hub's pushes from the worker's socket, as a socket this app's hub reads.
     func subscribe() async throws -> any DeviceHubSocketConnection {
         let fresh = RemoteDeviceChannel(socket: try await open())
+        _ = try await fresh.call("host.mode", ["mode": "relay-only"])
         _ = try await fresh.call("hub.subscribe")
         subscription.withLock { $0 = fresh }
         return RemotePushConnection(channel: fresh)

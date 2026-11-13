@@ -97,8 +97,11 @@ or logs.
 The Screen Sharing worker is this Mac's device on the device hub
 (`docs/device-hub/PROTOCOL.md`): it owns the Secure Enclave device keys, the
 one User DO socket of this device, the approval banner (top right, never
-activating), the menu bar indicator, and every `ScreenStreamHost` session. It
-works with the cmux app quit:
+activating), and the menu bar indicator. When the cmux app has an app channel
+open, the app owns the current `cmux.rd/1` host ticket and approval flow; the
+worker becomes identity and push relay only and never serves or ends that
+ticket. If no app channel is open, the worker may host its legacy
+`ScreenStreamHost` session so sharing can continue with the app quit:
 
 - Its hub session comes from the app's sign-in while the app runs, and from
   **device-key renewal** when it does not: `POST /v1/auth/device`, signed by
