@@ -176,6 +176,10 @@ fn stop_reads_on(
 /// already pruned never asks for a rebuild again). A segment is left out
 /// whole or kept whole, and live rows always stay.
 fn floor_cut(source: &Connection, floor: u64) -> anyhow::Result<(u64, u64)> {
+    #[cfg(test)]
+    crate::workspace_registry::journal_retention::retention_step_for_test(
+        crate::workspace_registry::journal_retention::RetentionStep::FloorCut,
+    );
     let (cut, records): (i64, i64) = source.query_row(
         "SELECT COALESCE(MAX(end_sequence), 0), COALESCE(SUM(record_count), 0)
          FROM journal_segments WHERE end_sequence <= ?1",
