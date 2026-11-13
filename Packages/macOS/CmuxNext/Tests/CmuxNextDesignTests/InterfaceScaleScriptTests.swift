@@ -1,10 +1,34 @@
 @testable import CmuxNextDesign
 import CmuxNextDesignTokens
 import CoreGraphics
+import JavaScriptCore
 import Testing
 
 /// The page sizing token must receive the host's complete page zoom, including Agent Chat Zoom.
 @MainActor @Suite struct InterfaceScaleScriptTests {
+    @Test func aQueuedScalePushKeepsTheZoomTheRendererActuallyShows() throws {
+        let context = try #require(JSContext())
+        context.evaluateScript("""
+        var values = {};
+        var document = { documentElement: { style: { setProperty: (key, value) => values[key] = String(value) } } };
+        var window = {
+          devicePixelRatio: 2,
+          dispatchEvent: () => {},
+          __cmuxSyncPageZoom: () => document.documentElement.style.setProperty('--cmux-ui-scale', window.devicePixelRatio / 2)
+        };
+        function Event(name) { this.type = name; }
+        """)
+        let design = DesignSettings()
+        // The host requests 150%, but Chromium still draws 100% while its zoom IPC is pending.
+        context.evaluateScript(design.interfaceScaleScript(pageZoom: 1.5))
+        #expect(context.exception == nil)
+        #expect(context.evaluateScript("values['--cmux-ui-scale']").toString() == "1")
+        // A queued older push must not change column sizing after Chromium reaches 150%.
+        context.evaluateScript("window.devicePixelRatio = 3")
+        context.evaluateScript(design.interfaceScaleScript(pageZoom: 1.1))
+        #expect(context.evaluateScript("values['--cmux-ui-scale']").toString() == "1.5")
+    }
+
     @Test func scriptPublishesTheEffectivePageZoomAndNotOnlyUIScale() {
         let design = DesignSettings()
         design.uiScale = 1.25

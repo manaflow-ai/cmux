@@ -272,6 +272,7 @@ impl ResourceOperation {
             Self::ClassicImportRecord => "classic_import.record",
             Self::ConductorImportPlan => "conductor_import.plan",
             Self::ConductorImportRecord => "conductor_import.record",
+            Self::BrowserImportRead => "browser_import.read",
             Self::CloudVmScpEndpoint => "cloud.vm.scp_endpoint",
             Self::CloudVmTunnelEnroll => "cloud.vm.tunnel_enroll",
             Self::CloudVmTunnelRevoke => "cloud.vm.tunnel_revoke",
