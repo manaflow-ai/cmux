@@ -67,6 +67,26 @@ final class HomeFirstRunView: NSView {
     /// column's width, and any layout while the panel is hidden, add none (HomeFirstRunWidthChangeTests).
     private(set) var measurePasses = 0
 
+    /// What the last measure pass measured the parts from: the column's width, the panel's height (what fits), the scale
+    /// and everything the panel shows. A layout with the same values keeps every part's size and only centres the column
+    /// (a pane resize above `maxWidth` + 48 pt: one layout a frame in a key resize of the Home). Compared, never
+    /// invalidated by hand: a part its owner changes directly (`starters`, `switchCard`) is in it too.
+    private struct Measured: Equatable {
+        var column, height, scale: CGFloat
+        var intro, memoryOffer: String?
+        var prompts: [String]
+        var startersLook: HomeStarterChips.Look
+        var switching: HomeSwitchKeys?
+        var agents: [HomeAgentGlance]
+    }
+
+    private var measured: Measured?
+
+    /// A hidden panel (a conversation with messages) is not measured: it is when it shows again.
+    override var isHidden: Bool {
+        didSet { if oldValue, !isHidden { needsLayout = true } }
+    }
+
     var rows: [HomeFirstRunRow] { actionRows + agentRows }
     /// The action rows, in panel order.
     var actionRows: [HomeFirstRunRow] { memoryOffer == nil ? [agent, terminal, pet] : [agent, terminal, memory, pet] }
@@ -308,7 +328,17 @@ final class HomeFirstRunView: NSView {
 
     override func layout() {
         super.layout()
+        guard !isHidden else { return }
         let width = max(0, min(Self.maxWidth * scale, bounds.width - 48 * scale))
+        let inputs = Measured(column: width, height: bounds.height, scale: scale, intro: introText, memoryOffer: memoryOffer,
+                              prompts: starters.prompts, startersLook: starters.look, switching: switchCard.keys, agents: agents)
+        if inputs == measured {
+            // Only the pane's width changed around a column that keeps its own: the column moves, no part is measured.
+            let x = (bounds.width - width) / 2
+            if stack.frame.minX != x { stack.setFrameOrigin(CGPoint(x: x, y: stack.frame.minY)) }
+            return
+        }
+        measured = inputs
         measurePasses += 1
         for row in rows { row.width = width }
         if headerWidth.constant != width { headerWidth.constant = width }
