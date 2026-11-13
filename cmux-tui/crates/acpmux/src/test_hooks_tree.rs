@@ -20,8 +20,9 @@ const KNOWN: &[&str] = &[];
 fn the_crate_adds_no_process_wide_test_hook() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let started = Instant::now();
-    let files = rust_files(&dir.join("src")).len();
-    let found = judge_tree(dir);
+    // A source the check cannot read fails here, naming it, rather than reading as clean.
+    let files = rust_files(&dir.join("src")).unwrap_or_else(|e| panic!("{e}")).len();
+    let found = judge_tree(dir).unwrap_or_else(|e| panic!("{e}"));
     eprintln!("test hooks: {files} files, {} findings in {:?}", found.len(), started.elapsed());
     for finding in &found {
         eprintln!("{finding}");

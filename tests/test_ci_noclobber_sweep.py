@@ -163,6 +163,11 @@ def code(line: str) -> str:
 # shell_tree.corpus() is the detector's own check: every unsafe write in it is flagged and no safe template is.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import shell_tree  # noqa: E402
+# tests/process_gone.py by path, as each other test file loads it: `import process_gone` here made a second module
+# object of that file beside theirs (tests/test_script_module_loads.py names it).
+_process_gone_spec = _git_fixture_importlib.spec_from_file_location("process_gone", ROOT / "tests" / "process_gone.py")
+process_gone = _git_fixture_importlib.module_from_spec(_process_gone_spec)
+_process_gone_spec.loader.exec_module(process_gone)
 
 SHELL_TREE_SHA256 = "aa41e3640d1b4995c343676c9ad1bc493202afc5c05ea4252aa92b49ce7cf61d"
 
@@ -460,11 +465,16 @@ class NoclobberSweep(unittest.TestCase):
             return got
 
         def kill_left():
-            for pid in left(roots):
-                try:
-                    os.kill(pid, signal.SIGKILL)
-                except OSError:
-                    pass
+            try:
+                self.assertEqual(left(roots), [], "processes of the run outlived it")
+            finally:
+                # Cleanup must not make the assertion pass by killing its evidence first.
+                for pid in live_in_roots(roots):
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                self.assertEqual(left(roots), [], "processes survived test cleanup")
 
         patcher = mock.patch.object(shell_tree.tempfile, "mkdtemp", mkdtemp)
         patcher.start()
@@ -543,6 +553,25 @@ class NoclobberSweep(unittest.TestCase):
 
 
 def left(roots: list[str]) -> list[int]:
+    """Wait for the run's process groups to exit, then report any live owned processes.
+
+    A reaper's exit and SIGKILL delivery do not mean its children have finished exiting. Share one deadline
+    across the groups, using the zombie-aware wait also used by the other process tests. The 20-second fixture
+    still fails if its kill never happened; this wait is bounded to process_gone.WITHIN (10 seconds).
+    """
+    deadline = time.monotonic() + process_gone.WITHIN
+    groups = set()
+    for pid in live_in_roots(roots):
+        try:
+            groups.add(os.getpgid(pid))
+        except ProcessLookupError:
+            pass
+    for pgid in groups:
+        process_gone.group_died(pgid, within=max(0, deadline - time.monotonic()))
+    return live_in_roots(roots)
+
+
+def live_in_roots(roots: list[str]) -> list[int]:
     """The pids of live (not zombie) processes whose environment has HOME set to one of ROOTS (Linux: /proc)."""
     marks = [b"HOME=" + r.encode() + b"\0" for r in roots]
     out = []

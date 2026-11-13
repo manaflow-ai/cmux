@@ -102,13 +102,13 @@ import {
   forgetTail,
   keptEvents,
   keptTail,
+  olderThanShown,
   KEPT_EVENTS,
   type KeptTail,
   readHostTail,
   rememberReadAhead,
   rememberTail,
   shareReadAhead,
-  olderThanShown,
 } from "./tailCache";
 import { HOVER_RECENT, HoverPrefetch, type HoverOptions } from "./hoverPrefetch";
 import { type PeerCopy, PEER_COPY_READ_MS, peerBack, peerCopyTail, peerDown, sameGeneration } from "./peerCopy";
@@ -381,6 +381,10 @@ const LIMIT_READS = 3;
 /// The waits before each new read of the events a lag dropped, after a failed one
 /// (`readMissedAfterLag`): about 15 s in all, then the pane reports the failure.
 const LAG_RETRY_MS = [250, 500, 1_000, 2_000, 4_000, 8_000];
+/// How long a lag read may be out before the stall check stops leaving the hole to it
+/// (`checkStall`): every retry's wait plus a margin. A read whose reply never comes (an acpmux
+/// replaced under the bridge drops it) no longer holds the chat's recovery off.
+const LAG_READ_HOLDS_STALL_MS = LAG_RETRY_MS.reduce((sum, ms) => sum + ms, 0) + 5_000;
 /// The longest wait between reconnects (`scheduleReconnect`): a pane that kept failing while the
 /// laptop slept or the network was down tries again within this once it is back, never minutes or
 /// hours later. A wake (`online`, the page shown again) reconnects at once (`reconnectNow`).
@@ -566,6 +570,8 @@ export function settledAppend(
 /// closed) fails a plain attach too.
 export function settledAttachFailed(error: unknown): boolean {
   const failure = error as { message?: unknown; code?: unknown; reason?: unknown } | undefined;
+  // A host whose params rule does not take `settled` refuses the attach as malformed (#42185).
+  if (failure?.code === "transport.intent_invalid") return true;
   return [failure?.message, failure?.code, failure?.reason].some(
     (said) => typeof said === "string" && /settled/i.test(said),
   );
@@ -625,6 +631,8 @@ function strayedFrom(watch: AttachWatch, replyOf?: unknown): boolean {
 const OLDER_PAGES_PER_ASK = 128;
 /// Pages one older read takes at least, published together so each prepend does not redraw the
 /// bottom stack; once one of them starts a turn older than the first prompt drawn, the read stops here.
+/// A read asked to fill the view takes one: with rows that do not reach the view's top, each page read
+/// before the first lands is a daemon round trip the band above them stays blank for.
 const OLDER_MIN_PAGES_PER_ASK = 4;
 /// A chat adopted or watched from Claude Code has older turns in its transcript, past the newest
 /// page its log was seeded with: acpmux logs a `native_history` record (its `before` cursor, a byte
@@ -3089,7 +3097,7 @@ export class AcpmuxDirectClient {
   private lagReadOwed?: { sessionId: string; generation: number; afterSeq: number };
   /// The read of what a lag dropped that is out or waits to try again (`readMissedAfterLag`), and
   /// the oldest cursor of the lags heard meanwhile (`again`), read once it lands.
-  private lagRead?: { sessionId: string; generation: number; again?: number };
+  private lagRead?: { sessionId: string; generation: number; again?: number; at: number };
   private gapReadKeys = 0;
   private turnOpen = false;
   /// The open turn's daemon start (its `turn_started`, or the summary's `turn.startedAt` when that
@@ -3847,7 +3855,7 @@ export class AcpmuxDirectClient {
           reject(new Error(translate("error.closedBeforeConnect")));
           return;
         }
-        this.connectionEnded(socket);
+        this.connectionEnded(socket, `close ${event?.code ?? "?"}${event?.reason ? ` ${event.reason}` : ""}`);
       };
       // A socket this client replaced still answers what was asked on it (an export that watches for
       // the swap rejects on that answer); only its peer notes, about a connection that is gone, drop.
@@ -4891,8 +4899,10 @@ export class AcpmuxDirectClient {
   /// The established socket `socket` is gone (it closed, or the pane gave up on it in
   /// `recoverStall`): what it carried ends, and the pane connects again (a fresh handshake from its
   /// host, or a reconnect of its own). Once per socket: a close that comes after the pane gave up on
-  /// it changes nothing more.
-  private connectionEnded(socket: WebSocket): void {
+  /// it changes nothing more. `cause` names why (the close's code and reason, `stalled`, `liveness`):
+  /// the wire log counts each lost connection by it, so how often a chat reconnects, and why, is read
+  /// from the Inspector and the page log instead of guessed.
+  private connectionEnded(socket: WebSocket, cause: string): void {
     this.endedSocket = socket;
     // Taken before anything of the connection is torn down: the next client starts from it. The
     // page's own tail of the chat moves up to what this client read too: it held the tail from the
@@ -4920,7 +4930,7 @@ export class AcpmuxDirectClient {
     this.emit("disconnected");
     if (!this.hasConnected || this.closed) return;
     if (this.onLost) {
-      this.wire.lifecycle("lost", { message: "asking for a fresh handshake" });
+      this.wire.lifecycle("lost", { cause, message: "asking for a fresh handshake" });
       const onLost = this.onLost;
       this.close();
       onLost();
@@ -5172,7 +5182,7 @@ export class AcpmuxDirectClient {
       out.again = Math.min(out.again ?? Infinity, afterSeq);
       return;
     }
-    if (attempt === 0) this.lagRead = { sessionId, generation };
+    if (attempt === 0) this.lagRead = { sessionId, generation, at: Date.now() };
     const read = this.lagRead;
     const settle = () => {
       if (this.lagRead !== read) return undefined;
@@ -5270,8 +5280,24 @@ export class AcpmuxDirectClient {
         // Its age when the check asked: a slow answer does not make a record in flight look missed.
         const line = stallLine(sessionId, paneSeq, newer, asked, connection, cause);
         if (!line) return done?.(false);
+        // A lag's read of what acpmux dropped is out, or waits to try again (`readMissedAfterLag`, up
+        // to ~16 s): the record this check found is that read's to draw, not a sign the stream died.
+        // Reconnecting here rebuilt the whole chat (a new client, the transcript replaced and the
+        // reader sent to the bottom) for a hole a read already being made fills; most often when a
+        // hidden tab that fell behind was shown again (`wake`).
+        const lag = this.lagRead;
+        if (lag?.sessionId === sessionId && lag.generation === generation && asked - lag.at < LAG_READ_HOLDS_STALL_MS)
+          return done?.(false);
+        // A lag read that gave up while the socket stayed open: acpmux just answered this check's
+        // read, so the hole is read again on this connection instead of rebuilding the chat.
+        const owed = this.lagReadOwed;
+        if (owed?.sessionId === sessionId && owed.generation === generation && this.socket === socket) {
+          this.lagReadOwed = undefined;
+          this.readMissedAfterLag(sessionId, generation, owed.afterSeq, 0);
+          return done?.(false);
+        }
         console.error(line);
-        this.recoverStall(socket, sessionId, generation);
+        this.recoverStall(socket, sessionId, generation, cause);
         done?.(true);
       },
       (error: unknown) => {
@@ -5287,7 +5313,7 @@ export class AcpmuxDirectClient {
   /// The stall check proved socket `socket` no longer carries the chat's events: the pane gives up on
   /// it and connects again, as when it closes. Nothing when the pane moved on meanwhile (another
   /// chat, another socket, closed).
-  private recoverStall(socket: WebSocket | undefined, sessionId: string, generation: number): void {
+  private recoverStall(socket: WebSocket | undefined, sessionId: string, generation: number, cause: StallCause): void {
     if (!socket || this.closed || this.socket !== socket || this.endedSocket === socket) return;
     if (this.selectedSessionId !== sessionId || generation !== this.selectionGeneration) return;
     if (socket.readyState !== WebSocket.OPEN) return;
@@ -5297,7 +5323,7 @@ export class AcpmuxDirectClient {
     // A send still waiting on this socket gets the lost connection's answer, as when it drops: a
     // prompt this Mac's acpmux took is sent again under its promptId (lostPrompt.ts), so it runs once.
     this.wire.lifecycle("stalled", { sessionId, message: "the chat's events stopped; connecting again" });
-    this.connectionEnded(socket);
+    this.connectionEnded(socket, `stalled ${cause}`);
     try {
       socket.close();
     } catch {
@@ -6481,7 +6507,7 @@ export class AcpmuxDirectClient {
   private daemonGone(socket: WebSocket, now: number): void {
     this.daemonProbe = undefined;
     this.wire.lifecycle("liveness timeout", { quietForMs: now - this.daemonLastFrameAt });
-    this.connectionEnded(socket);
+    this.connectionEnded(socket, "liveness");
     try {
       socket.close();
     } catch {
@@ -9307,6 +9333,9 @@ export class AcpmuxDirectClient {
                 row.turnId === resultTurnId &&
                 (row.compaction?.state === "running" || row.compaction?.inferred === true),
             );
+        // The turn's own start, read before it is cleared: a page that starts inside the turn holds
+        // its `turn_started` but not its prompt, and "Worked for" still counts from the start.
+        const endedTurnStartedAt = this.turnStartedAtMs;
         this.turnOpen = false;
         this.turnStartedAtMs = undefined;
         this.turnPromptAtMs = undefined;
@@ -9364,7 +9393,7 @@ export class AcpmuxDirectClient {
             // edits through it, as acpmux forks only through a logged record (`fork_through.rs`).
             ...(event.seq >= 1 ? { seq: event.seq } : {}),
             ...(turnId ? { turnId } : {}),
-            ...this.turnTotals(event.at),
+            ...this.turnTotals(event.at, endedTurnStartedAt),
             ...(event.kind === "turn_result" && resultTokens ? { tokens: resultTokens } : {}),
             status,
             ...(continued ? { continued } : {}),
@@ -9739,8 +9768,10 @@ export class AcpmuxDirectClient {
   }
 
   /// The tool calls and time since the turn's user message. A prompt still sending (queued
-  /// behind this turn) or one that failed to send did not start a turn.
-  private turnTotals(endedAt: number): { durationMs?: number; toolCount: number } {
+  /// behind this turn) or one that failed to send did not start a turn. With no prompt held (a
+  /// page that starts inside the turn), the time runs from the turn's `turn_started`
+  /// (`startedAt`); with neither, it is unknown, never the time since the first row held.
+  private turnTotals(endedAt: number, startedAt?: number): { durationMs?: number; toolCount: number } {
     // An older page's turn ends below the held rows: its own prompt is the last one before them.
     const below = this.foldingBelow;
     // Back from the newest row (or the newest above `below`) to the turn's prompt: O(turn), never a
@@ -9768,7 +9799,34 @@ export class AcpmuxDirectClient {
       }
       if (row.kind === "activity") toolCount += row.toolCount ?? 0;
     }
-    return { durationMs: user ? Math.max(0, endedAt - user.at) : undefined, toolCount };
+    const from = user?.at ?? startedAt;
+    return { durationMs: from === undefined ? undefined : Math.max(0, endedAt - from), toolCount };
+  }
+
+  /// A turn the held page started inside ended with its time unknown and only the calls the page
+  /// held (`turnTotals`). Once an older page brings its prompt, its time and calls are the whole
+  /// turn's, counted the way `turnTotals` counts them. A summary that already has a time keeps it,
+  /// and one whose numbers do not change is left as it is (no new version, nothing redrawn).
+  private timeTurnsOpenedAbove(): void {
+    let from: number | undefined;
+    let calls = 0;
+    for (const row of this.rows.inOrder()) {
+      if (row.pending || row.failed) continue;
+      if (row.kind === "user" && !continuesTurn(row)) {
+        from = row.at;
+        calls = 0;
+      } else if (row.kind === "activity") {
+        calls += row.toolCount ?? 0;
+      } else if (row.kind === "turnSummary") {
+        if (from !== undefined) {
+          const durationMs = row.durationMs ?? Math.max(0, row.at - from);
+          if (durationMs !== row.durationMs || calls !== row.toolCount)
+            this.rows.set(row.id, { ...row, version: row.version + 1, durationMs, toolCount: calls });
+        }
+        from = undefined;
+        calls = 0;
+      }
+    }
   }
 
   /// Closes the assistant text being streamed, so later text starts a new row below.
@@ -14072,8 +14130,9 @@ export class AcpmuxDirectClient {
   /// queue and permission stay as they are. A page that lands after the
   /// selection changed belongs to another session and is dropped.
   /// `through`: read on until the record at that seq is held (a rail jump, `loadThrough`), not only
-  /// until an older turn starts.
-  loadOlder(through?: number): Promise<void> {
+  /// until an older turn starts. `fill`: the held rows do not fill the view; the read lands with the
+  /// first page that starts an older turn.
+  loadOlder(through?: number, fill = false): Promise<void> {
     if (!this.canPageOlder()) return Promise.resolve();
     if (this.loadingOlder) return this.loadingOlder;
     // An ask inside the back-off after a failed page waits it out, then reads. One that returned
@@ -14088,10 +14147,10 @@ export class AcpmuxDirectClient {
             .wait(wait)
             .then((ready) =>
               ready && this.canPageOlder(pagingEpoch) && generation === this.selectionGeneration
-                ? this.fetchOlder(pagingEpoch, through)
+                ? this.fetchOlder(pagingEpoch, through, fill)
                 : undefined,
             )
-        : this.fetchOlder(pagingEpoch, through);
+        : this.fetchOlder(pagingEpoch, through, fill);
     const loading = read
       .catch((error: unknown) => {
         if (this.canPageOlder(pagingEpoch) && generation === this.selectionGeneration)
@@ -14125,7 +14184,7 @@ export class AcpmuxDirectClient {
     return next !== undefined && next > 0 ? next : undefined;
   }
 
-  private async fetchOlder(pagingEpoch = this.olderPagingEpoch, through?: number): Promise<void> {
+  private async fetchOlder(pagingEpoch = this.olderPagingEpoch, through?: number, fill = false): Promise<void> {
     if (!this.canPageOlder(pagingEpoch)) return;
     if (this.selectedSessionId && !this.seqHistoryLeft() && this.nativeBefore() !== undefined)
       return this.fetchNativeOlder();
@@ -14145,6 +14204,7 @@ export class AcpmuxDirectClient {
     // 2026-11-03: a reply starting mid-sentence under its prompt, and nothing above).
     const cutOpener = this.turnOpener && this.turnOpener.seq < this.firstSeq ? this.turnOpener.seq : undefined;
     let completed = false;
+    const minPages = fill ? 1 : OLDER_MIN_PAGES_PER_ASK;
     // A page can draw nothing above the first row: a prompt queued with a big paste or image is a
     // page of its own, a page that ends in the opener already drawn adds no turn, and every page of
     // a long turn the open landed in is that turn's. Read on until a turn older than the first row
@@ -14154,7 +14214,7 @@ export class AcpmuxDirectClient {
       let before = this.firstSeq, pages = 0;
       more &&
       pages < OLDER_PAGES_PER_ASK &&
-      ((through !== undefined && before > through) || (!completed && (pages < OLDER_MIN_PAGES_PER_ASK || !found)));
+      ((through !== undefined && before > through) || (!completed && (pages < minPages || !found)));
       pages++
     ) {
       if (!this.canPageOlder(pagingEpoch)) return;
@@ -14374,6 +14434,7 @@ export class AcpmuxDirectClient {
       this.foldingBelow = undefined;
       this.heldPromptRowKeys = undefined;
     }
+    this.timeTurnsOpenedAbove();
     this.sinceStale = true;
     // The held events' compactions take up the ones the page left open, in order, as reading the
     // whole record does (`compaction` above). One whose first record is a running note continues a
