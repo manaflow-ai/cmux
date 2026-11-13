@@ -232,7 +232,7 @@ pub fn run(paths: &Paths) -> bool {
     if !matches!(first, First::Flipped(_)) {
         return true;
     }
-    let err = std::process::Command::new(program).args(&args[1..]).exec();
+    let err = std::process::Command::new(program).args(args.iter().skip(1)).exec();
     log(&format!("exec {}: {err}; exiting so the service starts the new build", program.display()));
     false
 }
