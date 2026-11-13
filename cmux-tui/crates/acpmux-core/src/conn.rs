@@ -450,6 +450,7 @@ where
     let state = Arc::new(std::sync::Mutex::new(ConnectionState::default()));
     let sink: Arc<dyn OfferSink> = Arc::new(ConnectionSink { state: state.clone() });
     let mut pending = VecDeque::new();
+    let mut source_tasks = tokio::task::JoinSet::new();
     let mut writing: Option<FrameLease> = None;
     let mut hello_seen = false;
     loop {
@@ -467,10 +468,20 @@ where
                 }
             }
             Some(frame) = async { pending.pop_front() }, if !pending.is_empty() => {
-                if let Err(error) = process_frame(&state, source.clone(), frame, sink.clone(), &mut hello_seen).await {
+                if let Err(error) = process_frame(
+                    &state,
+                    source.clone(),
+                    frame,
+                    sink.clone(),
+                    &mut hello_seen,
+                    &mut source_tasks,
+                )
+                .await
+                {
                     queue_error(&state, &error.to_string());
                 }
             }
+            Some(_task) = source_tasks.join_next(), if !source_tasks.is_empty() => {}
             read = reader.read(&mut buffer) => {
                 let read = read?;
                 if read == 0 {
@@ -501,6 +512,7 @@ async fn process_frame<S: Source>(
     frame: Frame,
     sink: Arc<dyn OfferSink>,
     hello_seen: &mut bool,
+    source_tasks: &mut tokio::task::JoinSet<()>,
 ) -> Result<(), ConnError> {
     if frame.kind != FrameKind::Request {
         return Err(ConnError::InvalidRequest("expected request frame".into()));
@@ -554,8 +566,7 @@ async fn process_frame<S: Source>(
             let sink = sink.clone();
             let control = sink.control(&task_sid);
             if let Some(control) = control {
-                tokio::spawn(async move {
-                    // concurrency-allow: subscription control ends and wakes this source task.
+                source_tasks.spawn(async move {
                     let replay_cursor = prefix.last().map(|(_, cursor)| *cursor);
                     for (frame, cursor) in prefix {
                         let outcome = drive_offer(

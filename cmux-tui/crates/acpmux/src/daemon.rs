@@ -333,6 +333,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // The v2 handle is created only after the listener is ready. Its empty
     // published index is filled by the list tee in the follow-up lane; startup
     // never waits on this handle or on a chat book.
+    let mut v2_tasks = tokio::task::JoinSet::new();
     let v2 = if config.acpmux_v2.is_empty() {
         None
     } else {
@@ -343,8 +344,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if let Some(v2) = v2.as_ref()
         && let Some(writer) = v2.take_writer()
     {
-        tokio::spawn(async move {
-            // concurrency-allow: daemon-owned V2 writer ends on Hub::close.
+        v2_tasks.spawn(async move {
             if let Err(error) = writer.run().await {
                 tracing::warn!(%error, "v2 hub writer stopped");
             }
