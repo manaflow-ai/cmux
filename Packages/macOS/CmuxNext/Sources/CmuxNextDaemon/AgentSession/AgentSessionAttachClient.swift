@@ -393,6 +393,11 @@ public actor AgentSessionAttachClient {
 
     /// The code ``start(cwd:harness:)`` throws for a daemon without `agent-session-start-v1`.
     public static let startUnsupported = "agent_session.start_unsupported"
+    /// `credentials: {env}` on `agent-session-start` and the `agent-session-credentials` refresh: the
+    /// owner's model credential for a Cloud chat's agent. Only a Cloud VM's daemon serves it, on the
+    /// owner's own link (cmux-tui `agent_session_start.rs`, model-connections.md Revision 2), so it
+    /// is not a bundled-daemon `DaemonCapability`.
+    public static let credentialsCapability = "agent-session-start-credentials-v1"
     public static let forkUnsupported = "agent_session.fork_unsupported"
 
     /// `steer`: into the running turn (`agent-session-steer-v1`); a daemon without it queues the
@@ -850,7 +855,7 @@ public actor AgentSessionAttachClient {
                             vmKind: identity.supports(DaemonCapability.agentSessionStartVMKind.rawValue),
                             model: identity.supports(DaemonCapability.agentSessionStartModel.rawValue),
                             permissionMode: identity.supports(DaemonCapability.agentSessionStartPermissionMode.rawValue),
-                            credentials: identity.supports(DaemonCapability.agentSessionStartCredentials.rawValue),
+                            credentials: identity.supports(Self.credentialsCapability),
                             trustVMKind: identity.supports(DaemonCapability.agentSessionTrustVMKind.rawValue),
                             children: identity.supports(DaemonCapability.agentSessionChildren.rawValue),
                             fork: identity.supports(DaemonCapability.agentSessionFork.rawValue),
