@@ -137,7 +137,7 @@ fn open_cleans_a_complete_staged_snapshot_and_replays_old_snapshot_tail() {
     let log_path = dir.path().join("index.log");
     let snapshot_path = dir.path().join("index.snap");
     let first = Summary::new("first");
-    let index = SummaryIndex::new().apply(1, first.clone());
+    let index = SummaryIndex::new().apply(1, first);
     SortedSnapshot::write(&snapshot_path, &index).unwrap();
     let mut log = IndexLog::open(&log_path).unwrap();
     let second = log.append(Summary::new("second")).unwrap();

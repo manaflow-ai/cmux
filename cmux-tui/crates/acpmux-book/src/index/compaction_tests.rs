@@ -184,7 +184,7 @@ fn a_thousand_failed_compactions_reuse_one_empty_generation_and_clean_their_stag
     for _ in 0..1000 {
         let plan = log.rotate(1).unwrap();
         assert_eq!(plan.covered_generation(), 1);
-        assert_eq!(plan.run(invalid.clone()).unwrap_err().kind(), std::io::ErrorKind::InvalidInput);
+        assert_eq!(plan.run(invalid.clone()).unwrap_err().kind(), io::ErrorKind::InvalidInput);
         assert_eq!(log.generation(), 2);
         assert_eq!(file_names(dir.path()), ["index.log.1", "index.log.2"]);
     }
@@ -258,7 +258,7 @@ fn cancelled_compaction_creates_no_stages_or_successor_generations_on_retry() {
                 .run_cancellable(captured.clone(), cancelled.clone())
                 .unwrap_err()
                 .kind(),
-            std::io::ErrorKind::Interrupted
+            io::ErrorKind::Interrupted
         );
         assert_eq!(file_names(dir.path()), ["index.log.1", "index.log.2"]);
     }

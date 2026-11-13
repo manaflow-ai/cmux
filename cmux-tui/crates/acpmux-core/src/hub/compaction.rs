@@ -144,7 +144,7 @@ impl HubWriter {
     /// work is proportional to concurrent changes; retired maps are reclaimed
     /// by one owned task before another compaction may start.
     pub(super) fn install_compaction(&mut self) {
-        if !self.compaction.as_ref().is_some_and(|job| job.ready.is_some()) {
+        if self.compaction.as_ref().is_none_or(|job| job.ready.is_none()) {
             return;
         }
         let Some(mut job) = self.compaction.take() else { return };
