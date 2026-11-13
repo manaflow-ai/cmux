@@ -80,16 +80,56 @@ fn browser_open_from_a_caller_with_no_terminal_targets_the_apps_focused_pane() {
 }
 
 #[test]
-fn browser_open_from_a_terminal_targets_the_callers_pane() {
+fn browser_open_from_a_terminal_with_an_older_app_targets_the_callers_pane() {
+    // An app from before `caller_placement` opens a run with no target in
+    // the focused pane, so the CLI names the terminal's own tab.
     let run = Run::new(true).cli(&["--json", "browser", "open", URL], Some(CALLER_TERMINAL));
     assert!(run.output.status.success(), "{}", run.stderr());
-    let [call] = run.app.as_slice() else { panic!("one app call expected: {:?}", run.app) };
+    let [call] = run.runs()[..] else { panic!("one app run expected: {:?}", run.app) };
     assert_eq!(call["params"]["target"], format!("tab:{CALLER_TAB}"), "{call}");
     assert!(
         !run.daemon_operations().contains(&"tab.create_browser".to_string()),
         "{:?}",
         run.daemon
     );
+}
+
+#[test]
+fn an_app_that_places_terminals_gets_the_caller_and_no_target() {
+    // The app opens the tab beside a terminal that runs an agent, and in the
+    // pane of a plain one; the CLI names the terminal and no place.
+    for args in [
+        &["--json", "browser", "open", URL][..],
+        &["--json", "tab", "create", "browser", "--url", URL][..],
+    ] {
+        let run = Run::app(AppMode::PlacesTerminals).cli(args, Some(CALLER_TERMINAL));
+        assert!(run.output.status.success(), "{}", run.stderr());
+        let [call] = run.runs()[..] else { panic!("one app run expected: {:?}", run.app) };
+        assert_eq!(call["params"]["action"], "openBrowser", "{call}");
+        assert!(call["params"].get("target").is_none(), "the CLI chose the place: {call}");
+        assert_eq!(call["params"]["caller"], json!({"terminal_id": CALLER_TERMINAL}), "{call}");
+        assert!(
+            !run.daemon_operations().contains(&"tab.create_browser".to_string()),
+            "{:?}",
+            run.daemon
+        );
+    }
+}
+
+#[test]
+fn without_an_app_a_terminals_browser_tab_opens_in_its_own_pane() {
+    // A plain cmux-tui session or a Cloud machine: the daemon's active pane
+    // follows the person's focus, so the CLI names the caller's own pane.
+    let run = Run::new(false).cli(&["--json", "browser", "open", URL], Some(CALLER_TERMINAL));
+    assert!(run.output.status.success(), "{}", run.stderr());
+    let create = run
+        .daemon
+        .iter()
+        .find(|request| request["operation"] == "tab.create_browser")
+        .unwrap_or_else(|| panic!("no tab.create_browser: {:?}", run.daemon));
+    assert_eq!(create["params"]["workspace"], WORKSPACE, "{create}");
+    assert_eq!(create["params"]["screen"], SCREEN, "{create}");
+    assert_eq!(create["params"]["pane"], PANE, "{create}");
 }
 
 #[test]
@@ -172,11 +212,21 @@ fn without_an_app_the_daemon_creates_the_tab() {
 
 #[test]
 fn another_machines_browser_tab_stays_with_its_daemon() {
-    let run =
-        Run::new(true).cli(&["--json", "--machine", "m_remote", "browser", "open", URL], None);
-    assert!(run.output.status.success(), "{}", run.stderr());
-    assert_eq!(run.daemon_operations(), vec!["tab.create_browser".to_string()]);
-    assert!(run.app.is_empty(), "{:?}", run.app);
+    // The caller's terminal is this machine's: another machine's daemon has
+    // none of its ids, so the request names no place, with or without an app.
+    for (with_app, caller) in
+        [(true, None), (true, Some(CALLER_TERMINAL)), (false, Some(CALLER_TERMINAL))]
+    {
+        let run = Run::new(with_app)
+            .cli(&["--json", "--machine", "m_remote", "browser", "open", URL], caller);
+        assert!(run.output.status.success(), "{}", run.stderr());
+        assert_eq!(run.daemon_operations(), vec!["tab.create_browser".to_string()]);
+        let params = &run.daemon[0]["params"];
+        for scope in ["workspace", "screen", "pane"] {
+            assert!(params.get(scope).is_none(), "{scope} was named: {params}");
+        }
+        assert!(run.app.is_empty(), "{:?}", run.app);
+    }
 }
 
 #[test]
@@ -186,7 +236,7 @@ fn browser_open_from_a_terminal_in_the_shown_workspace_opens_in_that_pane() {
     let run =
         Run::app(AppMode::Home).cli(&["--json", "browser", "open", URL], Some(CALLER_TERMINAL));
     assert!(run.output.status.success(), "{}", run.stderr());
-    let [call] = run.app.as_slice() else { panic!("one app call expected: {:?}", run.app) };
+    let [call] = run.runs()[..] else { panic!("one app run expected: {:?}", run.app) };
     assert_eq!(call["params"]["action"], "openBrowser");
     assert_eq!(call["params"]["target"], format!("tab:{CALLER_TAB}"), "{call}");
     assert!(
@@ -294,6 +344,9 @@ enum AppMode {
     Refuse,
     /// `Home`, and its window cannot show the new tab (`tab.focus` fails).
     HomeNoReveal,
+    /// `Workspace`, and the app places terminal callers itself
+    /// (`system.identify` reports `caller_placement` 2).
+    PlacesTerminals,
 }
 
 struct Finished {
@@ -309,6 +362,11 @@ impl Finished {
 
     fn daemon_operations(&self) -> Vec<String> {
         self.daemon.iter().filter_map(|r| r["operation"].as_str().map(str::to_owned)).collect()
+    }
+
+    /// The app's `action.run` calls (it is also asked who the caller is).
+    fn runs(&self) -> Vec<&Value> {
+        self.app.iter().filter(|call| call["method"] == "action.run").collect()
     }
 }
 
@@ -346,6 +404,9 @@ impl Run {
             // or a shell of the app's session, so the caller route applies.
             .env("CMUX_TUI_SOCKET", &daemon_socket)
             .env_remove("CMUX_MUX_SOCKET")
+            .env_remove("CMUX_AGENT_SESSION")
+            .env_remove("CMUX_CALLER_HOME_CHAT")
+            .env_remove("CMUX_WORKSPACE_ID")
             .env_remove("CMUX_TUI_TERMINAL_ID");
         if let Some(terminal) = caller_terminal {
             command.env("CMUX_TUI_TERMINAL_ID", terminal);
@@ -431,6 +492,8 @@ fn daemon_result(request: &Value) -> Result<Value, String> {
             "content_kind": "terminal", "content_id": "term_99999999999999999999999999999999"})),
         "terminal.get" if params["terminal"] == CALLER_TERMINAL => Ok(json!({
             "id": CALLER_TERMINAL, "tab_id": CALLER_TAB})),
+        "tab.get" if params["tab"] == CALLER_TAB => Ok(json!({"id": CALLER_TAB, "pane_id": PANE,
+            "content_kind": "terminal", "content_id": CALLER_TERMINAL})),
         "pane.get" => Ok(json!({"id": params["pane"], "screen_id": SCREEN})),
         "screen.get" => Ok(json!({"id": params["screen"], "workspace_id": WORKSPACE})),
         "tab.rename" => Ok(json!({"value": {"id": params["tab"]}, "generation": "g",
@@ -453,8 +516,20 @@ fn selected_workspace(calls: &[Value]) -> &'static str {
 /// The fake app's answer to one `action.run`.
 fn app_response(mode: AppMode, request: &Value) -> Value {
     let params = &request["params"];
+    if request["method"] == "system.identify" {
+        // An older app answers `beside` for a terminal as for a chat (a new
+        // column right of it) and names no `caller_placement`.
+        let mut identity = json!({"caller": {"is_caller": true,
+            "terminal_id": params["caller"]["terminal_id"], "workspace": WORKSPACE,
+            "screen": SCREEN, "pane": PANE, "tab": CALLER_TAB},
+            "beside": {"pane": null, "placement": "new_column"}});
+        if matches!(mode, AppMode::PlacesTerminals) {
+            identity["caller_placement"] = json!(2);
+        }
+        return json!({"id": request["id"], "ok": true, "result": identity});
+    }
     let refused = match mode {
-        AppMode::Workspace => false,
+        AppMode::Workspace | AppMode::PlacesTerminals => false,
         AppMode::Home | AppMode::HomeNoReveal => {
             params["action"] == "openBrowser" && params.get("target").is_none()
         }

@@ -34,6 +34,9 @@ const PANE: &str = "pane_33333333333333333333333333333333";
 const NEW_TAB: &str = "tab_77777777777777777777777777777777";
 const NEW_BROWSER: &str = "browser_88888888888888888888888888888888";
 const URL: &str = "http://127.0.0.1:8765/opener-a.html";
+/// An app action (by its CLI name) and the MCP tool the server makes of it.
+const DIFF_ACTION: &str = "browser open-diff-viewer";
+const DIFF_TOOL: &str = "app_browser_open_diff_viewer";
 static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
 
 #[test]
@@ -67,6 +70,36 @@ fn an_agent_naming_another_session_sends_its_agent_session_as_caller() {
     assert_eq!(open["params"]["caller"], json!({"agent_session": AGENT_SESSION}), "{open}");
 }
 
+/// An app action tool that names no target must still say who calls, or the
+/// app opens its tab where the person looks (a diff viewer in the focused
+/// workspace, in the reported case) instead of beside the caller.
+#[test]
+fn an_app_action_tool_with_no_target_names_its_caller() {
+    let run = serve_call(Some(AGENT_SESSION), DIFF_TOOL, json!({}));
+    assert_eq!(run.result["isError"], false, "{}", run.result);
+    let diff = run.action(DIFF_ACTION);
+    assert!(diff["params"].get("target").is_none(), "{diff}");
+    assert_eq!(diff["params"]["caller"], json!({"agent_session": AGENT_SESSION}), "{diff}");
+
+    // An agent in a cmux terminal (no acpmux session) is named by its terminal.
+    let run = serve_call(None, DIFF_TOOL, json!({}));
+    assert_eq!(run.result["isError"], false, "{}", run.result);
+    let diff = run.action(DIFF_ACTION);
+    assert_eq!(diff["params"]["caller"], json!({"terminal_id": PERSON_TERMINAL}), "{diff}");
+}
+
+/// A browser tab with no place in the caller's own session: the app places
+/// it by the caller the run names, and the server names no pane.
+#[test]
+fn an_agents_browser_tab_with_no_place_names_the_agent_and_no_target() {
+    let run = serve_call(Some(AGENT_SESSION), "tab_create_browser", json!({"url": URL}));
+    assert_eq!(run.result["isError"], false, "{}", run.result);
+    let open = run.open_browser();
+    assert!(open["params"].get("target").is_none(), "{open}");
+    assert_eq!(open["params"]["caller"], json!({"agent_session": AGENT_SESSION}), "{open}");
+    assert!(run.other_daemon.is_empty(), "another session was asked: {:?}", run.other_daemon);
+}
+
 struct Finished {
     result: Value,
     own_daemon: Vec<Value>,
@@ -76,17 +109,18 @@ struct Finished {
 
 impl Finished {
     fn open_browser(&self) -> &Value {
+        self.action("openBrowser")
+    }
+
+    /// The one `action.run` of `action` the app got.
+    fn action(&self, action: &str) -> &Value {
         let runs: Vec<&Value> = self
             .app
             .iter()
-            .filter(|call| {
-                call["method"] == "action.run" && call["params"]["action"] == "openBrowser"
-            })
+            .filter(|call| call["method"] == "action.run" && call["params"]["action"] == action)
             .collect();
-        let [open] = runs.as_slice() else {
-            panic!("one openBrowser run expected: {:?}", self.app)
-        };
-        open
+        let [run] = runs.as_slice() else { panic!("one {action} run expected: {:?}", self.app) };
+        run
     }
 }
 
@@ -94,6 +128,13 @@ impl Finished {
 /// `cmux mcp serve` started in a terminal of the person's own session
 /// (`CMUX_TUI_TERMINAL_ID`), with `agent_session` as `CMUX_AGENT_SESSION`.
 fn serve(agent_session: Option<&str>) -> Finished {
+    serve_call(agent_session, "tab_create_browser", json!({"session": OTHER_SESSION, "url": URL}))
+}
+
+/// One `tool` call with `arguments`, from a `cmux mcp serve` started in a
+/// terminal of the person's own session, with `agent_session` as
+/// `CMUX_AGENT_SESSION`.
+fn serve_call(agent_session: Option<&str>, tool: &str, arguments: Value) -> Finished {
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() % 1_000_000;
     let sequence = NEXT_DIR.fetch_add(1, Ordering::Relaxed);
     let dir = PathBuf::from(format!("/tmp/cmux-mcs-{}-{stamp}-{sequence}", std::process::id()));
@@ -124,6 +165,8 @@ fn serve(agent_session: Option<&str>) -> Finished {
         .env("CMUX_TUI_TERMINAL_ID", PERSON_TERMINAL)
         .env_remove("CMUX_MUX_SOCKET")
         .env_remove("CMUX_AGENT_SESSION")
+        .env_remove("CMUX_CALLER_HOME_CHAT")
+        .env_remove("CMUX_WORKSPACE_ID")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -138,8 +181,7 @@ fn serve(agent_session: Option<&str>) -> Finished {
             "clientInfo": {"name": "cx-91xd", "version": "1"}}}),
         json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
         json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {
-            "name": "tab_create_browser",
-            "arguments": {"session": OTHER_SESSION, "url": URL}}}),
+            "name": tool, "arguments": arguments}}),
     ] {
         writeln!(stdin, "{message}").unwrap();
     }
@@ -244,6 +286,13 @@ fn fake_daemon(socket: &Path, done: Arc<AtomicBool>) -> JoinHandle<Vec<Value>> {
 fn fake_app(socket: &Path, done: Arc<AtomicBool>) -> JoinHandle<Vec<Value>> {
     listen(socket, done, |request| {
         let params = &request["params"];
+        if request["method"] == "action.list" {
+            return json!({"id": request["id"], "ok": true, "result": {"actions": [{
+                "id": "openDiffViewer", "title": "Open Diff Viewer", "cli_name": DIFF_ACTION,
+                "cli": true, "targets": ["pane"],
+                "arguments": [{"name": "path", "kind": "string", "required": false}],
+                "surfaces": {"cli": "offered", "mcp": "offered"}}]}});
+        }
         if request["method"] != "action.run" {
             return json!({"id": request["id"], "ok": false, "error": {"code": "unavailable",
                 "message": "not in this fake app", "data": {}}});

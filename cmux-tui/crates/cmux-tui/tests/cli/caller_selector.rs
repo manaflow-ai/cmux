@@ -7,15 +7,15 @@ use super::*;
 
 /// The caller's terminal in `alpha` and its tab, pane and workspace ids,
 /// with `beta` focused.
-struct Split {
-    server: HeadlessServer,
-    terminal: String,
-    pane: String,
-    alpha: String,
-    beta: String,
+pub(super) struct Split {
+    pub(super) server: HeadlessServer,
+    pub(super) terminal: String,
+    pub(super) pane: String,
+    pub(super) alpha: String,
+    pub(super) beta: String,
 }
 
-fn caller_in_alpha_beta_focused(name: &str) -> Split {
+pub(super) fn caller_in_alpha_beta_focused(name: &str) -> Split {
     let server = HeadlessServer::start(name);
     state_cli(&server, None, &["workspace", "create", "--name", "alpha"]);
     state_cli(&server, None, &["workspace", "create", "--name", "beta"]);

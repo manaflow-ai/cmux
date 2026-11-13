@@ -28,15 +28,18 @@ const CALLER_TERMINAL: &str = "term_55555555555555555555555555555555";
 const NEW_TAB: &str = "tab_77777777777777777777777777777777";
 const WORKSPACE: &str = "ws_11111111111111111111111111111111";
 const CHAT_CODE: &str = "Zx9k2LqP4wQe";
+const AGENT_SESSION: &str = "acp_agent_session_a";
 static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
 
 /// The params the real app's `file.open` takes (ControlRouter+FileOpen).
-const FILE_OPEN_PARAMS: [&str; 9] = [
+/// `caller` is new: an app from before it refuses it as unknown ([`App::Older`]).
+const FILE_OPEN_PARAMS: [&str; 10] = [
     "paths",
     "path",
     "where",
     "workspace_id",
     "terminal_id",
+    "caller",
     "focus",
     "idempotency_key",
     "origin",
@@ -45,16 +48,26 @@ const FILE_OPEN_PARAMS: [&str; 9] = [
 
 /// The params the real app's `browser.open_split` takes; any other is
 /// refused. `after` is the router's read barrier, which every CLI call sends.
-const OPEN_SPLIT_PARAMS: [&str; 8] = [
+const OPEN_SPLIT_PARAMS: [&str; 9] = [
     "url",
     "workspace_id",
     "terminal_id",
+    "caller",
     "focus",
     "transparent_background",
     "idempotency_key",
     "origin",
     "after",
 ];
+
+/// Which app answers.
+#[derive(Clone, Copy, PartialEq)]
+enum App {
+    /// The current app: `file.open` takes `caller`.
+    Current,
+    /// An app from before `file.open` took `caller`.
+    Older,
+}
 
 #[test]
 fn cmux_chat_open_of_a_one_time_code_url_opens_one_tab_in_the_callers_pane() {
@@ -184,6 +197,91 @@ fn open_of_files_a_folder_and_a_url_opens_each_in_order() {
     let _ = std::fs::remove_dir_all(&project);
 }
 
+/// 54 transcript results of an agent's `cmux open FILE` said
+/// `"placement":"focused_pane"`: the CLI sent only `terminal_id`, and an
+/// agent chat has no terminal, so the app could not know whose file it was.
+#[test]
+fn open_of_a_file_names_the_agent_chat_so_the_app_places_it_beside_the_chat() {
+    let project = scratch_dir("agent-file");
+    std::fs::write(project.join("notes.md"), "# notes\n").unwrap();
+    let chat = [("CMUX_AGENT_SESSION", AGENT_SESSION), ("CMUX_TUI_TERMINAL_ID", CALLER_TERMINAL)];
+    let run = run_as(&["open", "notes.md"], &chat, Some(&project), App::Current);
+    assert!(run.output.status.success(), "{}", run.stderr());
+    let [call] = run.app.as_slice() else { panic!("one app call expected: {:?}", run.app) };
+    assert_eq!(call["method"], "file.open", "{call}");
+    assert_eq!(call["params"]["caller"], json!({"agent_session": AGENT_SESSION}), "{call}");
+    assert_eq!(call["params"]["terminal_id"], CALLER_TERMINAL, "{call}");
+
+    // A Chief turn names the Home chat.
+    let chief = [("CMUX_CALLER_HOME_CHAT", "1")];
+    let run = run_as(&["open", "notes.md"], &chief, Some(&project), App::Current);
+    assert!(run.output.status.success(), "{}", run.stderr());
+    let [call] = run.app.as_slice() else { panic!("one app call expected: {:?}", run.app) };
+    assert_eq!(call["params"]["caller"], json!({"home_chat": true}), "{call}");
+
+    // A person's terminal is named by `terminal_id` alone.
+    let person = [("CMUX_TUI_TERMINAL_ID", CALLER_TERMINAL)];
+    let run = run_as(&["open", "notes.md"], &person, Some(&project), App::Current);
+    assert!(run.output.status.success(), "{}", run.stderr());
+    let [call] = run.app.as_slice() else { panic!("one app call expected: {:?}", run.app) };
+    assert!(call["params"].get("caller").is_none(), "{call}");
+    assert_eq!(call["params"]["terminal_id"], CALLER_TERMINAL, "{call}");
+    let _ = std::fs::remove_dir_all(&project);
+}
+
+#[test]
+fn open_of_a_file_still_opens_in_an_app_from_before_file_open_took_a_caller() {
+    let project = scratch_dir("agent-file-older");
+    std::fs::write(project.join("notes.md"), "# notes\n").unwrap();
+    let chat = [("CMUX_AGENT_SESSION", AGENT_SESSION)];
+    let run = run_as(&["open", "notes.md"], &chat, Some(&project), App::Older);
+    assert!(run.output.status.success(), "{}", run.stderr());
+    let [refused, opened] = run.app.as_slice() else {
+        panic!("the refused call and its retry expected: {:?}", run.app)
+    };
+    assert_eq!(refused["params"]["caller"], json!({"agent_session": AGENT_SESSION}), "{refused}");
+    assert_eq!(opened["method"], "file.open", "{opened}");
+    assert!(opened["params"].get("caller").is_none(), "{opened}");
+    assert_eq!(opened["params"]["paths"], refused["params"]["paths"], "{opened}");
+    let _ = std::fs::remove_dir_all(&project);
+}
+
+#[test]
+fn open_of_a_url_names_the_agent_chat_or_the_chief_turn() {
+    let chat = [("CMUX_AGENT_SESSION", AGENT_SESSION)];
+    let run = run_as(&["open", "https://example.com/"], &chat, None, App::Current);
+    assert!(run.output.status.success(), "{}", run.stderr());
+    let [call] = run.app.as_slice() else { panic!("one app call expected: {:?}", run.app) };
+    assert_eq!(call["method"], "browser.open_split", "{call}");
+    assert_eq!(call["params"]["caller"], json!({"agent_session": AGENT_SESSION}), "{call}");
+
+    let chief = [("CMUX_CALLER_HOME_CHAT", "1")];
+    let run = run_as(&["open", "https://example.com/"], &chief, None, App::Current);
+    assert!(run.output.status.success(), "{}", run.stderr());
+    let [call] = run.app.as_slice() else { panic!("one app call expected: {:?}", run.app) };
+    assert_eq!(call["params"]["caller"], json!({"home_chat": true}), "{call}");
+}
+
+/// `browser right` is the column right of the caller: the app can pick it
+/// only when the request says who calls.
+#[test]
+fn browser_right_names_its_caller_so_the_app_picks_the_callers_column() {
+    for (env, caller) in [
+        (("CMUX_TUI_TERMINAL_ID", CALLER_TERMINAL), json!({"terminal_id": CALLER_TERMINAL})),
+        (("CMUX_AGENT_SESSION", AGENT_SESSION), json!({"agent_session": AGENT_SESSION})),
+        (("CMUX_CALLER_HOME_CHAT", "1"), json!({"home_chat": true})),
+    ] {
+        // This fake app has no `browser.page.right`; what the CLI sent is the test.
+        let run = run_as(&["browser", "right", "snapshot"], &[env], None, App::Current);
+        let right = run
+            .app
+            .iter()
+            .find(|call| call["method"] == "browser.page.right")
+            .unwrap_or_else(|| panic!("no browser.page.right: {:?} {}", run.app, run.stderr()));
+        assert_eq!(right["params"]["caller"], caller, "{right}");
+    }
+}
+
 /// A folder to run `cmux open` in, canonical so it matches the CLI's
 /// working directory (on macOS /tmp is a link to /private/tmp).
 fn scratch_dir(name: &str) -> PathBuf {
@@ -220,6 +318,23 @@ fn run_in(
     stdin: Option<&str>,
     cwd: Option<&Path>,
 ) -> Finished {
+    let env: Vec<(&str, &str)> =
+        caller_terminal.map(|terminal| ("CMUX_TUI_TERMINAL_ID", terminal)).into_iter().collect();
+    run_with(args, &env, stdin, cwd, App::Current)
+}
+
+/// `cmux args…` run by the caller `env` names, against `app`.
+fn run_as(args: &[&str], env: &[(&str, &str)], cwd: Option<&Path>, app: App) -> Finished {
+    run_with(args, env, None, cwd, app)
+}
+
+fn run_with(
+    args: &[&str],
+    env: &[(&str, &str)],
+    stdin: Option<&str>,
+    cwd: Option<&Path>,
+    kind: App,
+) -> Finished {
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let sequence = NEXT_DIR.fetch_add(1, Ordering::Relaxed);
     let dir: PathBuf =
@@ -227,7 +342,7 @@ fn run_in(
     std::fs::create_dir_all(&dir).unwrap();
     let socket = dir.join("app.sock");
     let done = Arc::new(AtomicBool::new(false));
-    let app = strict_app(&socket, done.clone());
+    let app = strict_app(&socket, done.clone(), kind);
     let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-tui"));
     command
         .arg("--app-socket")
@@ -236,12 +351,11 @@ fn run_in(
         .env_remove("CMUX_TUI_TERMINAL_ID")
         .env_remove("CMUX_FOCUS_NEW")
         .env_remove("CMUX_AGENT_SESSION")
+        .env_remove("CMUX_CALLER_HOME_CHAT")
         .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    if let Some(terminal) = caller_terminal {
-        command.env("CMUX_TUI_TERMINAL_ID", terminal);
-    }
+    command.envs(env.iter().copied());
     if let Some(cwd) = cwd {
         command.current_dir(cwd);
     }
@@ -262,13 +376,13 @@ fn run_in(
 /// `file.open` opens absolute paths (the `file.open` action refuses a
 /// relative one); `action.run` runs a catalog action; every other method is
 /// `method_not_found`, as the real router answers.
-fn app_response(request: &Value) -> Value {
+fn app_response(request: &Value, kind: App) -> Value {
     let method = request["method"].as_str().unwrap_or_default();
     let params = &request["params"];
     let error = |code: &str, message: String| json!({"id": request["id"], "ok": false, "error": {"code": code, "message": message}});
     match method {
         "browser.open_split" => {}
-        "file.open" => return file_open_response(request),
+        "file.open" => return file_open_response(request, kind),
         "action.run" => {
             return json!({"id": request["id"], "ok": true, "result": {"ran": true, "created": [WORKSPACE], "replayed": false}});
         }
@@ -302,15 +416,13 @@ fn app_response(request: &Value) -> Value {
 
 /// The real app's `file.open`: unknown params are refused, and each path
 /// runs the `file.open` action, which opens only an absolute path.
-fn file_open_response(request: &Value) -> Value {
+fn file_open_response(request: &Value, kind: App) -> Value {
     let params = &request["params"];
     let error = |code: &str, message: String| json!({"id": request["id"], "ok": false, "error": {"code": code, "message": message}});
-    if let Some(unknown) = params
-        .as_object()
-        .into_iter()
-        .flatten()
-        .map(|(key, _)| key)
-        .find(|key| !FILE_OPEN_PARAMS.contains(&key.as_str()))
+    let known =
+        |key: &str| FILE_OPEN_PARAMS.contains(&key) && (kind == App::Current || key != "caller");
+    if let Some(unknown) =
+        params.as_object().into_iter().flatten().map(|(key, _)| key).find(|key| !known(key))
     {
         return error("invalid_params", format!("file.open does not take params.{unknown}"));
     }
@@ -330,7 +442,7 @@ fn file_open_response(request: &Value) -> Value {
     json!({"id": request["id"], "ok": true, "result": {"opened": opened, "placement": "caller_terminal"}})
 }
 
-fn strict_app(socket: &Path, done: Arc<AtomicBool>) -> JoinHandle<Vec<Value>> {
+fn strict_app(socket: &Path, done: Arc<AtomicBool>, kind: App) -> JoinHandle<Vec<Value>> {
     let listener = UnixListener::bind(socket).unwrap();
     listener.set_nonblocking(true).unwrap();
     let received = Arc::new(Mutex::new(Vec::new()));
@@ -346,7 +458,7 @@ fn strict_app(socket: &Path, done: Arc<AtomicBool>) -> JoinHandle<Vec<Value>> {
                     while reader.read_line(&mut line).unwrap_or(0) > 0 {
                         let request: Value = serde_json::from_str(&line).unwrap();
                         line.clear();
-                        let response = app_response(&request);
+                        let response = app_response(&request, kind);
                         received.lock().unwrap().push(request);
                         if writeln!(writer, "{response}").is_err() {
                             break;

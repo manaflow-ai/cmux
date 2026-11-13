@@ -3746,6 +3746,9 @@ mod browser_devices;
 #[path = "cli/browser_profiles.rs"]
 mod browser_profiles;
 #[cfg(unix)]
+#[path = "cli/caller_place.rs"]
+mod caller_place;
+#[cfg(unix)]
 #[path = "cli/caller_selector.rs"]
 mod caller_selector;
 #[cfg(unix)]
