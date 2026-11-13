@@ -19,8 +19,10 @@ public final class HomeUnavailableLabel: ChromeLabel {
         return label
     }
 
-    /// Centres the reason in `bounds`, 24 pt in from each side.
-    public func place(in bounds: NSRect) {
+    /// Centres the reason in `bounds`, 24 pt in from each side. Hidden, it is not measured or marked for display: a pane
+    /// width change lays Home out once a frame, and its owner asks for a layout when it shows the reason.
+    public func place(in bounds: NSRect) { // perf-hot: 1ms motion-frame (each frame of a pane width change of the Home)
+        guard !isHidden else { return }
         measures += 1
         let inset: CGFloat = 24
         let width = max(0, bounds.width - 2 * inset)
