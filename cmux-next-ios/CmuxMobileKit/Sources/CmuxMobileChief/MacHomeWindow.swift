@@ -93,16 +93,16 @@ public enum MacHomeReply: Equatable, Sendable {
     public init(homeInbox data: [String: Any]) {
         let wire = data["rows"] as? [[String: Any]] ?? []
         guard let total = (data["total"] as? NSNumber)?.intValue else {
-            self = .all(wire.compactMap(MacHomeRow.init(wire:)))
+            self = .all(wire.compactMap(MacHomeRow.pooled(wire:)))
             return
         }
         if let offset = (data["offset"] as? NSNumber)?.intValue {
-            self = .window(wire.compactMap(MacHomeRow.init(wire:)), offset: offset, total: total)
+            self = .window(wire.compactMap(MacHomeRow.pooled(wire:)), offset: offset, total: total)
             return
         }
         self = .named(wire.compactMap { object in
             guard let index = (object["index"] as? NSNumber)?.intValue, index >= 0,
-                  let row = MacHomeRow(wire: object) else { return nil }
+                  let row = MacHomeRow.pooled(wire: object) else { return nil }
             return MacHomeRows.Found(index: index, row: row)
         }, total: total, order: data["order"] as? String)
     }

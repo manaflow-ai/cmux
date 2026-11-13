@@ -102,7 +102,21 @@ public struct MacHomeRow: Identifiable, Hashable, Sendable, Codable {
 
     /// The rows of a `home-inbox` reply's `data`, in the owner's order.
     public static func rows(fromHomeInbox data: [String: Any]) -> [MacHomeRow] {
-        (data["rows"] as? [[String: Any]] ?? []).compactMap(MacHomeRow.init(wire:))
+        (data["rows"] as? [[String: Any]] ?? []).compactMap(MacHomeRow.pooled(wire:))
+    }
+
+    /// A reply's row read in an autorelease pool of its own. Reading a row bridges its strings
+    /// and runs Foundation's formatter and regular expressions, which leave autoreleased objects;
+    /// without a pool per row they pile up until the whole read's task ends: a 5,000-row list
+    /// held about 10 MB of them per read, and freeing them all at once when the task ended
+    /// stalled the next first screen for a second (`home_list_first_screen_under_load`,
+    /// cmux-next-ios/design/instant-perf.md).
+    static func pooled(wire object: [String: Any]) -> MacHomeRow? {
+        #if canImport(ObjectiveC)
+        autoreleasepool { MacHomeRow(wire: object) }
+        #else
+        MacHomeRow(wire: object)
+        #endif
     }
 
     init?(wire object: [String: Any]) {
