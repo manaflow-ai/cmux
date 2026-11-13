@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43399647493",
+  "recorded_at": "2026-11-13T09:22:46Z",
+  "reason": "cmux-tui 0dcc1c642373 changes the image's cmux-tui (pinned 103b24fc45b1)",
+  "dry_run": false,
+  "cmux_tui": "0dcc1c6423739a907dc4a8858f6183e44a574142",
+  "fixes": [
+    {
+      "sha": "0dcc1c6423739a907dc4a8858f6183e44a574142",
+      "mergedAt": "2026-11-13T00:51:13-08:00",
+      "subject": "bundle size: fat LTO for the app's Rust library (cmux-app-ffi) (#42471)"
+    },
+    {
+      "sha": "c40410596cf60e2412b49dcbfc2d2b5688de0b17",
+      "mergedAt": "2026-11-13T00:50:08-08:00",
+      "subject": "acpmux: a merged or closed pull request leaves Waiting on you (#41812)"
+    },
+    {
+      "sha": "e389b5da01e4bf48043fd106f39e0ce5c10c02d5",
+      "mergedAt": "2026-11-13T08:41:18Z",
+      "subject": "base red: the oversized-send prompt cuts with no slice (cmux-tui-core panic ratchet) (#42492)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T09:22:46Z",
+    "snapshot_id": "sh-0b90edbd0c1e4afa8e2007a5e82d9baf",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43399647493): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "d7d0db8b996927935fecf92796298bc79081535c",
+    "image": "cloud-native-auto-0dcc1c64-43399647493-1",
+    "revision": "ci-43399647493-1",
+    "at": "2026-11-13T09:22:46Z"
+  },
+  "rolled_back": false
+}
