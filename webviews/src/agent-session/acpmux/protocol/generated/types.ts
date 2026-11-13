@@ -76,6 +76,7 @@ export interface AcpmuxRequestMeta {
   tags?: unknown;
   teamMessage?: unknown;
   throughSeq?: unknown;
+  throwaway?: unknown;
   topic?: unknown;
   via?: unknown;
   vmBoundary?: unknown;

@@ -170,7 +170,8 @@ fn names_a_path(ty: &syn::Type) -> bool {
 /// other) may be absent from the build that runs a production call, so it shadows nothing
 /// there (#41970 review F1: a `#[cfg(test)] fn metadata` hid a production `metadata(path)`). A
 /// gated import still binds its name when it imports std's, whose call is a row in the build
-/// that has it.
+/// that has it. A `#[test]` fn or module is built only in tests as well, so it shadows nothing
+/// either (#42026 review).
 #[derive(Clone, Default)]
 struct Scope {
     opaque: bool,
@@ -193,10 +194,12 @@ impl Scope {
                     scope.globs.extend(gated.globs.into_iter().filter(std));
                 }
                 syn::Item::Use(u) => scope.import(&mut Vec::new(), &u.tree),
-                syn::Item::Fn(f) if !is_cfg_gated(&f.attrs) => {
+                // A `#[test]` fn is no `cfg` but is built only in tests too: it shadows nothing there
+                // either (#42026 review).
+                syn::Item::Fn(f) if !is_cfg_gated(&f.attrs) && !is_test_attr(&f.attrs) => {
                     scope.defined.insert(f.sig.ident.to_string());
                 }
-                syn::Item::Mod(m) if !is_cfg_gated(&m.attrs) => {
+                syn::Item::Mod(m) if !is_cfg_gated(&m.attrs) && !is_test_attr(&m.attrs) => {
                     scope.defined.insert(m.ident.to_string());
                 }
                 _ => {}
@@ -873,6 +876,68 @@ fn the_lint_resolves_self_super_through_aliases() {
         .map(|row| row.split_once(' ').map(|(_, what)| what.to_string()).unwrap_or(row))
         .collect();
     assert_eq!(rows, ["sm(..) (std::fs::symlink_metadata)", "m(..) (std::fs::metadata)"],);
+}
+
+/// A `#[cfg(test)]` or `#[test]` fn (or module) is not built outside tests, so it shadows no
+/// import there: `metadata(p)` and a child's `super::metadata(p)` under `use std::fs::metadata;`
+/// are std's although a test-only `fn metadata` sits beside the import (#42026 review). A plain
+/// local `fn metadata` still shadows.
+#[test]
+fn the_lint_ignores_test_only_items_that_shadow_an_import() {
+    let fixture = r#"
+        mod own_cfg_test {
+            use std::fs::metadata;
+            #[cfg(test)]
+            fn metadata(_: &Path) -> bool { true }
+            fn a(p: &Path) -> bool { metadata(p).is_ok() }
+        }
+        mod own_test_attr {
+            use std::fs::metadata;
+            #[test]
+            fn metadata() {}
+            fn a(p: &Path) -> bool { metadata(p).is_ok() }
+        }
+        mod parent_cfg_test {
+            use std::fs::metadata;
+            #[cfg(test)]
+            fn metadata(_: &Path) -> bool { true }
+            mod child {
+                fn a(p: &Path) -> bool { super::metadata(p).is_ok() }
+            }
+        }
+        mod parent_test_mod {
+            use std::fs::metadata;
+            #[cfg(test)]
+            mod metadata {}
+            mod child {
+                fn a(p: &Path) -> bool { super::metadata(p).is_ok() }
+            }
+        }
+        mod own_local {
+            fn metadata(_: &Path) -> bool { true }
+            fn a(p: &Path) -> bool { metadata(p) }
+        }
+        mod parent_local {
+            fn metadata(_: &Path) -> bool { true }
+            mod child {
+                fn a(p: &Path) -> bool { super::metadata(p) }
+            }
+        }
+    "#;
+    let file = syn::parse_file(fixture).unwrap();
+    let rows: Vec<String> = rows_in("x.rs", &file)
+        .into_iter()
+        .map(|row| row.split_once(' ').map(|(_, what)| what.to_string()).unwrap_or(row))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            "metadata(..) (std::fs::metadata)",
+            "metadata(..) (std::fs::metadata)",
+            "super::metadata(..) (std::fs::metadata)",
+            "super::metadata(..) (std::fs::metadata)",
+        ],
+    );
 }
 
 /// The rows of the tree rooted at `src/store.rs` under `src`, sorted.
