@@ -25,6 +25,9 @@ import Testing
         let signedInPlan = OSAllocatedUnfairLock(initialState: false)
         /// `chatgpt.wait` fails: acpmux's error name, or "" for a daemon that does not answer.
         let waitFailure = OSAllocatedUnfairLock<String?>(initialState: nil)
+        /// `route/show`'s secret reference by route id.
+        let routeSecrets = OSAllocatedUnfairLock<[String: String]>(initialState: [:])
+        let refuseRemove = OSAllocatedUnfairLock(initialState: false)
     }
 
     struct NoAnswer: Error {}
@@ -89,6 +92,12 @@ import Testing
                 switch method {
                 case .connections, .connectionsSpreadSet, .connectionsOrderSet:
                     return Self.connections(plan: daemon.signedInPlan.withLock { $0 }, spread: flat["on"].map { $0 == "true" } ?? true)
+                case .routeShow:
+                    let secret = daemon.routeSecrets.withLock { $0[flat["id"] ?? ""] }
+                    return Data(#"{"id":"\#(flat["id"] ?? "")","secret":\#(secret.map { "\"\($0)\"" } ?? "null")}"#.utf8)
+                case .connectionsRemove:
+                    if daemon.refuseRemove.withLock({ $0 }) { throw AcpmuxRPCError(code: -32602, name: "connections.unknown", message: "refused") }
+                    return Self.connections(plan: false)
                 case .claudeTokenAdd:
                     if daemon.refuseKeyAdd.withLock({ $0 }) { throw AcpmuxRPCError(code: -32602, name: "connections.bad_secret", message: "refused") }
                     return Self.claudeToken
@@ -346,5 +355,39 @@ import Testing
         // A note without a state reads it again.
         await models.changed(Data(#"{"jsonrpc":"2.0","method":"_acpmux/connections.changed"}"#.utf8))
         #expect(daemon.calls.withLock { $0 }.last?.method == "_acpmux/connections")
+    }
+
+    @Test func removingAKeyConnectionTakesItsKeychainItemOut() async throws {
+        let daemon = Daemon()
+        let keys = Keys()
+        let models = make(daemon: daemon, keys: keys)
+        _ = try await models.run(["action": "addClaudeToken", "token": "sk-ant-oat01-abc"], context: click)
+        daemon.routeSecrets.withLock { $0["claude-token-1"] = "keychain:cmux-model-key/claude-token-test" }
+        // acpmux refuses: the item stays.
+        daemon.refuseRemove.withLock { $0 = true }
+        await #expect(throws: PageError.self) { _ = try await models.run(["action": "remove", "id": "claude-token-1"], context: click) }
+        #expect(keys.deleted.withLock { $0 }.isEmpty)
+        // acpmux confirms: the item cmux stored leaves the Keychain, after the removal.
+        daemon.refuseRemove.withLock { $0 = false }
+        _ = try await models.run(["action": "remove", "id": "claude-token-1"], context: click)
+        #expect(keys.deleted.withLock { $0 } == ["keychain:cmux-model-key/claude-token-test"])
+        let methods = daemon.calls.withLock { $0 }.map(\.method)
+        #expect(methods.suffix(2) == ["_acpmux/route/show", "_acpmux/connections/remove"])
+    }
+
+    @Test func removingLeavesAReferenceCmuxDidNotCreate() async throws {
+        let daemon = Daemon()
+        let keys = Keys()
+        let models = make(daemon: daemon, keys: keys)
+        _ = try await models.run(["action": "addClaudeToken", "token": "sk-ant-oat01-abc"], context: click)
+        daemon.routeSecrets.withLock { $0["claude-token-1"] = "keychain:someone-else/item" }
+        _ = try await models.run(["action": "remove", "id": "claude-token-1"], context: click)
+        #expect(keys.deleted.withLock { $0 }.isEmpty)
+        // A CLI login has no secret of cmux's: no route read, nothing deleted.
+        _ = await models.loadedState()
+        let before = daemon.calls.withLock { $0 }.count
+        _ = try await models.run(["action": "remove", "id": "codex-login"], context: click)
+        #expect(!daemon.calls.withLock { $0 }.dropFirst(before).contains { $0.method == "_acpmux/route/show" })
+        #expect(keys.deleted.withLock { $0 }.isEmpty)
     }
 }

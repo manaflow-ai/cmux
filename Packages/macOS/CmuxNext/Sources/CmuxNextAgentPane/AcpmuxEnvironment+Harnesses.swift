@@ -80,6 +80,8 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
     case routeAdd = "_acpmux/route/add"
     /// `{id}`: removes a route; acpmux keeps a backup of its file.
     case routeRemove = "_acpmux/route/remove"
+    /// `{id}`: one route's view, with its secret reference (`keychain:ITEM`), never a secret.
+    case routeShow = "_acpmux/route/show"
     /// `{scope, routeId?}`: the route new chats of a scope (`family:<family>`) run on; none is the CLI login.
     case routeDefaultSet = "_acpmux/route/default.set"
     /// Settings > Models (cmux-tui/docs/model-connections.md): `{}` answers `ConnectionsState`
@@ -115,7 +117,7 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
         // An endpoint add may read its models (10 s), wait on the add lock and the Keychain store (60 s).
         case .add: .seconds(90)
         case .list, .remove, .restore, .reload, .secretSet, .icon, .accounts, .accountSet, .routeRemove, .routeDefaultSet,
-             .connections, .connectionsOrderSet, .connectionsSpreadSet, .chatgptCancel: .seconds(10)
+             .routeShow, .connections, .connectionsOrderSet, .connectionsSpreadSet, .chatgptCancel: .seconds(10)
         case .routeAdd, .connectionsKeyAdd, .claudeTokenAdd: .seconds(20)
         // Starts the callback listener; a ChatGPT plan's removal calls the revocation endpoint.
         case .chatgptBegin, .connectionsRemove: .seconds(30)
