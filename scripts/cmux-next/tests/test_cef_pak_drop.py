@@ -102,6 +102,151 @@ def test_cli_rewrites_in_place_and_leaves_it_without_a_header():
         assert not os.path.exists(path + ".tmp")
 
 
+# --- locale.pak strings ---------------------------------------------------------------------
+
+STRINGS_HEADER = """\
+#define IDS_DEFAULT_TAB_TITLE 320
+#define IDS_NTP_TITLE 900
+#define IDS_NTP_CUSTOMIZE_DEFAULT_LABEL 901
+#define IDS_GLIC_WINDOW_TITLE 902
+#define IDS_GLIC_SHARED 903
+#define IDS_COMPOSE_SUGGESTION_MAIN_TEXT 904
+#define IDS_SETTINGS_TITLE 905
+"""
+
+LOCALE = pak(
+    [(320, b"Untitled"), (900, b"New Tab"), (901, b"Default"), (902, b"Gemini"), (903, b"Shared"),
+     (904, b"Help me write"), (905, b"Settings")],
+    # 906 is a kept string whose text is the same as 903's, so the pak aliases it.
+    [(906, 4)],
+)
+
+
+def test_string_ids_are_the_trimmed_features_less_what_kept_pages_read():
+    ids = tool.string_ids(STRINGS_HEADER)
+    assert ids == {900: "IDS_NTP_TITLE", 902: "IDS_GLIC_WINDOW_TITLE", 903: "IDS_GLIC_SHARED"}
+
+
+def test_trimmed_strings_read_empty_and_keep_their_ids():
+    new, emptied = tool.empty_strings(LOCALE, tool.string_ids(STRINGS_HEADER))
+    # 903 stays: kept id 906 aliases its data.
+    assert sorted(emptied) == [900, 902]
+    before, after = read(LOCALE), read(new)
+    assert set(after) == set(before)
+    assert after[900] == b"" and after[902] == b""
+    for rid in after:
+        if rid not in (900, 902):
+            assert after[rid] == before[rid], rid
+    assert len(LOCALE) - len(new) == len(b"New Tab") + len(b"Gemini")
+    assert tool.empty_strings(new, tool.string_ids(STRINGS_HEADER)) == (new, [])
+
+
+def test_cli_trims_every_locale_pak_and_leaves_them_without_a_header():
+    with tempfile.TemporaryDirectory() as tmp:
+        paks = [os.path.join(tmp, f"{lang}.pak") for lang in ("en", "fr")]
+        for path in paks:
+            Path(path).write_bytes(LOCALE)
+        header = os.path.join(tmp, "cef_pack_strings.h")
+        missing = subprocess.run([sys.executable, "-I", str(SCRIPT), "--strings", header, *paks],
+                                 capture_output=True, text=True)
+        assert missing.returncode == 0 and "warning:" in missing.stdout
+        assert all(Path(path).read_bytes() == LOCALE for path in paks)
+        Path(header).write_text(STRINGS_HEADER)
+        done = subprocess.run([sys.executable, "-I", str(SCRIPT), "--strings", header, *paks, paks[0] + ".gone"],
+                              capture_output=True, text=True)
+        assert done.returncode == 0, done.stderr
+        assert "warning:" in done.stdout  # the missing pak
+        for path in paks:
+            assert read(Path(path).read_bytes())[900] == b""
+            assert not os.path.exists(path + ".tmp")
+
+
+# --- WebUI resource maps ----------------------------------------------------------------------
+
+def macho(strings: list[str], maps: list[list[tuple[str, int]]], stride: int = 32) -> bytes:
+    """A 64-bit Mach-O with a __TEXT,__cstring of strings and a __DATA_CONST,__const of maps:
+    entries of (chained-fixup rebase to the path, id), one map after another."""
+    header_size = 32 + 72 + 80 + 72 + 80
+    cstring = b"".join(s.encode() + b"\0" for s in strings)
+    at = {s: header_size + cstring.index(s.encode() + b"\0") for s in strings}
+    data = bytearray()
+    for run in maps:
+        for path, rid in run:
+            entry = struct.pack("<QiI", (1 << 62) | at[path], rid, 0)
+            data += entry + b"\0" * (stride - len(entry))
+        data += b"\0" * stride  # a gap between maps
+    data_at = header_size + len(cstring)
+    out = struct.pack("<IiiIIIII", 0xFEEDFACF, 0x0100000C, 0, 6, 2, 72 * 2 + 80 * 2, 0, 0)
+    for segment, section, offset, body in (("__TEXT", "__cstring", header_size, cstring),
+                                           ("__DATA_CONST", "__const", data_at, data)):
+        out += struct.pack("<II16sQQQQiiII", 0x19, 152, segment.encode(), offset, len(body), offset,
+                           len(body), 3, 3, 1, 0)
+        out += struct.pack("<16s16sQQIIIIIIII", section.encode(), segment.encode(), offset, len(body),
+                           offset, 0, 0, 0, 0, 0, 0, 0)
+    assert len(out) == header_size
+    return out + cstring + bytes(data)
+
+
+PAGES = [("new_tab_page.html", 20540), ("new_tab_page.js", 20541), ("shared.rollup.js", 20542)]
+SETTINGS = [("settings.html", 22276), ("settings.js", 22277), ("shared.rollup.js", 22278)]
+# A map whose top-level pages are a dropped group plus another page: not that group.
+MIXED = [("history.html", 20060), ("history.js", 20061), ("other.html", 20062)]
+# Another map also serves 20541, so it stays.
+SHARED = [("new_tab_page.js", 20541)]
+MAPS = [PAGES, SETTINGS, MIXED, SHARED]
+BINARY = macho(sorted({p for run in MAPS for p, _ in run}), MAPS)
+IDS = {rid for run in MAPS for _, rid in run} | {15500}
+
+
+def test_resource_maps_read_back_each_map():
+    for stride in (16, 32):
+        maps = tool.resource_maps(macho(sorted({p for run in MAPS for p, _ in run}), MAPS, stride), IDS)
+        assert maps == MAPS, maps
+
+
+def test_a_page_group_goes_and_what_others_list_or_the_header_names_stays():
+    pages, found = tool.webui_ids(tool.resource_maps(BINARY, IDS), {20542: "IDR_NAMED"})
+    assert found == ["New Tab page"]
+    assert pages == {20540: "New Tab page"}
+
+
+def test_universal_binary_reads_its_arm64_slice():
+    fat = struct.pack(">II", 0xCAFEBABE, 2)
+    first = 8 + 20 * 2
+    fat += struct.pack(">iiIII", 0x01000007, 3, first, 4, 2)
+    fat += struct.pack(">iiIII", 0x0100000C, 0, first + 4, len(BINARY), 2)
+    assert tool.macho_slice(fat + b"x86!" + BINARY) == BINARY
+    for bad in (b"\0" * 64, struct.pack(">II", 0xCAFEBABE, 0)):
+        try:
+            tool.macho_slice(bad)
+        except ValueError:
+            continue
+        raise AssertionError("accepted a binary it cannot read")
+
+
+def test_cli_drops_pages_and_sounds_and_leaves_pages_without_maps():
+    source = pak([(15500, b"fLaC" + b"s" * 30)] + [(rid, b"<%d>" % rid) for run in MAPS for _, rid in run
+                                                    if rid != 20541] + [(20541, b"ntp.js")])
+    source = pak(sorted(read(source).items()))
+    with tempfile.TemporaryDirectory() as tmp:
+        path, header, binary = (os.path.join(tmp, n) for n in ("resources.pak", "cef_pack_resources.h", "CEF"))
+        Path(header).write_text(HEADER)
+        Path(binary).write_bytes(b"not a binary")
+        Path(path).write_bytes(source)
+        args = [sys.executable, "-I", str(SCRIPT), path, header, "--webui", binary]
+        done = subprocess.run(args, capture_output=True, text=True)
+        assert done.returncode == 0 and "warning:" in done.stdout, done
+        assert set(read(Path(path).read_bytes())) == set(read(source)) - {15500}
+        Path(binary).write_bytes(BINARY)
+        Path(path).write_bytes(source)
+        done = subprocess.run(args, capture_output=True, text=True)
+        assert done.returncode == 0, done.stderr
+        assert "New Tab page" in done.stdout
+        after = read(Path(path).read_bytes())
+        assert set(after) == set(read(source)) - {15500, 20540, 20542}
+        assert all(after[rid] == data for rid, data in read(source).items() if rid in after)
+
+
 if __name__ == "__main__":
     tests = [value for name, value in sorted(globals().items()) if name.startswith("test_")]
     for test in tests:
