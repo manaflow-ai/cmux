@@ -529,6 +529,13 @@ def scenario_switch(pid, size, count=24):
             "selected_after": selected[:3], "trace": os.path.relpath(tr.path, OUT), "profile": main_thread_profile(tr.path)}
 
 
+class SwitchStop(Exception):
+    """The switch matrix cannot measure the cells it names. main() keeps the size's other rows and the cells that
+    ended (`cells`), writes them, and ends the run with exit 1 and this text."""
+
+    cells = None
+
+
 def switch_target(name):
     """Makes the workspace `name` and gives its id. The CLI prints what it made as a record (rows of `key value`),
     never a bare id: the id is the record's `value.workspace_id` row, as tab-switch-matrix.py reads it. The whole
@@ -537,18 +544,18 @@ def switch_target(name):
     done = cli("workspace", "create", "--name", name)
     found = re.search(r"value\.workspace_id\s+(\S+)", done.stdout)
     if not found:
-        sys.exit(f"switch matrix: `workspace create --name {name}` gave no value.workspace_id: {(done.stdout + done.stderr).strip()[-300:]}")
+        raise SwitchStop(f"switch matrix: `workspace create --name {name}` gave no value.workspace_id: {(done.stdout + done.stderr).strip()[-300:]}")
     ref = found.group(1)
     if not wait(lambda: any(w.get("id") == ref for w in topology().get("workspaces") or []), 30):
-        sys.exit(f"switch matrix: the app does not list workspace {name} ({ref}) 30 s after the CLI made it")
+        raise SwitchStop(f"switch matrix: the app does not list workspace {name} ({ref}) 30 s after the CLI made it")
     return ref
 
 
 def accepted(what, reply):
     """`reply` to a call that sets up a measured cell (select a workspace, open its page, move its row). An error
-    answer stops the run with that answer: the cell would measure another workspace under this cell's name."""
+    answer stops the matrix with that answer: the cell would measure another workspace under this cell's name."""
     if isinstance(reply, dict) and reply.get("error"):
-        sys.exit(f"switch matrix: {what}: the app answered {json.dumps(reply['error'], default=str)[:400]}")
+        raise SwitchStop(f"switch matrix: {what}: the app answered {json.dumps(reply['error'], default=str)[:400]}")
     return reply
 
 
@@ -604,10 +611,12 @@ def scenario_switch_matrix(pid, size):
     for kind, (a, b, first) in pairs.items():
         for how in ("click", "cmd_digit", "next_prev"):
             lat, longest, wrong = [], [], 0
-            selected = action("goToWorkspace", {"workspace": refs[a]}, focus=True)
-            if isinstance(selected, dict) and selected.get("error"):
-                tr.__exit__(None, None, None)  # the recorder ends before the run stops
-            accepted(f"{kind} {how}: goToWorkspace {a}", selected)
+            try:
+                accepted(f"{kind} {how}: goToWorkspace {a}", action("goToWorkspace", {"workspace": refs[a]}, focus=True))
+            except SwitchStop as stop:
+                tr.__exit__(None, None, None)  # the recorder ends with the matrix
+                stop.cells = out  # the cells that ended are measured: they keep their rows
+                raise
             time.sleep(0.6)
             if timed:
                 rpc("debug.workspace_switch", {"action": "start"})
@@ -786,17 +795,29 @@ def main():
                 ticking(False)
             if "switch" in want:
                 entry["switch"] = scenario_switch(app.pid, size)
+            stopped = None
             if "switch_matrix" in want:
-                entry["switch_matrix"] = scenario_switch_matrix(app.pid, size)
+                try:
+                    entry["switch_matrix"] = scenario_switch_matrix(app.pid, size)
+                except SwitchStop as stop:
+                    # No row for a cell whose workspaces the matrix did not make, select, fill or move. The rows
+                    # this size measured stay (the scenarios before and after, the cells that ended); the run ends
+                    # with exit 1 when they are written.
+                    stopped = str(stop)
+                    entry["switch_matrix"] = dict(stop.cells or {}, error=stopped)
+                    note(stopped)
+                    ticking(False)
             if "drag" in want:
                 entry["drag"] = scenario_drag(app.pid, size)
             if "hitches" in want:
                 entry["hitches"] = scenario_hitches(app.pid, size)
             entry["hangs"] = rpc("debug.hangs", {})
-            entry["measurement_complete"] = scrolls_complete(entry, want)
+            entry["measurement_complete"] = scrolls_complete(entry, want) and not stopped
             results["sizes"][str(size)] = entry
             with open(os.path.join(OUT, "results.json"), "w") as f:
                 json.dump(results, f, indent=1, default=str)
+            if stopped:
+                sys.exit(stopped)
             note(f"size {size}: done")
         # A second window: does a status tick cost scale with windows?
         if not opts.no_trace:

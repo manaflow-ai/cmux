@@ -185,11 +185,10 @@ class SwitchMatrixRefTests(unittest.TestCase):
                              ("palette.moveWorkspaceToTop", "not_found")):
             with self.subTest(action=action):
                 app = FakeApp(refuse={action})
-                with self.assertRaises(SystemExit) as stop:
+                with self.assertRaises(bench.SwitchStop) as stop:
                     self.run_with(app)
-                self.assertIsInstance(stop.exception.code, str)  # a text: the exit status is 1 and the text is printed
-                self.assertIn(action, stop.exception.code)
-                self.assertIn(text, stop.exception.code)
+                self.assertIn(action, str(stop.exception))
+                self.assertIn(text, str(stop.exception))
                 self.assertEqual(len(app.refused), 1, "the run went on after the first refused call")
                 self.assertEqual(app.inputs, 0, "a click or a key was sent after a refused setup call")
 
@@ -200,27 +199,27 @@ class SwitchMatrixRefTests(unittest.TestCase):
         app.rows.remove(app.named("sw term a"))
         bench.rpc, bench.cli = app.rpc, app.cli
         with mock.patch.object(bench.time, "sleep", lambda seconds: None), redirect_stdout(io.StringIO()):
-            with self.assertRaises(SystemExit) as stop:
+            with self.assertRaises(bench.SwitchStop) as stop:
                 bench.scenario_switch_matrix(1, 0)  # the targets are made once: the second run uses the kept ids
-        self.assertIn("goToWorkspace", stop.exception.code)
-        self.assertIn("sw term a", stop.exception.code)
+        self.assertIn("goToWorkspace sw term a", str(stop.exception))
+        self.assertEqual(sorted(stop.exception.cells), ["app_timer", "chromium.click", "chromium.cmd_digit", "chromium.next_prev", "tickers", "top_rows"])
         self.assertEqual(app.inputs, 3 * SWITCHES, "only the 3 cells of the page pair send inputs before the stop")
 
     def test_a_create_answer_with_no_workspace_id_stops_the_run(self):
         app = FakeApp(record=False)
-        with self.assertRaises(SystemExit) as stop:
+        with self.assertRaises(bench.SwitchStop) as stop:
             self.run_with(app)
-        self.assertIn("value.workspace_id", stop.exception.code)
+        self.assertIn("value.workspace_id", str(stop.exception))
         self.assertEqual(app.inputs, 0)
 
     def test_a_made_workspace_that_the_app_never_lists_stops_the_run_with_its_id(self):
         app = FakeApp(lists=False)
-        with self.assertRaises(SystemExit) as stop:
+        with self.assertRaises(bench.SwitchStop) as stop:
             self.run_with(app)
         made = app.rows[1]  # the first target; the run made no second one
         self.assertEqual(len(app.rows), 2, "the run went on after a workspace the app did not list")
-        self.assertIn(made["id"], stop.exception.code)
-        self.assertIn(made["name"], stop.exception.code)
+        self.assertIn(made["id"], str(stop.exception))
+        self.assertIn(made["name"], str(stop.exception))
         self.assertEqual((app.snapshots, len(app.refused), app.inputs), (1, 0, 0))
 
 
