@@ -170,6 +170,21 @@ for (const variant of variants) {
   };
 }
 await json("tree-bytes.json", sizes);
+// Splitting JavaScript must preserve each document's isolated CSS and cascade.
+const cssEquality = [];
+for (const name of pages) {
+  const styles = [];
+  for (const variant of variants) {
+    const html = await readFile(path.join(output, variant, "pages", name, "index.html"), "utf8");
+    const matches = [...html.matchAll(/<style>([\s\S]*?)<\/style>/g)];
+    if (matches.length !== 1) throw new Error(`${variant}/${name}: expected one inline stylesheet`);
+    styles.push(matches[0][1]);
+  }
+  cssEquality.push({ page: name, equal: styles[0] === styles[1], hashes: styles.map(sha256) });
+}
+await json("css-equality.json", cssEquality);
+const changedCSS = cssEquality.filter((row) => !row.equal).map((row) => row.page);
+if (changedCSS.length) throw new Error(`Page CSS changed: ${changedCSS.join(", ")}`);
 console.log(
   JSON.stringify({
     bytes: {
