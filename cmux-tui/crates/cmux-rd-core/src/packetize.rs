@@ -104,10 +104,11 @@ impl Packetizer {
         }
         // A lone shard without parity keeps its own length, so a small frame costs
         // only its encoded bytes. With parity, its width is already the body length.
-        if shards.len() == 1 && parity == 0 {
-            if let Some(shard) = shards.first_mut() {
-                *shard = bytes;
-            }
+        if shards.len() == 1
+            && parity == 0
+            && let Some(shard) = shards.first_mut()
+        {
+            *shard = bytes;
         }
         let parity_shards = if parity == 0 {
             Vec::new()
