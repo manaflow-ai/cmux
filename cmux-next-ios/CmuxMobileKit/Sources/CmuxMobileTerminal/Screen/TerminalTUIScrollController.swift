@@ -4,8 +4,9 @@ import UIKit
 /// T-SCROLL-12: in a full-screen app (the alternate screen) a vertical drag
 /// scrolls the app, like a Mac trackpad in Ghostty, and the page stays
 /// pinned. The drag and its fling become wheel events on the surface
-/// (`TerminalTUIScroll`, `TerminalTUIMomentum`), which reach the app only as
-/// wheel reports it asked for (`TerminalPanRoute`): never as cursor keys. A tap still focuses the terminal, a long press
+/// (`TerminalTUIScroll`, `TerminalTUIMomentum`), which reach the app as
+/// wheel reports it asked for, or as one cursor key per whole row for a
+/// pager or an editor (`TerminalPanRoute`), else not at all. A tap still focuses the terminal, a long press
 /// still selects and a selection handle still moves: this pan starts only
 /// on a vertical drag that no selection gesture owns. A new touch stops a
 /// fling, as on a trackpad, and a tap that stops one does nothing else (it
@@ -19,11 +20,21 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
     var selectionOwns: (UITouch?) -> Bool = { _ in false }
     /// A drag began scrolling the app (its content moves under any selection).
     var dragBegan: () -> Void = {}
+    /// A drag began: the screen reads the foreground program again, so the
+    /// route follows a program started since the last one.
+    var routeMayHaveChanged: () -> Void = {}
 
     private weak var surface: TerminalSurfaceView?
     private(set) var pan: UIPanGestureRecognizer?
     private var scroll = TerminalTUIScroll()
     private var momentum: TerminalTUIMomentum?
+    /// The whole rows of this drag and its fling (``TerminalPanRoute/cursorKeys``).
+    private var rows = TerminalAlternateScroll.Rows()
+    /// While the screen reads the foreground program (``routeMayHaveChanged``),
+    /// the drag's movement so far and its release speed: replayed by
+    /// ``programRead()`` once the program is known, so a drag in less loses
+    /// nothing to the round trip. Nil when no read is out.
+    private var held: (dy: CGFloat, release: CGFloat?)?
     /// Where the drag began: every wheel of the drag and its fling is there.
     private var anchor = CGPoint.zero
     /// The touch that stopped a fling (the terminal's tap ignores it).
@@ -63,7 +74,10 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
         case .began:
             stopMomentum()
             scroll.began()
+            rows.began()
             dragBegan()
+            held = (0, nil)
+            routeMayHaveChanged()
             // The finger's start, not where the pan recognized.
             let translation = pan.translation(in: surface)
             let at = pan.location(in: surface)
@@ -75,8 +89,10 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
             send(scroll.moved(translationY: pan.translation(in: surface).y, velocityY: pan.velocity(in: surface).y))
         case .ended:
             send(scroll.moved(translationY: pan.translation(in: surface).y, velocityY: pan.velocity(in: surface).y))
-            // A fling only where the drag reached the app (TerminalPanRoute).
-            if isEnabled(), surface.panRoute == .wheelReports,
+            if held != nil {
+                // The route is not known yet: the fling waits for it too.
+                held?.release = pan.velocity(in: surface).y
+            } else if isEnabled(), surface.panRoute.reachesApp,
                let fling = TerminalTUIMomentum(velocityY: pan.velocity(in: surface).y) {
                 startMomentum(fling)
             }
@@ -85,10 +101,29 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
         }
     }
 
+    /// The screen read the foreground program (or gave up): the drag held
+    /// while it was out goes to the app if the route now reaches it, and its
+    /// fling starts. A drag that sends nothing anyway drops what it held.
+    func programRead() {
+        guard let hold = held else { return }
+        held = nil
+        guard let surface, isEnabled(), surface.panRoute.reachesApp else { return }
+        if hold.dy != 0 { send(TerminalTUIScroll.Wheel(dy: hold.dy, momentum: .none)) }
+        if let release = hold.release, let fling = TerminalTUIMomentum(velocityY: release) {
+            startMomentum(fling)
+        }
+    }
+
     private func send(_ wheel: TerminalTUIScroll.Wheel?) {
         guard let wheel, let surface, isEnabled() else { return }
+        // Wheel reports never wait (that route does not depend on the
+        // program); anything else waits for the program while it is read.
+        if held != nil, surface.panRoute != .wheelReports {
+            held?.dy += wheel.dy
+            return
+        }
         // Only a wheel the app got makes it scroll (TerminalPanRoute).
-        if surface.scrollWheel(at: anchor, deltaY: wheel.dy, momentum: wheel.momentum) {
+        if surface.dragWheel(wheel, at: anchor, rows: &rows) {
             tapClick.scrolled(at: CACurrentMediaTime())
         }
     }

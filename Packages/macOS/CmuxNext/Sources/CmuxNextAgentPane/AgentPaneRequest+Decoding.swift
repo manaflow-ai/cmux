@@ -697,8 +697,6 @@ extension AgentPaneRequest {
         case "dictation.toggle": self = .dictation(.toggle)
         case "dictation.handoff": self = .dictationHandoff
         case "dictation.sources": self = .dictationSources
-        case "dictation.watchMicrophone":
-            if let on = params?["on"] as? Bool { self = .watchMicrophone(on) } else { self = .unsupported(method) }
         case "dictation.start": self = .dictation(.start)
         case "dictation.stop": self = .dictation(.stop)
         case "dictation.cancel": self = .dictation(.cancel)
