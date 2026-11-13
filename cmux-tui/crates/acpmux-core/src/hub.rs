@@ -584,14 +584,27 @@ impl HubWriter {
     pub fn apply(&mut self, summary: Summary) -> Result<SummaryEvent, HubError> {
         let source =
             if summary.origin == "local" { "local".to_owned() } else { summary.origin.clone() };
-        self.apply_from(&source, summary)
+        self.apply_internal(&source, summary, true)
     }
 
     pub fn apply_from(&mut self, source: &str, summary: Summary) -> Result<SummaryEvent, HubError> {
+        self.apply_internal(source, summary, false)
+    }
+
+    fn apply_internal(
+        &mut self,
+        source: &str,
+        summary: Summary,
+        retain_legacy_closed_history: bool,
+    ) -> Result<SummaryEvent, HubError> {
         let summary = summary.prepare()?;
         self.check_source(source, &summary.origin)?;
         let current = self.published.load_full();
         let key = summary.key();
+        let remote_closed = summary.origin != "local" && !summary.is_live();
+        if remote_closed && !retain_legacy_closed_history && current.get_row(&key).is_none() {
+            return Ok(SummaryEvent { seq: current.seq(), summary: Arc::new(summary) });
+        }
         // Latest wins even if an earlier version never reached the log.
         self.retry_log.remove(&key);
         let record = acpmux_book::index::IndexRecord {
@@ -635,7 +648,6 @@ impl HubWriter {
         self.persist(&record, &key)?;
         let mut next = self.published.load_full().apply(record.seq, record.summary.clone());
         let summary = Arc::new(record.summary.clone());
-        let remote_closed = record.summary.origin != "local" && !record.summary.is_live();
         if remote_closed {
             next = next.remove_ephemeral(&key);
         }
