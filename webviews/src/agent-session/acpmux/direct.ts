@@ -12381,6 +12381,13 @@ export class AcpmuxDirectClient {
       })),
     ];
   }
+  /// Another machine's agents: acpmux forwards `_acpmux/harnesses` to the peer `_meta.acpmux.peer`
+  /// names (requests.rs, 5 s limit) and answers with that machine's reply plus `peer`. The composer
+  /// checks the agent a new chat there will start with (machineHarnesses.ts); a refusal or a timeout
+  /// rejects, which holds nothing.
+  peerHarnesses(peer: string): Promise<unknown> {
+    return this.request("_acpmux/harnesses", { _meta: { acpmux: { peer } } });
+  }
   /// Reads acpmux's peers again (`_acpmux/status`): the environment picker asks as it opens, so a
   /// machine that connected or dropped since shows as it is now. Local/app peer events keep the
   /// closed control current when the daemon advertises them; older daemons keep their last snapshot.

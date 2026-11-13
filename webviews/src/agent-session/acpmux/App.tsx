@@ -22,7 +22,15 @@ import { useShareNudge } from "./share/shareNudgeModel";
 import { paneTipHost } from "./featureTipsModel";
 import { composerPlusSearchExtensions, PLUS_SEARCH_ACTIONS } from "./composerPlusRegistry";
 import { chatOnThisMac, chatPlace } from "./chatMachine";
-import { CONNECT_ACTIONS, type ConnectKind, type OffloadKind, offloadReasonsOf, thisMacName } from "./environments";
+import {
+  CONNECT_ACTIONS,
+  type ConnectKind,
+  environmentReady,
+  type OffloadKind,
+  offloadReasonsOf,
+  thisMacName,
+} from "./environments";
+import { machineHarnessVerdict, useMachineHarnessCheck, withMachineHarnesses } from "./machineHarnesses";
 import { sayActionRefusal } from "./actionRefusal";
 import { restoreForkSource } from "./handoff/restoreForkSource";
 import { QueryClientProvider, useIsFetching, useQueryClient } from "@tanstack/react-query";
@@ -138,6 +146,7 @@ import {
   harnessCatalogKey,
   useHarnessCatalog,
   useHarnessesListed,
+  useMachineHarnesses,
   type HarnessCatalogSource,
 } from "./catalog";
 import { usePickerCatalog } from "./modelCatalogHost";
@@ -2102,6 +2111,33 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     !snapshot.summary?.peer &&
     snapshot.summary?.hostKind !== "cloud" &&
     (snapshot.sessionId !== undefined || !directClient.current?.newChatPeer());
+  // A new chat that will start on another of the person's machines: whether the agent the composer
+  // shows is set up there (machineHarnesses.ts; Austin, 2026-11-12: "ideally we should check if the
+  // model that is selected is supported on that machine as well but this should just work").
+  const machinePeer = snapshot.sessionId
+    ? undefined
+    : snapshot.summary?.peer || directClient.current?.newChatPeer() || undefined;
+  const machineReady =
+    machinePeer !== undefined &&
+    environmentReady({
+      id: machinePeer,
+      label: machinePeer,
+      kind: "ssh",
+      ...(snapshot.peerConnected?.[machinePeer] !== undefined
+        ? { connected: snapshot.peerConnected[machinePeer] }
+        : {}),
+      ...(snapshot.peerStates?.[machinePeer] !== undefined ? { state: snapshot.peerStates[machinePeer] } : {}),
+    });
+  const machineAgents = useMachineHarnesses(catalogSource, machinePeer, machineReady);
+  const machineSelected = switchView.intent?.harness ?? healthHarness;
+  const machineCheck = useMachineHarnessCheck({
+    peer: machinePeer,
+    selected: machineSelected,
+    verdict: machineHarnessVerdict(machineSelected, machineAgents),
+    switching: switchView.intent !== undefined,
+    // The model picker's own pick of that agent (DefaultComposerChips `onHarness`).
+    switchTo: (harness) => void callNative("chat.new", { harness }).catch(() => undefined),
+  });
   /// `harness.health {id, refresh?, rescan?}` answered by this Mac's acpmux (the Harnesses page asks
   /// it by that name); `{}` for a chat on another machine, whose CLIs are not this Mac's, and while
   /// the pane has no acpmux connection. Stable per chat: the Harnesses page re-reads when it changes.
@@ -6791,7 +6827,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   ]);
   // What the composer draws from: the same object while nothing it shows changed (composer/composerView.ts),
   // so a tool call or another row added to the transcript does not draw the composer again.
-  const composerDrawn = useComposerView(composerSnapshot);
+  // While another machine is the pick, the model picker greys the agents it has not set up.
+  const machineNote = machinePeer ? t("composer.peerHarnessMissingShort", { machine: machinePeer }) : "";
+  const machineCatalog = useMemo(
+    () => withMachineHarnesses(composerSnapshot.catalog, machineAgents, machineNote),
+    [composerSnapshot.catalog, machineAgents, machineNote],
+  );
+  const composerOnMachine = useMemo(
+    () =>
+      machineCatalog === composerSnapshot.catalog ? composerSnapshot : { ...composerSnapshot, catalog: machineCatalog },
+    [composerSnapshot, machineCatalog],
+  );
+  const composerDrawn = useComposerView(composerOnMachine);
   useEffect(() => {
     if (!snapshot.sessionId) return;
     setProjectDraft(undefined);
@@ -11231,6 +11278,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         <Notice id="cloud-hint" tier="hint" when={cloudHintShown && !showNewTab}>
           <CloudChatHint onUse={() => composerModeRows.onMode("cloud")} onClose={cloudHint.close} />
         </Notice>
+        <Notice id="machine-harness" tier="error" when={machineCheck.notice && machinePeer !== undefined}>
+          <p className="acpmux-composer-remote-note" role="alert">
+            {t("composer.peerHarnessMissing", {
+              agent: catalog.find((entry) => entry.id === machineSelected)?.name ?? machineSelected ?? "",
+              machine: machinePeer ?? "",
+            })}
+          </p>
+        </Notice>
         <Notice id="import-error" tier="error" when={importError}>
           <p className="acpmux-composer-remote-note" role="alert">
             {importError}
@@ -11958,7 +12013,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             // (trustSendOff): a prompt sent under it waits in the pane (trustHeld.ts), or goes now to
             // a chat whose agent already runs (trustPasses). A read in flight (`{}`) holds nothing.
             blocked={trustSendOff || !trustAsk.blocked?.reason ? trustAsk.blocked : undefined}
-            blockSend={blockSend || cloudSendHeld}
+            // A new chat on another machine holds Send while its agent is not set up there.
+            blockSend={blockSend || cloudSendHeld || machineCheck.blocked}
             closeOnTrustAsk={Boolean(
               trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted"),
             )}
