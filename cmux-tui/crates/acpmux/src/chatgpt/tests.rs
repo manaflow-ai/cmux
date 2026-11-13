@@ -443,24 +443,53 @@ async fn a_machine_credential_is_refreshed_to_ten_minutes_left() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_token_answer_without_scopes_is_not_a_plan_grant() {
+async fn a_token_answer_without_scopes_grants_what_was_asked() {
+    // RFC 6749 section 5.1: an omitted `scope` is the requested one.
     let s = setup(OMIT_SCOPE).await;
     let (status, _) = sign_in(&s, &[("code", "c1"), ("client_id", ISSUED)]).await;
-    assert_eq!(status, Status::Failed("no_plan_scope".into()), "never assumed from the ask");
-    assert!(store::all(&s.places.home).is_empty());
+    assert_eq!(status, Status::Done("chatgpt".into()));
+    let record = store::read(&s.places.home, "chatgpt").unwrap().unwrap();
+    assert!(record.signed_in());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn the_callbacks_scope_counts_when_the_token_answer_has_none() {
-    let s = setup(OMIT_SCOPE).await;
-    let (status, _) =
-        sign_in(&s, &[("code", "c1"), ("client_id", ISSUED), ("scope", FULL_SCOPE)]).await;
-    assert_eq!(status, Status::Done("chatgpt".into()));
+async fn a_returned_scope_list_without_the_plan_scope_is_refused() {
+    // The token answer has none; the callback's list counts, and it lacks the plan scope.
     let s = setup(OMIT_SCOPE).await;
     let (status, _) =
         sign_in(&s, &[("code", "c1"), ("client_id", ISSUED), ("scope", "openid offline_access")])
             .await;
     assert_eq!(status, Status::Failed("no_plan_scope".into()));
+    assert!(store::all(&s.places.home).is_empty(), "a refused sign-in reserves no id");
+    // The callback's list with the plan scope is a grant.
+    let s = setup(OMIT_SCOPE).await;
+    let (status, _) =
+        sign_in(&s, &[("code", "c1"), ("client_id", ISSUED), ("scope", FULL_SCOPE)]).await;
+    assert_eq!(status, Status::Done("chatgpt".into()));
+}
+
+#[test]
+fn concurrent_new_sign_ins_never_claim_one_id() {
+    let root = tempfile::tempdir().unwrap();
+    let places =
+        Places { routes: Some(root.path().join("routes")), home: root.path().join("home") };
+    let picks: Vec<String> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..8)
+            .map(|n| {
+                let places = places.clone();
+                scope.spawn(move || {
+                    super::oauth::choose_id(&places, None, ISSUED, &format!("user-{n}")).unwrap()
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    let unique: std::collections::BTreeSet<&String> = picks.iter().collect();
+    assert_eq!(unique.len(), 8, "{picks:?}");
+    // The same person again gets the id they reserved.
+    assert_eq!(super::oauth::choose_id(&places, None, ISSUED, "user-3").unwrap(), picks[3]);
+    // A reserved record holds no token: it is no sign-in.
+    assert!(store::all(&places.home).iter().all(|(_, r)| !r.signed_in()));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

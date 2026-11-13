@@ -154,6 +154,24 @@ pub(crate) fn write(home: &Path, id: &str, record: &Record) -> std::io::Result<(
     write_atomic(&record_path(home, id), &serde_json::to_vec_pretty(record).unwrap_or_default())
 }
 
+/// Writes a new record, owner-only and atomically; `AlreadyExists` when `id` has one (a sign-in
+/// reserving its id, `oauth::choose_id`).
+pub(crate) fn create(home: &Path, id: &str, record: &Record) -> std::io::Result<()> {
+    use std::io::Write as _;
+    if !crate::routes::is_route_id(id) || id == "host" {
+        return Err(std::io::Error::other("not a route id"));
+    }
+    let path = record_path(home, id);
+    let parent = path.parent().ok_or_else(|| std::io::Error::other("no parent folder"))?;
+    std::fs::create_dir_all(parent)?;
+    let mut tmp = tempfile::NamedTempFile::new_in(parent)?;
+    crate::router_socket::owner_only(tmp.path());
+    tmp.write_all(&serde_json::to_vec_pretty(record).unwrap_or_default())?;
+    tmp.as_file().sync_all()?;
+    tmp.persist_noclobber(&path).map_err(|e| e.error)?;
+    Ok(())
+}
+
 pub(crate) fn delete(home: &Path, id: &str) -> std::io::Result<()> {
     match std::fs::remove_file(record_path(home, id)) {
         Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
