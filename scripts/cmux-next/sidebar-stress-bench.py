@@ -48,7 +48,7 @@ os.makedirs(os.path.join(OUT, "traces"), exist_ok=True)
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from bench_idle import usage  # noqa: E402
-from bench_launch import launch_app  # noqa: E402
+from bench_launch import launch_app, pinned_tiles, unlisted_workspaces, wait_for_count  # noqa: E402
 
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
 SCRATCH = tempfile.mkdtemp(prefix=f"sbstress-{opts.tag}-")
@@ -282,7 +282,7 @@ def main_thread_profile(trace):
 
 
 # ---------------------------------------------------------------- building the sidebar
-made = {"workspaces": [], "tickers": [], "groups": [], "pinned": []}
+made = {"workspaces": [], "tickers": [], "groups": [], "pinned": [], "create_failures": []}
 LOOP = ("while :; do for p in 5 10 15 20 25 30 35 40 45 50 55 60 65 70 75 80 85 90 95; do "
         f"[ -e '{FLAG}' ] && printf '\\033]7501;state=working:progress=%d\\033\\\\' $p; sleep {TICK_S}; done; done")
 
@@ -290,11 +290,15 @@ LOOP = ("while :; do for p in 5 10 15 20 25 30 35 40 45 50 55 60 65 70 75 80 85 
 def create_plain(name):
     """A workspace with no terminal (`workspace create --empty`: no PTY)."""
     done = cli("workspace", "create", "--empty", "--name", name)
+    if done.returncode != 0:
+        made["create_failures"].append(name)
     return done.stdout.strip() or None
 
 
 def create_ticker(name):
     done = cli("workspace", "create", "--name", name, "--shell", LOOP)
+    if done.returncode != 0:
+        made["create_failures"].append(name)
     return done.stdout.strip() or name
 
 
@@ -313,9 +317,11 @@ def grow(target):
             ref = create_plain(name)
         made["workspaces"].append({"name": name, "ref": ref})
     note(f"created {target - have} workspaces in {time.monotonic() - t0:.1f} s")
-    wait(lambda: len(workspace_rows()) >= target * 0.95 or None, 60, 1.0)
+    # Every row: the rows the run started with and the `target` it made. The headline count
+    # (workspace-scaling-bench.py's expected_rows) is that sum, so 95% of it is not the topology measured.
+    wait_for_count(lambda: len(workspace_rows()), results["baseline"]["rows"] + target, settle=60, step=1.0)
     rows = workspace_rows()
-    note(f"sidebar workspace rows: {len(rows)} (target {target})")
+    note(f"sidebar workspace rows: {len(rows)} (target {target}; creates failed: {len(made['create_failures'])})")
     # Groups: the first 80% of the new workspaces go round-robin into --groups groups.
     t0 = time.monotonic()
     if not made["groups"]:
@@ -453,10 +459,23 @@ def scroll_gesture(events=150, dy=-40.0):
 
 
 def scroll_to_top():
+    """Wheel events with no phase: the scroll view clamps them at the top. A trackpad gesture (began, ended) this
+    large left the list stretched far past its top, the first row near the window's bottom (first row at y 779 of
+    900 on the bench Mac, 2026-11-13), so the switch scenario found no row to click."""
     x, y = list_point()
     for _ in range(3):
-        rpc("debug.mouse", {"action": "scroll", "x": x, "y": y, "dy": 100000, "phase": "began"})
-        rpc("debug.mouse", {"action": "scroll", "x": x, "y": y, "dy": 0, "phase": "ended"})
+        rpc("debug.mouse", {"action": "scroll", "x": x, "y": y, "dy": 100000})
+
+
+def visible_rows(wait_s=5.0):
+    """The workspace rows inside the window, once at least two are (the list may still settle after a scroll)."""
+    deadline = time.monotonic() + wait_s
+    while True:
+        rows = [r for r in workspace_rows()
+                if r["window_frame"]["y"] > 60 and r["window_frame"]["y"] + r["window_frame"]["height"] < WINDOW[3] - 80]
+        if len(rows) >= 2 or time.monotonic() >= deadline:
+            return rows
+        time.sleep(0.25)
 
 
 def scenario_scroll(pid, size, label, trace=True):
@@ -506,9 +525,14 @@ def scenario_ticks(pid, size):
 def scenario_switch(pid, size, count=24):
     scroll_to_top()
     time.sleep(1)
-    rows = [r for r in workspace_rows() if r["window_frame"]["y"] > 60 and r["window_frame"]["y"] + r["window_frame"]["height"] < WINDOW[3] - 80]
+    rows = visible_rows()
     if len(rows) < 2:
-        return {"error": "fewer than two visible rows"}
+        listed = sidebar().get("rows") or []
+        error = {"error": "fewer than two visible rows",
+                 "listed_rows": len(listed), "workspace_rows": len(workspace_rows()),
+                 "first_rows": [{"key": str(r.get("key", ""))[:60], "frame": r.get("window_frame")} for r in listed[:12]]}
+        note(f"switch: {json.dumps(error)[:1500]}")
+        return error
     a, b = rows[2] if len(rows) > 2 else rows[0], rows[-2]
     lat = []
     frames("start")
@@ -746,7 +770,14 @@ def main():
             action("showMainWindow")
             rpc("debug.mouse", {"x": 900, "y": 450, "action": "hover"})
             time.sleep(2)
-            entry = {"rows_listed": len(workspace_rows()), "load": os.getloadavg(), "noop_rpc_ms": noop_ms()}
+            rows, topo = workspace_rows(), topology()
+            # The topology's workspaces the list leaves out: what decides a rows_listed short of the size.
+            unlisted, unlisted_names = unlisted_workspaces(topo, rows)
+            entry = {"rows_listed": len(rows), "topology_workspaces": len(topo.get("workspaces") or []),
+                     "unlisted": unlisted, "unlisted_names": unlisted_names,
+                     # Pinned workspaces drawn as tiles over the list: listed, but not as rows.
+                     "pinned_tiles": pinned_tiles(topo, rows, made["pinned"]),
+                     "create_failures": list(made["create_failures"]), "load": os.getloadavg(), "noop_rpc_ms": noop_ms()}
             entry["memory"] = cpu_share(app.pid, 3)
             want = set(opts.scenarios.split(","))
             if "ticks" in want:

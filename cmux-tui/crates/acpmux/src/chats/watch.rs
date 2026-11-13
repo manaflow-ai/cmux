@@ -201,7 +201,11 @@ impl Filter {
         let path = event.paths.last()?;
         let made = match event.kind {
             notify::EventKind::Create(CreateKind::Folder) => true,
-            notify::EventKind::Modify(ModifyKind::Name(RenameMode::To)) => path.is_dir(),
+            // A link to a folder is not one: `is_dir` follows it, and the folder it points at
+            // may be anywhere (`files_in`).
+            notify::EventKind::Modify(ModifyKind::Name(RenameMode::To)) => {
+                std::fs::symlink_metadata(path).is_ok_and(|meta| meta.is_dir())
+            }
             _ => false,
         };
         let inside = self.roots.iter().any(|root| {
@@ -313,11 +317,22 @@ impl Trees {
     }
 
     /// `folder` itself when the index reads it (as it was handed on before), and the files under
-    /// it (not through a symbolic link) the index reads.
+    /// it the index reads. Never through a symbolic link, `folder` itself included (a link made
+    /// in its place after its event: then nothing at all): what a link points at may lie outside
+    /// every root, and a scan of the root does not follow links either (the adapters list
+    /// entries by their own type), so a link to a folder or to a session file is skipped.
     #[cfg(not(target_os = "macos"))]
     fn files_in(&self, folder: &Path, out: &mut Vec<PathBuf>) {
+        let meta = std::fs::symlink_metadata(folder);
+        if meta.as_ref().is_ok_and(|meta| meta.file_type().is_symlink()) {
+            return;
+        }
+        // Gone already: the index still hears of it, as before the listing.
         if self.filter.reads(folder) && !out.iter().any(|p| p == folder) {
             out.push(folder.to_path_buf());
+        }
+        if !meta.is_ok_and(|meta| meta.is_dir()) {
+            return;
         }
         let mut pending = vec![folder.to_path_buf()];
         while let Some(dir) = pending.pop() {
@@ -326,7 +341,7 @@ impl Trees {
                 let path = entry.path();
                 if kind.is_dir() {
                     pending.push(path);
-                } else if self.filter.reads(&path) && !out.contains(&path) {
+                } else if kind.is_file() && self.filter.reads(&path) && !out.contains(&path) {
                     out.push(path);
                 }
             }
