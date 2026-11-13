@@ -15,7 +15,7 @@ on:
     inputs:
       targets:
         description: "targets (scripts/measure/screen-stream-eval/targets/NAME.sh)"
-        default: "rd,webrtc,apple-high,apple-standard"
+        default: "rd,webrtc"
       samples:
         description: "inputs per latency row"
         default: "200"
@@ -79,7 +79,7 @@ jobs:
           github-token: ${{ github.token }}
       - name: eval on a fleet Mac
         env:
-          TARGETS: ${{ inputs.targets || 'rd,webrtc,apple-high,apple-standard' }}
+          TARGETS: ${{ inputs.targets || 'rd,webrtc' }}
           SAMPLES: ${{ inputs.samples || '200' }}
           REPEATS: ${{ inputs.repeats || '3' }}
           WORKER: ${{ inputs.worker || vars.SCREEN_STREAM_EVAL_WORKER || '' }}

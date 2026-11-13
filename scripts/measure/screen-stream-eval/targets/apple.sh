@@ -52,11 +52,18 @@ PY
     ;;
   window-view)
     seconds=$1; snapshot=$2; go=$3; raw=$4
+    [[ "$host" != 127.* && "$host" != localhost ]] || {
+      echo "apple-$mode: requires a second Mac; set lan=/viewer-of= or EVAL_APPLE_HOST" >&2
+      exit 1
+    }
     app=$(screen_sharing_app)
     if ! open -g -a "$app" "vnc://$host" >/dev/null 2>&1; then
       echo "apple-$mode: Screen Sharing.app could not open the connection" >&2
       exit 1
     fi
+    # These are the two quality settings of an Apple Standard connection,
+    # not the separate High Performance connection type. Apple's documented
+    # View menu contains the quality items directly (no Quality submenu).
     # The two wrappers select the quality profile in Screen Sharing.app itself;
     # fail closed if the requested menu item is unavailable instead of labeling
     # an unselected profile as high or standard.
@@ -69,8 +76,7 @@ on run argv
       repeat 50 times
         try
           click menu bar item "View" of menu bar 1
-          click menu item "Quality" of menu 1 of menu bar item "View" of menu bar 1
-          click menu item (item 1 of argv) of menu 1 of menu item "Quality" of menu 1 of menu bar item "View" of menu bar 1
+          click menu item (item 1 of argv) of menu 1 of menu bar item "View" of menu bar 1
           return
         end try
         delay 0.1
