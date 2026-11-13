@@ -23,7 +23,7 @@ impl Hub {
             return;
         }
         // timeout: shutdown joins the loop's cache flush inside its own grace, never forever.
-        let _ = tokio::time::timeout(Duration::from_secs(2), notified).await;
+        let _ = tokio::time::timeout(super::shutdown::OWNED_TASKS_CLOSE, notified).await;
     }
 
     pub(super) fn note_peer_drop(&self, peer: &str, generation: u64, reason: &str) {

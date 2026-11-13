@@ -39139,6 +39139,37 @@
 
       ],
       "cli" : "devOnly",
+      "cli_name" : "action debug-sidebar-row-tuner",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "debug.sidebarRowTuner",
+      "main_menu" : null,
+      "mcp" : "devOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Sidebar Row Tuner",
+      "title_key" : "action.debug.sidebarRowTuner",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "devOnly",
       "cli_name" : "action debug-view-window",
       "context_menu" : "noObject",
       "context_menus" : [

@@ -106,6 +106,28 @@ fn removed_mux_ids(rows: &[Value]) -> impl Iterator<Item = String> + '_ {
 }
 
 impl Hub {
+    /// Starts configured peer dials after the local socket has served its first client. The
+    /// daemon's deferred startup uses this gate; in-process hubs may start peers immediately.
+    pub(crate) async fn start_saved_peers(&self) {
+        let peers = self.config.read().await.peers.clone();
+        for (name, pc) in peers {
+            // A gate released during shutdown cannot start a new tunnel after the existing
+            // peers were stopped. Registration and the shutdown fence share this lock.
+            if self.before_shutdown(|| self.start_peer(&name, &pc)).is_none() {
+                break;
+            }
+        }
+    }
+
+    pub(crate) async fn wait_local_ready(&self) {
+        let mut ready = self.local_ready.subscribe();
+        let _ = ready.wait_for(|ready| *ready).await;
+    }
+
+    pub(crate) fn mark_local_ready(&self) {
+        self.local_ready.send_replace(true);
+    }
+
     #[cfg(test)]
     fn pause_after_peer_session_projection_for_test(&self) {
         let hook =
@@ -1616,7 +1638,7 @@ impl Hub {
 
     /// This daemon's own sessions' summaries, without retaining the JSON trees: each closed row
     /// parsed back from its bytes. Tests compare with it; a list copies the bytes in their kept
-    /// order instead (`Hub::own_rows_in_order`).
+    /// order instead (`Hub::own_row_text`).
     #[cfg(test)]
     pub(super) fn visit_own_session_summaries(
         &self,
@@ -1664,8 +1686,8 @@ impl Hub {
     /// The sessions with a pending permission or question, local and remote, newest first and
     /// without tools, summarizing no other chat: `_acpmux/sessions {pendingOnly}`
     /// (`server/list_reply.rs`). A local one is a live chat with an ask; a peer's is a row whose
-    /// `pendingPermissions` is above zero. It reads no list snapshot, so no list pace holds it:
-    /// a host mirroring 8,500 chats paced its list pages 4-9 s each, and the app's dialog list
+    /// `pendingPermissions` is above zero. It builds no other row: when list pages were paced, a
+    /// host mirroring 8,500 chats paced its pages 4-9 s each, and the app's dialog list
     /// (`cmux agents dialog list`) read every page before it found one ask.
     pub(crate) fn pending_session_summaries(&self) -> Vec<Value> {
         let mut rows: Vec<Value> = self

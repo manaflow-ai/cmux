@@ -172,7 +172,12 @@ public final class AgentPaneChatSnapshots {
         JSONValue.string(themeKey ?? "").appendCompactText(to: &text)
         // The page's boot (chatSnapshot/shared.ts `SNAPSHOT_BOOT_GLOBAL`), absent until it ran: it
         // then reads the globals itself.
-        text += ";self.\(Self.global)Boot?.();"
+        // The restored tab's identity is available before its daemon handshake. This is only
+        // presentation context for its retained tail; it grants no transport or send authority.
+        text += ";self.__cmuxRestoredChat="
+        if allowed, let sessionId, !sessionId.isEmpty { JSONValue.string(sessionId).appendCompactText(to: &text) }
+        else { text += "null" }
+        text += ";self.dispatchEvent(new Event('cmux-restored-chat'));self.\(Self.global)Boot?.();"
         return Data(text.utf8)
     }
 }

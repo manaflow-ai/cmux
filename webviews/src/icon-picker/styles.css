@@ -15,6 +15,8 @@
   --icon-tile-selected: color-mix(in srgb, var(--page-text) 14%, transparent);
   --icon-ring: color-mix(in srgb, var(--page-text) 72%, transparent);
   --icon-bar-height: 40px;
+  --icon-top-height: 56px;
+  --icon-error-height: 22px;
 }
 
 /* Top row: back, search, and the menus. */
@@ -23,7 +25,7 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  height: 56px;
+  height: var(--icon-top-height);
   padding: 0 10px 0 8px;
 }
 
@@ -123,10 +125,36 @@
   height: 17px;
 }
 
+/* A pick the host refused: one line over the grid's lower edge, above the bottom bar. Out of flow,
+   so nothing under the search row moves when it comes or goes; while it shows it covers the last
+   22 px of the grid's view. Its height gives way before it would reach the search row (a picker
+   too short for both keeps the search row), and a click goes through it to the tile under it. */
 .icon-picker-error {
-  margin: 0 16px 6px;
+  position: absolute;
+  /* Over the grid's rows (no z-index of their own); the docked header and the bottom bar stay over it. */
+  z-index: var(--layer-raised, 1);
+  left: 8px;
+  right: 8px;
+  bottom: calc(var(--icon-bar-height) + 16px);
+  box-sizing: border-box;
+  height: var(--icon-error-height);
+  max-height: calc(100% - var(--icon-top-height) - var(--icon-bar-height) - 16px);
+  margin: 0;
+  padding: 0 12px;
+  overflow: hidden;
+  border-radius: calc(var(--icon-error-height) / 2);
+  /* Clear, at its width: the glass rim draws the band's one edge. */
+  border: 1px solid transparent;
+  /* Glass (.ui-glass): the frost keeps the grid's icons from reading through the words. */
+  --glass-elevation: var(--elevation-2);
+  /* glass-opaque-allow: the Reduce Transparency fill only */
+  --glass-opaque: var(--surface-popup);
   font-size: 12px;
+  line-height: calc(var(--icon-error-height) - 2px);
+  white-space: nowrap;
+  text-overflow: ellipsis;
   color: var(--page-text);
+  pointer-events: none;
 }
 
 /* Menus (shared ui Menu): emoji and symbol glyphs before the label, counts as the shortcut. */
