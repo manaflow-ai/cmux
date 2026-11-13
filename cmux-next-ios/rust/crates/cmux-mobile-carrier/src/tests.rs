@@ -426,3 +426,74 @@ async fn a_key_stored_during_the_wait_ends_it_with_one_more_grant() {
     assert!(grants.load(std::sync::atomic::Ordering::SeqCst) >= 2, "a grant again once the key was there");
     server.abort();
 }
+
+/// After the key wait found the key, the deadline cuts the next attempt while its relay link
+/// hangs: the dial reports a network failure the app retries, never the earlier "no daemon key"
+/// (which the app would hold as a refusal for a minute).
+#[tokio::test]
+async fn a_dial_cut_after_the_key_arrived_is_not_reported_as_no_daemon_key() {
+    // A relay that accepts and never speaks: the attempt hangs until the dial's deadline.
+    let silent_relay = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let relay = format!("relay+ws://{}", silent_relay.local_addr().unwrap());
+    let relay_task = tokio::spawn(async move {
+        let mut held = Vec::new();
+        while let Ok((stream, _)) = silent_relay.accept().await {
+            held.push(stream);
+        }
+    });
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let tickets = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let ticketed = tickets.clone();
+    let server = tokio::spawn(async move {
+        loop {
+            let Ok((stream, _)) = listener.accept().await else { return };
+            let (read, mut write) = tokio::io::split(stream);
+            let mut reader = BufReader::new(read);
+            let mut length = 0;
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).await.unwrap_or(0) == 0 {
+                    break;
+                }
+                if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                    length = value.trim().parse().unwrap();
+                }
+                if line == "\r\n" {
+                    break;
+                }
+            }
+            let mut body = vec![0; length];
+            let _ = reader.read_exact(&mut body).await;
+            if !String::from_utf8_lossy(&body).contains("noise_key") {
+                ticketed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+            // No key until the first ticket-only ask; from then on every answer has it.
+            let bound = ticketed.load(std::sync::atomic::Ordering::SeqCst) >= 1;
+            let mut value = answer();
+            value["relay"] = json!(relay);
+            if !bound {
+                value.as_object_mut().unwrap().remove("daemon_key");
+            }
+            let reply = json!({"ok": true, "value": value}).to_string();
+            let head = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                reply.len()
+            );
+            let _ = write.write_all(head.as_bytes()).await;
+            let _ = write.write_all(reply.as_bytes()).await;
+        }
+    });
+    let platform = Arc::new(Platform::new(&base, None, MACHINE, "token".into()).unwrap());
+    let identity = StaticIdentity::from_private([3; 32]);
+    let deadline = Instant::now() + Duration::from_millis(2_000);
+    let error = CarrierSession::dial(platform, identity, "iPhone".into(), deadline).await.err().unwrap();
+    assert!(tickets.load(std::sync::atomic::Ordering::SeqCst) >= 1, "the key wait ran");
+    assert!(
+        !matches!(&error, CarrierError::Refused { code, .. } if code == NO_DAEMON_KEY),
+        "a cut after the key arrived is not no_daemon_key: {error:?}"
+    );
+    assert!(error.retryable(), "the app retries it: {error:?}");
+    server.abort();
+    relay_task.abort();
+}

@@ -501,7 +501,11 @@ impl CarrierSession {
                 // `pin_while_parked`), so the wait mints no grant.
                 // Bounded by the dial's deadline, not only the ask's own timeout.
                 match tokio::time::timeout_at(deadline, platform.fetch(None)).await {
-                    Ok(Ok(answer)) if answer.daemon_key.is_some() => awaiting_key = false,
+                    Ok(Ok(answer)) if answer.daemon_key.is_some() => {
+                        // The key is there: no earlier failure speaks for the attempts after this.
+                        awaiting_key = false;
+                        last_error = None;
+                    }
                     Ok(Ok(_)) => last_transport = None,
                     Ok(Err(error)) if !error.retryable() => return Err(error),
                     Ok(Err(error)) => last_transport = Some(error),
@@ -530,11 +534,13 @@ impl CarrierSession {
                 Ok(session) => return Ok(session),
                 Err(error) if error.retryable() && Instant::now() + wait < deadline => {
                     if matches!(&error, CarrierError::Refused { code, .. } if code == NO_DAEMON_KEY) {
+                        // The wait reports its own outcome; a stale "no key" never stands for a
+                        // later attempt the deadline cuts (that is a network wait the app retries).
                         awaiting_key = true;
                     } else {
                         tracing::debug!(%error, "carrier attempt failed; retrying");
+                        last_error = Some(error);
                     }
-                    last_error = Some(error);
                     // An intentional, bounded retry delay inside the dial's deadline: the next grant
                     // ask (after the key wait, too) is never made at once.
                     tokio::time::sleep(wait).await;

@@ -513,7 +513,7 @@ public struct CloudMachineWorkspaces {
     public init(state: @escaping @MainActor (String) -> State, canCreate: @escaping @MainActor (String) -> Bool,
                 create: @escaping @MainActor (String) -> Workspace?, page: @escaping @MainActor (Workspace) -> AnyView,
                 shown: @escaping @MainActor (String) -> Void = { _ in },
-                open: @escaping @MainActor (Workspace) -> Void = { _ in }) {
+                open: @escaping @MainActor (Workspace) -> Void) {
         self.state = state
         self.canCreate = canCreate
         self.create = create

@@ -468,13 +468,8 @@ final class ShellModel {
         if let index = workspacesPath.firstIndex(where: { $0.macID == macID }) {
             workspacesPath.removeSubrange(index...)
         }
-        // A Cloud machine's workspace open on the Settings stack closes too, back to its page.
-        if let index = settingsPath.firstIndex(where: {
-            if case .cloudWorkspace(let machineID, _) = $0 { return machineID == macID }
-            return false
-        }) {
-            settingsPath.removeSubrange(index...)
-        }
+        // A Cloud machine that left the list: its page and workspaces on the Settings stack close.
+        trimSettingsCloud { $0 == macID }
     }
 
     /// Opens a tapped notification: Chief's reply on Home, an agent's event in
@@ -622,10 +617,25 @@ final class ShellModel {
     }
 
     /// A team switch (a tap or a follow): screens that show the old team's Macs close (an
-    /// open workspace and a chat opened from the Feed); Home and Settings stay.
+    /// open workspace and a chat opened from the Feed); Home and Settings stay. A Cloud
+    /// machine's page and workspace on the Settings stack close too: the switch closes every
+    /// link, so their terminals would wait on a session that is gone.
     func closeTeamScreens() {
         workspacesPath.removeAll()
         feedPath.removeAll()
+        trimSettingsCloud { _ in true }
+    }
+
+    /// Pops the Settings stack back to before the first Cloud route `matches` names (its
+    /// machine's page or one of its workspaces), keeping everything under it.
+    private func trimSettingsCloud(_ matches: (String) -> Bool) {
+        let first = settingsPath.firstIndex { route in
+            switch route {
+            case .cloudMachine(let machineID), .cloudWorkspace(let machineID, _): matches(machineID)
+            default: false
+            }
+        }
+        if let first { settingsPath.removeSubrange(first...) }
     }
 
     /// Row tap: selection haptic, highlight moves, drawer closes, content
