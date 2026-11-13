@@ -9,6 +9,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 use std::fmt;
 use std::mem::size_of;
 
+pub use acpmux_book::index::folders::FolderRow;
 pub use acpmux_book::index::{ListFilter, OriginState};
 
 /// The inclusive encoded-frame limit from the v2 protocol.
