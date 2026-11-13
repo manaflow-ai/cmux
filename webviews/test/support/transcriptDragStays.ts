@@ -31,6 +31,7 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import type { Browser, BrowserType, Page } from "playwright";
+import { type DragClockWindow, installDragClock } from "./dragClock";
 import { probeEngineOrSkip } from "./requireBrowserLane";
 import { warmViteServer } from "./warmDevServer";
 
@@ -96,14 +97,10 @@ type DragRun = {
 /// Runs in the page. Sets the pane `from` wide and waits for rest, then gives it one new width each
 /// frame to `to`, reading the rows once each frame rendered, and reads them again at rest.
 ///
-/// The drag's clock is the test's. The transcript reads a width that comes inside 120 ms of the last
-/// one as a live resize, and a timer ends it 120 ms after the last width. On the runner's own clock a
-/// slow frame (a step gap of 99 ms was seen in CI) is close to ending the drag in its middle, and
-/// the test would then read another motion than the one it names. So from the first width step
-/// until the drag's own timers ran, `performance.now` and the timers that the page sets go by a
-/// clock that gains `clockStep` ms a frame: each width is one 60 Hz frame after the one before on
-/// any runner, and the live resize ends when the test's clock says so. Frames, layout, observers
-/// and the rows are the browser's own; no product code is changed for this.
+/// The drag's clock is the test's (support/dragClock.ts says why): from the first width step until
+/// the drag's own timers ran, the page's clock gains `clockStep` ms a frame, so each width is one
+/// 60 Hz frame after the one before on any runner, and the live resize ends when the test's clock
+/// says so.
 async function dragInPage({ from, to, steps, toEnd, track, clockStep, holdFrames }: DragArgs): Promise<DragRun> {
   const root = document.getElementById("root")!;
   const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
@@ -141,69 +138,13 @@ async function dragInPage({ from, to, steps, toEnd, track, clockStep, holdFrames
     }
     if (same < 20) throw new Error("the transcript did not come to rest in 900 frames");
   };
-  // The drag's clock (above). Timers set while it runs wait in `held` with a negative id, which no
-  // browser timer has; `heldTimerIds` keeps the ids apart for each drag in one page.
-  const pageNow = () => Performance.prototype.now.call(performance);
-  const pageSetTimeout = window.setTimeout;
-  const pageClearTimeout = window.clearTimeout;
-  type Held = { id: number; due: number; run: () => void };
-  let clock = 0;
-  let held: Held[] = [];
-  const ids = window as unknown as { heldTimerIds?: number };
-  /// The ids of held timers that went back to the browser when the drag's clock ended.
-  const handedBack = new Map<number, number>();
-  const startClock = () => {
-    clock = pageNow();
-    performance.now = () => clock;
-    window.setTimeout = ((handler: TimerHandler, delay?: number, ...args: unknown[]) => {
-      const id = (ids.heldTimerIds ?? 0) - 1;
-      ids.heldTimerIds = id;
-      held.push({
-        id,
-        due: clock + Math.max(0, Number(delay) || 0),
-        run: () => {
-          if (typeof handler === "function") handler(...args);
-        },
-      });
-      return id;
-    }) as typeof window.setTimeout;
-    // Stays for the page's life: a timer handed back (`endClock`) keeps the id that its owner has.
-    window.clearTimeout = ((id?: number) => {
-      held = held.filter((timer) => timer.id !== id);
-      // The browser's id of a timer handed back; else an id of the browser's, or of an earlier drag
-      // in this page, which the `clearTimeout` before this one knows.
-      pageClearTimeout.call(window, (typeof id === "number" ? handedBack.get(id) : undefined) ?? id);
-    }) as typeof window.clearTimeout;
-  };
-  /// One frame's time passes, and the timers due in it run in their order, as tasks between frames.
-  const advanceClock = () => {
-    clock += clockStep;
-    for (let count = 0; count < 1000; count += 1) {
-      const due = held.filter((timer) => timer.due <= clock).sort((a, b) => a.due - b.due || b.id - a.id)[0];
-      if (!due) return;
-      held = held.filter((timer) => timer !== due);
-      try {
-        due.run();
-      } catch (error) {
-        // Not this test's error to hide: it goes to the page as a timer's error does.
-        pageSetTimeout.call(window, () => {
-          throw error;
-        });
-      }
-    }
-  };
-  /// The page's clock is its own again, never back in time. A timer still held (one longer than the
-  /// drag) goes to the browser with the time it has left, and its id stays known to `clearTimeout`.
-  const endClock = async () => {
-    while (pageNow() < clock) await frame();
-    Reflect.deleteProperty(performance, "now");
-    window.setTimeout = pageSetTimeout;
-    for (const timer of held) {
-      // In the page the browser's id is a number (the test file's own types name Bun's timer).
-      handedBack.set(timer.id, Number(pageSetTimeout.call(window, timer.run, Math.max(0, timer.due - clock))));
-    }
-    held = [];
-  };
+  // The drag's clock (above; support/dragClock.ts, which `open` put on the page).
+  const {
+    pageNow,
+    start: startClock,
+    advance: advanceClock,
+    end: endClock,
+  } = (window as unknown as DragClockWindow).dragClock!(clockStep);
   root.style.width = `${from}px`;
   await rest();
   if (toEnd) {
@@ -342,6 +283,7 @@ export async function dragStays({ file, shape, engine, engineName, configFile }:
     const page = await browser!.newPage({ viewport: { width: 1000, height } });
     await page.goto(`http://127.0.0.1:${port}${pagePath}`);
     await page.waitForFunction(() => "__debug" in window);
+    await page.evaluate(installDragClock);
     await page.evaluate((px) => {
       document.getElementById("root")!.style.width = `${px}px`;
     }, width);
