@@ -68,7 +68,7 @@ test("manual expansion survives final answer chunks and completion without losin
 
 test("commentary is never selected as the final answer and every explicit final remains outside", () => {
   const anotherFinal = { ...answer, id: "second-answer", text: "One more result." };
-  const tailComment = { ...commentary, id: "tail-commentary", text: "Follow-up narration." };
+  const tailComment = { ...commentary, id: "tail-commentary", text: "Checking the follow-up." };
   const done = turnViewFrom([...work, answer, anotherFinal, tailComment, summary], new Set(), {
     ...options,
     working: false,
@@ -196,3 +196,24 @@ for (const status of ["cancelled", "interrupted"])
     expect(closed.rows.find((row) => row.id === foldId)?.foldOpen).toBe(false);
     expect(closed.rows.some((row) => row.id === call.id)).toBe(false);
   });
+
+test("substantive commentary before a tool survives explicit final receipt, completion and reload", () => {
+  const finding = {
+    ...commentary,
+    id: "finding",
+    text: "Small is slower because startup dominates.\n\n| lane | time |\n| --- | --- |\n| small | 14s |\n| huge | 3s |\n\nThe larger lane amortizes setup.",
+  };
+  // Even narration-shaped text is an answer when the provider explicitly marks it final.
+  const receipt = { ...answer, text: "Checking the follow-up." };
+  const source = [prompt, commentary, finding, call, receipt];
+  const live = turnViewFrom(source, new Set(), options);
+  const completed = [prompt, commentary, finding, call, { ...receipt, streaming: false }, summary];
+  const done = turnViewFrom(completed, new Set(), { ...options, working: false }, live);
+  const reloaded = turnViewFrom(completed, new Set(), { ...options, working: false });
+  for (const view of [live, done, reloaded]) {
+    expect(view.rows.filter((row) => row.id === finding.id)).toHaveLength(1);
+    expect(view.rows.filter((row) => row.id === receipt.id)).toHaveLength(1);
+    expect(view.rows.some((row) => row.id === commentary.id)).toBe(false);
+    expect(view.rows.some((row) => row.id === call.id)).toBe(false);
+  }
+});

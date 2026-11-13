@@ -51,7 +51,7 @@ import {
 } from "./model";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { railOwnsWheel } from "./threadMinimap/railWheel";
-import { animateScroll, MOTION_SCROLL_EVENT, scrollRunning, stopScroll } from "./threadMinimap/scrollMotion";
+import { animateScroll, MOTION_SCROLL_EVENT, stopScroll, scrollRunning } from "./threadMinimap/scrollMotion";
 import { holdMomentum, installMomentumHold } from "./threadMinimap/momentumHold";
 import {
   JUMP_CURVE,
@@ -79,10 +79,10 @@ import { createFollowGlide, followRoom } from "./conversation/followGlide";
 import { createTailGlide, type TailGlide } from "./conversation/tailGlide";
 import { finishCarry, notePinPass, pinLiveLine, refreshPinned } from "./conversation/pinnedLiveLine";
 import {
-  ARRIVAL_EASE,
-  arrivalStepMs,
   createFollowChase,
   type FollowChase,
+  ARRIVAL_EASE,
+  arrivalStepMs,
   sendMotionMs,
 } from "./conversation/followChase";
 import { followMotion } from "./conversation/followMotion.experiment";
@@ -95,7 +95,8 @@ import { followTrace } from "./followTrace";
 import { FIELD_GROWTH_EVENT, growthTranslate, type FieldGrowthEvent } from "./composer/fieldGrowthEvent";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
-import { noteTranscriptMount } from "./flickerLog";
+import { noteReplyUnpainted, noteTranscriptMount } from "./flickerLog";
+import { finalReplyId, REPLY_SETTLE_MS, replyUnpainted } from "./conversation/replyPainted";
 import { authoritativeScrollIntent, createScrollPacer, type ScrollFrame } from "./scrollPacer";
 import { type Translate, useT } from "./i18n";
 import { TRAY_GHOST } from "./subagents/trayMotionModel";
@@ -3190,7 +3191,8 @@ function TranscriptView({
   // up. That holds for a stack over the view's foot (its room shrinks) and under it (the view grows).
   // The room goes once rows grow into it, the reader leaves the latest row, the rows rewrap, or after
   // FLOOR_HOLD_MS (a prompt deleted from the queue never arrives), when the view moves down with it.
-  const floor = useRef({ height: 0, width, sessionId });
+  // `rows`: the rows' own height the last pass held it over (`rowsShrank` below).
+  const floor = useRef({ height: 0, width, sessionId, rows: 0 });
   const [, releaseFloor] = useReducer((count: number) => count + 1, 0);
   const floorTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(floorTimer.current), []);
@@ -3203,11 +3205,20 @@ function TranscriptView({
   const footDropped = height - dockSpace > box.height - box.dockSpace;
   // Held as the end the view would have with all the stack's room (the composer's growth not taken
   // out, `lifted` below): the content end the reader sees is that less the lift on screen.
+  // The room held is the stack's, never the rows': rows that got shorter under it (older history
+  // landing above folds the turn it completes, a rebuild redraws the tail) bring the end up with them.
+  // Held at the old end, the view kept its offset over the shorter rows and showed the room instead
+  // of the latest rows until FLOOR_HOLD_MS let it go (agent-pane-settled-load, cold open after a
+  // restart: the last turn's rows 3,221 px over the view for a second while the queue came back).
+  const rowsShrank = kept ? Math.max(0, floor.current.rows - measured.layout.totalHeight) : 0;
   const floorHeight = !kept
     ? 0
-    : queueLeft.current && footDropped && previousLayout.current
-      ? Math.max(floor.current.height, previousLayout.current.totalHeight + liftedBefore.current - box.height + height)
-      : floor.current.height;
+    : (queueLeft.current && footDropped && previousLayout.current
+        ? Math.max(
+            floor.current.height,
+            previousLayout.current.totalHeight + liftedBefore.current - box.height + height,
+          )
+        : floor.current.height) - rowsShrank;
   // The room under the last row is the stack's height while the view follows the latest row, so
   // the latest row ends above a composer that grows. Scrolled up, nothing under the stack is in view:
   // the room stays as it was, and a composer that grows or shrinks a line (Shift-Return, a wrap)
@@ -4233,7 +4244,7 @@ function TranscriptView({
         forSent ? FLOOR_HOLD_MS : WITHDRAWN_HOLD_MS,
       );
     } else if (!holding) clearTimeout(floorTimer.current);
-    floor.current = { height: holding ? floorHeight : 0, width, sessionId };
+    floor.current = { height: holding ? floorHeight : 0, width, sessionId, rows: measured.layout.totalHeight };
     if (!holding && !queueLeft.current) heldFor.current.clear();
     if (node && node.clientHeight > 0 && height > 0 && didOpenAtLatest.current) {
       scrolledTo.current = { top: node.scrollTop, atLatest: followingRef.current };
@@ -4272,6 +4283,27 @@ function TranscriptView({
     // fold's bound (followChase `alongside`), so the rows move as one motion, never the sum of two.
     followChase.current?.alongside(turnEnd.current?.animations);
   }, [rows, sessionId, stopFollowMotion]);
+  // The detector for a reply the chat holds but does not paint (conversation/replyPainted.ts): once
+  // the turn has ended and the page has settled, the followed view must show its final reply, or
+  // the flicker ring file says why (`reply-unpainted`). Each reply is judged once.
+  const judgedReply = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (working || loading) return;
+    const id = finalReplyId(rows);
+    if (!id || judgedReply.current === id) return;
+    const timer = setTimeout(() => {
+      const scroller = ref.current;
+      const host = thread.current;
+      if (!scroller || !host || document.visibilityState !== "visible" || !scrolledTo.current.atLatest) return;
+      judgedReply.current = id;
+      const name = typeof CSS === "undefined" ? id.replace(/["\\]/g, "\\$&") : CSS.escape(id);
+      const node = host.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${name}"]`);
+      const view = scroller.getBoundingClientRect();
+      const why = replyUnpainted(node, host, { top: view.top, bottom: view.bottom - dockSpace });
+      if (why) noteReplyUnpainted(why, Math.round(node?.getBoundingClientRect().height ?? 0));
+    }, REPLY_SETTLE_MS);
+    return () => clearTimeout(timer);
+  }, [rows, working, loading, dockSpace]);
   // Another chat shown, or the transcript unmounting: a fold still playing ends at once.
   useLayoutEffect(
     () => () => {
@@ -5896,6 +5928,8 @@ function TranscriptView({
                       row.kind === WORKED && isExpanded ? disclosureControls(rows, absoluteIndex + 1) : undefined;
                     return (
                       <RowFrame
+                        // Session-list metadata can arrive after cached rows paint. It must not
+                        // change their keys; reply bodies fence their own identity and timestamp.
                         key={`${sessionId ?? ""}:${rowFrameKey(row)}`}
                         row={row}
                         kind={kind}
