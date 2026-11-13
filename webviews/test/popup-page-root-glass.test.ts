@@ -34,13 +34,6 @@ const POPUP_PAGES: Record<string, string[]> = {
     "pages/setup-card/styles.css",
     "pages/home-messages/cards/cards.css",
   ],
-  // The dialog route's sheets load with its module (dialog/index.tsx), into the same document.
-  "Packages/macOS/CmuxNext/Sources/CmuxNextPages/OverlayPage.swift": [
-    "ui/ui.css",
-    "pages/shared/pageBase.css",
-    "pages/overlay/overlay.css",
-    "pages/overlay/dialog/dialog.css",
-  ],
   "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/GroupEditor/GroupEditorService.swift": [
     "pages/group-editor/styles.css",
   ],

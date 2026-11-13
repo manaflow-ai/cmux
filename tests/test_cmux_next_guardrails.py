@@ -110,6 +110,10 @@ CASES = {
     "raw-observation": ("@MainActor func watch(_ store: Store) {\n    withObservationTracking { _ = store.tabs } onChange: { print(1) }\n}\n",
                         "@MainActor func watch(_ store: Store) -> Task<Void, Never> {\n"
                         "    Task { for await _ in ObservationStream({ ObservationTrigger(store.tab.title) }) { print(1) } }\n}\n"),
+    "main-actor-url-append": ("import Foundation\n\n@MainActor func locate(_ root: URL) -> URL {\n"
+                               "    root.appendingPathComponent(\"acpmux\")\n}\n",
+                               "import Foundation\n\n@MainActor func locate(_ root: URL) -> URL {\n"
+                               "    root.appending(path: \"acpmux\", directoryHint: .notDirectory)\n}\n"),
     "row-store": ("import SwiftUI\nstruct WorkspaceRow: View {\n    let title: String\n"
                   "    @Environment(SidebarStore.self) private var store\n    var body: some View { Text(title) }\n}\n",
                   "import SwiftUI\nstruct WorkspaceRow: View {\n    let title: String\n    let onSelect: () -> Void\n"
@@ -207,6 +211,51 @@ class RuleTests(Fixture):
         self.commit("a wrapper's own tracking")
         refusals, _ = self.check()
         self.assertNotIn("raw-observation", [r.id for r, _ in refusals])
+
+    def test_main_actor_url_append_allows_nonisolated_and_multiline_hints(self):
+        self.git("reset", "--quiet", "--hard", self.base)
+        self.write(f"{KIT}/Added.swift", "import Foundation\nnonisolated func locate(_ root: URL) -> URL {\n"
+                   "    root.appendingPathComponent(\"acpmux\")\n}\n")
+        self.commit("a nonisolated URL append")
+        self.assertNotIn("main-actor-url-append", [r.id for r, _ in self.check()[0]])
+
+        self.git("reset", "--quiet", "--hard", self.base)
+        self.write(f"{KIT}/Added.swift", "import Foundation\n\n@MainActor func locate(_ root: URL) -> URL {\n"
+                   "    return root.appending(path: \"acpmux\",\n"
+                   "                           directoryHint: .notDirectory)\n}\n")
+        self.commit("a wrapped URL hint")
+        self.assertNotIn("main-actor-url-append", [r.id for r, _ in self.check()[0]])
+
+    def test_url_hint_is_per_call_and_does_not_match_collection_appending(self):
+        cases = (
+            ('root.appending(path: "one")', 1),
+            ('root.appendingPathComponent("one", isDirectory: false)', 0),
+            ('root.appending(path: "one", directoryHint: .checkFileSystem)', 1),
+            ('root.appending(path: "one", directoryHint: .inferFromPath)', 0),
+            ('root.appendingPathComponent("one").appending(path: "two", directoryHint: .isDirectory)', 1),
+            ('root.appending(path: "one", directoryHint: .isDirectory).appendingPathComponent("two")', 1),
+            ('root.appendingPathComponent(nested.appending(path: "one", directoryHint: .notDirectory).path)', 1),
+            ('items.appending(value)', 0),
+            ('root.appending(\n    path: "one")', 1),
+        )
+        for call, count in cases:
+            with self.subTest(call=call):
+                self.git("reset", "--quiet", "--hard", self.base)
+                self.write(f"{KIT}/Added.swift", "@MainActor func locate() {\n    " + call + "\n}\n")
+                self.commit("URL append")
+                refusals, warnings = self.check()
+                self.assertFalse(any("failed" in text for kind, text in warnings if kind == "guardrails"), warnings)
+                hits = [h for r, hs in refusals if r.id == "main-actor-url-append" for h in hs]
+                self.assertEqual(len(hits), count)
+
+    def test_removing_only_a_wrapped_hint_is_new_url_debt(self):
+        path = f"{KIT}/Added.swift"
+        hinted = ('@MainActor func locate() {\n    root.appending(\n        path: "one",\n'
+                  '        directoryHint: .notDirectory)\n}\n')
+        self.rebase_on({path: hinted})
+        self.write(path, hinted.replace('path: "one",\n        directoryHint: .notDirectory', 'path: "one"'))
+        self.commit("drop the hint")
+        self.assertIn("main-actor-url-append", [r.id for r, _ in self.check()[0]])
 
     def test_each_rule_refuses_what_a_push_adds_and_passes_the_right_pattern(self):
         for rule, (bad, good) in CASES.items():

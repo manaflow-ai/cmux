@@ -133,8 +133,16 @@ public final class DaemonTerminalSession: TerminalSession {
     /// reach the shell after the rest was dropped (r13 review).
     private var refusingInput = false
     /// How long typed keys may wait for the terminal (a blip) before they
-    /// are dropped and the screen is told (seconds).
-    public static let inputHoldLimit: TimeInterval = 2
+    /// are dropped and the screen is told (seconds). An LTE handover or a
+    /// relay reconnect takes a few seconds; 2 s dropped the keys of most
+    /// blips and said so (Leo, 2026-11-12, on LTE: "thjs chatters too often
+    /// with connectivity"). 10 s rides those out and still never runs a
+    /// command long after it was typed (termfix-r13 D5).
+    public static let inputHoldLimit: TimeInterval = 10
+    /// At most this many typed bytes wait for a detached terminal; past it
+    /// the queue is dropped as an expired one is (a long paste into a dead
+    /// link is not replayed whole into whatever runs when it comes back).
+    public static let inputHoldBytes = 16 * 1024
     /// The clock the hold is measured on (tests inject one).
     var now: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     /// A `send` is being written (writes go one after another, in order).
@@ -151,19 +159,14 @@ public final class DaemonTerminalSession: TerminalSession {
     /// a lost reply does not stop input (later sends keep both directions
     /// moving, and the loss is repaired by duplicate ACKs).
     static let maxInputInFlight = 64
+    /// A missing input reply frees its slot and reports uncertain delivery.
+    var inputRequestDeadline: Duration = .seconds(10)
     /// How long a `send` may go unanswered before ``armTailProbe()`` writes
     /// `ping`s behind it: many round trips, well under the 1 s RTO.
     var tailProbeDelay: Duration = .milliseconds(150)
     /// Writes and answers so far: a probe fires only if none came since it was armed.
     private var inputProgress = 0
     private var tailProbe: Task<Void, Never>?
-    /// When each unanswered send went out, by batch number.
-    private var inputWrittenAt: [Int: TimeInterval] = [:]
-    /// No new send while the oldest unanswered one is older than this
-    /// (seconds): a stalled link holds typed keys in `input`, where the hold
-    /// rules apply, instead of writing up to `maxInputInFlight` of them to
-    /// arrive late. Scrolling keeps many in flight; a stall does not.
-    var inputStallLimit: TimeInterval = 0.5
     /// Sends written and not yet answered (tests).
     var inputsInFlight: Int { inputInFlight }
     /// A tail probe is armed (tests).
@@ -190,6 +193,13 @@ public final class DaemonTerminalSession: TerminalSession {
     /// Whether this phone's size should count on the Mac now (the terminal
     /// is on screen in the foreground app). Set by ``setClaimsSize(_:)``.
     private var claimsSize = true
+    /// The Mac's grid while this page is hidden, held until a claim brings
+    /// the phone's grid back (`TerminalReclaimHold`).
+    private var reclaimHold = TerminalReclaimHold()
+    /// Shows what is held when a claim has not brought the phone's grid back.
+    private var reclaimDeadline: Task<Void, Never>?
+    /// How long a claim may take (tests shorten it).
+    var reclaimWait: Duration = TerminalReclaimHold.reclaimWait
     /// The Mac holds a size of this session's now (a sized attach or a
     /// `resize-surface` went out, and no release after it).
     private var sizeClaimed = false
@@ -286,6 +296,10 @@ public final class DaemonTerminalSession: TerminalSession {
             return
         }
         input.append((bytes, now(), !attached, true))
+        if !attached, input.reduce(0, { $0 + $1.bytes.count }) > Self.inputHoldBytes {
+            dropDetachedInput(reason: "more than \(Self.inputHoldBytes) bytes waited for the terminal")
+            return
+        }
         if attached {
             scheduleInputDrain()
             noteInteraction()
@@ -334,13 +348,18 @@ public final class DaemonTerminalSession: TerminalSession {
     private func expireInput() {
         let cutoff = now() - Self.inputHoldLimit
         guard input.contains(where: { $0.detached && $0.at <= cutoff }) else { return }
+        dropDetachedInput(reason: "the terminal was unreachable for longer than \(Self.inputHoldLimit) s")
+    }
+
+    /// Drops every queued key, refuses input until the next attach, and tells the screen.
+    private func dropDetachedInput(reason: String) {
         let bytes = input.reduce(0) { $0 + ($1.typed ? $1.bytes.count : 0) }
         input.removeAll()
         // Only terminal replies were waiting: nothing the person typed was
         // lost, so typing goes on and the screen says nothing.
         guard bytes > 0 else { return }
         if !attached { refusingInput = true }
-        log.notice("surface \(self.surface, privacy: .public): \(bytes, privacy: .public) typed bytes dropped (the terminal was unreachable for longer than \(Self.inputHoldLimit, privacy: .public) s)")
+        log.notice("surface \(self.surface, privacy: .public): \(bytes, privacy: .public) typed bytes dropped (\(reason, privacy: .public))")
         handler?(.inputNotSent(bytes: bytes))
     }
 
@@ -367,8 +386,7 @@ public final class DaemonTerminalSession: TerminalSession {
 
     /// The terminal is on screen in the foreground app (true), or it left
     /// (false: another tab, the grid, a sheet over it, the app in the
-    /// background past its grace, `TerminalSizeClaimDebounce`). Leaving
-    /// releases the phone's size on the Mac at once, so
+    /// background). Leaving releases the phone's size on the Mac at once, so
     /// the Mac's pane gets its own size back; coming back claims the last
     /// size again.
     public func setClaimsSize(_ claims: Bool) {
@@ -380,7 +398,10 @@ public final class DaemonTerminalSession: TerminalSession {
                 log.notice("surface \(self.surface, privacy: .public): shown again, claiming \(size.columns, privacy: .public)x\(size.rows, privacy: .public)")
                 enqueue(.size(columns: size.columns, rows: size.rows))
             }
+            settleReclaimHold()
         } else {
+            reclaimDeadline?.cancel()
+            reclaimDeadline = nil
             stopLeaseRefresh()
             if attached, sizeClaimed {
                 log.notice("surface \(self.surface, privacy: .public): left the screen, releasing its size")
@@ -397,6 +418,9 @@ public final class DaemonTerminalSession: TerminalSession {
         inbox = nil
         outputPaused = false
         handler = nil
+        reclaimDeadline?.cancel()
+        reclaimDeadline = nil
+        reclaimHold = TerminalReclaimHold()
         stopLeaseRefresh()
         // The Mac drops this attach (a tab cooled out of the warm set, or
         // gone). The size is released first and answered, so the Mac never
@@ -522,6 +546,31 @@ public final class DaemonTerminalSession: TerminalSession {
             throw LinkError(code: "clear-history", message: error)
         }
     }
+
+    /// The Mac terminal's foreground program (`process-info`
+    /// `foreground_program`, the foreground job's program: its leader, or the
+    /// script a leading shell runs, as `man` on macOS), nil while
+    /// not attached, on a refusal or after ``processInfoDeadline``. One bounded
+    /// read, asked when the screen enters the alternate screen and when a drag
+    /// begins there (``TerminalPanRoute``).
+    public func foregroundProgram() async -> String? {
+        guard attached, let client else { return nil }
+        let surface = surface
+        do {
+            let reply = try await client.request("process-info", params: ["surface": surface], deadline: Self.processInfoDeadline)
+            if let error = Self.error(in: reply) {
+                log.notice("surface \(surface, privacy: .public): process-info refused: \(error, privacy: .public)")
+                return nil
+            }
+            return TerminalAlternateScroll.program(processInfo: (try JSONSerialization.jsonObject(with: reply) as? [String: Any]) ?? [:])
+        } catch {
+            log.notice("surface \(surface, privacy: .public): process-info failed: \(String(describing: error), privacy: .public)")
+            return nil
+        }
+    }
+
+    /// How long a drag's `process-info` may take (the Mac answers in one PTY query).
+    nonisolated static let processInfoDeadline: Duration = .seconds(1)
 
     /// The reader scrolled up to the mirror's oldest row and the Mac has
     /// older ones (``historyRowsOmitted``): a second attach with
@@ -711,12 +760,19 @@ public final class DaemonTerminalSession: TerminalSession {
             // TUI left TUI mode and came back: the page showed the empty
             // primary screen with nothing held over it (termfix-r13 D2, `top`:
             // blank for ~170 ms, then half drawn).
-            handler?(.output(Data("\u{1B}c".utf8)))
+            // Hidden and holding the Mac's grid, the reset and the replay
+            // after it are held too: what was held before is superseded.
+            reclaimHold.restart(alternate: isAlternateScreen)
+            show(.output(TerminalReclaimHold.reset))
             let held = heldEvents ?? []
             heldEvents = nil
             for event in held { apply(event) }
             attachRetries = 0
+            // Keys held past the limit (the app was suspended) are dropped and said before
+            // the screen hears `.attached`, which forgets a held composer send.
+            expireInput()
             attached = true
+            settleReclaimHold()
             refusingInput = false
             everAttached = true
             handler?(.connection(.attached))
@@ -823,7 +879,7 @@ public final class DaemonTerminalSession: TerminalSession {
     private func apply(_ event: DaemonTerminalInbound) {
         switch event {
         case .output(let data):
-            handler?(.output(data))
+            show(.output(data))
         case .alternateScreen(let on):
             setAlternate(on)
         case .columns(let columns):
@@ -835,7 +891,7 @@ public final class DaemonTerminalSession: TerminalSession {
             reportedRows = rows
             if hostGridChanged, let columns = reportedColumns {
                 hostGridChanged = false
-                handler?(.hostGrid(columns: columns, rows: rows))
+                show(.hostGrid(columns: columns, rows: rows))
             }
             // The Mac answered a size other than the one asked for (another
             // view of this terminal, the Mac's own window, sets the grid): the
@@ -843,7 +899,8 @@ public final class DaemonTerminalSession: TerminalSession {
             // instead of resizing its PTY to the phone's grid and back, which
             // made an inline TUI (Codex) redraw its whole transcript twice
             // over the link (termqa D4/D8).
-            if attached, let asked = lastSize, let columns = reportedColumns,
+            // Hidden, the phone asks for nothing: a grid then is not an answer.
+            if attached, claimsSize, let asked = lastSize, let columns = reportedColumns,
                asked.columns != columns || asked.rows != rows {
                 overruled = Overruled(asked: asked, mac: (columns, rows))
             } else if attached, let asked = lastSize, asked.columns == reportedColumns, asked.rows == rows {
@@ -856,7 +913,7 @@ public final class DaemonTerminalSession: TerminalSession {
             historyRowsOmitted = 0
             log.notice("surface \(self.surface, privacy: .public): mirror reset cause=resized-event (rows \(self.reportedRows ?? -1, privacy: .public), last size asked \(self.lastSize.map { "\($0.columns)x\($0.rows)" } ?? "-", privacy: .public))")
             setAlternate(alternate)
-            handler?(.output(Data("\u{1B}c".utf8)))
+            show(.output(TerminalReclaimHold.reset))
         case .detached(let reason):
             ended(reason: reason)
         case .sameGridResize(let columns, let rows):
@@ -885,14 +942,71 @@ public final class DaemonTerminalSession: TerminalSession {
     /// terminal (its process exited, the Mac closed it, the daemon detached
     /// it), never for the connection to it. Transport states travel as
     /// `.connection` events (a quiet line by the composer).
+    /// It goes after whatever the reclaim hold has, in stream order.
     private func emitText(_ text: String) {
+        releaseReclaimHold()
         handler?(.output(Data(text.utf8)))
+    }
+
+    /// An event for the screen, through the reclaim hold: hidden, the Mac's
+    /// own grid and what follows it wait there (`TerminalReclaimHold`).
+    private func show(_ event: TerminalSessionEvent) {
+        let phoneGrid = lastSize.map { TerminalReclaimHold.Grid(columns: $0.columns, rows: $0.rows) }
+        let wasHolding = reclaimHold.isHolding
+        let events = reclaimHold.take(event, claims: claimsSize, phoneGrid: phoneGrid, alternate: isAlternateScreen)
+        if wasHolding != reclaimHold.isHolding {
+            log.notice("surface \(self.surface, privacy: .public): \(wasHolding ? "reclaim hold ended" : "hidden: holding the Mac's grid", privacy: .public)")
+            if wasHolding {
+                reclaimDeadline?.cancel()
+                reclaimDeadline = nil
+            }
+        }
+        for event in events { handler?(event) }
+    }
+
+    /// Shows what the reclaim hold has, in order (`from`: the Mac's grid
+    /// now, see `TerminalReclaimHold.release(from:)`).
+    private func releaseReclaimHold(from grid: TerminalReclaimHold.Grid? = nil) {
+        reclaimDeadline?.cancel()
+        reclaimDeadline = nil
+        let events = reclaimHold.release(from: grid)
+        guard !events.isEmpty else { return }
+        log.notice("surface \(self.surface, privacy: .public): reclaim hold released, \(events.count, privacy: .public) events shown")
+        for event in events { handler?(event) }
+    }
+
+    /// Shown with the Mac's grid held. The Mac already at the phone's grid
+    /// (no resize will answer the claim): what was held shows now.
+    /// Otherwise, once attached, the claim has its deadline.
+    private func settleReclaimHold() {
+        guard claimsSize, reclaimHold.isHolding else { return }
+        if let size = lastSize, reportedColumns == size.columns, reportedRows == size.rows {
+            releaseReclaimHold(from: TerminalReclaimHold.Grid(columns: size.columns, rows: size.rows))
+        } else if attached {
+            armReclaimDeadline()
+        }
+    }
+
+    /// Shown and attached with the Mac's grid held: the claim has
+    /// `reclaimWait` to bring the phone's grid back (the Mac's policy may
+    /// keep its own grid); then what was held shows.
+    private func armReclaimDeadline() {
+        reclaimDeadline?.cancel()
+        let wait = reclaimWait
+        reclaimDeadline = Task { [weak self] in
+            // An intentional, bounded deadline (the claim's answer), not a
+            // synchronization wait.
+            do { try await Task.sleep(for: wait) } catch { return }
+            guard let self, self.claimsSize, self.attached else { return }
+            self.reclaimDeadline = nil
+            self.releaseReclaimHold()
+        }
     }
 
     private func setAlternate(_ on: Bool) {
         guard isAlternateScreen != on else { return }
         isAlternateScreen = on
-        handler?(.alternateScreen(on))
+        show(.alternateScreen(on))
     }
 
     private func ended(reason: String?) {
@@ -987,6 +1101,9 @@ public final class DaemonTerminalSession: TerminalSession {
     /// else on the attach channel. Keys that waited longer than
     /// `inputHoldLimit` are dropped first.
     ///
+    /// Reply age does not stop the pipeline: a high-latency link or one lost
+    /// reply must not turn typing into stop-and-wait. The bounded in-flight
+    /// window and each request's deadline bound a channel that truly stalls.
     /// The next batch goes out once this one is written, not when its reply
     /// comes (TUI fast scroll), up to `maxInputInFlight` unanswered. One
     /// small request at a time stalled a flick for the link's whole
@@ -1005,13 +1122,11 @@ public final class DaemonTerminalSession: TerminalSession {
         expireInput()
         guard !input.isEmpty, let target = inputClient ?? client else { return }
         if inputInFlight > 0, inputRecovering || inputTarget !== target || inputInFlight >= Self.maxInputInFlight { return }
-        if let oldest = inputWrittenAt.values.min(), now() - oldest > inputStallLimit { return }
         inputWriting = true
         inputInFlight += 1
         inputTarget = target
         let number = nextInputBatch
         nextInputBatch += 1
-        inputWrittenAt[number] = now()
         let typedAt = input[0].at
         let batch = input.reduce(into: Data()) { $0.append($1.bytes) }
         // The person's own bytes in it: a failed batch of terminal replies
@@ -1020,12 +1135,13 @@ public final class DaemonTerminalSession: TerminalSession {
         input.removeAll()
         let surface = surface
         let onLane = target !== client
+        let deadline = inputRequestDeadline
         Task { [weak self] in
             guard let self else { return }
             var written = false
             do {
                 let submit: @Sendable () async throws -> String = {
-                    try await target.submit("send", params: ["surface": surface, "bytes": batch.base64EncodedString()])
+                    try await target.submit("send", params: ["surface": surface, "bytes": batch.base64EncodedString()], deadline: deadline)
                 }
                 // A lane request gets written and answered within seconds or
                 // the lane is given up.
@@ -1062,7 +1178,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 if !written { inputWriting = false }
                 lastError = LinkController.reason(error)
                 inputRecovering = true
-                if written || target === abandonedInputLane {
+                if written || target === abandonedInputLane || Self.inputDeliveryUncertain(error) {
                     inputFailed.append((number, batch, typedAt, written: true, typed: typedBytes))
                 } else {
                     // Never written: safe to send again (on the attach channel
@@ -1081,9 +1197,14 @@ public final class DaemonTerminalSession: TerminalSession {
                     handler?(.connection(connectionState))
                 }
             }
-            inputWrittenAt[number] = nil
             inputSettled()
         }
+    }
+
+    /// A write deadline/cancellation can race a partial or completed write.
+    /// Treat it like a lost reply: the Mac may have applied the keystrokes.
+    static func inputDeliveryUncertain(_ error: any Error) -> Bool {
+        error is CancellationError || (error as? LinkError)?.code == "write_timeout"
     }
 
     /// The input lane gave no answer in time (`wasWriting`: the batch's
@@ -1095,7 +1216,6 @@ public final class DaemonTerminalSession: TerminalSession {
         inputRecovering = true
         inputFailed.append((number, Data(count: bytes), now(), written: true, typed: typed))
         if wasWriting { inputWriting = false }
-        inputWrittenAt[number] = nil
         if inputClient === lane { dropInputLane() }
         inputSettled()
     }
@@ -1113,7 +1233,6 @@ public final class DaemonTerminalSession: TerminalSession {
         }
         tailProbe?.cancel()
         tailProbe = nil
-        inputWrittenAt.removeAll()
         inputTarget = nil
         abandonedInputLane = nil
         if inputRecovering {
@@ -1160,7 +1279,10 @@ public final class DaemonTerminalSession: TerminalSession {
                 guard !Task.isCancelled, self?.tailProbeStillDue(mark: mark, target: target) == true else { return }
                 var ids: [String] = []
                 for _ in 0..<3 where !Task.isCancelled {
-                    guard let id = try? await target.submit("ping") else { break }
+                    // Disarming a probe is ordinary progress, not a failed write:
+                    // cancellation must not close a healthy channel while its ping
+                    // write is still awaiting the link.
+                    guard let id = try? await target.submit("ping", closeChannelOnCancel: false) else { break }
                     ids.append(id)
                 }
                 // Collect the replies so none is left waiting in the client

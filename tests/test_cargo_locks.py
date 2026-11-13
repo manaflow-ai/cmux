@@ -371,6 +371,26 @@ class NestedWorkspaceTests(BusyFixture):
         self.assertEqual(code, 2, output)
         self.assertIn("unchecked: core", output)
 
+    def test_a_change_in_a_member_beside_the_root_touches_it(self):
+        """A member outside the root's tree with no path dependency on it (cmux-app-ffi's workspace takes in
+        ../cmux-rd-ffi and its siblings) shares the root's lock."""
+        self.write("ffi/Cargo.toml", '[package]\nname = "ffi"\nversion = "0.1.0"\nedition = "2021"\n\n'
+                   '[lib]\npath = "src/lib.rs"\n\n[dependencies]\na = { path = "../core/a" }\n\n'
+                   '[workspace]\nmembers = ["../ffi-side"]\n')
+        self.write("ffi-side/Cargo.toml", '[package]\nname = "side"\nversion = "0.1.0"\nedition = "2021"\n'
+                   'workspace = "../ffi"\n')
+        self.git("add", "-A")
+        self.git("commit", "-qm", "sibling member")
+        base = self.git("rev-parse", "HEAD").strip()
+        self.commit("ffi-side/Cargo.toml", '[package]\nname = "side"\nversion = "0.2.0"\nedition = "2021"\n'
+                    'workspace = "../ffi"\n')
+        self.behaviour["ffi"] = "hang"
+
+        code, output = self.run_check("--base", base)
+
+        self.assertEqual(code, 2, output)
+        self.assertIn("unchecked: ffi", output)
+
     def test_a_nested_workspace_reached_by_path_is_still_followed(self):
         """Another workspace that uses a package inside the nested one by path is touched by a change there."""
         self.commit("other/Cargo.toml", '[package]\nname = "other"\nversion = "0.1.0"\nedition = "2021"\n\n'

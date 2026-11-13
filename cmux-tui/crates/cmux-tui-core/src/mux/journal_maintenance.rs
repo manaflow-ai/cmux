@@ -35,6 +35,16 @@ const INDEX_BACKFILL_RETRY: Duration = Duration::from_secs(30);
 const INDEX_BACKFILL_ATTEMPTS: u32 = 5;
 /// Segments that need no kept records one backfill plan passes over.
 const REDUCER_RECORD_BACKFILL_SKIP: usize = 256;
+/// Free pages the registry keeps for its next rows (64 MiB of 4096-byte
+/// pages); maintenance returns to the file system only what is free over
+/// them, one step a tick. Sealing frees the pages of the rows it archives
+/// and the next rows reuse them, so a registry in use always has some free:
+/// returning every one meant a vacuum commit on every tick for good (on a
+/// 10.8 GB registry, 2 MiB a minute for hours, about as many WAL bytes),
+/// and a worker that never settled. The reserve is a fixed size, not a
+/// share of the file: it is the headroom between two seals, which follows
+/// the write rate, not the registry's age.
+const JOURNAL_VACUUM_KEPT_FREE_PAGES: u64 = 16_384;
 
 /// How long each step of one maintenance tick took.
 #[derive(Default)]
@@ -202,7 +212,8 @@ enum TickOutcome {
 /// The journal maintenance worker of a persistent session: a tick bounds and
 /// scans the mutation ledgers, migrates a legacy registry to incremental
 /// auto-vacuum, takes a checkpoint after enough new records, seals bounded
-/// segments up to the latest checkpoint, and returns free pages. Ticks are
+/// segments up to the latest checkpoint, and returns the free pages over
+/// [`JOURNAL_VACUUM_KEPT_FREE_PAGES`], one bounded step a tick. Ticks are
 /// at least one interval apart. Once a tick finds nothing left to do, the
 /// worker sleeps until the journal changes, so an idle daemon does not wake
 /// for maintenance (it used to tick every 30 s for good); the ledger scan
@@ -354,7 +365,8 @@ impl Mux {
 
     /// One tick; [`TickOutcome::Settled`] only when nothing is left: the
     /// ledgers are within their bounds, no migration, checkpoint or seal is
-    /// due, and no free page waits for the incremental vacuum.
+    /// due, and the free pages over [`JOURNAL_VACUUM_KEPT_FREE_PAGES`] are
+    /// less than one step of the incremental vacuum.
     fn run_journal_maintenance(
         &self,
         ledgers: &mut ledger_maintenance::LedgerMaintenance,
@@ -414,7 +426,7 @@ impl Mux {
                     self.workspace_registry
                         .lock()
                         .unwrap_or_else(PoisonError::into_inner)
-                        .incremental_journal_vacuum()
+                        .incremental_journal_vacuum(JOURNAL_VACUUM_KEPT_FREE_PAGES)
                 })?;
                 return Ok(if pages_remain || pruned {
                     TickOutcome::WorkRemains
@@ -467,7 +479,7 @@ impl Mux {
                 self.workspace_registry
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner)
-                    .incremental_journal_vacuum()
+                    .incremental_journal_vacuum(JOURNAL_VACUUM_KEPT_FREE_PAGES)
             })?;
             // A checkpoint or seal changed the journal: the next tick checks
             // again, and settles once there is nothing left.
@@ -936,6 +948,14 @@ impl Mux {
             }
         }
         anyhow::bail!("journal segment boundary changed repeatedly during sealing")
+    }
+
+    /// One maintenance tick, as the worker runs it; true when it settled
+    /// (the worker would then sleep until the journal changes).
+    #[cfg(test)]
+    pub(crate) fn run_journal_maintenance_tick_for_test(&self) -> bool {
+        let mut ledgers = ledger_maintenance::LedgerMaintenance::default();
+        self.run_journal_maintenance(&mut ledgers) == TickOutcome::Settled
     }
 
     #[cfg(test)]

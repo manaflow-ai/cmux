@@ -1,6 +1,6 @@
 // l10n-allow-file: browser fixtures and measurement diagnostics.
 // The turn's two levels in Chromium (TurnLevels.gallery.ts): the opened outer "Worked for" line
-// counts every call, each run between the agent's asides has its own line and count, and an inner
+// names the elapsed time, each run between the agent's asides has its own line and count, and an inner
 // line the reader opens stays open while the outer stays open. Writes each arm's capture to
 // $FAST_CHECKS_OUT for the PR (Leo, 2026-11-07: "do you think we should distinguish the absolute top
 // level one versus the inner ones that are interrupted by your little asides in between?").
@@ -40,7 +40,7 @@ await requireBrowserLane("turn-levels-browser.test.ts", async () => {
 
   for (const variant of ["outer-line", "indented", "guide", "live"])
     for (const colorScheme of ["light", "dark"])
-      test(`${variant} (${colorScheme}): the outer line counts the turn, each run between asides its own`, async () => {
+      test(`${variant} (${colorScheme}): the outer line times the turn, each run between asides counts its own`, async () => {
         const page = await browser.newPage({ viewport: { width: 760, height: 900 }, deviceScaleFactor: 2 });
         const errors: string[] = [];
         page.on("pageerror", (error) => errors.push(error.message));
@@ -70,8 +70,11 @@ await requireBrowserLane("turn-levels-browser.test.ts", async () => {
             // second aside is a row of its own.
             expect(runs).toEqual(["Ran 4 commands and read a file", "Ran 3 commands"]);
             const outer = (await page.locator(".cv-worked").textContent())?.trim() ?? "";
-            expect(outer).toMatch(/^Worked for 2m 17s · 9 tool calls/);
-            expect(await page.locator(".cv-tool-note").count()).toBeGreaterThanOrEqual(1);
+            expect(outer).toBe("Worked for 2m 17s");
+            // Every commentary paragraph ends a run and draws as its own paragraph, never a note
+            // folded into a run (turns.ts, Codex parity #42247).
+            expect(await page.locator(".cv-tool-note").count()).toBe(0);
+            expect(await page.locator(".cv-md", { hasText: "Another short aside" }).count()).toBe(1);
           }
           // Toggle the later line: it keeps the reader's state (the outer stays open around it). An
           // ended and running turn's run lines both keep a reader's choice.
