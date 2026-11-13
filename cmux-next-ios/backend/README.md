@@ -79,8 +79,8 @@ Pipe values from 1Password; never paste or echo them.
 `CONNECTIVITY_ALERT_CHANNEL` (real team phones) and `CONNECTIVITY_ALERT_TEST_CHANNEL` (simulators, Debug builds,
 agent accounts; their posts say "Test route") are plain `vars` in `wrangler.jsonc`, both `C0CHDSZJYU9`
 (#cmux-ios-connectivity) on dev and prod: nothing of this feature posts anywhere else. Do not also set them as
-secrets (a var and a secret cannot share a name).
-| `CONNECTIVITY_ALERT_EXCLUDED_EMAILS` | extra team-domain accounts that are agents or services, comma-separated (`cmux-agent-*` is always excluded) | optional |
+secrets (a var and a secret cannot share a name). `CONNECTIVITY_ALERT_EXCLUDED_EMAILS` (optional) lists extra
+team-domain accounts that are agents or services, comma-separated (`cmux-agent-*` is always excluded).
 
 ```bash
 op item get lqvg75d4awzbveq7ny5gyfeyd4 --fields notesPlain | grep -oE '[0-9a-f]{32}' | head -1 | tr -d '\n' \
