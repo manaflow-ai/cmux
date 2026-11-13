@@ -1,0 +1,501 @@
+#!/usr/bin/env python3
+"""Every repository variable a runs-on reads declares its fallback in .github/single-host-fallbacks.json.
+
+Leo's rule (2026-10-24): no job waits on one reserved machine; each single-host label, and each repository
+variable a runs-on reads, says what takes the job instead and after how many minutes. The declaration used to
+live only in the build-fleet repository, whose runner label policy test reads this repository's workflows live,
+so cmux#40221 merged two undeclared runs-on variables green here and turned that repository red afterwards.
+The declaration now lives here; the build-fleet test reads this file.
+
+Read, for every job of every workflow under <root>/.github/workflows, through the one resolve step every
+workflow guard shares (tests/workflow_jobs.py: resolve): its runs-on per matrix cell, literal indexes read as dot
+form (`matrix['runner']`, `vars['X']`), an expression's literal branches, and a reusable workflow's `inputs.X`
+traced to every value its callers pass (each caller's own matrix expanded, at any call depth). Then:
+- every repository variable the resolve step consumed resolving the runs-on (Resolved.vars_read, field runs-on)
+  must be declared, wherever it sat: the runs-on as written, a matrix value it took or a matrix nothing could
+  expand (`fromJSON(vars.X)`, in the job or in a caller whose value reaches an input), a caller's `with:` value,
+  a condition (`vars.X == 'a' && 'a' || 'b'`, `needs.a.outputs.b && vars.X || 'y'`). One whose name is itself an
+  expression cannot be declared, and is a finding. This file reads no runs-on text itself: the resolver reads every
+  text a runs-on can take a value from (Codex on #40894: a re-scan of the runs-on text here missed a caller's
+  fromJSON matrix and every condition inside a matrix value);
+- every resolved label that is single-host (a controller label or one starting with a `single_host_prefixes`
+  entry) must be declared under `labels`.
+A value the resolver cannot settle is never skipped (review F1 on #40894: `${{ fromJSON('["glaeda-runner-cmux22-new"]')
+}}` was left unresolved and an undeclared label passed). Constant `fromJSON('<literal>')` terms resolve to their
+labels (workflow_jobs.constant_from_json). Of what stays unresolved, every label named anywhere in it (a string
+literal, a fallback branch inside a fromJSON) is checked as if resolved, and the part must be one a runs-on may
+read: a literal, `vars.NAME` (declared above), a placement job's `needs.JOB.outputs.NAME`, a caller-less
+`inputs.NAME`, or `fromJSON(...)` of those with a property chain, behind `&&` conditions and `||` alternatives
+(settled()). Anything else (`format(...)`, a label spliced around an expression, a matrix nothing expands) may be
+any self-hosted label, and is a finding, unless workflow_jobs.UNRESOLVED_MATRICES audits that job's matrix. A trace
+the resolver refuses to finish (an input default or caller chain that loops back to itself, Resolved.unverifiable)
+is a finding: what it reads cannot be verified.
+The declaration must also promise a bounded fallback, by the build-fleet test's own schema rules.
+
+The hook runs only installed code, so the installer puts tests/workflow_jobs.py beside this checker (it is in
+scripts/git-hooks/checks-copy-inputs, which also stamps the copy, so a resolver change alone reaches the hook); it
+loads that copy first, else the repository's.
+
+Where it runs. No CI gate (CLAUDE.md, Lawrence 2026-10-23: no new CI gates or tests). The mode is an explicit
+flag, never read from the environment:
+- strict (the default): print each finding and exit 1. scripts/cmux-next/prepush-gate.py runs it on the pre-push
+  hook and a plain local run when a push changes .github/workflows/ or the declaration, and refuses only names
+  the push adds; tests/test_ci_single_host_fallbacks.py runs it too.
+- --advisory: what ci-guards.yml passes. One `::warning file=...,line=...::` per finding and a line in
+  $GITHUB_STEP_SUMMARY, and exit 0 whatever it finds, even when it cannot run.
+- --json: the findings as JSON (key, message, file, line, status), exit 0; the pre-push gate's input.
+
+Every finding has a status. "found": the scan ran and found it. "incomplete": the scan (or a part of it) did not run,
+so what it would have found is unknown: a declaration that is missing, unreadable or of the wrong shape, or a
+workflow whose YAML does not load. The gate never subtracts an incomplete finding as old debt and refuses any push
+whose head has one (Codex on #40840: a schema fault the base already had was subtracted, so a new vars.NAME at the
+head passed with no scan at all).
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import sys
+from collections.abc import Iterable, Iterator
+from pathlib import Path
+
+DECLARATION = ".github/single-host-fallbacks.json"
+WORKFLOWS = ".github/workflows"
+# A finding's status (see the module doc): the scan found it, or the scan did not run.
+FOUND, INCOMPLETE = "found", "incomplete"
+
+# The build-fleet test's label token, so both read the same labels off a line.
+LABEL = re.compile(r"(?<![A-Za-z0-9_.-])([A-Za-z][A-Za-z0-9_.-]*)(?![A-Za-z0-9_.-])")
+# The build-fleet repository's GitHub-hosted label pattern (scripts/ci/check-runner-labels.py HOSTED).
+HOSTED = re.compile(
+    r"(?<![A-Za-z0-9_-])("
+    r"ubuntu-(?:latest|slim|\d{2}\.\d{2}(?:-arm)?)"
+    r"|macos-(?:latest|\d+(?:-intel|-large|-xlarge|-arm64)?)"
+    r"|windows-(?:latest|\d{4}(?:-arm)?|11-arm)"
+    r")(?![A-Za-z0-9_.-])"
+)
+ARRAY_PIN = "glaeda-runner-"
+BLACKSMITH_POOL = re.compile(r"blacksmith-[0-9]+vcpu-[a-z0-9][a-z0-9.-]*")
+
+
+def declaration_faults(policy: object) -> list[str]:
+    """What the build-fleet test's fallback_policy would refuse in this declaration, or nothing."""
+    if not isinstance(policy, dict):
+        return ["the declaration must be a JSON object"]
+    bad: list[str] = []
+    if policy.get("schema") != 1:
+        bad.append("schema must be 1")
+    labels = policy.get("labels")
+    if not isinstance(labels, dict) or not labels:
+        bad.append("labels must declare at least one label")
+        labels = {}
+    for label, entry in labels.items():
+        bad.extend(bounded(label, entry))
+    controller = policy.get("controller_labels", [])
+    if not isinstance(controller, list) or not all(isinstance(c, str) for c in controller):
+        bad.append("controller_labels must be a list of label names")
+    elif not set(controller) <= set(labels):
+        bad.append("every controller_labels entry must be declared in labels")
+    prefixes = policy.get("single_host_prefixes", [])
+    if not isinstance(prefixes, list) or not all(isinstance(p, str) and p for p in prefixes):
+        bad.append("single_host_prefixes must be non-empty strings")
+    variables = policy.get("variables", {})
+    if not isinstance(variables, dict):
+        bad.append("variables must be an object")
+        variables = {}
+    for name, entry in variables.items():
+        bad.extend(bounded(f"vars.{name}", entry))
+    if not policy.get("nightly_workflow_marker"):
+        bad.append("nightly_workflow_marker must say which workflows are nightly workflows")
+    terminals = policy.get("nightly_terminal_labels")
+    if not isinstance(terminals, dict) or not terminals:
+        bad.append("nightly_terminal_labels must declare the nightly terminal labels")
+        terminals = {}
+    for label, entry in terminals.items():
+        if not isinstance(entry, dict):
+            bad.append(f"{label}: nightly declaration must be an object")
+            continue
+        for field in ("fallback", "served_by"):
+            value = entry.get(field)
+            if not isinstance(value, str) or not value.strip():
+                bad.append(f"{label}: {field} must be a non-empty string, not {value!r}")
+        if isinstance(entry.get("fallback"), str) and label in entry["fallback"]:
+            bad.append(f"{label}: a label cannot be its own fallback")
+        minutes = entry.get("after_minutes")
+        if type(minutes) is not int or not 0 < minutes <= 30:
+            bad.append(f"{label}: after_minutes must be a whole number of minutes in 1..30 "
+                       f"(Leo's freshness budget), not {minutes!r}")
+    declarable = set(terminals) | {f"vars.{name}" for name in variables}
+    outputs = policy.get("nightly_job_outputs", {})
+    if not isinstance(outputs, dict):
+        bad.append("nightly_job_outputs must be an object")
+        outputs = {}
+    for key, entry in outputs.items():
+        if not isinstance(entry, dict):
+            bad.append(f"{key}: job-output declaration must be an object")
+            continue
+        if ":" not in key or "." not in key.split(":", 1)[1]:
+            bad.append(f"{key}: job-output key must be <workflow>:<job>.<output>")
+        emitted = entry.get("labels")
+        if not isinstance(emitted, list) or not emitted:
+            bad.append(f"{key}: labels must be a non-empty list of the labels it can emit")
+            emitted = []
+        for label in emitted:
+            if not isinstance(label, str) or not label.strip():  # also a null or a list in the list
+                bad.append(f"{key}: every label must be a non-empty string, not {label!r}")
+            elif HOSTED.fullmatch(label.strip()):
+                bad.append(f"{key}: {label} is a GitHub-hosted label; a run-time pick may not emit one")
+            elif label not in declarable and not BLACKSMITH_POOL.fullmatch(label):
+                bad.append(f"{key}: {label} is declared neither in nightly_terminal_labels nor as a variable")
+        for field in ("constrained_by", "empty_falls_back_to"):
+            value = entry.get(field)
+            if not isinstance(value, str) or not value.strip():
+                bad.append(f"{key}: {field} must be a non-empty string, not {value!r}")
+        if "array_pin" in entry and entry["array_pin"] != ARRAY_PIN:
+            bad.append(f"{key}: array_pin must be {ARRAY_PIN!r}, not {entry['array_pin']!r}")
+    return bad
+
+
+def scannable(policy: object) -> bool:
+    """Whether the sections the workflow scan reads have the types it walks (Codex on #40799: `"variables": null`
+    passed declaration_faults with a finding, then crashed findings(), so --json printed nothing)."""
+    if not isinstance(policy, dict):
+        return False
+    labels, variables = policy.get("labels", {}), policy.get("variables", {})
+    controller, prefixes = policy.get("controller_labels", []), policy.get("single_host_prefixes", [])
+    return (isinstance(labels, dict) and isinstance(variables, dict)
+            and isinstance(controller, list) and all(isinstance(c, str) for c in controller)
+            and isinstance(prefixes, list) and all(isinstance(p, str) for p in prefixes))
+
+
+def bounded(name: str, entry: object) -> list[str]:
+    """A label or variable entry: a named fallback, taken after a positive whole number of minutes."""
+    if not isinstance(entry, dict) or not isinstance(entry.get("fallback"), str) or not entry["fallback"].strip():
+        return [f"{name}: missing fallback declaration"]
+    minutes = entry.get("after_minutes")
+    if type(minutes) is not int or minutes <= 0:
+        return [f"{name}: fallback must have a positive after_minutes, not {minutes!r}"]
+    return []
+
+
+def load_workflow_jobs():
+    """tests/workflow_jobs.py: the copy beside this file (the hook's installed checks), else this repository's.
+    Loaded once per process, so every reader here (and the Unreadable it raises) is the same module."""
+    import importlib.util
+
+    if "single_host_workflow_jobs" in sys.modules:
+        return sys.modules["single_host_workflow_jobs"]
+
+    here = Path(__file__).resolve().parent
+    for path in (here / "workflow_jobs.py", here.parents[1] / "tests" / "workflow_jobs.py"):
+        if path.is_file():
+            spec = importlib.util.spec_from_file_location("single_host_workflow_jobs", path)
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[spec.name] = module
+            spec.loader.exec_module(module)
+            return module
+    raise FileNotFoundError("tests/workflow_jobs.py is not beside the checker nor in its repository")
+
+
+def first_line(paths: list[Path], pattern: re.Pattern) -> tuple[Path, int]:
+    """The first of PATHS with a line PATTERN matches, and that line; the first path and line 1 when none has one."""
+    for path in paths:
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if pattern.search(line):
+                return path, number
+    return paths[0], 1
+
+
+# A repository variable read at all, for the line of one whose name is an expression.
+ANY_VAR = re.compile(r"\bvars\s*[.\[]", re.IGNORECASE)
+
+
+class Reads:
+    """What a scan of some workflow directories read."""
+
+    def __init__(self) -> None:
+        # name -> [(where, file path relative to the repository root, line)]
+        self.variables: dict[str, list[tuple[str, str, int]]] = {}
+        self.lines: list[tuple[str, int, str]] = []  # (file, line, a resolved runs-on label)
+        self.dynamic: list[tuple[str, str, int]] = []  # (where, file, line) of a variable read with no literal name
+        self.unverifiable: list[tuple[str, str, int]] = []  # (where, file, line) of a trace the resolver refused
+        self.unsettled: list[tuple[str, str, int, str]] = []  # (where, file, line, term) of a part nothing settles
+        self.unreadable: list[str] = []
+
+
+# The contexts a settled runs-on operand reads by name (settled()): each is either declared here (vars) or a value
+# a placement job or a dispatch picks at run time, whose own policy is the job's business.
+SETTLED_READS = {"vars": 2, "inputs": 2, "needs": 4}
+
+
+def _split_top(text: str, operator: str) -> list[str]:
+    """TEXT split at OPERATOR (`||`, `&&`) outside string literals and brackets, by tokens."""
+    wj = load_workflow_jobs()
+    spans = wj._token_spans(text)
+    parts, start, depth = [], 0, 0
+    for token in spans:
+        if token.kind == "op" and token.text in "([":
+            depth += 1
+        elif token.kind == "op" and token.text in ")]":
+            depth -= 1
+        elif token.kind == "op" and token.text == operator and depth == 0:
+            parts.append(text[start:token.start])
+            start = token.end
+    parts.append(text[start:])
+    return parts
+
+
+def settled(term: str) -> bool:
+    """Whether every value TERM (an unresolved part of a resolved runs-on) can take is one this policy reads by
+    name: a literal, `vars.NAME`, `needs.JOB.outputs.NAME`, `inputs.NAME`, or `fromJSON(<settled>)` with a property
+    chain after it (of a literal, only one constant_from_json resolves to labels); `a && b` takes b's value, `a || b`
+    either. Anything else may be any label. Fails closed: a term
+    the tokenizer cannot read is not settled."""
+    wj = load_workflow_jobs()
+    text = term.strip()
+    if "${{" in text:
+        spans = wj.expression_spans(text)
+        return spans == [(0, len(text))] and settled(text[3:-2])
+    try:
+        alternatives = _split_top(text, "||")
+        for alternative in alternatives:
+            if not _settled_operand(_split_top(alternative, "&&")[-1].strip()):
+                return False
+    except wj.Unreadable:
+        return False
+    return True
+
+
+def _settled_operand(operand: str) -> bool:
+    wj = load_workflow_jobs()
+    spans = wj._token_spans(operand)
+    stream = [(t.kind, t.text) for t in spans]
+    if not stream:
+        return False
+    if stream[0] == ("op", "(") and stream[-1] == ("op", ")"):
+        depth = 0
+        for index, token in enumerate(stream):
+            depth += token == ("op", "(")
+            depth -= token == ("op", ")")
+            if depth == 0 and index != len(stream) - 1:
+                break
+        else:
+            return settled(operand[spans[0].end:spans[-1].start])
+    if len(stream) == 1 and stream[0][0] == "string":
+        return True
+    head = stream[0][1].lower() if stream[0][0] == "name" else ""
+    if head == "fromjson" and len(stream) >= 3 and stream[1] == ("op", "("):
+        depth = 0
+        for index, token in enumerate(stream[1:], 1):
+            depth += token == ("op", "(")
+            depth -= token == ("op", ")")
+            if depth == 0:
+                inner = operand[spans[1].end:spans[index].start].strip()
+                if wj._property_chain(stream[index + 1:]) is None:
+                    return False
+                while wj._wrapped(inner):
+                    inner = inner[1:-1].strip()
+                literal = wj._token_spans(inner)
+                if len(literal) == 1 and literal[0].kind == "string":
+                    # A constant settles only as the labels it resolves to: constant_from_json leaves `null`, an
+                    # object, `[]` and a key the literal lacks unresolved (review F1 on #41933: `fromJSON('null')`).
+                    chain = operand[spans[index].end:]
+                    return wj.constant_from_json(f"fromJSON({inner}){chain}") is not None
+                return settled(inner)
+        return False
+    if head in SETTLED_READS:
+        names = wj._property_chain(stream[1:])
+        if names is None or len(names) != SETTLED_READS[head] - 1 or not all(isinstance(n, str) for n in names):
+            return False
+        return head != "needs" or str(names[1]).lower() == "outputs"
+    return False
+
+
+def references(workflow_dirs: Iterable[Path]) -> Reads:
+    import yaml  # here, so --advisory can report a missing PyYAML instead of failing
+
+    wj = load_workflow_jobs()
+    reads = Reads()
+    for directory in workflow_dirs:
+        if not directory.is_dir():
+            reads.unreadable.append(f"{directory}: workflow directory is missing")
+            continue
+        paths = {p.name: p for p in sorted([*directory.glob("*.yml"), *directory.glob("*.yaml")])}
+        documents = {}
+        for name, path in paths.items():
+            try:
+                documents[name] = wj.document(path)
+            except (yaml.YAMLError, ValueError) as error:
+                reads.unreadable.append(f"{name}: unreadable YAML: {error.__class__.__name__}")
+        workflows = wj.Workflows(documents)
+        everything = list(paths.values())
+        for name, document in documents.items():
+            rel = f"{WORKFLOWS}/{name}"
+            for job_id, job in wj.jobs(document).items():
+                if not isinstance(job, dict) or "runs-on" not in job:
+                    continue
+                where = f"{name}: job {job_id}"
+                resolved = wj.resolve(job, job_id, name, workflows)
+                for read in sorted((r for r in resolved.vars_read if r.field == "runs-on"),
+                                   key=lambda r: (r.name or "", r.file or "", r.job, r.path, r.text)):
+                    # The line is in the file the read sits in (a caller's, for a traced input), else the job's.
+                    source = paths.get(read.file or name, paths[name])
+                    search = [source, *(p for p in everything if p != source)]
+                    if read.name is None:
+                        if all(not w.startswith(f"{where}: ") for w, _, _ in reads.dynamic):
+                            path, line = first_line(search, ANY_VAR)
+                            reads.dynamic.append((f"{where}: {read.text[:120]}", f"{WORKFLOWS}/{path.name}", line))
+                        continue
+                    places = reads.variables.setdefault(read.name, [])
+                    if all(not seen.endswith(f": {where}") for seen, _, _ in places):
+                        path, line = first_line(search, re.compile(
+                            rf"\bvars\s*(?:\.\s*{re.escape(read.name)}\b|\[\s*['\"]{re.escape(read.name)}['\"]\s*\])",
+                            re.IGNORECASE))
+                        places.append((f"{path.name}:{line}: {where}", f"{WORKFLOWS}/{path.name}", line))
+                for loop in sorted(u for u in resolved.unverifiable if u.field == "runs-on"):
+                    source = paths.get(loop.workflow, paths[name])
+                    _, line = first_line([source], re.compile(rf"^\s*{re.escape(loop.name)}\s*:", re.IGNORECASE))
+                    reads.unverifiable.append((f"{where}: inputs.{loop.name} of {loop.workflow} ({loop.reason})",
+                                               f"{WORKFLOWS}/{source.name}", line))
+                # The labels a runs-on resolves to, and every label named in a part it could not resolve (a literal
+                # inside it may be the value it takes): none is skipped for being unresolved.
+                for value in sorted(resolved.runs_on | resolved.runs_on_unresolved):
+                    for label in LABEL.findall(value):
+                        _, line = first_line([paths[name]], re.compile(rf"(?<![A-Za-z0-9_.-]){re.escape(label)}(?![A-Za-z0-9_.-])"))
+                        reads.lines.append((rel, line, label))
+                if resolved.matrix_audit is None:
+                    for term in sorted(t for t in resolved.runs_on_unresolved if not settled(t)):
+                        _, line = first_line([paths[name]], re.compile(r"^\s*runs-on\s*:"))
+                        reads.unsettled.append((where, rel, line, term))
+    return reads
+
+
+def findings(workflow_dirs: Iterable[Path], policy: dict) -> list[dict]:
+    """Each runs-on variable or single-host label with no declared fallback, and what could not be read.
+
+    A finding is {"key", "message", "file", "line"}; `key` names the undeclared thing (`vars.NAME`, a label),
+    which is what the pre-push gate compares between the base and the head."""
+    reads = references(workflow_dirs)
+    found = [{"key": f"unreadable:{note}", "message": note, "file": WORKFLOWS, "line": 1, "status": INCOMPLETE}
+             for note in reads.unreadable]
+    for where, rel, line in reads.dynamic:
+        found.append({"key": f"vars:dynamic:{where.split(': ', 2)[0]}:{where.split(': ', 2)[1]}", "file": rel,
+                      "line": line, "status": FOUND,
+                      "message": f"{where}: a runs-on reads a repository variable whose name is an expression, so "
+                                 f"{DECLARATION} cannot declare its fallback; name the variable"})
+    for where, rel, line in reads.unverifiable:
+        found.append({"key": f"unverifiable:{where}", "file": rel, "line": line, "status": FOUND,
+                      "message": f"{where}: a runs-on takes its value through this input, whose trace never ends, so "
+                                 f"the variables it reads cannot be verified; break the loop"})
+    for where, rel, line, term in reads.unsettled:
+        found.append({"key": f"unsettled:{where}: {term}", "file": rel, "line": line, "status": FOUND,
+                      "message": f"{where}: a runs-on can take `{term[:160]}`, which the resolver cannot settle, so it "
+                                 f"may be any self-hosted label with no declared fallback; make each branch a literal, a "
+                                 f"declared vars.NAME or a placement job's output"})
+    declared = {name.upper() for name in policy.get("variables", {})}
+    for name in sorted(reads.variables):
+        if name in declared:
+            continue
+        places = reads.variables[name]
+        found.append({"key": f"vars.{name}", "file": places[0][1], "line": places[0][2], "status": FOUND,
+                      "message": f"vars.{name} is read by a runs-on but {DECLARATION} does not declare its fallback "
+                                 f"(variables.{name}): {', '.join(where for where, _, _ in places)}"})
+    labels = set(policy.get("labels", {}))
+    controller = set(policy.get("controller_labels", []))
+    prefixes = tuple(policy.get("single_host_prefixes", ()))
+    for rel, number, value in reads.lines:
+        for label in LABEL.findall(value):
+            if label in labels or (label not in controller and not label.startswith(prefixes)):
+                continue
+            found.append({"key": f"label:{label}", "file": rel, "line": number, "status": FOUND,
+                          "message": f"{Path(rel).name}:{number}: {label} is a single-host label with no declared "
+                                     f"fallback (labels.{label})"})
+    return found
+
+
+def undeclared(workflow_dirs: Iterable[Path], policy: dict) -> list[str]:
+    return [finding["message"] for finding in findings(workflow_dirs, policy)]
+
+
+def check(root: Path) -> list[dict]:
+    """Every finding for the repository at ROOT: the declaration's own faults, then the workflows'.
+
+    A declaration the scan cannot walk (missing, not JSON, a section of the wrong type) gives INCOMPLETE findings
+    only: no workflow was read, so none of them says anything about the runs-on lines."""
+    path = root / DECLARATION
+    if not path.is_file():
+        return [{"key": "declaration:missing", "file": DECLARATION, "line": 1, "status": INCOMPLETE,
+                 "message": f"{DECLARATION} is missing, so no runs-on variable has a declared fallback"}]
+    try:
+        policy = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, UnicodeDecodeError) as error:
+        return [{"key": "declaration:unreadable", "file": DECLARATION, "line": 1, "status": INCOMPLETE,
+                 "message": f"{DECLARATION} is not readable JSON, so no workflow was scanned: {error}"}]
+    faults = declaration_faults(policy)
+    if not scannable(policy):
+        # A section of the wrong type (null, a list for an object) is never walked: the scan did not run.
+        return [{"key": f"declaration:{fault}", "file": DECLARATION, "line": 1, "status": INCOMPLETE,
+                 "message": f"{DECLARATION}: {fault} (no workflow was scanned)"}
+                for fault in faults or ["a section the scan reads has the wrong type"]]
+    found = [{"key": f"declaration:{fault}", "file": DECLARATION, "line": 1, "status": FOUND,
+              "message": f"{DECLARATION}: {fault}"} for fault in faults]
+    return found + findings([root / WORKFLOWS], policy)
+
+
+def escape(text: str, properties: bool = False) -> str:
+    """A workflow command value (GitHub's escaping: %, CR, LF; also : and , in a property)."""
+    text = text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    return text.replace(":", "%3A").replace(",", "%2C") if properties else text
+
+
+def advisory(root: Path) -> int:
+    """Warn on each finding, add a line to the step summary, and exit 0 whatever happens."""
+    try:
+        found = check(root)
+    except Exception as error:  # advisory: a scan that cannot run warns, it never fails the step
+        found = [{"key": "error", "file": DECLARATION, "line": 1, "status": INCOMPLETE,
+                  "message": f"the single-host fallback scan could not run: {error.__class__.__name__}: {error}"}]
+    for finding in found:
+        print(f"::warning file={escape(finding['file'], True)},line={finding['line']},"
+              f"title=Single-host fallback::{escape(finding['message'])}")
+    summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a", encoding="utf-8") as handle:
+            if found:
+                handle.write(f"- Single-host fallbacks (advisory, not a gate): {len(found)} finding(s): "
+                             + "; ".join(f"`{f['key']}`" for f in found) + f". Declare them in `{DECLARATION}`.\n")
+            else:
+                handle.write("- Single-host fallbacks (advisory, not a gate): every runs-on variable is declared.\n")
+    print(f"single-host fallbacks (advisory): {len(found)} finding(s); this step's exit code is unchanged")
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
+    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2],
+                        help="the repository root holding .github/ (default: this checkout)")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--advisory", action="store_true",
+                      help="CI: one ::warning per finding and a step summary line, exit 0")
+    mode.add_argument("--json", action="store_true", help="print the findings as JSON, exit 0 (the pre-push gate)")
+    args = parser.parse_args(argv)
+    if args.advisory:
+        return advisory(args.root)
+    found = check(args.root)
+    if args.json:
+        print(json.dumps(found))
+        return 0
+    for finding in found:
+        print(finding["message"])
+    if found:
+        print(f"single-host fallbacks: {len(found)} finding(s); declare each in {DECLARATION}", file=sys.stderr)
+        return 1
+    print("single-host fallbacks: every runs-on variable and single-host label is declared")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

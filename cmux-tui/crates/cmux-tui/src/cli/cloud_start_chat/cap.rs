@@ -53,6 +53,11 @@ pub(super) fn cap_of(code: &str, message: &str, resource: Option<&str>) -> Optio
     {
         return Some(Cap::Spend);
     }
+    // The provider's VM limit (cmux-platform#1192 `cloud.quota.vm_limit`, the app server's
+    // `cmux.cloud.vm_limit`): every machine held counts, paused ones too.
+    if code.ends_with("vm_limit") {
+        return Some(Cap::Held);
+    }
     match resource {
         Some("active") => return Some(Cap::Running),
         Some("machines") => return Some(Cap::Held),
@@ -149,7 +154,7 @@ pub(super) struct Room {
 }
 
 impl Room {
-    /// The command that frees it.
+    /// The command that frees it, as this binary runs it as a step (the app's `machine:` words).
     pub(super) fn command(&self) -> Vec<String> {
         let verb = if self.archive { "archive-machine" } else { "kill-machine" };
         let target = format!("machine:{}", self.machine);
@@ -162,8 +167,10 @@ impl Room {
         let command = if self.machine.is_empty() {
             Value::Null
         } else {
+            // Printed in the CLI's VM words (`cmux vm kill-machine --target vm:ID`, vm_words.rs); the
+            // step this binary runs itself keeps the app's `machine:` ([`Room::command`]).
             let words: Vec<String> = self.command().into_iter().take(5).collect();
-            json!(format!("cmux {}", words.join(" ")))
+            json!(super::super::vm_words::respell(&format!("cmux {}", words.join(" "))))
         };
         json!({
             "machine_id": self.machine, "name": self.name,

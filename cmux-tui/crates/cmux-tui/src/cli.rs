@@ -77,6 +77,8 @@ mod cloud_repo;
 #[cfg(unix)]
 mod cloud_retention;
 #[cfg(unix)]
+mod cloud_run_account;
+#[cfg(unix)]
 mod cloud_secret;
 #[cfg(unix)]
 mod cloud_start_chat;
@@ -87,10 +89,16 @@ mod code_mode;
 mod coderouter;
 mod codex_app_server;
 mod command;
+mod completion;
+pub(crate) use completion::refuse_in_help_reader;
+#[cfg(unix)]
+mod customize;
 #[cfg(unix)]
 mod dev;
 mod docs;
 mod event_match;
+#[cfg(unix)]
+mod ext;
 mod extra_help;
 mod federation;
 mod fix_command;
@@ -112,11 +120,15 @@ mod lifecycle;
 mod live_code;
 #[cfg(unix)]
 mod repo_hold;
+#[cfg(unix)]
+mod safe_mode;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
 #[cfg(unix)]
 mod sandbox_run;
 #[cfg(unix)]
 mod vm;
+#[cfg(unix)]
+mod vm_ready;
 #[cfg(unix)]
 mod vm_short;
 mod vm_words;
@@ -146,7 +158,8 @@ mod machine_link;
 pub(crate) use machine_join::{
     Auth as PlatformAuth, CallError as PlatformCallError, Platform,
     device_credential as joined_machine_credential, platform_origin,
-    read_credential as read_platform_credential, rows_for_devices as joined_machine_rows,
+    read_credential as read_platform_credential, refusal_reason as platform_refusal_reason,
+    rows_for_devices as joined_machine_rows,
 };
 mod machine_server;
 #[cfg(test)]
@@ -481,6 +494,7 @@ pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "remote-host",
     "chat",
     "vm",
+    "customize",
 ];
 
 /// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
@@ -645,6 +659,10 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
     if let Ok((_, command)) = parse_globals(args) {
         vm_words::activate_for(&command);
     }
+    // `cmux completion zsh|bash|fish` and the scripts' `cmux __complete -- WORDS`.
+    if let Some(code) = completion::run_if_requested(args) {
+        return code;
+    }
     #[cfg(unix)]
     if let Some(code) = dev::run_if_requested(args, surface) {
         return code;
@@ -713,7 +731,13 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         }
         None => {
             vm::cloud_rename_note(args);
-            args
+            match vm::cloud_yes(args) {
+                Some(rewritten) => {
+                    cloud_args = rewritten;
+                    cloud_args.as_slice()
+                }
+                None => args,
+            }
         }
     };
     // `machine list --cloud-token-file F`: the flags are for its joined rows, not the daemon.
@@ -787,6 +811,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_environment::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
         .or_else(|| cloud_start_chat::run_if_requested(args))
+        .or_else(|| cloud_run_account::run_if_requested(args))
         .or_else(|| cloud_retention::run_if_requested(args))
         .or_else(|| cloud_repo::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))
@@ -798,9 +823,12 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| machine_link::run_if_requested(args))
         .or_else(|| machine_join::run_if_requested(args))
         .or_else(|| machine_doctor::run_if_requested(args))
+        .or_else(|| safe_mode::run_if_requested(args))
         .or_else(|| apps_list::run_if_requested(args))
         .or_else(|| apps_place::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
+        .or_else(|| ext::run_if_requested(args))
+        .or_else(|| customize::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
         .or_else(|| remote_host::run_if_requested(args))
@@ -1479,6 +1507,7 @@ fn scope_help_with_keys(
         "keys" => Cow::Owned(keys_help::help(&keys(), catalog)),
         machine_server::HELP_TOPIC => Cow::Owned(machine_server::help()),
         "docs" => Cow::Borrowed(docs::help()),
+        "completion" => Cow::Borrowed(completion::HELP),
         "server" => Cow::Borrowed(catalog.local_server.help),
         "server start" => Cow::Borrowed(catalog.local_server.start_help),
         "server ensure" => Cow::Borrowed(catalog.local_server.ensure_help),

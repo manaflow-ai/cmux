@@ -1,12 +1,13 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCloud
-import CmuxNextCloudUI
 import CmuxNextCloudCredentials
+import CmuxNextCloudUI
 import CmuxNextCompat
-import CmuxNextDesign
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDaemonService
+import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextWakeups
 
@@ -20,8 +21,12 @@ extension CloudHandlers {
             let target = try workspaceMachine(invocation, context)
             if let target { try requireAttachableState(target) }
             let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil
-            guard let session = target, session.daemon.connection != nil else {
-                if target == nil, origin(of: invocation) == .user, window != nil {
+            let route = CloudHandlerRules().ask("cloud_handler_new_workspace", [
+                "hasTarget": target != nil, "connected": target?.daemon.connection != nil,
+                "byUser": origin(of: invocation) == .user, "hasWindow": window != nil,
+            ])?["route"] as? String
+            guard let session = target, route == "workspace" else {
+                if route == "setup" {
                     beginWorkspaceSetup(context, window: window, askedBy: invocation.callerAgentSession)
                     return
                 }
@@ -190,9 +195,14 @@ extension CloudHandlers {
     /// A retryable failure is still waiting. Mirroring removes the progress row normally;
     /// explicit teardown ends the wizard even when it already opened a workspace.
     static func workspaceSetupReadiness(_ creation: CloudMachineCreation, in creations: CloudCreations) -> CloudWorkspaceSetupWizard.Readiness {
-        if creation.isTornDown { return .ended }
-        if creation.workspaceID != nil { return .ready }
-        return creations.creation(creation.id) == nil ? .ended : .waiting
+        let readiness = CloudHandlerRules().ask("cloud_handler_setup_readiness", [
+            "tornDown": creation.isTornDown, "hasWorkspace": creation.workspaceID != nil, "listed": creations.creation(creation.id) != nil,
+        ])?["readiness"] as? String
+        switch readiness {
+        case "ready": return .ready
+        case "waiting": return .waiting
+        default: return .ended
+        }
     }
 
     /// Normal row removal keeps the clone wait alive; teardown wakes it without a result.
@@ -220,67 +230,44 @@ extension CloudHandlers {
 
     // MARK: cloud new-machine with options
 
-    /// The invocation's `name`, `size`, `persistent`, `bootstrap`, `bootstrapScript`, `machineConfig` and `repo`. Reads no
-    /// file: the script is loaded off the main thread before the create.
+    /// The invocation's `name`, `size`, `persistent`, `bootstrap`, `bootstrapScript`, `machineConfig` and `repo`,
+    /// checked by the rules. Reads no file: the script is loaded off the main thread before the create.
     static func newMachineRequest(_ invocation: ActionInvocation) throws -> CloudMachineRequest {
-        // A text flag given with no value (`--bootstrap-script` last on the line) arrives as `true`:
-        // refuse it rather than make a machine without what was asked.
-        for name in ["name", "size", "bootstrap", "bootstrapScript", "machineConfig", "repo", "environment"] where invocation[name] != nil && invocation[name]?.stringValue == nil {
-            switch name {
-            case "environment": throw CloudWorkspaceSetupWizard.EnvironmentOption.Unknown()
-            case "machineConfig": throw ActionFailure(message: CloudStrings.machineConfigUnreadable("--machine-config"))
-            case "size": throw ActionFailure(message: CloudStrings.sizeMustBeOneOf(createSizes.keys.sorted().joined(separator: ", ")))
-            case "name": throw ActionFailure(message: CloudStrings.laneNeedsName)
-            case "repo": throw ActionFailure(message: CloudStrings.repoUnrecognized)
-            default: throw ActionFailure(message: CloudStrings.bootstrapScriptRequired)
-            }
+        let checked = try CloudHandlerRules().arg("newMachine", invocation, extra: ["home": NSHomeDirectory()]) as? [String: Any] ?? [:]
+        var request = CloudMachineRequest(name: checked["name"] as? String, size: checked["size"] as? String, memoryMb: checked["memoryMb"] as? Int,
+                                          persistent: checked["persistent"] as? Bool ?? false, bootstrapPath: checked["bootstrapPath"] as? String,
+                                          bootstrapKind: checked["bootstrapKind"] as? String == "lane" ? .lane : .plain)
+        request.machineConfigPath = checked["machineConfigPath"] as? String
+        // A bare `--environment` (no value) arrives as `true`: refused, never a machine without it.
+        if let environment = invocation["environment"] {
+            guard let word = environment.stringValue else { throw CloudWorkspaceSetupWizard.EnvironmentOption.Unknown() }
+            request.environment = try CloudWorkspaceSetupWizard.EnvironmentOption.word(word) // an env_ id, or a name createRequested reads
         }
-        var request = CloudMachineRequest()
-        if let name = invocation["name"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) {
-            guard CloudMachineRequest.isPlainName(name) else { throw ActionFailure(message: CloudStrings.machineNameInvalid) }
-            request.name = name
-        }
-        if let size = invocation["size"]?.stringValue {
-            guard let (_, memory) = createSizes[size] else { throw ActionFailure(message: CloudStrings.sizeMustBeOneOf(createSizes.keys.sorted().joined(separator: ", "))) }
-            request.size = size
-            request.memoryMb = memory
-        }
-        request.persistent = invocation["persistent"]?.boolValue ?? (invocation["persistent"]?.stringValue == "true")
-        let kind = invocation["bootstrap"]?.stringValue ?? "none", path = invocation["bootstrapScript"]?.stringValue
-        guard kind == "none" || kind == "lane" else { throw ActionFailure(message: CloudStrings.bootstrapScriptRequired) }
-        if kind == "lane" || path != nil {
-            // A script alone runs as a plain bootstrap; `lane` also names the lane host.
-            guard let path, !path.isEmpty else { throw ActionFailure(message: CloudStrings.bootstrapScriptRequired) }
-            request.bootstrapPath = CloudMachineRequest.expandingHome(path)
-            request.bootstrapKind = kind == "lane" ? .lane : .plain
-        }
-        if let config = invocation["machineConfig"]?.stringValue {
-            guard !config.isEmpty else { throw ActionFailure(message: CloudStrings.machineConfigUnreadable(config)) }
-            request.machineConfigPath = CloudMachineRequest.expandingHome(config)
-        }
-        if request.bootstrapKind == .lane, request.name == nil { throw ActionFailure(message: CloudStrings.laneNeedsName) }
-        request.environment = try invocation["environment"]?.stringValue.map(CloudWorkspaceSetupWizard.EnvironmentOption.word) // an env_ id, or a name createRequested reads
-        if let spec = invocation["repo"]?.stringValue {
-            do { request.repo = try CloudMachineRepo.parse(spec) } catch let invalid as CloudMachineRepo.Invalid {
-                // The spec is never echoed: it may carry a token.
-                switch invalid {
-                case .credentialsInURL: throw ActionFailure(message: CloudStrings.repoCredentialsInURL)
-                case .invalidRef: throw ActionFailure(message: CloudStrings.repoInvalidRef)
-                case .unrecognized: throw ActionFailure(message: CloudStrings.repoUnrecognized)
-                }
-            }
+        // The rules parsed `--repo` (a login or token in it is refused, never echoed).
+        if let repo = checked["repo"] as? [String: Any], let owner = repo["owner"] as? String, let name = repo["name"] as? String,
+           let host = repo["host"] as? String {
+            request.repo = CloudMachineRepo(owner: owner, name: name, ref: repo["ref"] as? String, host: host)
         }
         return request
     }
 
+    /// The request's facts for the rules (``CloudHandlerRules``).
+    static func requestFacts(_ request: CloudMachineRequest) -> [String: Any] {
+        ["name": request.name as Any, "size": request.size as Any, "memoryMb": request.memoryMb as Any, "persistent": request.persistent,
+         "bootstrapPath": request.bootstrapPath as Any, "bootstrapKind": request.bootstrapKind == .lane ? "lane" : "plain",
+         "machineConfigPath": request.machineConfigPath as Any,
+         "repo": request.repo.map { ["owner": $0.owner, "name": $0.name, "ref": $0.ref as Any, "host": $0.host,
+                                     "spec": $0.spec, "url": $0.url, "directory": $0.directory].compacted } as Any].compacted
+    }
+
+    static func outcomeFacts(status: String, reason: String?, statusFile: String, log: String) -> [String: Any] {
+        ["status": status, "reason": reason as Any, "statusFile": statusFile, "log": log].compacted
+    }
+
     /// The `machine_config` answer of a start (``CloudMachineConfig``): its status and how to read it.
     static func machineConfigAnswer(_ outcome: CloudMachineBootstrap.Outcome, machineID: String) -> ActionResultValue {
-        var answer: [String: ActionResultValue] = [
-            "status": .string(outcome.status), "status_file": .string(CloudMachineConfig.statusPath), "log": .string(CloudMachineConfig.logPath),
-            "check": .string("cmux cloud file-read --target machine:\(machineID) --path \(CloudMachineConfig.statusPath)"),
-        ]
-        if let reason = outcome.reason { answer["reason"] = .string(reason) }
-        return .object(answer)
+        let facts = outcomeFacts(status: outcome.status, reason: outcome.reason, statusFile: CloudMachineConfig.statusPath, log: CloudMachineConfig.logPath)
+        return CloudHandlerRules().ask("cloud_handler_machine_config", ["outcome": facts, "machineId": machineID])?["answer"].map(CloudHandlerRules.result) ?? .null
     }
 
     /// Loads the bootstrap script before anything is created (an unreadable script costs no
@@ -304,66 +291,21 @@ extension CloudHandlers {
             let creation = flow.start(in: window, existing: nil, request: request)
             if case .failed(let reason)? = await settledCreation(creation, in: creations) { throw ActionFailure(message: "new Cloud machine: \(reason)") }
             guard let session = creation.session else { throw ActionFailure(message: CloudStrings.createDeclined) }
-            var fields = createdMachineFields(session, workspaceID: creation.workspaceID).merging(newMachineFields(request, session.machine)) { _, new in new }
-            var bootstrap: [String: ActionResultValue] = ["status": .string("none")]
+            var made: [String: Any] = ["machine": machineFacts(session), "workspaceId": creation.workspaceID as Any]
             if let script = request.script, let outcome = creation.bootstrap {
-                bootstrap = ["status": .string(outcome.status), "kind": .string(script.kind.rawValue), "log": .string(CloudMachineBootstrap.logPath),
-                             "status_file": .string(CloudMachineBootstrap.statusPath),
-                             "check": .string("cmux cloud file-read --target machine:\(session.machineID) --path \(CloudMachineBootstrap.statusPath)")]
-                if let reason = outcome.reason { bootstrap["reason"] = .string(reason) }
-            }
-            fields["bootstrap"] = .object(bootstrap)
-            if let repo = request.repo {
-                // The clone runs in the bootstrap; its result (cloned, updated, kept, failed, needs_github)
-                // lands later in the status file's `repo`, which `check` reads.
-                fields["repo"] = .object(["spec": .string(repo.spec), "url": .string(repo.url), "dir": .string("~/" + repo.directory),
-                                          "check": bootstrap["check"] ?? .string("none")])
+                made["scriptKind"] = script.kind.rawValue
+                made["bootstrap"] = outcomeFacts(status: outcome.status, reason: outcome.reason, statusFile: CloudMachineBootstrap.statusPath, log: CloudMachineBootstrap.logPath)
             }
             if request.machineConfig != nil, let outcome = creation.machineConfig {
-                fields["machine_config"] = machineConfigAnswer(outcome, machineID: session.machineID)
+                made["machineConfig"] = outcomeFacts(status: outcome.status, reason: outcome.reason, statusFile: CloudMachineConfig.statusPath, log: CloudMachineConfig.logPath)
             }
-            var enrollment = newMachineEnrollment(request, session.machine)
-            if request.persistent, session.machine.idlePauseMinutes != 0 {
-                // The create and the PUT after it both left the default: say how to finish.
-                enrollment["pending"] = .array([.string("idle-pause: cmux cloud set-idle-pause --target machine:\(session.machineID) --minutes off")]
-                    + (enrollment["pending"].flatMap { if case .array(let items) = $0 { items } else { nil } } ?? []))
-            }
-            fields["enrollment"] = .object(enrollment)
-            return fields
+            return CloudHandlerRules().fields("cloud_handler_created", ["request": requestFacts(request), "made": made.compacted])
         }
     }
 
-    /// `cloud new-machine --size` -> (vCPUs, MiB) as the server's size ladder makes them from the
-    /// memory a create sends (web/services/vms/images/sizes.ts: the smallest row with that memory),
-    /// so the answer says what the machine gets. `resize-machine` sets vCPUs itself (``sizes``).
-    static let createSizes: [String: (Int, Int)] = ["small": (2, 4096), "medium": (4, 8192), "large": (8, 16384), "xlarge": (12, 24576)]
-
-    /// The request's facts as `action.run` result fields, next to the machine's. `persistent`
-    /// is what the server stored, not what was asked (`persistent_requested`); a `pending`
-    /// answer, with no machine yet, has no `persistent`.
-    static func newMachineFields(_ request: CloudMachineRequest, _ machine: CloudMachine?) -> [String: ActionResultValue] {
-        var fields: [String: ActionResultValue] = ["persistent_requested": .bool(request.persistent)]
-        if let name = machine?.displayName ?? request.name { fields["name"] = .string(name) }
-        let asked = request.size.flatMap { size in createSizes[size].map { (size, $0.0, $0.1) } }
-        if let size = asked?.0 ?? machine?.size?.name { fields["size"] = .string(size) }
-        if let cpu = machine?.size?.cpu ?? asked?.1 { fields["cpu"] = .int(cpu) }
-        if let memory = machine?.size?.memoryMb ?? asked?.2 { fields["memory_mb"] = .int(memory) }
-        if let machine {
-            fields["persistent"] = .bool(machine.idlePauseMinutes == 0)
-            if let minutes = machine.idlePauseMinutes { fields["idle_pause_minutes"] = .int(minutes) }
-        }
-        if let address = machine?.address?.ipv4 ?? machine?.address?.ipv6 { fields["address"] = .string(address) }
-        return fields
-    }
-
-    /// What is left to make a lane machine a fleet host: the registry entries leo-workspace keeps
-    /// (`tools/lane-vm-enroll`).
-    static func newMachineEnrollment(_ request: CloudMachineRequest, _ machine: CloudMachine) -> [String: ActionResultValue] {
-        var answer: [String: ActionResultValue] = ["done": .array([]), "pending": .array([.string("fleet-registry")])]
-        guard request.bootstrapKind == .lane, request.bootstrapPath != nil, let name = request.name else { return answer }
-        let address = machine.address?.ipv4.map { " --address \($0)" } ?? ""
-        answer["registry_command"] = .string("tools/lane-vm-enroll \(name) \(machine.id)\(address) --apply")
-        return answer
+    /// The request's facts as `action.run` result fields, next to the machine's (nil: none yet).
+    static func newMachineFields(_ request: CloudMachineRequest, _ session: CloudMachineSession?) -> [String: ActionResultValue] {
+        CloudHandlerRules().fields("cloud_handler_new_machine_fields", ["request": requestFacts(request), "machine": session.map(machineFacts) as Any].compacted)
     }
 
     /// The New Cloud Workspace flow over this app's services (cx-lu8f).
@@ -452,13 +394,11 @@ extension CloudHandlers {
         // argument); the shortcut opens that step too. The switch goes through ActiveTeam, like
         // every other surface (Settings > Accounts has its own team menu).
         bind("openTeamPicker", registry, reason: { cloud.isSignedIn ? nil : CloudStrings.signInFirst }) { invocation in
-            let active = cloud.auth.activeTeam, teams = active.teams
-            guard !teams.isEmpty else { throw ActionFailure(message: CloudStrings.noTeams) }
-            guard let id = invocation["team"]?.stringValue, let team = teams.first(where: { $0.id == id || $0.displayName == id }) else {
-                throw ActionFailure.invalidTarget(CloudStrings.noSuchTeam(invocation["team"]?.stringValue ?? ""))
-            }
-            guard team.id != active.id else { return } // the active team is a no-op
-            run("switch team", context) { try await active.select(team.id) }
+            let active = cloud.auth.activeTeam
+            let facts: [String: Any] = ["teams": active.teams.map { ["id": $0.id, "name": $0.displayName] }, "active": active.id as Any,
+                                        "team": invocation["team"]?.stringValue as Any]
+            guard let id = try CloudHandlerRules().checked("cloud_handler_team", facts.compacted, valueKey: "select") as? String else { return } // the active team
+            run("switch team", context) { try await active.select(id) }
         }
         let otherSuggestions = registry.argumentSuggestions
         registry.argumentSuggestions = { source in
@@ -512,15 +452,16 @@ extension CloudHandlers {
     /// The first thing that needs the person, else that all is well.
     private static func diagnosticsSummary(_ context: AppActionContext, _ account: CloudDiagnosticsReport.Account) -> String {
         let cloud = context.services.cloud, machines = context.services.machines
-        if let reason = cloud.unavailableReason { return reason }
-        guard cloud.isSignedIn else { return CloudStrings.signInFirst }
-        for session in machines.cloud {
-            if let failure = session.stage.failure { return "\(session.machine.title): \(failure)" }
-            if let compat = machines.compatibility(of: session.daemon), compat.level != .current {
-                return "\(session.machine.title): \(CloudStrings.compatibility(compat))"
-            }
-        }
-        return CloudStrings.diagnosticsAllWell(CloudDiagnosticsReport.accountLabel(account))
+        let facts: [String: Any] = [
+            "unavailable": cloud.unavailableReason as Any, "signedIn": cloud.isSignedIn,
+            "accountLabel": CloudDiagnosticsReport.accountLabel(account),
+            "machines": machines.cloud.map { session -> [String: Any] in
+                let compat = machines.compatibility(of: session.daemon).flatMap { $0.level == .current ? nil : CloudStrings.compatibility($0) }
+                return ["title": session.machine.title, "failure": session.stage.failure as Any, "compatibility": compat as Any].compacted
+            },
+        ]
+        let summary = CloudHandlerRules().ask("cloud_handler_diagnostics", facts.compacted)?["summary"]
+        return CloudHandlerRules.text(CloudHandlerRules.decodeSaid(summary ?? NSNull()))
     }
 
     static func bindSignInRecovery(into registry: ActionRegistry, cloud: CloudService) { CloudSignInRecovery(pending: cloud.signedOutCreation, signIn: { await cloud.auth.signIn() }, hasCurrentList: { cloud.hasCurrentList(within: .seconds(30)) }, isSignedIn: { cloud.isSignedIn }, refresh: { await cloud.refresh() }).bind(into: registry) } // HQ #4884

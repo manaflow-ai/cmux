@@ -446,6 +446,23 @@
       "paths": [
         "webviews/src/pages/markdown/"
       ]
+    },
+    "ios-connectivity": {
+      "spec": "leo-workspace design/ios.md",
+      "aliases": ["ios connectivity", "ios reconnect", "ios reliability", "ios reliability matrix", "phone link", "mobile link", "iphone connection"],
+      "paths": [
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/LinkMachine.swift",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/LinkController.swift",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/LiveCoordinator+Links.swift",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/LinkPairing.swift",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/PresenceListener.swift",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTransport/",
+        "cmux-next-ios/rust/crates/cmux-mobile-link/src/",
+        "cmux-next-ios/rust/crates/cmux-mobile-host/src/link_socket.rs",
+        "cmux-next-ios/rust/crates/cmux-mobile-host/src/host.rs",
+        "cmux-next-ios/rust/crates/cmux-mobile-host/src/pairing.rs",
+        "cmux-next-ios/reliability-matrix/"
+      ]
     }
   }
 }

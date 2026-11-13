@@ -123,6 +123,21 @@ export const PAGE_COMMAND = "cmux.page.command";
  * prove a gesture. The host answers the op's result fields at the top level, or `{confirmed: false}`
  * for a declined sheet.
  */
+/**
+ * The native actions the host runs behind its own confirmation sheet (PageDescriptor.cloud `confirmedOps`,
+ * PageProviders `runConfirmed`): their answer is `{confirmed: false}` or `{confirmed: true, value}`, the op's
+ * own answer under `value` ([`confirmedValue`](./store.ts)).
+ */
+export const CONFIRMED_ACTIONS = new Set<string>([
+  CloudOps.machineDelete,
+  CloudOps.machineArchiveDelete,
+  CloudOps.machineConnect,
+  CloudOps.snapshotRestore,
+  CloudOps.snapshotDelete,
+  AccountOps.signIn,
+  AccountOps.signOut,
+]);
+
 export const NATIVE_ACTIONS = new Set<string>([
   AccountOps.signIn,
   AccountOps.signOut,

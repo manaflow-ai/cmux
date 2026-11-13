@@ -205,3 +205,38 @@ fn agent_status_done_until_seen_survives_reads_and_clears_on_ack() {
     hook("UserPromptSubmit", "done-4");
     assert_eq!(listed(), pair("working", "working"));
 }
+#[test]
+fn a_revisioned_delta_carries_its_registry_event_and_reads_no_registry_to_send() {
+    let mux = test_mux();
+    let events = mux.subscribe();
+    let mutation = WorkspaceMutation::daemon_local("delta-origin-test");
+    let placement = mux
+        .create_empty_workspace_with_mutation(Some("w".into()), None, None, None, &mutation)
+        .unwrap();
+    let delta = loop {
+        match events.recv_timeout(Duration::from_secs(5)).unwrap() {
+            MuxEvent::TreeDelta(delta) if delta.workspace_revision.is_some() => break delta,
+            _ => {}
+        }
+    };
+    assert_eq!(delta.workspace_revision, Some(placement.revision));
+    let event = mux.workspace_registry_event(placement.revision).unwrap().unwrap();
+
+    // A subscriber builds the line while a commit holds the registry.
+    let registry = mux.workspace_registry.lock().unwrap();
+    let (built_tx, built_rx) = std::sync::mpsc::channel();
+    let builder_mux = mux.clone();
+    let builder = std::thread::spawn(move || {
+        built_tx.send(tree_delta_json(&delta, &builder_mux)).unwrap();
+    });
+    let built = built_rx.recv_timeout(Duration::from_secs(2));
+    drop(registry);
+    builder.join().unwrap();
+    let line = built.expect("the delta line waited for the registry lock");
+
+    assert_eq!(line["event"], "workspace-added");
+    assert_eq!(line["workspace_revision"], json!(placement.revision));
+    assert_eq!(line["origin"], json!(event.origin));
+    assert_eq!(line["mutation_id"], json!(event.mutation_id));
+    assert_eq!(line["mutation_id"], json!(mutation.id));
+}

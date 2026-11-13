@@ -1,0 +1,114 @@
+# The one step table (the CI v2 design, "One step table").
+#
+# Leo, 2026-11-13: "Few jobs on warm trees; the PR runs what base runs on the tree that lands. 267 jobs
+# per PR become one step table and at most 8 jobs; a landing train tests the merge result (3.81 base
+# reds per 100 landings today). Advisory steps run idle-class and never block."
+#
+# A step is one command. It names the job that runs it (one of `jobs` below, at most 8), the paths that
+# route it (`inputs`, globs; none means every change), whether it blocks, its class and its timeout.
+# scripts/ci/ci_steps.py routes a diff to steps and runs one job's steps in parallel. A step with
+# `blocks = false` runs in the `advisory` job, in class `idle`, and its failure is a warning: the job
+# still passes. tests/test_ci_step_table.py holds both rules and the PR job budget.
+#
+# Steps run from the base branch's checkout, never the pull request's code. They read the event from
+# the environment the calling workflow step sets (BODY, TITLE, LABELS, PATHS_LISTED, ...).
+
+# Jobs a pull request into feat-cmux-next can start (354 on 2026-11-13; the design's 267 left out
+# matrix shards and the jobs of called reusable workflows), counted by tests/test_ci_step_table.py the
+# way GitHub starts them (a matrix as its shards, a reusable workflow's jobs where they run). It may
+# only go down; the target is `target_pr_jobs`. Lower it when a change removes jobs.
+[budget]
+# 362 since #42337 (12 webview test shards in 2 matrices of ci-web.yml, 8 more jobs than the 354 that
+# #42368 counted); 353 since #42540 (react-apps-base-check one job, not 12; react-apps-base-early 2).
+pr_jobs = 353
+target_pr_jobs = 8
+
+# The PR pipeline's jobs (the design's table). A step names one of these; there is no ninth.
+[jobs]
+linux = "one warm Linux VM: route, guards, lints, Rust and web unit tests, the compile check"
+web-browser = "the Playwright and gallery suites, sharded, only when routed"
+mac = "a Mac holding the app tree: incremental compile and the changed targets' Swift tests"
+ios = "a mini with simulators, only when routed"
+advisory = "every blocks = false step, class idle, posts warnings, never fails"
+verdict = "no machine: the one check may_merge reads"
+
+# The description lints from pr-body-checks.yml. They judge the description, not the code, and only
+# ever warned (Leo, 2026-11-01: "keep only what catches real breakage"; cmuxterm-hq#5745).
+[step.design-spec]
+job = "advisory"
+blocks = false
+class = "idle"
+timeout = 120
+title = "Design spec"
+about = "a pull request that changes a UI surface's files cites the surface's design spec (.github/design-surfaces.json)"
+run = '''
+if [ "${PATHS_LISTED:-}" != true ] || [ "${TREE_LISTED:-}" != true ]; then
+  echo "The changed paths or the merged tree could not be listed from git; skipped."
+  exit 0
+fi
+if [ ! -f scripts/ci/pr_design_spec_check.py ] || [ ! -f .github/design-surfaces.json ]; then
+  # The pull request that adds the check: its base has no check or map yet.
+  echo "::notice::The base branch has no design spec check or surface map yet; nothing to check."
+  exit 0
+fi
+printf '%s' "$BODY" > "$RUNNER_TEMP/design-body.md"
+python3 scripts/ci/pr_design_spec_check.py --body-file "$RUNNER_TEMP/design-body.md" \
+  --paths-file "$RUNNER_TEMP/paths.txt" --tree-file "$RUNNER_TEMP/tree.txt" \
+  --map .github/design-surfaces.json --pr-map "$RUNNER_TEMP/design-surfaces.json" \
+  || echo "::warning title=Design spec::the design spec check could not run (exit $?); see this job's log"
+'''
+
+# A missing table is an ::error annotation on the run and never a red check. A perf label event re-runs
+# it. When git could not list the paths it reads the files API, into its own file: the other steps run
+# beside it and read paths.txt.
+[step.perf-section]
+job = "advisory"
+blocks = false
+class = "idle"
+timeout = 180
+title = "Performance table"
+about = "a performance pull request records a ## Performance table of before/after deltas, or a No perf numbers line"
+labels = ["perf", "performance"]
+run = '''
+if [ ! -f scripts/ci/pr_perf_section_check.py ]; then
+  # The pull request that adds the check: its base has no check to run yet.
+  echo "::notice::The base branch has no scripts/ci/pr_perf_section_check.py yet; nothing to check."
+  exit 0
+fi
+printf '%s' "$BODY" > "$RUNNER_TEMP/perf-body.md"
+paths="$RUNNER_TEMP/paths.txt"
+if [ "${PATHS_LISTED:-}" != true ]; then
+  paths="$RUNNER_TEMP/perf-paths.txt"
+  gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)' > "$paths"
+fi
+size=()
+# The base copy runs; one from before the light path has no size flags.
+if grep -q -- "--additions" scripts/ci/pr_perf_section_check.py; then
+  size=(--additions "$ADDITIONS" --deletions "$DELETIONS")
+fi
+python3 scripts/ci/pr_perf_section_check.py --body-file "$RUNNER_TEMP/perf-body.md" \
+  --paths-file "$paths" --title "$TITLE" --labels "$LABELS" "${size[@]}"
+'''
+
+[step.cloud-backend]
+job = "advisory"
+blocks = false
+class = "idle"
+timeout = 120
+title = "Cloud backend belongs in cmux-platform"
+about = "a pull request that adds or changes a path in .github/cloud-backend-paths.json has a cmux-platform: line"
+run = '''
+if [ "${PATHS_LISTED:-}" != true ]; then
+  echo "The changed paths could not be listed from git; skipped."
+  exit 0
+fi
+if [ ! -f scripts/ci/pr_cloud_backend_check.py ] || [ ! -f .github/cloud-backend-paths.json ]; then
+  # The pull request that adds the check: its base has no check or map yet.
+  echo "::notice::The base branch has no cloud backend check or path map yet; nothing to check."
+  exit 0
+fi
+printf '%s' "$BODY" > "$RUNNER_TEMP/cloud-body.md"
+python3 scripts/ci/pr_cloud_backend_check.py --body-file "$RUNNER_TEMP/cloud-body.md" \
+  --status-file "$RUNNER_TEMP/status.txt" --map .github/cloud-backend-paths.json \
+  || echo "::warning title=Cloud backend belongs in cmux-platform::the check could not run (exit $?); see this job's log"
+'''

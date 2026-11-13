@@ -25,6 +25,8 @@ mod browser_host_history;
 mod browser_provider;
 /// Where the daemon finds the first-party app packages (cx-0uo1, cx-e0cs).
 pub mod first_party_dir;
+#[cfg(all(test, unix))]
+mod fork_tests;
 mod lock_rank;
 pub mod remote_host;
 /// The cloud conversations proxy; its own crate, re-exported at the old path.
@@ -93,6 +95,7 @@ mod resource_router;
 mod resource_screen;
 mod resource_selector;
 mod resource_tab;
+pub mod safe_mode_flag;
 mod scripts;
 mod serial_lanes;
 mod session_shutdown;
@@ -125,6 +128,8 @@ mod terminal_loss_log;
 mod terminal_metadata;
 mod terminal_tail;
 pub use cmux_tui_util::terminal_respawn_text;
+#[cfg(test)]
+mod walk_counters;
 mod workspace_registry;
 /// A synthetic registry of a long-lived owner's shape (startup measurements).
 pub use workspace_registry::synth as synth_registry;
@@ -197,6 +202,7 @@ pub use mux::{
     MAX_TERMINAL_REAP_GRACE, TerminalReaper, start_idle_terminal_reaper, start_terminal_reaper,
     validate_terminal_reap_grace,
 };
+pub use mux::{JournalFollowerSnapshot, JournalFollowersSnapshot};
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
 pub use program_status::ShownProgramStatus;
 pub use remote_relay_state::{
@@ -218,6 +224,7 @@ pub use surface::{
     TerminalPointerSnapshot,
 };
 pub use surface::{apply_terminal_color_overrides, default_child_term};
+pub use terminal_title::{TabTitle, TitleActivity};
 pub use workspace_registry::{
     Actor, EndedTerminalState, FrontendProjection, JournalAppendCommit, JournalAuthority,
     JournalCheckpoint, JournalClass, JournalContentRef, JournalEventSchema,
@@ -225,9 +232,9 @@ pub use workspace_registry::{
     JournalHookRegex, JournalHookRetry, JournalIngress, JournalProducer, JournalProducerManifest,
     JournalReplayPolicy, JournalSegment, JournalSensitivity, JournalSubject,
     PersistentSessionStateReset, PersistentSessionStateResetPreview,
-    PersistentSessionStateResetter, ProjectionCommit, RegistryCommit, RegistryCompactError,
-    RegistryCompaction, RegistryEvent, RegistryQuarantined, RegistrySnapshot, RegistryWorkspace,
-    SessionJournalPage, SessionJournalRecord, TabAttentionRecord,
+    PersistentSessionStateResetter, PresentationSnapshot, ProjectionCommit, RegistryCommit,
+    RegistryCompactError, RegistryCompaction, RegistryEvent, RegistryQuarantined, RegistrySnapshot,
+    RegistryWorkspace, SessionJournalPage, SessionJournalRecord, TabAttentionRecord,
     UnsupportedWorkspaceRegistrySchema, WorkspaceMutation, WorkspaceRegistry, compact_registry,
 };
 

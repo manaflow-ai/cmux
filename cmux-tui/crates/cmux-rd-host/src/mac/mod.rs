@@ -6,6 +6,8 @@
 pub(crate) mod capture;
 mod input;
 mod keys;
+#[cfg(feature = "bench")]
+pub(crate) mod observe;
 mod sys;
 
 use crate::desktop::Desktop;

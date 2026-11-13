@@ -59,7 +59,7 @@ public final class ConversationPart implements WireValue {
         }
         Object rawPreview = Wire.optional(object, "preview");
         if (!Wire.isMissing(rawPreview)) {
-            builder.preview(Wire.immutableJson(rawPreview));
+            builder.preview(Wire.immutableJson(ProtocolSupport.nonNull(rawPreview, "ConversationPart.preview")));
         }
         Object rawRuns = Wire.optional(object, "runs");
         if (!Wire.isMissing(rawRuns)) {

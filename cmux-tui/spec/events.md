@@ -1069,12 +1069,12 @@ Example:
 Payload:
 
 ```text
-object{event:"layout-changed",screen:Id,workspace?:Id,active_pane?:Id,zoomed_pane?:Id|null,layout?:Layout,viewport_splits?:array,viewport_base_width?:number,columns?:array,transaction?:string}
+object{event:"layout-changed",screen:Id,workspace?:Id,active_pane?:Id,zoomed_pane?:Id|null,layout?:Layout,viewport_splits?:array,viewport_base_width?:number,hidden_dividers?:array<Id>,columns?:array,transaction?:string}
 ```
 
 Meaning: A screen's pane geometry changed through split, close/collapse, ratio update, viewport column width, row heights, dock, apply-layout, swap, undo, tab drag, or zoom. The event is emitted once per settled command.
 
-A server that advertises `layout-delta-v1` includes the screen's new layout in the event: `workspace`, and the layout fields of that `Screen` exactly as `list-workspaces` reports them at the commit (`active_pane`, `zoomed_pane`, `layout`, and when present `viewport_splits`, `viewport_base_width`, `columns`). It does not include `panes` or tabs; the pane and tab deltas carry those. Like `Screen`, the SDK schema does not list `viewport_splits`, `viewport_base_width` and `columns` yet. `transaction` is the numeric `transaction` of the request that caused the change (`set-split-ratio`, `set-viewport-pane-width`, `set-layout-sizes`, `set-column-dock`, `set-row-heights`), as a decimal string, so the frontend that sent it can recognize the echo of its own gesture. A client patches that one screen's layout. When the event carries no layout (an older server), or names a pane the client does not have, clients re-fetch `export-layout` or `list-workspaces`.
+A server that advertises `layout-delta-v1` includes the screen's new layout in the event: `workspace`, and the layout fields of that `Screen` exactly as `list-workspaces` reports them at the commit (`active_pane`, `zoomed_pane`, `layout`, and when present `viewport_splits`, `viewport_base_width`, `hidden_dividers` (`split-divider-visibility-v1`), `columns`). It does not include `panes` or tabs; the pane and tab deltas carry those. Like `Screen`, the SDK schema does not list `viewport_splits`, `viewport_base_width`, `hidden_dividers` and `columns` yet. `transaction` is the numeric `transaction` of the request that caused the change (`set-split-ratio`, `set-viewport-pane-width`, `set-layout-sizes`, `set-column-dock`, `set-row-heights`), as a decimal string, so the frontend that sent it can recognize the echo of its own gesture. A client patches that one screen's layout. When the event carries no layout (an older server), or names a pane the client does not have, clients re-fetch `export-layout` or `list-workspaces`.
 
 Example:
 
@@ -1210,15 +1210,17 @@ Example:
 Payload:
 
 ```text
-object{event:"title-changed",surface:Id,title:string}
+object{event:"title-changed",surface:Id,title:string,text?:string,activity?:string|null}
 ```
 
-Meaning: A surface title changed. Protocol v7 includes the authoritative current title, so clients can update that surface directly without fetching the workspace tree. Protocol v5-v6 events omit `title`; clients connected to those versions must call `list-workspaces`.
+Meaning: What a surface's tab shows changed. Protocol v7 includes the authoritative current title, so clients can update that surface directly without fetching the workspace tree. Protocol v5-v6 events omit `title`; clients connected to those versions must call `list-workspaces`.
+
+`title` is the raw title. `text` and `activity` are the daemon's split of it: a terminal title's leading status glyphs (an agent's spinner, idle, done or failed mark) become `activity` (`working`, `idle`, `done`, `failed` or null) and the rest is `text`; a page title is `text` as is, with a null `activity`. The daemon sends the event only when `text` or `activity` changed, so a spinner frame of the same text sends nothing and a client that shows the raw `title` keeps the first frame. Tree tabs carry the same split as `title_text` and `title_activity`. A daemon from before the split omits `text` and `activity`.
 
 Example:
 
 ```json
-{"event":"title-changed","surface":1,"title":"build logs"}
+{"event":"title-changed","surface":1,"title":"⠐ Fix the login bug","text":"Fix the login bug","activity":"working"}
 ```
 
 ### bell
@@ -1469,7 +1471,8 @@ object{event:"terminal-input-unclaimed",terminal_id:string,bytes_base64:Base64,r
 
 Meaning: Input that a connection queued for a terminal still being created (`send` with `terminal_id`,
 [commands.md](commands.md#send)) was not written, because the creation failed (`failed`), its connection
-closed first (`cancelled`), it did not end within 10 seconds of the first queued byte (`expired`), or the
+closed first or its creator cancelled the creation's input (`cancelled`; `cancel-creating-input` gives
+nothing back to the creator itself), it did not end within 120 seconds of the first queued byte (`expired`; a backstop for a creation or adoption that never ends), or the
 terminal refused a write of the queue (`write-failed`; the bytes before it were written). `bytes_base64` holds
 this connection's bytes that were not written, in the order they were queued. A frame whose write timed out
 may have reached the terminal in part, so after `write-failed` the first bytes can repeat input it got. It is sent on the control queue of the connection that queued them, also without a

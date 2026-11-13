@@ -58,9 +58,7 @@ mod apps {
     #[test]
     fn a_polled_source_arms_one_timer_at_its_interval_and_drops_it_on_the_last_unmount() {
         let mut h = Harness::new(&app(TWO_SECTIONS));
-        h.handle("integration.request", |_, _| {
-            (true, json!({ "value": { "items": [] } }))
-        });
+        h.handle("integration.request", |_, _| (true, json!({ "value": { "items": [] } })));
         let before = Instant::now();
         assert_eq!(h.mount("a", "pulls", json!({})), None);
         assert_eq!(h.mount("b", "pulls", json!({})), None);
@@ -78,8 +76,9 @@ mod apps {
 
     #[test]
     fn an_unknown_source_fails_the_mount_with_signal_unknown() {
-        let mut h =
-            Harness::new(&app(r#"return { render: () => { cmux.watch("nope.none"); return Text("x") } }"#));
+        let mut h = Harness::new(&app(
+            r#"return { render: () => { cmux.watch("nope.none"); return Text("x") } }"#,
+        ));
         let error = h.mount("m", "render", json!({})).expect("mount error");
         assert!(error.contains("no signal source named nope.none"), "{error}");
         let code: Value =

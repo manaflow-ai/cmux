@@ -4,6 +4,7 @@ import CmuxNextAgentPane
 import CmuxNextAgentLanes
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextSidebarActions
@@ -32,6 +33,7 @@ enum AppActions {
         BookmarkHandlers.bind(into: registry, context: context)
         BookmarkIconHandlers.bind(into: registry, context: context)
         AppStoreHandlers.bind(into: registry, context: context)
+        CustomSidebarToggle(apps: { [weak services] in services?.apps.client }, environment: ProcessInfo.processInfo.environment, window: { [weak services] in services?.windows.active?.window }).bind(into: registry)
         TasksHandlers.bind(into: registry, context: context)
         TaskManagerHandlers.bind(into: registry, context: context)
         KeybindingHandlers.bind(into: registry, context: context)
@@ -48,7 +50,7 @@ enum AppActions {
         WorkspaceNotesHandlers.bind(into: registry, context: context)
         WorkspaceChecklistHandlers.bind(into: registry, context: context)
         WorkspaceGroupHandlers.bind(into: registry, context: context)
-        SidebarActionSet(host: services, autoArchive: services.autoArchive, settings: { [weak services] in services?.settings }, sidebar: { [weak services] in services?.windows.active?.sidebar.container.sidebarView }, themeColors: { [weak services] in services?.themes.catalog.colors ?? [:] }).bind(into: registry)
+        SidebarActionSet(host: services, autoArchive: services.autoArchive, settings: { [weak services] in services?.settings }, sidebar: { [weak services] in services?.windows.active?.sidebar.container.sidebarView }, themeColors: { [weak services] in services?.themes.catalog.colors ?? [:] }, playgroundSections: { [HomeFilterPlaygroundSection().section()] }).bind(into: registry)
         NotificationSoundActions(host: services, gate: services.notifications.soundGate).bind(into: registry)
         RoomHandlers.bind(into: registry, context: context)
         RoomMenuHandlers.bind(into: registry, context: context)
@@ -57,7 +59,6 @@ enum AppActions {
         WindowMembershipHandlers.bind(into: registry, context: context)
         SidebarHandlers.bind(into: registry, context: context)
         VaultHandlers.bind(into: registry, context: context)
-        RightSidebarHandlers.bind(into: registry, context: context)
         SidebarSectionHandlers.bind(into: registry, context: context)
         SidebarHiddenSections.bind(into: registry, context: context)
         SidebarPriorityFeed.bind(into: registry, context: context)
@@ -78,6 +79,7 @@ enum AppActions {
         GroupIconHandlers.bind(into: registry, context: context)
         MachineIconHandlers.bind(into: registry, context: context)
         PaneHandlers.bind(into: registry, context: context)
+        DividerActions(host: services).bind(into: registry)
         ColumnHandlers.bind(into: registry, context: context)
         NewAtPlacement.bind(into: registry, context: context)
         CanvasHandlers.bind(into: registry, context: context)
@@ -190,7 +192,7 @@ enum AppActions {
         registry.bind("quit", invoke: { invocation in
             do {
                 let scripted = registry.isCapturingRefusal
-                let origin = try QuitPolicy.origin(for: invocation, scripted: scripted)
+                let origin = try QuitOrigin(for: invocation, scripted: scripted)
                 // A scripted quit saves unsaved documents first and refuses,
                 // naming them, when a save fails (R96 quit hook).
                 guard scripted, !services.quit.unsaved.unsaved().isEmpty else { return services.quit.requestQuit(origin) }
