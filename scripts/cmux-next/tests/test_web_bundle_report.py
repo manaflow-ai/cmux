@@ -1,5 +1,7 @@
 import importlib.util
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -92,6 +94,37 @@ class WebBundleReportTests(unittest.TestCase):
             two = MODULE.load_bundle("pane", second, root)
             bundles = {"react": {"bundles": [one["name"], two["name"]], "paths": ["node_modules/react/index.js"]}}
             self.assertEqual(len(bundles["react"]["bundles"]), 2)
+
+    def test_installed_copies_use_canonical_paths_across_bundlers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source_root = root / "checkout/webviews"
+            source_root.mkdir(parents=True)
+            module = "node_modules/prosemirror-model/dist/index.js"
+            absolute = self.write_bundle(source_root, "absolute", [(module, 100, 80)])
+            relative = root / "relative.json"
+            relative.write_text(json.dumps({"outputs": {"entry.js": {"bytes": 80, "inputs": {module: {"bytesInOutput": 80}}}}}), encoding="utf-8")
+            output = root / "report.json"
+            subprocess.run(
+                [sys.executable, str(SCRIPT), "--metafile", f"pages={relative}",
+                 "--metafile", f"webviews={absolute}", "--source-root", f"pages={source_root}",
+                 "--json", str(output)],
+                check=True, capture_output=True, text=True,
+            )
+            package = json.loads(output.read_text())["duplicates"]["prosemirror-model"]
+            self.assertEqual(package["bundles"], ["pages", "webviews"])
+            self.assertEqual(len(package["instances"]), 1)
+            self.assertEqual(package["instances"][0], str(source_root / "node_modules/prosemirror-model"))
+
+    def test_nested_installed_copy_remains_distinct(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            metafile = self.write_bundle(root, "one", [
+                ("node_modules/react/index.js", 100, 80),
+                ("node_modules/widget/node_modules/react/index.js", 100, 80),
+            ])
+            bundle = MODULE.load_bundle("one", metafile, root)
+            self.assertEqual(len({row["packageInstance"] for row in bundle["modules"]}), 2)
 
     def test_commonjs_and_dev_inputs_are_marked(self):
         with tempfile.TemporaryDirectory() as tmp:
