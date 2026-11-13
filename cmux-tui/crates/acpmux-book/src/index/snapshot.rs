@@ -127,7 +127,7 @@ fn read_u32(bytes: &[u8]) -> io::Result<u32> {
 pub struct DiskSnapshot {
     file: File,
     pub(super) head: Head,
-    directory: OnceLock<Vec<Checkpoint>>,
+    pub(super) directory: OnceLock<Vec<Checkpoint>>,
 }
 
 /// One bounded physical piece, including its progress when filtering yields no rows.
