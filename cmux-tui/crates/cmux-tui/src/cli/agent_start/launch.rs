@@ -23,7 +23,7 @@ pub(super) const DEFAULT_LAUNCHER: &str = "claude";
 /// Shells whose `-c SCRIPT NAME ARGS…` sets `$0` and `$@` the POSIX way.
 const POSIX_SHELLS: &[&str] = &["sh", "bash", "zsh", "dash", "ksh", "mksh"];
 /// The harnesses `resume` knows, in the order a launcher is searched.
-const HARNESSES: &[&str] = &["claude", "codex", "opencode", "gemini", "amp"];
+const HARNESSES: &[&str] = &["claude", "codex", "opencode", "gemini", "amp", "antigravity"];
 
 /// One agent launch: the shell, the launcher line and its extra arguments.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -102,6 +102,7 @@ pub(in crate::cli) fn resume_args(harness: &str, id: &str) -> Option<Vec<String>
         "codex" => &["resume"],
         "opencode" => &["--session"],
         "amp" => &["threads", "continue"],
+        "antigravity" => &["--conversation"],
         _ => return None,
     };
     let mut args: Vec<String> = words.iter().map(|word| (*word).to_owned()).collect();

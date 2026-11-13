@@ -258,6 +258,73 @@ async fn reply_segments_end_at_a_turns_first_checklist() {
     }
 }
 
+/// A usage tick, a call's update and the checklist's update between a turn's checklist and its
+/// next reply chunk carry no turn, and none starts one: the message stays one segment, as the pane
+/// keeps it one row (#41540 review F1).
+#[tokio::test]
+async fn reply_segment_survives_ticks_between_checklist_updates() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "checklist-ticks").await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "reply-checklist-ticks", None)).await.unwrap();
+    c.request(method::SESSION_PROMPT, prompt(&id, "reply-checklist-ticks", None)).await.unwrap();
+    let events = hub.events(&id, 0, 1000).unwrap();
+    let segs: Vec<String> = find(&events, "agent_message_chunk")
+        .iter()
+        .map(|e| e.msg["params"]["_meta"]["acpmux"]["segment"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(segs.len(), 4, "{segs:?}");
+    for run in segs.chunks(2) {
+        assert_eq!(run[0], run[1], "{run:?}");
+        assert!(run[0].ends_with(".1"), "one reply segment in the turn: {run:?}");
+    }
+    assert_ne!(segs[0], segs[2], "each turn's segment is its own: {segs:?}");
+}
+
+/// A DeepSeek Harness todo call acpmux hides (it becomes the plan) is no cut in the reply, and the
+/// plan it makes is one where it is the turn's first checklist: the segments end where the pane
+/// cuts the row, and a page of the log starting anywhere reads the same ids (#41540 review F2).
+#[tokio::test]
+async fn hidden_todo_calls_keep_the_reply_segment_across_pages() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "dsh-todo").await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "reply-dsh-todo", None)).await.unwrap();
+    let events = hub.events(&id, 0, 1000).unwrap();
+    // The calls were hidden (marked) and their results made two plans.
+    let calls = find(&events, "tool_call");
+    assert_eq!(calls.len(), 2, "{calls:?}");
+    assert!(
+        calls.iter().all(|e| e.msg["params"]["update"]["_meta"]["acpmux"]["planTool"] == true),
+        "{calls:?}"
+    );
+    assert_eq!(find(&events, "plan").len(), 2);
+    let chunks: Vec<(u64, String)> = find(&events, "agent_message_chunk")
+        .iter()
+        .map(|e| {
+            (e.seq, e.msg["params"]["_meta"]["acpmux"]["segment"].as_str().unwrap().to_owned())
+        })
+        .collect();
+    assert_eq!(chunks.len(), 5, "{chunks:?}");
+    let seg = |i: usize| chunks[i].1.as_str();
+    // a | hidden call | b: one row.
+    assert_eq!(seg(0), seg(1), "{chunks:?}");
+    // The turn's first plan cuts it.
+    assert_ne!(seg(1), seg(2), "{chunks:?}");
+    // c | hidden call | d | plan update | e: one row behind the checklist.
+    assert_eq!(seg(2), seg(3), "{chunks:?}");
+    assert_eq!(seg(3), seg(4), "{chunks:?}");
+    // A page starting at any chunk reads every chunk's id as the whole log does.
+    for (start, _) in &chunks {
+        let page = hub.events(&id, start.saturating_sub(1), 1000).unwrap();
+        for e in find(&page, "agent_message_chunk") {
+            let whole = &chunks.iter().find(|(seq, _)| *seq == e.seq).unwrap().1;
+            assert_eq!(
+                e.msg["params"]["_meta"]["acpmux"]["segment"].as_str(),
+                Some(whole.as_str())
+            );
+        }
+    }
+}
+
 #[tokio::test]
 async fn codex_retry_records_message_superseded_before_the_redelivery() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;

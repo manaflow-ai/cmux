@@ -160,7 +160,8 @@ export default agentPaneEntry({
       recording: recording([...prompt, subagent("completed"), ...notified("bg-1", "subagent", CALL, REPLY)]),
     },
     open: {
-      note: "Shipped, opened: the line keeps its new dot and its time 9m 39s at the trailing column, and the chevron turned; the report's card under it; the agent's reply after the card, its own message.",
+      note: "Retained disclosure arm, opened: the line keeps its new dot and its time 9m 39s at the trailing column, and the chevron turned; the report's card under it; the agent's reply after the card, its own message.",
+      experiments: { "subagent-done-report": "disclosure" },
       snapshot: chat([]),
       recording: recording([...prompt, subagent("completed"), ...notified("bg-1", "subagent", CALL, REPLY)]),
       play: openReport,

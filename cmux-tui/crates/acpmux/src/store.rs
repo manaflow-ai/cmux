@@ -73,17 +73,23 @@ pub enum SessionStatus {
     Closed,
 }
 
-impl std::fmt::Display for SessionStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = match self {
+impl SessionStatus {
+    /// The status as a session list's `status` says it (its `Display`).
+    pub fn as_str(self) -> &'static str {
+        match self {
             Self::Idle => "idle",
             Self::Ready => "ready",
             Self::Running => "running",
             Self::Waiting => "waiting",
             Self::Disconnected => "disconnected",
             Self::Closed => "closed",
-        };
-        f.write_str(s)
+        }
+    }
+}
+
+impl std::fmt::Display for SessionStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 
@@ -156,9 +162,11 @@ pub struct SessionMeta {
     /// default (`hub/new_request.rs` `unique_name_among`). False in a log from before it was kept.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub name_given: bool,
-    #[serde(alias = "harness")]
+    /// `agent` in a chat stored before the agent-to-harness rename (e857185a58).
+    #[serde(alias = "agent")]
     pub harness: String,
-    #[serde(default, alias = "agent_argv")]
+    /// `agentArgv` (or `agent_argv`) in a chat stored before that rename.
+    #[serde(default, alias = "agentArgv", alias = "agent_argv")]
     pub harness_argv: Vec<String>,
     /// The argv its agent last started with: a config or preset reload since creation can change
     /// it (`harness_argv` is the creation's). None before any start (#23322, review 36).
@@ -373,6 +381,12 @@ pub struct SessionMeta {
     /// 2026-11-04 a kept Chief session that woke after a restart died at the 90 s deadline again.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub wait_start: bool,
+    /// Its creator purges it right after its work (`_meta.acpmux.throwaway`, the Chief
+    /// compactor's nodes): its prompts'
+    /// `user_message` keeps no long body (`hub/ephemeral.rs`), and a retry or restart never runs
+    /// such a prompt again. Kept on disk with the rest of its meta.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub throwaway: bool,
     /// When (Unix ms) the idle exit hibernated its agent, 0 when no start woke it since
     /// (`hub/idle.rs`): after a restart, opening it wakes it and its wake draws no row, as
     /// before the restart, and the wake's log says how long it slept.
@@ -916,6 +930,10 @@ pub struct Tag {
 pub const META_SCHEMA: &str = "acpmux.session.v1";
 
 pub fn now_ms() -> u64 {
+    #[cfg(test)]
+    if let Some(now) = test_clock::followed_now_ms() {
+        return now;
+    }
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
@@ -927,16 +945,26 @@ pub fn now_ms() -> u64 {
 
 /// Compressed time for tests (`stress/`): this thread's [`now_ms`] runs ahead of the wall clock
 /// by what it was moved, so a day of timestamps passes in a loop. Other threads see wall time.
+/// Followed (`follow_tokio`), it is the wall time at the follow plus tokio's ticked time, never
+/// the real time since.
 #[cfg(test)]
 pub(crate) mod test_clock {
     use std::cell::Cell;
 
     thread_local!(static AHEAD_MS: Cell<u64> = const { Cell::new(0) });
-    thread_local!(static FOLLOW: Cell<Option<tokio::time::Instant>> = const { Cell::new(None) });
+    // Followed: tokio's instant and the real wall time (ms) at the follow.
+    thread_local!(static FOLLOW: Cell<Option<(tokio::time::Instant, u64)>> = const { Cell::new(None) });
 
     pub(crate) fn ahead_ms() -> u64 {
-        let followed = FOLLOW.with(Cell::get).map_or(0, |origin| origin.elapsed().as_millis());
-        AHEAD_MS.with(Cell::get) + followed as u64
+        AHEAD_MS.with(Cell::get)
+    }
+
+    /// This thread's wall clock while it follows tokio: the wall time at the follow, the ticked
+    /// time since and what it was moved. None when it does not follow.
+    pub(crate) fn followed_now_ms() -> Option<u64> {
+        let (origin, wall) = FOLLOW.with(Cell::get)?;
+        let ticked = u64::try_from(origin.elapsed().as_millis()).unwrap_or(u64::MAX);
+        Some(wall.saturating_add(ticked).saturating_add(ahead_ms()))
     }
 
     /// Moves this thread's clock `ms` ahead. With `follow_tokio` on, this is the computer
@@ -949,13 +977,41 @@ pub(crate) mod test_clock {
     /// `start_paused` runs a day of wall-clock rules (a peer parked after a day down) in
     /// milliseconds, with the wall and monotonic clocks in step as on an awake computer.
     pub(crate) fn follow_tokio() {
-        FOLLOW.with(|f| f.set(Some(tokio::time::Instant::now())));
+        let wall = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
+        FOLLOW.with(|f| f.set(Some((tokio::time::Instant::now(), wall))));
     }
 
     /// Back to the real wall clock.
     pub(crate) fn reset() {
         AHEAD_MS.with(|a| a.set(0));
         FOLLOW.with(|f| f.set(None));
+    }
+
+    /// A followed clock is ticked time only: the real milliseconds a run takes, more on a loaded
+    /// host, never move it, so the wall-clock rules a test drives (a peer parked after a day
+    /// down) fall on the same tick in every run (`stress::reconnect`, "a seed replays its
+    /// schedule exactly", failed at 9dc6d10f under load 22-60).
+    #[tokio::test(start_paused = true)]
+    async fn a_followed_clock_moves_with_ticked_time_only() {
+        follow_tokio();
+        let before = super::now_ms();
+        // Real time passes, as when a loaded host deschedules the test; tokio's paused clock
+        // does not (no await, so it cannot auto-advance).
+        let real = std::time::Instant::now();
+        while real.elapsed() < std::time::Duration::from_millis(20) {
+            std::hint::spin_loop();
+        }
+        let after_real = super::now_ms();
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        let after_tick = super::now_ms();
+        advance(5_000);
+        let after_sleep = super::now_ms();
+        reset();
+        assert_eq!(after_real, before, "20 ms of real time moved the followed clock");
+        assert_eq!(after_tick, before + 1_000, "1 s of ticked time");
+        assert_eq!(after_sleep, before + 6_000, "a computer sleep still runs the wall clock ahead");
     }
 }
 
@@ -1335,6 +1391,8 @@ pub struct LocalStore {
     rehydrate_hook: std::sync::OnceLock<RehydrateHook>,
     /// The parts files written or read (`store/meta_parts.rs`).
     parts: meta_parts::PartsMemo,
+    #[cfg(test)]
+    pub(crate) meta_saves: std::sync::Arc<std::sync::atomic::AtomicU64>,
 }
 
 /// The logs held open, at most `LocalStore::open_logs` (`store/open_logs.rs`): the least
@@ -1384,6 +1442,8 @@ impl LocalStore {
             cold: Default::default(),
             rehydrate_hook: Default::default(),
             parts: Default::default(),
+            #[cfg(test)]
+            meta_saves: Default::default(),
         })
     }
 
@@ -1434,34 +1494,44 @@ impl LocalStore {
         Ok(out)
     }
 
-    fn list_entry(&self, entry: &std::fs::DirEntry) -> Result<Option<SessionMeta>> {
-        let kind = entry.file_type()?;
-        anyhow::ensure!(!kind.is_symlink(), "session entry {} is a link", entry.path().display());
-        if !kind.is_dir() {
+    fn list_entry(
+        &self,
+        root: &crate::home_fs::PrivateDir,
+        name: &std::ffi::OsStr,
+    ) -> Result<Option<SessionMeta>> {
+        let entry = match root.entry(name) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            other => other?,
+        };
+        let session = root.path().join(name);
+        anyhow::ensure!(!entry.is_symlink, "session entry {} is a link", session.display());
+        if !entry.is_dir {
             return Ok(None);
         }
-        let session = entry.path();
-        self.validate_session_dir(&session)?;
+        let held = self.validate_session_dir(root, name)?;
         let path = session.join("session.json");
-        let id = entry.file_name().to_string_lossy().into_owned();
-        let Ok(file) = crate::config::private_state_file(&path) else {
-            if path.exists() {
-                self.mark_unlisted(&id, true);
+        let id = name.to_string_lossy().into_owned();
+        let file = match held.private_file(std::ffi::OsStr::new("session.json")) {
+            Ok(file) => file,
+            Err(error) => {
+                if !is_not_found(&error) {
+                    self.mark_unlisted(&id, true);
+                }
+                return Ok(None);
             }
-            return Ok(None);
         };
         let mut text = String::new();
         BufReader::new(file).read_to_string(&mut text)?;
         // Only a closed chat can be a purged chat revived by a late save. Open chats need
         // no segment enumeration: that work belongs to their on-demand log read.
         if let Ok(meta) = serde_json::from_str::<StatusOnly>(&text)
-            && self.purged_startup_entry(&entry.file_name().to_string_lossy(), meta.status)?
+            && self.purged_startup_entry(&id, meta.status)?
         {
             return Ok(None);
         }
         match serde_json::from_str::<SessionMeta>(&text) {
             Ok(mut meta) => {
-                self.parts.merge(&session, text.as_bytes(), &mut meta);
+                self.parts.merge_held(&held, text.as_bytes(), &mut meta);
                 self.mark_unlisted(&id, false);
                 Ok(Some(meta))
             }
@@ -1484,15 +1554,18 @@ impl LocalStore {
 
     /// Exact on-demand reads use the same directory checks as the background list before
     /// trusting metadata or reading any log. In particular, neither directory may be a link.
-    fn validate_session_dir(&self, session: &Path) -> Result<()> {
-        crate::config::private_state_dir(session)?;
-        let events = session.join("events");
-        match std::fs::symlink_metadata(&events) {
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error.into()),
-            Ok(_) => crate::config::private_state_dir(&events)?,
+    fn validate_session_dir(
+        &self,
+        root: &crate::home_fs::PrivateDir,
+        name: &std::ffi::OsStr,
+    ) -> Result<crate::home_fs::PrivateDir> {
+        let session = root.child(name)?;
+        match session.child(std::ffi::OsStr::new("events")) {
+            Err(error) if is_not_found(&error) => {}
+            Err(error) => return Err(error),
+            Ok(_) => {}
         }
-        Ok(())
+        Ok(session)
     }
 
     fn purged_startup_entry(&self, id: &str, status: SessionStatus) -> Result<bool> {
@@ -1506,14 +1579,16 @@ impl LocalStore {
     /// late save wrote back.
     /// A cold archive (`store/cold.rs`) is a log too, and is not opened.
     fn has_records(&self, id: &str) -> Result<bool> {
-        if std::fs::symlink_metadata(self.marker(id)).is_ok()
-            || std::fs::symlink_metadata(self.cold_path(id)).is_ok()
+        // A home that is no longer the held one is an error, never "no record" (#41721
+        // review F1): a closed chat with no record reads as purged.
+        if crate::home_fs::try_exists_nofollow(self.marker(id))?
+            || crate::home_fs::try_exists_nofollow(self.cold_path(id))?
         {
             return Ok(true);
         }
         for (_, path) in self.segment_files(id)? {
             // An unreadable segment counts as a log: the session is listed as before.
-            match std::fs::symlink_metadata(&path) {
+            match crate::home_fs::symlink_metadata(&path) {
                 Ok(meta) if meta.len() == 0 => {}
                 _ => return Ok(true),
             }
@@ -1537,6 +1612,10 @@ impl LocalStore {
         let written = cut_torn_tail(&file, &path)?;
         Ok(SegmentWriter { index, file, written, used: 0 })
     }
+}
+
+fn is_not_found(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<std::io::Error>().is_some_and(|e| e.kind() == std::io::ErrorKind::NotFound)
 }
 
 /// A session record's status alone, read without the rest of the record.
@@ -1766,37 +1845,41 @@ impl Store for LocalStore {
     fn list(&self) -> Result<Vec<SessionMeta>> {
         // No sessions folder yet: no chat. One that is there and does not read is a failed list,
         // never an empty one: an empty list proves every chat gone (`hub/hosts.rs`).
-        let rd = match std::fs::read_dir(&self.root) {
-            Ok(rd) => rd,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-            Err(error) => {
-                return Err(
-                    anyhow::Error::new(error).context(format!("list {}", self.root.display()))
-                );
-            }
+        if !crate::home_fs::try_exists_nofollow(&self.root)? {
+            return Ok(Vec::new());
+        }
+        let root = match crate::home_fs::PrivateDir::open(&self.root) {
+            Ok(root) => root,
+            Err(error) if is_not_found(&error) => return Ok(Vec::new()),
+            Err(error) => return Err(error.context(format!("list {}", self.root.display()))),
         };
-        let entries = rd.collect::<std::io::Result<Vec<_>>>()?;
+        // Only enumeration fails the pass. Entry checks belong to each worker.
+        let entries = root.names()?;
         if entries.is_empty() {
             return Ok(Vec::new());
         }
-        // Metadata reads do independent filesystem/ACL checks. Keep those checks, but do
-        // not put every chat behind every earlier chat's disk latency at daemon startup.
+        // Hold the checked store for the pass. Each worker checks only its chats and their
+        // events folders, never the same ancestors again.
         let workers = std::thread::available_parallelism().map_or(1, usize::from).min(8);
         std::thread::scope(|scope| {
             let workers: Vec<_> = entries
                 .chunks(entries.len().div_ceil(workers))
                 .map(|chunk| {
+                    let root = &root;
                     scope.spawn(move || {
                         let mut metas = Vec::new();
-                        for entry in chunk {
+                        for name in chunk {
                             // One chat that is refused or does not read is left out (and
                             // counted unread), never the reason no chat is listed.
-                            match self.list_entry(entry) {
+                            match self.list_entry(root, name) {
                                 Ok(Some(meta)) => metas.push(meta),
                                 Ok(None) => {}
                                 Err(e) => {
-                                    tracing::warn!("skip {}: {e:#}", entry.path().display());
-                                    let id = entry.file_name().to_string_lossy().into_owned();
+                                    tracing::warn!(
+                                        "skip {}: {e:#}",
+                                        root.path().join(name).display()
+                                    );
+                                    let id = name.to_string_lossy().into_owned();
                                     self.mark_unlisted(&id, true);
                                 }
                             }
@@ -1821,20 +1904,26 @@ impl Store for LocalStore {
     }
 
     fn load(&self, id: &str) -> Result<Option<SessionMeta>> {
-        let session = self.dir(id);
-        match std::fs::symlink_metadata(&session) {
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(error.into()),
-            Ok(_) => self.validate_session_dir(&session)?,
-        }
-        let path = session.join("session.json");
-        if !path.exists() {
+        // An absent chat needs only search access, before opening folders for reading.
+        if !crate::home_fs::try_exists_nofollow(self.dir(id))? {
             return Ok(None);
         }
+        let root = match crate::home_fs::PrivateDir::open(&self.root) {
+            Err(error) if is_not_found(&error) => return Ok(None),
+            other => other?,
+        };
+        let held = match self.validate_session_dir(&root, std::ffi::OsStr::new(id)) {
+            Err(error) if is_not_found(&error) => return Ok(None),
+            other => other?,
+        };
+        let file = match held.private_file(std::ffi::OsStr::new("session.json")) {
+            Err(error) if is_not_found(&error) => return Ok(None),
+            other => other?,
+        };
         let mut text = String::new();
-        BufReader::new(crate::config::private_state_file(&path)?).read_to_string(&mut text)?;
+        BufReader::new(file).read_to_string(&mut text)?;
         let mut meta: SessionMeta = serde_json::from_str(&text)?;
-        self.parts.merge(&session, text.as_bytes(), &mut meta);
+        self.parts.merge_held(&held, text.as_bytes(), &mut meta);
         Ok(Some(meta))
     }
 
@@ -1847,6 +1936,8 @@ impl Store for LocalStore {
     }
 
     fn save(&self, meta: &SessionMeta) -> Result<()> {
+        #[cfg(test)]
+        self.meta_saves.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let _open = self.writable()?;
         let dir = self.dir(&meta.id);
         crate::config::private_state_dir(&dir)?;
@@ -2110,7 +2201,7 @@ impl Store for LocalStore {
         // macOS returns ENOTEMPTY when a file lands mid-removal; retry briefly.
         let mut last = None;
         for _ in 0..5 {
-            if !dir.exists() {
+            if !crate::home_fs::try_exists_nofollow(&dir)? {
                 return Ok(());
             }
             match crate::home_fs::remove_dir_all(&dir) {
@@ -2233,6 +2324,9 @@ mod journal_write_back_tests;
 
 #[cfg(test)]
 mod torn_append_tests;
+
+#[cfg(test)]
+mod held_home_reads_tests;
 
 impl LocalStore {
     /// `Store::scan`, and with `strict` `Store::scan_strict`.

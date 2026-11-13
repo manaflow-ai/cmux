@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
 import { BACKGROUND_TURN } from "./backgroundTurns";
-import { THINKING, WORKING, turnView, turnViewFrom } from "./turns";
+import { THINKING, WORKED, WORKING, turnView, turnViewFrom } from "./turns";
 
 const user = (at: number): AcpmuxRow => ({ id: "user", version: 1, at, kind: "user", text: "resume" });
 
@@ -81,4 +81,35 @@ test("a new turn start alone draws the live turn again", () => {
   const previous = turnViewFrom(rows, new Set(), { now: 200_000, working: true, turnStartedAtMs: 100_000 });
   const shown = turnViewFrom(rows, new Set(), { now: 200_000, working: true, turnStartedAtMs: 150_000 }, previous);
   expect(shown.rows.find((row) => row.kind === THINKING)?.at).toBe(150_000);
+});
+
+// Leo, 2026-11-12: "the working for whatever seconds, it just still doesn't load properly". A page
+// that starts inside a turn holds its work but not its prompt: the time since the first row held is
+// not the turn's time, so the fold names no time rather than a short one.
+test("a turn whose prompt is in an older page draws no made-up Worked for time", () => {
+  const shown = turnView(
+    [
+      { id: "tool", version: 1, at: 90_000, kind: "activity", items: [], toolCount: 2 },
+      { id: "answer", version: 1, at: 95_000, kind: "assistant", text: "done" },
+      { id: "summary", version: 1, at: 96_000, kind: "turnSummary", status: "completed", toolCount: 2 },
+    ],
+    new Set(),
+    { now: 100_000, working: false },
+  );
+  const worked = shown.find((row) => row.kind === WORKED);
+  if (worked) expect(worked.durationMs).toBeUndefined();
+});
+
+test("a turn with its prompt held keeps its Worked for time", () => {
+  const shown = turnView(
+    [
+      user(1_000),
+      { id: "tool", version: 1, at: 90_000, kind: "activity", items: [], toolCount: 2 },
+      { id: "answer", version: 1, at: 95_000, kind: "assistant", text: "done" },
+      { id: "summary", version: 1, at: 96_000, kind: "turnSummary", status: "completed", toolCount: 2 },
+    ],
+    new Set(),
+    { now: 100_000, working: false },
+  );
+  expect(shown.find((row) => row.kind === WORKED)?.durationMs).toBe(95_000);
 });

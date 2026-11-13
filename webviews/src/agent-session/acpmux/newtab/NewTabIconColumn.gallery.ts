@@ -40,18 +40,21 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/newtab/NewTabScreen.tsx#NewTabScreen"],
   variants: {
     "no-project": {
+      composerLook: "claude",
       note: "No project: the folder chip offers a folder; its icon, + and the shield share one center line.",
       ready: newTab({ cwd: "/Users/you", projects: [] }),
       snapshot: noChat([], { listedSessions: true }),
       play: ready,
     },
     project: {
+      composerLook: "claude",
       note: "A project picked: the folder chip names it; its icon, + and the shield share one center line.",
       ready: newTab({ cwd: "/Users/you", startedProject: CWD, projects: [CWD] }),
       snapshot: noChat([], { listedSessions: true }),
       play: ready,
     },
     machine: {
+      composerLook: "claude",
       note: "Remote picked: the strip names the machine beside the folder; the folder icon keeps the column.",
       ready: newTab({ cwd: "/Users/you", startedProject: CWD, projects: [CWD] }),
       snapshot: noChat([], { listedSessions: true, peers: ["devbox"], peerKinds: { devbox: "ssh" } }),

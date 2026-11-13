@@ -437,3 +437,39 @@ fn a_permission_policy_from_a_newer_build_loads_as_ask() {
     // A value that is not a string is still an error: that is a damaged file, not a newer one.
     assert!(serde_json::from_value::<PermissionPolicy>(serde_json::json!(3)).is_err());
 }
+
+#[test]
+fn ordinary_atomic_writes_still_sync_file_and_directory() {
+    let home = tempfile::tempdir().unwrap();
+    let path = home.path().join("session.json");
+    let syncs = startup_seams::Count::syncs(home.path());
+    write_atomic(&path, b"old").unwrap();
+    assert_eq!(syncs.get(), 2);
+    write_atomic(&path, b"new").unwrap();
+    assert_eq!(syncs.get(), 4);
+    assert_eq!(std::fs::read(&path).unwrap(), b"new");
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unsynced_atomic_write_keeps_the_old_copy_until_rename() {
+    use std::os::unix::fs::MetadataExt;
+    let home = tempfile::tempdir().unwrap();
+    let path = home.path().join("copy");
+    std::fs::write(&path, b"old").unwrap();
+    let before = std::fs::metadata(&path).unwrap().ino();
+    let called = std::rc::Rc::new(std::cell::Cell::new(0));
+    let seen = called.clone();
+    let target = path.clone();
+    let _guard = seams::on_before_rename(move |path| {
+        assert_eq!(path, target.as_path());
+        assert_eq!(std::fs::read(path).unwrap(), b"old");
+        seen.set(seen.get() + 1);
+    });
+    let syncs = startup_seams::Count::syncs(home.path());
+    write_atomic_unsynced(&path, b"new").unwrap();
+    assert_eq!(called.get(), 1);
+    assert_ne!(std::fs::metadata(&path).unwrap().ino(), before);
+    assert_eq!(std::fs::read(&path).unwrap(), b"new");
+    assert_eq!(syncs.get(), 0);
+}

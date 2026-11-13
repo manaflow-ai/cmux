@@ -44,6 +44,8 @@ export type AgentCardProps = {
   openLabel?: string;
   /// Draw this card as a one-line transcript disclosure with its children in a panel.
   disclosure?: boolean;
+  /// False keeps the visible state as the details control, without a chevron.
+  disclosureChevron?: boolean;
   disclosureKey?: string;
   findItems?: DisclosureRowProps["findItems"];
   /// The complete localized disclosure label, with its name in the locale's word order.
@@ -66,6 +68,7 @@ export function AgentCard({
   onOpen,
   openLabel,
   disclosure = false,
+  disclosureChevron,
   disclosureKey,
   findItems,
   disclosureLabel,
@@ -87,6 +90,7 @@ export function AgentCard({
       <DisclosureRow
         disclosureKey={disclosureKey ?? `subsession:${sessionId ?? name}`}
         findItems={findItems}
+        chevron={disclosureChevron}
         icon={
           avatar ? (
             <img className="cv-agent-avatar" src={avatar} alt="" width={16} height={16} />
