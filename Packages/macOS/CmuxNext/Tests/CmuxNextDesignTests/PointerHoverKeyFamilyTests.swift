@@ -493,4 +493,49 @@ import Testing
         Self.endTurn()
         #expect(!hover.isHovering, "the page resigned key to no window and the hover was not recomputed")
     }
+
+    /// Posts the two key notices of its window as it leaves it inside that window's deallocation:
+    /// a window that deallocates tears its views down, and a view there still reports the dying
+    /// window as its window (`PointerHoverWindowDeallocTests`).
+    private final class KeyNoticeAtTeardownView: NSView {
+        /// The notices went out, for a window that was in deallocation.
+        private(set) var postedInDeallocation = false
+
+        override func viewWillMove(toWindow newWindow: NSWindow?) {
+            super.viewWillMove(toWindow: newWindow)
+            guard newWindow == nil, let dying = window, dying.isBeingDeallocated else { return }
+            PointerHoverKeyFamilyTests.key(leaves: dying, goesTo: dying)
+            postedInDeallocation = true
+        }
+    }
+
+    /// A key notice whose window is in deallocation. The observer keeps weak references to the
+    /// window of a key notice, and the runtime aborts on a weak reference to an object in
+    /// deallocation ("Cannot form weak reference to instance ... of class NSWindow"). Such a
+    /// window is no window for the observer: its resign and its become do nothing, and the resign
+    /// of another window before them, in the same pass, is still a resign with no become: that
+    /// window is recomputed one time when the pass ends.
+    @Test func aKeyNoticeOfAWindowInDeallocationIsNoKeyChange() throws {
+        let (window, page, hovers) = try Self.rig(child: Self.pageWindowClass(), targets: 1)
+        defer { Self.close(page, window) }
+        let hover = try #require(hovers.first)
+        let asks = Asks(hovers)
+        let view = KeyNoticeAtTeardownView(frame: NSRect(x: 0, y: 0, width: 100, height: 40))
+
+        // The window resigns key: where the key goes is not known yet.
+        Self.key(leaves: window, goesTo: nil)
+        weak var released: NSWindow?
+        autoreleasepool {
+            let dying = Self.makeWindow()
+            dying.contentView?.addSubview(view)
+            released = dying
+        }
+        #expect(released == nil, "the window deallocated")
+        #expect(view.postedInDeallocation, "no key notice went out for a window in deallocation: the test proves nothing")
+        #expect(asks.count == 0, "a key notice of a window in deallocation asked the topmost window \(asks.count) times when it posted")
+
+        let pass = Self.endPass(asks, hover)
+        #expect(pass.asks == 1, "the resign before a key notice of a window in deallocation recomputed the hover \(pass.asks ?? -1) times in its pass; one recompute is 1")
+        #expect(pass.hoveringAtEnd == true)
+    }
 }
