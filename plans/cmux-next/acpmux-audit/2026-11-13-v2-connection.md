@@ -16,6 +16,13 @@ sequence/row equality, retained bytes, and 1-versus-256 offer timing. The chat
 stopped-reader row remains unmeasured until its source exists. No passing release
 measurement is claimed by this notice.
 
+The RSS gate reads the process high-water mark again after resume and cleanup;
+its queue and notice report reads the counters' recorded peaks. Sampling only
+the stopped-reader loop would miss a recovery allocation spike between samples.
+Each isolated Linux worker resets its own RSS high-water mark through
+`/proc/self/clear_refs` after setup and uses current RSS as its baseline. This
+excludes setup peaks without using an elevated baseline that could hide growth.
+
 Raw JSON extension fields must be deserialized directly from their struct fields.
 Serde's buffered internally tagged enum representation cannot preserve a
 `RawValue`; the shared delta decoder reads the fields directly before choosing

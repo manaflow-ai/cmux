@@ -201,6 +201,9 @@ async fn stopped(shape: acpmux::god_fixture::Shape, dishonest_credit: bool) -> S
         }
     });
     let metrics = source.connection_metrics().unwrap();
+    // Reset only this worker's kernel RSS high-water mark after fixture setup.
+    // Subtracting a setup HWM instead of current RSS could hide a later rise.
+    std::fs::write("/proc/self/clear_refs", b"5\n").unwrap();
     let baseline = memory_kib("VmRSS:");
     let mut result = Stopped { rss_rise: 0, retained: 0, peak_queue: 0, peak_outside: 0, drops: 0 };
     let mut bytes = 0_u64;
@@ -278,8 +281,6 @@ async fn stopped(shape: acpmux::god_fixture::Shape, dishonest_credit: bool) -> S
         assert_eq!(result.drops, 1);
         assert_eq!(other.rows, expected.rows);
         assert_eq!(other.cursor, target);
-    } else {
-        assert!(result.rss_rise < wire::CONNECTION_BUDGET_BYTES, "{result:?}");
     }
     drop(slow);
     driver.await.unwrap().unwrap();
@@ -289,6 +290,15 @@ async fn stopped(shape: acpmux::god_fixture::Shape, dishonest_credit: bool) -> S
     assert_eq!(source.task_count(), 0);
     assert_eq!(fast_source.task_count(), 0);
     assert_eq!(hub.subscriber_count(), 0);
+    // Include resume and shutdown in the process high-water mark. Sampling only
+    // the stopped-reader loop could miss an allocation spike during recovery.
+    result.rss_rise = result.rss_rise.max(memory_kib("VmHWM:").saturating_sub(baseline));
+    result.peak_queue = metrics.peak_queued_bytes();
+    result.peak_outside = metrics.peak_outside_budget_bytes();
+    assert!(result.peak_queue <= wire::CONNECTION_BUDGET_BYTES);
+    if !dishonest_credit {
+        assert!(result.rss_rise < wire::CONNECTION_BUDGET_BYTES, "{result:?}");
+    }
     println!(
         "stopped {} dishonest={dishonest_credit} bytes={bytes} records={iteration} {result:?}",
         shape.name
