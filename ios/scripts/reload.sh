@@ -605,6 +605,34 @@ REVIEW_SIM_STATUS=""
 REVIEW_PHONE_STATUS=""
 REVIEW_MAC_STATUS=""
 
+# Open the booted simulator's window. `open -g` launches in the background: the
+# window shows without the app becoming frontmost or taking keyboard focus.
+# Xcode 26 and earlier ship Simulator.app; Xcode 27 replaced it with DeviceHub,
+# which opens a device from its devices:// URL.
+review_open_simulator_window() {
+  local udid="$1" developer_dir xcode_app simulator_app device_hub process waited=0
+  developer_dir="${DEVELOPER_DIR:-$(xcode-select -p 2>/dev/null)}"
+  xcode_app="${developer_dir%/Contents/Developer}"
+  simulator_app="$developer_dir/Applications/Simulator.app"
+  device_hub="$xcode_app/Contents/Applications/DeviceHub.app"
+  if [[ -d "$simulator_app" ]]; then
+    open -g "$simulator_app" --args -CurrentDeviceUDID "$udid"
+    process=Simulator
+  elif [[ -d "$device_hub" ]]; then
+    open -g -b com.apple.dt.Devices "devices://device/open?id=$udid"
+    process=DeviceHub
+  else
+    echo "error: neither Simulator.app nor DeviceHub.app was found under $xcode_app" >&2
+    return 1
+  fi
+  until pgrep -x "$process" >/dev/null 2>&1; do
+    (( waited++ < 20 )) || { echo "error: $process did not start" >&2; return 1; }
+    sleep 0.5
+  done
+  REVIEW_SIM_WINDOW_APP="$process"
+}
+REVIEW_SIM_WINDOW_APP=""
+
 # Boot the tag's isolated simulator, open its window without taking focus, and
 # launch the installed app signed in and paired to the tagged Mac.
 review_simulator() {
@@ -628,21 +656,7 @@ review_simulator() {
     echo "error: $BUNDLE_ID is not installed in $name ($udid); the build leg did not install the simulator app" >&2
     return 1
   fi
-  # -g opens Simulator.app in the background: it shows the booted device's
-  # window without becoming the frontmost app or taking keyboard focus.
-  local simulator_app
-  simulator_app="${DEVELOPER_DIR:-$(xcode-select -p 2>/dev/null)}/Applications/Simulator.app"
-  [[ -d "$simulator_app" ]] || simulator_app="Simulator"
-  if [[ "$simulator_app" == "Simulator" ]]; then
-    open -g -a Simulator --args -CurrentDeviceUDID "$udid"
-  else
-    open -g "$simulator_app" --args -CurrentDeviceUDID "$udid"
-  fi
-  local waited=0
-  until pgrep -x Simulator >/dev/null 2>&1; do
-    (( waited++ < 20 )) || { echo "error: Simulator.app did not start" >&2; return 1; }
-    sleep 0.5
-  done
+  review_open_simulator_window "$udid" || return 1
   xcrun simctl terminate "$udid" "$BUNDLE_ID" >/dev/null 2>&1 || true
   # The personal profile is the phone's account: signing the simulator into it
   # keeps the tagged Mac on that account, so the phone's pairing survives.
@@ -653,7 +667,7 @@ review_simulator() {
     echo "error: retry: scripts/mobile-dev-launch.sh --tag $TAG --simulator-id $udid --detach --auth-profile personal --ensure-mac" >&2
     return 1
   fi
-  REVIEW_SIM_STATUS="$name ($udid): booted, window open, $BUNDLE_ID launched signed in as $DEVICE_AUTH_ACCOUNT and paired to the tagged Mac"
+  REVIEW_SIM_STATUS="$name ($udid): booted, window open in $REVIEW_SIM_WINDOW_APP, $BUNDLE_ID launched signed in as $DEVICE_AUTH_ACCOUNT and paired to the tagged Mac"
 }
 
 # Re-run the phone's auth gate after the simulator launch, so the report proves
@@ -769,6 +783,26 @@ EOF
 
 # Finish after every phone's install: launch the simulator, re-verify each phone
 # that installed, print the report, and fail when any phone failed.
+# Publish the fleet Mac build of this head when no phone run published it.
+review_publish_mac() {
+  local sha state receipt job_id cmux_ci
+  sha="$(git -C "$IOS_DIR/.." rev-parse HEAD)"
+  state="$HOME/Library/Application Support/cmux-dev/ios-builds/$TAG/$sha"
+  receipt="$state/cmux-terminal.json"
+  cmux_ci="${CMUX_CI:-$(command -v cmux-ci || echo "$HOME/.local/bin/cmux-ci")}"
+  if [[ ! -f "$receipt" || ! -f "$state/mac-installed.json" ]]; then
+    REVIEW_MAC_STATUS="BLOCKED: the fleet Mac build did not finish; see the error above"
+    return 1
+  fi
+  job_id="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "$receipt")"
+  if "$cmux_ci" publish-hq "$job_id" >/dev/null; then
+    REVIEW_MAC_STATUS="fleet job $job_id, published to HQ"
+  else
+    REVIEW_MAC_STATUS="BLOCKED: fleet job $job_id built, but cmux-ci publish-hq failed"
+    return 1
+  fi
+}
+
 REVIEW_INSTALLED=()
 review_finish() {
   local target
@@ -790,7 +824,7 @@ if [[ "$REVIEW" -eq 1 ]]; then
     echo "==> --review: building on the fleet through $REVIEW_HQ_ROOT/build-fleet/ios-reload.py"
     # The first phone's run waits for the fleet jobs; later runs reuse the
     # same saved jobs and the installed Mac app, and only sign and install.
-    REVIEW_MAC_STATUS="fleet build failed; see the error above"
+    REVIEW_MAC_STATUS="not built; see the error above"
     for target in "${REVIEW_TARGETS[@]}"; do
       udid="${target%%$'\t'*}"; label="${target#*$'\t'}"
       echo "==> --review: iPhone $label"
@@ -807,6 +841,11 @@ if [[ "$REVIEW" -eq 1 ]]; then
         REVIEW_FAILED=1
       fi
     done
+    if [[ "${#REVIEW_INSTALLED[@]}" -eq 0 ]]; then
+      # ios-reload.py publishes the Mac build only after a phone passes. The
+      # Mac build is still the hand-off's first line, so publish it here.
+      review_publish_mac || REVIEW_FAILED=1
+    fi
     review_finish || exit 1
     exit 0
   fi
