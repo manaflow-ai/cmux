@@ -63,6 +63,47 @@ test("a distant rail jump fills every turn between its target and the held tail"
   client.close();
 });
 
+test("a gap read that fails is read again, and a fill that went stale starts again for newer gaps", async () => {
+  clock = new VirtualClock().install();
+  const events = logFor(SESSION, "small", { turns: 300 }).events;
+  const daemon = new FakeDaemon();
+  daemon.add(
+    { sessionId: SESSION, cwd: "/home/dev/x", title: "x", harness: "claude", status: "idle", updatedAt: clock.now },
+    [...events],
+  );
+  const { client } = await connectClient(daemon, SESSION, clock);
+  const internal = client as any;
+  const tailStart: number = internal.firstSeq;
+  const typed = internal.typed.bind(internal);
+  let failures = 1;
+  internal.typed = (method: string, params: any, ...rest: unknown[]) => {
+    if (method === "_acpmux/events" && params?.beforeSeq === undefined && failures > 0) {
+      failures -= 1;
+      return Promise.reject(new Error("dropped"));
+    }
+    return typed(method, params, ...rest);
+  };
+  internal.indexedGaps = [{ after: 0, before: tailStart }];
+  internal.startIndexedGapFill();
+  await clock.advance(60_000);
+  const held = new Set<number>(internal.events.map((event: EventRecord) => event.seq));
+  expect(events.filter((event: EventRecord) => !held.has(event.seq)).map((event: EventRecord) => event.seq)).toEqual(
+    [],
+  );
+  expect(internal.indexedGaps).toEqual([]);
+
+  // A fill whose read is out when the held history goes ends stale; a gap queued meanwhile still fills.
+  internal.historyEpoch += 1;
+  internal.indexedGaps = [{ after: 0, before: 50 }];
+  internal.startIndexedGapFill();
+  internal.historyEpoch += 1;
+  internal.indexedGaps.push({ after: 0, before: 60 });
+  await clock.advance(60_000);
+  expect(internal.indexedGaps).toEqual([]);
+  expect(internal.indexedGapFill).toBeUndefined();
+  client.close();
+});
+
 test("dropping the held history drops the gaps still queued to fill", async () => {
   clock = new VirtualClock().install();
   const events = logFor(SESSION, "small", { turns: 300 }).events;
