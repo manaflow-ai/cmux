@@ -58,6 +58,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case sharedLinks
         /// Settings > Agents > Worktree Setup: a project's worktree recipe (setup, run and teardown scripts, files to copy) over the repository's .worktreeinclude and .cmux/worktree.toml (design/worktree-setup.md); `cmux.project.list`, `cmux.project.update` and `cmux.git.worktree.setup` through the page relay.
         case worktreeSetup
+        /// Settings > Models: the person's connections (Mac logins, ChatGPT plan, API keys) in the order a thread uses them, Spread usage, the organization's shared keys, and the members policy (cmux-tui/docs/model-connections.md); `cmux.settings.models.*`.
+        case models
     }
 
     /// A group card as the layout states it: rows claimed by key to lead it, the rows

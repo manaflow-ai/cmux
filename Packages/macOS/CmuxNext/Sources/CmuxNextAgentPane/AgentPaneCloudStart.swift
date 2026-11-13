@@ -4,7 +4,7 @@ public import CmuxNextSettings
 public import Foundation
 import os
 
-/// `cloud.startChat {task, cwd?, harness?, model?, key}`: a new chat's first send with Cloud picked
+/// `cloud.startChat {task, cwd?, harness?, model?, effort?, account?, key}`: a new chat's first send with Cloud picked
 /// as where it runs (the environment picker's Cloud row, Labs). The App picks or makes a Cloud
 /// machine sized for the chat, copies the chat's folder there, starts the chat there with this
 /// prompt and shows it, with no machine, size or environment prompt (``AgentPaneModel/onCloudStartChat``).
@@ -20,6 +20,12 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     public var home = false
     public var harness: String?
     public var model: String?
+    /// The picker's effort for that model; nil keeps the agent's default.
+    public var effort: String?
+    /// The connection the picker's Account menu chose (a connection id of this Mac's acpmux); nil is
+    /// the family's first Cloud-serving one (``CloudSetup/choose(harness:model:account:)``,
+    /// cmux-tui/docs/model-connections.md, Revision 2).
+    public var account: String?
     /// The selected Cloud environment id; nil lets workspace ensure resolve personal Default.
     public var environment: String?
     /// The warm machine reserved by this compose; Send binds it using ``key``.
@@ -71,7 +77,9 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
               task.count <= AgentPaneRequest.maximumSandboxTask,
               let key = params?["key"] as? String, UUID(uuidString: key) != nil,
               let harness = name("harness"), let model = name("model"), let environment = name("environment"),
-              let team = name("team") else { return nil }
+              let team = name("team"), let effort = name("effort"), let account = name("account") else { return nil }
+        // A connection id only (``CloudSetup/isConnectionID(_:)``).
+        if let account, !CloudSetup.isConnectionID(account) { return nil }
         let reservationKey = params?["reservationKey"]
         if let reservationKey, (reservationKey as? String).flatMap(UUID.init(uuidString:)) == nil { return nil }
         let gestureTicket = params?["gestureTicket"]
@@ -83,6 +91,7 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
         self.init(task: task, cwd: cwd as? String, harness: harness, model: model, key: key, environment: environment, reservationKey: reservationKey as? String, gestureTicket: gestureTicket as? String)
         self.home = home as? Bool ?? false
         self.team = team
+        (self.effort, self.account) = (effort, account)
         self.attachments = attachments
         let signedIn = params?["signedIn"]
         if let signedIn, !(signedIn is Bool) { return nil }
@@ -146,11 +155,13 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     }
 
     /// The seed of the chat on the Cloud machine, in `cwd` (the folder's copy there): the person's
-    /// prompt, sent once with the Send's gesture, on the agent and model the page picked. `draft`: what
-    /// the sending tab's composer held when the chat opened (typed after the Send), shown, never sent.
+    /// prompt, sent once with the Send's gesture, on the agent, model and effort the page picked.
+    /// `draft`: what the sending tab's composer held when the chat opened (typed after the Send), shown, never sent.
     public func seed(cwd: String?, draft: String? = nil) -> AgentPaneSeed {
-        AgentPaneSeed(cwd: cwd, draft: draft, prompt: task, promptAttachments: attachments.isEmpty ? nil : attachments,
-                      promptBy: .person, harness: harness, model: model)
+        var seed = AgentPaneSeed(cwd: cwd, draft: draft, prompt: task, promptAttachments: attachments.isEmpty ? nil : attachments,
+                                 promptBy: .person, harness: harness, model: model)
+        seed.effort = effort
+        return seed
     }
 }
 
@@ -389,6 +400,30 @@ extension AgentPaneModel {
         return AgentPaneReply.success(["signedIn": true])
     }
 
+    /// `cloud.setUp {key, action, family}`: the Set up Cloud card's button, on its click. Runs that way
+    /// in (Settings > Models' own op), waits for a connection serving `family` and keeps the click for
+    /// the page's one send again of start `key` (`cloud.startChat {..., signedIn: true}`), as
+    /// `cloud.signIn` does: the chat starts with no retyping once one appears. `cloud.signInCancel`
+    /// withdraws it (the page left Cloud, or gave up).
+    func setUpCloud(key: String, action: String, family: String) async -> [String: Any] {
+        guard let onCloudSetUp, let way = CloudSetup.Action(rawValue: action),
+              onCloudStartChat != nil, !chatIsElsewhere, sessionId == nil else {
+            return Self.unsupported("cloud.setUp")
+        }
+        guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+        let generation = cloudSignInGeneration
+        cloudSetUpWait?.cancel() // one wait per pane: a newer click replaces it
+        let wait = Task { await onCloudSetUp(way, family) } // the model's own actor: it only awaits the App's wait
+        cloudSetUpWait = wait
+        let ready = await wait.value
+        if cloudSetUpWait == wait { cloudSetUpWait = nil }
+        guard ready, cloudSignInGeneration == generation else {
+            return AgentPaneReply.failure(code: "cloud_sign_in_cancelled", message: "cloud_sign_in_cancelled")
+        }
+        keepCloudSignInGrant(key, generation: generation)
+        return AgentPaneReply.success(["ready": true])
+    }
+
     /// `cloud.signInCancel {expired?}`: the page stopped waiting on a `cloud.signIn` (it left Cloud, or
     /// its deadline passed), so the kept click goes and a sign-in still out keeps none. An expired one
     /// also ends its browser sign-in (the App's sign-in ends its auth attempt on that), so the card's
@@ -396,6 +431,8 @@ extension AgentPaneModel {
     func cancelCloudSignIn(expired: Bool) -> [String: Any] {
         cloudSignInGeneration += 1
         cloudSignInGrant = nil
+        cloudSetUpWait?.cancel()
+        cloudSetUpWait = nil
         if expired {
             cloudSignInBrowser?.cancel()
             cloudSignInBrowser = nil
@@ -418,5 +455,16 @@ extension AgentPaneModel {
         guard let grant = cloudSignInGrant else { return false }
         cloudSignInGrant = nil
         return grant.key == key && grant.generation == cloudSignInGeneration && ContinuousClock.now < grant.until
+    }
+}
+
+extension CloudSetup {
+    /// A Cloud start's Cloud first use answer (``choose(harness:model:account:)``): nil when a connection
+    /// serves the picker's model (or nothing could be read), else `cloud_setup_required` naming its family
+    /// and model, which the page shows as Set up Cloud.
+    public func refusal(harness: String?, model: String?, account: String?) async -> [String: Any]? {
+        guard case .setup(let family, let model) = await choose(harness: harness, model: model, account: account) else { return nil }
+        return AgentPaneReply.failure(code: "cloud_setup_required", message: "cloud_setup_required", details: ["family": family, "model": model ?? ""],
+                                      retryable: false, origin: "native")
     }
 }

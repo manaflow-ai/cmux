@@ -955,6 +955,8 @@ pub struct Hub {
     /// The HEAD of each attached session's folder, watched for a checkout (`git_watch.rs`).
     pub(super) git_watch: git_watch::GitWatchState,
     pub catalog: Arc<crate::catalog::CatalogService>,
+    /// Sign in with ChatGPT: its attempts and per-account refresh locks (`crate::chatgpt`).
+    pub chatgpt: Arc<crate::chatgpt::Service>,
     /// Agent CLI health (`harness_health`, `hub/health_view.rs`).
     pub health: Arc<crate::harness_health::HealthService>,
     /// The token the web listener checks now (`web_token.rs`).
@@ -1283,6 +1285,7 @@ impl Hub {
             settings_watch: Default::default(),
             git_watch: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
+            chatgpt: Arc::new(crate::chatgpt::Service::default()),
             health: Arc::new(crate::harness_health::HealthService::new()),
             web_token: WebToken::new(String::new()),
             person: Default::default(),

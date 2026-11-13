@@ -2732,10 +2732,21 @@ async fn dispatch_request_with_identity(
         | method::MUX_ROUTE_TEST
         | method::MUX_ROUTE_DEFAULT_SET
         | method::MUX_CHAT_ROUTE_SET => {
-            heap(|| super::routes::handle(hub, conn.origin, m, &params)).await
+            let reply = heap(|| super::routes::handle(hub, conn.origin, m, &params)).await;
+            if reply.is_ok() && super::connections::changes_connections(m) {
+                super::connections::announce_later(hub);
+            }
+            reply
         }
         method::MUX_ACCOUNTS | method::MUX_ACCOUNT_SET | method::MUX_ACCOUNT_USAGE => {
-            heap(|| super::accounts::handle(hub, conn.origin, m, &params)).await
+            let reply = heap(|| super::accounts::handle(hub, conn.origin, m, &params)).await;
+            if reply.is_ok() && super::connections::changes_connections(m) {
+                super::connections::announce_later(hub);
+            }
+            reply
+        }
+        name if super::connections::METHODS.contains(&name) => {
+            heap(|| super::connections::handle(hub, conn.origin, name, &params)).await
         }
         method::ACP_TRUST_GET | method::ACP_TRUST_SET => {
             // Recorded here, not on a peer: only a folder that exists here (`remote_guard.rs`).

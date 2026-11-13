@@ -8,12 +8,19 @@ extension TeamAgentKeys {
     /// fixture launches) is always signed out. The request body holds the key only for `team.agent_key.set`
     /// and is never logged; a failure reports the API's error code, never the request.
     public static func live(auth: CloudAuth, ownerAPI: URL, preview: Bool) -> TeamAgentKeys {
+        let owner = ownerAPICall(auth: auth, ownerAPI: ownerAPI, preview: preview)
+        return TeamAgentKeys(scope: owner.scope, call: owner.call)
+    }
+
+    /// The active team's scope and its owner API call (`v1/read`, or `v1/ops` with a mutation key),
+    /// shared by the team settings Settings changes as the person (agent keys, the models policy).
+    public static func ownerAPICall(auth: CloudAuth, ownerAPI: URL, preview: Bool) -> (scope: @MainActor () -> Scope?, call: Call) {
         let transport = InstallHTTPTransport(baseURL: ownerAPI)
         let current: @MainActor () -> Scope? = {
             guard !preview, auth.isSignedIn, let user = auth.user?.id else { return nil }
             return GitHubConnections.signedInScope(project: auth.configuration.stackProjectID, user: user, team: auth.teamID, managedTeam: auth.managedTeamID)
         }
-        return TeamAgentKeys(scope: current, call: { bound, op, params, mutationKey in
+        return (current, { bound, op, params, mutationKey in
             let access = try await auth.tokens().access
             guard current() == bound else { throw Failure.changedAccount }
             var body: [String: JSONValue] = ["op": .string(op), "params": params]

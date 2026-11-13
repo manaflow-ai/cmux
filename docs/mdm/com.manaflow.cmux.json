@@ -3513,6 +3513,12 @@
       "title" : "Terminal Size Priority",
       "type" : "array"
     },
+    "models.spreadUsage" : {
+      "default" : true,
+      "description" : "When one subscription runs out, a thread moves to another of your connections that serves the same model.",
+      "title" : "Spread Usage Across My Subscriptions",
+      "type" : "boolean"
+    },
     "navigation.history.scope" : {
       "default" : "workspaces",
       "description" : "Workspaces: Go Back and Go Forward move between workspaces and top pages, and return to the tab each one last had focused. Everything: they also step through tabs and panes inside a workspace.",

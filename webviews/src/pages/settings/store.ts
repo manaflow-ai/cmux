@@ -27,6 +27,7 @@ import {
   settingsKeys,
   type AccountsData,
   type DevicesData,
+  type ModelsData,
   type HarnessesData,
   type HostData,
   type ScopeData,
@@ -55,6 +56,8 @@ import {
   type DevicesRun,
   type DevicesRunResult,
   type DevicesState,
+  type ModelsRun,
+  type ModelsState,
   type Domains,
   type MenuLayout,
   type HarnessesRun,
@@ -120,6 +123,8 @@ export type SettingsState = {
   harnesses: HarnessesState | null;
   /** The Devices part (Settings > Devices); null until read, or when the host has none. */
   devices: DevicesState | null;
+  /** Settings > Models; null until read, or when the host has none. */
+  models: ModelsState | null;
   /** Theme colors by name (cmux.settings.theme.colors); null until read or when the host has none. */
   themeColors: ReadonlyMap<string, GhosttyTheme> | null;
 };
@@ -136,6 +141,7 @@ export type CacheView = {
   accounts: AccountsData | undefined;
   harnesses?: HarnessesData | undefined;
   devices?: DevicesData | undefined;
+  models?: ModelsData | undefined;
   themeColors: ThemeColorsData | undefined;
 };
 
@@ -179,6 +185,7 @@ export function composeState(ui: UiState, cache: CacheView): SettingsState {
     accounts: cache.accounts ?? null,
     harnesses: cache.harnesses ?? null,
     devices: cache.devices ?? null,
+    models: cache.models ?? null,
     themeColors: cache.themeColors ?? null,
   };
 }
@@ -227,6 +234,9 @@ export class SettingsStore {
     this.queryClient.setQueryDefaults(settingsKeys.devices, {
       queryFn: () => this.native("cmux.settings.devices.state"),
     });
+    this.queryClient.setQueryDefaults(settingsKeys.models, {
+      queryFn: () => this.native("cmux.settings.models.state"),
+    });
     this.queryClient.setQueryDefaults(settingsKeys.themeColors, {
       queryFn: async (): Promise<ThemeColorsData> =>
         new Map((await this.native("cmux.settings.theme.colors")).themes.map((theme) => [theme.name, theme])),
@@ -249,6 +259,9 @@ export class SettingsStore {
       ),
       this.listen("cmux.settings.devices.changed", (devices) =>
         this.queryClient.setQueryData(settingsKeys.devices, devices),
+      ),
+      this.listen("cmux.settings.models.changed", (models) =>
+        this.queryClient.setQueryData(settingsKeys.models, models),
       ),
       // A machine's update failing while Updates shows (its toast's Details shows the reason in the toast) shows in
       // the Channels card's row at once, in every channel's read.
@@ -705,6 +718,18 @@ export class SettingsStore {
     return this.integrationsState();
   }
 
+  /** Reads Settings > Models (a host without it rejects, and the part stays null). */
+  async refreshModels(): Promise<void> {
+    await this.fetchNative(settingsKeys.models);
+  }
+
+  /** One Settings > Models gesture, then a fresh read of the part; rejects with the host's refusal. */
+  async runModels(run: ModelsRun): Promise<void> {
+    const reply = await this.request("cmux.settings.models.run", run);
+    await this.refreshModels();
+    if (!reply.ok) throw new Error(reply.error.message);
+  }
+
   /** One Harnesses gesture (Settings > Agents), then a fresh read of the part. */
   async runHarnesses(run: HarnessesRun): Promise<void> {
     await this.request("cmux.settings.harnesses.run", run);
@@ -824,6 +849,7 @@ export class SettingsStore {
       accounts: this.queryClient.getQueryData<AccountsData>(settingsKeys.accounts),
       harnesses: this.queryClient.getQueryData<HarnessesData>(settingsKeys.harnesses),
       devices: this.queryClient.getQueryData<DevicesData>(settingsKeys.devices),
+      models: this.queryClient.getQueryData<ModelsData>(settingsKeys.models),
       themeColors: this.queryClient.getQueryData<ThemeColorsData>(settingsKeys.themeColors),
     };
   }
@@ -842,6 +868,7 @@ export class SettingsStore {
       last.cache.accounts === cache.accounts &&
       last.cache.harnesses === cache.harnesses &&
       last.cache.devices === cache.devices &&
+      last.cache.models === cache.models &&
       last.cache.themeColors === cache.themeColors
     )
       return last.state;

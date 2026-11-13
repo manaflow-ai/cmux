@@ -165,6 +165,12 @@ impl Hub {
         self.harness_watch.peer_states.get_or_init(Default::default)
     }
 
+    /// Sends a `_acpmux/connections.changed` note (`server/connections.rs` marks it) to the
+    /// watchers, through the harness feed every watching connection hears.
+    pub(crate) fn send_watch_note(&self, payload: Value) {
+        let _ = self.harness_watch.changes.send(payload);
+    }
+
     /// Sends one `_acpmux/harnesses_changed` payload to the watchers.
     pub(super) fn send_harness_change(&self, payload: Value) {
         let _ = self.harness_watch.changes.send(payload);

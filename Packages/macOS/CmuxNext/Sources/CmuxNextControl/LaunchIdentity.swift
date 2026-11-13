@@ -103,8 +103,12 @@ public struct LaunchIdentity: Sendable, Equatable {
     /// home, control socket, settings file). A test harness or a person sets
     /// them on purpose; inherited from another cmux they are that build's
     /// roots (per-build isolation S4, cx-is1kf.5).
+    /// Also the Cloud backend knobs every cmux NEXT terminal exports (AppDelegate's Cloud bootstrap):
+    /// inherited, they are that build's backend, so a DEV build opened from a NIGHTLY terminal resolved
+    /// prod and its dev auto-login hit the production Stack project (EmailPasswordMismatchError).
     public static let stateRootKnobs = ["CHIEF_HOME", "CHIEF_ROOT", "CHIEF_BUILD_ID", "CHIEF_ACCOUNT",
-                                        "MUX_HOME", "ACPMUX_ROOT", "SOCKET_PATH", "CONFIG_FILE"].map { "CMUX_NEXT_" + $0 }
+                                        "MUX_HOME", "ACPMUX_ROOT", "SOCKET_PATH", "CONFIG_FILE",
+                                        "CLOUD_ENV", "CLOUD_BACKEND", "CLOUD_RUNTIME"].map { "CMUX_NEXT_" + $0 }
 
     /// The capture shell home (`AppEnvironment.captureShellHome`): a PR capture slot names it in the
     /// clone's `LSEnvironment`, and a DEBUG launch may pass it in its environment instead (the media

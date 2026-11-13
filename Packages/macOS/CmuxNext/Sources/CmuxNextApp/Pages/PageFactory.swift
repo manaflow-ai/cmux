@@ -195,6 +195,9 @@ struct PageFactory {
         )
         provider.harnessesState = { harnesses.state }
         provider.harnessesRun = { params, context in try await harnesses.run(params, context: context) }
+        provider.models = SettingsModels.live(environment: { [weak services] in services.flatMap(QuitAgents.environment) }, harnesses: harnesses, settings: settings,
+                                              activeTeam: { [weak services] in services?.accounts.activeTeam }, agentKeys: services.accounts.agentKeys,
+                                              policy: services.accounts.modelsPolicy)
         let cloud = services.cloud
         let environments = CloudEnvironmentsSettings(
             available: { [weak cloud] in cloud?.auth.isSignedIn ?? false },
