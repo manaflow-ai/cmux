@@ -222,15 +222,17 @@ public nonisolated struct CloudMoveCLI: Sendable {
         /// The account and the backend team (`team_…`, the install token's) the warm was asked for.
         public var account: String
         public var team: String
+        /// Rust's attempt fence, returned unchanged when the copy completes.
+        public var generation: String?
 
-        public init(machineID: String, account: String, team: String) {
-            (self.machineID, self.account, self.team) = (machineID, account, team)
+        public init(machineID: String, account: String, team: String, generation: String? = nil) {
+            (self.machineID, self.account, self.team, self.generation) = (machineID, account, team, generation)
         }
     }
 
     /// How the App's login copy of a warm ended: installed (Rust keeps it as the start's login receipt), done otherwise
     /// (or given up for good), or abandoned to an account or team switch.
-    public enum SpareWarmEnd: Sendable, Equatable { case installed(String), finished(String), abandoned(String) }
+    public enum SpareWarmEnd: Sendable, Equatable { case installed(String), verified(String), finished(String), abandoned(String) }
 
     /// `cmux link start-chat warm-spare --request JSON`, the session `access` token then the `install` token on stdin:
     /// the person's spare, warmed in the install token's team (Rust's `install_team`, the reservation's). Nil when there is nothing to copy: an answer from
@@ -240,16 +242,20 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// it unless a copy onto it is already in flight or given (keyed per machine, cmux-tui `spare_warm`).
     /// With `ready`, likewise no warm: the platform said that spare became ready, and Rust answers its copy the same way.
     public func startChatWarmSpare(platform: URL, account: String, access: String, install: String, end: SpareWarmEnd? = nil,
-                                   claimed: String? = nil, ready: String? = nil) async -> SpareWarm? {
+                                   claimed: String? = nil, ready: String? = nil, generation: String? = nil,
+                                   scope: [String: String]? = nil, currentScope: [String: String]? = nil) async -> SpareWarm? {
         struct Call: Encodable { var verb = "start-chat-warm-spare"; var request: String }
-        let request = Self.spareWarmRequest(platform: platform, account: account, end: end, claimed: claimed, ready: ready)
+        var request = Self.spareWarmRequest(platform: platform, account: account, end: end, claimed: claimed, ready: ready)
+        request["generation"] = generation
+        if let scope { request["scope"] = scope }
+        if let currentScope { request["currentScope"] = currentScope }
         guard let payload = try? JSONSerialization.data(withJSONObject: request, options: [.sortedKeys]),
               let read = try? await run(Call(request: String(decoding: payload, as: UTF8.self)), reading: "reservation",
                                         stdin: Data((access + "\n" + install + "\n").utf8)),
               let object = read.object, let reply = try? JSONSerialization.jsonObject(with: object) as? [String: Any],
               let copy = reply["copy"] as? [String: Any], let machineID = copy["machine"] as? String,
               copy["account"] as? String == account, let team = copy["team"] as? String else { return nil }
-        return SpareWarm(machineID: machineID, account: account, team: team)
+        return SpareWarm(machineID: machineID, account: account, team: team, generation: copy["generation"] as? String)
     }
 
     /// The `warm-spare` request: a warm, the end of its copy (`end`), or the copy a reserve's or claim's machine asks for (`claimed`).
@@ -257,6 +263,7 @@ public nonisolated struct CloudMoveCLI: Sendable {
         var request: [String: Any] = ["platform": platform.absoluteString, "account": account]
         switch end {
         case .installed(let machine): request["installed"] = machine
+        case .verified(let machine): request["verified"] = machine
         case .finished(let machine): request["finished"] = machine
         case .abandoned(let machine): request["abandoned"] = machine
         case nil: request["claimed"] = claimed; request["ready"] = claimed == nil ? ready : nil
@@ -288,9 +295,10 @@ public nonisolated struct CloudMoveCLI: Sendable {
 
     /// Whether a warm installed `account`'s `provider` login on `machine` recently and no newer copy onto it is in flight
     /// (Rust's `loginReceipt`): the start then checks and passes no login of its own. False on any failure.
-    public func startChatLoginReceipt(machine: String, account: String, provider: String) async -> Bool {
+    public func startChatLoginReceipt(machine: String, account: String, provider: String, scope: [String: String]? = nil) async -> Bool {
         struct Call: Encodable { var verb = "start-chat-warm-spare"; var request: String }
-        let ask: [String: Any] = ["account": account, "loginReceipt": ["machine": machine, "provider": provider]]
+        var ask: [String: Any] = ["account": account, "loginReceipt": ["machine": machine, "provider": provider]]
+        if let scope { ask["scope"] = scope }
         guard let payload = try? JSONSerialization.data(withJSONObject: ask, options: [.sortedKeys]),
               let read = try? await run(Call(request: String(decoding: payload, as: UTF8.self)), reading: "reservation", stdin: nil),
               let object = read.object, let reply = try? JSONSerialization.jsonObject(with: object) as? [String: Any] else { return false }
