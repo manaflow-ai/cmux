@@ -225,8 +225,9 @@ pub fn parse_response(raw: &[u8]) -> Result<Answer, String> {
             .windows(4)
             .position(|w| w == b"\r\n\r\n")
             .ok_or("the response has no header block")?;
-        let head = std::str::from_utf8(&rest[..end]).map_err(|_| "the headers are not text")?;
-        let body = &rest[end + 4..];
+        let (head, body) = rest.split_at_checked(end).ok_or("the response has no header block")?;
+        let body = body.strip_prefix(b"\r\n\r\n").ok_or("the response has no header block")?;
+        let head = std::str::from_utf8(head).map_err(|_| "the headers are not text")?;
         let status: u16 = head
             .split("\r\n")
             .next()

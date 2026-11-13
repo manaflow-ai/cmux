@@ -1071,7 +1071,7 @@ pub(super) fn read_channel_from(
         headers.push(format!("If-Modified-Since: {last_modified}"));
     }
     let max = CHANNEL_MAX_BYTES as u64;
-    let raw = curl(url, proto, max, max + HEAD_MAX_BYTES, &headers, true, None)
+    let raw = curl(url, proto, max, max.saturating_add(HEAD_MAX_BYTES), &headers, true, None)
         .map_err(|e| format!("reading {url}: {e}"))?;
     let answer = channel::parse_response(&raw).map_err(|e| format!("reading {url}: {e}"))?;
     cache
