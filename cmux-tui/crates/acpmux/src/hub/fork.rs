@@ -361,6 +361,38 @@ impl Hub {
             Ok((fork_seq, held, reserved))
         };
         let mut cut_at_request = None;
+        // An idle Codex chat: a copy of its rollout as it stands now, under a thread id of the
+        // fork's own. Codex lets one process write a thread, and the chat's process keeps a
+        // thread it forked: `thread/unsubscribe` does not let go of it, so the fork's own
+        // process was refused it ("already has an active writer") and the fork fell back to a
+        // fresh thread fed acpmux's transcript, its tool state lost. With nothing stored yet,
+        // the chat's agent forks it (`session/fork`, below) as before.
+        let idle_codex_copy = if !empty
+            && target.is_none()
+            && before.is_none()
+            && cut.is_none()
+            && running.is_none()
+            && matches!(turn_cut, Some(crate::config::TurnCut::Codex))
+            && cwd == parent_meta.cwd
+        {
+            let homes = self.harness_homes().with_env(&[&fork_env]);
+            let handoff = session.input_handoff.clone().lock_owned().await;
+            let copy = super::fork_at::codex_rollout_through(&homes.codex, &sid, u64::MAX);
+            let rules = session.read_meta(rules_of);
+            drop(handoff);
+            match copy {
+                Ok(copy) => {
+                    rules_at_copy = Some(rules);
+                    Some(copy)
+                }
+                Err(e) => {
+                    tracing::info!(session = %session.id, "fork of an idle Codex chat by its agent: {e}");
+                    None
+                }
+            }
+        } else {
+            None
+        };
         let made = if empty {
             turn_count = 0;
             Made::Empty
@@ -450,6 +482,8 @@ impl Hub {
                     Made::Fresh
                 }
             }
+        } else if let Some(copy) = idle_codex_copy {
+            Made::Copy(copy)
         } else if is_claude {
             // The fork happens when the new session's process starts with
             // --resume <parent> --fork-session; no agent call now.
@@ -670,6 +704,7 @@ impl Hub {
             claude_unstored: false,
             // Never the parent's: only its creator asks (`SessionMeta::wait_start`).
             wait_start: false,
+            throwaway: false,
             hibernated_ms: 0,
             idle_launch: None,
             moved_to: None,

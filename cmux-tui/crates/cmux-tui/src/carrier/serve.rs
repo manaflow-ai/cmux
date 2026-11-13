@@ -76,7 +76,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use cmux_remote::crypto::StaticIdentity;
-use cmux_remote::unix_socket::{OwnedUnixListener, UnixAcceptBackoff};
+use cmux_remote::unix_socket::OwnedUnixListener;
 use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _};
 use tokio::net::UnixStream;
 use tokio::signal::unix::{Signal, SignalKind, signal};
@@ -174,7 +174,7 @@ async fn serve(socket: PathBuf, shared: Arc<Shared>) -> i32 {
     let (stop, stopped) = watch::channel(false);
     let permits = Arc::new(Semaphore::new(MAX_CONNECTIONS));
     let mut tasks = JoinSet::new();
-    let mut backoff = UnixAcceptBackoff::new();
+    let mut backoff = cmux_remote::unix_socket::accept_backoff();
     let ended = ended(shared.clone(), terminate, interrupt);
     tokio::pin!(ended);
     let code = loop {
@@ -196,7 +196,7 @@ async fn serve(socket: PathBuf, shared: Arc<Shared>) -> i32 {
                         tasks.spawn(task);
                     }
                 }
-                Err(error) => match backoff.retry_delay(&error) {
+                Err(error) => match cmux_tui_core::backoff::accept_retry_delay(&mut backoff, &error) {
                     Some(delay) => tokio::time::sleep(delay).await,
                     None => {
                         reply(&contract::failure_line(SOCKET, Some(&error.to_string())));
