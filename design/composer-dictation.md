@@ -6,7 +6,12 @@ The composer's mic (`webviews/src/agent-session/acpmux/DictationButton.tsx`, `Di
 page covers the other case: the person already dictates with another app and pastes or types the
 result into the composer.
 
-## The ask (Leo 2026-11-07)
+## Current behavior (2026-11-13)
+
+The microphone button starts dictation only through an explicit action. cmux does not detect or
+meter another app's microphone use, including calls. The earlier request below is historical.
+
+## The original ask (Leo 2026-11-07)
 
 > "could you do a thing where it's like, you know, you can optionally have it be like, oh, you use
 > Claude's thing, or ChatGPT's thing, or like it detects Claude's thing or ChatGPT's thing if you
@@ -54,53 +59,6 @@ What follows from the table:
   events needs the Accessibility (post event) grant: `CGPreflightPostEventAccess()`, and
   `CGRequestPostEventAccess()` the first time.
 
-## Detecting the app and the microphone
-
-Detecting never opens the microphone; cmux never captures audio to learn whether, or which, app
-dictates. Only the level meter below opens it, and only while that is already known.
-
-- **Installed and running:** `NSWorkspace.urlForApplication(withBundleIdentifier:)` for each
-  known bundle id above, and `NSWorkspace.runningApplications`. The list is fixed in the host, so
-  the page cannot ask whether an arbitrary app is installed (the same rule as
-  `AttachmentSourceIcons`).
-- **Microphone in use somewhere:** `kAudioDevicePropertyDeviceIsRunningSomewhere` on the default
-  input device, with `AudioObjectAddPropertyListenerBlock`; also listen to
-  `kAudioHardwarePropertyDefaultInputDevice` on the system object to follow a device change. A
-  read of a property, no TCC prompt.
-- **Which app holds it (macOS 14.2+):** `kAudioHardwarePropertyProcessObjectList`, then per process
-  `kAudioProcessPropertyIsRunningInput`, `kAudioProcessPropertyBundleID` and
-  `kAudioProcessPropertyPID`. Caveats: the list's listener can fire before IO starts (re-read once
-  shortly after); helpers hold the mic under their own ids (match by prefix, or map the pid with
-  `NSRunningApplication`); cmux's own process shows up and is filtered out. Before 14.2 the
-  indicator says only that the mic is in use.
-- **No level without capture.** CoreAudio says whether input runs, not how loud it is. A level
-  needs an input tap of cmux's own (below); without one the indicator's motion is drawn, not
-  measured, and must never claim to show the person's voice.
-
-### The level meter
-
-Leo, 2026-11-08, on the drawn pulse: "It's not accurate ... Could you do it? But you'd have to,
-like, also detect the mic more completely, right? Like from the system level." So while the
-indicator shows, cmux measures the level itself:
-
-- **When.** Another app's input runs, a composer has the keyboard in a focused window, macOS is
-  14.2 or later, cmux already has microphone permission
-  (`AVCaptureDevice.authorizationStatus(for: .audio) == .authorized`), and cmux's own dictation
-  does not hold the microphone. Then the host opens a meter-only `AVAudioEngine` input tap on the
-  default input.
-- **Levels only.** The tap folds each buffer into one RMS level (`DictationAudioLevelMeter`, no
-  recording) and sends the page that number (`micLevel {level}`, about 12 a second); no sample is
-  kept, written or sent. `micActivity` says `metered: true` while it runs.
-- **Stops at once** when the other app's input stops (its process's
-  `kAudioProcessPropertyIsRunningInput`: the device's `IsRunningSomewhere` stays true while cmux's
-  own tap runs, so it cannot tell), when the last composer loses the keyboard or the window its
-  focus, and when cmux's own dictation claims the microphone.
-- **Never prompts.** With no permission yet, or denied, or before macOS 14.2 (where a running
-  device names no process, so cmux could not see the other app let go while its own tap runs),
-  the indicator keeps the drawn pulse. cmux never asks for the microphone to draw this.
-- **Cost.** While it runs, macOS lists cmux among the apps using the microphone (the menu bar's
-  privacy indicator), which is true: cmux reads the level.
-
 ## What cmux builds
 
 ### 1. Dictation source (`agentPane.dictationSource`)
@@ -120,33 +78,14 @@ installed source as checked items above Hide Dictation Button (as the usage ring
 picks Context or Plan Usage), and Settings > Agent Chat has the same choice. The mic's tooltip
 names the source ("Dictate with ChatGPT").
 
-### 2. Outside dictation indicator
+### 2. Burst arrival
 
-While another app holds the microphone and a composer has focus, the composer shows a small live
-mark. Rules:
-
-- It never takes focus, never blocks typing, never moves or resizes the composer: it sits in the
-  slot the dictation strip uses beside the mic, absolutely placed, `pointer-events: none`.
-- It names the app when the host knows it (its icon, "ChatGPT is using the microphone"). While
-  the level meter runs, its bars follow the measured level as cmux's own dictation wave does;
-  otherwise its motion is a slow drawn pulse, never presented as a level.
-- It goes away when the microphone is released. When the composer loses focus the host drops its
-  listener: no observer runs while no composer is focused, and none runs while the source is
-  `cmux` and the indicator is off.
-- cmux's own dictation keeps its own waveform; the indicator never shows for cmux's own session.
-
-Variants live in `webviews/src/agent-session/acpmux/OutsideDictation.gallery.tsx`.
-
-### 3. Burst arrival
-
-A burst paste that lands while (or shortly after) an outside app held the microphone is a normal
-paste. The composer's growth to fit it is the composer's own growth (chat-rendering owns it); this
+A burst paste from another app is a normal paste. The composer's growth to fit it is the composer's own growth (chat-rendering owns it); this
 work reuses it and adds no animation of its own.
 
 ## Out of scope
 
 - Reading another app's transcript (Accessibility scraping, the clipboard while it is not
   pasted). The words come to cmux only as the person's paste or the app's own typing.
-- Capturing audio for an outside session beyond the level meter above: no samples kept or sent,
-  no meter without permission already granted, no permission prompt for it.
+- Detecting or metering another app's microphone use. Only an explicit dictation action opens cmux's microphone.
 - Bundling or launching any third-party app.
