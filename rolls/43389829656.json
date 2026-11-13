@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43389829656",
+  "recorded_at": "2026-11-13T08:12:10Z",
+  "reason": "cmux-tui 2484b45e9075 changes the image's cmux-tui (pinned 2980bd106e40)",
+  "dry_run": false,
+  "cmux_tui": "2484b45e9075e34474c5a4c01fce7dd4657c25c7",
+  "fixes": [
+    {
+      "sha": "2484b45e9075e34474c5a4c01fce7dd4657c25c7",
+      "mergedAt": "2026-11-12T23:36:41-08:00",
+      "subject": "cmux-tui-core: grouped() uses is_multiple_of, the base's clippy red (#42479)"
+    },
+    {
+      "sha": "a13ca45f55275a17fc01ca1202050829c0198a09",
+      "mergedAt": "2026-11-12T23:32:57-08:00",
+      "subject": "fix(cmux-tui): a journal seal no longer writes zeros over the rows it moved"
+    },
+    {
+      "sha": "b46e8bf5985cdd1a306e4e0f5347419f39843c08",
+      "mergedAt": "2026-11-12T23:32:57-08:00",
+      "subject": "test(cmux-tui): a journal seal must not write the pages its rows leave"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T08:12:10Z",
+    "snapshot_id": "sh-7b8df76247e741bdb25af39f89f66d8d",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43389829656): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "83ece550f11ca1db3646df5552cde37acbf79394",
+    "image": "cloud-native-auto-2484b45e-43389829656-1",
+    "revision": "ci-43389829656-1",
+    "at": "2026-11-13T08:12:10Z"
+  },
+  "rolled_back": false
+}
