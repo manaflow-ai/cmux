@@ -170,9 +170,11 @@ fn a_file_replaced_by_rename_is_watched_again_by_the_rearm() {
 /// it). Its folder then reports its closes and metadata changes, so the
 /// change that makes it readable is seen and the next rearm watches it.
 ///
-/// As root this test passes and proves less: no mode binds root, so the file
-/// has a watch of its own from the start, and each event here is that
-/// watch's, not the folder's. `note_user` writes the user of the run.
+/// For a process with CAP_DAC_OVERRIDE (root) this test passes and proves
+/// less: no mode binds it, so the file has a watch of its own from the
+/// start, and each event here is that watch's, not the folder's. Nothing in
+/// a green run shows that: `note_user` writes the user of the run, and a
+/// runner shows it for a failed test only.
 #[test]
 fn a_file_that_cannot_be_watched_is_seen_through_its_folder() {
     let scratch = Scratch::new("unreadable");
@@ -197,11 +199,12 @@ fn a_file_that_cannot_be_watched_is_seen_through_its_folder() {
 /// before a file had a watch of its own, and no more than that: the kernel
 /// queues ONE event for the write and its close, a close after a write of
 /// that entry, and it gives no hint. A fallback that asked more of the
-/// folder (each write, each open) would queue more than one.
+/// folder (each write, each open, each read, each close after a read) would
+/// queue more than one, so the test also reads the entry.
 ///
-/// As root this test cannot make its fallback (no mode binds root, so the
-/// file has a watch of its own from the start) and fails at its first
-/// assert, which says so.
+/// A process with CAP_DAC_OVERRIDE (root) cannot make this test's fallback
+/// (no mode binds it, so the file has a watch of its own from the start);
+/// the test then fails at its first assert, which says so.
 #[test]
 fn a_folder_that_fell_back_wakes_one_time_for_each_close_of_another_entry() {
     const ROUNDS: usize = 20;
@@ -223,19 +226,18 @@ fn a_folder_that_fell_back_wakes_one_time_for_each_close_of_another_entry() {
     watches.rearm(&files).unwrap();
     counts(&mut watches);
     let one_close = [(IN_CLOSE_WRITE, OsString::from("logs.sqlite-wal"))];
-    let mut queued_events = 0;
     for round in 0..ROUNDS {
         // The watcher's own reader: the close wakes it, and it gives no hint.
         drop(append(&busy, &format!("{round}\n")));
         assert!(queued(&watches), "a close of another entry queued nothing (no fallback)");
         assert!(!counts(&mut watches), "a close of another entry counted (it would hint)");
-        // The events themselves: one for a write and its close, and no more.
+        // The events themselves: one for a write and its close, and none
+        // for the open, the read and the close of a reader.
         drop(append(&busy, &format!("{round}\n")));
+        fs::read(&busy).unwrap();
         let seen = events(&watches);
-        assert_eq!(seen, one_close, "the events of one write and its close (round {round})");
-        queued_events += seen.len();
+        assert_eq!(seen, one_close, "the events of a write, its close and a read (round {round})");
     }
-    assert_eq!(queued_events, ROUNDS, "events for {ROUNDS} closes of another entry");
 }
 
 /// A folder that loses its search bit hides its names: the look at a watched
@@ -243,6 +245,10 @@ fn a_folder_that_fell_back_wakes_one_time_for_each_close_of_another_entry() {
 /// then reports each entry (as for a file that cannot be watched), so a
 /// write in place is seen after the folder can be searched again, which no
 /// event of an entry says.
+///
+/// For a process with CAP_DAC_OVERRIDE (root) this test passes and proves
+/// nothing of the fallback: such a process can search the folder of mode
+/// 600, so the file keeps its own watch.
 #[test]
 fn a_file_whose_folder_cannot_be_searched_for_a_time_is_still_seen() {
     let scratch = Scratch::new("search");
