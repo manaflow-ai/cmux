@@ -486,6 +486,9 @@ impl Hub {
             has_after: page.has_after,
             before_key: page.before_key.map(wire_key),
             after_key: page.after_key.map(wire_key),
+            missing: Vec::new(),
+            unknown: Vec::new(),
+            rest: Vec::new(),
         };
         let frame = Frame::json(FrameKind::Page, &reply)?;
         if frame.encoded_len() > max {
