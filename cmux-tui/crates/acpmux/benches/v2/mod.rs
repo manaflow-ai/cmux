@@ -79,36 +79,54 @@ pub const GATE_ROWS: &[GateRow] = &[
         name: "v2.pr04.byte_credit_drop_resume",
         done_when: "1 GB of events to a stopped reader: RSS stays under the connection budget; the reader resumes with no row lost or repeated.",
         measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
     },
     GateRow {
         pr: "4",
         name: "v2.pr04.credit_without_read_drop",
         done_when: "A reader that sends credit without reading gets dropped on that sid; the connection stays up and another sid remains ordered.",
         measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
     },
     GateRow {
         pr: "4",
         name: "v2.pr04.offer_256_subscriptions",
         done_when: "Offering one frame to 256 subscriptions costs at most 1.2x the one-subscription case.",
         measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
     },
     GateRow {
         pr: "4",
         name: "v2.pr04.list_resume_end",
         done_when: "A list resume that missed nothing ends with one empty end frame, and no live op precedes the end mark.",
         measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
     },
     GateRow {
         pr: "4",
         name: "v2.pr04.not_fed_bytes",
         done_when: "A subscriber that is not fed retains zero frame bytes through the god run.",
         measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
     },
     GateRow {
         pr: "4",
         name: "v2.pr04.chat_stopped_reader",
         done_when: "Chat stopped-reader resume is measured after PR 3c wires chat actors into the connection.",
         measured: false,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
     },
     GateRow {
         pr: "5",
@@ -444,7 +462,11 @@ fn merge_measures(
 }
 
 fn measured_row(row: &GateRow, measure: &Measure) -> Value {
-    let ratio = measure.god_p95 / measure.small_p95;
+    let ratio = if measure.small_p95 == 0.0 {
+        if measure.god_p95 == 0.0 { 1.0 } else { f64::INFINITY }
+    } else {
+        measure.god_p95 / measure.small_p95
+    };
     let ratio_all = measure.god_p95_all.map(|value| value / measure.small_p95);
     let failures = [
         (ratio > row.ratio, "god p95 exceeds the row's ratio"),
@@ -466,15 +488,6 @@ fn measured_row(row: &GateRow, measure: &Measure) -> Value {
         "small_p95": measure.small_p95, "god_p95": measure.god_p95,
         "god_p95_all": measure.god_p95_all, "ratio": ratio, "ratio_all": ratio_all,
         "limit": row.ratio, "limit_all": row.ratio_all, "god_max": row.god_max, "unit": measure.unit })
-}
-
-fn measured_row(row: &GateRow, measure: &Measure) -> Value {
-    let ratio = if measure.small_p95 == 0.0 {
-        if measure.god_p95 == 0.0 { 1.0 } else { f64::INFINITY }
-    } else {
-        measure.god_p95 / measure.small_p95
-    };
-    json!({ "name": row.name, "pr": row.pr, "done_when": row.done_when, "status": if ratio <= GOD_SMALL_LIMIT { "ok" } else { "red" }, "reason": if ratio <= GOD_SMALL_LIMIT { "within 1.2x god/small" } else { "god p95 exceeds 1.2x small p95" }, "small_p95": measure.small_p95, "god_p95": measure.god_p95, "ratio": ratio, "unit": measure.unit })
 }
 
 /// Build the nightly-report JSON. `--measures` is optional while all rows are placeholders.
