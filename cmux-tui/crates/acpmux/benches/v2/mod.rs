@@ -773,7 +773,7 @@ fn measured_row(row: &GateRow, measure: &Measure) -> Value {
 fn merge_for_report(
     measures: &[Measure],
     required: &[&str],
-) -> Result<(HashMap<String, Measure>, Vec<&str>), String> {
+) -> Result<(HashMap<String, Measure>, Vec<String>), String> {
     let names = registered_names();
     let mut joined = HashMap::new();
     for measure in measures {
@@ -791,7 +791,12 @@ fn merge_for_report(
             return Err(format!("duplicate v2 gate row {}", measure.name));
         }
     }
-    let missing = required.iter().copied().filter(|name| !joined.contains_key(*name)).collect();
+    let missing = required
+        .iter()
+        .copied()
+        .filter(|name| !joined.contains_key(*name))
+        .map(str::to_owned)
+        .collect();
     Ok((joined, missing))
 }
 
@@ -804,7 +809,7 @@ fn report_value(
     let measures = read_measures(measure_files)?;
     let (measures, missing) =
         merge_for_report(&measures, if measures_requested { &required } else { &[] })?;
-    let missing_set: HashSet<_> = missing.iter().copied().collect();
+    let missing_set: HashSet<_> = missing.iter().map(String::as_str).collect();
     let rows = GATE_ROWS.iter().map(|row| {
         if let Some(measure) = measures.get(row.name) {
             measured_row(row, measure)
