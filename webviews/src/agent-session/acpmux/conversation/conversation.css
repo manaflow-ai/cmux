@@ -313,7 +313,7 @@
   min-width: 0;
   padding: 0;
   border: 0;
-  border-radius: var(--cv-media-radius);
+  border-radius: var(--ds-radius-control);
   background: none;
   cursor: zoom-in;
 }
@@ -2105,52 +2105,6 @@ pre.cv-math-source {
   left: var(--cv-inset);
   right: var(--cv-inset-end, var(--cv-inset));
 }
-/* A live drag (a pane divider or window edge) flows the mounted rows (VirtualTranscript FLOW_CLASS):
-   they leave their placed tops and sit in normal flow, each with the gap under it as a margin, so
-   the browser rewraps them at each width in its own layout pass, as it does a web page. Anchored at
-   the first mounted row's top (--acpmux-flow-start, the padding above it) unless the view follows
-   the latest row. The rows are placed again once the width holds. */
-.acpmux-thread.acpmux-thread--flow {
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-start;
-  box-sizing: border-box;
-  padding-top: var(--acpmux-flow-start, 0px);
-  padding-bottom: 0;
-}
-/* A view that follows the latest row: the box ends where that row rests when the chat fills the
-   view (--acpmux-flow-end), and the rows hang from its end, so rows too tall for it go up past its
-   top, as a scroll to the end shows them. Two struts place rows that leave it free room, with no
-   read of a row: the one above takes that room first, up to the first row's place in a chat the
-   view holds whole (--acpmux-flow-start; the box's own length, so no room is left, while older
-   rows are unmounted above), and the one under takes the rest. Neither is a child, so the rows keep their
-   order and the last row its :last-child margin; only a strut's size changes with the rows'. */
-.acpmux-thread.acpmux-thread--flow-end {
-  justify-content: flex-end;
-  height: var(--acpmux-flow-end);
-  padding-top: 0;
-}
-.acpmux-thread.acpmux-thread--flow-end::before {
-  content: "";
-  flex: 0 1 var(--acpmux-flow-start, 100%);
-  min-height: 0;
-}
-.acpmux-thread.acpmux-thread--flow-end::after {
-  content: "";
-  flex: 1 0 0px;
-}
-.acpmux-thread--flow > .acpmux-row {
-  position: relative;
-  flex: none;
-  top: auto !important;
-  right: auto;
-  left: auto;
-  margin-top: 0 !important;
-  margin-bottom: var(--acpmux-row-gap, 0px);
-}
-.acpmux-thread--flow > .acpmux-row:last-child {
-  margin-bottom: 0;
-}
 .acpmux-row__gap {
   position: absolute;
   z-index: 0;
@@ -3372,7 +3326,7 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
   /* Inset: the transcript row clips paint (`contain: paint`), so an outset ring would be cut. */
   outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
   outline-offset: -1.5px;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-control);
 }
 /* Pointer activation should not leave a browser outline on transcript controls. Keyboard focus
    still takes the shared ring above, including Worked for, expandable tool rows and icon actions. */
@@ -3718,7 +3672,7 @@ button.cv-video-frames__name:hover .cv-video-frames__label {
 button.cv-video-frames__name:focus-visible {
   outline: 2px solid var(--agent-accent-soft);
   outline-offset: 2px;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-control);
 }
 .cv-video-frames__play {
   flex: none;
@@ -7510,7 +7464,7 @@ button.cv-user__file-open:hover > .acpmux-file-chip {
 button.cv-user__file-open:focus-visible {
   outline: 2px solid var(--agent-accent-soft);
   outline-offset: 2px;
-  border-radius: var(--acpmux-file-chip-radius, 6px);
+  border-radius: var(--ds-radius-control);
 }
 /* Markdown is one block stack. Text metrics stay independent of the spacing grid. */
 .cv-md > :is(.cv-p, .cv-h, .cv-list, .cv-quote, .cv-code, .cv-pre, .cv-table-wrap, .cv-math-display, hr),
