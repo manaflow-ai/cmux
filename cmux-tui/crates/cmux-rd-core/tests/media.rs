@@ -164,7 +164,10 @@ fn balanced_shards_reduce_padding_without_changing_frame_shape() {
                     new_total <= old_total,
                     "new={new_total} old={old_total} max={max_datagram} access={access_len} parity={requested_parity}"
                 );
-                if expected_data > 1 && expected_parity == 0 && encoded.len() % max_payload != 0 {
+                if expected_data > 1
+                    && expected_parity == 0
+                    && !encoded.len().is_multiple_of(max_payload)
+                {
                     assert!(new_total < old_total);
                 }
                 // Data shards retain exactly the encoded frame bytes; only trailing
