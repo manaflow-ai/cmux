@@ -921,7 +921,6 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
                 }
                 {
                     let hub = hub.clone();
-                    let gauges = gauges;
                     hub.clone().scope.spawn_until_cancelled("restore-chat-logs", async move {
                         {
                             let _phase = gauges.phase("all chat logs");
