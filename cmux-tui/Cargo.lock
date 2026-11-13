@@ -25,6 +25,7 @@ dependencies = [
  "cmux-cloud-client",
  "cmux-coderouter",
  "cmux-codex-acp",
+ "cmux-command-class",
  "cmux-config",
  "cmux-file-lock",
  "cmux-git",
@@ -1580,6 +1581,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-cloud-environment",
+ "cmux-file-lock",
  "cmux-json",
  "cmux-link",
  "cmux-server",
@@ -2170,6 +2172,7 @@ dependencies = [
  "cmux-tui-hooks",
  "cmux-tui-machine-agent-protocol",
  "cmux-tui-machine-protocol",
+ "cmux-tui-platform",
  "cmux-unix-socket",
  "cmux-usage-patterns",
  "cmux-vm",
@@ -2263,6 +2266,7 @@ dependencies = [
  "cmux-config",
  "cmux-conversation",
  "cmux-feed-core",
+ "cmux-file-lock",
  "cmux-flow-trace",
  "cmux-focus-core",
  "cmux-git",
@@ -2586,6 +2590,7 @@ dependencies = [
 name = "cmux-worktree-care"
 version = "0.1.0"
 dependencies = [
+ "cmux-file-lock",
  "cmux-git",
  "libc",
  "serde",

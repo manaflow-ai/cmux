@@ -52,6 +52,42 @@ pub struct Bounds {
 pub struct PixelBuffer(Retained);
 
 impl PixelBuffer {
+    /// Read the observer's marker without copying a captured image. The lock is
+    /// released on every return, including an invalid marker or read failure.
+    #[cfg(feature = "bench")]
+    pub fn marker(&self, origin: (usize, usize), cell: usize) -> Option<u16> {
+        struct Unlock(sys::CVPixelBufferRef);
+        impl Drop for Unlock {
+            fn drop(&mut self) {
+                // SAFETY: this guard owns a successful read-only lock.
+                unsafe {
+                    cv::CVPixelBufferUnlockBaseAddress(self.0, 1);
+                }
+            }
+        }
+        let buffer = self.0.as_ptr().cast_mut();
+        // SAFETY: retained NV12 pixel buffer from our ScreenCaptureKit stream;
+        // its luma allocation stays locked for the slice's entire lifetime.
+        unsafe {
+            if cv::CVPixelBufferLockBaseAddress(buffer, 1) != 0 {
+                return None;
+            }
+            let _unlock = Unlock(buffer);
+            let base = cv::CVPixelBufferGetBaseAddressOfPlane(buffer, 0);
+            let stride = cv::CVPixelBufferGetBytesPerRowOfPlane(buffer, 0);
+            let length = stride.checked_mul(cv::CVPixelBufferGetHeightOfPlane(buffer, 0))?;
+            if base.is_null() || length > isize::MAX as usize {
+                return None;
+            }
+            crate::observe::read_marker(
+                std::slice::from_raw_parts(base, length),
+                stride,
+                origin,
+                cell,
+            )
+        }
+    }
+
     /// The buffer's IOSurface (owned by the buffer).
     pub fn io_surface(&self) -> Option<*mut c_void> {
         // SAFETY: a live CVPixelBuffer.
