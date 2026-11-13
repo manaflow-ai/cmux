@@ -163,6 +163,7 @@ pub(crate) fn take_proof(d: &mut Delivery, records: &[Value], link: (u64, u64)) 
         records: Vec::new(),
         link,
         incarnation: incarnation(),
+        since: 0,
     });
     let mut turns: HashSet<String> =
         proof.records.iter().filter_map(turn_of).map(str::to_owned).collect();
@@ -451,13 +452,28 @@ pub(crate) type Since = HashMap<String, (u64, u64)>;
 /// nothing of it (`proofs_past` gives back only what is past where the journal ends), so
 /// nothing it ran runs twice; one that lost it waits in its queue again, or its cut turn is
 /// settled as a restart's is (`log_load.rs` `settle_restored`, [`RERUN_ON_RESEND`]).
+///
+/// Only one never known cut ([`cut`]) goes back so: a proof a copy once said missed a record of
+/// its prompt's life is not whole once that copy goes either (review of #37284 at 918d2403,
+/// F1: 918d2403 took a cut proof as whole once its copy went, and a canceled prompt went back
+/// without its removal and ran).
 pub(crate) fn whole(d: &Delivery, since: &Since) -> bool {
     let (Some(pin), Some(proof)) = (&d.pin, &d.proof) else { return false };
     let first = proof.records.first().and_then(seq);
     let kept = since.get(&pin.session).filter(|(generation, _)| *generation == pin.generation);
-    let gone = kept.is_none() && !crate::hub::journal_restore::rules_of_27f3();
-    let seen = kept.is_some_and(|(_, since)| first.is_some_and(|f| *since <= f));
+    let cut = cut(proof);
+    let gone = kept.is_none() && !crate::hub::journal_restore::rules_of_27f3() && !cut;
+    let seen = !cut && kept.is_some_and(|(_, since)| first.is_some_and(|f| *since <= f));
     !restarts(&proof.records) || gone || seen
+}
+
+/// Whether `proof` is known to miss a record of its prompt's life: the copy of its session said
+/// it saw every record only from past the proof's first one ([`Proof::since`]), as a record
+/// its bound cut before a write told it, a write whose proofs were not saved, or a gap moves
+/// it (`peer_snapshot.rs`). Kept on the proof, so it holds after the copy goes.
+fn cut(proof: &Proof) -> bool {
+    let first = proof.records.first().and_then(seq);
+    !crate::hub::journal_restore::rules_of_918d() && first.is_some_and(|f| proof.since > f)
 }
 
 /// Whether `d`, which its link's redelivery would leave waiting ([`Step::Wait`]), is proven by
@@ -465,7 +481,8 @@ pub(crate) fn whole(d: &Delivery, since: &Since) -> bool {
 /// listed, of its generation, and ends before its proof once the link's restores ran; the
 /// proof would start its work again ([`restarts`]); and no copy of its pinned session and
 /// generation is kept (`since`, what the link's restore read: `Store::ahead`); it came on an
-/// earlier link, and no Stop holds its prompt ([`held_by_stop`]). Such a proof
+/// earlier link, no Stop holds its prompt ([`held_by_stop`]), and no copy said it missed a
+/// record ([`cut`]: 918d2403 sent a canceled prompt again). Such a proof
 /// goes back with the restore ([`whole`]); one the machine did not take (it refused the
 /// restore as another history) is neither restored nor held by any later link's journal, and
 /// 27f3761b left it waiting until it lapsed. It is delivered again instead ([`unprove`],
@@ -490,6 +507,7 @@ pub(crate) fn unproven(
         && through.is_some_and(|t| t > *last)
         && restarts(&proof.records)
         && !copy
+        && !cut(proof)
         && later
         && !held_by_stop(&proof.records, d.prompt_id())
 }
@@ -771,8 +789,10 @@ impl Hub {
         session: &str,
         (generation, link): (u64, (u64, u64)),
         records: &[Value],
+        since: u64,
     ) -> bool {
-        for path in take_written(&self.outbox, (peer, session, generation), records, link) {
+        let pinned = (peer, session, generation);
+        for path in take_written(&self.outbox, pinned, records, (link, since)) {
             // 4dcbe192's rules only: the bytes went at the proof.
             let _ = std::fs::remove_file(path);
         }
@@ -784,20 +804,23 @@ impl Hub {
 
 /// [`Hub::proof_written`] on `outbox`: each delivery pinned to `pinned` takes the records of its
 /// prompt among `records` as proof; answers the attachment files they kept. A proven delivery is
-/// never sent again, but its attachments' bytes stay until its release ([`proof_files`]).
+/// never sent again, but its attachments' bytes stay until its release ([`proof_files`]). Each
+/// proof pinned to it keeps `since`, from where the copy saw every record ([`cut`]).
 pub(crate) fn take_written(
     outbox: &Outbox,
     pinned: (&str, &str, u64),
     records: &[Value],
-    link: (u64, u64),
+    (link, since): ((u64, u64), u64),
 ) -> Vec<std::path::PathBuf> {
     let prompts: HashSet<&str> = records.iter().filter_map(prompt_of).collect();
+    let old = crate::hub::journal_restore::rules_of_918d();
+    let keeps = |d: &Delivery| d.proof.as_ref().is_some_and(|p| p.since < since);
     let mut files = Vec::new();
     for d in outbox.pinned_to(pinned) {
         if d.proof.is_none() && !prompts.contains(d.prompt_id()) {
             continue;
         }
-        if !take_proof(&mut d.clone(), records, link) {
+        if !take_proof(&mut d.clone(), records, link) && (old || !keeps(&d)) {
             continue;
         }
         // 4dcbe192 let the bytes go at the proof (F4); they go now only at its release.
@@ -807,6 +830,9 @@ pub(crate) fn take_written(
         }
         outbox.update(&d.id, |d| {
             take_proof(d, records, link);
+            if let Some(proof) = d.proof.as_mut().filter(|_| !old) {
+                proof.since = proof.since.max(since);
+            }
             if at_4dcb {
                 crate::attach::strip(&mut d.request);
             }

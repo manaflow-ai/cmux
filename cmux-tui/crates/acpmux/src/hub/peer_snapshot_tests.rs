@@ -1502,7 +1502,7 @@ fn a_proof_outlives_the_copy_and_goes_back_whole_or_not_at_all() {
     let told: Arc<StdMutex<Vec<Vec<Value>>>> = Arc::default();
     let hook: Written = {
         let told = told.clone();
-        Arc::new(move |_, _, _, records| {
+        Arc::new(move |_, _, _, records, _| {
             told.lock().unwrap().push(records);
             true
         })
@@ -1534,7 +1534,7 @@ fn a_proof_outlives_the_copy_and_goes_back_whole_or_not_at_all() {
     let seqs_told: Vec<u64> = told.iter().flatten().filter_map(seq_of).collect();
     assert_eq!(seqs_told, vec![4], "only what a write put on disk is told");
     for records in &told {
-        od::take_written(&outbox, (PEER, "m1", 7), records, (1, 1));
+        od::take_written(&outbox, (PEER, "m1", 7), records, ((1, 1), 0));
     }
     let proof = |id: &str| outbox.get(id).and_then(|d| d.proof);
     assert!(proof("d2").is_none(), "a record cut before its write proves nothing");
@@ -1562,7 +1562,8 @@ fn a_proof_outlives_the_copy_and_goes_back_whole_or_not_at_all() {
     assert!(od::proofs_past(&outbox, PEER, &rows, &since).is_empty());
     set_rules(0);
     // Its removal from the queue came in its proof before: then all of it goes back.
-    od::take_written(&outbox, (PEER, "m1", 7), &[life("m1", 9, "queue_removed", "p1")], (1, 1));
+    let removed = [life("m1", 9, "queue_removed", "p1")];
+    od::take_written(&outbox, (PEER, "m1", 7), &removed, ((1, 1), 0));
     let back = od::proofs_past(&outbox, PEER, &rows, &since);
     let back: Vec<u64> = back["m1"].iter().flatten().filter_map(seq_of).collect();
     assert_eq!(back, vec![4, 9]);
@@ -1602,15 +1603,17 @@ fn steps_of_an_accepted_attachment_prompt(
     let mut accepted = life("m1", 4, "user_message", "p1");
     accepted["msg"]["text"] = json!("see the notes");
     accepted["msg"]["hiddenContext"] = json!("the notes' text, read from the attachment");
-    od::take_written(&outbox, (PEER, "m1", 7), &[accepted], (1, 1));
+    od::take_written(&outbox, (PEER, "m1", 7), &[accepted], ((1, 1), 0));
     let ends = HashMap::from([("m1".to_owned(), (7, 9))]);
     let accepted_only = od::step(&outbox.get("d1").unwrap(), now, (1, 2), &ends);
-    od::take_written(&outbox, (PEER, "m1", 7), &[life("m1", 5, "turn_started", "p1")], (1, 1));
+    let started = [life("m1", 5, "turn_started", "p1")];
+    od::take_written(&outbox, (PEER, "m1", 7), &started, ((1, 1), 0));
     let started = od::step(&outbox.get("d1").unwrap(), now, (1, 2), &ends);
     // A started turn's continuation never carries the hidden context: proven at its end.
     if rules == 0 {
         assert_eq!(started, od::Step::Again, "a started turn without its hidden context");
-        od::take_written(&outbox, (PEER, "m1", 7), &[life("m1", 6, "turn_result", "p1")], (1, 1));
+        let ended = [life("m1", 6, "turn_result", "p1")];
+        od::take_written(&outbox, (PEER, "m1", 7), &ended, ((1, 1), 0));
     }
     let ended = od::step(&outbox.get("d1").unwrap(), now, (1, 2), &ends);
     crate::hub::journal_restore::OLD_RULES.with(|r| r.set(0));
@@ -1676,7 +1679,7 @@ fn an_image_prompt_started_at_once(rules: u8) -> (crate::hub::open_delivery::Ste
     accepted["msg"]["text"] = json!("what is this");
     accepted["msg"]["images"] = json!([{"id": id, "mimeType": "image/png"}]);
     let started = life("m1", 5, "turn_started", "p1");
-    od::take_written(&outbox, (PEER, "m1", 7), &[accepted, started], (1, 1));
+    od::take_written(&outbox, (PEER, "m1", 7), &[accepted, started], ((1, 1), 0));
     let ends = HashMap::from([("m1".to_owned(), (7, 9))]);
     let step = od::step(&outbox.get("d1").unwrap(), now, (1, 2), &ends);
     let back = restore::restore_files(&outbox, (PEER, "m1", 7));
@@ -1706,15 +1709,25 @@ fn an_image_prompt_started_at_once_goes_back_with_its_image() {
 /// once its removal (seq 5) came and the copy's bound cut it before a write reported it; under
 /// the rules of 91b1343d when `rules_of_91b`.
 fn back_after_a_cut_removal(rules_of_91b: bool) -> Vec<u64> {
+    let rules = if rules_of_91b { crate::hub::journal_restore::AT_91B } else { 0 };
+    back_after_a_cut_removal_at(rules, false).0
+}
+
+/// [`back_after_a_cut_removal`] under `rules`; `lost`, the peer's copies went first
+/// (`Op::LostPeer`), so no copy of the session is kept. With what the link's redelivery does
+/// with p1's delivery once the machine still ends at 3.
+fn back_after_a_cut_removal_at(
+    rules: u8,
+    lost: bool,
+) -> (Vec<u64>, crate::hub::open_delivery::Step) {
     use crate::hub::open_delivery as od;
-    crate::hub::journal_restore::OLD_RULES
-        .with(|r| r.set(if rules_of_91b { crate::hub::journal_restore::AT_91B } else { 0 }));
+    crate::hub::journal_restore::OLD_RULES.with(|r| r.set(rules));
     let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
-    let told: Arc<StdMutex<Vec<Vec<Value>>>> = Arc::default();
+    let told: Arc<StdMutex<Vec<(Vec<Value>, u64)>>> = Arc::default();
     let hook: Written = {
         let told = told.clone();
-        Arc::new(move |_, _, _, records| {
-            told.lock().unwrap().push(records);
+        Arc::new(move |_, _, _, records, since| {
+            told.lock().unwrap().push((records, since));
             true
         })
     };
@@ -1738,14 +1751,47 @@ fn back_after_a_cut_removal(rules_of_91b: bool) -> Vec<u64> {
     store.add(&key("m1"), vec![life("m1", 5, "queue_removed", "p1")]);
     keep(&mut store, "m1", 6..=(6 + SESSION_EVENTS as u64));
     store.write_due(None, When::Last);
-    for records in std::mem::take(&mut *told.lock().unwrap()) {
-        od::take_written(&outbox, (PEER, "m1", 7), &records, (1, 1));
+    let tell = || {
+        for (records, since) in std::mem::take(&mut *told.lock().unwrap()) {
+            od::take_written(&outbox, (PEER, "m1", 7), &records, ((1, 1), since));
+        }
+    };
+    tell();
+    if lost {
+        store.take(Op::LostPeer(PEER.into()));
+        tell();
+        assert!(!store.copies.contains_key(&key("m1")), "no copy of the session is kept");
     }
     let rows = vec![("m1".to_owned(), 7, 3)];
     let (_, since) = store.ahead(PEER, rows.clone()).unwrap();
     let back = od::proofs_past(&outbox, PEER, &rows, &since);
+    let d = outbox.get("d1").unwrap();
+    let ends = HashMap::from([("m1".to_owned(), (7, 3))]);
+    let old = crate::hub::journal_restore::rules_of_27f3();
+    let step = od::step_after_restore(&d, (now, (1, 2)), (&ends, &since), old);
     crate::hub::journal_restore::OLD_RULES.with(|r| r.set(0));
-    back.get("m1").map_or(vec![], |r| r.iter().flatten().filter_map(seq_of).collect())
+    (back.get("m1").map_or(vec![], |r| r.iter().flatten().filter_map(seq_of).collect()), step)
+}
+
+/// Review of #37284 at 918d2403, F1: as above, and then the peer's copies go (`LostPeer`). The
+/// proof keeps that the copy saw every record only from 6 (`Proof::since`), so it stays cut
+/// with no copy kept: nothing of p1 goes back, and its delivery is not sent again, so the
+/// canceled prompt never runs. Under 918d2403's rules the copy's going made the proof whole:
+/// its `queued` record went back without its removal, or p1 went again, and it ran.
+#[test]
+fn a_removal_the_bound_cut_keeps_its_prompt_back_once_the_copy_is_gone() {
+    use crate::hub::open_delivery::Step;
+    let at_918d = crate::hub::journal_restore::AT_918D;
+    let (back, step) = back_after_a_cut_removal_at(at_918d, true);
+    assert_eq!(back, vec![4], "918d2403 gave back the canceled prompt");
+    assert_eq!(step, Step::Unproven, "918d2403 sent the canceled prompt again");
+    let (back, step) = back_after_a_cut_removal_at(0, true);
+    assert!(back.is_empty(), "nothing of the canceled prompt goes back");
+    assert_eq!(step, Step::Wait, "nor is it sent again");
+    // With its copy kept, as before.
+    let (back, step) = back_after_a_cut_removal_at(0, false);
+    assert!(back.is_empty());
+    assert_eq!(step, Step::Wait);
 }
 
 /// Review of #37284 at 91b1343d, F1: a record of a prompt's life the bound cuts before a write
@@ -1831,7 +1877,7 @@ fn files_of_a_proven_attachment(rules: u8) -> Vec<(std::path::PathBuf, Vec<u8>)>
     let queued = json!({"sessionId": "m1", "seq": 4, "at": 4, "dir": "mux", "kind": "queued",
         "msg": {"promptId": "p1", "turnId": "t-p1", "prompt": [
             {"type": "resource_link", "uri": "file:///up/m1/019a/notes.txt", "name": "notes.txt"}]}});
-    od::take_written(&outbox, (PEER, "m1", 7), &[queued], (1, 1));
+    od::take_written(&outbox, (PEER, "m1", 7), &[queued], ((1, 1), 0));
     let files = od::proof_files(&outbox.get("d1").unwrap());
     set_rules(0);
     files
@@ -1857,7 +1903,7 @@ fn stop_then_bound(rules: u8) -> (Vec<u64>, u64) {
     let told: Arc<StdMutex<Vec<Vec<Value>>>> = Arc::default();
     let hook: Written = {
         let told = told.clone();
-        Arc::new(move |_, _, _, records| {
+        Arc::new(move |_, _, _, records, _| {
             told.lock().unwrap().push(records);
             true
         })
@@ -1875,7 +1921,7 @@ fn stop_then_bound(rules: u8) -> (Vec<u64>, u64) {
     store.add(&key("m1"), vec![paused.clone()]);
     store.write_due(None, When::Last);
     for records in std::mem::take(&mut *told.lock().unwrap()) {
-        od::take_written(&outbox, (PEER, "m1", 7), &records, (1, 1));
+        od::take_written(&outbox, (PEER, "m1", 7), &records, ((1, 1), 0));
     }
     let proof: Vec<u64> =
         outbox.get("d1").unwrap().proof.unwrap().records.iter().filter_map(seq_of).collect();
@@ -1936,8 +1982,8 @@ fn a_proof_whose_save_failed(rules: u8) -> bool {
     let saves = Arc::new(std::sync::atomic::AtomicBool::new(true));
     let hook: Written = {
         let (outbox, saves) = (outbox.clone(), saves.clone());
-        Arc::new(move |_, _, link, records| {
-            od::take_written(&outbox, (PEER, "m1", 7), &records, link);
+        Arc::new(move |_, _, link, records, since| {
+            od::take_written(&outbox, (PEER, "m1", 7), &records, (link, since));
             saves.load(std::sync::atomic::Ordering::SeqCst)
                 || crate::hub::journal_restore::rules_of_a088()
         })
@@ -1961,7 +2007,8 @@ fn a_proof_whose_save_failed(rules: u8) -> bool {
         keep(&mut store, "m1", 1..=3);
         store.add(&key("m1"), vec![life("m1", 4, "queued", "p1")]);
         store.write_due(None, When::Last);
-        od::take_written(&on_disk, (PEER, "m1", 7), &[life("m1", 4, "queued", "p1")], (1, 1));
+        let queued = [life("m1", 4, "queued", "p1")];
+        od::take_written(&on_disk, (PEER, "m1", 7), &queued, ((1, 1), 0));
         saves.store(false, std::sync::atomic::Ordering::SeqCst);
         store.add(&key("m1"), vec![life("m1", 5, "queue_removed", "p1")]);
         store.write_due(None, When::Last);
@@ -2061,7 +2108,7 @@ fn proven_with(blocks: Vec<Value>) -> crate::hub::outbox::Delivery {
     let mut queued = life("m1", 4, "queued", "p1");
     queued["msg"]["prompt"] = json!(links);
     queued["msg"]["images"] = json!(images);
-    od::take_written(&outbox, (PEER, "m1", 7), &[queued], (1, 1));
+    od::take_written(&outbox, (PEER, "m1", 7), &[queued], ((1, 1), 0));
     outbox.get("d1").unwrap()
 }
 
@@ -2216,7 +2263,7 @@ fn step_after_a_restore_settled_its_cut_turn(
     if queued {
         records.insert(0, life("m1", 3, "queued", "p1"));
     }
-    od::take_written(&outbox, (PEER, "m1", 7), &records, (1, 1));
+    od::take_written(&outbox, (PEER, "m1", 7), &records, ((1, 1), 0));
     let ends = HashMap::from([("m1".to_owned(), (7, 9))]);
     let step = od::step(&outbox.get("d1").unwrap(), now, (1, 2), &ends);
     crate::hub::journal_restore::OLD_RULES.with(|r| r.set(0));
@@ -2335,11 +2382,11 @@ fn a_proof_whose_copy_is_not_kept(rules: u8, stopped: bool) -> NotKept {
     use crate::hub::open_delivery as od;
     let mux = if stopped { "m-stopped" } else { "m-evicted" };
     let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
-    let told: Arc<StdMutex<Vec<Vec<Value>>>> = Arc::default();
+    let told: Arc<StdMutex<Vec<(Vec<Value>, u64)>>> = Arc::default();
     let hook: Written = {
         let told = told.clone();
-        Arc::new(move |_, _, _, records| {
-            told.lock().unwrap().push(records);
+        Arc::new(move |_, _, _, records, since| {
+            told.lock().unwrap().push((records, since));
             true
         })
     };
@@ -2364,8 +2411,8 @@ fn a_proof_whose_copy_is_not_kept(rules: u8, stopped: bool) -> NotKept {
         super::stop_before_write_once(&key(mux));
     }
     store.write_due(None, When::Last);
-    for records in std::mem::take(&mut *told.lock().unwrap()) {
-        od::take_written(&outbox, (PEER, mux, 7), &records, (1, 1));
+    for (records, since) in std::mem::take(&mut *told.lock().unwrap()) {
+        od::take_written(&outbox, (PEER, mux, 7), &records, ((1, 1), since));
     }
     assert!(outbox.get("d1").and_then(|d| d.proof).is_some(), "the write told p1's record");
     if stopped {
@@ -2415,7 +2462,7 @@ fn delivered_again_once(outbox: &crate::hub::outbox::Outbox, mux: &str) {
     for r in &mut ran {
         r["at"] = json!(1000);
     }
-    od::take_written(outbox, (PEER, mux, 7), &ran, (1, 2));
+    od::take_written(outbox, (PEER, mux, 7), &ran, ((1, 2), 0));
     let d = outbox.get("d1").unwrap();
     let seqs: Vec<u64> = d.proof.as_ref().unwrap().records.iter().filter_map(seq_of).collect();
     assert_eq!(seqs, vec![4, 5], "only the resend's records prove it");

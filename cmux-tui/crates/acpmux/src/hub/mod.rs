@@ -1555,9 +1555,9 @@ impl Hub {
             // one built outside Tokio keeps a unique Arc, so a test can set fields first.
             let weak = Arc::downgrade(&hub);
             let written: peer_snapshot::Written =
-                Arc::new(move |key, generation, link, records| {
+                Arc::new(move |key, generation, link, records, since| {
                     weak.upgrade().is_none_or(|hub| {
-                        hub.proof_written(&key.0, &key.1, (generation, link), &records)
+                        hub.proof_written(&key.0, &key.1, (generation, link), &records, since)
                     })
                 });
             *hub.peer_snapshots.written.lock().unwrap_or_else(|e| e.into_inner()) = Some(written);

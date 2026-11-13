@@ -181,6 +181,16 @@ pub struct Proof {
     /// any number (review of #37284 at 4dcbe192, F6). Empty: from before this was kept.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub incarnation: String,
+    /// The seq from which the owner's copy of its session last said it saw every record
+    /// (`peer_snapshot.rs` `Written`): one past its first record says a record of its prompt's
+    /// life was cut before a write told it, so the proof is not whole, whether or not that copy
+    /// is kept (review of #37284 at 918d2403, F1). 0: none said.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub since: u64,
+}
+
+fn is_zero(n: &u64) -> bool {
+    *n == 0
 }
 
 impl Delivery {
