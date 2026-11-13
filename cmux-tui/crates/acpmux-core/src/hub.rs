@@ -155,7 +155,7 @@ impl ListReceiver {
             }
             state.cursor
         };
-        let (first, last, bytes) = {
+        let bytes = {
             let history = self.history.lock().ok()?;
             let first = history.first_seq();
             let last = history.last_seq().unwrap_or_else(|| self.published.load().seq());
@@ -168,11 +168,25 @@ impl ListReceiver {
                 }
                 return Some(ListItem::Lagged { cursor });
             }
-            let bytes = history.after(cursor, cursor.saturating_add(1))?;
-            (first, last, bytes)
+            match history.after(cursor, cursor.saturating_add(1)) {
+                Some(bytes) => bytes,
+                None => {
+                    if let Ok(mut state) = self.subscriber.state.lock() {
+                        state.ended = true;
+                    }
+                    return Some(ListItem::Lagged { cursor });
+                }
+            }
         };
-        let _ = (first, last);
-        let item = history::decode(bytes).ok()?.into_iter().next()?;
+        let item = match history::decode(bytes).ok().and_then(|items| items.into_iter().next()) {
+            Some(item) => item,
+            None => {
+                if let Ok(mut state) = self.subscriber.state.lock() {
+                    state.ended = true;
+                }
+                return Some(ListItem::Lagged { cursor });
+            }
+        };
         let seq = match &item {
             ListItem::Summary(event) => event.seq,
             ListItem::Gone { seq, .. } => *seq,
@@ -199,7 +213,9 @@ impl ListReceiver {
         let span = {
             let history = self.history.lock().ok()?;
             let last = history.last_seq().unwrap_or_else(|| self.published.load().seq());
-            let target = through.unwrap_or(last).min(last);
+            // A live pump consumes exactly one operation. A replay captures
+            // its target once and may consume several bounded spans.
+            let target = through.unwrap_or(cursor.saturating_add(1)).min(last);
             if cursor >= target {
                 return None;
             }
@@ -519,8 +535,10 @@ impl Hub {
             index.read_live_page(
                 key.as_ref(),
                 side,
+                true,
                 requested,
                 crate::wire::MAX_PAGE_BYTES.saturating_sub(8192 + sub.sid.len()),
+                sub.filter.as_ref(),
             )?
         } else {
             index.read_page(
@@ -613,8 +631,10 @@ impl Hub {
             index.read_live_page(
                 Some(&book_key(key)),
                 side,
+                false,
                 MAX_WINDOW_ROWS,
                 max - 8192 - request.sid.len(),
+                request.filter.as_ref(),
             )?
         } else {
             index.read_page(

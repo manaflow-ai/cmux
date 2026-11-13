@@ -1,5 +1,5 @@
 use super::*;
-use acpmux_book::index::{IndexRecord, SortedSnapshot};
+use acpmux_book::index::{HOT_WINDOW_MS, IndexRecord, SortedSnapshot};
 use std::time::Instant;
 
 #[tokio::test(flavor = "current_thread")]
@@ -192,7 +192,7 @@ async fn install_evicts_old_rows_but_keeps_changes_and_removals_since_capture() 
         for n in 0..11_000 {
             let mut row = Summary::new(format!("row-{n:05}"));
             row.state = "closed".into();
-            row.last_activity = 1;
+            row.last_activity = HOT_WINDOW_MS;
             writer.apply(row).unwrap();
         }
         writer.process_batch();
@@ -205,7 +205,7 @@ async fn install_evicts_old_rows_but_keeps_changes_and_removals_since_capture() 
     writer = tokio::task::spawn_blocking(move || {
         let mut changed = Summary::new("row-00000");
         changed.state = "closed".into();
-        changed.last_activity = 2;
+        changed.last_activity = HOT_WINDOW_MS + 1;
         changed.title = "after capture".into();
         writer.apply(changed).unwrap();
         writer.remove("local", "row-00001").unwrap();
@@ -234,7 +234,7 @@ async fn install_evicts_old_rows_but_keeps_changes_and_removals_since_capture() 
     }
     let mut after_install = Summary::new("row-10998");
     after_install.state = "closed".into();
-    after_install.last_activity = 3;
+    after_install.last_activity = HOT_WINDOW_MS + 2;
     after_install.title = "changed after install".into();
     writer.apply(after_install).unwrap();
     writer.remove("local", "row-10999").unwrap();
@@ -300,4 +300,71 @@ async fn install_retains_hot_snapshot_rows_beyond_unfinished_startup_hydration()
     assert!(writer.hydration.is_none());
     assert_eq!(hub.snapshot().len(), 1);
     assert!(hub.snapshot().get("row-0999").is_some());
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn v1_millisecond_activity_expires_after_hydration_and_compaction() {
+    let dir = tempfile::tempdir().unwrap();
+    let now = u64::try_from(
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(),
+    )
+    .unwrap();
+    let day = HOT_WINDOW_MS / 30;
+    let mut index = SummaryIndex::new();
+    for n in 0..11_000 {
+        let mut row = Summary::new(format!("old-{n:05}"));
+        row.state = "closed".into();
+        row.last_activity = now - HOT_WINDOW_MS - day - n;
+        index = index.apply(n + 1, row);
+    }
+    let mut recent = Summary::new("recent");
+    recent.state = "closed".into();
+    recent.last_activity = now - HOT_WINDOW_MS + day;
+    index = index.apply(11_001, recent);
+    SortedSnapshot::write(dir.path().join("index.snap"), &index).unwrap();
+    let (hub, mut writer) = Hub::open(dir.path(), 101, || 7).unwrap();
+    writer.start_hydration();
+    for _ in 0..50 {
+        if writer.hydration.is_none() {
+            break;
+        }
+        writer.process_batch();
+    }
+    assert!(writer.hydration.is_none());
+    assert_eq!(hub.snapshot().len(), 1);
+    assert!(hub.snapshot().get("recent").is_some());
+
+    // The tee can reintroduce old rows while reconciling v1. The snapshot
+    // install must evict those rows using the same millisecond clock.
+    writer = tokio::task::spawn_blocking(move || {
+        for row in index.merged_rows() {
+            let mut row = row.unwrap().as_ref().clone();
+            row.title = "reconciled".into();
+            writer.apply(row).unwrap();
+        }
+        writer.next_compaction = Some(Instant::now());
+        writer.process_batch();
+        writer
+    })
+    .await
+    .unwrap();
+    assert!(writer.compaction.is_some());
+    writer.finish_compaction(true).await;
+    for _ in 0..100 {
+        writer = tokio::task::spawn_blocking(move || {
+            writer.process_batch();
+            writer
+        })
+        .await
+        .unwrap();
+        writer.finish_compaction(true).await;
+        if writer.compaction.is_none() && writer.maintenance.is_none() {
+            break;
+        }
+    }
+    assert!(writer.compaction.is_none());
+    assert!(writer.maintenance.is_none());
+    assert_eq!(hub.snapshot().len(), 1);
+    assert!(hub.snapshot().get("recent").is_some());
+    assert_eq!(hub.snapshot().merged_rows().count(), 11_001);
 }

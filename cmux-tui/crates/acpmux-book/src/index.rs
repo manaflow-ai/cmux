@@ -78,6 +78,7 @@ pub struct Summary {
     pub title: String,
     pub harness: String,
     pub state: String,
+    /// Milliseconds since the Unix epoch, matching v1 `updatedAt` and `updatedMs`.
     pub last_activity: u64,
     pub unread: u32,
     pub workspace: Option<String>,
@@ -101,6 +102,8 @@ pub type SummaryRecord = Summary;
 /// A summary is deliberately small: the list can never be made unbounded by
 /// one harness supplied title or opaque extension.
 pub const MAX_TITLE_BYTES: usize = 256;
+/// Activity keeps a closed, unpinned chat hot for thirty days.
+pub const HOT_WINDOW_MS: u64 = 30 * 24 * 60 * 60 * 1_000;
 pub const MAX_SUMMARY_BYTES: usize = 2 * 1024;
 /// Text JSON plus three raw row keys, a folder, fork seq, and fixed framing.
 pub const MAX_INDEX_RECORD_BYTES: usize = MAX_SUMMARY_BYTES + 3 * (4 + 512) + 1026 + 8 + 32;
@@ -178,7 +181,7 @@ impl Summary {
     /// archived or non-root parent cannot hide a child after it changes.
     pub fn listed_under(child: &Summary, parent: Option<&Summary>) -> bool {
         let Some(parent) = parent else { return false };
-        if parent.parent.is_some() || parent.archived() {
+        if child.key() == parent.key() || parent.parent.is_some() || parent.archived() {
             return false;
         }
         child.parent.as_ref() == Some(&parent.key())
@@ -189,7 +192,7 @@ impl Summary {
             .ok()
             .as_ref()
             .and_then(|value| value.pointer("/tags/archived"))
-            .is_some_and(|value| value.as_bool() == Some(true) || value.as_str() == Some("true"))
+            .is_some_and(|value| !value.is_null())
     }
 
     /// Keys are refused, never shortened. Opaque data stays opaque.
@@ -225,7 +228,7 @@ impl Summary {
     }
 
     pub fn is_hot_at(&self, now: u64) -> bool {
-        self.pinned || self.is_live() || self.last_activity >= now.saturating_sub(30 * 24 * 60 * 60)
+        self.pinned || self.is_live() || self.last_activity >= now.saturating_sub(HOT_WINDOW_MS)
     }
 
     /// Opaque extension bytes are compared without parsing or re-encoding.
@@ -705,6 +708,11 @@ mod tests {
         parent.extra = RawValue::from_string("{\"tags\":{\"archived\":true}}".to_owned()).unwrap();
         assert!(!Summary::listed_under(&child, Some(&parent)));
 
+        parent.extra =
+            RawValue::from_string("{\"tags\":{\"archived\":\"reason\"}}".to_owned()).unwrap();
+        assert!(!Summary::listed_under(&child, Some(&parent)));
+        assert!(!Summary::listed_under(&parent, Some(&parent)));
+
         parent.extra = RawValue::from_string("{\"tags\":{}}".to_owned()).unwrap();
         child.parent = Some(RowKey::new("local", "other"));
         assert!(!Summary::listed_under(&child, Some(&parent)));
@@ -719,7 +727,7 @@ mod tests {
         let mut waiting = summary("waiting", 1, "{}");
         waiting.state = "waiting".to_owned();
         let index = SummaryIndex::new().apply(1, running).apply(2, closed).apply(3, waiting);
-        let page = index.read_live_page(None, ReadSide::After, 10, 64 * 1024).unwrap();
+        let page = index.read_live_page(None, ReadSide::After, false, 10, 64 * 1024, None).unwrap();
         assert_eq!(
             page.rows.iter().map(|row| row.chat_id.as_str()).collect::<Vec<_>>(),
             ["running", "waiting"]
@@ -727,11 +735,77 @@ mod tests {
         let mut closed_again = Summary::new("closed");
         closed_again.state = "closed".to_owned();
         let closed = index.apply(4, closed_again);
-        let page = closed.read_live_page(None, ReadSide::After, 10, 64 * 1024).unwrap();
+        let page =
+            closed.read_live_page(None, ReadSide::After, false, 10, 64 * 1024, None).unwrap();
         assert_eq!(
             page.rows.iter().map(|row| row.chat_id.as_str()).collect::<Vec<_>>(),
             ["running", "waiting"]
         );
+    }
+
+    #[test]
+    fn live_pages_match_an_index_containing_only_live_rows() {
+        let mut index = SummaryIndex::new();
+        let mut live = SummaryIndex::new();
+        for n in 0..30 {
+            let mut row = summary(&format!("row-{n:02}"), 30 - n, "{}");
+            row.state = if n % 3 == 0 { "closed" } else { "running" }.into();
+            row.workspace = Some(format!("workspace-{}", n % 2));
+            row.origin = if n % 2 == 0 { "local" } else { "peer" }.into();
+            if row.is_live() {
+                live = live.apply(n + 1, row.clone());
+            }
+            index = index.apply(n + 1, row);
+        }
+        let anchors = std::iter::once(None)
+            .chain(index.iter().map(|row| Some(SortKey::of(row))))
+            .collect::<Vec<_>>();
+        let filters = [
+            None,
+            Some(ListFilter { workspace: Some("workspace-0".into()), ..Default::default() }),
+            Some(ListFilter { origin: Some("peer".into()), ..Default::default() }),
+            Some(ListFilter { state: Some("waiting".into()), ..Default::default() }),
+        ];
+        for anchor in &anchors {
+            for side in [ReadSide::Before, ReadSide::After, ReadSide::Around] {
+                for inclusive in [false, true] {
+                    for limit in [1, 2, 7, 30] {
+                        for bytes in [600, 8192] {
+                            for filter in &filters {
+                                let actual = index
+                                    .read_live_page(
+                                        anchor.as_ref(),
+                                        side,
+                                        inclusive,
+                                        limit,
+                                        bytes,
+                                        filter.as_ref(),
+                                    )
+                                    .unwrap();
+                                let expected = live
+                                    .read_page(
+                                        anchor.as_ref(),
+                                        side,
+                                        inclusive,
+                                        limit,
+                                        bytes,
+                                        filter.as_ref(),
+                                    )
+                                    .unwrap();
+                                assert_eq!(actual.before_key, expected.before_key);
+                                assert_eq!(actual.after_key, expected.after_key);
+                                assert_eq!(actual.has_before, expected.has_before);
+                                assert_eq!(actual.has_after, expected.has_after);
+                                assert_eq!(
+                                    actual.rows.iter().map(|row| row.key()).collect::<Vec<_>>(),
+                                    expected.rows.iter().map(|row| row.key()).collect::<Vec<_>>(),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]

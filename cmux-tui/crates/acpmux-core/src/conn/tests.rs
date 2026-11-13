@@ -999,3 +999,52 @@ async fn expired_list_resume_and_live_lag_open_the_head() {
     assert_eq!(source.task_count(), 0);
     assert_eq!(hub.subscriber_count(), 0);
 }
+
+#[tokio::test]
+async fn keyed_pages_reach_the_hub_through_the_connection() {
+    struct Provider;
+    impl crate::hub::PageProvider for Provider {
+        fn row(&self, key: &acpmux_book::index::RowKey) -> Option<Arc<Summary>> {
+            if key.origin.as_ref() == "local" && key.chat_id.as_ref() == "cold" {
+                let mut row = Summary::new("cold");
+                row.state = "closed".into();
+                Some(Arc::new(row))
+            } else {
+                None
+            }
+        }
+    }
+    let (mut client, task, hub, mut writer, _) = list_pair();
+    writer.apply(summary(1)).unwrap();
+    hub.set_page_provider(Arc::new(Provider));
+    hello(&mut client).await;
+    send(
+        &mut client,
+        json!({"method":"page","params":{
+            "sid":"keys","stream":"list","view":"live","keys":[
+                {"origin":"local","chatId":"chat","lastActivity":0},
+                {"origin":"local","chatId":"cold","lastActivity":0},
+                {"origin":"local","chatId":"missing","lastActivity":0},
+                {"origin":"peer","chatId":"unknown","lastActivity":0}
+            ]
+        }}),
+    )
+    .await;
+    let frame = receive(&mut client).await;
+    assert_eq!(frame.kind, FrameKind::Page);
+    let page: crate::wire::PageResult<Summary> = frame.decode_json().unwrap();
+    assert_eq!(
+        page.rows.iter().map(|row| row.chat_id.as_str()).collect::<Vec<_>>(),
+        ["chat", "cold"]
+    );
+    assert_eq!(
+        page.missing.iter().map(|key| key.chat_id.as_str()).collect::<Vec<_>>(),
+        ["missing"]
+    );
+    assert_eq!(
+        page.unknown.iter().map(|key| key.chat_id.as_str()).collect::<Vec<_>>(),
+        ["unknown"]
+    );
+    drop(client);
+    task.await.unwrap().unwrap();
+}

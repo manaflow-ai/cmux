@@ -1,7 +1,7 @@
 //! The list source owns delivery and resumes. No replay prefix is retained.
 use super::{ConnError, ConnectionMetrics, Offer, OfferSink, Source};
 use crate::hub::{Hub, ListReceiver, RawRead};
-use crate::wire::{Cursor, Frame, FrameKind, ReplayMark, Sub};
+use crate::wire::{Cursor, Frame, FrameKind, Page, ReplayMark, Sub};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -102,6 +102,10 @@ impl Source for HubSource {
         tasks.insert(sub.sid.clone(), Task { resume, join, held });
         Ok(())
     }
+    fn page(&self, page: &Page, _person: Option<&[u8]>) -> Result<Frame, ConnError> {
+        Ok(self.hub.page(page)?)
+    }
+
     fn resume(&self, sid: &str, cursor: Cursor) {
         if let Ok(tasks) = self.tasks.lock()
             && let Some(task) = tasks.get(sid)

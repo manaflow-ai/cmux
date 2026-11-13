@@ -44,57 +44,24 @@ impl SummaryIndex {
         &self,
         anchor: Option<&SortKey>,
         side: ReadSide,
+        inclusive: bool,
         limit: usize,
         max_bytes: usize,
+        filter: Option<&ListFilter>,
     ) -> io::Result<IndexPage> {
-        if limit == 0 || limit > 400 || max_bytes == 0 {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid live page bound"));
+        // Persistent roots are shared. The common selector reads only this
+        // tree and never scans closed rows or touches the disk snapshot.
+        let mut view = self.clone();
+        view.ordered = self.live_ordered.clone();
+        view.disk = None;
+        // The common inclusive selector can also retrieve the anchor by id.
+        // Exclude a closed anchor from that lookup without changing this index.
+        if let Some(anchor) = anchor
+            && view.get_row(&anchor.row).is_some_and(|row| !row.is_live())
+        {
+            view.by_id.remove(&anchor.row);
         }
-        let candidates = match (anchor, side) {
-            (None, _) => self.live_after(None, limit + 1),
-            (Some(key), ReadSide::After) => self.live_after(Some(key), limit + 1),
-            (Some(key), ReadSide::Before) => self.live_before(key, limit + 1),
-            (Some(key), ReadSide::Around) => {
-                let mut rows = self.live_before(key, limit + 1);
-                rows.extend(self.live_after(Some(key), limit + 1));
-                rows
-            }
-        };
-        let mut rows = Vec::new();
-        let mut bytes_read: usize = 0;
-        for row in candidates.iter().take(limit) {
-            let size = row.encoded_len().saturating_add(1);
-            if bytes_read.saturating_add(size) > max_bytes {
-                if rows.is_empty() {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidInput,
-                        "page byte budget cannot fit the next live row",
-                    ));
-                }
-                break;
-            }
-            bytes_read = bytes_read.saturating_add(size);
-            rows.push(row.clone());
-        }
-        let first = rows.first().map(|row| SortKey::of(row));
-        let last = rows.last().map(|row| SortKey::of(row));
-        let has_more = candidates.len() > rows.len();
-        let has_before = match side {
-            ReadSide::Before => has_more,
-            ReadSide::Around | ReadSide::After => anchor.is_some(),
-        };
-        let has_after = match side {
-            ReadSide::Before => anchor.is_some(),
-            ReadSide::Around | ReadSide::After => has_more,
-        };
-        Ok(IndexPage {
-            rows,
-            has_before,
-            has_after,
-            before_key: first,
-            after_key: last,
-            bytes_read,
-        })
+        view.read_page(anchor, side, inclusive, limit, max_bytes, filter)
     }
 
     /// One physical piece. Flags and continuation name remaining candidates,

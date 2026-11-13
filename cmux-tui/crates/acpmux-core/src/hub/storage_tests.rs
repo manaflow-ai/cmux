@@ -1,12 +1,12 @@
 use super::*;
-use acpmux_book::index::SortedSnapshot;
+use acpmux_book::index::{HOT_WINDOW_MS, SortedSnapshot};
 
 fn fixture(path: &std::path::Path, count: u64) {
     let mut index = SummaryIndex::new();
     for n in 0..count {
         let mut row = Summary::new(format!("row-{n:05}"));
         row.state = "closed".into();
-        row.last_activity = count - n;
+        row.last_activity = HOT_WINDOW_MS - n;
         index = index.apply(n + 1, row);
     }
     SortedSnapshot::write(path.join("index.snap"), &index).unwrap();
@@ -132,7 +132,7 @@ fn open_recovers_when_initial_log_was_renamed_before_the_next_generation_exists(
 
 #[test]
 fn open_cleans_a_complete_staged_snapshot_and_replays_old_snapshot_tail() {
-    use acpmux_book::index::SortedSnapshot;
+    use acpmux_book::index::{HOT_WINDOW_MS, SortedSnapshot};
     let dir = tempfile::tempdir().unwrap();
     let log_path = dir.path().join("index.log");
     let snapshot_path = dir.path().join("index.snap");

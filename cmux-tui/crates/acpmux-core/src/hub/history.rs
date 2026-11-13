@@ -14,6 +14,7 @@ const MIN_OP_BYTES: usize = 32;
 struct Entry {
     start: usize,
     len: usize,
+    crc: u32,
 }
 
 pub(super) struct History {
@@ -115,7 +116,7 @@ impl History {
             self.pop().map_err(serde_json::Error::io)?;
         }
         let start = self.tail;
-        let mut writer = Append { history: self, written: 0 };
+        let mut writer = Append { history: self, written: 0, crc: crc32fast::Hasher::new() };
         if let Err(error) = serde_json::to_writer(&mut writer, &op) {
             writer.history.clear();
             return Err(error);
@@ -126,7 +127,7 @@ impl History {
             self.clear();
             return Err(serde_json::Error::io(invalid_entry()));
         };
-        *entry = Entry { start, len };
+        *entry = Entry { start, len, crc: writer.crc.finalize() };
         if self.len == 0 {
             self.first = seq;
         }
@@ -177,48 +178,54 @@ impl History {
         if count == 0 {
             return None;
         }
-        let mut out = Vec::new();
+        // One output allocation and one direct copy under the history lock.
+        // Do not allocate a temporary Vec for each operation: a full replay
+        // can contain thousands of operations.
+        let max_bytes = max_bytes.min(256 * 1024);
+        let mut out = Vec::with_capacity(max_bytes.min(self.used.saturating_add(count)));
         let mut last_seq = cursor;
         for index in 0..count {
-            let entry = self.entries.get((self.head + offset + index) % self.entries.len())?;
-            let operation = self.copy_entry(*entry)?;
+            let entry = *self.entries.get((self.head + offset + index) % self.entries.len())?;
             let separator = usize::from(!out.is_empty());
-            if !out.is_empty()
-                && out.len().saturating_add(separator).saturating_add(operation.len()) > max_bytes
-            {
+            if out.len().saturating_add(separator).saturating_add(entry.len) > max_bytes {
                 break;
             }
-            if out.is_empty() && operation.len() > max_bytes {
-                // Return the complete operation so the frame layer can report
-                // the bounded-frame error rather than splitting JSON.
-                out.extend_from_slice(&operation);
-            } else {
-                if separator != 0 {
-                    out.push(b',');
-                }
-                out.extend_from_slice(&operation);
+            if separator != 0 {
+                out.push(b',');
+            }
+            if !self.copy_entry_into(entry, &mut out) {
+                return None;
             }
             last_seq = first.saturating_add(index as u64);
-            if out.len() > max_bytes {
-                break;
-            }
         }
         (!out.is_empty()).then_some(RawSpan { bytes: out, last_seq })
     }
 
-    fn copy_entry(&self, entry: Entry) -> Option<Vec<u8>> {
+    fn copy_entry_into(&self, entry: Entry, out: &mut Vec<u8>) -> bool {
         let capacity = self.bytes.len();
         let first_len = entry.len.min(capacity.saturating_sub(entry.start));
-        let mut out = Vec::with_capacity(entry.len);
-        out.extend_from_slice(self.bytes.get(entry.start..entry.start + first_len)?);
-        out.extend_from_slice(self.bytes.get(..entry.len.saturating_sub(first_len))?);
-        (out.len() == entry.len).then_some(out)
+        let Some(first) = self.bytes.get(entry.start..entry.start + first_len) else {
+            return false;
+        };
+        out.extend_from_slice(first);
+        let Some(second) = self.bytes.get(..entry.len.saturating_sub(first_len)) else {
+            return false;
+        };
+        let mut crc = crc32fast::Hasher::new();
+        crc.update(first);
+        crc.update(second);
+        if crc.finalize() != entry.crc {
+            return false;
+        }
+        out.extend_from_slice(second);
+        true
     }
 }
 
 struct Append<'a> {
     history: &'a mut History,
     written: usize,
+    crc: crc32fast::Hasher,
 }
 
 fn invalid_entry() -> io::Error {
@@ -228,6 +235,7 @@ fn invalid_entry() -> io::Error {
 impl Write for Append<'_> {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         let history = &mut self.history;
+        self.crc.update(bytes);
         if bytes.len() > history.bytes.len().saturating_sub(self.written) {
             return Err(io::Error::other("list op exceeds history byte capacity"));
         }
@@ -339,7 +347,9 @@ mod tests {
         let mut history = History::new();
         history.append(&gone(1)).unwrap();
         history.append(&gone(2)).unwrap();
-        let one = history.after_frame(0, 2, 40).unwrap();
+        assert!(history.after_frame(0, 2, 1).is_none());
+        let one_size = history.after(0, 1).unwrap().len();
+        let one = history.after_frame(0, 2, one_size).unwrap();
         assert_eq!(one.last_seq, 1);
         let parsed: Vec<serde_json::Value> = serde_json::from_slice(
             format!("[{}]", String::from_utf8(one.bytes).unwrap()).as_bytes(),
