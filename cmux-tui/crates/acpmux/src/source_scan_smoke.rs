@@ -2,14 +2,17 @@
 //! --lib` (which PR CI runs) is red when a rule breaks: `cargo test -p cmux-source-scan`, which
 //! holds every row, is not in PR CI. The rows are in source_scan_smoke_rows.txt. Also holds the
 //! timing check's KNOWN_MISSES: each row stays a miss, and the tree holds exactly the instances
-//! of the shape marked `in_tree`.
+//! of the shape marked `in_tree`; the `spread` rows hold that shape's reader (spread_bounds) to
+//! its rows.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use cmux_source_scan::nextest::FileTests;
 use cmux_source_scan::test_hooks::judge_source;
-use cmux_source_scan::timing_ratio::{KNOWN_MISSES, Scan, scan_text, scan_with, spread_bounds};
+use cmux_source_scan::timing_ratio::{
+    Judge, KNOWN_MISSES, Scan, scan_text, scan_with, spread_bounds,
+};
 
 const ROWS: &str = include_str!("source_scan_smoke_rows.txt");
 const HOOKS_REL: &str = "cmux-tui/crates/acpmux/src/smoke.rs";
@@ -57,18 +60,20 @@ fn judge(row: &Row) -> Option<String> {
             .iter()
             .map(|f| (f.name == row.what && f.why.contains(&row.words), f.to_string()))
             .collect(),
-        "timing" => match scan_text(
-            TIMING_REL,
-            &format!("{PRELUDE}{}", row.source),
-            &|_| true,
-            &FileTests::Loose,
-        ) {
-            Ok(found) => found,
-            Err(error) => return Some(format!("does not parse: {error}")),
+        "timing" | "spread" => {
+            match (if row.check == "timing" { scan_text as Judge } else { spread_bounds })(
+                TIMING_REL,
+                &format!("{PRELUDE}{}", row.source),
+                &|_| true,
+                &FileTests::Loose,
+            ) {
+                Ok(found) => found,
+                Err(error) => return Some(format!("does not parse: {error}")),
+            }
+            .iter()
+            .map(|f| (f.text == row.what && f.kind == row.words, f.to_string()))
+            .collect()
         }
-        .iter()
-        .map(|f| (f.text == row.what && f.kind == row.words, f.to_string()))
-        .collect(),
         other => return Some(format!("no check `{other}`")),
     };
     let named = found.iter().filter(|(hit, _)| *hit).count();
