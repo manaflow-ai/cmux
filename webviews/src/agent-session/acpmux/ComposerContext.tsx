@@ -1583,13 +1583,12 @@ function LocationPicker({
         type="button"
         className="acpmux-location-button ui-ghost ui-ghost-sm"
         aria-label={kind === "computer" ? label + ": " + value : label}
-        aria-haspopup="dialog"
-        aria-expanded={open}
         {...press}
       >
         {button}
       </button>
       <Popover
+        id={press["aria-controls"]}
         open={open}
         onOpenChange={changeOpen}
         anchor={open ? anchor : null}
