@@ -86,6 +86,11 @@ impl View {
         match frame.kind {
             FrameKind::Window => {
                 let window: Window<Summary> = frame.decode_json().unwrap();
+                // A window is the initial viewport or an explicit resume
+                // replacement. A second live window at the same cursor would
+                // hide a duplicate/repeated delivery, so reject it unless a
+                // resume generation is active.
+                assert!(self.rows.is_empty() || self.replaying, "repeated window delivery");
                 assert!(window.cursor >= self.cursor);
                 self.rows = window.rows.into_iter().map(|s| (s.chat_id, s.last_activity)).collect();
                 self.cursor = window.cursor;
@@ -418,9 +423,18 @@ async fn resume_marks(shape: acpmux::god_fixture::Shape) -> usize {
     let final_seq = writer.apply(summary(0, 2_000_000)).unwrap().seq;
     let mut view = View { cursor, replaying: true, ..View::default() };
     view.apply(&first);
-    while view.cursor < final_seq {
-        view.apply(&receive(&mut client).await);
+    let mut saw_end = false;
+    while view.cursor < final_seq || !saw_end {
+        let frame = receive(&mut client).await;
+        if frame.kind == FrameKind::Delta {
+            let delta: DeltaFrame<Summary> = frame.decode_json().unwrap();
+            if delta.replay == Some(ReplayMark::End) {
+                saw_end = true;
+            }
+        }
+        view.apply(&frame);
     }
+    assert!(saw_end, "resume did not emit its end mark");
     assert!(!view.replaying);
     drop(client);
     task.await.unwrap().unwrap();
