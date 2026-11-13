@@ -21,8 +21,14 @@ pub(super) fn admit(
     stream: &dyn transport::Stream,
 ) -> Result<ConnectionPermit, ClientKind> {
     let key = stream.peer_process_key();
-    let session = key.as_deref().and_then(peer_pid).and_then(peer_session_id);
-    admit_session(connections, stream, session)
+    admit_session(connections, stream, peer_session(key.as_deref()))
+}
+
+/// The process session of the peer that the kernel names with `key`. Nil
+/// for no key, for a key that names no process, and for a process that is
+/// gone: such a client is an outside one.
+pub(super) fn peer_session(key: Option<&str>) -> Option<u32> {
+    key.and_then(peer_pid).and_then(peer_session_id)
 }
 
 /// [`admit`] for a client in process session `session` (nil when the kernel

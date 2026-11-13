@@ -431,9 +431,8 @@ impl Gate {
 
 /// The program of a terminal that holds one long connection: the session's
 /// event stream, as `cmux terminal wait`, an MCP watch and a nested cmux do.
-/// It waits behind its own gate first (`holder_gate`), so the daemon knows
-/// the terminal before the terminal's first connection (the accept loop then
-/// counts the connection in the terminals' lane; see `Holders`).
+/// It waits behind its own gate first (`holder_gate`), so the test chooses
+/// the moment of the terminal's first connection (see `Holders`).
 fn long_holder_script(dir: &Path, index: usize) -> String {
     format!(
         "exec 3<'{dir}/held/{gate}'; : >'{dir}/held/{index}.ready'; /bin/cat <&3 >/dev/null; \
@@ -451,15 +450,11 @@ fn holder_gate(index: usize) -> String {
 
 /// Terminals that each hold one long connection.
 ///
-/// The daemon's accept loop counts a connection in the terminals' lane when
-/// it knows the peer's terminal, and it never waits for the state lock to
-/// learn a new terminal. A holder that connects while the daemon still makes
-/// the other terminals can thus be counted as an outside connection, and the
-/// test would then not fill the lane. So each holder of a group first waits
-/// behind its own gate until each terminal of the group runs and the daemon
-/// is idle; then one connection of the test makes the accept loop read the
-/// terminals (a peer that it does not know makes it read them again), and
-/// the gates open.
+/// Each holder of a group first waits behind its own gate until each
+/// terminal of the group runs; then the gates open. So the holders of one
+/// group make their connections at one moment, and the test knows how many
+/// of them can be short at one time: a group is never larger than the short
+/// lane.
 struct Holders;
 
 impl Holders {
@@ -479,9 +474,6 @@ impl Holders {
             (first..last).all(|index| held.join(format!("{index}.ready")).exists())
         });
         assert!(ready, "setup: the terminals of the holders {first}..{last} did not all start");
-        let read = Control::admitted(&daemon.socket);
-        assert!(read.is_some(), "setup: the daemon refused the test's connection");
-        drop(read);
         gates.into_iter().for_each(Gate::open);
         let wanted = u64::try_from(last).unwrap();
         wait_until(test_timeout(Duration::from_secs(60)), || {
@@ -793,9 +785,6 @@ fn agent_start_long_holders_stop_at_their_bound_with_an_error_that_names_it() {
     control.run_in_terminal("over", &over_the_bound_script(&daemon.dir, "gate-over"));
     let ready = wait_until(test_timeout(Duration::from_secs(60)), || over.join("ready").exists());
     assert!(ready, "setup: the terminal above the bound did not start");
-    let read = Control::admitted(&daemon.socket);
-    assert!(read.is_some(), "setup: the daemon refused the test's connection");
-    drop(read);
     gate.open();
     let ended =
         wait_until(test_timeout(Duration::from_secs(60)), || over.join("typed.rc").exists());

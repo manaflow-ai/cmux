@@ -8,7 +8,8 @@ use std::os::unix::net::UnixStream;
 use super::*;
 use crate::diagnostics::{ClientKind, ConnectionStats};
 use crate::platform::transport::Stream;
-use crate::server::terminal_admission::{admit, admit_session};
+use crate::server::listen::ServedSession;
+use crate::server::terminal_admission::{admit, admit_session, peer_session};
 
 const LIMIT: u64 = MAX_SERVER_CONNECTIONS as u64;
 const LANE: u64 = MAX_TERMINAL_CONNECTIONS as u64;
@@ -47,11 +48,60 @@ fn own_session(stream: &UnixStream) -> u32 {
 /// The accept loop read the terminals from the session state when its lock
 /// was free, and answered from the last set read when it was held: a new
 /// terminal's connection was then an outside one for its whole life. The
-/// count: an accept takes the state lock 0 times, for an outside client and
-/// for a terminal, and a terminal that takes its seat while another change
-/// holds the state lock is a terminal at its next connection.
+/// count: the accept loop (`ServedSession::serve`) takes the state lock 0
+/// times on its thread, for an outside client and for a terminal.
+///
+/// The count is made with the state lock FREE: a try on a held lock makes
+/// no guard and is not counted, so a count under a held lock is always 0.
+/// The last assert shows that the count is live: one read of the state on
+/// this thread is 1.
 #[test]
-fn an_accept_takes_no_state_lock_and_sees_a_seat_taken_under_it() {
+fn the_accept_loop_takes_the_state_lock_zero_times() {
+    let mux = test_mux();
+    let connections = mux.connection_stats().clone();
+    let served = ServedSession { mux: mux.clone(), render_service: Arc::new(RenderService::new()) };
+    let (outside_side, outside_client) = UnixStream::pair().unwrap();
+    let (terminal_side, terminal_client) = UnixStream::pair().unwrap();
+    let session = own_session(&outside_side);
+    assert!(!connections.terminal_seated(session), "the test's process is in no terminal");
+
+    let before = crate::mux::state_locks_taken_on_this_thread();
+    served.serve(Box::new(outside_side));
+    assert_eq!(held(&connections), (1, 0, 0), "no seat: an outside client");
+    let seat = connections.seat_terminal(Some(session));
+    served.serve(Box::new(terminal_side));
+    assert_eq!(held(&connections), (2, 2, 0), "a seat: both are the terminal's");
+    assert_eq!(
+        crate::mux::state_locks_taken_on_this_thread() - before,
+        0,
+        "the accept loop took the session state lock"
+    );
+    mux.with_state(|_| ());
+    assert_eq!(crate::mux::state_locks_taken_on_this_thread() - before, 1, "the count is live");
+    drop((outside_client, terminal_client, seat));
+}
+
+/// A peer with no process session (no key, a key that names no process) is
+/// an outside client, and no seat takes its connection over.
+#[test]
+fn a_peer_with_no_process_session_is_an_outside_client() {
+    for key in [None, Some(""), Some("token:"), Some("token:0.1"), Some("pid:1.2")] {
+        assert_eq!(peer_session(key), None, "{key:?}");
+    }
+    let connections = Arc::new(ConnectionStats::default());
+    let (daemon_side, _client) = UnixStream::pair().unwrap();
+    let permit = admit_session(&connections, &daemon_side, None).expect("a free slot");
+    let seat = connections.seat_terminal(Some(SESSION));
+    assert_eq!(held(&connections), (1, 0, 0));
+    drop((permit, seat));
+    assert_eq!(held(&connections), (0, 0, 0));
+}
+
+/// A terminal that takes its seat while another change holds the state lock
+/// is a terminal at its next connection: the accept does not wait for that
+/// lock and does not need it.
+#[test]
+fn an_accept_under_a_held_state_lock_sees_a_seat_taken_under_it() {
     let mux = test_mux();
     let connections = mux.connection_stats().clone();
     let (daemon_side, _client) = UnixStream::pair().unwrap();
@@ -59,13 +109,11 @@ fn an_accept_takes_no_state_lock_and_sees_a_seat_taken_under_it() {
     assert!(!connections.terminal_seated(session), "the test's process is in no terminal");
 
     let state = mux.state.lock().unwrap();
-    let before = crate::mux::state_locks_taken_on_this_thread();
     let outside = admit(&connections, &daemon_side).expect("a free slot");
     assert_eq!(held(&connections), (1, 0, 0), "no seat: an outside client");
     let seat = connections.seat_terminal(Some(session));
     let (second_daemon_side, _second_client) = UnixStream::pair().unwrap();
     let terminal = admit(&connections, &second_daemon_side).expect("a free slot");
-    assert_eq!(crate::mux::state_locks_taken_on_this_thread() - before, 0);
     drop(state);
 
     // The first connection came before the seat: it joined the terminal too.
