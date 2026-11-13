@@ -63,7 +63,7 @@ impl RowKey {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub struct ForkOf {
     #[serde(flatten)]
     pub key: RowKey,
@@ -327,7 +327,7 @@ pub enum OriginState {
     Removed,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OriginRecord {
     #[serde(skip)]
