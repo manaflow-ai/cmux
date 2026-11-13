@@ -48,7 +48,7 @@ os.makedirs(os.path.join(OUT, "traces"), exist_ok=True)
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from bench_idle import usage  # noqa: E402
-from bench_launch import launch_app  # noqa: E402
+from bench_launch import launch_app, wait_for_count  # noqa: E402
 
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
 SCRATCH = tempfile.mkdtemp(prefix=f"sbstress-{opts.tag}-")
@@ -282,7 +282,7 @@ def main_thread_profile(trace):
 
 
 # ---------------------------------------------------------------- building the sidebar
-made = {"workspaces": [], "tickers": [], "groups": [], "pinned": []}
+made = {"workspaces": [], "tickers": [], "groups": [], "pinned": [], "create_failures": []}
 LOOP = ("while :; do for p in 5 10 15 20 25 30 35 40 45 50 55 60 65 70 75 80 85 90 95; do "
         f"[ -e '{FLAG}' ] && printf '\\033]7501;state=working:progress=%d\\033\\\\' $p; sleep {TICK_S}; done; done")
 
@@ -290,11 +290,15 @@ LOOP = ("while :; do for p in 5 10 15 20 25 30 35 40 45 50 55 60 65 70 75 80 85 
 def create_plain(name):
     """A workspace with no terminal (`workspace create --empty`: no PTY)."""
     done = cli("workspace", "create", "--empty", "--name", name)
+    if done.returncode != 0:
+        made["create_failures"].append(name)
     return done.stdout.strip() or None
 
 
 def create_ticker(name):
     done = cli("workspace", "create", "--name", name, "--shell", LOOP)
+    if done.returncode != 0:
+        made["create_failures"].append(name)
     return done.stdout.strip() or name
 
 
@@ -313,9 +317,11 @@ def grow(target):
             ref = create_plain(name)
         made["workspaces"].append({"name": name, "ref": ref})
     note(f"created {target - have} workspaces in {time.monotonic() - t0:.1f} s")
-    wait(lambda: len(workspace_rows()) >= target * 0.95 or None, 60, 1.0)
+    # Every row: the rows the run started with and the `target` it made. The headline count
+    # (workspace-scaling-bench.py's expected_rows) is that sum, so 95% of it is not the topology measured.
+    wait_for_count(lambda: len(workspace_rows()), results["baseline"]["rows"] + target, settle=60, step=1.0)
     rows = workspace_rows()
-    note(f"sidebar workspace rows: {len(rows)} (target {target})")
+    note(f"sidebar workspace rows: {len(rows)} (target {target}; creates failed: {len(made['create_failures'])})")
     # Groups: the first 80% of the new workspaces go round-robin into --groups groups.
     t0 = time.monotonic()
     if not made["groups"]:
@@ -764,7 +770,8 @@ def main():
             action("showMainWindow")
             rpc("debug.mouse", {"x": 900, "y": 450, "action": "hover"})
             time.sleep(2)
-            entry = {"rows_listed": len(workspace_rows()), "load": os.getloadavg(), "noop_rpc_ms": noop_ms()}
+            entry = {"rows_listed": len(workspace_rows()), "create_failures": list(made["create_failures"]),
+                     "load": os.getloadavg(), "noop_rpc_ms": noop_ms()}
             entry["memory"] = cpu_share(app.pid, 3)
             want = set(opts.scenarios.split(","))
             if "ticks" in want:

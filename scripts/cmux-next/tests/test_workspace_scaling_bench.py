@@ -177,6 +177,18 @@ class WaitForCountTests(unittest.TestCase):
         self.assertEqual(self.wait([98] * 100, 100), 98)
 
 
+class SidebarRowMismatchTests(unittest.TestCase):
+    def test_short_list_names_the_failed_creates(self):
+        report = {"sizes": {"999": {"rows_listed": 999, "create_failures": ["ws 0412"]}}}
+        record = bench.sidebar_row_mismatch(report, 999, 1000)
+        self.assertEqual(record["measured_rows"], 999)
+        self.assertEqual(record["create_failures"], ["ws 0412"])
+        self.assertEqual(record["create_failure_count"], 1)
+
+    def test_full_list_is_no_record(self):
+        self.assertIsNone(bench.sidebar_row_mismatch({"sizes": {"99": {"rows_listed": 100}}}, 99, 100))
+
+
 class ProbeReasonTests(unittest.TestCase):
     def test_failed_probe_names_its_reason(self):
         with tempfile.TemporaryDirectory() as tmp:

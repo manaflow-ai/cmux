@@ -139,6 +139,20 @@ def sidebar_rows(report, count):
     return out
 
 
+def sidebar_row_mismatch(report, sidebar_count, count):
+    """The incomplete record when the sidebar probe listed another row count than `count`, else None. It names the
+    workspaces whose create failed (sidebar-stress-bench.py `create_failures`), so a short list says why."""
+    size = ((report if isinstance(report, dict) else {}).get("sizes") or {}).get(str(sidebar_count)) or {}
+    measured = size.get("rows_listed")
+    if not isinstance(measured, int) or measured == count:
+        return None
+    record = {"workspaces": count, "probe": "sidebar", "expected_rows": count, "measured_rows": measured}
+    if isinstance(size.get("create_failures"), list):
+        record["create_failures"] = size["create_failures"][:5]
+        record["create_failure_count"] = len(size["create_failures"])
+    return record
+
+
 def typing_rows(report, count):
     # automation-typing-bench reports a phase for the seeded workspace count.  Prefer automation
     # (load) and fall back to light so older reports remain consumable.
@@ -364,10 +378,9 @@ def run_app(opts):
                 if probe == "sidebar" and isinstance(size_entry.get("switch"), dict) and size_entry["switch"].get("error"):
                     record["switch_error"] = size_entry["switch"]  # the scenario's own reason (sidebar-stress-bench.py)
                 failures.append(record)
-        measured = ((reports[count]["sidebar"].get("sizes") or {}).get(str(sidebar_count)) or {}).get("rows_listed")
-        if isinstance(measured, int) and measured != count:
-            failures.append({"workspaces": count, "probe": "sidebar", "expected_rows": count,
-                             "measured_rows": measured})
+        mismatch = sidebar_row_mismatch(reports[count]["sidebar"], sidebar_count, count)
+        if mismatch:
+            failures.append(mismatch)
         reports[count]["invalid_probes"] = sorted({failure.get("probe") for failure in failures[failure_start:]
                                                     if failure.get("probe")})
         # Preserve completed topology reports if the outer cron budget interrupts a later probe.
