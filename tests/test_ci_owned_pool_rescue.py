@@ -12,6 +12,7 @@ import json
 import re
 import sys
 import tempfile
+import threading
 import types
 import unittest
 import unittest.mock
@@ -8998,6 +8999,113 @@ class StallMove(unittest.TestCase):
                                     log=lambda text: None, sweep_seconds=12 * 60, tick_seconds=60, wait=clock.sleep)
         self.assertEqual(moved, [(9, 3, ["cmux-next generated files"])])
         self.assertEqual(outcomes.get(f"{rescue.STALL_MOVE}: re-ran the failed jobs of run 9"), 1)
+
+
+DISK_FULL_LOG = (ROOT / "tests/fixtures/rescue-disk-full-fast-tier.log").read_text(encoding="utf-8")
+
+
+def disk_full_fast_tier(job_id=777, labels=(SIDE,)):
+    """cmux run 43119216549's fast tier (2026-11-11): taken by an owned mini, built for 13 minutes, and its link
+    of CmuxNextPackageTests stopped at `ld: write() failed, errno=28 (No space left on device)`."""
+    found = job("cmux-next fast tier", status="completed", labels=labels, created=0, runner="mini-1-glaeda-3")
+    found.update(id=job_id, conclusion="failure", started_at=stamp(0), completed_at=stamp(13 * 60 + 3),
+                 steps=[{"name": "Set up job", "conclusion": "success"},
+                        {"name": "Set up runner", "conclusion": "success"},
+                        {"name": "Run the fast tier", "conclusion": "failure"},
+                        {"name": "Complete job", "conclusion": "success"}])
+    return found
+
+
+class LogReadingAPI(FakeAPI):
+    """A FakeAPI whose jobs() goes through the real client's disk-full marking, with job logs from `logs`."""
+
+    def __init__(self, *args, logs, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.logs, self.log_reads = logs, []
+        self._lock, self._disk_full = threading.Lock(), {}
+
+    def _read_log_lines(self, job_id):
+        self.log_reads.append(job_id)
+        text = self.logs.get(job_id)
+        return None if text is None else text.splitlines(keepends=True)
+
+    mark_disk_full = rescue.GitHub.mark_disk_full
+    disk_full_evidence = rescue.GitHub.disk_full_evidence
+
+    def jobs(self, run_id, attempt):
+        return [self.mark_disk_full(found) for found in super().jobs(run_id, attempt)]
+
+
+class DiskFull(unittest.TestCase):
+    """A job a mini's full disk failed is the runner's: re-run on another runner, never left red as the code's."""
+
+    def test_the_link_that_ran_out_of_disk_is_found_in_its_failed_step(self):
+        self.assertIn("errno=28 (No space left on device)",
+                      rescue.disk_full(DISK_FULL_LOG.splitlines(keepends=True)))
+
+    def test_a_full_disk_outside_the_failed_step_is_not_the_cause(self):
+        # A cache save that warns about the disk in a step that passed proves nothing (classify_failures.py).
+        text = DISK_FULL_LOG.replace("##[error]Process completed with exit code 1.", "done")
+        self.assertEqual(rescue.disk_full(text.splitlines(keepends=True)), "")
+        # Nor a script that only spells the message.
+        echoed = ("##[group]Run echo 'No space left on device'\n"
+                  "\x1b[36;1mecho 'No space left on device'\x1b[0m\n##[endgroup]\nok\n"
+                  "##[error]Process completed with exit code 1.\n")
+        self.assertEqual(rescue.disk_full([echoed]), "")
+
+    def test_a_job_that_ran_out_of_disk_counts_as_refused(self):
+        found = disk_full_fast_tier()
+        self.assertFalse(rescue.refused(found))  # 13 minutes in, past its setup: the code's, by metadata alone
+        clock = Clock()
+        api = LogReadingAPI(clock, lambda seconds: [found], logs={777: DISK_FULL_LOG})
+        marked = api.jobs(RUN_ID, 1)[0]
+        self.assertTrue(rescue.refused(marked))
+        self.assertIn("No space left on device", marked[rescue.DISK_FULL])
+        self.assertEqual(rescue.decided_failures([marked]), [])
+        look = rescue.assess([marked], now=clock.now(), budget_seconds=600)
+        self.assertEqual(look.action, "refused")
+        self.assertIn("ran out of disk on " + SIDE, look.reason)
+        # A finished job's log is read once, whatever the number of looks.
+        api.jobs(RUN_ID, 1)
+        self.assertEqual(api.log_reads, [777])
+
+    def test_only_a_failed_owned_job_past_its_setup_has_its_log_read(self):
+        passed = dict(disk_full_fast_tier(job_id=1), conclusion="success")
+        hosted = disk_full_fast_tier(job_id=2, labels=(BLACKSMITH,))
+        hook = refused_job("cmux-next fast tier", labels=(SIDE,))
+        hook["id"] = 3
+        clock = Clock()
+        api = LogReadingAPI(clock, lambda seconds: [passed, hosted, hook],
+                            logs={1: DISK_FULL_LOG, 2: DISK_FULL_LOG, 3: DISK_FULL_LOG})
+        jobs = api.jobs(RUN_ID, 1)
+        self.assertEqual(api.log_reads, [])
+        self.assertFalse(any(found.get(rescue.DISK_FULL) for found in jobs))
+
+    def test_a_code_failure_stays_the_codes(self):
+        code = DISK_FULL_LOG.replace("ld: write() failed, errno=28 (No space left on device)",
+                                     "Sources/App.swift:3:1: error: cannot find 'x' in scope")
+        clock = Clock()
+        api = LogReadingAPI(clock, lambda seconds: [disk_full_fast_tier()], logs={777: code})
+        found = api.jobs(RUN_ID, 1)[0]
+        self.assertFalse(rescue.refused(found))
+        self.assertEqual(rescue.decided_failures([found]), ["cmux-next fast tier"])
+
+    def test_the_sweeper_reruns_a_side_run_whose_fast_tier_ran_out_of_disk(self):
+        # The incident: the failed cmux-next run the sweeper lists once it ends. Before, it stopped at
+        # "the run finished" and the pull request stayed red until a person re-ran it.
+        run = dict(side_event(path=rescue.CMUX_NEXT_WORKFLOW_PATH, status="completed",
+                              conclusion="failure")["workflow_run"])
+        target = rescue.sweep_target(run, "manaflow-ai/cmux", late=False)
+        clock = Clock()
+        api = LogReadingAPI(clock, lambda seconds: [disk_full_fast_tier()], logs={777: DISK_FULL_LOG},
+                            finished=lambda seconds: True, conclusion="failure", rerun_jobs=lambda seconds: [])
+        lines: list[str] = []
+        outcome = rescue.follow(api, target, seconds=90, queue_rounds="0", now=clock.now, sleep=clock.sleep,
+                                log=lines.append)
+        log = "\n".join(lines)
+        self.assertEqual(api.calls.count("rerun-failed"), 1, outcome + "\n" + log)
+        self.assertNotIn("cancel", api.calls)
+        self.assertIn("ran out of disk", log)
 
 
 if __name__ == "__main__":
