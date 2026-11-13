@@ -1,5 +1,6 @@
 //! CRC-framed bounded log records and recoverable generation changes.
-use super::{DiskSnapshot, IndexRecord, RowKey, SortedSnapshot, Summary, SummaryIndex, codec};
+use super::compaction::Compaction;
+use super::{DiskSnapshot, IndexRecord, RowKey, Summary, SummaryIndex, codec};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufReader, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -10,27 +11,85 @@ pub struct IndexLog {
     next_seq: u64,
     offset: u64,
     oldest_seq: u64,
+    generation: u64,
+    closed_bytes: u64,
 }
 
 impl IndexLog {
     pub fn open(path: impl AsRef<Path>) -> io::Result<Self> {
         let requested = path.as_ref();
         let snapshot = DiskSnapshot::open(requested.with_extension("snap"))?;
-        let seq = snapshot.as_ref().map_or(0, |snapshot| snapshot.seq());
-        let offset = snapshot.as_ref().map_or(0, |snapshot| snapshot.head.log_offset);
-        let path = match snapshot.as_ref().and_then(|snapshot| snapshot.head.log_name.as_deref()) {
-            Some(name) => {
-                if Path::new(name).file_name().and_then(|name| name.to_str()) != Some(name) {
-                    return Err(codec::invalid("snapshot log name"));
-                }
-                requested.parent().unwrap_or_else(|| Path::new(".")).join(name)
-            }
-            None => requested.to_owned(),
-        };
-        Self::open_tail(path, seq, offset)
+        Self::open_with_snapshot(requested, snapshot.as_deref())
     }
 
-    pub(super) fn open_tail(path: PathBuf, seq: u64, covered: u64) -> io::Result<Self> {
+    /// The service opener supplies the already-read head, so startup observes
+    /// one snapshot generation and does not read its head twice.
+    pub fn open_with_snapshot(
+        requested: impl AsRef<Path>,
+        snapshot: Option<&DiskSnapshot>,
+    ) -> io::Result<Self> {
+        let requested = requested.as_ref();
+        let covered = snapshot.map_or(0, DiskSnapshot::covered_generation);
+        let mut seq = snapshot.map_or(0, DiskSnapshot::seq);
+        let mut generations = generation_paths(requested)?;
+        generations.sort_by_key(|(generation, _)| *generation);
+        let mut active = None;
+        let mut retained_bytes = 0;
+        let mut oldest = None;
+        let mut cleaned = false;
+        let mut previous_generation = None;
+        for (generation, path) in generations {
+            if previous_generation == Some(generation) {
+                return Err(codec::invalid("duplicate log generation"));
+            }
+            previous_generation = Some(generation);
+            if generation <= covered {
+                fs::remove_file(path)?;
+                cleaned = true;
+                continue;
+            }
+            let offset = if generation == 1 && covered == 0 {
+                snapshot.map_or(0, DiskSnapshot::log_offset)
+            } else {
+                0
+            };
+            let log = Self::open_tail(path, seq, offset, generation)?;
+            if oldest.is_none() && log.offset > offset {
+                oldest = Some(log.oldest_seq);
+            }
+            seq = log.next_seq;
+            retained_bytes += log.offset;
+            active = Some(log);
+        }
+        let parent = requested.parent().unwrap_or_else(|| Path::new("."));
+        if cleaned {
+            File::open(parent)?.sync_all()?;
+        }
+        let mut log = match active {
+            Some(log) => log,
+            None => {
+                let generation = covered
+                    .checked_add(1)
+                    .ok_or_else(|| codec::invalid("log generation exhausted"))?;
+                let path = if generation == 1 {
+                    requested.to_owned()
+                } else {
+                    parent.join(format!("index.log.{generation}"))
+                };
+                Self::open_tail(path, seq, 0, generation)?
+            }
+        };
+        log.oldest_seq = oldest.unwrap_or_else(|| seq.saturating_add(1));
+        log.closed_bytes = retained_bytes.saturating_sub(log.offset);
+        Ok(log)
+    }
+
+    pub(super) fn open_tail(
+        path: PathBuf,
+        seq: u64,
+        covered: u64,
+        generation: u64,
+    ) -> io::Result<Self> {
         let mut file =
             OpenOptions::new().create(true).truncate(false).read(true).write(true).open(&path)?;
         if file.metadata()?.len() < covered {
@@ -40,25 +99,24 @@ impl IndexLog {
         reader.seek(SeekFrom::Start(covered))?;
         let mut offset = covered;
         let mut next_seq = seq;
+        let mut previous_seq = 0;
         let mut oldest_seq = seq.saturating_add(1);
         loop {
             match codec::read(&mut reader) {
-                Ok(Some((record, len))) if record.seq > next_seq => {
+                Ok(Some((record, len))) if record.seq > previous_seq => {
                     if offset == covered {
                         oldest_seq = record.seq;
                     }
                     offset += len as u64;
-                    next_seq = record.seq;
+                    previous_seq = record.seq;
+                    next_seq = next_seq.max(record.seq);
                 }
                 Ok(None) => break,
                 Ok(Some(_)) => break,
                 Err(error)
                     if matches!(
                         error.kind(),
-                        io::ErrorKind::UnexpectedEof
-                            | io::ErrorKind::InvalidData
-                            | io::ErrorKind::InvalidInput
-                            | io::ErrorKind::Other
+                        io::ErrorKind::UnexpectedEof | io::ErrorKind::InvalidData
                     ) =>
                 {
                     break;
@@ -71,7 +129,7 @@ impl IndexLog {
             file.sync_data()?;
         }
         file.seek(SeekFrom::Start(offset))?;
-        Ok(Self { file, path, next_seq, offset, oldest_seq })
+        Ok(Self { file, path, next_seq, offset, oldest_seq, generation, closed_bytes: 0 })
     }
 
     pub fn append(&mut self, summary: Summary) -> io::Result<IndexRecord> {
@@ -137,37 +195,67 @@ impl IndexLog {
         &self.path
     }
 
-    /// A fresh generation exists durably before the snapshot selects it. The
-    /// old log is deleted only after the snapshot rename and directory sync.
-    pub fn compact(
-        &mut self,
-        snapshot_path: impl AsRef<Path>,
-        index: &SummaryIndex,
-    ) -> io::Result<()> {
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+    pub fn active_path(&self) -> &Path {
+        &self.path
+    }
+    pub fn retained_bytes(&self) -> u64 {
+        self.closed_bytes.saturating_add(self.offset)
+    }
+    /// Rotate the active generation in O(1), leaving the old generation for
+    /// the snapshot worker to read. The new file receives all future appends.
+    pub fn rotate(&mut self, snapshot_seq: u64) -> io::Result<Compaction> {
+        if snapshot_seq != self.next_seq {
+            return Err(codec::invalid("rotation sequence is not current"));
+        }
         self.sync()?;
         let parent = self.path.parent().unwrap_or_else(|| Path::new(".")).to_owned();
-        let name = format!("index.log.{}", index.seq());
-        let generation = parent.join(&name);
-        if generation == self.path {
-            return Ok(());
+        let closed_generation = self.generation;
+        if closed_generation == 1
+            && self.path.file_name() == Some(std::ffi::OsStr::new("index.log"))
+        {
+            let closed = parent.join("index.log.1");
+            if closed.exists() {
+                return Err(codec::invalid("duplicate initial generation"));
+            }
+            fs::rename(&self.path, &closed)?;
+            self.path = closed;
         }
-        let file = OpenOptions::new()
-            .create(true)
-            .truncate(true)
-            .read(true)
-            .write(true)
-            .open(&generation)?;
-        file.sync_all()?;
-        File::open(&parent)?.sync_all()?;
-        SortedSnapshot::write_with_offset_and_name(snapshot_path, index, 0, Some(&name))?;
-        let old = std::mem::replace(&mut self.path, generation);
+        let next_generation = closed_generation
+            .checked_add(1)
+            .ok_or_else(|| codec::invalid("log generation exhausted"))?;
+        let active = parent.join(format!("index.log.{next_generation}"));
+        let file = OpenOptions::new().create_new(true).read(true).write(true).open(&active)?;
+        if let Err(error) = file.sync_all().and_then(|()| File::open(&parent)?.sync_all()) {
+            // No append has used this file. Remove only the generation just
+            // created here; the prior generation remains the active owner.
+            let _ = fs::remove_file(&active);
+            return Err(error);
+        }
+        self.closed_bytes = self.closed_bytes.saturating_add(self.offset);
         self.file = file;
+        self.path = active;
+        self.generation = next_generation;
         self.offset = 0;
-        self.next_seq = index.seq();
-        self.oldest_seq = index.seq().saturating_add(1);
-        fs::remove_file(old)?;
-        File::open(parent)?.sync_all()?;
+        // The active generation is empty; retain the old oldest cursor until
+        // the snapshot worker commits its covered generation.
+        Ok(Compaction::new(parent, closed_generation, snapshot_seq))
+    }
+
+    pub fn compact(&mut self, path: impl AsRef<Path>, index: &SummaryIndex) -> io::Result<()> {
+        let mut plan = self.rotate(index.seq())?;
+        plan.snapshot_path = path.as_ref().to_owned();
+        let result = plan.run(std::sync::Arc::new(index.clone()))?;
+        self.compacted(result.covered_generation, result.seq);
         Ok(())
+    }
+
+    pub fn compacted(&mut self, covered_generation: u64, seq: u64) {
+        self.oldest_seq = seq.saturating_add(1);
+        self.closed_bytes = 0;
+        debug_assert!(self.generation > covered_generation);
     }
 }
 
@@ -187,7 +275,7 @@ pub fn replay_log_from(
     };
     let mut reader = BufReader::new(file);
     reader.seek(SeekFrom::Start(offset))?;
-    while let Ok(Some((record, _))) = codec::read(&mut reader) {
+    while let Some((record, _)) = codec::read(&mut reader)? {
         if record.seq <= index.seq() {
             continue;
         }
@@ -201,4 +289,42 @@ pub fn replay_log_from(
         }
     }
     Ok(index)
+}
+
+/// Replays every complete generation newer than the snapshot's covered
+/// generation. Directory order is irrelevant; generation numbers are the
+/// durable order established by rotation.
+pub fn replay_generation_logs(
+    directory: impl AsRef<Path>,
+    covered_generation: u64,
+    mut index: SummaryIndex,
+) -> io::Result<SummaryIndex> {
+    let requested = directory.as_ref().join("index.log");
+    let mut generations = generation_paths(&requested)?;
+    generations.sort_by_key(|(generation, _)| *generation);
+    for (generation, path) in generations {
+        if generation > covered_generation {
+            index = replay_log(&path, index)?;
+        }
+    }
+    Ok(index)
+}
+
+fn generation_paths(requested: &Path) -> io::Result<Vec<(u64, PathBuf)>> {
+    let parent = requested.parent().unwrap_or_else(|| Path::new("."));
+    let mut paths = Vec::new();
+    if requested.exists() {
+        paths.push((1, requested.to_owned()));
+    }
+    let prefix = requested.file_name().and_then(|name| name.to_str()).unwrap_or("index.log");
+    let prefix = format!("{prefix}.");
+    for entry in fs::read_dir(parent)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        let Some(number) = name.strip_prefix(&prefix) else { continue };
+        let Ok(generation) = number.parse::<u64>() else { continue };
+        paths.push((generation, entry.path()));
+    }
+    Ok(paths)
 }

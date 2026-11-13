@@ -11,21 +11,30 @@
 //! number of chats. Readers can retain a published snapshot while the writer
 //! builds the next one.
 
-use imbl::OrdMap;
+use imbl::{OrdMap, OrdSet};
+
+/// Persistent keys changed while a snapshot is being compacted.
+pub type ChangedRows = OrdSet<RowKey>;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::cmp::Ordering;
 use std::ops::Bound::{Excluded, Unbounded};
 
 mod codec;
+mod compaction;
 mod edition;
 mod log;
+mod pages;
+pub use pages::{IndexPage, ListFilter, ReadSide};
+#[cfg(test)]
+mod compaction_tests;
 mod snapshot;
 #[cfg(test)]
 mod storage_tests;
+pub use compaction::{Compaction, CompactionResult};
 pub use edition::IndexEdition;
-pub use log::{IndexLog, replay_log, replay_log_from};
-pub use snapshot::{DiskSnapshot, SortedSnapshot};
+pub use log::{IndexLog, replay_generation_logs, replay_log, replay_log_from};
+pub use snapshot::{DiskSnapshot, SnapshotRows, SortedSnapshot};
 
 use std::io;
 
@@ -304,8 +313,11 @@ impl PartialOrd for SortKey {
 #[derive(Clone, Debug)]
 pub struct SummaryIndex {
     seq: u64,
+    edition: u32,
     by_id: OrdMap<RowKey, Arc<Summary>>,
     ordered: OrdMap<SortKey, Arc<Summary>>,
+    disk: Option<Arc<DiskSnapshot>>,
+    shadowed: OrdSet<RowKey>,
 }
 
 impl Default for SummaryIndex {
@@ -316,7 +328,89 @@ impl Default for SummaryIndex {
 
 impl SummaryIndex {
     pub fn new() -> Self {
-        Self { seq: 0, by_id: OrdMap::new(), ordered: OrdMap::new() }
+        Self {
+            seq: 0,
+            edition: 1,
+            by_id: OrdMap::new(),
+            ordered: OrdMap::new(),
+            disk: None,
+            shadowed: OrdSet::new(),
+        }
+    }
+
+    pub fn from_disk(disk: Option<Arc<DiskSnapshot>>, edition: u32) -> Self {
+        Self { seq: disk.as_ref().map_or(0, |disk| disk.seq()), edition, disk, ..Self::new() }
+    }
+
+    /// Merge the immutable disk generation with the current hot/tail overlay.
+    /// This iterator owns one bounded disk piece, never a materialized list.
+    pub fn merged_rows(&self) -> impl Iterator<Item = io::Result<Arc<Summary>>> + '_ {
+        let mut disk = self.disk.as_ref().map(|disk| disk.rows());
+        let mut hot = self.iter().peekable();
+        let mut next_disk = None;
+        let mut disk_done = disk.is_none();
+        std::iter::from_fn(move || {
+            loop {
+                if next_disk.is_none() && !disk_done {
+                    match disk.as_mut().and_then(Iterator::next) {
+                        Some(Ok(row)) => {
+                            if self.is_shadowed(&row.key()) || self.get_row(&row.key()).is_some() {
+                                continue;
+                            }
+                            next_disk = Some(row);
+                        }
+                        Some(Err(error)) => {
+                            disk_done = true;
+                            return Some(Err(error));
+                        }
+                        None => disk_done = true,
+                    }
+                }
+                return match (hot.peek(), next_disk.as_ref()) {
+                    (Some(row), Some(cold)) if SortKey::of(row) <= SortKey::of(cold) => {
+                        hot.next().cloned().map(Ok)
+                    }
+                    (_, Some(_)) => next_disk.take().map(Ok),
+                    (Some(_), None) => hot.next().cloned().map(Ok),
+                    (None, None) => None,
+                };
+            }
+        })
+    }
+
+    pub fn with_compacted_snapshot(
+        &self,
+        snapshot: Arc<DiskSnapshot>,
+        changed: ChangedRows,
+    ) -> Self {
+        let mut next = self.clone();
+        next.disk = Some(snapshot);
+        next.shadowed = changed;
+        next
+    }
+
+    pub fn edition(&self) -> u32 {
+        self.edition
+    }
+    pub fn disk(&self) -> Option<&Arc<DiskSnapshot>> {
+        self.disk.as_ref()
+    }
+    pub fn is_shadowed(&self, key: &RowKey) -> bool {
+        self.shadowed.contains(key)
+    }
+
+    pub fn hydrate(&self, row: Arc<Summary>, now: u64) -> Self {
+        if self.shadowed.contains(&row.key())
+            || !(row.pinned
+                || row.is_live()
+                || row.last_activity >= now.saturating_sub(30 * 24 * 60 * 60))
+        {
+            return self.clone();
+        }
+        let mut next = self.clone();
+        next.by_id.insert(row.key(), row.clone());
+        next.ordered.insert(SortKey::of(&row), row);
+        next
     }
 
     pub fn seq(&self) -> u64 {
@@ -349,8 +443,12 @@ impl SummaryIndex {
             ordered.remove(&SortKey::of(old));
         }
         ordered.insert(SortKey::of(&summary), summary.clone());
-        by_id.insert(key, summary);
-        Self { seq: self.seq.max(seq), by_id, ordered }
+        by_id.insert(key.clone(), summary);
+        let mut shadowed = self.shadowed.clone();
+        if self.disk.is_some() {
+            shadowed.insert(key);
+        }
+        Self { seq: self.seq.max(seq), by_id, ordered, shadowed, ..self.clone() }
     }
 
     /// Test/telemetry hook: applying one summary records the number of
@@ -414,12 +512,21 @@ impl SummaryIndex {
     }
 
     pub fn remove_row(&self, seq: u64, key: &RowKey) -> Option<Self> {
-        let old = self.by_id.get(key)?;
+        let old = self.by_id.get(key);
+        if old.is_none() && self.disk.is_none() {
+            return None;
+        }
         let mut by_id = self.by_id.clone();
         let mut ordered = self.ordered.clone();
         by_id.remove(key);
-        ordered.remove(&SortKey::of(old));
-        Some(Self { seq: self.seq.max(seq), by_id, ordered })
+        if let Some(old) = old {
+            ordered.remove(&SortKey::of(old));
+        }
+        let mut shadowed = self.shadowed.clone();
+        if self.disk.is_some() {
+            shadowed.insert(key.clone());
+        }
+        Some(Self { seq: self.seq.max(seq), by_id, ordered, shadowed, ..self.clone() })
     }
 }
 

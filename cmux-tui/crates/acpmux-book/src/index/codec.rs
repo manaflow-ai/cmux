@@ -103,7 +103,9 @@ fn take_string(input: &mut &[u8], limit: usize) -> io::Result<String> {
         return Err(invalid("oversize key"));
     }
     let value = input.get(..len).ok_or_else(|| invalid("short key"))?;
-    let value = std::str::from_utf8(value).map_err(io::Error::other)?.to_owned();
+    let value = std::str::from_utf8(value)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?
+        .to_owned();
     *input = input.get(len..).ok_or_else(|| invalid("short key"))?;
     Ok(value)
 }
@@ -147,7 +149,8 @@ pub(super) fn decode(mut input: &[u8]) -> io::Result<IndexRecord> {
         if input.len() > super::MAX_SUMMARY_BYTES {
             return Err(invalid("oversize text"));
         }
-        let text: Text = serde_json::from_slice(input).map_err(io::Error::other)?;
+        let text: Text = serde_json::from_slice(input)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
         summary.title = text.title;
         summary.harness = text.harness;
         summary.state = text.state;
