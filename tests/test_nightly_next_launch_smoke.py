@@ -965,8 +965,8 @@ class GateScriptTests(unittest.TestCase):
 
 class PostPublishSeededHomeTests(unittest.TestCase):
     """The post-publish smoke launches the build from a seeded home too. Nightly 4294166855401 crashed at launch
-    only from a home with imported cookies; the smoke launched it from an empty home, passed it and saved its
-    marker."""
+    only from a home with imported cookies; the smoke launched a build from an empty home only, so it could not
+    see that crash."""
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -1001,7 +1001,8 @@ class PostPublishSeededHomeTests(unittest.TestCase):
             self.assertEqual(smoke.verdict(attempts), smoke.PASS, attempts)
             self.assertEqual(smoke.decide(feed(3, 2), 3, smoke.verdict(attempts))["action"], "none", attempts)
             self.assertIn("the seeded home (imported-cookie sync on) was not checked (", smoke.seeded_note(attempts))
-        # The harness never says it so, but a seed fault with a failed exit is still no crash: it has no pid.
+        # The harness never says it so, but a seed fault with a failed exit is still no crash: its verdict is not
+        # a failure and it has no pid.
         fault = {"verdict": "cannot-run", "arm": "seeded", "exit": 1, "failures": ["PermissionError: the seed"]}
         self.assertEqual(smoke.verdict([(1, fault), (1, fault)]), smoke.CANNOT_RUN)
         self.assertEqual(smoke.verdict([(3, fault), (3, fault)]), smoke.CANNOT_RUN)
@@ -1023,6 +1024,10 @@ class PostPublishSeededHomeTests(unittest.TestCase):
                                                        + "x" * 5000))])
         self.assertTrue(long.isprintable(), long)
         self.assertIn("(cannot-run: RuntimeError: a ::error::b [31m xxx", long)
+        # A backslash too: a shell whose `echo` reads escapes (sh, bash with xpg_echo) would make `\n` a new line.
+        escaped = smoke.seeded_note([(0, seeded_unchecked("cannot-run", "OSError: C:\\tmp\\n::error title=x::b"))])
+        self.assertNotIn("\\", escaped)
+        self.assertIn("(cannot-run: OSError: C: tmp n::error title=x::b)", escaped)
         self.assertLess(len(long), 500)
         self.assertTrue(long.endswith("; the empty home passed and the build stays on the feed"), long)
         # Nothing to say: both homes passed, or the verdict is no pass.
