@@ -7184,7 +7184,21 @@ jobs:
       - *x13
       - *x1
       - *x2
-      - *x3
+      # The Mac keeps ~/.cache/zig. "Cache Zig packages" restored 647 MB over it in 69-81 s on every run (runs 43390156751,
+      # 43395323737); it is skipped once a source archive of this key completed with that cache (zig-cache-kept.sh).
+      - name: Read whether the kept Zig package cache is complete
+        id: zig-kept
+        if: inputs.nightly_next_unsigned_run == ''
+        env:
+          KEY: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
+        run: bash scripts/ci/nightly-steps/zig-cache-kept.sh check
+      - name: Cache Zig packages
+        if: inputs.nightly_next_unsigned_run == '' && steps.zig-kept.outputs.kept != 'true'
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/zig
+          key: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
+          restore-keys: zig-packages-
       - name: Key the Ghostty CLI helper cache
         id: helper-cache-key
         if: steps.reuse.outputs.hit != 'true'
@@ -7202,6 +7216,13 @@ jobs:
           HELPER_CACHE_HIT: ${{ steps.helper-cache.outputs.cache-hit }}
         run: bash scripts/ci/nightly-steps/helper-build.sh && strip -S -x nightly-helper/ghostty
       - *x4
+      # Only after the source archive ran and passed (it blocks: a failure fails the job before this step).
+      - name: Mark the kept Zig package cache complete
+        if: success() && inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true')
+        continue-on-error: true
+        env:
+          KEY: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
+        run: bash scripts/ci/nightly-steps/zig-cache-kept.sh mark
       - *x5
       - name: Compile this build (no product reuse)
         id: nightly-product
@@ -7209,7 +7230,18 @@ jobs:
       - *x14
       - *x15
       - *x16
-      - *x17
+      # As build-nightly-app's step, without a second download of ghostty-next's Zig (20 s): "Install Zig" above
+      # already installed it in this job and published CMUX_VT_ZIG.
+      - name: Install compilation dependencies
+        if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true'
+        run: |
+          ./scripts/install-rust-ci.sh
+          if [ -x "${CMUX_VT_ZIG:-}" ]; then
+            echo "ghostty-next's Zig is already installed: $CMUX_VT_ZIG ($("$CMUX_VT_ZIG" version))"
+          else
+            GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_FORCE_LOCAL_INSTALL=1 ZIG_PUBLISH_ENV=CMUX_VT_ZIG ./scripts/install-zig-ci.sh
+          fi
+          ./scripts/download-prebuilt-ghosttykit.sh
       - *x18
       - *x19
       - *x20

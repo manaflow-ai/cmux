@@ -238,7 +238,10 @@ class NightlyNextOneJobTests(unittest.TestCase):
         self.assertLess(probe, restore)
         self.assertLess(names.index("Build the cmux-next source archive"), mark)
         self.assertIn("steps.zig-kept.outputs.kept != 'true'", one_line(steps[restore].get("if")))
-        self.assertIn("steps.source_archive.outcome == 'success'", one_line(steps[mark].get("if")))
+        # The source archive's own condition, after it passed (it blocks), never its soft outcome.
+        archive = steps[names.index("Build the cmux-next source archive")]
+        self.assertNotIn("continue-on-error", archive)
+        self.assertEqual(one_line(steps[mark].get("if")), "success() && " + one_line(archive.get("if")))
         key = "zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}"
         self.assertEqual(steps[restore]["with"]["key"], key)
         self.assertEqual(steps[probe]["env"]["KEY"], key)
