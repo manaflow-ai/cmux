@@ -5,6 +5,12 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesGithubRepoScope {
+    pub value: TeamPolicyValuesGithubRepoScopeValue,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamPolicyValuesGithubRequireOrgAdmin {
     pub value: bool,
     pub mode: PolicyMode,

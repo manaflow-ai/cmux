@@ -18,6 +18,9 @@ final class AccountsService: AccountsServices {
     private(set) lazy var model = AccountsModel(services: self)
     private(set) lazy var github = GitHubConnections.live(auth: services.cloud.auth, ownerAPI: services.cloud.configuration.ownerAPIBaseURL(), preview: services.environment.showcase || fixtureHome != nil)
     private(set) lazy var agentKeys = TeamAgentKeys.live(auth: services.cloud.auth, ownerAPI: services.cloud.configuration.ownerAPIBaseURL(), preview: services.environment.showcase || fixtureHome != nil)
+    private(set) lazy var modelsPolicy = TeamModelsPolicy.live(auth: services.cloud.auth, ownerAPI: services.cloud.configuration.ownerAPIBaseURL(), preview: services.environment.showcase || fixtureHome != nil)
+    /// `models.spreadUsage` mirrored into acpmux for the app's life (SettingsModels.mirrorSpread).
+    private var spreadMirror: Task<Void, Never>?
     let keys: any ProviderKeyStoring
     /// The per-user salt behind every `acct_…` handle (Keychain, read once off the main actor).
     let labels: AccountLabelerStore
@@ -55,6 +58,7 @@ final class AccountsService: AccountsServices {
         activation = MainActorObservation(NSApplication.didBecomeActiveNotification) { [weak self] in
             self?.model.appDidBecomeActive()
         }
+        spreadMirror = SettingsModels.mirrorSpread(settings: { [weak services] in services?.settings }, environment: { [weak services] in services.flatMap(QuitAgents.environment) })
     }
 
     /// The detection inputs. The login env is captured once per launch
