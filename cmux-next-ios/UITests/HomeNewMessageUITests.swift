@@ -314,33 +314,6 @@ final class HomeNewMessageUITests: XCTestCase {
         app.terminate()
     }
 
-    /// The share sheet's choices come from the system, not this app: Safari sharing the same link
-    /// on the same simulator offers the same ones as Invite to cmux.
-    @MainActor
-    func testSafariShareSheetForComparison() {
-        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
-        safari.launch()
-        safari.open(URL(string: "https://cmux.com")!)
-        Self.pause(4)
-        let share = safari.buttons["Share"].firstMatch
-        if !share.waitForExistence(timeout: 8) {
-            // Safari 26+: the share button sits in the page menu.
-            let page = safari.buttons["PageFormatMenuButton"].firstMatch
-            if page.waitForExistence(timeout: 3) { page.tap() }
-        }
-        XCTAssertTrue(share.waitForExistence(timeout: 8), "Safari share\n\(safari.debugDescription)")
-        share.tap()
-        Self.pause(2.0)
-        attach(safari, .light, "23-safari-share-sheet")
-        let more = safari.buttons["More"].firstMatch
-        if more.waitForExistence(timeout: 3) {
-            more.tap()
-            Self.pause(1.5)
-            attach(safari, .light, "23b-safari-share-more")
-        }
-        safari.terminate()
-    }
-
     /// A11: Forward from a Chief's select mode opens the same New Message, with the draft.
     @MainActor
     func testForwardOpensNewMessage() {
