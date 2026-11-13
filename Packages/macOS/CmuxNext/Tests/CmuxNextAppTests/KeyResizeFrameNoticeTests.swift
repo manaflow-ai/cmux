@@ -71,7 +71,9 @@ struct KeyResizeFrameNoticeTests {
             window.contentView = root
             root.layoutSubtreeIfNeeded()
             root.driver.isManual = true
-            root.context.afterCommit = { [unowned self] in self.afterCommit.append($0) }
+            // Weak: a test that ends in the spring (a failed `#require`) closes its window with motion in flight, and the
+            // root's settle asks for after-commit work once this rig is gone (as FrameOwnerS1HoldPathsTests' rig).
+            root.context.afterCommit = { [weak self] in self?.afterCommit.append($0) }
         }
 
         var screen: ScreenContentView { get throws { try #require(root.screenViews["s"]) } }
