@@ -27,7 +27,7 @@ import Testing
 struct CloudMoveTests {
     /// The live chat moves: its folder is synced under the machine's work root, the chat is moved
     /// from this Mac's tab to that folder, and the machine shows it in a Cloud workspace whose
-    /// terminal runs in the synced folder. The chat's tab there is bound to the moved session
+    /// only tab is the chat: no terminal is made beside it. The chat's tab there is bound to the moved session
     /// through the machine's store (so it attaches through that machine and carries its badge),
     /// and this Mac's tab, whose chat closed, is gone.
     @Test func aCLIMoveOfALiveChatEndsWithTheTabAttachedToTheMachineChat() async throws {
@@ -50,7 +50,7 @@ struct CloudMoveTests {
             #expect(tab.agentSession?.harness == "claude")
             #expect(moved.attachesThroughMachine, "the moved chat does not attach through the machine")
             #expect(moved.badge == "Move VM", "the moved chat's tab carries no Cloud badge")
-            #expect(moved.terminalFolders == [synced], "the machine workspace's terminal is not in the synced folder")
+            #expect(moved.terminalFolders.isEmpty, "the machine workspace has a terminal beside the chat: \(moved.terminalFolders)")
             // This Mac's tab is gone (its chat closed with the move), with nothing left to retry.
             #expect(!moved.macStillHasTab)
             #expect(move.services.cloud.moveRetries[move.key] == nil)
@@ -151,7 +151,7 @@ struct CloudMoveTests {
                 let moved = try await move.read()
                 #expect(moved.calls.count == 2, "Retry synced or moved the chat again: \(moved.calls)")
                 #expect(moved.machineTab?.agentSession?.session == "chat-on-vm", "Retry did not open the moved chat's tab")
-                #expect(moved.terminalFolders == [synced])
+                #expect(moved.terminalFolders.isEmpty, "the reopened chat's workspace has a terminal beside it: \(moved.terminalFolders)")
                 #expect(!moved.macStillHasTab)
                 #expect(move.services.cloud.moveRetries[move.key] == nil)
             }
@@ -605,7 +605,7 @@ struct CloudMoveTests {
                 moved.badge = services.machines.machineBadge(daemon.machineID)
                 if let key = machine.daemon.store.workspace(containing: pane.handle)?.key,
                    let listed = try await machine.daemon.connection?.listWorkspaces().workspaces.first(where: { $0.key == key }) {
-                    moved.terminalFolders = listed.screens.flatMap(\.panes).flatMap(\.tabs).filter { $0.kind == .pty }.compactMap(\.cwd)
+                    moved.terminalFolders = listed.screens.flatMap(\.panes).flatMap(\.tabs).filter { $0.kind == .pty }.map { $0.cwd ?? "" }
                 }
             }
             moved.macStillHasTab = services.locateTab(tabID, onMachine: services.machines.local.machineID) != nil

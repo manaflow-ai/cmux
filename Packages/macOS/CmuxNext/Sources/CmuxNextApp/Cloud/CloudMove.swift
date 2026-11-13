@@ -13,10 +13,9 @@ import Foundation
 /// For a chat tab of this Mac it reuses a Cloud machine (the named one, else a
 /// connected one, else any, else a new one), copies the chat's folder there
 /// (`cmux link seed push`), moves the chat (`cmux link agent move`), and shows
-/// it on that machine: a Cloud workspace whose terminal runs in the synced
-/// folder and whose chat tab is bound to the moved session through the
-/// machine's store, so the tab attaches through that machine and carries its
-/// badge. This Mac's tab, whose chat the move closed, closes.
+/// it on that machine: a Cloud workspace whose only tab is the chat, bound to
+/// the moved session through the machine's store, so the tab attaches through
+/// that machine and carries its badge. This Mac's tab, whose chat closed, closes.
 ///
 /// The chat keeps its session, history, draft and queue, not its tab id: a tab
 /// lives in exactly one machine's store, which mints its ids, and a chat on a
@@ -256,7 +255,7 @@ struct CloudMove {
     /// Opens the moved chat's tab on `machine`, then closes this Mac's tab, whose chat closed with the move.
     private func finish(_ shown: CloudMoveRetries.Shown, on machine: CloudMachineSession, tab: TabModel) async throws {
         do {
-            try await show(shown.session, harness: shown.harness, on: machine, in: shown.folder, name: shown.name, key: shown.key)
+            try await show(shown.session, harness: shown.harness, on: machine, name: shown.name, key: shown.key)
         } catch {
             throw Failure(message: CloudMoveStrings.tabFailed(machine.machine.title, CloudStrings.errorText(error)), retry: .show(shown))
         }
@@ -362,19 +361,18 @@ struct CloudMove {
         CloudMoveStrings.notConnected(session.machine.title)
     }
 
-    /// Shows the moved chat on `machine`: a new Cloud workspace with a terminal
-    /// in `folder`, then the chat's tab bound to `session` through the
-    /// machine's store, selected; filed into the window, and shown when the run
-    /// may change the view. `key` makes the chat tab's creation idempotent.
-    func show(_ session: String, harness: String?, on machine: CloudMachineSession, in folder: String, name: String?, key: String) async throws {
+    /// Shows the moved chat on `machine`: a new Cloud workspace whose only tab is the chat's, bound to `session` through
+    /// the machine's store, selected; filed into the window, and shown when the run may change the view. No terminal first
+    /// (nor in Bring Back Local's): as the first tab it took the window and `--focus` (capture baf4f76ab502); a new
+    /// terminal beside the chat starts in its folder. `key` makes the chat tab's creation idempotent.
+    func show(_ session: String, harness: String?, on machine: CloudMachineSession, name: String?, key: String) async throws {
         let daemon = machine.daemon
         guard let connection = daemon.connection, let host = AgentTabStore.registryHost(of: daemon) else { throw DaemonError.notConnected }
         let record = AgentSessionRef(host: host, hostName: machine.machine.title, session: session, harness: harness)
         let workspace = NewWorkspacePlacements.placedKey(in: services.windows) // placed like Cmd-N, not at the machine daemon's slot
         let created = try await WorkspaceCreation.createWithFirstTab(workspace, name: name, on: connection, repair: machine.emptyWorkspaces) { result in
-            try await connection.createTerminal(in: result.key, cwd: folder)
-            return try await connection.request(NewConversationTabRequest(agentSession: record, workspace: result.workspace,
-                                                                          origin: AgentTabStore.createOrigin, mutationID: "cloud-move-" + key))
+            try await connection.request(NewConversationTabRequest(agentSession: record, workspace: result.workspace,
+                                                                   origin: AgentTabStore.createOrigin, mutationID: "cloud-move-" + key))
         }
         services.windows.reveal(workspaceID: workspace.rawValue)
         let tab = created.tabResourceID?.rawValue ?? "surface:\(created.surface.rawValue)"
