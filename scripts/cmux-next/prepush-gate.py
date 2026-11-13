@@ -500,6 +500,11 @@ def log(message: str) -> None:
     print(message, file=sys.stderr)
 
 
+def absolute(path: Path) -> Path:
+    """Anchor a path before a checker launch changes its working directory, preserving symlinks."""
+    return Path(os.path.abspath(path))
+
+
 def load_sibling(name: str, filename: str):
     """The module FILENAME beside this file (scripts/cmux-next in a checkout; the hook folder for the installed copy)."""
     spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name(filename))
@@ -1141,8 +1146,9 @@ def resolve_rustfmt(env: dict[str, str], cwd: Path) -> Path | None:
     when there is none. rustfmt() runs exactly this file, so "is it there" and "what runs" are one lookup (#41945
     review: the probe read PATH=. and an empty entry from the gate's own folder while rustfmt ran in cmux-tui/), and
     a test that mocks the run mocks this too, with no real install."""
+    cwd = absolute(cwd)
     for folder in env.get("PATH", os.defpath).split(os.pathsep):
-        candidate = (cwd / folder) / "rustfmt"  # an absolute folder replaces CWD; "" and "." are CWD
+        candidate = absolute((cwd / folder) / "rustfmt")  # an absolute folder replaces CWD; "" and "." are CWD
         if candidate.is_file():
             return candidate
     return None
@@ -1156,6 +1162,7 @@ def rustfmt(repo: Path, config: Path, tree: Path, rust: list[str]) -> str:
     cmux-tui/), never installed for this check; with no rustfmt on PATH, or rustup's own answer that the pinned
     toolchain or its rustfmt is not installed, the layer warns and finds nothing; a rustfmt that will not start is no
     verdict. The tip's `cargo fmt --all --check` (cmux-tui-rust-check.sh fmt) stays the backstop."""
+    repo, config, tree = absolute(repo), absolute(config), absolute(tree)
     present = [p for p in rust if (tree / p).is_file()]
     if not present or not config.is_file():
         return ""
@@ -1635,6 +1642,7 @@ def unread_findings(code: int, lines: list[str], finding: re.Pattern[str]) -> st
 # its findings. Only these are dropped before the findings are read; any other `ui font:` line is output the gate did
 # not parse (#41945 review, F2: `ui font: could not read ...` with exit 0 was dropped and read as a clean run).
 UI_FONT_SUMMARY = re.compile(r"ui font: (?:ok|\d+ finding\(s\)\.(?: .*)?)")
+UI_FONT_COUNT = re.compile(r"ui font: (?:(?:ok)|(?P<count>\d+) finding\(s\)\.(?: .*)?)")
 
 
 # One line of a checker's `--inputs` answer: a repository path, a file (`a/b.json`) or a folder (`a/b/`), in plain
@@ -1698,8 +1706,16 @@ def ui_font(repo: Path, base: str, head: str, trusted_scripts: Path | None = Non
 
         def findings(*args: str) -> tuple[list[str], str | None]:
             code, out = run(["python3", "-I", str(check), "--repo", str(repo), *args], Path(tmp), timeout=600)
+            summaries = [line.strip() for line in out.splitlines() if UI_FONT_SUMMARY.fullmatch(line.strip())]
             lines = [line for line in out.splitlines()
                      if line.strip() and not UI_FONT_SUMMARY.fullmatch(line.strip())]
+            count = UI_FONT_COUNT.fullmatch(summaries[-1]).group("count") if summaries else None
+            count = 0 if summaries and count is None and summaries[-1] == "ui font: ok" else (
+                int(count) if count is not None else None)
+            if code in (0, 1) and (len(summaries) != 1 or count is None or (code == 0 and count != 0)
+                                   or (code == 1 and count == 0)):
+                reason = f"summary disagrees with exit {code}: {summaries[-1] if summaries else 'missing'}"
+                return lines, reason
             # Its verdicts exit 0 or 1; anything else, a traceback or a timeout is no verdict, and so is an exit 1 that
             # prints no finding (only its `ui font:` summary), and output that is not its findings (#41888 review).
             # Its INPUTS guard stop is not a finding either; it refuses on its own below.
