@@ -99,6 +99,7 @@ impl MachineIo {
             command: None,
             timeout_ms: None,
             max_bytes: None,
+            data_bytes: None,
             cache_dir: self.cache_dir.clone(),
             route: RouteChoice::Auto,
             app_version: self.app_version.clone(),

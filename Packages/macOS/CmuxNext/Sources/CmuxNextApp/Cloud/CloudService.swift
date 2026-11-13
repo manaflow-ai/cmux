@@ -23,6 +23,14 @@ final class CloudService {
     let configuration: CloudConfiguration
     let auth: CloudAuth
     @ObservationIgnored let api: CloudAPIClient
+    /// This Mac's cmux daemon, which runs every Cloud API call (``CloudDaemon``).
+    @ObservationIgnored let daemon: CloudDaemon
+    /// The person's own session on the API Worker, in the install token's team (the team whose CloudDO holds the app server's machines).
+    var ownerAPI: CloudOwnerAPIClient {
+        let auth = auth, identity = installIdentity
+        return CloudOwnerAPIClient(baseURL: FeedService.apiBaseURL(auth: auth), accessToken: { try await auth.tokens().access },
+                                   teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) }, daemon: daemon)
+    }
     /// A machine's exec and file routes: the configured cmux API Worker.
     @ObservationIgnored let machineAPI: CloudAPIClient
     /// Same person and team as the machine API, at the configured platform preview origin.
@@ -167,10 +175,13 @@ final class CloudService {
         paths = configuration.runtimeSelection?.storageNamespace.map { CloudPaths(root: basePaths.root.appendingPathComponent($0, isDirectory: true)) } ?? basePaths
         installIDs = CloudInstallIDs(machine: basePaths, backend: paths, work: work)
         let auth = auth
+        let daemon = CloudDaemon(socketPath: { @MainActor [weak machines] in await machines?.local.connection?.endpoint?.socketPath }, changes: { [weak machines] in ObservationStream { @MainActor [weak machines] in machines?.local.connection.map(ObjectIdentifier.init) } })
+        self.daemon = daemon
         api = CloudAPIClient(
             configuration: configuration,
             tokens: { try await auth.tokens() },
-            teamID: { await auth.teamID })
+            teamID: { await auth.teamID },
+            daemon: daemon)
         let configuration = self.configuration, paths = self.paths, deviceName = Self.deviceName
         let clientVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
         let install = { @Sendable (api: URL, folder: String) in
@@ -189,7 +200,7 @@ final class CloudService {
         let machineIO = CloudMachineIO(bundleResources: Bundle.main.resourceURL, cloudRoot: paths.root, work: work)
         machineAPI = CloudAPIClient.workerMachines(baseURL: configuration.ownerAPIBaseURL(), accessToken: { try await auth.tokens().access },
                                                    teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) },
-                                                   machineIO: machineIO, installToken: { try await identity.installToken() })
+                                                   daemon: daemon, machineIO: machineIO, installToken: { try await identity.installToken() })
         let build = LaunchIdentity.current().build
         let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
         let environment = ProcessInfo.processInfo.environment

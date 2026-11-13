@@ -4,41 +4,28 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import Darwin
 
-/// A Worker machine's exec and file routes through the bundled cmux-tui (`cmux cloud machine-io`,
-/// cmux-tui `cli/cloud_machine_io.rs`), which talks to the machine's provider directly with a
-/// short-lived client session and falls back to the cmux API's own routes on its own. This type
-/// only forwards: one JSON request on the child's stdin (the credential never goes in argv), one
-/// JSON line back with the route's status, error code and body, exactly as
-/// `/v1/cloud/machines/{id}/...` would have answered.
+/// The bundled cmux-tui (`Contents/Resources/bin/cmux`) for the one-shot child the app runs with a
+/// JSON request on its stdin (the credential never goes in argv) and one JSON line back: the sealed
+/// secret delivery (`cmux carrier secrets`, CloudAPIClient+SealedDelivery.swift). A machine's exec
+/// and file calls are the daemon's `cloud.machine.io` (CloudAPIClient+MachineRoutes.swift).
 public struct CloudMachineIO: Sendable {
     /// The `cmux` binary (`Contents/Resources/bin/cmux`).
     public let binary: URL
     /// Where cmux-tui keeps its client sessions (0700; one 0600 file per machine and person).
     public let cacheDirectory: URL
-    /// Which binaries speak `machine-io` (``speaksMachineIO()``). An instance, not a static: it lives as
-    /// long as the one machine IO the app's Cloud service makes and injects into its machines client
-    /// (copies of the client share it); a test passes its own.
-    let probes: Probes
-    /// The app's blocking-work lanes: every file call of a call (the probe's stats, the answer's temp file and
-    /// its read) runs on `.files`, never on the cooperative pool (threading-model.md).
+    /// The app's blocking-work lanes: the child's temp file and its read run on `.files`, never on the
+    /// cooperative pool (threading-model.md).
     let work: BackgroundWork
 
     public init(binary: URL, cacheDirectory: URL, work: BackgroundWork) {
-        self.init(binary: binary, cacheDirectory: cacheDirectory, probes: Probes(), work: work)
-    }
-
-    init(binary: URL, cacheDirectory: URL, probes: Probes, work: BackgroundWork) {
         self.binary = binary
         self.cacheDirectory = cacheDirectory
-        self.probes = probes
         self.work = work
     }
 
     /// The app's: the bundled cmux at `bundleResources/bin/cmux` (or the cmux-tui built from source that
     /// `environment`'s `CMUX_NEXT_TUI_BIN` names) and its client sessions in `cloudRoot/client-sessions`.
-    /// It touches no file (the Cloud service makes it on the main thread at start): whether that cmux is there is
-    /// asked by the first call's probe, off the main thread (``speaksMachineIO()``), and a build without it sends every
-    /// call over HTTP.
+    /// It touches no file.
     public init?(bundleResources: URL?, cloudRoot: URL, work: BackgroundWork,
                  environment: [String: String] = ProcessInfo.processInfo.environment) {
         let binary: URL
@@ -52,78 +39,10 @@ public struct CloudMachineIO: Sendable {
                   cacheDirectory: cloudRoot.appendingPathComponent("client-sessions", isDirectory: true), work: work)
     }
 
-    /// The probe answers, by binary path and modification date.
-    final class Probes: Sendable {
-        private let known = Mutex<[String: Bool]>([:])
-
-        init() {}
-
-        subscript(key: String) -> Bool? {
-            get { known.withLock { $0[key] } }
-            set { known.withLock { $0[key] = newValue } }
-        }
-    }
-
-    /// The route's answer: `status` 0 is none at all (then `code` says why: `timed_out` or `transport`).
-    struct Answer: Sendable {
-        var status: Int
-        var code: String?
-        var body: Data
-        var route: String
-    }
-
-    /// The child gave no answer line. `dispatched` false: it never started (no binary, a cancel first,
-    /// a cmux without `machine-io`) or said it took nothing (route `none`), so nothing ran and the caller may take the HTTP route.
-    /// `dispatched` true: it started and then crashed, timed out or printed nothing usable, so the
-    /// operation may have run and a change must not be sent a second time.
+    /// The child gave no answer line. `dispatched` false: it never started (no binary, a cancel first),
+    /// so nothing ran. `dispatched` true: it started and then crashed, timed out or printed nothing
+    /// usable, so the operation may have run and must not be sent a second time.
     struct NoAnswer: Error { var dispatched: Bool }
-
-    /// Off the caller's actor (`@concurrent`): the app calls the machine routes from main-actor handlers. The file
-    /// calls (the probe's stats, the temp file and its read) go on `work`'s files lane; the answer's parse runs here.
-    @concurrent func perform(_ request: [String: any Sendable], timeout: Duration) async throws -> Answer {
-        // A bundled cmux from before `machine-io` never runs the call: it goes over HTTP.
-        guard try await speaksMachineIO() else { throw NoAnswer(dispatched: false) }
-        var request = request
-        request["cache_dir"] = cacheDirectory.path
-        let input = try JSONSerialization.data(withJSONObject: request)
-        let output = try await Self.run(binary, arguments: ["cloud", "machine-io"], stdin: input, timeout: timeout, work: work)
-        guard let line = output.split(separator: UInt8(ascii: "\n")).last(where: { !$0.isEmpty }),
-              let object = (try? JSONSerialization.jsonObject(with: Data(line))) as? [String: Any],
-              let status = object["status"] as? Int, let route = object["route"] as? String else { throw NoAnswer(dispatched: true) }
-        guard route == "direct" || route == "proxy" else { throw NoAnswer(dispatched: route != "none") }
-        let body = object["body"].flatMap { $0 is NSNull ? nil : try? JSONSerialization.data(withJSONObject: $0, options: .fragmentsAllowed) }
-        return Answer(status: status, code: object["code"] as? String, body: body ?? Data(), route: route)
-    }
-
-    /// Whether this binary has `cloud machine-io`: an empty request makes one that does answer
-    /// `route: none` without doing anything; an older cmux prints no such line. Asked once per binary
-    /// (path and modification date, so an app update asks again); a probe that itself fails is not kept. A build
-    /// without the binary speaks none, and that is kept.
-    @concurrent func speaksMachineIO() async throws -> Bool {
-        let binary = binary
-        // Both stats in one trip to the files lane: the modification date keys the cache.
-        let (modified, executable) = try await work.run(.userVisible, mayBlock: .files) {
-            ((try? binary.blockingResourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
-             FileManager.checked.isExecutableFile(atPath: binary.path))
-        }
-        let key = "\(binary.path)@\(modified?.timeIntervalSince1970 ?? 0)"
-        if let known = probes[key] { return known }
-        guard executable else {
-            probes[key] = false
-            return false
-        }
-        let output: Data
-        do {
-            output = try await Self.run(binary, arguments: ["cloud", "machine-io"], stdin: Data("{}".utf8), timeout: .seconds(10), work: work)
-        } catch is NoAnswer {
-            return false
-        }
-        let line = output.split(separator: UInt8(ascii: "\n")).last(where: { !$0.isEmpty })
-        let object = line.flatMap { (try? JSONSerialization.jsonObject(with: Data($0))) as? [String: Any] }
-        let speaks = object?["route"] is String
-        probes[key] = speaks
-        return speaks
-    }
 
     /// Runs the child with `stdin` written through a pipe after launch (a file write's request is
     /// larger than a pipe buffer) and its stdout in an unlinked temp file. Past `timeout` the child is

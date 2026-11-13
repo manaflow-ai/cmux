@@ -17,6 +17,7 @@ rustls.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 cmux-json.workspace = true
+libc.workspace = true
 sha2.workspace = true
 tempfile = "3"
 tokio = { workspace = true, features = ["time", "rt"] }

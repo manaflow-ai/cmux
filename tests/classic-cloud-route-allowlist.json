@@ -20,8 +20,8 @@
     {
       "file": "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudAPIClient.swift",
       "pattern": "route:/api/runs",
-      "count": 10,
-      "reason": "debt: the NEXT Cloud REST client's sandboxed-run calls still use classic /api/runs until they move to cmux-platform hand-offs"
+      "count": 3,
+      "reason": "debt: the NEXT Cloud client's sandboxed-run error labels still name classic /api/runs (the calls themselves are the daemon's cloud.runs.* ops) until they move to cmux-platform hand-offs"
     },
     {
       "file": "cmux-tui/crates/cmux-cloud-api/src/runs.rs",
