@@ -185,16 +185,9 @@ fn long_corrupt_run_stops_after_a_bounded_scan() {
     damage_frames(&path, 4_096);
     let snapshot = DiskSnapshot::open(&path).unwrap().unwrap();
     assert!(snapshot.head.data_end - super::HEADER_BYTES as u64 > PAGE_BYTES as u64);
-    let mut saw_fatal = false;
-    for result in snapshot.rows() {
-        if let Err(error) = result {
-            if is_fatal_snapshot_read(&error) {
-                saw_fatal = true;
-                break;
-            }
-        }
-    }
-    assert!(saw_fatal);
+    assert!(
+        snapshot.rows().any(|result| result.is_err_and(|error| is_fatal_snapshot_read(&error)))
+    );
 }
 
 #[test]
