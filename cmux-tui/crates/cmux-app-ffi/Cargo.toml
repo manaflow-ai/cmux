@@ -44,6 +44,9 @@ cmux-motion = { path = "../cmux-motion", default-features = false }
 # The daemon client the cmux CLI uses (cmux-tui/bindings/rust) as a C ABI:
 # the app's connect, call, command and subscribe (include/cmux_sdk_ffi.h).
 cmux-sdk-ffi = { path = "../cmux-sdk-ffi" }
+# The no-I/O agent-service v2 client core. Keep its tokio feature disabled in
+# the app static library; Swift owns the socket and drives the C ABI.
+acpmux-client = { path = "../acpmux-client", default-features = false }
 
 # Generates include/cmux_motion_ffi.h (cbindgen.toml); tests/c_header.rs fails
 # when the committed header differs. A test, not a build.rs: no build rewrites

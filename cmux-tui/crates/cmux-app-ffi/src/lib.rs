@@ -34,6 +34,7 @@ pub mod hover;
 pub mod motion;
 pub mod terminal_selection;
 
+pub use acpmux_client;
 pub use cmux_action_catalog::ffi as action_catalog;
 pub use cmux_agent_pane_policy::ffi as agent_pane_policy;
 pub use cmux_cookie_sync::ffi as cookie_sync;

@@ -10,7 +10,12 @@ description = "The v2 agent service wire vocabulary"
 [lints]
 workspace = true
 
+[features]
+default = []
+tokio = ["dep:tokio"]
+
 [dependencies]
 acpmux-book = { path = "../acpmux-book" }
 serde.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
+tokio = { workspace = true, optional = true, features = ["io-util", "macros", "rt", "sync", "time"] }
