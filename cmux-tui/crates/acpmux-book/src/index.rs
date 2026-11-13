@@ -419,17 +419,19 @@ impl SummaryIndex {
     pub fn from_disk(disk: Option<Arc<DiskSnapshot>>, edition: u32) -> Self {
         let origins: OrdMap<Arc<str>, OriginRecord> =
             disk.as_ref().map_or_else(OrdMap::new, |disk| {
-                disk.origins().map(|origin| (origin.id.clone().into(), origin.clone())).collect()
+                disk.origins()
+                    .map(|origin| (Arc::<str>::from(origin.id.clone()), origin.clone()))
+                    .collect()
             });
         let removed_origins = origins
             .values()
             .filter(|origin| origin.state == OriginState::Removed)
-            .map(|origin| origin.id.clone().into())
+            .map(|origin| Arc::<str>::from(origin.id.clone()))
             .collect();
         let removed_snapshot_seq = origins
             .values()
             .filter(|origin| origin.state == OriginState::Removed)
-            .map(|origin| (origin.id.clone().into(), origin.seq))
+            .map(|origin| (Arc::<str>::from(origin.id.clone()), origin.seq))
             .collect();
         Self {
             seq: disk.as_ref().map_or(0, |disk| disk.seq()),
