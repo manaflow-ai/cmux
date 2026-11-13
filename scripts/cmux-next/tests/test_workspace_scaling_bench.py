@@ -189,6 +189,23 @@ class SidebarRowMismatchTests(unittest.TestCase):
         self.assertIsNone(bench.sidebar_row_mismatch({"sizes": {"99": {"rows_listed": 100}}}, 99, 100))
 
 
+class TypingReasonTests(unittest.TestCase):
+    def test_missing_type_names_each_phase_and_the_log(self):
+        """The typing probe exited 0 with no `type` row at 1, 100 and 1000 workspaces and the record said why not."""
+        report = {"phases": [{"phase": "light-idle-0", "keys": 10, "complete": 0, "stalled_keys": 10,
+                              "key_to_frame_ms": None}],
+                  "setup": {"typing": None, "workspace_count": 1},
+                  "log": ["light-idle-0: key 0 took 3 ms ({\"error\": \"no window\"})"]}
+        self.assertEqual(bench.typing_rows(report, 1), {})
+        reason = bench.typing_reason(report)
+        self.assertEqual(reason["phases"], [{"phase": "light-idle-0", "keys": 10, "complete": 0, "stalled_keys": 10}])
+        self.assertEqual(reason["setup"], {"typing": None, "workspace_count": 1})
+        self.assertIn("no window", reason["log_tail"][-1])
+
+    def test_empty_report_gives_no_reason(self):
+        self.assertEqual(bench.typing_reason({}), {})
+
+
 class ProbeReasonTests(unittest.TestCase):
     def test_failed_probe_names_its_reason(self):
         with tempfile.TemporaryDirectory() as tmp:

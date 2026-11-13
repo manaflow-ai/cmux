@@ -153,6 +153,23 @@ def sidebar_row_mismatch(report, sidebar_count, count):
     return record
 
 
+def typing_reason(report, lines=6):
+    """Why a typing report gave no `type` row (typing_rows wants a phase whose every key closed a frame record):
+    each phase's keys, complete records and stalled keys, the probe's setup and its last log lines. The probe
+    exits 0 when no key reached a frame, so without this the record says only `"missing": ["type"]` (cmux#24569)."""
+    report = report if isinstance(report, dict) else {}
+    reason = {}
+    phases = [p for p in report.get("phases") or [] if isinstance(p, dict)]
+    if phases:
+        reason["phases"] = [{key: p.get(key) for key in ("phase", "keys", "complete", "stalled_keys")} for p in phases]
+    if isinstance(report.get("setup"), dict):
+        reason["setup"] = report["setup"]
+    log = [line for line in report.get("log") or [] if isinstance(line, str)]
+    if log:
+        reason["log_tail"] = [line[:300] for line in log[-lines:]]
+    return reason
+
+
 def typing_rows(report, count):
     # automation-typing-bench reports a phase for the seeded workspace count.  Prefer automation
     # (load) and fall back to light so older reports remain consumable.
@@ -377,6 +394,8 @@ def run_app(opts):
                 size_entry = (reports[count]["sidebar"].get("sizes") or {}).get(str(sidebar_count)) or {}
                 if probe == "sidebar" and isinstance(size_entry.get("switch"), dict) and size_entry["switch"].get("error"):
                     record["switch_error"] = size_entry["switch"]  # the scenario's own reason (sidebar-stress-bench.py)
+                if probe == "typing":
+                    record.update(typing_reason(reports[count]["typing"]))
                 failures.append(record)
         mismatch = sidebar_row_mismatch(reports[count]["sidebar"], sidebar_count, count)
         if mismatch:
