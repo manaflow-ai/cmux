@@ -4,7 +4,7 @@
 // centered"; "I can't click to adjust the bypass permissions button there in that new tab screen";
 // and "Sign in for Cloud" showing and then vanishing as the menu opened.
 // - Geometry: every Where row's highlight is inset the same from the menu's two edges (5 px,
-//   design/menus.md), and the machine button's content sits evenly in its pill.
+//   design/menus.md), and the machine button's content sits 1 pt over its pill's center (the fill drop).
 // - Click: a real pointer click at the permission button's center reaches the button and opens its
 //   menu (nothing over it eats the click).
 // - Rows: the Where menu's first rows are its settled rows, signed in, signed out, and opened before
@@ -103,7 +103,7 @@ await requireBrowserLane("newtab-machine-menu.test.ts", async () => {
       }
     });
 
-  test("the machine button's content sits evenly in its pill", async () => {
+  test("the machine button's pill centers on its content's ink", async () => {
     const page = await open("closed", 760);
     try {
       const m = await page.evaluate((selector) => {
@@ -122,10 +122,13 @@ await requireBrowserLane("newtab-machine-menu.test.ts", async () => {
           height: rect.height,
           contentTop: Math.min(...kids.map((r) => r.top)) - rect.top,
           contentBottom: rect.bottom - Math.max(...kids.map((r) => r.bottom)),
+          // The pill draws 1 pt under its content (newtab/screen.css --acpmux-location-fill-drop): a lowercase
+          // name's ink sits low in its line box, so the fill centers on the ink (Lucas 2026-11-14).
+          fillDrop: Number.parseFloat(style.getPropertyValue("--acpmux-location-fill-drop")) || 0,
         };
       }, '.nt-location .acpmux-location-picker[data-kind="computer"][data-rows="where"] button');
       log.push(["button", 760, JSON.stringify(m)].join("\t"));
-      expect(Math.abs(m.contentTop - m.contentBottom)).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(m.contentBottom - m.contentTop - 2 * m.fillDrop)).toBeLessThanOrEqual(0.5);
     } finally {
       await page.close();
     }

@@ -243,7 +243,9 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `hf.co` | identifier | a git host name, so it is not shown as one of your computers |
 | `huggingface.co` | identifier | a git host name, so it is not shown as one of your computers |
 | `repl.co` | identifier | a shared hosting domain, so sites under it are told apart |
-| `manaflow.ai` | identifier | an email domain of the cmux team: an account under it gets the team's verbose connectivity diagnostics; nothing is sent to it |
+| `manaflow.ai` | identifier | an email domain of the cmux team: an account under it gets the team's verbose connectivity diagnostics, and the iPhone app reports its major connectivity incidents to the cmux mobile service for the team's Slack; nothing is sent to the domain itself |
+| `manaflow.com` | identifier | an email domain of the cmux team, as `manaflow.ai` |
+| `captive.apple.com` | connects | only for a cmux team account, after a Mac stayed unreachable for 30 s: the iPhone app checks Apple's captive portal page (as iOS does) to tell its own outage from a cmux one |
 | `amazonaws.com` | identifier | a shared hosting domain, so sites under it are told apart |
 | `s3.amazonaws.com` | identifier | a shared hosting domain, so sites under it are told apart |
 | `www.apple.com` | identifier | an XML or SVG namespace, never fetched |

@@ -478,6 +478,17 @@ its own venv first on PATH wherever it lands, as cmux-next-guards.yml's tooling
 tests do; tests/test_portable_jobs_bring_their_python.py keeps every mini-eligible
 job that runs Python tests doing so.
 
+A mini also has no node and no Homebrew coreutils, so the old `gtimeout` link never
+fired there. On 2026-11-13 every mini-placed checks job seen failed on both (`node:
+command not found`, exit 127; `timeout: command not found`): cmux10s, cmux11s,
+cmux13s, cmux14 and cmuxs-mac-mini-6. The step now puts GNU `timeout` on PATH as
+`timeout`, else `gtimeout`, else a shim to scripts/ci/timeout.sh (its perl
+watchdog); installs node 24.22.1 with scripts/ci/ensure-setup-node.sh when there is
+no node (tool cache, else nodejs.org, checksummed); and ends with a preflight on the
+PATH the next steps get that fails at once naming each tool still missing.
+tests/test_cmux_next_checks_workflow.py's ChecksBringNodeAndTimeoutToAMini runs the
+step under a PATH without them.
+
 ## note-28
 
 Above `checks: UI font (the system font)` in `.github/workflows/cmux-next.yml`.

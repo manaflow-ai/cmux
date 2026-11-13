@@ -16,12 +16,14 @@ public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @
     public let liveFeed = ChiefLiveFeed()
 
     /// `sleep` paces Chief (pass a no-op in tests); `now` stamps messages.
+    /// `quiet`: a new conversation with people (New Message's demo) — no seeded transcript,
+    /// no question and no replies; a sent message is delivered and read.
     public init(identity: ChiefIdentity = .standard, now: Date = Date(),
-                sleep: @escaping Sleep = { try? await Task.sleep(for: $0) }) {
+                sleep: @escaping Sleep = { try? await Task.sleep(for: $0) }, quiet: Bool = false) {
         let showsLiveDemo = ProcessInfo.processInfo.arguments.contains("-cmux-mobile-chief-live")
-        engine = Engine(identity: identity, now: now, sleep: sleep, showsLiveDemo: showsLiveDemo)
+        engine = Engine(identity: identity, now: now, sleep: sleep, showsLiveDemo: showsLiveDemo, quiet: quiet)
         self.sleep = sleep
-        if !showsLiveDemo {
+        if !showsLiveDemo, !quiet {
             questionFeed.update([ChiefMockScript.question], seq: ChiefMockScript.questionSeq)
         }
         // Opt-in synthetic live state for before/after simulator captures.
@@ -115,9 +117,13 @@ public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @
             return info
         }
 
-        init(identity: ChiefIdentity, now: Date, sleep: @escaping Sleep, showsLiveDemo: Bool = false) {
+        /// No transcript and no replies (``ChiefMockBackend/init(identity:now:sleep:quiet:)``).
+        let quiet: Bool
+
+        init(identity: ChiefIdentity, now: Date, sleep: @escaping Sleep, showsLiveDemo: Bool = false, quiet: Bool = false) {
             self.identity = identity
             self.sleep = sleep
+            self.quiet = quiet
             // A completed Chief reply would suppress the live bubble when the
             // first history page lands. This scene starts with an unanswered
             // synthetic prompt so both revisions show the long live reply.
@@ -125,7 +131,7 @@ public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @
                 id: "demo-prompt", seq: 1, clientMessageID: "demo-prompt",
                 senderID: identity.meID, sentAt: now, text: "Please check the sample project.",
                 delivery: .read(nil)
-            )] : ChiefMockScript.history(identity: identity, now: now)
+            )] : quiet ? [] : ChiefMockScript.history(identity: identity, now: now)
         }
 
         private var headSeq: Int { messages.compactMap(\.seq).max() ?? 0 }
@@ -191,6 +197,7 @@ public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @
             read.delivery = .read(Date())
             store(read)
             emit(read)
+            guard !quiet else { return }
             if let reaction = ChiefMockScript.tapback(for: message.text) {
                 await sleep(.milliseconds(450))
                 if var reacted = messages.first(where: { $0.id == message.id }) {

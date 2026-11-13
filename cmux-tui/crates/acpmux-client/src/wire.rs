@@ -434,6 +434,8 @@ pub struct PageResult<T> {
     pub has_after: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub cold_unread: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub deeper: Vec<ListKey>,
     #[serde(default)]
     pub before_key: Option<ListKey>,
     #[serde(default)]
@@ -442,6 +444,8 @@ pub struct PageResult<T> {
     pub missing: Vec<ListKey>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unknown: Vec<ListKey>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rest: Vec<ListKey>,
 }
 
 /// One bounded delta frame. Resume frames carry at most 256 KiB of operations;
