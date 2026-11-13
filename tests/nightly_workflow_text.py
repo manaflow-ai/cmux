@@ -46,6 +46,10 @@ def nightly_text() -> str:
 
 
 STEP_ANCHOR = re.compile(r"^( *)- &([A-Za-z0-9_-]+)\n((?:\1  .*\n|\n(?=\1  ))+)", re.MULTILINE)
+# A `key: &name` anchor inside an anchored step (the publish lease's `env: &next-publish-lease`, #42267): a
+# written-out copy of that step drops it, so the text keeps one anchor per name and stays valid YAML, and the
+# copy's later `*name` reuses still read the first one.
+NESTED_ANCHOR = re.compile(r"^( *[^ #\n][^\n]*?:) &[A-Za-z0-9_-]+$", re.MULTILINE)
 
 
 def write_out_step_aliases(text: str) -> str:
@@ -60,9 +64,7 @@ def write_out_step_aliases(text: str) -> str:
         indent, name = match.group(1), match.group(2)
         if anchors.get(name, ("",))[0] != indent:
             return match.group(0)
-        # A copy keeps no anchor of its own (a value anchored inside the step): YAML refuses one defined twice.
-        body = re.sub(r"(:|-) &[A-Za-z0-9_-]+( |\n)", r"\1\2", anchors[name][1])
-        return f"{indent}- " + body[len(indent) + 2:]
+        return f"{indent}- " + NESTED_ANCHOR.sub(r"\1", anchors[name][1][len(indent) + 2:])
 
     text = re.sub(r"^( *)- \*([A-Za-z0-9_-]+)\n", alias, text, flags=re.MULTILINE)
     return STEP_ANCHOR.sub(lambda m: f"{m.group(1)}- " + m.group(3)[len(m.group(1)) + 2:], text)

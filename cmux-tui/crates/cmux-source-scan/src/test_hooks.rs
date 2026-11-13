@@ -21,7 +21,8 @@
 //! drew three rounds of tokenizer findings): statics, type aliases, structs, enums, `use`
 //! renames and macro invocations come from the tree. A macro's statics are judged unless the
 //! macro is `thread_local!` or `task_local!`, whose whole invocation (its span, not its lines) is
-//! per thread; another macro's body is judged when it parses as items. A static's type is judged
+//! per thread; another macro's body is judged when it parses as items, statements or expressions
+//! (`dbg!({ static .. })`: [`crate::source::visit_macro_body`]). A static's type is judged
 //! after the file's own names in it are resolved: aliases (transitive and generic, arguments by
 //! position, then defaults in order, then the body, a parameter going before every other name),
 //! structs and enums by their fields, and `use ... as` renames. A name the file does not show (one
@@ -50,7 +51,9 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;
 use std::path::Path;
 
-use crate::source::{ReadError, line_of, read_source, rel_path, rust_files, snippet};
+use crate::source::{
+    ReadError, line_of, read_source, rel_path, rust_files, snippet, visit_macro_body,
+};
 use proc_macro2::{Span, TokenStream, TokenTree};
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
@@ -382,13 +385,10 @@ fn is_cfg_test(attrs: &[Attribute]) -> bool {
     })
 }
 
-/// A macro's body as items, unless the macro is per thread (or per task) or its body is no items.
-fn items_in(mac: &syn::Macro) -> Option<syn::File> {
-    let name = mac.path.segments.last()?.ident.to_string();
-    if PER_THREAD.contains(&name.as_str()) {
-        return None;
-    }
-    syn::parse2::<syn::File>(mac.tokens.clone()).ok()
+/// Whether a macro's body holds process-wide statics: every macro's but a per-thread (or per-task)
+/// one's.
+fn process_wide(mac: &syn::Macro) -> bool {
+    mac.path.segments.last().is_some_and(|s| !PER_THREAD.iter().any(|p| s.ident == p))
 }
 
 #[derive(Clone)]
@@ -550,8 +550,8 @@ impl<'ast> Visit<'ast> for Collect<'_> {
         self.names.use_tree("", &i.tree, &self.scope);
     }
     fn visit_macro(&mut self, mac: &'ast syn::Macro) {
-        if let Some(file) = items_in(mac) {
-            Collect { names: &mut *self.names, scope: self.scope.clone() }.visit_file(&file);
+        if process_wide(mac) {
+            visit_macro_body(self, mac);
         }
     }
 }
@@ -651,15 +651,8 @@ impl<'ast> Visit<'ast> for Sites {
         self.push(&i.ident, &i.ty, &i.attrs);
     }
     fn visit_macro(&mut self, mac: &'ast syn::Macro) {
-        if let Some(file) = items_in(mac) {
-            let mut inner = Sites {
-                out: Vec::new(),
-                test_depth: self.test_depth,
-                test_file: self.test_file,
-                scope: self.scope.clone(),
-            };
-            inner.visit_file(&file);
-            self.out.extend(inner.out);
+        if process_wide(mac) {
+            visit_macro_body(self, mac);
         }
     }
 }

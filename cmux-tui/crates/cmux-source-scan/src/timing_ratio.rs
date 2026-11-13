@@ -11,7 +11,9 @@
 //!
 //! How it reads a test: the file is parsed with `syn`; test functions, their attributes (in any
 //! order), inline modules, assert macros and their conditions come from the syntax tree, so a
-//! brace in a string or an `#[ignore]` above `#[test]` reads as what it is. It follows the test
+//! brace in a string or an `#[ignore]` above `#[test]` reads as what it is. Another macro's body
+//! is read as the items, statements or expressions it holds (`dbg!({ .. })`, a user macro over
+//! `let`s; [`crate::source::visit_macro_body`]), and `dbg!(x)` as `x`. It follows the test
 //! body's `let`, `for`, assignment and `push` statements, so a name holds what it was built from:
 //! `t.elapsed()`, `Instant::now() - t`, `x.duration_since(t)`, a local fn that reads the clock and
 //! returns a `Duration`, a Vec of those, a percentile of them (`percentile(&v, 0.95)`,
@@ -40,14 +42,14 @@ use std::path::{Path, PathBuf};
 
 use proc_macro2::{Span, TokenStream, TokenTree};
 use quote::ToTokens;
-use syn::parse::ParseStream;
-use syn::parse::discouraged::Speculative;
 use syn::spanned::Spanned;
 use syn::visit::{self, Visit};
 use syn::{Attribute, BinOp, Block, Expr, ExprBinary, Member, Pat, ReturnType, Type, UnOp};
 
 use crate::nextest::{FileTests, Layout, TestId};
-use crate::source::{has_ident, read_source, rel_path, rust_files, snippet};
+use crate::source::{
+    has_ident, lenient_exprs, read_source, rel_path, rust_files, snippet, visit_macro_body,
+};
 
 const NOT_WALL_CLOCK: &str = "not wall-clock:";
 const ASSERT_MACROS: [&str; 9] = [
@@ -267,8 +269,9 @@ const SORTS: [&str; 5] = ["sort", "sort_by", "sort_by_key", "sort_unstable", "so
 
 /// The shape of [`KNOWN_MISSES`]: in a default-run test, an upper bound on a name taken from
 /// `let (a, b, ..) = f(..)`, where `f` is a local fn that sorts and returns a tuple of floats (a
-/// hand-rolled percentile helper, `fn spread(ms: &mut [f64]) -> (f64, f64, f64)`). Not a rule of
-/// the check: the count its ratchet holds.
+/// hand-rolled percentile helper, `fn spread(ms: &mut [f64]) -> (f64, f64, f64)`), in the test
+/// body or a wrapper macro's (`dbg!({ .. })`, read as [`scan_text`] reads one). Not a rule of the
+/// check: the count its ratchet holds.
 pub fn spread_bounds(
     rel: &str,
     text: &str,
@@ -314,6 +317,9 @@ struct SpreadScan<'a> {
 
 impl SpreadScan<'_> {
     fn spread_name(&self, e: &Expr) -> bool {
+        if let Some(arg) = dbg_arg(e) {
+            return self.spread_name(&arg);
+        }
         matches!(e, Expr::Path(p) if p.path.get_ident().is_some_and(|i| self.names.contains(&i.to_string())))
     }
 }
@@ -337,19 +343,12 @@ impl<'ast> Visit<'ast> for SpreadScan<'_> {
         visit::visit_local(self, l);
     }
     fn visit_macro(&mut self, mac: &'ast syn::Macro) {
-        if !ASSERT_MACROS.contains(&macro_name(mac).as_str()) {
-            return;
-        }
-        let Ok(args) = mac.parse_body_with(lenient_exprs) else {
+        let Some(conds) = assert_conds(mac) else {
+            // A wrapper's body (`dbg!({ .. })`, a user macro over statements), as BodyScan reads it.
+            visit_macro_body(self, mac);
             return;
         };
-        let conds = if ["assert", "debug_assert", "prop_assert"].contains(&macro_name(mac).as_str())
-        {
-            1
-        } else {
-            2
-        };
-        for cond in args.iter().take(conds) {
+        for cond in &conds {
             for cmp in comparisons(cond) {
                 let bounded = match cmp.op {
                     BinOp::Lt(_) | BinOp::Le(_) => &cmp.left,
@@ -595,6 +594,9 @@ impl Scope<'_> {
             Expr::Try(x) => self.kind_of(&x.expr),
             Expr::Await(x) => self.kind_of(&x.base),
             Expr::Reference(x) => self.kind_of(&x.expr),
+            Expr::Macro(_) => {
+                dbg_arg(e).map_or_else(|| Kind::of(Base::Other), |x| self.kind_of(&x))
+            }
             Expr::Unary(x) => match x.op {
                 UnOp::Not(_) => Kind::of(Base::Other),
                 _ => self.kind_of(&x.expr),
@@ -1040,6 +1042,32 @@ fn macro_name(mac: &syn::Macro) -> String {
     mac.path.segments.last().map(|s| s.ident.to_string()).unwrap_or_default()
 }
 
+/// The conditions an assert macro asserts (one for `assert!`, two operands for `assert_eq!`), or
+/// None for another macro or a body that does not parse.
+fn assert_conds(mac: &syn::Macro) -> Option<Vec<Expr>> {
+    let name = macro_name(mac);
+    if !ASSERT_MACROS.contains(&name.as_str()) {
+        return None;
+    }
+    let mut args = mac.parse_body_with(lenient_exprs).ok()?;
+    let conds =
+        if ["assert", "debug_assert", "prop_assert"].contains(&name.as_str()) { 1 } else { 2 };
+    args.truncate(conds);
+    Some(args)
+}
+
+/// What `dbg!(x)` is: `x`, the value it returns.
+fn dbg_arg(e: &Expr) -> Option<Expr> {
+    let Expr::Macro(m) = e else {
+        return None;
+    };
+    if macro_name(&m.mac) != "dbg" {
+        return None;
+    }
+    let mut args = m.mac.parse_body_with(lenient_exprs).ok()?;
+    (args.len() == 1).then(|| args.remove(0))
+}
+
 impl Items {
     fn consider(&mut self, attrs: &[Attribute], sig: &syn::Signature, block: &Block) {
         let paths: Vec<Vec<String>> = attrs
@@ -1124,35 +1152,15 @@ impl<'ast> Visit<'ast> for Items {
         visit::visit_trait_item_const(self, i);
     }
     fn visit_macro(&mut self, mac: &'ast syn::Macro) {
-        // Items a macro wraps (`mod_tests! { #[test] fn .. }`); expression macros don't parse.
-        if !ASSERT_MACROS.contains(&macro_name(mac).as_str())
-            && let Ok(file) = syn::parse2::<syn::File>(mac.tokens.clone())
-        {
-            self.visit_file(&file);
+        // Items a macro wraps (`mod_tests! { #[test] fn .. }`), or a local fn in its statements.
+        if !ASSERT_MACROS.contains(&macro_name(mac).as_str()) {
+            visit_macro_body(self, mac);
         }
     }
 }
 
 // ---------------------------------------------------------------------------------------------
 // A test body: follow its bindings, judge its asserts
-
-/// Comma-separated expressions, as many as parse; the rest of the input is skipped.
-fn lenient_exprs(input: ParseStream) -> syn::Result<Vec<Expr>> {
-    let mut out = Vec::new();
-    while !input.is_empty() {
-        let fork = input.fork();
-        let Ok(e) = fork.parse::<Expr>() else {
-            break;
-        };
-        input.advance_to(&fork);
-        out.push(e);
-        if input.parse::<syn::Token![,]>().is_err() {
-            break;
-        }
-    }
-    let _rest: TokenStream = input.parse()?;
-    Ok(out)
-}
 
 struct BodyScan<'a> {
     sc: Scope<'a>,
@@ -1223,38 +1231,18 @@ impl<'ast> Visit<'ast> for BodyScan<'_> {
         visit::visit_expr_method_call(self, m);
     }
     fn visit_macro(&mut self, mac: &'ast syn::Macro) {
-        let name = macro_name(mac);
-        if ASSERT_MACROS.contains(&name.as_str()) {
-            let line = mac.path.span().start().line;
-            if self.not_wall_clock(line) {
-                return;
-            }
-            let Ok(args) = mac.parse_body_with(lenient_exprs) else {
-                return;
-            };
-            let conds = if ["assert", "debug_assert", "prop_assert"].contains(&name.as_str()) {
-                1
-            } else {
-                2
-            };
-            for cond in args.iter().take(conds) {
-                for cmp in comparisons(cond) {
-                    if let Some(kind) = self.sc.judge(cmp) {
-                        self.found.push((cmp.span(), kind));
-                    }
-                }
-            }
+        let Some(conds) = assert_conds(mac) else {
+            visit_macro_body(self, mac);
+            return;
+        };
+        if self.not_wall_clock(mac.path.span().start().line) {
             return;
         }
-        // Another macro's body: statements (`tokio::spawn`-style blocks) or arguments
-        // (`vec![..]`, `format!(.., x = ..)`).
-        if let Ok(stmts) = mac.parse_body_with(Block::parse_within) {
-            for stmt in &stmts {
-                self.visit_stmt(stmt);
-            }
-        } else if let Ok(exprs) = mac.parse_body_with(lenient_exprs) {
-            for e in &exprs {
-                self.visit_expr(e);
+        for cond in &conds {
+            for cmp in comparisons(cond) {
+                if let Some(kind) = self.sc.judge(cmp) {
+                    self.found.push((cmp.span(), kind));
+                }
             }
         }
     }
