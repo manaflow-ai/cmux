@@ -262,7 +262,7 @@ export function alongsideMove(animations: Iterable<Animation> | undefined, dt: n
 /// the rows a block below it (agent-pane-reveal-in-place.webkit.test.ts, 165 px).
 function speedOf(node: HTMLElement): number {
   const doc = node.ownerDocument;
-  if (motionMode(doc) !== "full" || pageAway(doc)) return 0;
+  if (motionMode(doc, node) !== "full" || pageAway(doc)) return 0;
   const token = cssTimeMs(doc.defaultView?.getComputedStyle(node).getPropertyValue("--agent-motion-move") ?? "");
   return token === undefined ? 1 : token / MOTION_MS.standard;
 }

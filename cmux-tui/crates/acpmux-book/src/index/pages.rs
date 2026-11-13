@@ -73,6 +73,32 @@ pub struct IndexPage {
 }
 
 impl SummaryIndex {
+    /// Bounded page over the published live set. Unlike a state filter this
+    /// starts from the live ordered tree, so closed rows are never scanned.
+    pub fn read_live_page(
+        &self,
+        anchor: Option<&SortKey>,
+        side: ReadSide,
+        inclusive: bool,
+        limit: usize,
+        max_bytes: usize,
+        filter: Option<&ListFilter>,
+    ) -> io::Result<IndexPage> {
+        // Persistent roots are shared. The common selector reads only this
+        // tree and never scans closed rows or touches the disk snapshot.
+        let mut view = self.clone();
+        view.ordered = self.live_ordered.clone();
+        view.disk = None;
+        // The common inclusive selector can also retrieve the anchor by id.
+        // Exclude a closed anchor from that lookup without changing this index.
+        if let Some(anchor) = anchor
+            && view.get_row(&anchor.row).is_some_and(|row| !row.is_live())
+        {
+            view.by_id.remove(&anchor.row);
+        }
+        view.read_page(anchor, side, inclusive, limit, max_bytes, filter)
+    }
+
     /// One bounded part: a hot table range or a physical snapshot piece.
     /// Flags and continuation name candidates, including hidden rows (decision 93).
     pub fn read_page(

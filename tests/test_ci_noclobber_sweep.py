@@ -26,9 +26,11 @@ so the list only shrinks.
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import os
 import re
+import shlex
 import shutil
 import signal
 import subprocess
@@ -269,17 +271,48 @@ def scratch_hits(files) -> set[str]:
         return {h[0] for h in hits(Path(tmp))}
 
 
-def mktemp_names() -> set[str]:
-    """The names in /tmp (and $TMPDIR) owned by this user that mktemp's default template (tmp.XXXXXXXXXX) makes."""
-    out = set()
-    for folder in {"/tmp", os.environ.get("TMPDIR") or "/tmp"}:
-        try:
-            with os.scandir(folder) as entries:
-                out |= {e.path for e in entries if re.fullmatch(r"tmp\.[A-Za-z0-9]{10}", e.name)
-                        and e.stat(follow_symlinks=False).st_uid == os.getuid()}
-        except OSError:
-            continue
-    return out
+# Where the bash oracle's mktemp makes its names, told by the oracle's own fake mktemp, never by watching the shared
+# temp folder: under CI, every other check of the job runs mktemp in /tmp as the same user at the same time, and their
+# names were blamed on a fixture (a change that touched no shell failed with ['/tmp/tmp.DziOiw2KWX',
+# '/tmp/tmp.Mg3VNVQFaL'], then ['/tmp/tmp.r9whvVDZZc']). Inside oracle_names(), every bash_writes() scratch folder is
+# made in a private folder of the test's own, and the fake mktemp each run puts first on its PATH (and in place of
+# each mktemp word, env -i's and /usr/bin/mktemp's included) logs, besides its own log, every name it made, as an
+# absolute path, to the private folder's log. OUTSIDE holds each one not inside the private folder: a fixture's mktemp
+# that reached the real temp folder, or any folder but its run's own. A fixture that runs the real mktemp itself, by a
+# name only bash builds (env -i "mk"temp), is not in the log; test_a_fixture_mktemp_outside_its_scratch_folder_is_caught
+# pins that each spelling of mktemp in a fixture's text (env -i, command -p, a path) runs the fake.
+ORACLE_MKTEMP_ANCHOR = 'out=$(TMPDIR=%s %s "$@") || exit $?\n'
+
+
+class OracleNames:
+    def __init__(self):
+        self.made: list[str] = []
+        self.outside: list[str] = []
+
+
+@contextlib.contextmanager
+def oracle_names():
+    """Yields an OracleNames, filled when the block ends with every name the oracle's fake mktemp made inside it."""
+    if ORACLE_MKTEMP_ANCHOR not in shell_tree.MKTEMP:
+        raise AssertionError("shell_tree.MKTEMP no longer runs the real mktemp as oracle_names() expects: "
+                             + shell_tree.MKTEMP)
+    private = tempfile.mkdtemp(prefix="noclobber-oracle-")
+    log = os.path.join(private, "made")
+    record = ('case $out in /*) at=$out ;; *) at=$PWD/$out ;; esac\n'
+              f"if [ -e \"$at\" ]; then printf '%%s\\n' \"$at\" >> {shlex.quote(log).replace('%', '%%')}; fi\n")
+    names = OracleNames()
+    try:
+        with mock.patch.object(shell_tree, "MKTEMP",
+                               shell_tree.MKTEMP.replace(ORACLE_MKTEMP_ANCHOR, ORACLE_MKTEMP_ANCHOR + record, 1)), \
+                mock.patch.object(tempfile, "tempdir", private):
+            yield names
+        inside = os.path.realpath(private) + os.sep
+        if os.path.exists(log):
+            with open(log) as f:
+                names.made = f.read().splitlines()
+        names.outside = sorted(n for n in names.made if not os.path.realpath(n).startswith(inside))
+    finally:
+        shutil.rmtree(private, ignore_errors=True)
 
 
 class NoclobberSweep(unittest.TestCase):
@@ -415,10 +448,10 @@ class NoclobberSweep(unittest.TestCase):
         and called unsafe by the corpus. The other way round is the sweep's design: it flags a guessable name outside a
         template even where bash never writes it (an echo, an array's words, a function never called)."""
         corpus = [c for c in shell_tree.corpus() if c[0] not in shell_tree.TREE_ONLY]
-        before = mktemp_names()
-        verdicts = shell_tree.bash_verdicts([line for line, _ in corpus])
         shell = [f for f in shell_tree.FILES if not f[0].endswith(".yml")]
-        file_verdicts = shell_tree.bash_verdicts([text for _, text, _ in shell])
+        with oracle_names() as made:
+            verdicts = shell_tree.bash_verdicts([line for line, _ in corpus])
+            file_verdicts = shell_tree.bash_verdicts([text for _, text, _ in shell])
         # A row bash gave no answer for (past its time, unable to fork) fails here, with why: UNKNOWN is not a pass.
         self.assertEqual(shell_tree.no_oracle([line for line, _ in corpus], verdicts)
                          + shell_tree.no_oracle([text for _, text, _ in shell], file_verdicts), [],
@@ -432,8 +465,61 @@ class NoclobberSweep(unittest.TestCase):
                          "files bash writes a guessable name with, which hits() passes or FILES calls safe")
         self.assertGreater(len(lines), 300)
         # teamleaderleo/leo-workspace#4368 review at cfd7897e, F4: env -i mktemp found the real mktemp on the default
-        # PATH and made its name in the real temp folder. No fixture may reach it.
-        self.assertEqual(sorted(mktemp_names() - before), [], "a fixture's mktemp made a name in the real temp folder")
+        # PATH and made its name in the real temp folder. No fixture may reach it: each mktemp a fixture runs is the
+        # fake, and each name the fake made is in its run's scratch folder (oracle_names(), which reads the fake's log,
+        # not the shared temp folder other checks write to at the same time).
+        self.assertGreater(len(made.made), 100, "the fake mktemp logged too few names: is it still the one bash runs?")
+        self.assertEqual(made.outside, [], "a fixture's mktemp made a name outside its scratch folder")
+
+    def test_a_busy_temp_folder_is_not_blamed_on_the_oracle(self):
+        """A change that touched no shell failed test_bash_agrees_with_the_tree twice in a row: it took every new
+        tmp.XXXXXXXXXX in /tmp while the oracle ran for a fixture's, and the job's other checks, running at the same
+        time as the same user, made them. Here a process of the test's own makes such names in /tmp the whole time the
+        oracle runs a fixture with mktemp; none of them is the oracle's."""
+        writer = subprocess.Popen(["sh", "-c", "while :; do env -u TMPDIR mktemp || exit 1; done"],
+                                  stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, text=True)
+        theirs = []
+        try:
+            theirs.append(writer.stdout.readline().strip())  # it is making names before the oracle starts
+            with oracle_names() as made:
+                verdicts = shell_tree.bash_verdicts(['d=$(mktemp -d); t=$(env -i mktemp)'] * 8)
+            self.assertIsNone(writer.poll(), "the writer stopped before the oracle was done")
+        finally:
+            writer.kill()
+            theirs += writer.stdout.read().split()
+            writer.stdout.close()
+            writer.wait()
+            for name in theirs:
+                if name.startswith("/tmp/tmp."):
+                    try:
+                        os.remove(name)
+                    except FileNotFoundError:
+                        pass
+        self.assertEqual(verdicts, [False] * 8)
+        self.assertGreater(len(theirs), 1, "the writer made no name while the oracle ran")
+        self.assertEqual(len(made.made), 16, made.made)
+        self.assertEqual(made.outside, [])
+
+    def test_a_fixture_mktemp_outside_its_scratch_folder_is_caught(self):
+        """What test_bash_agrees_with_the_tree's last assertion protects, by the fake mktemp's log: each way a fixture
+        names mktemp so it could reach the real one (env -i, env -u TMPDIR, command -p, a path) runs the fake, which
+        makes its name in the run's scratch folder; and a fixture whose mktemp does make a name in the real temp folder
+        (a -p folder bash, not the text, spells /tmp) is caught."""
+        reach = ["env -i mktemp", "env -u TMPDIR mktemp", "command -p mktemp", "/usr/bin/mktemp", "/bin/mktemp",
+                 "env -i PATH=/usr/bin:/bin mktemp -d", "exec env -i mktemp"]
+        with oracle_names() as made:
+            shell_tree.bash_verdicts(reach)
+        self.assertEqual(len(made.made), len(reach), made.made)
+        self.assertEqual(made.outside, [])
+        with oracle_names() as made:
+            shell_tree.bash_verdicts(["mktemp -p /t''mp"])
+        try:
+            self.assertEqual(len(made.outside), 1, made.made)
+            self.assertTrue(re.fullmatch(r"(/private)?/tmp/tmp\.[A-Za-z0-9]{10}", made.outside[0]), made.outside)
+        finally:
+            for name in made.outside:  # the one name this test made in the real temp folder, by its recorded path
+                if re.fullmatch(r"(/private)?/tmp/tmp\.[A-Za-z0-9]{10}", name):
+                    os.remove(name)
 
     def test_an_allowance_approves_only_its_own_hit(self):
         """A downstream review, F2: an allowance approved its whole line, so an unsafe name on the
