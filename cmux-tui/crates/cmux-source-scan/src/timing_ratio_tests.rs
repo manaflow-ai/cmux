@@ -252,6 +252,21 @@ fn a_nextest_config_that_does_not_parse_is_an_error() {
     assert!(scan(&co.0, &[]).is_err());
 }
 
+// Review of cmux#41523, F2: an override whose `/regex/` does not compile read as matching no
+// test, so the test it meant to run alone was judged as running beside others (or the reverse
+// through `not`); the scan must fail as it does on a filter that does not parse.
+#[test]
+fn a_nextest_filter_with_a_bad_regex_is_an_error() {
+    let co = Checkout::demo(
+        PRELUDE,
+        Some(
+            "[[profile.default.overrides]]\nfilter = 'test(/timing(/)'\nthreads-required = 'num-test-threads'\n",
+        ),
+    );
+    let error = scan(&co.0, &[]).expect_err("a bad regex is no clean scan");
+    assert!(error.contains("is no regex"), "{error}");
+}
+
 // The filterset reader on its own: three-valued, nextest's default matchers.
 
 #[test]
@@ -276,6 +291,9 @@ fn filtersets_match_as_nextest_reads_them() {
     assert_eq!(eval("all() + none()"), Some(true));
     assert!(parse_filter("test(=a) |").is_err());
     assert!(parse_filter("test(a").is_err());
+    // Review of cmux#41523, F2: a regex that does not compile was a filter that matched nothing.
+    assert!(parse_filter("test(/(unclosed/)").is_err(), "a bad regex is an error");
+    assert!(parse_filter("not binary_id(/[/) | test(=a)").is_err());
 }
 
 fn eval_filter_text(text: &str, t: &TestId) -> Option<bool> {
@@ -327,7 +345,7 @@ fn wrapped_known_miss(wrap: impl Fn(&str) -> String) -> String {
 
 #[test]
 fn spread_bounds_reads_the_bodies_of_wrapper_macros() {
-    let cases: [(&str, String, &str); 5] = [
+    let cases: [(&str, String, &str); 10] = [
         (
             "dbg!({ .. })",
             wrapped_known_miss(|b| format!("    dbg!({{\n{b}    }});\n")),
@@ -352,6 +370,36 @@ fn spread_bounds_reads_the_bodies_of_wrapper_macros() {
             "dbg!(g50) as the bounded side",
             wrapped_known_miss(|b| b.replace("assert!(g50 < 500.0", "assert!(dbg!(g50) < 500.0")),
             "dbg!(g50) < 500.0",
+        ),
+        // Review of cmux#41581, F1: a spread binding whose initializer wraps the call.
+        (
+            "let (..) = dbg!(spread(..))",
+            wrapped_known_miss(|b| b.replace("= spread(&mut gate)", "= dbg!(spread(&mut gate))")),
+            "g50 < 500.0",
+        ),
+        (
+            "let (..) = (spread(..))",
+            wrapped_known_miss(|b| b.replace("= spread(&mut gate)", "= (spread(&mut gate))")),
+            "g50 < 500.0",
+        ),
+        (
+            "let (..) = *&spread(..).clone()",
+            wrapped_known_miss(|b| {
+                b.replace("= spread(&mut gate)", "= *&spread(&mut gate).clone()")
+            }),
+            "g50 < 500.0",
+        ),
+        (
+            "let (..) = dbg!((spread(..)).to_owned())",
+            wrapped_known_miss(|b| {
+                b.replace("= spread(&mut gate)", "= dbg!((spread(&mut gate)).to_owned())")
+            }),
+            "g50 < 500.0",
+        ),
+        (
+            "let (..): (f64, f64, f64) = spread(..)",
+            wrapped_known_miss(|b| b.replace("gmax) = spread", "gmax): (f64, f64, f64) = spread")),
+            "g50 < 500.0",
         ),
     ];
     let mut failed = Vec::new();

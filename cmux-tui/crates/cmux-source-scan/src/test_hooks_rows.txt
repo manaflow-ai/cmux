@@ -103,6 +103,43 @@ static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
 mod tests {
     static HOOK_TEST: tokio::sync::Mutex<u8> = tokio::sync::Mutex::const_new(0);
 }
+=== passes hub/watches.rs :: a serializer whose Mutex is imported under an alias (#41523 F1)
+use std::sync::Mutex as Lock;
+#[cfg(test)]
+type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
+// test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
+#[cfg(test)]
+static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
+
+#[cfg(test)]
+mod tests {
+    static HOOK_TEST: Lock<()> = Lock::new(());
+}
+=== passes hub/watches.rs :: a serializer through a renamed module and a grouped rename (#41523 F1)
+use tokio::sync as tsync;
+use tsync::{Mutex as AsyncLock, RwLock};
+#[cfg(test)]
+type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
+// test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
+#[cfg(test)]
+static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
+
+#[cfg(test)]
+mod tests {
+    static HOOK_TEST: AsyncLock<()> = AsyncLock::const_new(());
+}
+=== refused hub/watches.rs 6 no `static HOOK_TEST: Mutex<()>` :: an alias of a lock that is no std or tokio Mutex (#41523 F1)
+use std::sync::RwLock as Lock;
+#[cfg(test)]
+type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
+// test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
+#[cfg(test)]
+static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
+
+#[cfg(test)]
+mod tests {
+    static HOOK_TEST: Lock<()> = Lock::new(());
+}
 === refused hub/watches.rs 5 gives no reason :: a marker with no reason
 #[cfg(test)]
 type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
