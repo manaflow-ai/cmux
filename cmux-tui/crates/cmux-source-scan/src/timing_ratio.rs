@@ -47,7 +47,7 @@ use syn::visit::{self, Visit};
 use syn::{Attribute, BinOp, Block, Expr, ExprBinary, Member, Pat, ReturnType, Type, UnOp};
 
 use crate::nextest::{FileTests, Layout, TestId};
-use crate::source::{has_ident, rel_path, rust_files, snippet};
+use crate::source::{has_ident, read_source, rel_path, rust_files, snippet};
 
 const NOT_WALL_CLOCK: &str = "not wall-clock:";
 const ASSERT_MACROS: [&str; 9] = [
@@ -139,8 +139,9 @@ pub struct Scan {
 }
 
 /// Every finding under `roots` (files or directories; default `checkout`/cmux-tui/crates), paths
-/// from `checkout`. Err for a missing checkout or scan root, a root with no `.rs` file, or a
-/// nextest.toml that does not parse: no scan is not a clean scan.
+/// from `checkout`. Err for a missing checkout or scan root, a root with no `.rs` file, a
+/// nextest.toml that does not parse, or a directory, source file, Cargo.toml or nextest config
+/// it could not read (named): no scan is not a clean scan.
 pub fn scan(checkout: &Path, roots: &[PathBuf]) -> Result<Scan, String> {
     if !checkout.is_dir() {
         return Err(format!("{}: no such checkout", checkout.display()));
@@ -154,16 +155,14 @@ pub fn scan(checkout: &Path, roots: &[PathBuf]) -> Result<Scan, String> {
         let Ok(root) = root.canonicalize() else {
             return Err(format!("{}: scan root does not exist", root.display()));
         };
-        let files = rust_files(&root);
+        let files = rust_files(&root).map_err(|e| e.to_string())?;
         if files.is_empty() {
             return Err(format!("{}: scan root holds no .rs file", root.display()));
         }
         for path in files {
             out.files += 1;
-            let Ok(text) = std::fs::read_to_string(&path) else {
-                continue;
-            };
-            let tests = layout.file_tests(&path, &checkout);
+            let text = read_source(&path).map_err(|e| e.to_string())?;
+            let tests = layout.file_tests(&path, &checkout).map_err(|e| e.to_string())?;
             if matches!(tests, FileTests::NotRun) {
                 continue;
             }

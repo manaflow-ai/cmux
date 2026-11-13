@@ -46,6 +46,38 @@ import Testing
         #expect(try sent(UpdateBrowserProfileRequest(id: "p_1", name: "Work")).keys.contains("proxy") == false, "a rename keeps the proxy")
     }
 
+    /// `move-browser-profile` takes an insertion index counted before the profile leaves its place (the daemon's
+    /// `insertion_final_index` takes one off an index past it), so Work to position 3 of [Default, Work, Personal]
+    /// sends 3, not 2, or Work stays second.
+    @Test func aBrowserProfileMovesToThePositionAskedForInEitherDirection() {
+        func finalPlace(_ position: Int, from old: Int, count: Int) -> Int {
+            let index = BrowserProfileSnapshot.moveIndex(position: position, from: old, count: count)
+            return min(index > old ? index - 1 : index, count - 1)
+        }
+        for count in 1...4 {
+            for old in 0..<count {
+                for position in 1...count {
+                    #expect(finalPlace(position, from: old, count: count) == position - 1, "\(old) to \(position) of \(count)")
+                }
+                #expect(finalPlace(count + 5, from: old, count: count) == count - 1, "past the end: last")
+                #expect(finalPlace(0, from: old, count: count) == 0, "before the start: first")
+            }
+        }
+        #expect(BrowserProfileSnapshot.moveIndex(position: 3, from: 1, count: 3) == 3, "the last place is an insertion at count")
+    }
+
+    /// A proxy the daemon would refuse for its scheme, an empty host or its port is refused on the action's turn with
+    /// the reason; one it may still refuse (a host it does not take) comes back as the action's tracked work.
+    @Test func aPaletteProxyIsCheckedBeforeItIsSent() {
+        #expect(BrowserProfileSnapshot.Proxy.palette(scheme: "socks5", host: " 127.0.0.1 ", port: 1080)
+            == BrowserProfileSnapshot.Proxy(scheme: "socks5", host: "127.0.0.1", port: 1080))
+        #expect(BrowserProfileSnapshot.Proxy.palette(scheme: "ftp", host: "proxy", port: 80) == nil)
+        #expect(BrowserProfileSnapshot.Proxy.palette(scheme: "http", host: "  ", port: 80) == nil)
+        #expect(BrowserProfileSnapshot.Proxy.palette(scheme: "https", host: "proxy", port: 0) == nil)
+        #expect(BrowserProfileSnapshot.Proxy.palette(scheme: "https", host: "proxy", port: 65_536) == nil)
+        #expect(BrowserProfileSnapshot.Proxy.palette(scheme: nil, host: "proxy", port: 80) == nil)
+    }
+
     @Test func aDeniedPermissionOpensTheAppsNotificationsPane() {
         let denied = NotificationPermission(authorization: "denied", alert: false, alertStyle: "none", sound: false, badge: false,
                                             bundleID: "com.cmuxterm.next")
