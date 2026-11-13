@@ -82,7 +82,7 @@ public final class ScreenSharingWorker: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func handle(_ method: String, _ params: [String: Any], id: Any?) async -> Data {
+    func handle(_ method: String, _ params: [String: Any], id: Any?) async -> Data {
         switch method {
         case "status":
             return RemoteWire.answer(id: id, result: agent.status)
@@ -112,14 +112,6 @@ public final class ScreenSharingWorker: NSObject, NSApplicationDelegate {
         default:
             return RemoteWire.failure(id: id, code: "unknown_method", message: "unknown method \(method)")
         }
-    }
-
-    /// Host-control command seam for ownership tests. Production callers use the
-    /// stdin control loop above; keeping this on the main actor preserves the
-    /// same lease check as the real command.
-    @MainActor
-    func handleCommandForTesting(_ method: String, _ params: [String: Any] = [:], id: Any? = 1) async -> Data {
-        await handle(method, params, id: id)
     }
 
     // MARK: App channels
@@ -158,10 +150,12 @@ public final class ScreenSharingWorker: NSObject, NSApplicationDelegate {
                     // silently dropping a control request.
                     failed.withLock { $0 = true }
                     stream.continuation.finish()
-                    channel.close()
                     return
                 }
             }
+            // Do not drain requests that were buffered after the peer went away;
+            // the actor owns teardown and will close the channel exactly once.
+            failed.withLock { $0 = true }
             stream.continuation.finish()
         }
     }

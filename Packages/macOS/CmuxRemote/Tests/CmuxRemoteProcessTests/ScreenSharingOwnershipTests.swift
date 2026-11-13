@@ -28,7 +28,7 @@ import Testing
         return DeviceHub(client: client, secrets: MemoryRelaySecretStore(), deviceName: "Test")
     }
 
-    private final class OneShotConnection: @unchecked Sendable, DeviceHubSocketConnection {
+    private final class OneShotConnection: Sendable, DeviceHubSocketConnection {
         let text: String
         init(text: String) { self.text = text }
         func receive() async throws -> String { text }
@@ -83,7 +83,7 @@ import Testing
             headless: true
         )
         worker.appChannelOpened()
-        let response = try #require(try JSONSerialization.jsonObject(with: await worker.handleCommandForTesting("stop_session")) as? [String: Any])
+        let response = try #require(try JSONSerialization.jsonObject(with: await worker.handle("stop_session", [:], id: 1)) as? [String: Any])
         #expect(response["ok"] as? Bool == false)
         #expect((response["error"] as? [String: Any])?["code"] as? String == "screen.app_host")
         #expect((response["error"] as? [String: Any])?["message"] as? String == "the cmux app owns Mac Screen sharing")
@@ -153,7 +153,7 @@ import Testing
         let path = FileManager.default.temporaryDirectory
             .appending(path: "cmux-screen-sharing-approval-race-\(UUID().uuidString).json").path
         let agent = DeviceAgent(keychainScope: "com.cmuxterm.test", statePath: path, headless: true)
-        agent.installHubForTesting(Self.testHub())
+        agent.setHub(Self.testHub())
         let entered = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         let release = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         var remembered = 0

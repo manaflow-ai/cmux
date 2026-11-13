@@ -68,12 +68,12 @@ final class DeviceAgent {
     let relay = PushRelay()
     /// Called when anything in `status` changes.
     var changed: () -> Void = {}
-    /// Test seam for the worker's host-ticket entry point. Production keeps the
-    /// existing HostSessions implementation; tests can prove relay-only drops
-    /// tickets before signaling or an end-session write.
+    /// Host-ticket sink. The worker owns the default HostSessions sink; keeping
+    /// this boundary explicit lets ownership tests observe a ticket before any
+    /// signaling or end-session write occurs.
     var serveTicket: (SessionTicket) -> Void = { _ in }
-    /// Approval operations stay injectable so ownership transitions can be
-    /// tested while the decision request is suspended in flight.
+    /// Hub approval operations are dependency boundaries, so the ownership
+    /// guard runs around the decision and remembered-permission writes.
     var decideApproval: @MainActor (DeviceHub, SessionRequest, SessionDecision, SessionScope) async throws -> Void = { _, _, _, _ in }
     var rememberApproval: @MainActor (DeviceHub, String, DeviceScope) async throws -> Void = { _, _, _ in }
     private var loading: Task<DeviceIdentity?, Never>?
@@ -167,9 +167,9 @@ final class DeviceAgent {
         changed()
     }
 
-    /// Test-only hub installation for the approval ownership race; production
-    /// always obtains the hub through `startHub`.
-    func installHubForTesting(_ hub: DeviceHub?) { self.hub = hub }
+    /// Updates the worker's active hub. Both normal account handoff and tests
+    /// use this boundary so stale approval tasks can compare hub identity.
+    func setHub(_ hub: DeviceHub?) { self.hub = hub }
 
     /// The hub refused this identity (removed): a new one; the app registers it.
     func renewIdentity() async -> DeviceIdentity? {
@@ -188,7 +188,7 @@ final class DeviceAgent {
         let hub = DeviceHub(client: client, socket: socket, secrets: KeychainRelaySecretStore(bundleIdentifier: keychainScope),
                             deviceName: Host.current().localizedName ?? "Mac")
         hub.onSessionPush = { [weak self] push in self?.handle(push) }
-        self.hub = hub
+        setHub(hub)
         followPending(hub)
         Task { [weak self] in
             await hub.start()
@@ -202,7 +202,7 @@ final class DeviceAgent {
         sessions.closeAll()
         hub?.onSessionPush = nil
         hub?.stop()
-        hub = nil
+        setHub(nil)
         banner.update([])
         changed()
     }
