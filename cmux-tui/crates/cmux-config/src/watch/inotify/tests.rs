@@ -67,6 +67,15 @@ fn set_mode(path: &Path, mode: u32) {
     fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
 }
 
+/// Writes the user of the test run on stderr (a failed test's output holds
+/// it). No mode binds root: as root, a test of a name that may not be read
+/// proves the name's own watch and not the folder's wider one.
+fn note_user(scratch: &Scratch) {
+    use std::os::unix::fs::MetadataExt as _;
+    let uid = fs::metadata(&scratch.0).map(|metadata| metadata.uid());
+    eprintln!("inotify tests: the user of this run is uid {uid:?}");
+}
+
 /// The folder's watch names no entry to the kernel, so its mask must leave out
 /// each event that an entry nobody watches can cause while it stays an entry.
 #[test]
@@ -140,6 +149,30 @@ fn a_file_replaced_by_rename_is_watched_again_by_the_rearm() {
 #[test]
 fn a_file_that_cannot_be_watched_is_seen_through_its_folder() {
     let scratch = Scratch::new("unreadable");
+    note_user(&scratch);
+    let watched = scratch.0.join("state.json");
+    fs::write(&watched, "{}").unwrap();
+    set_mode(&watched, 0o000);
+    let files = [watched.clone()];
+    let mut watches = armed(&files, false);
+    set_mode(&watched, 0o644);
+    assert!(counts(&mut watches), "a file made readable did not count");
+    watches.rearm(&files).unwrap();
+    counts(&mut watches);
+    drop(append(&watched, "1"));
+    assert!(counts(&mut watches), "a write to the file made readable did not count");
+}
+
+/// The cost of a mask that only grows: a folder that fell back (its file
+/// could not be watched) keeps the close and metadata events after the file
+/// has a watch of its own. A close after a write of another entry of that
+/// one folder then wakes one time, which is what each watched folder did
+/// before a file had a watch of its own, and no more than that.
+#[test]
+fn a_folder_that_fell_back_wakes_one_time_for_each_close_of_another_entry() {
+    const ROUNDS: usize = 20;
+    let scratch = Scratch::new("fell-back");
+    note_user(&scratch);
     let watched = scratch.0.join("state.json");
     let busy = scratch.0.join("logs.sqlite-wal");
     fs::write(&watched, "{}").unwrap();
@@ -151,8 +184,45 @@ fn a_file_that_cannot_be_watched_is_seen_through_its_folder() {
     assert!(counts(&mut watches), "a file made readable did not count");
     watches.rearm(&files).unwrap();
     counts(&mut watches);
-    drop(append(&busy, "1"));
-    assert!(!queued(&watches), "another entry woke after the file got its own watch");
-    drop(append(&watched, "1"));
-    assert!(counts(&mut watches), "a write to the file made readable did not count");
+    let mut wakes = 0;
+    for round in 0..ROUNDS {
+        drop(append(&busy, &format!("{round}\n")));
+        wakes += usize::from(queued(&watches));
+        assert!(!counts(&mut watches), "a close of another entry counted (it would hint)");
+    }
+    assert_eq!(wakes, ROUNDS, "wakes for {ROUNDS} closes of another entry of a fallen back folder");
+}
+
+/// A folder that loses its search bit hides its names: the look at a watched
+/// file in it fails, which does not say that the file is gone. Its folder
+/// then reports each entry (as for a file that cannot be watched), so a
+/// write in place is seen after the folder can be searched again, which no
+/// event of an entry says.
+#[test]
+fn a_file_whose_folder_cannot_be_searched_for_a_time_is_still_seen() {
+    let scratch = Scratch::new("search");
+    note_user(&scratch);
+    let (shut, open) = (scratch.0.join("shut"), scratch.0.join("open"));
+    fs::create_dir_all(&shut).unwrap();
+    fs::create_dir_all(&open).unwrap();
+    let (hidden, other) = (shut.join("state.json"), open.join("state.json"));
+    fs::write(&hidden, "{}").unwrap();
+    fs::write(&other, "{}").unwrap();
+    let files = [hidden.clone(), other.clone()];
+    let mut watches = armed(&files, false);
+    set_mode(&shut, 0o600);
+    counts(&mut watches);
+    // An event that counts elsewhere arms the watches while the file is hidden.
+    drop(append(&other, "1"));
+    let other_counted = counts(&mut watches);
+    watches.rearm(&files).unwrap();
+    counts(&mut watches);
+    set_mode(&shut, 0o700);
+    counts(&mut watches);
+    drop(append(&hidden, "1"));
+    assert!(other_counted, "a write to the file of the other folder did not count");
+    assert!(
+        counts(&mut watches),
+        "a write in place was lost after its folder could be searched again"
+    );
 }
