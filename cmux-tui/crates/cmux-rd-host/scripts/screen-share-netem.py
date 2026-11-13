@@ -90,6 +90,11 @@ def sample_budget(base_samples, drop_s, trigger_s=0):
     return max(base_samples, int(trigger_s * 10) + int(drop_s) + base_samples)
 
 
+def recovered_after_drop(drop_s, drop_restored, stalls_ms, host_ended):
+    """Only count a post-drop stall when the link was restored and stayed alive."""
+    return drop_s is None or (drop_restored and not host_ended and bool(stalls_ms))
+
+
 def attempt(args, n, drop_s=None):
     rec = {"attempt": n, "rtt_ms": args.rtt, "loss_pct": args.loss, "ok": False}
     rec["row"] = f"drop-{drop_s:g}s" if drop_s is not None else "baseline"
@@ -137,6 +142,7 @@ def attempt(args, n, drop_s=None):
         viewer.stdin.flush()
         blip_done = args.blip_at is None or drop_s is None
         blip_until = None
+        drop_restored = drop_s is None
         streams = {host.stdout: "host", viewer.stdout: "viewer"}
         deadline = t0 + args.timeout
         while streams and time.time() < deadline:
@@ -148,6 +154,7 @@ def attempt(args, n, drop_s=None):
             if blip_until and time.time() >= blip_until:
                 netem(args.rtt, args.loss)
                 blip_until = None
+                drop_restored = True
             r, _, _ = select.select(list(streams), [], [], 0.05)
             for s in r:
                 line = s.readline()
@@ -182,7 +189,9 @@ def attempt(args, n, drop_s=None):
             rec["g2g_ms"] = rep.get("g2g_ms")
             rec["lost"] = rep.get("lost")
             rec["stalls_ms"] = rep.get("stalls_ms")
-            rec["recovered_after_drop"] = drop_s is None or bool(rec["stalls_ms"])
+            rec["recovered_after_drop"] = recovered_after_drop(
+                drop_s, drop_restored, rec["stalls_ms"], rec.get("host_ended")
+            )
             rec["frames_per_s"] = rep.get("frames_per_s")
             rec["mbit_per_s"] = rep.get("mbit_per_s")
             rec["ended"] = rep.get("ended")
