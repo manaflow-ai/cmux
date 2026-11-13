@@ -131,6 +131,7 @@ pub(super) fn randomized_hot_lifecycle() {
     let mut parents = BTreeSet::new();
     let mut forks = BTreeSet::new();
     let mut folders = BTreeSet::new();
+    // Exercise the writer/replay rule: closed peer rows leave every hot table.
     for n in 0..96 {
         let mut row = row(format!("seed-{n:03}"), 10_000 + n);
         row.origin = if n % 5 == 0 { "peer" } else { "local" }.to_owned();
@@ -143,7 +144,7 @@ pub(super) fn randomized_hot_lifecycle() {
                 Some(ForkOf { key: RowKey::new("local", format!("seed-{:03}", n / 2)), seq: n });
         }
         remember_edges(&row, &mut parents, &mut forks, &mut folders);
-        index = index.apply(n + 1, row);
+        index = index.apply_summary(n + 1, row);
     }
     let (mut index, mut snapshot_rows) = compact(&index, &directory, 0);
     assert_kin(&index, 0, &parents, &forks, &folders);
@@ -161,7 +162,7 @@ pub(super) fn randomized_hot_lifecycle() {
                 next.title = format!("started-{step}");
                 next.folder = (rng.next() & 1 == 0).then(|| format!("folder-{}", rng.next() % 8));
                 remember_edges(&next, &mut parents, &mut forks, &mut folders);
-                index = index.apply(step as u64 + 1, next);
+                index = index.apply_summary(step as u64 + 1, next);
                 successful[0] += 1;
             }
             1 => {
@@ -171,7 +172,7 @@ pub(super) fn randomized_hot_lifecycle() {
                 next.folder =
                     (rng.next() & 3 == 0).then(|| format!("fork-folder-{}", rng.next() % 4));
                 remember_edges(&next, &mut parents, &mut forks, &mut folders);
-                index = index.apply(step as u64 + 1, next);
+                index = index.apply_summary(step as u64 + 1, next);
                 successful[1] += 1;
             }
             2 => {
@@ -183,7 +184,7 @@ pub(super) fn randomized_hot_lifecycle() {
                 next.folder =
                     (rng.next() & 1 == 0).then(|| format!("moved-folder-{}", rng.next() % 8));
                 remember_edges(&next, &mut parents, &mut forks, &mut folders);
-                index = index.apply(step as u64 + 1, next);
+                index = index.apply_summary(step as u64 + 1, next);
                 successful[2] += 1;
             }
             3 => {
@@ -193,7 +194,7 @@ pub(super) fn randomized_hot_lifecycle() {
                 next.state = "closed".to_owned();
                 next.last_activity = 20_000 + step as u64;
                 remember_edges(&next, &mut parents, &mut forks, &mut folders);
-                index = index.apply(step as u64 + 1, next);
+                index = index.apply_summary(step as u64 + 1, next);
                 successful[3] += 1;
             }
             4 => {
