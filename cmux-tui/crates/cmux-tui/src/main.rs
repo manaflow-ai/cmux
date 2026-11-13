@@ -18,6 +18,8 @@ mod agent_plugin_config;
 mod agent_session_context;
 #[cfg(unix)]
 mod agent_start_host;
+#[cfg(unix)]
+mod agent_terminal_identity;
 mod app;
 #[cfg(unix)]
 mod app_identity;
@@ -146,6 +148,7 @@ mod test_exec;
 mod test_wait;
 mod ui;
 mod update_notice;
+mod usage_patterns_cli;
 mod version_report;
 
 use headless::run_headless;
@@ -1966,6 +1969,11 @@ fn run_main() {
     // device list over every store (plans/cmux-next/add-device-DESIGN.md).
     // `cmux device add` without `--yes` is the app's Add Device card. Both
     // surfaces: the app runs its bundled `cmux-tui device list --json`.
+    // `cmux usage-patterns`: the person's own opt-in usage patterns, read from this machine's
+    // files (usage_patterns_cli.rs); no daemon, nothing sent.
+    if usage_patterns_cli::requested(&raw_args) {
+        client_log::exit(usage_patterns_cli::run(raw_args.get(1..).unwrap_or_default()));
+    }
     if let Some(device_args) = devices::device_args(&raw_args) {
         discard_provider_secret_environment();
         client_log::exit(devices::run(&device_args));

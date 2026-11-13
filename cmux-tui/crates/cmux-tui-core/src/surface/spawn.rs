@@ -253,7 +253,7 @@ impl Surface {
                 pending_host_binding: Mutex::new(None),
                 #[cfg(any(unix, windows))]
                 host_exit_record_path: None,
-                pid,
+                pid: terminal_runtime::terminal_seat(&mux, pid),
                 command: argv,
                 cwd,
                 exit: Mutex::new(None),

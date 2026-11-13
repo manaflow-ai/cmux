@@ -138,6 +138,31 @@ class GrantTests(unittest.TestCase):
         self.assertFalse(config.exists())
 
 
+class TrustTests(unittest.TestCase):
+    """A fixture is trusted on this Mac before its cell, as a person does: an untrusted folder's Cloud start is
+    refused before any machine (#41079), which turned every cell red at 0.0 s."""
+
+    def fake_cli(self, folder: Path, code: int) -> Path:
+        cli = folder / "cmux"
+        cli.write_text(f'#!/bin/sh\necho "$@" >> "{folder}/calls"\n'
+                       + ('echo \'{"error":{"message":"no daemon"}}\'\n' if code else "") + f"exit {code}\n")
+        cli.chmod(0o755)
+        return cli
+
+    def test_a_fixture_is_trusted_through_setup_trust(self):
+        with tempfile.TemporaryDirectory() as folder:
+            m = matrix.Matrix(matrix.parse_args(["--cli", str(self.fake_cli(Path(folder), 0)), "--out", "/tmp/x"]))
+            self.assertEqual(m.trust(Path(folder) / "small-repo"), "")
+            self.assertEqual((Path(folder) / "calls").read_text().split(), ["setup", "trust", f"{folder}/small-repo"])
+
+    def test_a_trust_that_fails_is_the_cells_failure_not_a_skip(self):
+        with tempfile.TemporaryDirectory() as folder:
+            m = matrix.Matrix(matrix.parse_args(["--cli", str(self.fake_cli(Path(folder), 1)), "--out", "/tmp/x"]))
+            note = m.trust(Path(folder) / "small-repo")
+            self.assertTrue(note.startswith("fail: trust: "), note)
+            self.assertIn("no daemon", note)
+
+
 class StopTests(unittest.TestCase):
     def test_a_cancelled_run_starts_no_more_cell_work(self):
         import threading
