@@ -60,12 +60,20 @@ from urllib.request import urlopen
 
 # Each line of `gh run view --log` or of the job-logs endpoint starts with its time.
 STAMP = re.compile(r"^(?:[^\t]*\t[^\t]*\t)?﻿?\d{4}-\d\d-\d\dT[\d:.]+Z ?")
+# Every line boundary of a log: exactly what str.splitlines() splits on (\r\n is \r then \n), the split every reader
+# of lines uses (test_reds.py's log_lines, lines_of and unjudged; failed_steps_log.py's lines_of and step_owners). No
+# escape spans one. test_reds.py and failed_steps_log.py each hold this block, byte for byte: readers elsewhere load
+# test_reds.py alone, and failed_steps_log.py is vendored whole. tests/test_base_red_excuse.py's SingleSourceLogReader
+# fails when the two differ.
+LINE_BOUNDARIES = "\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029"
 # A terminal escape: a CSI sequence (colour, cursor) or an OSC one (a hyperlink, a title), as base_red_excuse reads them.
-# An OSC ends at its FIRST terminator (BEL or ST, `ESC \\`), another escape or the line's end, whichever comes first:
+# An OSC ends at its FIRST terminator (BEL or ST, `ESC \\`), another escape or a line boundary, whichever comes first:
 # a body that ran to the log's last ST deleted every line between two titles, a new failure with them, and the judge
-# excused it (cmux#41382's review F1). One opened on a line and closed on a later one is cut at each line's end, its
-# stray BEL or ST removed on its own, so no escape spans a line: its title text stays, never a failure line goes.
-ANSI = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b\n]*(?:\x07|\x1b\\)?|\\)|\x07")
+# excused it (cmux#41382's review F1); one that ran across a bare CR deleted the failure line splitlines() puts after
+# it (#41390's review F1). One opened on a line and closed on a later one is cut at each line's end, its stray BEL or
+# ST removed on its own, so no escape spans a line: its title text stays, never a failure line goes. A CSI's bytes
+# (0x20-0x7E) hold no boundary.
+ANSI = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b" + LINE_BOUNDARIES + r"]*(?:\x07|\x1b\\)?|\\)|\x07")
 
 FAILED = (
     # Swift Testing: `name()`, or a display name (`@Test("A capped plan …")` prints `✘ Test "A capped plan …"`).
@@ -74,6 +82,8 @@ FAILED = (
     re.compile(r"^test (\S+) \.\.\. FAILED$"),  # cargo test
     re.compile(r"^(?:FAIL|ERROR): (\S+ \([^)]+\))"),  # unittest
     re.compile(r"^FAILED (\S+::\S+)"),  # pytest
+    # vitest's failure heading: ` FAIL  test/x.test.ts > <describe> > <test>` (backend/apps/api, workerd pool).
+    re.compile(r"^\s*FAIL\s+(\S+\.(?:test|spec)\.[cm]?[jt]sx?(?: > .+))$"),
 )
 # Where a display-named Swift Testing failure recorded its issue: `✘ Test "name" recorded an issue [with N
 # arguments ...] at <File>.swift:<line>:<col>: <expectation text>`. A `@Test("...")` name prints with no suite,
@@ -151,6 +161,16 @@ HELPER_KILLED = re.compile(r"Process '[^']+' exited with unexpected signal code 
                            r"^(?:##\[error\])?error: exited with unexpected signal code \d+", re.I)
 # A test's own result and progress lines carry assertion text and arguments, never a runtime diagnostic.
 TEST_LINE = re.compile(r"^[◇✔✘↪] (?:Test|Suite) |^Test Case '-\[")
+# vitest's header above a test's own console output (`stderr | test/x.test.ts > <describe> > <test>`), up to the blank
+# line that closes it: what the code under test logged, never a runtime diagnostic. cmux backend run 43060098319
+# (2026-11-11): a test's JSON log line `"error":"claude exited on signal 9: "` (a fake runner it stops on purpose) read
+# as "the test process crashed", though vitest failed cleanly on one assertion.
+VITEST_CONSOLE = re.compile(r"^(?:stdout|stderr) \| \S+\.(?:test|spec)\.[cm]?[jt]sx?(?: > .*)?$")
+# workerd's log of an exception one request or promise of a Worker left uncaught (`uncaught exception; source =
+# Uncaught (in promise); stack = ...`, `uncaught exception; exception = workerd/io/...`): workerd reports it and keeps
+# serving, so it is that test's output, never the process ending. The same run printed 2447 of them (tests that drive
+# a Durable Object's failing provisioning on purpose) and passed 1389 tests in that process.
+WORKERD_UNCAUGHT = re.compile(r"^uncaught exception; (?:source|exception) = ")
 # A harness's `--- ` section heading names what follows, never a crash itself: fresh_home_launch_smoke.py prints
 # "--- the app's errors in the system log (an uncaught exception or assertion names itself here)" above every failed
 # launch's log, and a relaunch over its time budget read as "the test process crashed" (cmuxterm-hq#7285, run
@@ -1025,9 +1045,15 @@ def parse_log(log: str | None, bun: bool = True) -> Result:
     signals: list[str] = []
     named: list[str] = []
     crashed = False
+    console = False  # inside a vitest console block (VITEST_CONSOLE)
     for passing, text in shown:
         if SWIFT_TEST_SUMMARY_FIXTURE.search(text):
             continue
+        if VITEST_CONSOLE.match(text):
+            console = True
+            continue
+        if console and not text.strip():
+            console = False
         if BUN_PANIC.match(text):
             crashed = True
         if match := XCTEST_RESTART.search(text):
@@ -1041,7 +1067,8 @@ def parse_log(log: str | None, bun: bool = True) -> Result:
             signals.append(str(signal_exit))
         killed = SHELL_SIGNAL.search(text) and not passing
         runtime = HELPER_KILLED.search(text) or killed or (
-            (CRASH.search(text) or CRASH_AT_START.search(text) or SIGNALED.search(text)) and not TEST_LINE.search(text) and not HEADING.match(text))
+            (CRASH.search(text) or CRASH_AT_START.search(text) or SIGNALED.search(text)) and not TEST_LINE.search(text) and not HEADING.match(text)
+            and not console and not WORKERD_UNCAUGHT.match(text))
         if runtime:
             crashed = True
             if number := signal_of(text):

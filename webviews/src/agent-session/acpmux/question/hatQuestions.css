@@ -42,22 +42,12 @@
   border: 0;
   padding: var(--ds-space-2, 8px) var(--ds-space-3, 12px);
   border-radius: 12px;
-  background:
-    linear-gradient(color-mix(in srgb, var(--agent-text) 6%, transparent), color-mix(in srgb, var(--agent-text) 6%, transparent)),
-    color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-glass-popover-tint), transparent);
-  -webkit-backdrop-filter: var(--ds-glass-popover-blur);
-  backdrop-filter: var(--ds-glass-popover-blur);
-  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, var(--acpmux-question-edge));
+  background: var(--acpmux-stack-tint);
+  box-shadow: var(--acpmux-stack-shadow);
   color: var(--agent-text);
   font-size: var(--text-body);
   letter-spacing: var(--text-body--letter-spacing);
   line-height: var(--text-body--line-height);
-}
-:root[data-reduce-transparency] .acpmux-hat-questions__body {
-  /* glass-opaque-allow: the Reduce Transparency fill only, as the composer card's */
-  background: var(--acpmux-composer-solid);
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
 }
 /* The shown question; a step brings the next in with a short slide the way it went. */
 .acpmux-hat-questions__question {

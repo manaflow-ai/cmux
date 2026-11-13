@@ -45,6 +45,9 @@
 //!   set-up snapshot once that is ready (zero-setup hot start), keyed by the
 //!   chosen cloud environment (`cloud.startChat`'s `environment`; absent: the
 //!   personal Default).
+//! - `preflight --local FOLDER`: asked before any machine or lease is made for the send: a folder
+//!   in git goes on; a plain one past the copy's limits is refused with `copy.too_large`, naming
+//!   the git working copies right inside it (`repos`) to start in instead ([`preflight`]).
 //! - `import --entries JSON`: takes in the sends the App kept in its user
 //!   defaults before this did ([`Ledger::import`]), once, on upgrade.
 //!
@@ -57,6 +60,7 @@
 
 mod ledger;
 mod pick;
+mod preflight;
 mod project;
 #[cfg(test)]
 mod refusal_table_tests;
@@ -81,8 +85,10 @@ cmux link start-chat create-begin --key KEY --account ACCOUNT --name NAME --crea
 cmux link start-chat create-sent --key KEY --account ACCOUNT --team TEAM --create-key CREATE_KEY\n       \
 cmux link start-chat create-refused --key KEY --account ACCOUNT --create-key CREATE_KEY\n       \
 cmux link start-chat target-pane --key KEY --account ACCOUNT --machine ID --pane PANE\n       \
+cmux link start-chat strand --key KEY --account ACCOUNT --machine ID\n       \
 cmux link start-chat ensure --workspace ID --key KEY [--repo OWNER/NAME] [--project-key KEY] [--ref REF] [--environment env_ID] [--platform URL] (the cmux credential on stdin)\n       \
 cmux link start-chat import --entries JSON\n       \
+cmux link start-chat preflight --local FOLDER\n       \
 cmux link start-chat reserve|release|warm-spare --request JSON (the session credential, then the install token, on stdin), wait-copy --machine ID --provider P\n       \
 cmux link start-chat copy --key KEY --account ACCOUNT --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH... [--acpmux-home PATH] [--store PLATFORM|default] (with --store, the cmux credential on stdin)\n       \
 cmux link start-chat trust --folder FOLDER --acpmux-home PATH";
@@ -153,6 +159,12 @@ pub(super) fn run(args: &[String]) -> i32 {
                 _ => None,
             }
         }
+        "strand" => match (flags.key(), flags.account(), flags.one("--machine")) {
+            (Some(key), Some(account), Some(machine)) => {
+                Some(strand(&ledger, &key, account, machine))
+            }
+            _ => None,
+        },
         "copy" => StartCopy::of(&flags).map(|copy| {
             // `--store PLATFORM|default`: through the content-addressed store, the cmux
             // credential on stdin; without one the copy goes over the link as before.
@@ -167,6 +179,7 @@ pub(super) fn run(args: &[String]) -> i32 {
             })
         }),
         "import" => flags.one("--entries").map(|entries| import(&ledger, entries)),
+        "preflight" => flags.one("--local").map(preflight::run),
         "trust" => trust::cli(&flags),
         "ensure" => Ensure::of(&flags).map(|ensure| ensure.run(&mut std::io::stdin().lock())),
         "reserve" => {
@@ -417,11 +430,11 @@ fn plan_with_calls(
     let mut line = keys.json();
     let fields = match planned {
         Ok(Destination::Machine(id)) => {
-            let pane = match Ledger::update(ledger, |pins| pins.target_pane(&send, &id)) {
-                Ok(pane) => pane,
+            let (pane, made) = match Ledger::update(ledger, |pins| pins.retry_facts(&send, &id)) {
+                Ok(facts) => facts,
                 Err(error) => return refused("ledger_failed", format!("{error:#}")),
             };
-            json!({"ok": true, "machine": id, "target_pane": pane})
+            json!({"ok": true, "machine": id, "target_pane": pane, "ensured": made})
         }
         Ok(Destination::New) if ensures(&request, project_key.as_deref()) => {
             let ask = Ensure {
@@ -449,9 +462,9 @@ fn plan_with_calls(
                 Ok(body) => {
                     let line = ensure_answer(Ok(body));
                     let Some(id) = line.get("machine").and_then(Value::as_str) else { return line };
-                    // Pinned before the App opens anything there, as a machine the App made.
+                    let made = line.get("created") == Some(&json!(true)); // pinned before the App opens anything there
                     if let Err(error) = Ledger::update(ledger, |pins| {
-                        pins.record(id, &send);
+                        pins.record_made(id, &send, made);
                         if let Some(workspace) = workspace {
                             pick::claim(pins, workspace, &request.account, id);
                         }
@@ -959,7 +972,7 @@ pub(super) fn pin(
     match Ledger::update(ledger, |pins| {
         let send = Send::new(key, account);
         let before = pins.machine(&send);
-        pins.record(machine, &send);
+        pins.record_pin(machine, &send);
         if let Some(workspace) = workspace {
             let repick = before.as_deref().is_some_and(|before| {
                 before != machine
@@ -1011,6 +1024,17 @@ fn target_pane(ledger: &Path, key: &str, account: &str, machine: &str, pane: &st
     }) {
         Ok(true) => json!({"ok": true}),
         Ok(false) => refused("not_found", "no pinned send"),
+        Err(error) => refused("ledger_failed", format!("{error:#}")),
+    }
+}
+
+/// `strand`: the start of the send `key` can't go on and gives up `machine`, the one made for it
+/// ([`Ledger::strand`]). `delete`: true only when no other send is on it, so the App may delete
+/// it; false keeps it for the other sends. A ledger that can't be read answers not ok, and the
+/// App deletes nothing.
+pub(super) fn strand(ledger: &Path, key: &str, account: &str, machine: &str) -> Value {
+    match Ledger::update(ledger, |pins| pins.strand(&Send::new(key, account), machine)) {
+        Ok(delete) => json!({"ok": true, "delete": delete}),
         Err(error) => refused("ledger_failed", format!("{error:#}")),
     }
 }

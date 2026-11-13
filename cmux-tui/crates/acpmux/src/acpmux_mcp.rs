@@ -287,6 +287,19 @@ pub async fn run() -> Result<()> {
     {
         return guest::run(app, artifacts).await;
     }
+    crate::tools_mcp::serve(vec![served_with(&Arc::default(), artifacts)?]).await
+}
+
+/// The server for the session in its env, its calls on `daemon`'s connection
+/// (`tools_mcp.rs`: one process serves it with acpmux's other servers).
+pub(crate) fn served(daemon: &Arc<crate::tools_mcp::Daemon>) -> Result<crate::tools_mcp::Served> {
+    served_with(daemon, artifacts::from_config())
+}
+
+fn served_with(
+    daemon: &Arc<crate::tools_mcp::Daemon>,
+    artifacts: Option<Arc<artifacts::Artifacts>>,
+) -> Result<crate::tools_mcp::Served> {
     let allow = std::env::var(crate::agent_tools::MCP_TOOLS_ENV).ok();
     let tools = allowed(tools_with_artifacts(artifacts.is_some()), allow.as_deref());
     // Under an allowlist, a call outside it is refused like an unknown tool.
@@ -295,11 +308,12 @@ pub async fn run() -> Result<()> {
         .then(|| Arc::new(crate::mcp_hint::names(&tools).map(str::to_owned).collect()));
     // The background steer only where the background tools are listed.
     let steer = instructions(&tools);
-    crate::secret_mcp::serve(
+    crate::tools_mcp::served(
         SERVER_NAME,
         SESSION_ENV,
         tools,
         steer,
+        daemon,
         move |daemon, session, params| {
             let artifacts = artifacts.clone();
             let names = names.clone();
@@ -380,7 +394,6 @@ pub async fn run() -> Result<()> {
             }
         },
     )
-    .await
 }
 
 async fn machine_info(daemon: &Arc<Client>, session: &str) -> Value {
