@@ -539,7 +539,7 @@ impl LocalStore {
         );
         let mut out = header.line().ok_or_else(|| anyhow::anyhow!("kind index header too long"))?;
         out.extend_from_slice(lines);
-        write_atomic(&self.kind_index_path(id, index), &out)
+        crate::config::write_atomic_unsynced(&self.kind_index_path(id, index), &out)
     }
 
     /// Adds `lines[copied..]`, the lines read past the copy of segment `index` that `lines[..copied]`

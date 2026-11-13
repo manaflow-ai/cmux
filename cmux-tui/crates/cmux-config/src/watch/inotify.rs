@@ -3,13 +3,46 @@
 //! (/etc while /etc/cmux is missing: every exec opens /etc/ld.so.cache) woke
 //! its thread on each process start, and the daemon's own reads of its
 //! settings file queued events too. With these masks the kernel queues
-//! nothing for an open, so an idle daemon does not wake. IN_MODIFY is left
-//! out too: a writer that keeps the file open is seen when it closes it.
+//! nothing for an open, so an idle daemon does not wake.
 //!
-//! [`super::Watcher::start_with_writes`] adds an IN_MODIFY watch on each
-//! watched regular file itself (not its directory), so a write that its
-//! writer keeps open (a database's write-ahead log) hints, and a write to any
-//! other entry of the directory still queues nothing.
+//! A directory watch cannot name an entry: the kernel queues its events for
+//! every entry, and an event the watch thread drops is still a wake of that
+//! thread. So a directory is watched only for its entries being created,
+//! removed or renamed, and each watched regular file has a watch of its own
+//! (of the file, not of its directory) for a close after a write and a
+//! metadata change, as on macOS (`kqueue.rs`). A write, a close or a
+//! metadata change of any other entry queues nothing: another program's busy
+//! log beside a watched file (Codex appends to ~/.codex several times a
+//! second) does not wake the daemon. IN_MODIFY is left out: a writer that
+//! keeps the file open is seen when it closes it. A watched name that is not
+//! a regular file (a folder, a socket) has no watch of its own: its entry
+//! being made, removed or renamed hints, a metadata change of it does not.
+//!
+//! A file that may exist and got no watch of its own (inotify refuses a file
+//! the process may not read, a folder that may not be searched hides its
+//! names, the user's watches can run out) is seen through its directory:
+//! that directory's watch then also has the close and metadata events, for
+//! each of its entries.
+//!
+//! A watch's mask only grows: each add has IN_MASK_ADD, and no call takes a
+//! bit away from a watch that exists. A call that sets a mask goes through a
+//! path, the path can name another inode by then (a link that another
+//! program points elsewhere), and for the time of that call a watch would be
+//! without a bit that it needs: an event in that time is lost. So a
+//! directory that got the close and metadata events keeps them until its
+//! watch goes (the directory is removed or replaced, or the watcher ends),
+//! also after its file has a watch of its own.
+//!
+//! [`super::Watcher::start_with_writes`] adds IN_MODIFY to each file's own
+//! watch, so a write that its writer keeps open (a database's write-ahead
+//! log) hints.
+//!
+//! A file's watch is on the file that was at its name when it was armed.
+//! When the name gets another file (a save by rename, a delete and create),
+//! the directory's event counts, and `run` arms the watches again before it
+//! hints: the consumer reads after the new file is watched, so no write to it
+//! is missed. A watched name that is a symbolic link is followed: the watch
+//! is on the file it names, wherever that is.
 //!
 //! One thread owns the inotify descriptor and waits in `poll` on it and on
 //! a stop socket; dropping the handle closes the socket's other end.
@@ -42,22 +75,27 @@ const IN_MOVE_SELF: u32 = 0x0000_0800;
 const IN_Q_OVERFLOW: u32 = 0x0000_4000;
 const IN_IGNORED: u32 = 0x0000_8000;
 const IN_ONLYDIR: u32 = 0x0100_0000;
+const IN_MASK_ADD: u32 = 0x2000_0000;
 const IN_CLOEXEC: c_int = 0o2_000_000;
 const POLLIN: c_short = 0x001;
 const POLLERR: c_short = 0x008;
 const POLLHUP: c_short = 0x010;
 const POLLNVAL: c_short = 0x020;
 
-/// A directory that holds a watched file: content changes of its entries.
-const FILE_DIR_MASK: u32 = IN_CLOSE_WRITE
-    | IN_MOVED_FROM
+/// A directory that holds a watched file: its entries being created, removed
+/// or renamed, and the directory itself going away. Nothing an entry that
+/// stays in place can cause.
+const FILE_DIR_MASK: u32 = IN_MOVED_FROM
     | IN_MOVED_TO
     | IN_CREATE
     | IN_DELETE
-    | IN_ATTRIB
     | IN_DELETE_SELF
     | IN_MOVE_SELF
     | IN_ONLYDIR;
+/// A watched regular file itself: a close after a write and a metadata
+/// change. Also added to the directory's watch when one of its watched
+/// names cannot have a watch of its own (`Watches::arm_files`).
+const FILE_MASK: u32 = IN_CLOSE_WRITE | IN_ATTRIB;
 /// The nearest existing ancestor of a missing directory: only an entry
 /// appearing (the missing directory) or the ancestor itself going away.
 const ANCESTOR_MASK: u32 = IN_CREATE | IN_MOVED_TO | IN_DELETE_SELF | IN_MOVE_SELF | IN_ONLYDIR;
@@ -89,14 +127,7 @@ pub(super) fn start(
     writes: bool,
     mut on_hint: impl FnMut() + Send + 'static,
 ) -> notify::Result<Handle> {
-    let fd = inotify_init1(IN_CLOEXEC);
-    if fd < 0 {
-        return Err(notify::Error::io(io::Error::last_os_error()));
-    }
-    // SAFETY: `fd` is a new descriptor from inotify_init1 that nothing else
-    // owns; the File closes it.
-    let file = File::from(unsafe { OwnedFd::from_raw_fd(fd) });
-    let mut watches = Watches { file, by_dir: BTreeMap::new(), names: HashMap::new(), writes };
+    let mut watches = Watches::new(writes).map_err(notify::Error::io)?;
     watches.rearm(&files).map_err(notify::Error::io)?;
     let (stop, stopped) = UnixStream::pair().map_err(notify::Error::io)?;
     let thread = std::thread::Builder::new()
@@ -124,13 +155,28 @@ impl Drop for Handle {
 
 struct Watches {
     file: File,
-    /// Watched directory -> (watch descriptor, mask).
+    /// Watched path (a directory, or a watched file itself) -> (watch
+    /// descriptor, the mask the last rearm asked of it; the kernel's mask
+    /// can hold more, because a mask only grows).
     by_dir: BTreeMap<PathBuf, (c_int, u32)>,
     /// Watch descriptor -> the entry names that matter in its directory
-    /// (a watched file's own watch: the empty name its events carry).
+    /// (a file's own watch: the empty name its events carry).
     names: HashMap<c_int, BTreeSet<OsString>>,
-    /// Also watch each watched regular file's writes (IN_MODIFY).
+    /// Each watched regular file's own watch also has IN_MODIFY.
     writes: bool,
+    /// `note_fault` wrote its line.
+    fault_noted: bool,
+}
+
+/// The watches of one `Watches::rearm`.
+#[derive(Default)]
+struct Pass {
+    /// The next `Watches::by_dir`.
+    armed: BTreeMap<PathBuf, (c_int, u32)>,
+    /// Watch descriptor -> the mask and the names this pass asked of it. Two
+    /// planned paths can be one inode (a link to a planned directory): the
+    /// kernel has one watch for an inode, so both paths' names count in it.
+    asked: HashMap<c_int, (u32, BTreeSet<OsString>)>,
 }
 
 enum Wake {
@@ -169,7 +215,9 @@ fn run(watches: &mut Watches, stop: &UnixStream, files: &[PathBuf], on_hint: &mu
                 }
             }
         }
-        // A directory that appeared or vanished moves the watch.
+        // A directory that appeared or vanished moves the watch, and a
+        // watched name that got another file gets its watch. Before the
+        // hint: the consumer then reads a file that is already watched.
         let _ = watches.rearm(files);
         on_hint();
     }
@@ -203,6 +251,24 @@ fn wait(events: RawFd, stop: RawFd, timeout: Option<Duration>) -> Wake {
 }
 
 impl Watches {
+    /// A new inotify descriptor with no watch yet.
+    fn new(writes: bool) -> io::Result<Self> {
+        let fd = inotify_init1(IN_CLOEXEC);
+        if fd < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: `fd` is a new descriptor from inotify_init1 that nothing else
+        // owns; the File closes it.
+        let file = File::from(unsafe { OwnedFd::from_raw_fd(fd) });
+        Ok(Self {
+            file,
+            by_dir: BTreeMap::new(),
+            names: HashMap::new(),
+            writes,
+            fault_noted: false,
+        })
+    }
+
     /// Reads the queued events; true when one of them matters.
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<bool> {
         let length = loop {
@@ -259,35 +325,43 @@ impl Watches {
     /// planned directory is added again (the kernel returns the same watch
     /// for the same inode), so a directory replaced at the same path is
     /// watched even when its old inode's IN_DELETE_SELF is late or lost. A
-    /// directory that cannot be watched (no permission) is skipped; the
-    /// error is returned only when no directory is watched.
+    /// directory is watched before its names, so a name that appears in
+    /// between is an event of the directory. A directory that cannot be
+    /// watched (no permission) is skipped; the error is returned only when no
+    /// directory is watched.
     fn rearm(&mut self, files: &[PathBuf]) -> io::Result<()> {
         let plan = Plan::of(files);
         let mut first_error = None;
-        let mut armed = BTreeMap::new();
+        let mut pass = Pass::default();
         for (dir, interest) in plan.0 {
             let mask = if interest.holds_file { FILE_DIR_MASK } else { ANCESTOR_MASK };
-            match self.add_watch(&dir, mask) {
-                Ok(wd) => {
-                    if self.writes && interest.holds_file {
-                        self.arm_writes(&dir, &interest.names, &mut armed);
+            match self.arm(&dir, mask, &interest.names, &mut pass) {
+                Ok(_) => {
+                    if interest.holds_file && !self.arm_files(&dir, &interest.names, &mut pass) {
+                        // More bits for the watch `dir` has, which needs no
+                        // new watch. When it fails, the entry events stay
+                        // watched.
+                        let _ = self.arm(&dir, mask | FILE_MASK, &interest.names, &mut pass);
                     }
-                    self.names.insert(wd, interest.names);
-                    armed.insert(dir, (wd, mask));
                 }
                 Err(error) => {
                     first_error.get_or_insert(error);
                 }
             }
         }
+        let Pass { armed, asked } = pass;
         // Then drop the watches no longer wanted (only after the new ones
         // are in place, so a file is never left without a watch).
         let kept: BTreeSet<c_int> = armed.values().map(|(wd, _)| *wd).collect();
-        for (_, (wd, _)) in std::mem::replace(&mut self.by_dir, armed) {
-            if !kept.contains(&wd) {
-                self.names.remove(&wd);
-                inotify_rm_watch(self.file.as_raw_fd(), wd);
-            }
+        let dropped: BTreeSet<c_int> = std::mem::replace(&mut self.by_dir, armed)
+            .into_values()
+            .map(|(wd, _)| wd)
+            .chain(asked.into_keys())
+            .filter(|wd| !kept.contains(wd))
+            .collect();
+        for wd in dropped {
+            self.names.remove(&wd);
+            inotify_rm_watch(self.file.as_raw_fd(), wd);
         }
         match first_error {
             Some(error) if self.by_dir.is_empty() => Err(error),
@@ -295,36 +369,95 @@ impl Watches {
         }
     }
 
-    /// Adds an IN_MODIFY watch on each of `names` in `dir` that is a regular
-    /// file now. A file replaced by rename changes an entry of `dir`, whose
-    /// watch then rearms and watches the new file. A file that cannot be
-    /// watched is skipped: its directory's watch still sees it replaced or
-    /// closed after a write.
-    fn arm_writes(
+    /// Watches `path` for `mask` and counts its events that carry one of
+    /// `names`, together with what this pass already asked of the same inode
+    /// (the kernel has one mask, and `names` has one set, for a watch).
+    ///
+    /// The mask is only added to the one the inode's watch has (IN_MASK_ADD),
+    /// and nothing takes a bit away later (the module's text says why).
+    fn arm(
         &mut self,
-        dir: &Path,
+        path: &Path,
+        mask: u32,
         names: &BTreeSet<OsString>,
-        armed: &mut BTreeMap<PathBuf, (c_int, u32)>,
-    ) {
-        for name in names {
-            let path = dir.join(name);
-            if !std::fs::metadata(&path).is_ok_and(|metadata| metadata.is_file()) {
-                continue;
-            }
-            if let Ok(wd) = self.add_watch(&path, IN_MODIFY) {
-                // A file's own events carry no name.
-                self.names.insert(wd, BTreeSet::from([OsString::new()]));
-                armed.insert(path, (wd, IN_MODIFY));
-            }
+        pass: &mut Pass,
+    ) -> io::Result<c_int> {
+        let wd = self.add_watch(path, mask | IN_MASK_ADD)?;
+        let (mut mask, mut names) = (mask, names.clone());
+        if let Some((asked, counted)) = pass.asked.get(&wd) {
+            mask |= asked;
+            names.extend(counted.iter().cloned());
         }
+        self.names.insert(wd, names.clone());
+        pass.asked.insert(wd, (mask, names));
+        pass.armed.insert(path.to_path_buf(), (wd, mask));
+        Ok(wd)
     }
 
-    /// Adds or replaces (same inode) the watch on `dir` with `mask`.
-    fn add_watch(&self, dir: &Path, mask: u32) -> io::Result<c_int> {
-        let path = CString::new(dir.as_os_str().as_bytes())
+    /// Gives each of `names` in `dir` that is a regular file now a watch of
+    /// its own (`FILE_MASK`, with IN_MODIFY when `writes`), following a
+    /// symbolic link. A socket, a folder or a missing name has none: its
+    /// entry in `dir` is what matters. A file replaced by rename changes an
+    /// entry of `dir`, whose watch then rearms and watches the new file.
+    ///
+    /// False when a file that may exist got no watch: the look at the name
+    /// failed for a cause other than "no such name" (a folder that may not be
+    /// searched hides its names), or inotify refused it (a file the process
+    /// may not read; no watch left for the user). The caller then watches
+    /// `dir` for the same events, as for each of its entries.
+    fn arm_files(&mut self, dir: &Path, names: &BTreeSet<OsString>, pass: &mut Pass) -> bool {
+        // A file's own events carry no name.
+        let own = BTreeSet::from([OsString::new()]);
+        let mask = if self.writes { FILE_MASK | IN_MODIFY } else { FILE_MASK };
+        let mut all = true;
+        for name in names {
+            let path = dir.join(name);
+            let armed = match std::fs::metadata(&path) {
+                Ok(metadata) if metadata.is_file() => self.arm(&path, mask, &own, pass).map(|_| ()),
+                Ok(_) => Ok(()),
+                Err(error) => Err(error),
+            };
+            match armed {
+                Ok(()) => {}
+                // No such name (or gone since the look): an entry event of
+                // `dir` says when there is one.
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    all = false;
+                    self.note_fault(&path, &error);
+                }
+            }
+        }
+        all
+    }
+
+    /// Writes one line, one time for this watcher, when a name got no watch
+    /// of its own for a cause other than its mode (the user's inotify watches
+    /// ran out: ENOSPC). Its directory is then watched for each entry, so the
+    /// writes of other programs there wake this thread again.
+    fn note_fault(&mut self, path: &Path, error: &io::Error) {
+        if error.kind() == io::ErrorKind::PermissionDenied
+            || std::mem::replace(&mut self.fault_noted, true)
+        {
+            return;
+        }
+        eprintln!(
+            "cmux-config: watch: no watch for {}: {error}; its folder is watched for every entry",
+            path.display()
+        );
+    }
+
+    /// Adds the watch on `path` (a directory, or a watched file itself). The
+    /// callers pass IN_MASK_ADD, so the mask of a watch its inode has only
+    /// grows.
+    fn add_watch(&self, path: &Path, mask: u32) -> io::Result<c_int> {
+        let path = CString::new(path.as_os_str().as_bytes())
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
         // SAFETY: `path` is a NUL-terminated string that outlives the call.
         let wd = unsafe { inotify_add_watch(self.file.as_raw_fd(), path.as_ptr(), mask) };
         if wd < 0 { Err(io::Error::last_os_error()) } else { Ok(wd) }
     }
 }
+
+#[cfg(test)]
+mod tests;

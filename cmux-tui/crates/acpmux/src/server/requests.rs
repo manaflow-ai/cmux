@@ -1268,7 +1268,7 @@ async fn dispatch_request_with_identity(
                 // The daemon run decision proofs bind (`hub/person.rs`).
                 "personInstance": hub.person.instance(),
                 "extensions": extensions, "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::watch_delta::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE, crate::hub::require_asking::FEATURE, crate::sender_token::FEATURE, crate::request_cancel::FEATURE, super::fork_through::RETARGET_FEATURE], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE, crate::hub::require_asking::FEATURE, crate::sender_token::FEATURE, crate::request_cancel::FEATURE, super::fork_through::RETARGET_FEATURE], "trustGate": true}}
             });
             // Large messages go compressed from here on (`frame_compress.rs`).
             if conn.wire.as_ref().is_some_and(|wire| wire.enabled()) {
@@ -1667,6 +1667,12 @@ async fn dispatch_request_with_identity(
                 additional_directories,
                 person: person_asks(conn),
                 wait_start: asks_to_wait_on_its_harness(conn, &params),
+                // Purged by its creator right after its work (the Chief compactor's nodes): its
+                // prompts' bodies are not kept (`hub/ephemeral.rs`). An `ephemeral` run keeps
+                // them, so a failed first send can still be resent.
+                throwaway: !adopting
+                    && mux_meta(&params).and_then(|m| m.get("throwaway")).and_then(Value::as_bool)
+                        == Some(true),
                 require_asking: crate::hub::require_asking::asked(meta),
             };
             let s = match &admitted {
@@ -3355,8 +3361,9 @@ async fn dispatch_request_with_identity(
                 return Err(RpcError::new(-32000, why)
                     .with_data(json!({"reason": "shutdown.refused_client"})));
             }
-            // Name who stopped it: the log's "a client asked it to" alone cannot tell an app's
-            // update from another build's or a script's stop.
+            // Name who stopped it and why: the log's "a client asked it to" alone cannot tell an
+            // app's update from another build's or a script's stop. `reason` is the client's own
+            // word for its trigger (`shutdown_reason`); the daily count of the app's stops reads it.
             tracing::warn!(
                 client = conn
                     .peer
@@ -3364,6 +3371,7 @@ async fn dispatch_request_with_identity(
                     .and_then(cmux_link::app_caller::executable_path)
                     .map_or_else(|| "unknown".to_owned(), |exe| exe.display().to_string()),
                 origin = ?conn.origin,
+                reason = %shutdown_reason(&params),
                 "a client asked this daemon to stop"
             );
             // `endAgents: true` (the app's Quit Everything) ends agents that
@@ -3579,6 +3587,43 @@ fn stamp_bound_sender(
         fields.insert(crate::prompt_provenance::VERIFIED.to_owned(), json!(true));
     }
     Some(provenance)
+}
+
+/// The longest `_acpmux/shutdown` `reason` the log keeps, in characters.
+const SHUTDOWN_REASON_MAX: usize = 160;
+
+/// The `reason` a client gave for `_acpmux/shutdown`, one line for the log: control characters
+/// become spaces and it is cut at [`SHUTDOWN_REASON_MAX`] characters. A client that gives none
+/// (an older app or CLI) logs `unspecified`, which the daily count of stops reads as unknown.
+fn shutdown_reason(params: &Value) -> String {
+    let given = params.get("reason").and_then(Value::as_str).map(str::trim).unwrap_or_default();
+    if given.is_empty() {
+        return "unspecified".to_owned();
+    }
+    given.chars().take(SHUTDOWN_REASON_MAX).map(|c| if c.is_control() { ' ' } else { c }).collect()
+}
+
+#[cfg(test)]
+mod shutdown_reason_tests {
+    use super::shutdown_reason;
+    use serde_json::json;
+
+    #[test]
+    fn a_stop_logs_the_reason_its_client_gave_on_one_line() {
+        assert_eq!(
+            shutdown_reason(&json!({"reason": "update: build a -> b"})),
+            "update: build a -> b"
+        );
+        assert_eq!(shutdown_reason(&json!({"reason": "two\nlines"})), "two lines");
+        assert_eq!(shutdown_reason(&json!({"reason": "x".repeat(500)})).chars().count(), 160);
+    }
+
+    #[test]
+    fn a_stop_without_a_reason_logs_unspecified() {
+        assert_eq!(shutdown_reason(&json!({})), "unspecified");
+        assert_eq!(shutdown_reason(&json!({"reason": "  "})), "unspecified");
+        assert_eq!(shutdown_reason(&json!({"reason": 7})), "unspecified");
+    }
 }
 
 fn preparation_budget(deadline: Option<&Value>, now: u64) -> Result<std::time::Duration, RpcError> {

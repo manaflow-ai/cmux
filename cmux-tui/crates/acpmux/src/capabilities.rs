@@ -93,6 +93,13 @@ pub const CAPABILITIES: &[Capability] = &[
     // `_acpmux/sessions {pendingOnly: true}`: only the chats with a pending ask, without the
     // list's pace (the app's dialog list). Older daemons would answer the whole list.
     Capability { id: "session-list-pending-v1", wire: &[method::MUX_SESSIONS] },
+    // The session list as a row log (`hub/row_log.rs`): `session_changed` and a watch's list
+    // carry `listSeq`/`listEpoch`, and `_acpmux/watch {afterSeq, listEpoch}` answers the rows
+    // changed since, not the list. Older daemons ignore `afterSeq` and send the list.
+    Capability {
+        id: crate::hub::row_log::CAPABILITY,
+        wire: &[method::MUX_WATCH, method::MUX_SESSION_CHANGED],
+    },
     Capability { id: "machine.join.stdin.v1", wire: &[] },
     // `acpmux machine vault pull|status|forget` (crate::vault): the CLI, which
     // asks the daemon to pull or forget when the values live only in its memory.
@@ -222,6 +229,10 @@ pub const CAPABILITIES: &[Capability] = &[
     // A subagent's entry carries `retryInFlight` (`hub/subagent_retry.rs`): an attempt fired
     // and the subagent not running again yet, so the pane shows it retrying, not a Retry.
     Capability { id: "subagent-retry-v2", wire: &[method::MUX_RETRY, method::SESSION_UPDATE] },
+    // `_acpmux/retry` with `subagentId` also resumes a stopped Claude subagent, or one lost with
+    // its harness, from its transcript and brief; its entry carries `resumable`, `resumes` and
+    // `resumedBy` (`hub/subagent_resume.rs`). The pane shows Resume only under it.
+    Capability { id: "subagent-resume-v1", wire: &[method::MUX_RETRY, method::SESSION_UPDATE] },
     // Stop one of a chat's background subagents. acpmux takes the method for
     // every harness, but only the Claude stdio adapter acts on it
     // (`claude_stdio/outbound.rs`); others pass it on to the agent.

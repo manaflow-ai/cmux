@@ -277,7 +277,7 @@
       "type" : "boolean"
     },
     "agentPane.display.unreadBanner" : {
-      "default" : "expanded",
+      "default" : "off",
       "description" : "When you come back to a chat that kept working, a banner at the top left says how many turns are new and jumps to them. Collapsed, it is a small pill. Right-click the banner or the New line to hide it or bring it back.",
       "enum" : [
         "expanded",
@@ -302,7 +302,7 @@
       "type" : "number"
     },
     "agentPane.editedFiles.maxRows" : {
-      "default" : 5,
+      "default" : 3,
       "description" : "agentPane.editedFiles.maxRows",
       "maximum" : 50,
       "minimum" : 1,
@@ -701,8 +701,8 @@
     "app.uiScale" : {
       "default" : 1,
       "description" : "Zoom for chat, Settings and other app pages. Density and Text Size set the rest of the app.",
-      "maximum" : 1.5,
-      "minimum" : 0.85,
+      "maximum" : 5,
+      "minimum" : 0.25,
       "title" : "App Zoom",
       "type" : "number"
     },
@@ -1713,6 +1713,24 @@
     "appearance.themeFile" : {
       "description" : "A look from a file in ~/.config/cmux/themes, such as \"tokyo\" for tokyo.json. Its values apply over these settings, live as you save it. Unset, no file applies.",
       "title" : "Theme File",
+      "type" : "string"
+    },
+    "appearance.titleAreaContrast" : {
+      "default" : 1,
+      "description" : "How much darker the title bar, the tab bar and the sidebar are than the content, under Subtle Tone or a shaded window style. 1 is the default; lower is softer, higher is stronger.",
+      "maximum" : 2,
+      "minimum" : 0,
+      "title" : "Title Area Contrast",
+      "type" : "number"
+    },
+    "appearance.titleAreaTone" : {
+      "default" : "oneColor",
+      "description" : "One Color draws the title bar, the tab bar and the sidebar in the content's color, parted by thin dividers, with a highlighted selected tab. Subtle Tone shades them slightly apart from the content, and the selected tab opens into the content.",
+      "enum" : [
+        "oneColor",
+        "subtleTone"
+      ],
+      "title" : "Title Area",
       "type" : "string"
     },
     "appearance.wallpaperTint" : {

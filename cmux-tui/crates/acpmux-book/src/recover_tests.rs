@@ -29,7 +29,7 @@ fn killed_at_every_byte_of_a_record(checkpoint_after: Option<u64>) {
         for id in 1..=7 {
             log.append_settled(id, 1, RawRange::NONE, &text(id)).unwrap();
             if checkpoint_after == Some(id) {
-                log.write_checkpoint(b"actor state").unwrap();
+                log.write_checkpoint(b"actor state", &[]).unwrap();
             }
         }
     }
@@ -103,7 +103,7 @@ fn killed_across_the_largest_record() {
     {
         let (mut log, _) = open(&book);
         settle(&mut log, 1, 3);
-        log.write_checkpoint(&[]).unwrap();
+        log.write_checkpoint(&[], &[]).unwrap();
     }
     let settled = fs::metadata(segment(&book)).unwrap().len() as usize;
     {
@@ -138,7 +138,7 @@ fn bytes_after_the_last_record_that_are_not_a_record_are_cut_off() {
         {
             let (mut log, _) = open(home.path());
             settle(&mut log, 1, 300);
-            log.write_checkpoint(&[]).unwrap();
+            log.write_checkpoint(&[], &[]).unwrap();
             settle(&mut log, 301, 320);
         }
         let mut file = OpenOptions::new().append(true).open(segment(home.path())).unwrap();
@@ -196,13 +196,15 @@ fn killed_around_a_segment_roll() {
     let second = book.join("rows/000002.seg");
     let whole = fs::read(&second).unwrap();
     // The new segment exists but none, or part, of its first record made it.
-    for cut in SEGMENT_HEADER_LEN as usize..whole.len() {
+    for cut in 0..whole.len() {
         let copy = home.path().join(format!("cut-{cut}"));
         copy_book(&book, &copy);
         fs::write(copy.join("rows/000002.seg"), &whole[..cut]).unwrap();
         forget_index_entry(&copy, last);
         let (mut log, recovered) = Log::open(&copy, options).unwrap();
-        assert_eq!(recovered.truncated as usize, cut - SEGMENT_HEADER_LEN as usize);
+        let torn_record = cut.saturating_sub(SEGMENT_HEADER_LEN as usize);
+        assert_eq!(recovered.truncated as usize, torn_record);
+        assert_eq!(&fs::read(copy.join("rows/000002.seg")).unwrap()[..8], b"ABSG\x01\0\0\0");
         assert_rows(&mut log, last - 1);
         settle(&mut log, last, last + 30);
         assert_rows(&mut log, last + 30);
@@ -228,7 +230,7 @@ fn an_index_entry_after_the_checkpoint_is_cleared_before_replay() {
     {
         let (mut log, _) = open(&book);
         settle(&mut log, 1, 20);
-        log.write_checkpoint(&[]).unwrap();
+        log.write_checkpoint(&[], &[]).unwrap();
     }
     let index_path = book.join("rows.idx");
     let segment_len = fs::metadata(book.join("rows/000001.seg")).unwrap().len() as u32;
@@ -263,7 +265,7 @@ fn a_torn_patch_restores_the_previous_revision() {
     {
         let (mut log, _) = open(&book);
         log.append_settled(1, 1, RawRange::NONE, &old).unwrap();
-        log.write_checkpoint(&[]).unwrap();
+        log.write_checkpoint(&[], &[]).unwrap();
         old_index = fs::read(book.join("rows.idx")).unwrap();
         let file = log.append_raw_file(b"events/patch").unwrap();
         log.patch(1, 2, RawRange { file, off: 0, len: 1 }, &next).unwrap();
@@ -307,13 +309,13 @@ fn replayed_indexes_are_synced_by_the_following_checkpoint() {
     {
         let (mut log, _) = open(&book);
         settle(&mut log, 1, 255);
-        log.write_checkpoint(&[]).unwrap();
+        log.write_checkpoint(&[], &[]).unwrap();
         log.append_settled(256, 1, RawRange::NONE, &text(256)).unwrap();
     }
     let (mut log, recovered) = open(&book);
     assert_eq!(recovered.replayed, 1);
     let before = log.stats().syncs;
-    log.write_checkpoint(&[]).unwrap();
+    log.write_checkpoint(&[], &[]).unwrap();
     assert_eq!(log.stats().syncs - before, 4, "segment, rows.idx, seq.idx, checkpoint");
     drop(log);
     let (mut log, recovered) = open(&book);
@@ -347,7 +349,7 @@ fn raw_map_precedes_records_and_replay_repairs_a_missing_index() {
     let map_line = b"events/one\n";
     {
         let (mut log, _) = open(&book);
-        log.write_checkpoint(&[]).unwrap();
+        log.write_checkpoint(&[], &[]).unwrap();
         let file = log.append_raw_file(b"events/one").unwrap();
         log.append_settled(1, 1, RawRange { file, off: 0, len: 4 }, b"row1").unwrap();
     }
@@ -409,7 +411,7 @@ fn a_damaged_checkpoint_costs_a_rebuild_not_the_book() {
         {
             let (mut log, _) = open(home.path());
             settle(&mut log, 1, 500);
-            log.write_checkpoint(b"state").unwrap();
+            log.write_checkpoint(b"state", &[]).unwrap();
             settle(&mut log, 501, 520);
         }
         let path = home.path().join("checkpoint");
@@ -428,7 +430,7 @@ fn a_damaged_checkpoint_costs_a_rebuild_not_the_book() {
         assert!(recovered.state.is_empty());
         assert_rows(&mut log, 520);
         assert_eq!(ids(&log.since(511, 1 << 20).unwrap().rows), (512..=520).collect::<Vec<_>>());
-        log.write_checkpoint(b"again").unwrap();
+        log.write_checkpoint(b"again", &[]).unwrap();
         drop(log);
         let (_, recovered) = open(home.path());
         assert_eq!((recovered.checkpoint, recovered.replayed), (true, 0));
@@ -450,7 +452,7 @@ fn kill9_writer_entry() {
         log.append_settled(id, 1, RawRange::NONE, &text(id)).unwrap();
         println!("settled {id}");
         if id.is_multiple_of(64) {
-            log.write_checkpoint(&id.to_le_bytes()).unwrap();
+            log.write_checkpoint(&id.to_le_bytes(), &[]).unwrap();
         }
         id += 1;
     }
@@ -513,7 +515,7 @@ fn a_power_loss_clears_a_checkpoint_open_row_without_reading_older_records() {
     let (mut log, _) = open(book);
     settle(&mut log, 2, 300);
     let file = log.append_raw_file(b"raw").unwrap();
-    log.write_checkpoint_with_open_rows(b"opaque actor state", &[1]).unwrap();
+    log.write_checkpoint(b"opaque actor state", &[1]).unwrap();
     let mark = fs::metadata(segment(book)).unwrap().len();
     log.append_settled(1, 1, RawRange { file, off: 0, len: 3 }, b"old tool").unwrap();
     drop(log);
@@ -544,7 +546,7 @@ fn a_raw_backed_record_and_its_index_can_be_cut_at_every_byte() {
     let home = tempfile::tempdir().unwrap();
     let book = home.path().join("book");
     let (mut log, _) = open(&book);
-    log.write_checkpoint(&[]).unwrap();
+    log.write_checkpoint(&[], &[]).unwrap();
     let file = log.append_raw_file(b"events/one").unwrap();
     let mark = fs::metadata(segment(&book)).unwrap().len() as usize;
     log.append_settled(1, 1, RawRange { file, off: 0, len: 4 }, b"row1").unwrap();
@@ -579,7 +581,7 @@ fn power_loss_clears_a_sparse_seq_entry_beyond_the_checkpoint() {
     let (mut log, _) = open(book);
     settle(&mut log, 1, 255);
     let file = log.append_raw_file(b"raw").unwrap();
-    log.write_checkpoint(&[]).unwrap();
+    log.write_checkpoint(&[], &[]).unwrap();
     let mark = fs::metadata(segment(book)).unwrap().len();
     log.append_settled(256, 1, RawRange { file, off: 0, len: 3 }, b"new").unwrap();
     drop(log);
