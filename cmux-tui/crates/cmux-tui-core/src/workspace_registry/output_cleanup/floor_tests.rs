@@ -15,6 +15,7 @@ use super::stage::{
     PUT_RECORDS_LIMIT, StageControl, StageOutcome, stage_registry, stage_registry_in,
 };
 use super::*;
+use crate::workspace_registry::wal_durability::WAL_SIZE_LIMIT_BYTES;
 
 const SESSION: &str = "floor-rebuild";
 
@@ -50,6 +51,19 @@ fn hook(mux: &Arc<crate::Mux>, terminal: &str, event: &str) {
     .unwrap();
     let key = format!("floor-{}", crate::workspace_registry::new_uuid_v4());
     mux.append_journal_ingress(&ingress, "test", &key).unwrap();
+}
+
+/// The fixture's own writes left the registry's log (`-wal`) at or below the
+/// size that the daemon cuts that file back to. A fixture that writes its
+/// hooks with no wait for a checkpoint leaves each byte of them in that file
+/// until the daemon closes (0.4 to 1.2 GB in the folder of one test).
+fn assert_the_log_stayed_small(mux: &crate::Mux, what: &str) {
+    let (_, high_water) = mux.registry_connection.wal_file_bytes();
+    assert!(
+        high_water <= WAL_SIZE_LIMIT_BYTES,
+        "{what}: the registry's log reached {high_water} bytes (the limit is \
+         {WAL_SIZE_LIMIT_BYTES})"
+    );
 }
 
 /// Checkpoints the journal at its head and seals all of it, as journal
@@ -134,6 +148,7 @@ fn fixture(label: &str, below: usize) -> Fixture {
     hook(&mux, &terminal, "UserPromptSubmit");
     assert!(mux.settle_agent_roster_for_test());
     assert_eq!(mux.agent_roster_state_now_for_test(&terminal).as_deref(), Some("working"));
+    assert_the_log_stayed_small(&mux, "the fixture");
     let db_path = mux.workspace_registry.lock().unwrap().session_journal_database_path().unwrap();
     mux.shutdown();
     drop(mux);
@@ -952,6 +967,7 @@ fn old_run_below_the_retention_floor(mux: &Arc<crate::Mux>) -> u64 {
             .unwrap();
     }
     seal_all(mux, "above");
+    assert_the_log_stayed_small(mux, "the fixture of the join");
     old_run
 }
 
