@@ -1,0 +1,98 @@
+name: first-user journey (web)
+
+# The first-user journey matrix for cmux NEXT's webviews (webviews/scripts/first-user-journey/run.mjs):
+# every harness the model picker lists, in four states (not installed, signed out, signed in with a spent
+# plan, signed in and working), clicked through against the mock daemon, with a "no busted state" verdict
+# per step. It reports and never fails on what it finds: a red is a finding for the nightly quality
+# report, which reads results.json from the `first-user-journey-web` artifact (results.json at its root;
+# the schema is the shared first-user journey one, surface "web"). The run fails only when the runner
+# itself cannot run.
+#
+# GitHub fires a schedule only from the default branch's copy of a workflow; this one lives on
+# feat-cmux-next, so the cron below fires once a copy (or a dispatcher, as
+# cmux-next-dev-daily-dispatch.yml does for cmux-next.yml) is on the default branch. Until then the
+# quality report's own dispatch (workflow_dispatch) starts it.
+
+on:
+  schedule:
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "Cells to run, comma-separated (claude/signed-out, claude, pages/settings); empty runs every cell"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: first-user-journey-web-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  journey:
+    if: github.repository == 'manaflow-ai/cmux'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'feat-cmux-next' || github.ref }}
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /webviews/
+            /scripts/
+            /.github/
+            /config/vite-plus/
+            /schemas/
+            /design/icons/
+            /Resources/ghostty/themes/
+            /Resources/cmux-themes/
+            /Resources/markdown-viewer/
+            /Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/
+            /Packages/macOS/CmuxNext/Sources/**/*.xcstrings
+            /web/data/model-catalog/
+            /release-notes/next/
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.22.1"
+
+      - name: Cache Playwright's apt packages
+        continue-on-error: true
+        uses: ./.github/actions/playwright-apt-cache
+        with:
+          engines: chromium
+
+      - name: Run the journey
+        env:
+          ONLY: ${{ inputs.only }}
+        run: |
+          set -euo pipefail
+          cd webviews
+          bun install --frozen-lockfile
+          # The patched headless Chrome the tests use (writes CMUX_CHROME_HEADLESS_SHELL).
+          eval "$(../scripts/ci/ensure-system-chrome.sh | tail -1 | sed 's/^/export /')"
+          out="$RUNNER_TEMP/first-user-journey-web"
+          bun run journey:first-user --out "$out" ${ONLY:+--only "$ONLY"}
+          cat "$out/summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: first-user-journey-web
+          path: ${{ runner.temp }}/first-user-journey-web
+          retention-days: 14
+          if-no-files-found: warn
+          overwrite: true

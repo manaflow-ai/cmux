@@ -282,6 +282,10 @@ export function HarnessesScreen({
       runInPlace(row, row.install);
     } else if (row.status === "notInstalled" && row.docsUrl) {
       openDocs(row);
+    } else if (row.status === "notInstalled") {
+      // No installer and no setup page cmux knows: once the person installs it their own way,
+      // acpmux looks again. A row that only says "Not installed" was a dead end.
+      checkAgain(row);
     } else if (row.status === "unavailable") {
       fix(row).run();
     } else if (row.status === "ready") {
@@ -314,9 +318,11 @@ export function HarnessesScreen({
           ? fix(row).label
           : row.status === "notInstalled" && (row.install || row.docsUrl)
             ? t("harnesses.install")
-            : row.status === "unavailable"
-              ? fix(row).label
-              : undefined;
+            : row.status === "notInstalled"
+              ? t("harnesses.checkAgain")
+              : row.status === "unavailable"
+                ? fix(row).label
+                : undefined;
   return (
     <section className="acpmux-harnesses" aria-label={t("harnesses.title")}>
       <header className="acpmux-harnesses-head">

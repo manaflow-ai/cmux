@@ -13,6 +13,7 @@
 // listeners first (wheelPassThrough.ts), as they did when the card was inside it.
 import React, { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { failureCopy, failureKind } from "../failureCopy";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { forwardWheel } from "../wheelPassThrough";
@@ -102,6 +103,12 @@ function replyScrolls(target: EventTarget | null, deltaY: number): boolean {
   if (deltaY < 0) return reply.scrollTop > 0;
   return reply.scrollTop + reply.clientHeight < reply.scrollHeight - 1;
 }
+
+/// Kept in the agent's words on the card: everything but the failures whose copy names a way on.
+const plain = (failure: string | undefined) => {
+  const kind = failureKind(failure);
+  return kind !== "rate-limited" && kind !== "no-credit";
+};
 
 export type PreviewBookmark = { marked: boolean; toggle(): void };
 
@@ -434,7 +441,16 @@ export const PreviewCard = React.forwardRef<
       {(metadata?.failure || metadata?.failed) && (
         <div className="acpmux-minimap__failure" data-failure="true">
           <Icon name="status.error" size={14} className="acpmux-minimap__failure-icon" />
-          <span>{metadata.failure || t("turn.failed")}</span>
+          {/* A spent plan or an out-of-credit key reads as the turn's error card does, with its way
+            on (switch model, retry when it resets), and the agent's words on hover. Any other failure
+            keeps the agent's words: the card has no Sign in button to stand behind a sign-in note. */}
+          <span title={plain(metadata.failure) ? undefined : metadata.failure}>
+            {metadata.failure
+              ? plain(metadata.failure)
+                ? metadata.failure
+                : failureCopy(t, metadata.failure)
+              : t("turn.failed")}
+          </span>
         </div>
       )}
       {reply.length > 0 && (

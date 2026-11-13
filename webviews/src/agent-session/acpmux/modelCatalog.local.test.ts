@@ -229,3 +229,14 @@ test("a harness acpmux marks pickerHidden (the cmux router fallback) is not a ch
   const picker = buildPickerCatalog({ catalog: BUNDLED_MODEL_CATALOG, acpmux: catalog });
   expect(picker.harnesses.filter((entry) => entry.pickable).map((entry) => entry.acpmuxHarness)).not.toContain("cmux");
 });
+
+test("a profile reported under a catalog harness's own hyphenated id joins that harness, not a second row", async () => {
+  const { buildPickerCatalog, BUNDLED_MODEL_CATALOG } = await import("./modelCatalogData");
+  const catalog = buildPickerCatalog({
+    catalog: BUNDLED_MODEL_CATALOG,
+    acpmux: [{ id: "vercel-ai-gateway", name: "Vercel AI Gateway", models: [] }] as never,
+  });
+  const rows = catalog.harnesses.filter((harness) => harness.id === "vercel-ai-gateway");
+  expect(rows).toHaveLength(1);
+  expect(rows[0]!.installed).toBe(true);
+});

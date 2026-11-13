@@ -9,6 +9,7 @@ import {
   isCloudRejectedCredential,
   isTeamMachineSignIn,
   offersOwnRoute,
+  usageLimitReset,
 } from "./failureCopy";
 import { type Translate, translatorFor } from "./i18n";
 
@@ -339,4 +340,33 @@ test("the team's spending cap on a model call reads as its own kind, never the c
   const copy = failureCopy(translatorFor("en"), body, { name: "Claude Code" });
   expect(copy).toContain("spending cap");
   expect(copy).toContain("team admin");
+});
+
+// The first-user journey's finding: a plan's spent usage window read "rate limited … try again in a
+// moment" (Codex's "try again in 4 days"), and Claude Code's "You've hit your limit · resets 3pm"
+// read as a generic failure. Both say the plan's limit, with when it resets when the agent says it.
+test("a plan's usage limit says so, with when it resets, never 'try again in a moment'", () => {
+  const t: Translate = (key, vars) => `${key}${vars?.when ? `|${vars.when}` : ""}`;
+  const claude = { name: "Claude Code", harness: "claude" };
+  const codex = { name: "Codex", harness: "codex" };
+  expect(failureKind("You've hit your limit · resets 3pm (America/Los_Angeles)", claude)).toBe("rate-limited");
+  expect(failureCopy(t, "You've hit your limit · resets 3pm (America/Los_Angeles)", claude)).toBe(
+    "turn.failure.usageLimitResets|3pm (America/Los_Angeles)",
+  );
+  expect(
+    failureCopy(
+      t,
+      "You've hit your usage limit. Upgrade to Plus to continue using Codex (https://chatgpt.com/explore/plus), or try again in 4 days 2 hours 13 minutes.",
+      codex,
+    ),
+  ).toBe("turn.failure.usageLimitResets|in 4 days 2 hours 13 minutes");
+  expect(failureCopy(t, "You've reached your usage limit for this account", claude)).toBe("turn.failure.usageLimit");
+  expect(failureCopy(t, "Claude AI usage limit reached|1760000000", claude)).toBe("turn.failure.usageLimit");
+  expect(usageLimitReset("Quota exceeded: you have used your model quota. It refreshes in 5 hours.")).toBe(
+    "in 5 hours",
+  );
+  // A moment's capacity or a plain rate limit keeps its own copy.
+  for (const message of ["API Error: 529 overloaded_error", "429 Too Many Requests", "Selected model is at capacity"])
+    expect(failureCopy(t, message, claude), message).toBe("turn.failure.rateLimited");
+  expect(usageLimitReset("API Error: 529 overloaded_error")).toBeUndefined();
 });

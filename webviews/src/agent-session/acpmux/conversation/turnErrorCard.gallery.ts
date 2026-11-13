@@ -119,6 +119,22 @@ export default agentPaneEntry({
         summary(5.9, { status: "failed", durationMs: 4_000, error: "API Error: 529 overloaded_error" }),
       ]),
     },
+    // The first-user journey (scripts/first-user-journey): a plan's spent usage window is not a moment's
+    // capacity. The card says the plan's limit, with when it resets in the agent's own words.
+    "usage-limit-resets": {
+      note: "Claude Code's plan limit: the card says it reached its plan's usage limit and resets 3pm, never 'try again in a moment'.",
+      snapshot: failed("You've hit your limit · resets 3pm (America/Los_Angeles)"),
+    },
+    "usage-limit-days": {
+      note: "A plan limit that resets in days (Codex's wording): the reset time is the agent's, Switch model beside Retry.",
+      snapshot: failed(
+        "You've hit your usage limit. Upgrade to Plus to continue using Codex (https://chatgpt.com/explore/plus), or try again in 4 days 2 hours 13 minutes.",
+      ),
+    },
+    "usage-limit-no-reset": {
+      note: "A plan limit whose words name no reset time: the plan's limit, and retry once it resets.",
+      snapshot: failed("You've reached your usage limit for this account"),
+    },
     // Leo 2026-11-03, on a card that led with Switch model when the server could not be reached: "this
     // ui is pretty awkward looking". Retry leads a connection failure; Switch model only follows it.
     "server-unreachable": {

@@ -107,6 +107,9 @@ const cardRows = [
   assistant("A very-long-token-without-spaces-stays-contained while the card keeps its useful context.", 11.8),
   summary(11.6, { durationMs: 12_000, toolCount: 1 }),
 ];
+/// The card rows with the failed turn's error swapped: the agent's words a recognized failure carries.
+const failedWith = (error: string) =>
+  cardRows.map((row, index) => (index === 5 ? summary(15.6, { status: "failed", error }) : row));
 // Prompt wrapping comparison: the fixed-height variants keep the one-line card's proportions,
 // while a longer prompt spends the saved reply lines instead of pushing the transcript down.
 const promptWrapRows = [
@@ -180,6 +183,34 @@ export default agentPaneEntry({
     "card-failure": {
       note: "A failed turn keeps a clear failure icon and the complete peer-disconnected reason in a three-line block, separate from the reply preview.",
       snapshot: chat(cardRows, { title: "Minimap card failure reason" }),
+      play: async (ctx) => {
+        await ctx.hover({ selector: '[data-tick="1"]' });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-minimap__failure[data-failure="true"]'));
+      },
+    },
+    "card-failure-usage-limit": {
+      note: "A spent plan reads as the turn's error card does (plan limit, switch model or retry once it resets), not as 429 rate_limit_error; the agent's words are on hover.",
+      snapshot: chat(failedWith("429 rate_limit_error: You've reached your usage limit for this account"), {
+        title: "Minimap card failure, usage limit",
+      }),
+      play: async (ctx) => {
+        await ctx.hover({ selector: '[data-tick="1"]' });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-minimap__failure[data-failure="true"]'));
+      },
+    },
+    "card-failure-usage-limit-resets": {
+      note: "A spent plan that says when it resets: the card names when, in the agent's words.",
+      snapshot: chat(failedWith("Quota exceeded: you have used your model quota. It refreshes in 5 hours."), {
+        title: "Minimap card failure, usage limit with reset",
+      }),
+      play: async (ctx) => {
+        await ctx.hover({ selector: '[data-tick="1"]' });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-minimap__failure[data-failure="true"]'));
+      },
+    },
+    "card-failure-signed-out": {
+      note: "A signed-out agent keeps its own words (Please run /login): the hover card has no Sign in button, so it does not swap in a sign-in note.",
+      snapshot: chat(failedWith("Not logged in · Please run /login"), { title: "Minimap card failure, signed out" }),
       play: async (ctx) => {
         await ctx.hover({ selector: '[data-tick="1"]' });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-minimap__failure[data-failure="true"]'));
