@@ -46,6 +46,23 @@ struct CloudWarmReceiptTests {
         try await start.value
     }
 
+    @Test func unknownFallbackCredentialsNeverBecomeKnownAbsence() async throws {
+        let missing = try await CloudCredentialLogin.readScopes(["selected", nil]) { _ in nil }
+        #expect(missing == nil)
+        await #expect(throws: CloudCredentialTransfer.Failure.storeFailed) {
+            _ = try await CloudCredentialLogin.readScopes(["selected", nil]) { scope in
+                if scope == nil { throw CloudCredentialTransfer.Failure.storeFailed }
+                return nil
+            }
+        }
+        let token = Data("known-token".utf8)
+        let found = try await CloudCredentialLogin.readScopes(["selected", nil]) { scope in
+            if scope == nil { return token }
+            throw CloudCredentialTransfer.Failure.storeFailed
+        }
+        #expect(found == token)
+    }
+
     @Test func explicitLoginChoiceNeverUsesTheWarmReceipt() async {
         var decision = CloudHarnessLoginDecision(dogfood: true, setting: nil, harness: "claude", signedIn: true)
         let ready = await decision.takeWarmReceipt(cli: URL(fileURLWithPath: "/unused"), machine: "vm_0123456789abcdefghij",
