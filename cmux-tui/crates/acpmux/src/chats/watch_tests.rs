@@ -247,3 +247,44 @@ fn a_stop_ends_the_loop() {
     script.extend(delivered(&f, ms(20), &[session(0, 1)]));
     assert!(bursts(script).is_empty());
 }
+
+/// notify watches a folder made in a tree only after it handed on the event that made it: such
+/// a folder, made or moved in, is handed on to be listed, whether or not its path is one the
+/// index reads; a folder outside every root, a root itself and a file are not.
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn a_folder_made_in_a_root_is_handed_on_to_be_listed() {
+    use notify::event::{CreateKind, ModifyKind, RenameMode};
+    let f = filter();
+    let made = notify::EventKind::Create(CreateKind::Folder);
+    for path in ["/h/.codex/sessions", "/h/.codex/sessions/2026/11/12", "/h/.claude/projects/-w"] {
+        let got = f.handed_from_notify(event(made, &[path]));
+        assert!(matches!(&got, Some(Message::Folder(p)) if p == Path::new(path)), "{got:?}");
+    }
+    assert!(f.handed_from_notify(event(made, &["/elsewhere/sessions"])).is_none());
+    // A Codex home's other folders hold no chat: they end in the callback.
+    for path in ["/h/.codex/log", "/h/.codex/worktrees/x/src"] {
+        assert!(f.handed_from_notify(event(made, &[path])).is_none(), "{path}");
+    }
+    // A root made again is a path, as before: the index scans it.
+    let root = f.handed_from_notify(event(made, &["/h/.codex"]));
+    assert!(matches!(&root, Some(Message::Paths { .. })), "{root:?}");
+    let file = notify::EventKind::Create(CreateKind::File);
+    let rollout = "/h/.codex/sessions/2026/11/12/rollout-2026-11-12T00-00-00-x.jsonl";
+    assert!(matches!(f.handed_from_notify(event(file, &[rollout])), Some(Message::Paths { .. })));
+    // A path moved in names no kind: a folder only when it is one (this one does not exist).
+    let moved = notify::EventKind::Modify(ModifyKind::Name(RenameMode::To));
+    assert!(matches!(f.handed_from_notify(event(moved, &[rollout])), Some(Message::Paths { .. })));
+    // Each folder once per burst, and none below another (its listing covers them), in either
+    // order.
+    let script = vec![
+        (ms(0), Message::Folder("/h/.codex/sessions/2026".into())),
+        (ms(5), Message::Folder("/h/.codex/sessions".into())),
+        (ms(10), Message::Folder("/h/.codex/sessions/2026/11".into())),
+        (ms(15), Message::Folder("/h/.codex/sessions".into())),
+        (ms(20), Message::Folder("/h/.claude/projects/-w".into())),
+    ];
+    let got = bursts(script);
+    assert_eq!(got.len(), 1, "{got:?}");
+    assert_eq!(got[0].folders, paths(&["/h/.codex/sessions", "/h/.claude/projects/-w"]));
+}
