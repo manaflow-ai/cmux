@@ -13,12 +13,12 @@
 # Steps run from the base branch's checkout, never the pull request's code. They read the event from
 # the environment the calling workflow step sets (BODY, TITLE, LABELS, PATHS_LISTED, ...).
 
-# Jobs a pull request into feat-cmux-next can start (305 on 2026-11-13; the design's 267 left out the
-# jobs of called reusable workflows), counted by tests/test_ci_step_table.py the way
-# GitHub starts them (a reusable workflow's jobs count where they run). It may only go down; the
-# target is `target_pr_jobs`. Lower it when a change removes jobs.
+# Jobs a pull request into feat-cmux-next can start (354 on 2026-11-13; the design's 267 left out
+# matrix shards and the jobs of called reusable workflows), counted by tests/test_ci_step_table.py the
+# way GitHub starts them (a matrix as its shards, a reusable workflow's jobs where they run). It may
+# only go down; the target is `target_pr_jobs`. Lower it when a change removes jobs.
 [budget]
-pr_jobs = 305
+pr_jobs = 354
 target_pr_jobs = 8
 
 # The PR pipeline's jobs (the design's table). A step names one of these; there is no ninth.

@@ -40,9 +40,27 @@ def table(steps: str, jobs: str = 'linux = "l"\nadvisory = "a"') -> ci_steps.Tab
     return ci_steps.parse(tomllib.loads(f"[jobs]\n{jobs}\n{textwrap.dedent(steps)}"))
 
 
+def matrix_size(job: dict) -> int:
+    """The jobs a job's matrix expands to: the product of its literal lists, less `exclude`, and
+    each `include` entry when there are no lists. A matrix read from an expression counts as 1."""
+    matrix = (job.get("strategy") or {}).get("matrix") if isinstance(job, dict) else None
+    if not isinstance(matrix, dict):
+        return 1
+    lists = [v for k, v in matrix.items() if k not in ("include", "exclude") and isinstance(v, list)]
+    include = matrix.get("include") if isinstance(matrix.get("include"), list) else []
+    exclude = matrix.get("exclude") if isinstance(matrix.get("exclude"), list) else []
+    if not lists:
+        return max(1, len(include))
+    size = 1
+    for values in lists:
+        size *= len(values)
+    return max(1, size - len(exclude))
+
+
 def pr_jobs(workflows: dict[str, dict], base: str = BASE) -> int:
-    """Jobs a pull request into `base` can start: each job of each workflow it triggers, a job that
-    calls a local reusable workflow counted as that workflow's jobs (at any depth)."""
+    """Jobs a pull request into `base` can start: each job of each workflow it triggers times its
+    matrix, a job that calls a local reusable workflow counted as that workflow's jobs (at any
+    depth) times the caller's matrix."""
 
     def count(name: str, seen: tuple[str, ...] = ()) -> int:
         total = 0
@@ -51,9 +69,9 @@ def pr_jobs(workflows: dict[str, dict], base: str = BASE) -> int:
             if isinstance(uses, str) and uses.startswith("./.github/workflows/"):
                 callee = uses.rsplit("/", 1)[1].split("@", 1)[0]
                 if callee in workflows and callee not in seen:
-                    total += count(callee, seen + (name,))
+                    total += matrix_size(job) * count(callee, seen + (name,))
                     continue
-            total += 1
+            total += matrix_size(job)
         return total
 
     return sum(
@@ -249,6 +267,19 @@ class PullRequestJobBudgetTest(unittest.TestCase):
             "push.yml": {"on": "push", "jobs": {"p": {}}},
         }
         self.assertEqual(pr_jobs(workflows), 4)
+
+    def test_counting_matrices(self) -> None:
+        shards = {"strategy": {"matrix": {"shard": list(range(20))}}}
+        workflows = {
+            "pr.yml": {"on": "pull_request", "jobs": {
+                "shards": shards,
+                "grid": {"strategy": {"matrix": {"os": ["a", "b"], "py": [1, 2, 3], "exclude": [{"os": "a", "py": 1}]}}},
+                "include": {"strategy": {"matrix": {"include": [{"x": 1}, {"x": 2}]}}},
+                "dynamic": {"strategy": {"matrix": "${{ fromJSON(needs.a.outputs.m) }}"}},
+                "call": {"uses": "./.github/workflows/lib.yml", "strategy": {"matrix": {"n": [1, 2]}}}}},
+            "lib.yml": {"on": "workflow_call", "jobs": {"x": shards}},
+        }
+        self.assertEqual(pr_jobs(workflows), 20 + 5 + 2 + 1 + 2 * 20)
 
     def test_pull_request_jobs_stay_within_the_budget(self) -> None:
         budget = ci_steps.load().budget
