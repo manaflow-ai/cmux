@@ -23,7 +23,6 @@ test("new releases retain metadata and daemon order over a stale session menu", 
         {
           id: "model",
           name: "Model",
-          type: "select",
           category: "model",
           currentValue: ids[1]!,
           options: [{ value: "gemini-2.5-pro", name: "Pro" }],
