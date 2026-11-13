@@ -26,8 +26,8 @@ class ScreenShareNetemCliTests(unittest.TestCase):
 
     def test_drop_budget_keeps_bench_alive_for_recovery(self):
         self.assertEqual(netem.sample_budget(20, None), 20)
-        self.assertEqual(netem.sample_budget(20, 10), 30)
-        self.assertEqual(netem.sample_budget(20, 60), 80)
+        self.assertEqual(netem.sample_budget(20, 10, 5), 80)
+        self.assertEqual(netem.sample_budget(20, 60, 5), 130)
 
 
 if __name__ == "__main__":

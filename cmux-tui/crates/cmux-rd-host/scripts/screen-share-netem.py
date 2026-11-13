@@ -80,13 +80,14 @@ def readline(proc, deadline):
             return proc.stdout.readline()
 
 
-def sample_budget(base_samples, drop_s):
-    """Keep the bench alive through a full drop and at least base_samples successes."""
+def sample_budget(base_samples, drop_s, trigger_s=0):
+    """Keep the bench alive through the trigger, full drop, and requested successes."""
     if drop_s is None:
         return base_samples
-    # The bench counts each second without a marker as a lost sample.  Reserve one
-    # loss slot per dropped second, then retain the requested successful samples.
-    return max(base_samples, int(drop_s) + base_samples)
+    # The bench counts each second without a marker as a lost sample. Reserve a
+    # conservative ten samples per trigger second, one loss slot per dropped
+    # second, then retain the requested successful samples.
+    return max(base_samples, int(trigger_s * 10) + int(drop_s) + base_samples)
 
 
 def attempt(args, n, drop_s=None):
@@ -95,7 +96,8 @@ def attempt(args, n, drop_s=None):
     if drop_s is not None:
         rec["drop_s"] = drop_s
     session = "netem-" + os.urandom(8).hex()
-    bench_args = [args.bin, "bench", "--link", "1", "--samples", str(sample_budget(args.samples, drop_s)),
+    bench_args = [args.bin, "bench", "--link", "1", "--samples",
+                  str(sample_budget(args.samples, drop_s, args.blip_at or 0)),
                   "--input", "key"]
     viewer = subprocess.Popen(["ip", "netns", "exec", HOST_NS if args.one_ns else VIEW_NS, *bench_args], stdin=subprocess.PIPE,
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
