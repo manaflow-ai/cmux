@@ -910,8 +910,9 @@ run_suite() {
         result="no result (no cmux-tui)"
       else
         result="no result (0 ran)"
-        # cmux-ci sends a step naming a listed display suite (scripts/ci/display-suites.txt) to a display
-        # worker and marks it CMUX_CI_DISPLAY_ROUTED=1; the lane's hint is for a step routing did not reach.
+        # cmux-ci run --display sends a step to a display worker and marks it CMUX_CI_DISPLAY_ROUTED=1 (the
+        # suite list is display_suites.py under scripts/ci, which this lane never runs); the lane's hint is
+        # for a step routing did not reach.
         if [ "$display_skips" -gt 0 ] && [ "${CMUX_CI_DISPLAY_ROUTED:-}" = 1 ]; then
           hint="; this suite needs a display and was sent to a display worker, whose console session was lost (locked or logged out)"
         elif [ "$display_skips" -gt 0 ]; then

@@ -46,7 +46,9 @@ public enum DaemonEvent: Sendable, Hashable {
     case layoutChanged(screen: ScreenID, layout: ScreenLayoutDelta?, transaction: ClientTransactionID?)
 
     // Surface state.
-    case titleChanged(surface: SurfaceID, title: String)
+    /// What a tab shows of a surface's title changed: its text (a terminal's without its status glyphs, as the daemon
+    /// split it) or its activity. A spinner frame changes neither and the daemon does not send it (D2).
+    case titleChanged(surface: SurfaceID, title: String, activity: TerminalTitle.Activity? = nil)
     case surfaceResized(surface: SurfaceID, size: CellSize)
     case surfaceExited(surface: SurfaceID)
     case scrollChanged(surface: SurfaceID, offset: UInt64, atBottom: Bool)

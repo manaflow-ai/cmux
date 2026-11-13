@@ -50,8 +50,11 @@ extension SidebarDocument {
             if let self, let store { self.docMachines.showLaunchSnapshot(data, in: store, connected: { local.connection != nil }, serves: serves) { layout?.docLayout = $0 } }
         }
         // An open tab's favicon address is stored on its link item (each window's rows draw it, `SidebarModel.itemFavicon`).
+        // The open tab favicons, by origin (`OpenTabFavicons`, main-thread-scheduling.md section 3, O4).
+        let openTabs = OpenTabFavicons()
+        openTabs.start(workspaces: { local.store.workspaces }, favicons: { [weak services] workspace in services?.openTabFavicons(of: workspace) ?? [] })
         SidebarDocMachines.followFavicons(store, revision: { [weak services] in services?.favicons.revision },
-                                          byOrigin: { [weak services] in services?.openTabFaviconsByOrigin() ?? [:] }, faviconKey: BookmarkURL.faviconKey(for:))
+                                          byOrigin: { openTabs.byOrigin }, faviconKey: BookmarkURL.faviconKey(for:))
         docMachines.follow(store, connected: { local.connection != nil }, serves: serves, connectedRemotes: {
             Set(machines.remoteDaemons.filter { $0.connection != nil }.compactMap(\.store.registryID))
         }, shown: { if layout.docLayout != $0 { layout.docLayout = $0 } })

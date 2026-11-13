@@ -6,7 +6,7 @@ import Testing
 import CmuxNextDesignTokens
 
 /// cx-ujp: a cmux dialog in a light theme drew low-contrast text. The overlay page draws the dialog
-/// card now (webviews/src/pages/overlay/dialog); these guard the button looks every native card
+/// card now (``CmuxDialogView``); these guard the button looks every native card
 /// (`CmuxDialogButtonView`) still draws: each ink reads on the card, light and dark, and a focused
 /// button's ring sits outside its fill, unclipped, at 3:1.
 @MainActor @Suite(.serialized, .closesItsWindows) struct CmuxDialogLightContrastTests {

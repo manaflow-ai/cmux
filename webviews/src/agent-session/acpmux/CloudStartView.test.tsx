@@ -11,6 +11,7 @@ import { CloudStartView } from "./CloudStartView";
 import { startupChecklist } from "./cloudStartViewModel";
 import cloudStartGallery from "./CloudStartView.gallery";
 import type { CloudStartProgress } from "./cloudStartProgress";
+import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -71,6 +72,7 @@ const arm = (name: string) => {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -182,6 +184,8 @@ test("a plan refusal offers Upgrade, Run on This Mac and Not Now; other failures
   expect(html).toContain('data-role="default">Upgrade</button>');
   expect(html).toContain(">Run on This Mac</button>");
   expect(html).toContain(">Not Now</button>");
+  // A refusal by policy keeps the checklist shut, so its actions stay in view in a short pane.
+  expect(html).toContain('aria-expanded="false"');
   const generic = renderToStaticMarkup(
     <CloudStartView
       start={{ ...refusal, code: "cloud_start_failed" }}
@@ -191,6 +195,49 @@ test("a plan refusal offers Upgrade, Run on This Mac and Not Now; other failures
   );
   expect(generic).not.toContain(">Upgrade</button>");
   expect(generic).not.toContain(">Run on This Mac</button>");
+});
+
+test("a plan refusal in a team says so, names the team and switches to the person's own; no Retry, no wait", async () => {
+  const refusal: CloudStartProgress = {
+    ...start,
+    state: "failed",
+    code: "cloud_plan_required",
+    message: "Cloud machines need a Pro plan.",
+    retryable: true,
+    planTeam: { team: "cmux", switchTo: { id: "team_0123456789abcdef0123", name: "Personal" } },
+  };
+  const html = renderToStaticMarkup(
+    <CloudStartView
+      start={refusal}
+      onSwitchTeam={() => undefined}
+      onUpgrade={() => undefined}
+      onRetry={() => undefined}
+    />,
+  );
+  expect(html).toContain("This team has no Cloud plan");
+  expect(html).toContain("cmux is the team selected in the team menu.");
+  expect(html).toContain('data-role="default" data-action="switch-team">Switch to Personal</button>');
+  expect(html).toContain('data-action="see-plans">See plans</button>');
+  expect(html).not.toContain("acpmux-cloud-start__retry");
+  expect(html).not.toContain("acpmux-cloud-start__card");
+  expect(html).not.toContain("Cloud machines need a Pro plan.");
+  // With no own team known, See plans leads.
+  const plans = renderToStaticMarkup(
+    <CloudStartView
+      start={{ ...refusal, planTeam: { team: "cmux" } }}
+      onSwitchTeam={() => undefined}
+      onUpgrade={() => undefined}
+    />,
+  );
+  expect(plans).not.toContain("switch-team");
+  expect(plans).toContain('data-role="default" data-action="see-plans"');
+  // The click hands the team to the pane, which switches and sends again.
+  const host = installDom();
+  const picked: string[] = [];
+  root = createRoot(host);
+  await act(async () => root?.render(<CloudStartView start={refusal} onSwitchTeam={(team) => picked.push(team.id)} />));
+  (host.querySelector('[data-action="switch-team"]') as HTMLButtonElement).click();
+  expect(picked).toEqual(["team_0123456789abcdef0123"]);
 });
 
 test("the startup checklist skips clone without a repository and explains a missing script", () => {
@@ -431,4 +478,81 @@ test("Retry shows only on a failure another try can help", async () => {
   expect(retry?.textContent).toBe("Retry");
   await act(async () => retry?.click());
   expect(retried).toBe(1);
+});
+
+test("a folder too big to copy offers each repository inside it and no folder, never Retry", async () => {
+  const tooBig: CloudStartProgress = {
+    ...start,
+    state: "failed",
+    code: "cloud_folder_too_big",
+    refusedHere: true,
+    message: "~/Projects is too big to copy to a Cloud machine.",
+    tooBig: {
+      folder: "~/Projects",
+      repos: [
+        { name: "cmux", path: "/Users/me/Projects/cmux" },
+        { name: "work/api", path: "/Users/me/Projects/work/api" },
+      ],
+      more: false,
+    },
+  };
+  const picked: string[] = [];
+  let browsed = 0;
+  let homes = 0;
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <CloudStartView
+        start={tooBig}
+        onRetry={() => undefined}
+        onPickRepo={(path) => void picked.push(path)}
+        onPickFolder={() => void browsed++}
+        onStartWithoutFolder={() => void homes++}
+      />,
+    );
+  });
+  expect(container.querySelector(".acpmux-cloud-start__retry")).toBeNull();
+  // The checklist stays shut: no step ran, and the card's actions stay in view.
+  expect(container.querySelector(".acpmux-cloud-start__summary")?.getAttribute("aria-expanded")).not.toBe("true");
+  const repos = [...container.querySelectorAll<HTMLButtonElement>("[data-repo]")];
+  expect(repos.map((button) => button.textContent)).toEqual(["cmux", "work/api"]);
+  expect(container.textContent).toContain("Pick a repo inside it");
+  await act(async () => repos[1]!.click());
+  expect(picked).toEqual(["/Users/me/Projects/work/api"]);
+  // Every repository it holds is listed: no folder browse beside them.
+  expect(container.querySelector('[data-action="pick-folder"]')).toBeNull();
+  const noFolder = container.querySelector<HTMLButtonElement>('[data-action="no-folder"]');
+  expect(noFolder?.textContent).toBe("Start without a folder");
+  await act(async () => noFolder?.click());
+  expect(homes).toBe(1);
+  // No repository inside: Pick a folder leads, beside Start without a folder.
+  await act(async () =>
+    root!.render(
+      <CloudStartView
+        start={{ ...tooBig, tooBig: { folder: "~/Downloads", repos: [], more: false } }}
+        onPickRepo={(path) => void picked.push(path)}
+        onPickFolder={() => void browsed++}
+        onStartWithoutFolder={() => void homes++}
+      />,
+    ),
+  );
+  expect(container.querySelector("[data-repo]")).toBeNull();
+  const pick = container.querySelector<HTMLButtonElement>('[data-action="pick-folder"]');
+  expect(pick?.textContent).toBe("Pick a folder");
+  expect(pick?.getAttribute("data-role")).toBe("default");
+  await act(async () => pick?.click());
+  expect(browsed).toBe(1);
+  // More repositories than the card lists: Pick a folder joins them.
+  await act(async () =>
+    root!.render(
+      <CloudStartView
+        start={{ ...tooBig, tooBig: { ...tooBig.tooBig!, more: true } }}
+        onPickRepo={(path) => void picked.push(path)}
+        onPickFolder={() => void browsed++}
+      />,
+    ),
+  );
+  expect(container.querySelectorAll("[data-repo]")).toHaveLength(2);
+  expect(container.querySelector('[data-action="pick-folder"]')?.getAttribute("data-role")).toBeNull();
 });

@@ -5,7 +5,7 @@
 .acpmux-minimap {
   position: sticky;
   top: 0;
-  z-index: 3;
+  z-index: var(--layer-sticky);
   height: 0;
 }
 /* The rail's tokens; the card takes them too, as it draws outside the rail (PreviewCard.tsx). */
@@ -19,8 +19,10 @@
   --acpmux-minimap-text: var(--agent-text);
   --acpmux-minimap-card: color-mix(in srgb, var(--agent-text) 7.5%, var(--acpmux-minimap-base));
   --acpmux-minimap-card-ring: color-mix(in srgb, var(--agent-text) 5%, var(--acpmux-minimap-base));
-  /* The Codex rail's spring curve, about 0.8% overshoot, run over the scale's micro step (120 ms). */
-  --acpmux-minimap-spring: linear(0, 0.398 10%, 0.682 20%, 0.843 30%, 0.925 40%, 0.972 50%, 1.004 60%, 1.008 70%, 1.003 80%, 1);
+  --acpmux-minimap-latest-shadow-reach: 0;
+  /* The Codex rail's spring curve up to its end, run over the scale's micro step (120 ms): it reaches
+     full length at 58.75% and stays there, never past it (Lawrence: no bounce in any motion). */
+  --acpmux-minimap-spring: linear(0, 0.398 10%, 0.682 20%, 0.843 30%, 0.925 40%, 0.972 50%, 1 58.75%, 1);
 }
 /* appearance.borders none clears the popover's rim in place, as it clears the popups'. */
 :root[data-borders="none"] .acpmux-minimap,
@@ -36,6 +38,38 @@
   isolation: isolate;
   will-change: transform;
   animation: acpmux-minimap-in var(--cmux-motion-micro) cubic-bezier(0.23, 1, 0.32, 1);
+}
+/* The transcript lane is kept at full ink by conversation.css so the prompt ticks remain readable.
+   This rail-local edge instead deepens from the latest-message starting point as the reader moves
+   up. It never captures input, and all color/elevation values come from the shared token set. */
+.acpmux-minimap__rail::after {
+  content: "";
+  position: absolute;
+  z-index: var(--layer-raised);
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 28px;
+  pointer-events: none;
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--agent-text) 22%, transparent),
+    transparent
+  );
+  box-shadow: var(--elevation-1);
+  opacity: var(--acpmux-minimap-latest-shadow-reach);
+}
+/* Gallery comparison arms. The shipped elevation arm is the balanced default: a short token-based
+   edge gradient with the shared low elevation, while the other two remain available for review. */
+.acpmux-minimap__rail[data-shadow-variant="subtle"]::after {
+  height: 20px;
+  box-shadow: none;
+  background: linear-gradient(to top, color-mix(in srgb, var(--agent-muted) 18%, transparent), transparent);
+}
+.acpmux-minimap__rail[data-shadow-variant="inset"]::after {
+  height: 20px;
+  box-shadow: inset 0 -1px var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--agent-text) 30%, transparent);
+  background: linear-gradient(to top, color-mix(in srgb, var(--agent-text) 15%, transparent), transparent);
 }
 .acpmux-minimap__strip {
   position: absolute;

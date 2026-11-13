@@ -70,7 +70,7 @@ enum BookmarkHandlers {
             services.bookmarks.setBarShown(shown)
             guard let settings = services.settings else { return }
             services.registry.track(Task { @MainActor in
-                do { try await settings.setShowBookmarksBar(shown) } catch { return ActionWorkFailure(String(describing: error)) }
+                do { try await settings.setShowBookmarksBar(shown) } catch { return ActionWorkFailure(log: String(describing: error)) }
                 return nil
             })
         })
@@ -166,7 +166,7 @@ enum BookmarkHandlers {
                   let url = page?.state.url ?? model?.url.flatMap(URL.init(string:)), BookmarkService.canBookmark(url) else { continue }
             let profile = services.bookmarks.profile(ofTab: id)
             guard only.map({ $0 == profile }) ?? true else { continue }
-            let draft = BookmarkDraft.bookmark(page?.state.title ?? model?.title ?? url.absoluteString, url)
+            let draft = BookmarkDraft.bookmark(page?.state.title ?? model?.titleText ?? url.absoluteString, url)
             if let index = folders.firstIndex(where: { $0.profile == profile }) { folders[index].pages.append(draft) } else { folders.append((profile, [draft])) }
         }
         guard !folders.isEmpty else { throw ActionFailure(message: BookmarkAppStrings.noTabs) }

@@ -23,6 +23,21 @@ fn list_agent_session_ids(mux: &Arc<Mux>) -> Vec<String> {
         .collect()
 }
 
+/// `history.entries.list` of the agent kind through the resource router, the
+/// path of every client: the router checks each answer against the embedded
+/// operation catalog. Returns the whole response envelope.
+fn list_agents_through_the_router(mux: &Arc<Mux>) -> Value {
+    let envelope = serde_json::json!({
+        "protocol": "cmux.protocol/2",
+        "type": "request",
+        "id": "history-list",
+        "operation": "history.entries.list",
+        "params": {"machine": "current", "session": "current", "kinds": ["agent"]},
+    });
+    crate::resource_router::handle_resource_message(mux, &envelope.to_string())
+        .expect("the response envelope encodes")
+}
+
 /// Checkpoint and seal the whole journal; returns the new segment ids.
 fn seal_whole_journal(mux: &Mux, key: &str) -> Vec<String> {
     let checkpoint =
@@ -140,6 +155,97 @@ fn agent_history_save_does_not_wait_for_the_workspace_registry_lock() {
     assert_eq!(version, 1);
     assert_eq!(stored_cursor, cursor);
     assert!(snapshot.contains("history-agent-save"), "the saved fold holds the session");
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// cmux#38186: an agent clear the app queued while the daemon was away
+/// carries its click time (`until_ms`). A session active after the click
+/// still lists when the clear arrives; a clear without it (an older caller)
+/// hides everything active until the delivery.
+#[test]
+fn a_queued_agent_clear_keeps_a_session_active_after_its_click() {
+    let session = "history-agent-clear-until";
+    let root = std::env::temp_dir().join(format!(
+        "cmux-history-agent-clear-until-{}",
+        crate::workspace_registry::new_uuid_v4()
+    ));
+    let mux = open_persistent_test_mux(session, &root);
+    let click_ms = crate::history_ops::now_ms() - 60_000;
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+    append_journal_hook(&mux, &terminal_id, "SessionStart", Some("history-agent-after-click"));
+    assert_eq!(list_agent_session_ids(&mux), vec!["history-agent-after-click".to_owned()]);
+
+    let mut fields = Map::new();
+    fields.insert("kinds".into(), serde_json::json!(["agent"]));
+    fields.insert("range".into(), serde_json::json!("all"));
+    fields.insert("until_ms".into(), serde_json::json!(click_ms.to_string()));
+    crate::history_ops::mutate_for_test(&mux, "clear-until-click", "history.clear", &fields)
+        .expect("the clear answers");
+    assert_eq!(
+        list_agent_session_ids(&mux),
+        vec!["history-agent-after-click".to_owned()],
+        "a session active after the click was hidden by a clear delivered later"
+    );
+
+    fields.remove("until_ms");
+    crate::history_ops::mutate_for_test(&mux, "clear-until-now", "history.clear", &fields)
+        .expect("the clear answers");
+    assert!(list_agent_session_ids(&mux).is_empty(), "a clear until now left the session");
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A list answers what is folded when its budget ends before the agent fold
+/// reaches the journal head, and names the kind in `pending_kinds`. The
+/// catalog type of the answer did not have that field, so the router refused
+/// the daemon's own answer (`operation.failed`: "operation result violates
+/// the embedded catalog") for each ask until the fold was less than the
+/// budget behind: after a start on a large journal, History did not load.
+#[test]
+fn a_history_list_with_the_agent_fold_behind_answers_through_the_router() {
+    let session = "history-agent-fold-behind";
+    let root = std::env::temp_dir().join(format!(
+        "cmux-history-agent-fold-behind-{}",
+        crate::workspace_registry::new_uuid_v4()
+    ));
+    let mux = open_persistent_test_mux(session, &root);
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+    append_journal_hook(&mux, &terminal_id, "SessionStart", Some("history-agent-behind"));
+
+    // No budget: the list answers before its fold reaches the journal head.
+    crate::history_ops::set_list_fold_budget_for_test(&mux, Some(Duration::ZERO));
+    let behind = list_agents_through_the_router(&mux);
+    assert_eq!(
+        behind["ok"], true,
+        "the router refused the list while the agent fold was behind: {behind}"
+    );
+    assert_eq!(
+        behind["result"]["pending_kinds"],
+        serde_json::json!(["agent"]),
+        "the answer names the kind that is not complete: {behind}"
+    );
+    assert!(behind["result"]["entries"].is_array(), "the answer has its entries: {behind}");
+
+    // The daemon's own budget: the fold reaches the head, the answer is whole.
+    crate::history_ops::set_list_fold_budget_for_test(&mux, None);
+    let whole = list_agents_through_the_router(&mux);
+    assert_eq!(whole["ok"], true, "the list answers when the fold is at the head: {whole}");
+    assert!(
+        whole["result"].get("pending_kinds").is_none(),
+        "a complete answer names no pending kind: {whole}"
+    );
+    let sessions = whole["result"]["entries"]
+        .as_array()
+        .expect("entries")
+        .iter()
+        .filter_map(|entry| entry["session_id"].as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(sessions, vec!["history-agent-behind"]);
     mux.shutdown();
     drop(mux);
     let _ = std::fs::remove_dir_all(&root);

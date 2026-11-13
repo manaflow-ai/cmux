@@ -12,6 +12,8 @@ Run on cmux-lawrence-2, never the laptop.
 Usage: picker-e2e.py --tag <tag> [--out DIR]
 """
 import argparse, glob, json, os, signal, socket, subprocess, sys, tempfile, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -157,7 +159,7 @@ try:
            "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800"}
     app = subprocess.Popen([BINARY], env=env, stdout=open(os.path.join(SCRATCH, "app.log"), "a"),
                            stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, cwd=FIXTURE)
-    print(f"launched pid {app.pid}", flush=True)
+    safe_print(f"launched pid {app.pid}", flush=True)
     wait("the tagged app comes up", lambda: os.path.exists(SOCKET) and (rpc("debug.surfaces") or {}).get("windows"), 90)
     time.sleep(2)  # test harness: let the first workspace settle
 
@@ -224,20 +226,20 @@ try:
     snapshot("picker-file")
     close_palette()
 
-    print("FAILURES: " + ", ".join(failures) if failures else "ok: every step passed", flush=True)
+    safe_print("FAILURES: " + ", ".join(failures) if failures else "ok: every step passed", flush=True)
 finally:
     if app and app.poll() is None:
-        print(f"debug.quit: {rpc('debug.quit', {'open': True})}", flush=True)
+        safe_print(f"debug.quit: {rpc('debug.quit', {'open': True})}", flush=True)
         time.sleep(1)  # test harness: the quit sheet, if any
         sheet = rpc("debug.quit") or {}
         if sheet.get("asking"):
-            print(f"debug.quit press: {rpc('debug.quit', {'press': 'end-everything'})}", flush=True)
+            safe_print(f"debug.quit press: {rpc('debug.quit', {'press': 'end-everything'})}", flush=True)
         try:
             app.wait(timeout=20)
-            print(f"quit {app.pid} exit {app.returncode}", flush=True)
+            safe_print(f"quit {app.pid} exit {app.returncode}", flush=True)
         except subprocess.TimeoutExpired:
             app.send_signal(signal.SIGKILL)  # the PID launched above, never a pattern
-            print(f"killed {app.pid} (did not quit)", flush=True)
+            safe_print(f"killed {app.pid} (did not quit)", flush=True)
     if app and app.returncode not in (None, 0):
-        print(open(os.path.join(SCRATCH, "app.log")).read()[-3000:])
+        safe_print(open(os.path.join(SCRATCH, "app.log")).read()[-3000:])
 sys.exit(1 if failures else 0)

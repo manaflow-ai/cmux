@@ -14,6 +14,7 @@
 // from snapshot or real back down to placeholder.
 import { afterAll, afterEach, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { settleReact, teardownDom } from "./support/domTeardown";
 
 setDefaultTimeout(60_000);
 
@@ -75,12 +76,8 @@ beforeAll(() => {
   (dom.window as unknown as { WebSocket: unknown }).WebSocket = Daemon;
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
   if (savedSocket.had) scope.WebSocket = savedSocket.value;
   else delete scope.WebSocket;
 });
@@ -258,6 +255,7 @@ function drawCopy(): void {
 /// The tail the app host kept on disk at the last launch (AgentPaneTailDisk), or none.
 const keptTail = () => ({
   events: RECORDS,
+  turnOpener: undefined,
   summary: SUMMARY,
   historyExhausted: true,
   queue: [],
@@ -274,7 +272,14 @@ afterEach(async () => {
   doc().getElementById("root")!.replaceChildren();
   doc().querySelector("cmux-chat-snapshot")?.remove();
   const globals = dom.window as unknown as Record<string, unknown>;
-  for (const key of ["__cmuxChatSnapshotShown", "__cmuxChatSnapshotLive", "cmuxAcpmuxActions", "webkit"])
+  await settleReact();
+  for (const key of [
+    "__cmuxRestoredChat",
+    "__cmuxChatSnapshotShown",
+    "__cmuxChatSnapshotLive",
+    "cmuxAcpmuxActions",
+    "webkit",
+  ])
     delete globals[key];
   dom.window.sessionStorage.clear();
   (await import("../src/agent-session/acpmux/tailCache")).resetKeptTailsForTests();
@@ -458,4 +463,127 @@ test("a relaunched chat acpmux no longer lists gives the copy up for why, at onc
     "the copy goes for the chat's unavailable state",
     10_000,
   );
+});
+
+// The restored document knows its chat while the native handshake waits for daemon handoff.
+test.each([0, 300, 1500])(
+  "a restored tail delayed %i ms paints within two seconds while ready is withheld",
+  async (delayMs) => {
+    Daemon.refusing = true;
+    Daemon.refused = 0;
+    let painted = false;
+    Object.assign(dom.window, {
+      __cmuxRestoredChat: CHAT,
+      webkit: {
+        messageHandlers: {
+          agentSession: {
+            postMessage: async (message: { method: string }) => {
+              if (message.method === "ready") return new Promise(() => {});
+              if (message.method === "pane.painted") painted = true;
+              if (message.method === "chat.tail.get" && delayMs > 0)
+                // fixed-wait: exercise a disk read beyond the live attach's 250 ms cache budget.
+                await new Promise((resolve) => setTimeout(resolve, delayMs));
+              return Promise.resolve({ ok: true, value: message.method === "chat.tail.get" ? keptTail() : null });
+            },
+          },
+        },
+      },
+    });
+    const { createRoot } = await import("react-dom/client");
+    const { AcpmuxApp } = await import("../src/agent-session/acpmux/App");
+    root = createRoot(doc().getElementById("root")!);
+    const began = performance.now();
+    await act(async () => root!.render(<AcpmuxApp />));
+    await until(() => painted && look().transcript === "real", "retained transcript revealed before ready", 2000);
+    expect(performance.now() - began).toBeLessThan(2000);
+    expect(Daemon.refused).toBe(0);
+    expect(Daemon.open.size).toBe(0);
+  },
+);
+
+test("retained presentation refuses another chat and strips stale live state", async () => {
+  const { AcpmuxDirectClient } = await import("../src/agent-session/acpmux/direct");
+  expect(AcpmuxDirectClient.retainedSnapshot("other", keptTail())).toBeUndefined();
+  const tail = keptTail();
+  expect(
+    AcpmuxDirectClient.retainedSnapshot(CHAT, {
+      ...tail,
+      turnOpener: { ...RECORDS[0]!, sessionId: "other" },
+    }),
+  ).toBeUndefined();
+  const restored = AcpmuxDirectClient.retainedSnapshot(CHAT, {
+    ...tail,
+    summary: { ...tail.summary, status: "running" },
+  });
+  expect(restored?.rows.length).toBeGreaterThan(0);
+  expect(restored?.summary?.status).not.toBe("running");
+  expect(restored?.connection).toBe("connecting");
+});
+
+test("a retained tail that answers after its presentation unmounts cannot draw", async () => {
+  const { watchRestoredTail } = await import("../src/agent-session/acpmux/restoredTail");
+  let answer: (value: unknown) => void = () => {};
+  Object.assign(dom.window, {
+    __cmuxRestoredChat: CHAT,
+    webkit: {
+      messageHandlers: {
+        agentSession: {
+          postMessage: () =>
+            new Promise((resolve) => {
+              answer = resolve;
+            }),
+        },
+      },
+    },
+  });
+  let draws = 0;
+  const stop = watchRestoredTail(() => {
+    draws += 1;
+  });
+  stop();
+  answer({ ok: true, value: keptTail() });
+  await tick();
+  expect(draws).toBe(0);
+});
+
+test("a late retained answer cannot replace a chat already attached by ready", async () => {
+  Daemon.refusing = false;
+  let answer: (value: unknown) => void = () => {};
+  Object.assign(dom.window, {
+    __cmuxRestoredChat: CHAT,
+    webkit: {
+      messageHandlers: {
+        agentSession: {
+          postMessage: (message: { method: string }) => {
+            if (message.method === "chat.tail.get")
+              return new Promise((resolve) => {
+                answer = resolve;
+              });
+            const value =
+              message.method === "ready"
+                ? {
+                    protocolVersion: 1,
+                    transport: "acpmux-websocket",
+                    endpoint: "ws://acpmux.test/",
+                    token: "t",
+                    sessionId: CHAT,
+                    machineName: "Mac",
+                  }
+                : null;
+            return Promise.resolve({ ok: true, value });
+          },
+        },
+      },
+    },
+  });
+  const { createRoot } = await import("react-dom/client");
+  const { AcpmuxApp } = await import("../src/agent-session/acpmux/App");
+  root = createRoot(doc().getElementById("root")!);
+  await act(async () => root!.render(<AcpmuxApp />));
+  await until(() => look().transcript === "real", "live transcript attached");
+  const oldTail = JSON.parse(JSON.stringify(keptTail()).replaceAll(REPLY, "STALE RETAINED REPLY"));
+  answer({ ok: true, value: oldTail });
+  await tick();
+  expect(doc().getElementById("root")!.textContent).toContain(REPLY);
+  expect(doc().getElementById("root")!.textContent).not.toContain("STALE RETAINED REPLY");
 });

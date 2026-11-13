@@ -213,6 +213,8 @@ fn the_action_and_trace_id_follow_the_message() {
             message: Some("It failed.".into()),
             action: Some("Run `cmux vm ls`.".into()),
             trace_id: Some("t-1".into()),
+            retryable: None,
+            retry_after_s: None,
         }
     );
     // A blank action is none; the ui block's message and trace id win or fill in.
@@ -234,23 +236,6 @@ fn a_worker_refusal_names_its_nested_code_and_the_header_code_wins() {
     );
     assert!(matches!(vm_error(409, body, Some("vm_not_running")),
         Failure::Http { code: Some(c), .. } if c == "vm_not_running"));
-}
-
-// MARK: classic routes
-
-#[test]
-fn classic_calls_send_the_stack_session_and_the_team() {
-    let (origin, seen) = fake(|_| ok(r#"{"id":"run-1","status":"cancelled"}"#));
-    let answer =
-        go(&request(&origin, Auth::Stack, "runs.cancel", json!({ "id": "run-1" }))).unwrap();
-    assert_eq!(answer, json!({ "id": "run-1", "status": "cancelled" }));
-    let seen = seen.lock().unwrap();
-    assert_eq!(seen[0].target(), "POST /api/runs/run-1/cancel");
-    assert_eq!(seen[0].header("authorization").as_deref(), Some("Bearer access"));
-    assert_eq!(seen[0].header("x-stack-refresh-token").as_deref(), Some("refresh"));
-    assert_eq!(seen[0].header("x-cmux-team-id").as_deref(), Some("team-1"));
-    assert_eq!(seen[0].header("x-cmux-client").as_deref(), Some("cmux-mac"));
-    assert_eq!(seen[0].header("x-cmux-app-version").as_deref(), Some("cmux-next"));
 }
 
 // MARK: the team's network (cmux-platform)
@@ -455,184 +440,6 @@ fn an_unsafe_platform_scp_endpoint_or_refusal_is_not_answered() {
         go(&request(&origin, Auth::Worker, "vm.scp_endpoint", args)),
         Err(Failure::http(409, Some("machine.not_running".into()), Some("Start it first.".into())))
     );
-}
-
-// MARK: Runs (CloudAPIClientRunTests)
-
-#[test]
-fn a_create_sends_the_key_and_a_wait_is_capped_at_the_server_bound() {
-    let (origin, seen) = fake(|s| {
-        if s.line.contains("/wait") {
-            ok(
-                r#"{"run":{"id":"run-1","status":"succeeded"},"receipt":{"schema":"cmux.run.receipt/v1"}}"#,
-            )
-        } else {
-            Some((202, r#"{"id":"run-1","status":"queued"}"#.into()))
-        }
-    });
-    let created = go(&request(
-        &origin,
-        Auth::Stack,
-        "runs.create",
-        json!({ "task": "hi", "agent": "claude", "idempotencyKey": "key-1" }),
-    ))
-    .unwrap();
-    assert_eq!(created["id"], "run-1");
-    let waited = go(&request(
-        &origin,
-        Auth::Stack,
-        "runs.wait",
-        json!({ "id": "run-1", "timeoutMs": 60000 }),
-    ))
-    .unwrap();
-    assert_eq!(waited["receipt"]["schema"], "cmux.run.receipt/v1");
-    let seen = seen.lock().unwrap();
-    assert_eq!(seen[0].target(), "POST /api/runs");
-    assert_eq!(seen[0].header("idempotency-key").as_deref(), Some("key-1"));
-    assert_eq!(
-        seen[0].json(),
-        json!({ "environment": "sandboxed", "task": "hi", "agent": "claude" })
-    );
-    assert_eq!(seen[1].target(), "GET /api/runs/run-1/wait?timeoutMs=10000");
-}
-
-/// A Run API that answers `running` `finish_after` times, then the receipt; drops `drop` creates.
-fn sandbox_api(
-    finish_after: usize,
-    drop: usize,
-    malformed: bool,
-) -> (String, Arc<Mutex<Vec<Seen>>>) {
-    let waits = Arc::new(Mutex::new(0_usize));
-    let drops = Arc::new(Mutex::new(drop));
-    fake(move |s| {
-        if s.target() == "POST /api/runs" {
-            let mut drops = drops.lock().unwrap();
-            if *drops > 0 {
-                *drops -= 1;
-                return None;
-            }
-            return ok(r#"{"id":"run-9","status":"queued"}"#);
-        }
-        let mut waits = waits.lock().unwrap();
-        *waits += 1;
-        if malformed {
-            ok(r#"{"error":"internal"}"#)
-        } else if *waits > finish_after {
-            ok(
-                r#"{"run":{"id":"run-9","status":"succeeded"},"receipt":{"status":"succeeded","reply":"done"}}"#,
-            )
-        } else {
-            ok(r#"{"run":{"id":"run-9","status":"running"},"receipt":null}"#)
-        }
-    })
-}
-
-fn creates(seen: &Arc<Mutex<Vec<Seen>>>) -> Vec<Option<String>> {
-    seen.lock()
-        .unwrap()
-        .iter()
-        .filter(|s| s.target() == "POST /api/runs")
-        .map(|s| s.header("idempotency-key"))
-        .collect()
-}
-
-fn waits(seen: &Arc<Mutex<Vec<Seen>>>) -> usize {
-    seen.lock().unwrap().iter().filter(|s| s.line.contains("/wait")).count()
-}
-
-#[test]
-fn run_sandbox_waits_until_the_receipt_then_answers_the_snapshot() {
-    let (origin, seen) = sandbox_api(2, 0, false);
-    let snapshot = go(&request(
-        &origin,
-        Auth::Stack,
-        "runs.sandbox",
-        json!({ "task": "hi", "timeoutMs": 60000, "idempotencyKey": "k" }),
-    ))
-    .unwrap();
-    assert_eq!(snapshot["receipt"]["reply"], "done");
-    assert_eq!(waits(&seen), 3);
-}
-
-#[test]
-fn a_create_whose_answer_was_lost_is_sent_once_more_under_the_same_key() {
-    let (origin, seen) = sandbox_api(0, 1, false);
-    let snapshot = go(&request(
-        &origin,
-        Auth::Stack,
-        "runs.sandbox",
-        json!({ "task": "hi", "timeoutMs": 60000, "idempotencyKey": "send-1" }),
-    ))
-    .unwrap();
-    assert_eq!(snapshot["receipt"]["reply"], "done");
-    assert_eq!(creates(&seen), vec![Some("send-1".into()), Some("send-1".into())]);
-    // One process, one credential: the retry goes with the first create's.
-    let tokens: Vec<_> = seen.lock().unwrap().iter().map(|s| s.header("authorization")).collect();
-    assert!(tokens.iter().all(|t| t.as_deref() == Some("Bearer access")));
-}
-
-#[test]
-fn a_retry_that_fails_after_an_uncertain_create_stays_uncertain() {
-    let (origin, seen) = sandbox_api(0, 2, false);
-    let failure = go(&request(
-        &origin,
-        Auth::Stack,
-        "runs.start",
-        json!({ "task": "hi", "timeoutMs": 60000, "idempotencyKey": "send-2" }),
-    ))
-    .unwrap_err();
-    assert_eq!(failure, Failure::TimedOut("/api/runs".into()));
-    assert_eq!(creates(&seen), vec![Some("send-2".into()), Some("send-2".into())]);
-}
-
-#[test]
-fn a_refused_create_is_not_sent_again() {
-    let (origin, seen) = fake(|_| Some((403, r#"{"error":"run_sandbox_unavailable"}"#.into())));
-    let failure = go(&request(
-        &origin,
-        Auth::Stack,
-        "runs.start",
-        json!({ "task": "hi", "idempotencyKey": "k" }),
-    ))
-    .unwrap_err();
-    assert_eq!(failure, Failure::http(403, Some("run_sandbox_unavailable".into()), None));
-    assert_eq!(creates(&seen).len(), 1);
-}
-
-#[test]
-fn a_wait_answer_that_is_no_snapshot_ends_at_once() {
-    let (origin, seen) = sandbox_api(usize::MAX, 0, true);
-    let failure = go(&request(
-        &origin,
-        Auth::Stack,
-        "runs.sandbox",
-        json!({ "task": "hi", "timeoutMs": 60000, "idempotencyKey": "k" }),
-    ))
-    .unwrap_err();
-    assert_eq!(failure, Failure::TimedOut("/api/runs/run-9".into()));
-    assert_eq!(waits(&seen), 1);
-}
-
-#[test]
-fn run_sandbox_stops_at_the_deadline() {
-    let (origin, seen) = sandbox_api(usize::MAX, 0, false);
-    let failure = go(&request(&origin, Auth::Stack, "runs.sandbox",
-        json!({ "task": "hi", "timeoutMs": 300, "teardownMs": 0, "callsMarginMs": 60000, "idempotencyKey": "k" }))).unwrap_err();
-    assert_eq!(failure, Failure::TimedOut("/api/runs/run-9".into()));
-    assert!(waits(&seen) >= 1);
-}
-
-#[test]
-fn a_server_that_never_answers_still_ends_at_the_bound() {
-    let (origin, _seen) = fake(|_| {
-        std::thread::sleep(Duration::from_secs(3));
-        None
-    });
-    let started = std::time::Instant::now();
-    let failure = go(&request(&origin, Auth::Stack, "runs.sandbox",
-        json!({ "task": "hi", "timeoutMs": 50, "teardownMs": 0, "callsMarginMs": 50, "idempotencyKey": "k" }))).unwrap_err();
-    assert_eq!(failure, Failure::TimedOut("/api/runs".into()));
-    assert!(started.elapsed() < Duration::from_secs(2));
 }
 
 // MARK: owner routes
@@ -997,26 +804,16 @@ fn a_base_url_is_https_or_loopback_http_with_no_user_query_or_fragment() {
 
 #[test]
 fn a_base_path_is_kept() {
-    let (origin, seen) = fake(|_| ok("{}"));
-    go(&request(
-        &format!("{origin}/prefix/"),
-        Auth::Stack,
-        "runs.cancel",
-        json!({ "id": "run-1" }),
-    ))
-    .unwrap();
-    assert_eq!(seen.lock().unwrap()[0].target(), "POST /prefix/api/runs/run-1/cancel");
+    let (origin, seen) = fake(|_| ok(r#"{"handoffs":[],"nextCursor":null}"#));
+    go(&request(&format!("{origin}/prefix/"), Auth::Owner, "owner.handoffs", json!({}))).unwrap();
+    assert_eq!(seen.lock().unwrap()[0].target(), "GET /prefix/v1/handoffs?limit=100");
 }
 
 #[test]
 fn a_local_backend_that_is_not_running_is_no_backend() {
     let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
-    let mut call = request(
-        &format!("http://127.0.0.1:{port}"),
-        Auth::Stack,
-        "runs.cancel",
-        json!({ "id": "run-1" }),
-    );
+    let mut call =
+        request(&format!("http://127.0.0.1:{port}"), Auth::Owner, "owner.handoffs", json!({}));
     call.local_only = true;
     assert_eq!(go(&call), Err(Failure::NoBackend));
     call.local_only = false;
@@ -1025,7 +822,7 @@ fn a_local_backend_that_is_not_running_is_no_backend() {
 
 #[test]
 fn a_refusal_never_carries_a_credential_back() {
-    let mut call = request("https://x.invalid", Auth::Stack, "runs.cancel", json!({ "id": "r" }));
+    let mut call = request("https://x.invalid", Auth::Owner, "owner.handoffs", json!({}));
     call.credential = "secret-access".into();
     call.refresh = Some("secret-refresh".into());
     let line = scrub(
@@ -1040,8 +837,11 @@ fn the_answer_line_is_the_apps_error_cases() {
     let line: Value = serde_json::from_str(&answer_line(&Ok(json!([1])))).unwrap();
     assert_eq!(line, json!({ "ok": true, "body": [1] }));
     let line: Value =
-        serde_json::from_str(&answer_line(&Err(Failure::TimedOut("/api/runs".into())))).unwrap();
-    assert_eq!(line, json!({ "ok": false, "error": { "kind": "timed_out", "path": "/api/runs" } }));
+        serde_json::from_str(&answer_line(&Err(Failure::TimedOut("cloud.runs".into())))).unwrap();
+    assert_eq!(
+        line,
+        json!({ "ok": false, "error": { "kind": "timed_out", "path": "cloud.runs" } })
+    );
     let line: Value =
         serde_json::from_str(&answer_line(&Err(Failure::http(409, Some("c".into()), None))))
             .unwrap();
@@ -1212,8 +1012,8 @@ fn a_sandboxed_runs_longest_wait_is_its_whole_bound() {
     let sandbox =
         request("https://cmux.com", Auth::Stack, "runs.sandbox", json!({ "timeoutMs": 1_000_000 }));
     assert_eq!(longest(&sandbox), Duration::from_millis(1_000_000 + 180_000 + 60_000));
-    let cancel = request("https://cmux.com", Auth::Stack, "runs.cancel", json!({ "id": "r" }));
-    assert_eq!(longest(&cancel), Duration::from_secs(960));
+    let handoffs = request("https://cmux.com", Auth::Owner, "owner.handoffs", json!({}));
+    assert_eq!(longest(&handoffs), Duration::from_secs(960));
 }
 
 #[test]
@@ -1256,8 +1056,7 @@ fn a_keyed_start_refusal_that_echoes_the_key_carries_no_service_text() {
 fn an_answer_over_the_limit_is_refused_while_it_is_read() {
     let big = format!(r#"{{"networks":"{}"}}"#, "x".repeat(MAX_ANSWER_BYTES));
     let (origin, _seen) = fake(move |_| ok(&big));
-    let failure =
-        go(&request(&origin, Auth::Stack, "runs.cancel", json!({ "id": "r" }))).unwrap_err();
+    let failure = go(&request(&origin, Auth::Owner, "owner.handoffs", json!({}))).unwrap_err();
     assert!(
         matches!(&failure, Failure::Transport(message) if message.contains("larger than")),
         "{failure:?}"
@@ -1266,7 +1065,7 @@ fn an_answer_over_the_limit_is_refused_while_it_is_read() {
 
 #[test]
 fn a_success_is_never_scrubbed_whatever_its_field_order() {
-    let call = request("https://cmux.com", Auth::Stack, "runs.cancel", json!({ "id": "r" }));
+    let call = request("https://cmux.com", Auth::Owner, "owner.handoffs", json!({}));
     let line = answer_line(&Ok(json!({ "note": "access" })));
     assert_eq!(scrub(line.clone(), &call), line);
     let refusal = answer_line(&Err(Failure::Transport("echo access".into())));
@@ -1365,19 +1164,6 @@ fn owner_handoffs_stops_at_the_answer_limit() {
     assert_eq!(seen.lock().unwrap().len(), 3, "refused at the page that passed the limit");
 }
 
-#[test]
-fn a_run_start_that_is_not_one_is_refused_as_it_is_and_sends_nothing() {
-    let (origin, seen) = fake(|_| ok(r#"{"id":"run_1"}"#));
-    for args in [json!({ "idempotencyKey": "k" }), json!({ "task": "hi" })] {
-        let failure = go(&request(&origin, Auth::Stack, "runs.start", args)).unwrap_err();
-        assert!(
-            matches!(&failure, Failure::Transport(message) if message.starts_with("the call needs")),
-            "{failure:?}"
-        );
-    }
-    assert!(seen.lock().unwrap().is_empty());
-}
-
 // MARK: review follow-ups (#37526)
 
 #[test]
@@ -1419,4 +1205,590 @@ fn a_preview_refusal_is_read_within_the_calls_one_deadline() {
         .unwrap_err();
         assert_eq!(failure, Failure::http(500, None, None));
     });
+}
+
+// MARK: chat access and Share with Me (cmux-platform /v1/machines/{id}/chat-grants)
+
+const ACCESS_NONE: &str = r#"{"machineId":"vm_team","creator":"user_owner","chatStart":"none","canShare":false,"grants":[]}"#;
+const ACCESS_GRANTED: &str = r#"{"machineId":"vm_team","creator":"user_owner","chatStart":"granted","canShare":false,"grants":[]}"#;
+const ACCESS_ADMIN: &str = r#"{"machineId":"vm_team","creator":"user_owner","chatStart":"granted","canShare":true,"grants":["user_me"]}"#;
+const NOT_CREATOR: &str = r#"{"_tag":"MachineForbidden","code":"machine.creator_or_admin","message":"not allowed to share_chat this"}"#;
+
+fn share(origin: &str, args: Value) -> Request {
+    let mut call = request(origin, Auth::Worker, "machine.share_chat", args);
+    call.team = Some("team_1".into());
+    call
+}
+
+#[test]
+fn a_share_puts_the_grant_on_the_platform_with_the_persons_session_and_team() {
+    let (origin, seen) = fake(|_| ok(ACCESS_ADMIN));
+    let answer = go(&share(&origin, json!({ "machine": "vm_team", "user": "user_me" }))).unwrap();
+    assert_eq!(answer["chatStart"], "granted");
+    assert_eq!(answer["grants"], json!(["user_me"]));
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.len(), 1);
+    assert_eq!(seen[0].target(), "PUT /v1/machines/vm_team/chat-grants/user_me");
+    assert_eq!(seen[0].header("authorization").as_deref(), Some("Bearer access"));
+    assert_eq!(seen[0].header("x-cmux-team").as_deref(), Some("team_1"));
+}
+
+#[test]
+fn a_revoke_deletes_the_grant() {
+    let (origin, seen) = fake(|_| ok(ACCESS_NONE));
+    let call = share(&origin, json!({ "machine": "vm_team", "user": "user_mate", "revoke": true }));
+    assert_eq!(go(&call).unwrap()["chatStart"], "none");
+    assert_eq!(
+        seen.lock().unwrap()[0].target(),
+        "DELETE /v1/machines/vm_team/chat-grants/user_mate"
+    );
+}
+
+#[test]
+fn the_chat_access_is_the_callers() {
+    let (origin, seen) = fake(|_| ok(ACCESS_GRANTED));
+    let call =
+        request(&origin, Auth::Worker, "machine.chat_access", json!({ "machine": "vm_team" }));
+    assert_eq!(go(&call).unwrap()["chatStart"], "granted");
+    assert_eq!(seen.lock().unwrap()[0].target(), "GET /v1/machines/vm_team/chat-access");
+}
+
+#[test]
+fn share_with_me_by_a_member_is_refused_with_its_code_and_asks_the_owner() {
+    let (origin, seen) = fake(|s| {
+        if s.line.starts_with("PUT") { Some((403, NOT_CREATOR.into())) } else { ok(ACCESS_NONE) }
+    });
+    let failure =
+        go(&share(&origin, json!({ "machine": "vm_team", "user": "user_me", "me": true })))
+            .unwrap_err();
+    assert_eq!(
+        failure,
+        Failure::http(
+            403,
+            Some("machine.creator_or_admin".into()),
+            Some("not allowed to share_chat this".into())
+        )
+    );
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen[1].target(), "GET /v1/machines/vm_team/chat-access");
+}
+
+#[test]
+fn share_with_me_after_the_owner_shared_answers_the_access() {
+    let (origin, _seen) = fake(|s| {
+        if s.line.starts_with("PUT") { Some((403, NOT_CREATOR.into())) } else { ok(ACCESS_GRANTED) }
+    });
+    let answer =
+        go(&share(&origin, json!({ "machine": "vm_team", "user": "user_me", "me": true })))
+            .unwrap();
+    assert_eq!(answer["chatStart"], "granted");
+}
+
+#[test]
+fn a_teammates_share_refusal_never_reads_the_callers_access() {
+    let (origin, seen) = fake(|s| {
+        if s.line.starts_with("PUT") { Some((403, NOT_CREATOR.into())) } else { ok(ACCESS_GRANTED) }
+    });
+    let failure =
+        go(&share(&origin, json!({ "machine": "vm_team", "user": "user_mate" }))).unwrap_err();
+    assert!(matches!(failure, Failure::Http { status: 403, .. }));
+    assert_eq!(seen.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn a_private_machine_refusal_keeps_its_code() {
+    let (origin, seen) = fake(|_| {
+        Some((403, r#"{"_tag":"MachineForbidden","code":"machine.private","message":"no"}"#.into()))
+    });
+    let failure =
+        go(&share(&origin, json!({ "machine": "vm_team", "user": "user_me", "me": true })))
+            .unwrap_err();
+    assert!(
+        matches!(failure, Failure::Http { status: 403, code: Some(c), .. } if c == "machine.private")
+    );
+    assert_eq!(seen.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn a_chat_grant_call_is_refused_before_any_request_on_stack_or_a_bad_id() {
+    let (origin, seen) = fake(|_| ok(ACCESS_ADMIN));
+    let mut call = share(&origin, json!({ "machine": "vm_team", "user": "user_me" }));
+    call.auth = Auth::Stack;
+    assert!(matches!(go(&call), Err(Failure::Http { status: 501, .. })));
+    for args in [
+        json!({ "machine": "../v1/teams", "user": "user_me" }),
+        json!({ "machine": "vm_team", "user": "user_me/../x" }),
+        json!({ "machine": "vm_team", "user": "" }),
+        json!({ "machine": "vm_team", "user": "user_me", "me": true, "revoke": true }),
+    ] {
+        assert!(matches!(go(&share(&origin, args)), Err(Failure::Transport(_))));
+    }
+    assert!(seen.lock().unwrap().is_empty());
+}
+
+// MARK: turn checkpoints ("back to before this turn")
+
+mod turn_checkpoints {
+    use std::future::Future;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use super::super::turns::{self, Pace, auto_turn_seq, refusal, retryable};
+    use super::*;
+
+    const CARRIER: &str = "vm_carrier0000000000001";
+    const RESTORED: &str = "vm_restored000000000001";
+
+    fn fast() -> Pace {
+        Pace { pause: Duration::from_millis(10), deadline: Duration::from_secs(5) }
+    }
+
+    fn block<T>(future: impl Future<Output = T>) -> T {
+        tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(future)
+    }
+
+    fn capture(session: &str, turn: &str, created: i64) -> Value {
+        json!({
+            "id": format!("cap-{turn}"), "workspace": "ws-1", "session": session, "turn": turn,
+            "machineId": "wm-1", "machineGeneration": 1, "snapshotId": format!("snap-{session}-{turn}"),
+            "status": "ready", "createdAt": created, "updatedAt": created,
+        })
+    }
+
+    fn connection(generation: i64, carrier: &str) -> Reply {
+        ok(&json!({ "machineId": "wm-1", "generation": generation, "provider": "clouddo", "connectionMachine": carrier }).to_string())
+    }
+
+    fn ready(generation: i64) -> Reply {
+        ok(&json!({ "id": "cap-1", "snapshotId": "snap-1", "status": "ready", "machineGeneration": generation }).to_string())
+    }
+
+    fn args(extra: Value) -> Value {
+        let mut base =
+            json!({ "workspace": "ws-1", "session": "sess-1", "turnSeq": 4, "clientKey": "ck-1" });
+        if let (Some(base), Value::Object(extra)) = (base.as_object_mut(), extra) {
+            base.extend(extra);
+        }
+        base
+    }
+
+    #[test]
+    fn a_first_checkpoint_binds_the_chats_machine_then_snapshots_and_finishes() {
+        let connections = Arc::new(AtomicUsize::new(0));
+        let reads = Arc::clone(&connections);
+        let (origin, seen) = fake(move |s| match s.target().as_str() {
+            "GET /v1/workspaces/ws-1/machine/connection" => {
+                if reads.fetch_add(1, Ordering::SeqCst) == 0 {
+                    Some((404, r#"{"_tag":"MachineNotFound","code":"workspace_machine.not_found","message":"this workspace has no machine"}"#.into()))
+                } else {
+                    connection(0, CARRIER)
+                }
+            }
+            "POST /v1/workspaces/ws-1/machine/import" => connection(0, CARRIER),
+            "POST /v1/workspaces/ws-1/machine/turns/auto-t4-g0/snapshot" => ready(0),
+            "POST /v1/workspaces/ws-1/machine/turns/auto-t4-g0/finish" => ready(0),
+            "GET /v1/workspaces/ws-1/machine/turns" => ok(r#"{"captures":[]}"#),
+            _ => Some((500, "{}".into())),
+        });
+        let answer = go(&request(
+            &origin,
+            Auth::Owner,
+            "owner.turn_checkpoint",
+            args(json!({ "carrierMachine": CARRIER })),
+        ))
+        .unwrap();
+        assert_eq!(answer["turn"], "auto-t4-g0");
+        assert_eq!(answer["snapshotId"], "snap-1");
+        assert_eq!(answer["imported"], true);
+        assert_eq!(answer["machineId"], "wm-1");
+        assert_eq!(answer["generation"], 0);
+        let seen = seen.lock().unwrap();
+        let targets: Vec<String> = seen.iter().map(Seen::target).collect();
+        assert_eq!(
+            targets,
+            [
+                "GET /v1/workspaces/ws-1/machine/connection",
+                "POST /v1/workspaces/ws-1/machine/import",
+                "GET /v1/workspaces/ws-1/machine/connection",
+                "POST /v1/workspaces/ws-1/machine/turns/auto-t4-g0/snapshot",
+                "POST /v1/workspaces/ws-1/machine/turns/auto-t4-g0/finish",
+                "GET /v1/workspaces/ws-1/machine/turns",
+            ]
+        );
+        assert_eq!(
+            seen[1].json(),
+            json!({ "carrierMachine": CARRIER, "expectedGeneration": 0, "clientKey": "ck-1-import" })
+        );
+        assert_eq!(seen[1].header("authorization").as_deref(), Some("Bearer access"));
+    }
+
+    #[test]
+    fn a_checkpoint_fences_on_the_live_machine_and_generation() {
+        let (origin, seen) = fake(|s| match s.target().as_str() {
+            "GET /v1/workspaces/ws-1/machine/connection" => connection(3, RESTORED),
+            "POST /v1/workspaces/ws-1/machine/turns/auto-t4-g3/snapshot"
+            | "POST /v1/workspaces/ws-1/machine/turns/auto-t4-g3/finish" => ready(3),
+            "GET /v1/workspaces/ws-1/machine/turns" => ok(r#"{"captures":[]}"#),
+            _ => Some((500, "{}".into())),
+        });
+        let answer = go(&request(
+            &origin,
+            Auth::Owner,
+            "owner.turn_checkpoint",
+            args(json!({ "carrierMachine": CARRIER })),
+        ))
+        .unwrap();
+        assert_eq!(answer["imported"], false);
+        assert_eq!(answer["generation"], 3);
+        assert_eq!(answer["connectionMachine"], RESTORED);
+        let seen = seen.lock().unwrap();
+        assert_eq!(
+            seen[1].json(),
+            json!({ "session": "sess-1", "clientKey": "ck-1-g3", "expectedMachine": "wm-1", "expectedGeneration": 3 })
+        );
+        assert_eq!(answer["turn"], "auto-t4-g3");
+        assert_eq!(seen[2].target(), "POST /v1/workspaces/ws-1/machine/turns/auto-t4-g3/finish");
+        assert_eq!(
+            seen[2].json(),
+            json!({ "session": "sess-1", "expectedMachine": "wm-1", "expectedGeneration": 3 })
+        );
+    }
+
+    #[test]
+    fn a_workspace_with_no_machine_and_no_carrier_is_the_platforms_refusal() {
+        let (origin, seen) = fake(|_| {
+            Some((404, r#"{"_tag":"MachineNotFound","code":"workspace_machine.not_found","message":"no machine"}"#.into()))
+        });
+        let answer = go(&request(&origin, Auth::Owner, "owner.turn_checkpoint", args(json!({}))));
+        assert_eq!(
+            answer,
+            Err(Failure::http(
+                404,
+                Some("workspace_machine.not_found".into()),
+                Some("no machine".into())
+            ))
+        );
+        assert_eq!(seen.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_refused_snapshot_is_answered_at_once_and_never_finished() {
+        let (origin, seen) = fake(|s| {
+            match s.target().as_str() {
+            "GET /v1/workspaces/ws-1/machine/connection" => connection(1, CARRIER),
+            _ => Some((503, r#"{"_tag":"MachineUnavailable","code":"machine.snapshot_unsupported","message":"no turns here"}"#.into())),
+        }
+        });
+        let answer = go(&request(&origin, Auth::Owner, "owner.turn_checkpoint", args(json!({}))));
+        assert_eq!(
+            answer,
+            Err(Failure::http(
+                503,
+                Some("machine.snapshot_unsupported".into()),
+                Some("no turns here".into())
+            ))
+        );
+        assert_eq!(seen.lock().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn a_rewind_retries_the_same_key_while_the_restore_is_pending() {
+        let rewinds = Arc::new(AtomicUsize::new(0));
+        let tries = Arc::clone(&rewinds);
+        let reads = Arc::new(AtomicUsize::new(0));
+        let reads_seen = Arc::clone(&reads);
+        let (origin, seen) = fake(move |s| match s.target().as_str() {
+            "GET /v1/workspaces/ws-1/machine/connection" => {
+                if reads_seen.fetch_add(1, Ordering::SeqCst) == 0 {
+                    connection(2, CARRIER)
+                } else {
+                    connection(3, RESTORED)
+                }
+            }
+            "GET /v1/workspaces/ws-1/machine/turns" => ok(&json!({ "captures": [
+                capture("sess-1", "auto-t4-g0", 100), capture("sess-1", "auto-t4-g1", 300),
+                capture("sess-2", "auto-t4-g2", 900), capture("sess-1", "auto-t5-g2", 800),
+            ]})
+            .to_string()),
+            "POST /v1/workspaces/ws-1/machine/turns/auto-t4-g1/rewind" => {
+                if tries.fetch_add(1, Ordering::SeqCst) < 2 {
+                    Some((503, r#"{"_tag":"MachineUnavailable","code":"machine.turn_restore_pending","message":"retry"}"#.into()))
+                } else {
+                    ok(r#"{"machine":{"id":"wm-1"},"capture":{},"generation":3,"rewindId":"rw-1"}"#)
+                }
+            }
+            _ => Some((500, "{}".into())),
+        });
+        let request = request(&origin, Auth::Owner, "owner.turn_rewind", args(json!({})));
+        let http = Http::new(&request).unwrap();
+        let answer = block(turns::rewind(&http, &request.args, fast())).unwrap();
+        assert_eq!(answer["generation"], 3);
+        assert_eq!(answer["connectionMachine"], RESTORED);
+        assert_eq!(answer["rewindId"], "rw-1");
+        assert_eq!(
+            answer["turn"], "auto-t4-g1",
+            "the newest checkpoint before turn 4 of this session"
+        );
+        assert_eq!(rewinds.load(Ordering::SeqCst), 3);
+        let seen = seen.lock().unwrap();
+        let bodies: Vec<Value> =
+            seen.iter().filter(|s| s.line.contains("/rewind")).map(Seen::json).collect();
+        let want = json!({ "session": "sess-1", "clientKey": "ck-1", "expectedMachine": "wm-1", "expectedGeneration": 2 });
+        assert!(bodies.iter().all(|b| *b == want), "{bodies:?}");
+    }
+
+    #[test]
+    fn a_rewind_takes_the_checkpoint_nearest_before_the_prompt() {
+        let (origin, seen) = fake(|s| match s.target().as_str() {
+            "GET /v1/workspaces/ws-1/machine/connection" => connection(2, CARRIER),
+            "GET /v1/workspaces/ws-1/machine/turns" => ok(&json!({ "captures": [
+                capture("sess-1", "auto-t3-g0", 100), capture("sess-1", "auto-t7-g1", 300),
+                capture("sess-1", "auto-t12-g2", 900), capture("sess-2", "auto-t9-g2", 950),
+            ]})
+            .to_string()),
+            target if target.ends_with("/rewind") => ok(r#"{"generation":3,"rewindId":"rw-2"}"#),
+            _ => Some((500, "{}".into())),
+        });
+        let request =
+            request(&origin, Auth::Owner, "owner.turn_rewind", args(json!({ "turnSeq": 10 })));
+        let answer = go(&request).unwrap();
+        assert_eq!(answer["turn"], "auto-t7-g1");
+        let seen = seen.lock().unwrap();
+        assert!(
+            seen.iter()
+                .any(|s| s.target() == "POST /v1/workspaces/ws-1/machine/turns/auto-t7-g1/rewind")
+        );
+    }
+
+    #[test]
+    fn a_rewind_refused_for_good_is_not_retried() {
+        let (origin, seen) = fake(|s| {
+            match s.target().as_str() {
+            "GET /v1/workspaces/ws-1/machine/connection" => connection(2, CARRIER),
+            "GET /v1/workspaces/ws-1/machine/turns" => {
+                ok(&json!({ "captures": [capture("sess-1", "auto-t4-g1", 1)] }).to_string())
+            }
+            _ => Some((400, r#"{"_tag":"MachineBadRequest","code":"machine.turn_generation_conflict","message":"stale"}"#.into())),
+        }
+        });
+        let request = request(&origin, Auth::Owner, "owner.turn_rewind", args(json!({})));
+        let http = Http::new(&request).unwrap();
+        let answer = block(turns::rewind(&http, &request.args, fast()));
+        assert_eq!(
+            answer,
+            Err(Failure::http(
+                400,
+                Some("machine.turn_generation_conflict".into()),
+                Some("stale".into())
+            ))
+        );
+        assert_eq!(seen.lock().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn a_rewind_to_a_turn_with_no_checkpoint_is_refused_before_any_rewind() {
+        let (origin, seen) = fake(|s| match s.target().as_str() {
+            "GET /v1/workspaces/ws-1/machine/connection" => connection(2, CARRIER),
+            "GET /v1/workspaces/ws-1/machine/turns" => {
+                ok(&json!({ "captures": [capture("sess-2", "auto-t4-g1", 1)] }).to_string())
+            }
+            _ => Some((500, "{}".into())),
+        });
+        let answer = go(&request(&origin, Auth::Owner, "owner.turn_rewind", args(json!({}))));
+        assert!(
+            matches!(answer, Err(Failure::Http { status: 404, code: Some(ref c), .. }) if c == "machine.turn_capture_not_found")
+        );
+        assert!(seen.lock().unwrap().iter().all(|s| !s.line.contains("/rewind")));
+    }
+
+    #[test]
+    fn retention_deletes_only_this_sessions_oldest_automatic_checkpoints() {
+        let (origin, seen) = fake(|s| match s.target().as_str() {
+            "GET /v1/workspaces/ws-1/machine/connection" => connection(1, CARRIER),
+            "POST /v1/workspaces/ws-1/machine/turns/auto-t4-g1/snapshot"
+            | "POST /v1/workspaces/ws-1/machine/turns/auto-t4-g1/finish" => ready(1),
+            "GET /v1/workspaces/ws-1/machine/turns" => ok(&json!({ "captures": [
+                capture("sess-1", "auto-t2-g1", 200),
+                capture("sess-1", "auto-t1-g0", 100),
+                capture("sess-1", "auto-t4-g1", 400),
+                capture("sess-2", "auto-t1-g0", 50),
+                capture("sess-1", "manual-checkpoint", 10),
+            ]})
+            .to_string()),
+            target if target.starts_with("DELETE /v1/workspaces/ws-1/machine/turns/") => {
+                ok(r#"{"deleted":true}"#)
+            }
+            _ => Some((500, "{}".into())),
+        });
+        let request = request(&origin, Auth::Owner, "owner.turn_checkpoint", args(json!({})));
+        let http = Http::new(&request).unwrap();
+        let answer = block(turns::checkpoint(&http, &request.args, fast(), Some(2))).unwrap();
+        assert_eq!(
+            answer["retention"],
+            json!({ "kept": 2, "deleted": ["auto-t1-g0"], "failed": [] })
+        );
+        let seen = seen.lock().unwrap();
+        let deletes: Vec<String> =
+            seen.iter().map(Seen::target).filter(|t| t.starts_with("DELETE")).collect();
+        assert_eq!(deletes, ["DELETE /v1/workspaces/ws-1/machine/turns/auto-t1-g0?session=sess-1"]);
+    }
+
+    #[test]
+    fn retention_off_or_a_refused_delete_never_fails_the_checkpoint() {
+        let (origin, seen) = fake(|s| {
+            match s.target().as_str() {
+            "GET /v1/workspaces/ws-1/machine/connection" => connection(1, CARRIER),
+            "POST /v1/workspaces/ws-1/machine/turns/auto-t4-g1/snapshot"
+            | "POST /v1/workspaces/ws-1/machine/turns/auto-t4-g1/finish" => ready(1),
+            "GET /v1/workspaces/ws-1/machine/turns" => ok(&json!({ "captures": [
+                capture("sess-1", "auto-t4-g1", 400), capture("sess-1", "auto-t3-g1", 300),
+            ]}).to_string()),
+            _ => Some((404, r#"{"_tag":"MachineNotFound","code":"machine.snapshot_not_found","message":"no snapshot"}"#.into())),
+        }
+        });
+        let request = request(&origin, Auth::Owner, "owner.turn_checkpoint", args(json!({})));
+        let http = Http::new(&request).unwrap();
+        let answer = block(turns::checkpoint(&http, &request.args, fast(), Some(1))).unwrap();
+        assert_eq!(answer["retention"]["deleted"], json!([]));
+        assert_eq!(answer["retention"]["failed"][0]["turn"], "auto-t3-g1");
+        assert_eq!(answer["retention"]["failed"][0]["error"]["status"], 404);
+        let off = block(turns::checkpoint(&http, &request.args, fast(), None)).unwrap();
+        assert_eq!(off["retention"], json!({ "kept": null, "deleted": [], "failed": [] }));
+        let lists =
+            seen.lock().unwrap().iter().filter(|s| s.target().ends_with("/machine/turns")).count();
+        assert_eq!(lists, 1, "retention off reads no list");
+    }
+
+    #[test]
+    fn the_turns_list_answers_ready_checkpoints_newest_first() {
+        let (origin, _) = fake(|_| {
+            let mut capturing = capture("sess-1", "auto-t9-g1", 900);
+            capturing["status"] = json!("capturing");
+            ok(&json!({ "machineId": "wm-1", "generation": 1, "revision": 4, "gate": { "phase": "idle" },
+                "captures": [capture("sess-1", "auto-t2-g1", 200), capture("sess-1", "auto-t5-g1", 500), capturing, capture("sess-2", "x", 1)] })
+            .to_string())
+        });
+        let answer = go(&request(
+            &origin,
+            Auth::Owner,
+            "owner.turns",
+            json!({ "workspace": "ws-1", "session": "sess-1" }),
+        ))
+        .unwrap();
+        let turns: Vec<&str> = answer["captures"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["turn"].as_str().unwrap())
+            .collect();
+        assert_eq!(turns, ["auto-t5-g1", "auto-t2-g1"]);
+        assert_eq!(answer["captures"][0]["turnSeq"], 5);
+        assert_eq!(answer["captures"][0]["snapshotId"], "snap-sess-1-auto-t5-g1");
+    }
+
+    #[test]
+    fn bad_ids_are_refused_before_any_request() {
+        let (origin, seen) = fake(|_| ok("{}"));
+        for (call, bad) in [
+            ("owner.turn_checkpoint", json!({ "workspace": "ws/../x" })),
+            ("owner.turn_checkpoint", json!({ "turnSeq": 0 })),
+            ("owner.turn_checkpoint", json!({ "clientKey": "a b" })),
+            ("owner.turn_checkpoint", json!({ "carrierMachine": "vm_short" })),
+            ("owner.turn_rewind", json!({ "session": "s/x" })),
+            ("owner.turns", json!({ "workspace": "" })),
+        ] {
+            assert!(
+                matches!(
+                    go(&request(&origin, Auth::Owner, call, args(bad.clone()))),
+                    Err(Failure::Transport(_))
+                ),
+                "{call} {bad}"
+            );
+        }
+        assert!(seen.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_engines_turn_ids_and_the_retryable_answers() {
+        assert_eq!(auto_turn_seq("auto-t12-g0"), Some(12));
+        assert_eq!(auto_turn_seq("auto-t12-g7"), Some(12));
+        for not_ours in [
+            "auto-t12",
+            "auto-t-g1",
+            "auto-t0-g1",
+            "auto-t01-g1",
+            "auto-t1-g01",
+            "auto-t1-g",
+            "t12-g1",
+            "auto-t1x-g1",
+            "manual",
+        ] {
+            assert_eq!(auto_turn_seq(not_ours), None, "{not_ours}");
+        }
+        let pending = refusal(
+            503,
+            Some(
+                &json!({ "_tag": "MachineUnavailable", "code": "machine.turn_restore_pending", "message": "m" }),
+            ),
+        );
+        assert!(retryable(&pending));
+        let worker = refusal(
+            503,
+            Some(&json!({ "error": { "code": "machine.rewind_pause_pending", "message": "m" } })),
+        );
+        assert!(retryable(&worker));
+        assert!(retryable(&Failure::http(502, None, None)));
+        assert!(!retryable(&Failure::http(503, Some("machine.rewind_not_admitted".into()), None)));
+        assert!(!retryable(&Failure::http(
+            404,
+            Some("machine.turn_capture_not_found".into()),
+            None
+        )));
+    }
+
+    /// Every code of cmux-platform's refusal table (cmux-platform#1192) as a turn's step
+    /// handles it: the body's `retryable` decides (a busy machine's 409 and an outage's 503 are
+    /// sent again, a cap's 403 and a final 503 are not), and a rate limit's 429 is retried too.
+    #[test]
+    fn every_platform_refusal_is_retried_as_its_body_says() {
+        use cmux_cloud_machine::refusals::{Handling, PLATFORM};
+        for row in PLATFORM {
+            let body = json!({
+                "_tag": "MachineRefusal", "code": row.code, "message": "m",
+                "retryable": row.retryable,
+            });
+            assert_eq!(
+                retryable(&refusal(row.status, Some(&body))),
+                row.handling() != Handling::Final,
+                "{} {}",
+                row.status,
+                row.code
+            );
+        }
+        // An outage on a workspace machine route: #1192's MachineUnavailable says retry.
+        let outage = json!({
+            "_tag": "MachineUnavailable", "code": "machine.placement_unavailable",
+            "message": "Placement could not finish. Retry with the same client key.",
+            "retryable": true, "cause": "cloud.provider.unavailable: down",
+        });
+        assert!(retryable(&refusal(503, Some(&outage))));
+        // A rate limit waits its own window, not the pace's pause.
+        let limited = refusal(
+            429,
+            Some(&json!({
+                "_tag": "MachineRateLimited", "code": "cloud.rate_limited", "message": "m",
+                "retryable": true, "retryAfterSeconds": 3,
+            })),
+        );
+        assert_eq!(turns::wait(&limited, fast()), Duration::from_secs(3));
+        assert_eq!(turns::wait(&Failure::http(503, None, None), fast()), fast().pause);
+        // A 429 whose window is only in its Retry-After header waits that window, not the default.
+        let header_only = turns::refusal_with(
+            429,
+            Some(
+                &json!({ "_tag": "MachineRateLimited", "code": "cloud.rate_limited", "retryable": true }),
+            ),
+            Some("120"),
+        );
+        assert_eq!(turns::wait(&header_only, fast()), Duration::from_secs(120));
+    }
 }

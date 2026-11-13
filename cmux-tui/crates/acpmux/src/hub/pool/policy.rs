@@ -50,6 +50,13 @@ pub struct PoolKey {
     /// starts (`suggestions_at_start`); `None` for a harness that reads none. A change since
     /// leaves the key unmatched, so the entry is discarded, never served under the old switch.
     pub prompt_suggestions: Option<bool>,
+    /// The model a Claude Code agent was started on (its `--model`, `started_on`); `None` for
+    /// its own default or a harness whose model is in `args` or set after start. A chat that
+    /// asked for another model never takes it: Claude Code cannot switch a new session's model
+    /// without a slow check (`profile_takes_model_at_spawn`), so a mismatch ran the older model.
+    pub model: Option<String>,
+    /// The effort a Claude Code agent was started on (its `--effort`), as `model`.
+    pub effort: Option<String>,
 }
 
 impl PoolKey {

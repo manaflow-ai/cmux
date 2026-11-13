@@ -6,9 +6,10 @@ public import Foundation
 extension PageDescriptor {
     /// The server cards (webviews/src/pages/server-cards): cmux-page://cmux.server-cards/, one card
     /// per route in one floating ``WebCardPanel`` (and the server panel's routes in the menu bar
-    /// item's popover). A new card adds its ops' prefix here.
+    /// item's popover). A new card adds its ops' prefix here (`cmux.app.health.`: the app health
+    /// popover, `#/app-health`, served by the App's AppHealthCard).
     public static let serverCards = PageDescriptor(id: "cmux.server-cards", resource: "server-cards",
-                                                   namespaces: ["cmux.card.", "cmux.pairInvite.", "cmux.addMachine.", "cmux.server."])
+                                                   namespaces: ["cmux.card.", "cmux.pairInvite.", "cmux.addMachine.", "cmux.server.", "cmux.app.health."])
 }
 
 /// "Pair Another Machine…" on the server card page (`#/pair-invite`, webviews/src/pages/server-cards):
