@@ -5,8 +5,8 @@
 //! fingerprint.
 
 use std::io::{BufReader, Write};
-use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::path::Path;
+use std::time::Instant;
 
 use cmux_tui_core::platform::transport;
 use cmux_tui_core::resource::{MAX_MESSAGE_BYTES, PROTOCOL, ResourceOperation, ResponseEnvelope};
@@ -17,6 +17,13 @@ use super::command::{RequestPlan, Resolve, ZoomStep, random_prefixed};
 use super::wire::{print_local_error, print_operation_error, random_request_id, read_envelope};
 use super::{GlobalArgs, OutputMode};
 use cmux_json::JsonSet as _;
+
+mod caller;
+
+#[cfg(unix)]
+use caller::caller_identity;
+use caller::{caller_path, registered_caller_workspace};
+pub(super) use caller::{place_creation, workspace_key_path};
 
 type Reader = BufReader<Box<dyn transport::Stream>>;
 
@@ -81,27 +88,74 @@ impl Failure {
 }
 
 /// The session socket a request's connection reached, so a lookup can open
-/// a second connection to the same daemon.
+/// a second connection to the same daemon, and the app that owns that
+/// daemon, which knows where an agent session's chat is (`system.identify`).
+/// Only that app places a caller: a Cloud Chief turn reaches the person's
+/// Mac app over a relay while its daemon is the VM's, where the Mac's ids
+/// name nothing (https://github.com/manaflow-ai/cmux/issues/25590).
 pub(super) struct SocketRoute<'a> {
     pub(super) path: &'a Path,
     pub(super) derived: bool,
-    /// The control socket of the app that owns this daemon, which knows
-    /// where an agent session's chat is (`system.identify`).
-    #[cfg_attr(not(unix), allow(dead_code))]
-    pub(super) app: Option<PathBuf>,
+    #[cfg(unix)]
+    global: &'a GlobalArgs,
+    /// The owning app's answer about this caller, asked at most once per
+    /// request and only by a request that needs it; `None` inside: no app
+    /// owns this daemon.
+    #[cfg(unix)]
+    answer: std::cell::OnceCell<Option<AppAnswer>>,
+}
+
+/// What the owning app said to one `system.identify`.
+#[cfg(unix)]
+enum AppAnswer {
+    Identity(Value),
+    /// The app does not answer on its socket (down, restarting, slow).
+    Unreachable(String),
+    Refused(Value),
 }
 
 impl<'a> SocketRoute<'a> {
-    /// The route of a request on `path`, with the app that owns that daemon.
-    pub(super) fn new(path: &'a Path, derived: bool, global: &GlobalArgs) -> Self {
-        #[cfg(unix)]
-        let app = super::frontend_browser::owning_app_socket(global, path);
+    /// The route of a request of `global` on the session socket `path`.
+    pub(super) fn new(path: &'a Path, derived: bool, global: &'a GlobalArgs) -> Self {
         #[cfg(not(unix))]
-        let app = {
-            let _ = global;
-            None
+        let _ = global;
+        Self {
+            path,
+            derived,
+            #[cfg(unix)]
+            global,
+            #[cfg(unix)]
+            answer: std::cell::OnceCell::new(),
+        }
+    }
+
+    /// The owning app's `system.identify` answer (the CLI names its caller
+    /// in the request, app.rs `with_caller`); `None` when no app owns this
+    /// daemon, as on a Cloud machine or in a plain cmux-tui session.
+    #[cfg(unix)]
+    fn app_answer(&self) -> Option<&AppAnswer> {
+        let ask = || {
+            let app = super::frontend_browser::owning_app_socket(self.global, self.path)?;
+            let reply = super::app::connect(&app).and_then(|mut stream| {
+                super::app::request(&mut stream, "system.identify", json!({}), APP_IDENTIFY_WAIT)
+            });
+            Some(match reply {
+                Ok(Ok(identity)) => AppAnswer::Identity(identity),
+                Ok(Err(error)) => AppAnswer::Refused(error),
+                Err(message) => AppAnswer::Unreachable(message),
+            })
         };
-        Self { path, derived, app }
+        self.answer.get_or_init(ask).as_ref()
+    }
+
+    /// The owning app's identity answer, or `None` when no app owns this
+    /// daemon or it does not answer: the request then goes on without it.
+    #[cfg(unix)]
+    pub(super) fn identity(&self) -> Option<&Value> {
+        match self.app_answer()? {
+            AppAnswer::Identity(identity) => Some(identity),
+            AppAnswer::Unreachable(_) | AppAnswer::Refused(_) => None,
+        }
     }
 }
 
@@ -175,7 +229,7 @@ pub(super) fn apply(
                     && super::caller_browser::wants(params)
                     && let Some(identity) = caller_identity(socket)
                 {
-                    super::caller_browser::apply(params, &identity).map_err(Failure::Resource)?;
+                    super::caller_browser::apply(params, identity).map_err(Failure::Resource)?;
                 }
                 caller_scopes(params, caller_route, || caller_path(reader, &route, socket))?;
             }
@@ -290,44 +344,6 @@ pub(super) fn route(params: &Map<String, Value>) -> Map<String, Value> {
         .into_iter()
         .filter_map(|key| params.get(key).map(|value| (key.to_string(), value.clone())))
         .collect()
-}
-
-/// How long a lookup waits for the caller's terminal to join its workspace.
-const CALLER_TERMINAL_WAIT: Duration = Duration::from_secs(3);
-
-/// The workspace that holds the caller's `terminal`, waiting for the
-/// terminal to be placed ([`registered_caller_path`]).
-fn registered_caller_workspace(
-    reader: &mut Reader,
-    route: &Map<String, Value>,
-    terminal: &str,
-    socket: &SocketRoute<'_>,
-) -> Result<String, Failure> {
-    match registered_caller_path(reader, route, terminal, socket)?.remove("workspace") {
-        Some(Value::String(workspace)) => Ok(workspace),
-        _ => Err(not_in_a_workspace(terminal)),
-    }
-}
-
-/// The lookup found no placed `terminal`; any other miss (an unknown
-/// `--machine`, say) is reported as it is.
-fn is_missing(error: &Value, terminal: &str) -> bool {
-    let details = &error["details"];
-    error.get("code").and_then(Value::as_str) == Some("selector.not_found")
-        && (details["selector"] == terminal || details["terminal"] == terminal)
-}
-
-fn unregistered_terminal(terminal: &str) -> Failure {
-    Failure::Resource(json!({
-        "code": "selector.not_found",
-        "message": format!(
-            "the caller's terminal {terminal} did not join a workspace of this cmux session \
-             within {}s; name one: cmux workspace <workspace> …",
-            CALLER_TERMINAL_WAIT.as_secs()
-        ),
-        "details": {"terminal": terminal},
-        "retryable": false,
-    }))
 }
 
 /// A `session.events` stream of the request's session on its own
@@ -462,144 +478,12 @@ fn caller_scopes(
 
 /// Whether the request stays on this machine: another machine is never the
 /// caller's (`--machine`).
-fn this_machine(params: &Map<String, Value>) -> bool {
+pub(super) fn this_machine(params: &Map<String, Value>) -> bool {
     params.get("machine").and_then(Value::as_str).is_none_or(|machine| machine == "current")
 }
 
-/// The caller's workspace, screen, pane, tab and terminal ids, keyed by
-/// scope, or `None` when nothing names a caller. An agent session's chat is
-/// placed by the app, which reports it in `system.identify`; a terminal
-/// caller (or an agent session no app places) is followed up from its
-/// terminal in the daemon.
-fn caller_path(
-    reader: &mut Reader,
-    route: &Map<String, Value>,
-    socket: &SocketRoute<'_>,
-) -> Result<Option<Map<String, Value>>, Failure> {
-    let env = |key: &str| std::env::var(key).ok().filter(|value| !value.is_empty());
-    #[cfg(unix)]
-    if env("CMUX_AGENT_SESSION").is_some()
-        && let Some(path) = agent_caller_path(socket)?
-    {
-        return Ok(Some(path));
-    }
-    let Some(terminal) = env("CMUX_TUI_TERMINAL_ID") else { return Ok(None) };
-    registered_caller_path(reader, route, &terminal, socket).map(Some)
-}
-
-/// The app's `caller` from `system.identify` (the CLI names the agent
-/// session in it, app.rs `with_caller`). `None` when no app owns this
-/// daemon, as on a Cloud machine, or the app does not place the session.
 #[cfg(unix)]
-fn agent_caller_path(socket: &SocketRoute<'_>) -> Result<Option<Map<String, Value>>, Failure> {
-    let Some(app) = &socket.app else { return Ok(None) };
-    let mut stream = super::app::connect(app).map_err(Failure::Transport)?;
-    let reply = super::app::request(&mut stream, "system.identify", json!({}), APP_IDENTIFY_WAIT);
-    let identity = reply.map_err(Failure::Transport)?.map_err(Failure::Resource)?;
-    let Some(caller) = identity.get("caller").and_then(Value::as_object) else { return Ok(None) };
-    if caller.get("workspace").and_then(Value::as_str).is_none() {
-        return Ok(None);
-    }
-    let mut path = Map::new();
-    for (scope, field) in [
-        ("workspace", "workspace"),
-        ("screen", "screen"),
-        ("pane", "pane"),
-        ("tab", "tab"),
-        ("terminal", "terminal_id"),
-    ] {
-        if let Some(id) = caller.get(field).filter(|id| id.is_string()) {
-            path.insert(scope.into(), id.clone());
-        }
-    }
-    Ok(Some(path))
-}
-
-/// The app's `system.identify` answer for this caller (agent session, Chief
-/// turn or terminal), or `None` when nothing names a caller, no app owns
-/// this daemon, or the app does not answer (down, restarting, slow): the
-/// `current` chain then goes to the daemon as before.
-#[cfg(unix)]
-fn caller_identity(socket: &SocketRoute<'_>) -> Option<Value> {
-    let app = socket.app.as_ref()?;
-    super::app::caller_from(|key| std::env::var(key).ok())?;
-    let mut stream = super::app::connect(app).ok()?;
-    super::app::request(&mut stream, "system.identify", json!({}), APP_IDENTIFY_WAIT).ok()?.ok()
-}
-
-#[cfg(unix)]
-const APP_IDENTIFY_WAIT: Duration = Duration::from_secs(5);
-
-/// [`caller_path_of`], waiting for the caller's terminal to be placed. A
-/// new tab's shell runs before the daemon commits the tab, so a command at
-/// its first prompt can ask for a terminal the daemon does not show yet.
-/// The wait follows the session's event stream on a second connection and
-/// looks again after each event, up to [`CALLER_TERMINAL_WAIT`].
-fn registered_caller_path(
-    reader: &mut Reader,
-    route: &Map<String, Value>,
-    terminal: &str,
-    socket: &SocketRoute<'_>,
-) -> Result<Map<String, Value>, Failure> {
-    match caller_path_of(reader, route, terminal) {
-        Err(Failure::Resource(error)) if is_missing(&error, terminal) => {}
-        settled => return settled,
-    }
-    let deadline = Instant::now() + CALLER_TERMINAL_WAIT;
-    let mut events = session_events(socket, route, deadline);
-    loop {
-        let changed = events.as_mut().is_some_and(|events| next_event(events, deadline));
-        match caller_path_of(reader, route, terminal) {
-            Err(Failure::Resource(error)) if is_missing(&error, terminal) => {
-                if !changed {
-                    return Err(unregistered_terminal(terminal));
-                }
-            }
-            settled => return settled,
-        }
-    }
-}
-
-/// The ids that hold `terminal`, keyed by scope: terminal -> tab -> pane ->
-/// screen -> workspace.
-fn caller_path_of(
-    reader: &mut Reader,
-    route: &Map<String, Value>,
-    terminal: &str,
-) -> Result<Map<String, Value>, Failure> {
-    let mut path = Map::new();
-    path.insert("terminal".into(), Value::String(terminal.to_owned()));
-    let mut id = terminal.to_string();
-    for (operation, selector, parent, parent_scope) in [
-        (ResourceOperation::TerminalGet, "terminal", "tab_id", "tab"),
-        (ResourceOperation::TabGet, "tab", "pane_id", "pane"),
-        (ResourceOperation::PaneGet, "pane", "screen_id", "screen"),
-        (ResourceOperation::ScreenGet, "screen", "workspace_id", "workspace"),
-    ] {
-        let mut params = route.clone();
-        params.insert(selector.into(), Value::String(id));
-        let snapshot = read(reader, operation, params)?;
-        id = snapshot
-            .get(parent)
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-            .ok_or_else(|| not_in_a_workspace(terminal))?;
-        path.insert(parent_scope.into(), Value::String(id.clone()));
-    }
-    Ok(path)
-}
-
-fn not_in_a_workspace(terminal: &str) -> Failure {
-    Failure::Resource(json!({
-        "code": "selector.not_found",
-        "message": format!(
-            "the caller's terminal {terminal} is not in a workspace; name one: \
-             cmux workspace <workspace> …"
-        ),
-        "details": {"terminal": terminal},
-        "retryable": false,
-    }))
-}
+const APP_IDENTIFY_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// `Some(id)` when `value` is not an id but the exact name of one record.
 /// An id, or a name nothing has, goes to the daemon unchanged, which reports

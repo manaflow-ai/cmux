@@ -1,21 +1,39 @@
-//! Where an agent's new terminal goes when the agent names no place: beside
-//! its own chat, in its own workspace. A workspace agent asked to "open it
-//! to the right" opened a terminal in Home (Lawrence 2026-10-25): a
-//! terminal creation with no pane went to the daemon's active pane, and an
-//! open_url with no workspace to Home. One rule, shared by the CLI and the
-//! MCP server: the app's `beside` answer (`system.identify`) names the
-//! column right of the chat; a tab goes there, and with no such column a
-//! split right of the chat makes it. Within that column a terminal goes to
-//! the pane that already holds one; a lone pane of another kind (a browser)
-//! gets a split below it, the column's lower pane; two or more panes, the
-//! lowest. Never a third column (Leo 2026-10-31: "imo in this case, just open
-//! it on the existing. you only need the rightmost botom auto split when
-//! there's a terminal that gets opened when there's already a browser, and
-//! vice versa"), the app's RightColumnPlacement rule.
+//! Where a creation goes when it names no place: the caller's own workspace,
+//! never the one the person has focused (Lawrence 2026-11-12: agents opened
+//! tabs, browsers, diff viewers and terminals in the focused workspace or in
+//! Home). One rule, shared by the CLI and the MCP server, for every caller:
 //!
-//! This module only decides; each transport sends the requests.
+//! - An agent chat (`CMUX_AGENT_SESSION`) or a Chief turn
+//!   (`CMUX_CALLER_HOME_CHAT=1`): beside its chat. The app's `beside` answer
+//!   (`system.identify`) names the column right of the chat; a tab goes
+//!   there, and with no such column a split right of the chat makes it.
+//!   Within that column a tab goes to the pane that already holds one of its
+//!   kind; a lone pane of another kind (a browser for a terminal) gets a
+//!   split below it, the column's lower pane; two or more panes, the lowest.
+//!   Never a third column (Leo 2026-10-31: "imo in this case, just open it
+//!   on the existing. you only need the rightmost botom auto split when
+//!   there's a terminal that gets opened when there's already a browser, and
+//!   vice versa"), the app's RightColumnPlacement rule.
+//! - A cmux terminal (`CMUX_TUI_TERMINAL_ID`): an app that places terminal
+//!   callers ([`app_places_terminals`]) answers the same `beside` for it (the
+//!   column right of a terminal that runs an agent, the terminal's own pane
+//!   for a plain one). With an older app, or none, the terminal's own pane,
+//!   found from the daemon.
+//! - An agent chat the app cannot place: the workspace its environment names
+//!   (`CMUX_WORKSPACE_ID`), when the request's session has it.
+//! - No caller, a caller that cannot be found, or a request to another
+//!   session or machine: the daemon's default.
+//!
+//! This module only decides; each transport sends the requests
+//! ([`cli`] for the CLI, mcp/placement.rs for the MCP server).
 
+#![cfg_attr(not(unix), allow(dead_code))]
+
+use cmux_tui_core::resource::ResourceOperation;
 use serde_json::{Map, Value, json};
+
+#[cfg(unix)]
+pub(super) mod cli;
 
 /// The parent selectors a creation may name.
 pub(super) const PARENTS: [&str; 3] = ["workspace", "screen", "pane"];
@@ -32,15 +50,36 @@ pub(super) enum Placement {
     NewColumn { workspace: String, chat_pane: String },
 }
 
-/// Whether a `tab.create_terminal` names no place, so it goes beside the
-/// caller.
+/// Whether a creation names no place, so it goes to the caller's own.
 pub(super) fn names_no_place(params: &Map<String, Value>) -> bool {
     PARENTS.iter().all(|key| params.get(*key).is_none())
 }
 
-/// The placement `identity` (the app's `system.identify` answer) gives, or
-/// `None` when the app does not place the caller.
+/// The kind of tab a creation makes, for the column's same-kind rule.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Kind {
+    Terminal,
+    Browser,
+}
+
+impl Kind {
+    /// The word the app's `beside.panes[].kinds` uses for it.
+    fn word(self) -> &'static str {
+        match self {
+            Self::Terminal => "terminal",
+            Self::Browser => "browser",
+        }
+    }
+}
+
+/// The placement `identity` (the app's `system.identify` answer) gives a new
+/// terminal, or `None` when the app does not place the caller.
 pub(super) fn placement(identity: &Value) -> Option<Placement> {
+    placement_of(identity, Kind::Terminal)
+}
+
+/// [`placement`] for a new tab of `kind`.
+pub(super) fn placement_of(identity: &Value, kind: Kind) -> Option<Placement> {
     let caller = identity.get("caller")?;
     if caller.get("found").and_then(Value::as_bool) == Some(false) {
         return None;
@@ -49,7 +88,8 @@ pub(super) fn placement(identity: &Value) -> Option<Placement> {
     let beside = identity.get("beside");
     if let Some(pane) = beside.and_then(|beside| beside.get("pane")).and_then(Value::as_str) {
         // `panes`: the whole column, top to bottom, with the kinds each holds (an app
-        // that does not list it keeps the first pane, as before).
+        // that does not list it keeps the first pane, as before). A plain terminal's
+        // `own_pane` answer lists none: the tab goes into that pane.
         let column: Vec<(&str, bool)> = beside
             .and_then(|beside| beside.get("panes"))
             .and_then(Value::as_array)
@@ -58,11 +98,11 @@ pub(super) fn placement(identity: &Value) -> Option<Placement> {
                     .iter()
                     .filter_map(|entry| {
                         let id = entry.get("id").and_then(Value::as_str)?;
-                        let terminal = entry
+                        let same = entry
                             .get("kinds")
                             .and_then(Value::as_array)
-                            .is_some_and(|kinds| kinds.iter().any(|kind| kind == "terminal"));
-                        Some((id, terminal))
+                            .is_some_and(|kinds| kinds.iter().any(|held| held == kind.word()));
+                        Some((id, same))
                     })
                     .collect()
             })
@@ -70,7 +110,7 @@ pub(super) fn placement(identity: &Value) -> Option<Placement> {
         let chosen = match column.as_slice() {
             [] => Placement::Pane { workspace, pane: pane.to_owned() },
             panes => {
-                if let Some((same, _)) = panes.iter().rev().find(|(_, terminal)| *terminal) {
+                if let Some((same, _)) = panes.iter().rev().find(|(_, same)| *same) {
                     Placement::Pane { workspace, pane: (*same).to_owned() }
                 } else if let [(only, _)] = panes {
                     Placement::SplitBelow { workspace, pane: (*only).to_owned() }
@@ -84,6 +124,185 @@ pub(super) fn placement(identity: &Value) -> Option<Placement> {
     }
     let chat_pane = caller.get("pane").and_then(Value::as_str)?.to_owned();
     Some(Placement::NewColumn { workspace, chat_pane })
+}
+
+/// Who runs the command, from its environment.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(super) struct Caller {
+    /// `CMUX_AGENT_SESSION`: an agent chat (acpmux sets it for the agent and
+    /// its cmux MCP server), which the app places.
+    pub agent_session: bool,
+    /// `CMUX_CALLER_HOME_CHAT=1`: a Chief turn, whose chat is the Home chat.
+    pub home_chat: bool,
+    /// `CMUX_TUI_TERMINAL_ID`: the cmux terminal the command runs in.
+    pub terminal: Option<String>,
+    /// `CMUX_WORKSPACE_ID`: the key of the workspace an agent chat works in
+    /// (acpmux gives each workspace agent its own), for a chat the app
+    /// cannot place.
+    pub workspace_key: Option<String>,
+}
+
+impl Caller {
+    pub(super) fn from_env(env: impl Fn(&str) -> Option<String>) -> Self {
+        let set = |key: &str| env(key).filter(|value| !value.is_empty());
+        Self {
+            agent_session: set("CMUX_AGENT_SESSION").is_some(),
+            // The Chief host names a turn only with "1" (app.rs `caller_from`).
+            home_chat: set("CMUX_CALLER_HOME_CHAT").as_deref() == Some("1"),
+            terminal: set("CMUX_TUI_TERMINAL_ID"),
+            workspace_key: set("CMUX_WORKSPACE_ID"),
+        }
+    }
+
+    /// The caller of this process.
+    pub(super) fn of_process() -> Self {
+        Self::from_env(|key| std::env::var(key).ok())
+    }
+
+    /// A chat the app places: an agent chat or a Chief turn.
+    pub(super) fn is_chat(&self) -> bool {
+        self.agent_session || self.home_chat
+    }
+
+    /// Whether anything names a caller.
+    pub(super) fn is_known(&self) -> bool {
+        self.is_chat() || self.terminal.is_some()
+    }
+
+    /// The workspace key that stands in for an agent chat the app cannot
+    /// place. A terminal caller and a Chief turn have a place of their own
+    /// (the terminal's pane, the Home chat), so the key never moves them.
+    pub(super) fn fallback_workspace_key(&self) -> Option<&str> {
+        self.workspace_key.as_deref().filter(|_| self.agent_session && !self.home_chat)
+    }
+}
+
+/// The `caller_placement` an app reports in `system.identify` from the
+/// version that places terminal callers itself: `beside` for a terminal is
+/// the column right of it when it runs an agent and its own pane
+/// (`own_pane`) when it does not, and an `openBrowser` run with no target
+/// and a terminal caller goes there too.
+pub(super) const APP_PLACES_TERMINALS: u64 = 2;
+
+/// Whether `identity` comes from an app that places terminal callers. An
+/// older app reports no `caller_placement`; its `beside` for a terminal is
+/// always the column right of it, wrong for a person's own terminal.
+pub(super) fn app_places_terminals(identity: &Value) -> bool {
+    identity
+        .get("caller_placement")
+        .and_then(Value::as_u64)
+        .is_some_and(|version| version >= APP_PLACES_TERMINALS)
+}
+
+/// Where the owning app puts a new tab of `kind` that `caller` creates with
+/// no place: a chat is always placed by the app; a terminal only by an app
+/// that places terminals. `None`: the caller's own pane, found from the
+/// daemon ([`fill_place`]).
+pub(super) fn app_placement(identity: &Value, caller: &Caller, kind: Kind) -> Option<Placement> {
+    if !caller.is_chat() && !app_places_terminals(identity) {
+        return None;
+    }
+    placement_of(identity, kind)
+}
+
+/// The caller's own workspace, screen, pane, tab and terminal from the app's
+/// `caller` (`system.identify`), keyed by scope; `None` when the app does not
+/// place the caller.
+pub(super) fn caller_path(identity: &Value) -> Option<Map<String, Value>> {
+    let caller = identity.get("caller").and_then(Value::as_object)?;
+    if caller.get("found").and_then(Value::as_bool) == Some(false)
+        || caller.get("workspace").and_then(Value::as_str).is_none()
+    {
+        return None;
+    }
+    let mut path = Map::new();
+    for (scope, field) in [
+        ("workspace", "workspace"),
+        ("screen", "screen"),
+        ("pane", "pane"),
+        ("tab", "tab"),
+        ("terminal", "terminal_id"),
+    ] {
+        if let Some(id) = caller.get(field).filter(|id| id.is_string()) {
+            path.insert(scope.into(), id.clone());
+        }
+    }
+    Some(path)
+}
+
+/// The scopes the caller's own place fills in a creation that names none.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Scopes {
+    /// Outermost first.
+    pub fill: &'static [&'static str],
+    /// The creation takes its place only as a whole (a pane with its
+    /// parents): a caller place that lacks a scope fills nothing.
+    pub whole: bool,
+}
+
+/// The typed creations that may name no place, which then act in the
+/// caller's own: a tab in its pane, a pane on its screen, a screen or a web
+/// link in its workspace. `None` for every other operation.
+pub(super) fn creation_scopes(operation: ResourceOperation) -> Option<Scopes> {
+    const PANE: &[&str] = &["workspace", "screen", "pane"];
+    match operation {
+        ResourceOperation::TabCreateTerminal | ResourceOperation::TabCreateBrowser => {
+            Some(Scopes { fill: PANE, whole: false })
+        }
+        // The daemon takes a workspace and a screen only with their pane.
+        ResourceOperation::BrowserProfileOpen => Some(Scopes { fill: PANE, whole: true }),
+        ResourceOperation::PaneCreate => {
+            Some(Scopes { fill: &["workspace", "screen"], whole: false })
+        }
+        ResourceOperation::ScreenCreate | ResourceOperation::WorkspaceOpenUrl => {
+            Some(Scopes { fill: &["workspace"], whole: false })
+        }
+        _ => None,
+    }
+}
+
+/// Puts the caller's own place (`path`, ids keyed by scope) into the
+/// creation `params`, which names none: each scope from the workspace down
+/// while `path` has it. Returns whether `params` changed.
+pub(super) fn fill_place(
+    params: &mut Map<String, Value>,
+    scopes: Scopes,
+    path: &Map<String, Value>,
+) -> bool {
+    let own: Vec<(&str, &Value)> = scopes
+        .fill
+        .iter()
+        .map_while(|scope| path.get(*scope).filter(|id| id.is_string()).map(|id| (*scope, id)))
+        .collect();
+    if own.is_empty() || (scopes.whole && own.len() < scopes.fill.len()) {
+        return false;
+    }
+    for (scope, id) in own {
+        params.insert(scope.into(), id.clone());
+    }
+    true
+}
+
+/// The id of the workspace whose key is `key` (`CMUX_WORKSPACE_ID`, the
+/// UUID form of the workspace's `extra.key`, any case, dashed or not) among
+/// the `workspace.list` rows `workspaces`.
+pub(super) fn workspace_of_key(workspaces: &Value, key: &str) -> Option<String> {
+    let plain = |value: &str| -> String {
+        value.chars().filter(|ch| *ch != '-').flat_map(char::to_lowercase).collect()
+    };
+    let wanted = plain(key);
+    if wanted.is_empty() {
+        return None;
+    }
+    let rows = workspaces.get("items").unwrap_or(workspaces).as_array()?;
+    rows.iter()
+        .find(|row| {
+            row.pointer("/extra/key")
+                .and_then(Value::as_str)
+                .is_some_and(|own| plain(own) == wanted)
+        })
+        .and_then(|row| row.get("id").and_then(Value::as_str))
+        .map(str::to_owned)
 }
 
 /// The `pane.split` params that open the terminal a `tab.create_terminal`
@@ -140,129 +359,6 @@ pub(super) fn rename_params(
     rename.insert("tab".into(), tab.clone());
     rename.insert("name".into(), name.clone());
     Some(rename)
-}
-
-/// What [`apply_cli`] did with a CLI request.
-#[cfg(unix)]
-pub(super) enum CliOutcome {
-    /// Not a creation with no place, or the app does not place an agent.
-    Unchanged,
-    /// The request now names the column right of the chat.
-    Placed,
-    /// A new column was made in its stead; this is the exit code.
-    Answered(i32),
-}
-
-/// [`placement`] for `cmux tab create terminal` run by an agent
-/// (`CMUX_AGENT_SESSION`) with no `--workspace`, `--screen` or `--pane`, on
-/// the request's own connection. A person's terminal keeps the daemon's
-/// default, the pane they type in.
-#[cfg(unix)]
-pub(super) fn apply_cli(
-    global: &super::GlobalArgs,
-    plan: &mut super::command::RequestPlan,
-    reader: &mut std::io::BufReader<Box<dyn cmux_tui_core::platform::transport::Stream>>,
-    idempotency_key: Option<&str>,
-) -> CliOutcome {
-    use cmux_tui_core::resource::ResourceOperation;
-
-    use super::command::WireOperation;
-
-    let creates_terminal =
-        matches!(plan.operation, WireOperation::Typed(ResourceOperation::TabCreateTerminal));
-    let agent = std::env::var("CMUX_AGENT_SESSION").is_ok_and(|session| !session.is_empty());
-    let Some(params) = plan.params.as_object_mut() else { return CliOutcome::Unchanged };
-    if !creates_terminal || !agent || !names_no_place(params) {
-        return CliOutcome::Unchanged;
-    }
-    let identity = super::app::socket_path(global)
-        .and_then(|socket| super::app::connect(&socket))
-        .and_then(|mut app| {
-            super::app::request(&mut app, "system.identify", json!({}), super::app::READ_TIMEOUT)
-        });
-    let Some(placed) = identity.ok().and_then(Result::ok).and_then(|identity| placement(&identity))
-    else {
-        return CliOutcome::Unchanged;
-    };
-    match placed {
-        Placement::Pane { workspace, pane } => {
-            params.insert("workspace".into(), json!(workspace));
-            params.insert("pane".into(), json!(pane));
-            CliOutcome::Placed
-        }
-        Placement::NewColumn { workspace, chat_pane } => {
-            let split = split_params(params, &workspace, &chat_pane);
-            split_cli(global, plan, reader, idempotency_key, split, &workspace)
-        }
-        Placement::SplitBelow { workspace, pane } => {
-            let split = split_below_params(params, &workspace, &pane);
-            split_cli(global, plan, reader, idempotency_key, split, &workspace)
-        }
-    }
-}
-
-/// Answers a CLI `tab create terminal` with `split` (a new column or a pane
-/// below one), then names the new tab as the creation asked.
-#[cfg(unix)]
-fn split_cli(
-    global: &super::GlobalArgs,
-    plan: &super::command::RequestPlan,
-    reader: &mut std::io::BufReader<Box<dyn cmux_tui_core::platform::transport::Stream>>,
-    idempotency_key: Option<&str>,
-    split: Map<String, Value>,
-    workspace: &str,
-) -> CliOutcome {
-    use cmux_tui_core::resource::ResourceOperation;
-
-    let key = idempotency_key.map(|key| format!("{key}-beside"));
-    let created =
-        match super::resolve::call(reader, ResourceOperation::PaneSplit, split, key.as_deref()) {
-            Ok(created) => created,
-            Err(failure) => return CliOutcome::Answered(failure.report(global.output)),
-        };
-    let path = created.get("value").filter(|value| value.is_object()).unwrap_or(&created);
-    let rename = plan.params.as_object().and_then(|params| rename_params(params, workspace, path));
-    if let Some(rename) = rename {
-        let key = idempotency_key.map(|key| format!("{key}-name"));
-        if let Err(failure) =
-            super::resolve::call(reader, ResourceOperation::TabRename, rename, key.as_deref())
-        {
-            return CliOutcome::Answered(failure.report(global.output));
-        }
-    }
-    CliOutcome::Answered(super::wire::print_result(global, plan, created))
-}
-
-/// [`apply_cli`] at the CLI's send step (wire.rs): `Ok(Some(bytes))` for
-/// a request that now names the column right of the chat, `Ok(None)` for
-/// one left as it was, `Err(exit code)` when a new column answered it.
-#[cfg(unix)]
-pub(super) fn run_cli(
-    global: &super::GlobalArgs,
-    plan: &mut super::command::RequestPlan,
-    request: &mut Value,
-    reader: &mut std::io::BufReader<Box<dyn cmux_tui_core::platform::transport::Stream>>,
-    caller_route: bool,
-    key_report: &super::wire::KeyReport,
-) -> Result<Option<Vec<u8>>, i32> {
-    if !caller_route {
-        return Ok(None);
-    }
-    let key = request.get("idempotency_key").and_then(Value::as_str).map(str::to_owned);
-    match apply_cli(global, plan, reader, key.as_deref()) {
-        CliOutcome::Unchanged => Ok(None),
-        CliOutcome::Placed => {
-            request["params"] = plan.params.clone();
-            super::wire::encode_request(request).map(Some)
-        }
-        CliOutcome::Answered(code) => {
-            if code == 0 {
-                key_report.succeeded();
-            }
-            key_report.finish(global.output);
-            Err(code)
-        }
-    }
 }
 
 #[cfg(test)]
