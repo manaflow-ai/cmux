@@ -2,6 +2,7 @@
 // once. Each page keeps its own document, CSS, origin and bridge; chunks are immutable assets.
 import { build } from "esbuild";
 import { mkdir, writeFile } from "node:fs/promises";
+import postcss from "postcss";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { reactCompilerMode } from "../../reactCompiler.mjs";
@@ -11,6 +12,7 @@ import { tailwindPlugin } from "../agent-pane/tailwindCompile.mjs";
 import { createJsonParsePlugin } from "../agent-pane/jsonParsePlugin.mjs";
 import { katexStylePlugin } from "../agent-pane/katexStylePlugin.mjs";
 import { factorSharedCss } from "./factor-shared-css.mjs";
+import focusRingGate from "../postcss/focusRingGate.mjs";
 
 const [outdir, ...pages] = process.argv.slice(2);
 if (!outdir || !pages.length) throw new Error("usage: bundle.mjs OUTDIR PAGE...");
@@ -71,7 +73,13 @@ for (const page of pages) {
     plugins: [artifactRuntimePlugin(), tailwindPlugin, jsonParseSettingsPagePlugin, katexStylePlugin({ split: false })],
   });
   const css = styles.outputFiles.find((file) => file.path.endsWith(".css"));
-  pageStyles.set(page, Buffer.from(css?.contents ?? "").toString("utf8"));
+  // Apply the same focus-ring transform before factoring. The shared prefix must pass the gate too;
+  // build-pages-web.sh runs the gate again on each remainder as a cheap idempotence check.
+  const gated = await postcss([focusRingGate()]).process(Buffer.from(css?.contents ?? "").toString("utf8"), {
+    from: path.join(outdir, page, "app.css"),
+    map: false,
+  });
+  pageStyles.set(page, gated.css);
 }
 // Every page imports the same first-party chrome layer before its page rules. Factor only an
 // exact common prefix ending at a complete rule: this preserves both import order and the
