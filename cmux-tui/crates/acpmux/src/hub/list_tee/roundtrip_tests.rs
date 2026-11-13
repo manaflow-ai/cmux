@@ -32,6 +32,7 @@ fn roundtrip_meta(id: &str) -> crate::store::SessionMeta {
         "schema": crate::store::META_SCHEMA,
         "id": id,
         "name": id,
+        "title": id,
         "harness": "fake",
         "cwd": "/tmp",
         "status": "closed",
