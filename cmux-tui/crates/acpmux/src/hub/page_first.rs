@@ -192,7 +192,7 @@ impl Hub {
             own.into_iter().map(|(s, at)| Unbuilt::placed(s, at)).collect();
         // A peer's row sorts before the window's last own row when newer, or as new and a lower id.
         let within = |r: &RemoteSession| {
-            let (at, id) = (r.summary.updated_ms(), r.summary.session_id());
+            let (at, id) = (r.summary.updated_ms(), r.summary.session_id().unwrap_or(""));
             from.is_none_or(|from| at <= from)
                 && last.as_ref().is_none_or(|(last_at, last_id)| {
                     at > *last_at || (at == *last_at && id < last_id.as_str())
