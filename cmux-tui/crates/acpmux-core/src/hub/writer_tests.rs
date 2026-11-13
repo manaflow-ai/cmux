@@ -180,8 +180,11 @@ fn an_unreadable_cold_comparison_does_not_defer_its_replacement() {
 async fn byte_history_resumes_recent_changes_and_windows_after_eviction() {
     let (hub, mut writer) = Hub::new(SummaryIndex::new());
     for activity in 1..=6000 {
-        let mut row = closed("one");
+        let mut row = if activity == 6000 { closed("one") } else { Summary::new("one") };
         row.origin = "remote".into();
+        if activity != 6000 {
+            row.state = "running".into();
+        }
         row.last_activity = activity;
         writer.apply(row).unwrap();
     }
