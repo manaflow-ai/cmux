@@ -74,12 +74,16 @@ impl SummaryIndex {
         {
             let piece = disk.read_piece(anchor, side, inclusive, limit, max_bytes)?;
             bytes_read = piece.bytes_read;
-            cold_before = piece.has_before;
-            cold_after = piece.has_after;
+            let family_row = |row: &Summary| {
+                row.parent.as_ref() == Some(root)
+                    || row.fork_of.as_ref().is_some_and(|fork| fork.key == *root)
+            };
+            cold_before = piece.has_before && piece.rows.iter().any(|row| family_row(row));
+            cold_after = piece.has_after && piece.rows.iter().any(|row| family_row(row));
             // The snapshot piece supplies bounded progress flags; the hot
             // answer remains sourced exclusively from the kin table.
         }
-        let mut rows = Vec::new();
+        let mut selected_rows = Vec::new();
         let mut start = 0;
         let mut end = items.len();
         if let Some(anchor) = anchor
@@ -92,16 +96,30 @@ impl SummaryIndex {
                 ReadSide::Before => end = position + usize::from(inclusive),
                 ReadSide::Around => {
                     start = position;
-                    end = (position + limit).min(items.len());
+                    end = items.len();
                 }
             }
         }
         let mut bytes: usize = 0;
-        let mut selected = 0;
-        let positions: Box<dyn Iterator<Item = usize>> = match side {
-            ReadSide::Before => Box::new((start..end).rev()),
-            _ => Box::new(start..end),
-        };
+        let mut selected_positions = Vec::new();
+        let mut positions = Vec::new();
+        match side {
+            ReadSide::Before => positions.extend((start..end).rev()),
+            ReadSide::After => positions.extend(start..end),
+            ReadSide::Around => {
+                let mut left = start;
+                let mut right = start;
+                while positions.len() < limit && (left > 0 || right < end) {
+                    if right < end {
+                        positions.push(right);
+                        right += 1;
+                    } else {
+                        left = left.saturating_sub(1);
+                        positions.push(left);
+                    }
+                }
+            }
+        }
         for position in positions {
             let Some(item) = items.get(position) else { continue };
             let Some(row) = self.get_row(&item.key) else { continue };
@@ -111,16 +129,19 @@ impl SummaryIndex {
             let mut row = row.as_ref().clone();
             row.depth = Some(item.depth);
             let size = row.encoded_len() + 1;
-            if selected == limit || bytes.saturating_add(size) > max_bytes {
+            if selected_positions.len() == limit || bytes.saturating_add(size) > max_bytes {
                 break;
             }
             bytes += size;
-            selected += 1;
-            rows.push(Arc::new(row));
+            selected_positions.push(position);
+            selected_rows.push((position, Arc::new(row)));
         }
-        let truncated = selected < items.len().saturating_sub(start.min(items.len()));
-        let before = start > 0 || cold_before;
-        let after = truncated || cold_after;
+        selected_rows.sort_by_key(|(position, _)| *position);
+        let rows = selected_rows.into_iter().map(|(_, row)| row).collect::<Vec<_>>();
+        let first_position = selected_positions.iter().copied().min();
+        let last_position = selected_positions.iter().copied().max();
+        let before = first_position.is_some_and(|position| position > 0) || cold_before;
+        let after = last_position.is_some_and(|position| position + 1 < items.len()) || cold_after;
         Ok(IndexPage {
             before_key: rows.first().map(|row| SortKey::of(row)),
             after_key: rows.last().map(|row| SortKey::of(row)),
@@ -184,46 +205,71 @@ impl SummaryIndex {
         rows.dedup_by_key(|row| row.key());
         let mut start = 0;
         let mut end = rows.len();
-        if let Some(anchor) = anchor
-            && let Some(position) = rows.iter().position(|row| SortKey::of(row) == *anchor)
-        {
+        if let Some(anchor) = anchor {
+            // The disk reader excludes an exclusive anchor.  Use an insertion
+            // point rather than requiring the anchor row to be present so a
+            // cold row can continue into the merged hot/cold page.
+            let position = rows.partition_point(|row| SortKey::of(row) < *anchor);
+            let exact = rows.get(position).is_some_and(|row| SortKey::of(row) == *anchor);
             match side {
-                ReadSide::After => start = position + usize::from(!inclusive),
-                ReadSide::Before => end = position + usize::from(inclusive),
+                ReadSide::After => start = position + usize::from(exact && !inclusive),
+                ReadSide::Before => end = position + usize::from(exact && inclusive),
                 ReadSide::Around => {
                     start = position;
-                    end = (position + limit).min(rows.len());
+                    end = rows.len();
                 }
             }
         }
-        let positions: Box<dyn Iterator<Item = usize>> = match side {
-            ReadSide::Before => Box::new((start..end).rev()),
-            _ => Box::new(start..end),
-        };
         let mut selected_positions = Vec::new();
-        for position in positions {
+        match side {
+            ReadSide::Before => selected_positions.extend((start..end).rev().take(limit)),
+            ReadSide::After => selected_positions.extend(start..end),
+            ReadSide::Around => {
+                let mut left = start;
+                let mut right = start;
+                while selected_positions.len() < limit && (left > 0 || right < end) {
+                    if right < end {
+                        selected_positions.push(right);
+                        right += 1;
+                    } else {
+                        left = left.saturating_sub(1);
+                        selected_positions.push(left);
+                    }
+                }
+            }
+        }
+        let mut accepted_positions = Vec::new();
+        for position in selected_positions {
             let Some(row) = rows.get(position) else { continue };
             let size = row.encoded_len() + 1;
-            if selected_positions.len() == limit || bytes.saturating_add(size) > max_bytes {
-                after = true;
+            if accepted_positions.len() == limit || bytes.saturating_add(size) > max_bytes {
+                after = side != ReadSide::Before;
                 break;
             }
             bytes += size;
-            selected_positions.push(position);
+            accepted_positions.push(position);
         }
-        let mut selected_rows = selected_positions
+        accepted_positions.sort_unstable();
+        let selected_rows = accepted_positions
             .into_iter()
             .filter_map(|position| rows.get(position).cloned())
             .collect::<Vec<_>>();
-        if side == ReadSide::Before {
-            selected_rows.reverse();
-        }
+        let first_position = selected_rows
+            .first()
+            .and_then(|row| rows.iter().position(|candidate| candidate.key() == row.key()));
+        let last_position = selected_rows
+            .last()
+            .and_then(|row| rows.iter().position(|candidate| candidate.key() == row.key()));
         Ok(IndexPage {
             before_key: selected_rows.first().map(|row| SortKey::of(row)),
             after_key: selected_rows.last().map(|row| SortKey::of(row)),
             rows: selected_rows,
-            has_before: before || start > 0 || cold_before,
-            has_after: after || end < rows.len() || cold_after,
+            has_before: before
+                || first_position.is_some_and(|position| position > 0)
+                || cold_before,
+            has_after: after
+                || last_position.is_some_and(|position| position + 1 < rows.len())
+                || cold_after,
             bytes_read: bytes.max(bytes_read),
         })
     }
@@ -454,6 +500,75 @@ mod tests {
         );
         assert_eq!(page.rows[0].depth, Some(1));
         assert_eq!(page.rows[1].depth, Some(2));
+    }
+
+    #[test]
+    fn family_and_folder_pages_report_directional_continuations() {
+        let root = row("root", 5);
+        let mut child = row("child", 4);
+        child.parent = Some(root.key());
+        let mut grandchild = row("grandchild", 3);
+        grandchild.parent = Some(child.key());
+        let family =
+            SummaryIndex::new().apply(1, root.clone()).apply(2, child).apply(3, grandchild);
+        let full = family
+            .read_page(
+                None,
+                ReadSide::After,
+                false,
+                10,
+                64 * 1024,
+                Some(&ListFilter::family(root.key())),
+            )
+            .unwrap();
+        let anchor = SortKey::of(&full.rows[1]);
+        let before = family
+            .read_page(
+                Some(&anchor),
+                ReadSide::Before,
+                false,
+                1,
+                64 * 1024,
+                Some(&ListFilter::family(root.key())),
+            )
+            .unwrap();
+        assert_eq!(before.rows.len(), 1);
+        assert!(before.has_after);
+
+        let mut first = row("first", 1);
+        first.folder = Some("one".to_owned());
+        let mut middle = row("middle", 2);
+        middle.folder = Some("one".to_owned());
+        let mut newest = row("newest", 3);
+        newest.folder = Some("one".to_owned());
+        let folder = FolderKey::new("local", "one");
+        let index = SummaryIndex::new().apply(1, first).apply(2, middle).apply(3, newest);
+        let full = index
+            .read_page(
+                None,
+                ReadSide::After,
+                false,
+                10,
+                64 * 1024,
+                Some(&ListFilter::folder(folder.clone())),
+            )
+            .unwrap();
+        let anchor = SortKey::of(&full.rows[1]);
+        let around = index
+            .read_page(
+                Some(&anchor),
+                ReadSide::Around,
+                false,
+                3,
+                64 * 1024,
+                Some(&ListFilter::folder(folder)),
+            )
+            .unwrap();
+        assert_eq!(around.rows.len(), 3);
+        assert_eq!(around.rows[0].chat_id, "newest");
+        assert_eq!(around.rows[2].chat_id, "first");
+        assert!(!around.has_before);
+        assert!(!around.has_after);
     }
 
     #[test]

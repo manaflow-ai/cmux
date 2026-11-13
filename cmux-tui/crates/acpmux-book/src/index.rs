@@ -254,6 +254,9 @@ impl Summary {
     /// an extension that cannot fit is represented by the empty object rather
     /// than parsed or allowed to expand the list frame.
     pub fn bounded(mut self) -> Self {
+        // `depth` is response-only metadata and must never enter a durable
+        // summary when a caller feeds a page row back through the index.
+        self.depth = None;
         self.title = truncate_utf8(&self.title, MAX_TITLE_BYTES);
         self.harness = truncate_utf8(&self.harness, MAX_FIELD_BYTES);
         self.state = truncate_utf8(&self.state, MAX_FIELD_BYTES);
