@@ -1581,6 +1581,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-cloud-environment",
+ "cmux-file-lock",
  "cmux-json",
  "cmux-link",
  "cmux-server",
@@ -2171,6 +2172,7 @@ dependencies = [
  "cmux-tui-hooks",
  "cmux-tui-machine-agent-protocol",
  "cmux-tui-machine-protocol",
+ "cmux-tui-platform",
  "cmux-unix-socket",
  "cmux-usage-patterns",
  "cmux-vm",

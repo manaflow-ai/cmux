@@ -324,22 +324,13 @@ impl Connection {
     /// the daemon closed, an error when no line came in time.
     ///
     /// macOS refuses a read timeout on a socket whose peer closed its whole
-    /// end (`EINVAL`). Such a socket has all that it will ever get, so a read
-    /// that does not wait gives the lines that are left, then the close. A
-    /// refusal on a connection that is open is a fault of the test.
+    /// end (`EINVAL`). `read_timeout_or_ended` takes that refusal as the end
+    /// only when the socket can receive no more: the read then gives the
+    /// lines that are left, then the close, with no wait. A refusal on a
+    /// connection that is open is a fault of the test, and a panic here.
     fn read_line_in(&mut self, left: Duration, line: &mut String) -> std::io::Result<usize> {
-        let Err(refused) = self.reader.get_ref().set_read_timeout(Some(left)) else {
-            return self.reader.read_line(line);
-        };
-        self.reader.get_ref().set_nonblocking(true).unwrap();
-        let read = self.reader.read_line(line);
-        self.reader.get_ref().set_nonblocking(false).unwrap();
-        match read {
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                panic!("a read timeout was refused on a connection that is open: {refused}")
-            }
-            read => read,
-        }
+        cmux_tui_platform::read_timeout_or_ended(self.reader.get_ref(), left).unwrap();
+        self.reader.read_line(line)
     }
 
     /// The reply with `id` among the lines the connection sends in `wait`;

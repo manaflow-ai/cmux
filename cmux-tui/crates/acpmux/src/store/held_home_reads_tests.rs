@@ -21,9 +21,18 @@
 //! a path maker's value (`join`, `parent`, `path()`, `cold_path`, `Path::new`, ...), or a local
 //! or parameter bound to one or typed as a path. A macro's comma-separated arguments are read
 //! too (`ensure!(!path.exists(), ..)`).
+//!
+//! A call's path is resolved the way Rust does: through `use` imports (an alias, a group, a glob,
+//! one written `self::`, `super::` or through another import), `crate::`, `self::` and `super::`
+//! into modules in this file or another, and down each `cfg` arm of a gated item. It fails
+//! closed: a call it cannot settle to a known item that is not a read (a path into a module it
+//! cannot read, a `super::` past the root, a loop of imports, or another crate's `metadata`,
+//! `exists`, `try_exists` or `symlink_metadata`) is a row, never skipped (#42003 review).
 
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use syn::spanned::Spanned;
 use syn::visit::Visit;
 
@@ -85,27 +94,39 @@ fn path_attr(attrs: &[syn::Attribute]) -> Option<String> {
     })
 }
 
-/// A loaded source: its path, its syntax, and the scopes of the modules around it (outermost
-/// first), so a `super::` in a file-backed child sees the module that declares it.
-type Loaded = (PathBuf, syn::File, Vec<Scope>);
-
-/// `file` and the files of the modules it declares (not under a test `cfg`), recursively. `dir`:
-/// where its `mod x;` finds `x.rs`; `around`: the scopes of the modules that declare it.
-fn load(file: &Path, dir: &Path, around: &[Scope], out: &mut Vec<Loaded>) {
-    let text = std::fs::read_to_string(file).unwrap_or_else(|e| panic!("{}: {e}", file.display()));
-    let parsed = syn::parse_file(&text).unwrap_or_else(|e| panic!("{}: {e}", file.display()));
-    let mut chain = around.to_vec();
-    chain.push(Scope::of(parsed.items.iter(), true));
-    load_items(&parsed.items, file, dir, &mut chain, out);
-    out.push((file.to_path_buf(), parsed, around.to_vec()));
+/// Where `mod m;`, declared in `file` (whose `mod x;` finds `x.rs` in `dir`), finds its file, and
+/// where that file's own `mod x;` finds `x.rs`.
+fn mod_file(m: &syn::ItemMod, file: &Path, dir: &Path) -> (PathBuf, PathBuf) {
+    let name = m.ident.to_string();
+    match path_attr(&m.attrs) {
+        Some(rel) => {
+            let base = file.parent().unwrap_or(Path::new(""));
+            (base.join(&rel), base.join(&rel).with_extension(""))
+        }
+        None if dir.join(format!("{name}.rs")).exists() => {
+            (dir.join(format!("{name}.rs")), dir.join(&name))
+        }
+        None => (dir.join(&name).join("mod.rs"), dir.join(&name)),
+    }
 }
 
-/// `chain`: the scopes of the modules `items` sit in, theirs last.
+/// One loaded file: where it is, its module's path (`crate::store::cold`), and its syntax.
+type Loaded = (PathBuf, Vec<String>, syn::File);
+
+/// `file` and the files of the modules it declares (not under a test `cfg`), recursively. `dir`:
+/// where its `mod x;` finds `x.rs`; `module`: its module's path.
+fn load(file: &Path, dir: &Path, module: Vec<String>, out: &mut Vec<Loaded>) {
+    let text = std::fs::read_to_string(file).unwrap_or_else(|e| panic!("{}: {e}", file.display()));
+    let parsed = syn::parse_file(&text).unwrap_or_else(|e| panic!("{}: {e}", file.display()));
+    load_items(&parsed.items, file, dir, &module, out);
+    out.push((file.to_path_buf(), module, parsed));
+}
+
 fn load_items(
     items: &[syn::Item],
     file: &Path,
     dir: &Path,
-    chain: &mut Vec<Scope>,
+    module: &[String],
     out: &mut Vec<Loaded>,
 ) {
     for item in items {
@@ -114,36 +135,31 @@ fn load_items(
             continue;
         }
         let name = m.ident.to_string();
+        let child_module = [module, std::slice::from_ref(&name)].concat();
         if let Some((_, inline)) = &m.content {
-            chain.push(Scope::of(inline.iter(), true));
-            load_items(inline, file, &dir.join(&name), chain, out);
-            chain.pop();
+            load_items(inline, file, &dir.join(&name), &child_module, out);
             continue;
         }
-        let (child, child_dir) = match path_attr(&m.attrs) {
-            Some(rel) => {
-                let base = file.parent().unwrap_or(Path::new(""));
-                (base.join(&rel), base.join(&rel).with_extension(""))
-            }
-            None if dir.join(format!("{name}.rs")).exists() => {
-                (dir.join(format!("{name}.rs")), dir.join(&name))
-            }
-            None => (dir.join(&name).join("mod.rs"), dir.join(&name)),
-        };
-        load(&child, &child_dir, chain, out);
+        let (child, child_dir) = mod_file(m, file, dir);
+        load(&child, &child_dir, child_module, out);
     }
 }
 
-/// The store's sources: `src/store.rs` and its modules, each with the scopes around it.
-fn store_sources() -> Vec<(String, syn::File, Vec<Scope>)> {
+/// The crate's `src` folder.
+fn crate_src() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src")
+}
+
+/// The store's sources: `src/store.rs` and its modules, with their module paths.
+fn store_sources() -> Vec<(String, Vec<String>, syn::File)> {
     let crate_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let src = crate_dir.join("src");
+    let src = crate_src();
     let mut out = Vec::new();
-    load(&src.join("store.rs"), &src.join("store"), &[], &mut out);
+    load(&src.join("store.rs"), &src.join("store"), vec!["crate".into(), "store".into()], &mut out);
     out.into_iter()
-        .map(|(path, file, around)| {
+        .map(|(path, module, file)| {
             let rel = path.strip_prefix(&crate_dir).unwrap_or(&path);
-            (rel.to_string_lossy().replace('\\', "/"), file, around)
+            (rel.to_string_lossy().replace('\\', "/"), module, file)
         })
         .collect()
 }
@@ -162,80 +178,98 @@ fn names_a_path(ty: &syn::Type) -> bool {
     names.0
 }
 
-/// The names one module or block brings in: `use` imports (name to full path), glob imports
-/// (their paths), and the functions and modules it defines (which shadow a glob). A module is
-/// `opaque`: it inherits nothing from the module around it; a block sees its enclosing scopes.
+/// What a name is bound to in one module or block.
+#[derive(Clone, Debug)]
+enum Binding {
+    /// A `use` of this path, as written (`["self", "metadata"]` for `use self::metadata;`).
+    Import(Vec<String>),
+    /// A `mod` defined here.
+    Module,
+    /// A function, type, trait, const or static defined here: this crate's own item.
+    Item,
+}
+
+/// The names one module or block brings in: each name's bindings (`use` imports and the items it
+/// defines) and its glob imports, each with whether it is under a `cfg`. A module is `opaque`: it
+/// inherits nothing from the module around it; a block sees its enclosing scopes.
 ///
-/// A definition or an import under a `#[cfg(..)]` (`test`, `windows`, `target_os = ..`, any
-/// other) may be absent from the build that runs a production call, so it shadows nothing
-/// there (#41970 review F1: a `#[cfg(test)] fn metadata` hid a production `metadata(path)`). A
-/// gated import still binds its name when it imports std's, whose call is a row in the build
-/// that has it. A `#[test]` fn or module is built only in tests as well, so it shadows nothing
-/// either (#42026 review).
+/// A binding under a `#[cfg(..)]` (`windows`, `target_os = ..`, any other but `test`) is in some
+/// builds and not others, so the lint follows it and the name's meaning without it, and a call is
+/// a row when either reads by path (#41970 review F1: a `#[cfg(test)] fn metadata` hid a
+/// production `metadata(path)`; #42139 review F1: a gated import alias of a std::fs function was
+/// not followed). One under `#[cfg(test)]` is only in test builds, which the lint leaves out.
 #[derive(Clone, Default)]
 struct Scope {
     opaque: bool,
-    imports: HashMap<String, Vec<String>>,
-    globs: Vec<Vec<String>>,
-    defined: HashSet<String>,
+    names: HashMap<String, Vec<(Binding, bool)>>,
+    globs: Vec<(Vec<String>, bool)>,
 }
 
 impl Scope {
     fn of<'a>(items: impl IntoIterator<Item = &'a syn::Item>, opaque: bool) -> Self {
         let mut scope = Scope { opaque, ..Scope::default() };
         for item in items {
-            match item {
-                syn::Item::Use(u) if is_test_attr(&u.attrs) => {}
-                syn::Item::Use(u) if is_cfg_gated(&u.attrs) => {
-                    let mut gated = Scope::default();
-                    gated.import(&mut Vec::new(), &u.tree);
-                    let std = |path: &Vec<String>| path.first().is_some_and(|s| s == "std");
-                    scope.imports.extend(gated.imports.into_iter().filter(|(_, p)| std(p)));
-                    scope.globs.extend(gated.globs.into_iter().filter(std));
+            let (attrs, ident, binding) = match item {
+                syn::Item::Use(u) => {
+                    if !is_test_attr(&u.attrs) {
+                        scope.import(&mut Vec::new(), &u.tree, is_cfg_gated(&u.attrs));
+                    }
+                    continue;
                 }
-                syn::Item::Use(u) => scope.import(&mut Vec::new(), &u.tree),
-                // A `#[test]` fn is no `cfg` but is built only in tests too: it shadows nothing there
-                // either (#42026 review).
-                syn::Item::Fn(f) if !is_cfg_gated(&f.attrs) && !is_test_attr(&f.attrs) => {
-                    scope.defined.insert(f.sig.ident.to_string());
+                syn::Item::ExternCrate(e) => {
+                    let name = e.rename.as_ref().map_or(&e.ident, |(_, rename)| rename);
+                    (&e.attrs, name, Binding::Import(vec![e.ident.to_string()]))
                 }
-                syn::Item::Mod(m) if !is_cfg_gated(&m.attrs) && !is_test_attr(&m.attrs) => {
-                    scope.defined.insert(m.ident.to_string());
-                }
-                _ => {}
+                syn::Item::Mod(m) => (&m.attrs, &m.ident, Binding::Module),
+                syn::Item::Fn(f) => (&f.attrs, &f.sig.ident, Binding::Item),
+                syn::Item::Struct(s) => (&s.attrs, &s.ident, Binding::Item),
+                syn::Item::Enum(e) => (&e.attrs, &e.ident, Binding::Item),
+                syn::Item::Union(u) => (&u.attrs, &u.ident, Binding::Item),
+                syn::Item::Trait(t) => (&t.attrs, &t.ident, Binding::Item),
+                syn::Item::Type(t) => (&t.attrs, &t.ident, Binding::Item),
+                syn::Item::Const(c) => (&c.attrs, &c.ident, Binding::Item),
+                syn::Item::Static(s) => (&s.attrs, &s.ident, Binding::Item),
+                _ => continue,
+            };
+            if !is_test_attr(attrs) {
+                scope.bind(ident.to_string(), binding, is_cfg_gated(attrs));
             }
         }
         scope
     }
 
-    fn import(&mut self, prefix: &mut Vec<String>, tree: &syn::UseTree) {
+    fn bind(&mut self, name: String, binding: Binding, gated: bool) {
+        self.names.entry(name).or_default().push((binding, gated));
+    }
+
+    fn import(&mut self, prefix: &mut Vec<String>, tree: &syn::UseTree, gated: bool) {
         match tree {
             syn::UseTree::Path(p) => {
                 prefix.push(p.ident.to_string());
-                self.import(prefix, &p.tree);
+                self.import(prefix, &p.tree, gated);
                 prefix.pop();
             }
             syn::UseTree::Name(n) if n.ident == "self" => {
                 if let Some(last) = prefix.last() {
-                    self.imports.insert(last.clone(), prefix.clone());
+                    self.bind(last.clone(), Binding::Import(prefix.clone()), gated);
                 }
             }
             syn::UseTree::Name(n) => {
                 let mut full = prefix.clone();
                 full.push(n.ident.to_string());
-                self.imports.insert(n.ident.to_string(), full);
+                self.bind(n.ident.to_string(), Binding::Import(full), gated);
             }
             syn::UseTree::Rename(r) => {
                 let mut full = prefix.clone();
                 if r.ident != "self" {
                     full.push(r.ident.to_string());
                 }
-                self.imports.insert(r.rename.to_string(), full);
+                self.bind(r.rename.to_string(), Binding::Import(full), gated);
             }
-            syn::UseTree::Glob(_) => self.globs.push(prefix.clone()),
+            syn::UseTree::Glob(_) => self.globs.push((prefix.clone(), gated)),
             syn::UseTree::Group(g) => {
                 for tree in &g.items {
-                    self.import(prefix, tree);
+                    self.import(prefix, tree, gated);
                 }
             }
         }
@@ -243,7 +277,8 @@ impl Scope {
 }
 
 /// The public items of `std::fs`: the only names a `use std::fs::*;` brings in (#41970 review
-/// F2). Any other name under such a glob is looked up in the scopes around it.
+/// F2), `try_exists` too (#42003 review F1). Any other name under such a glob is looked up in the
+/// scopes around it.
 const STD_FS_ITEMS: &[&str] = &[
     "canonicalize",
     "copy",
@@ -263,6 +298,7 @@ const STD_FS_ITEMS: &[&str] = &[
     "set_permissions",
     "soft_link",
     "symlink_metadata",
+    "try_exists",
     "write",
     "DirBuilder",
     "DirEntry",
@@ -276,115 +312,369 @@ const STD_FS_ITEMS: &[&str] = &[
     "TryLockError",
 ];
 
-/// What a name means in `scopes` (innermost last): `Some(path)` an import's full path, `None`
-/// a name defined here or not imported. A glob (`use std::fs::*;`) counts only for a name
-/// std::fs exports that nothing in its scope defines or imports by name.
-fn lookup(scopes: &[Scope], name: &str) -> Option<Vec<String>> {
-    for scope in scopes.iter().rev() {
-        if scope.defined.contains(name) {
-            return None;
-        }
-        if let Some(full) = scope.imports.get(name) {
-            return Some(full.clone());
-        }
-        if STD_FS_ITEMS.contains(&name) && scope.globs.iter().any(|glob| is_std_fs(glob)) {
-            return Some(vec!["std".into(), "fs".into(), name.to_string()]);
-        }
-        if scope.opaque {
-            break;
-        }
+/// The names whose call reads by path when the lint cannot settle what it is.
+const READS: &[&str] = &["exists", "try_exists", "symlink_metadata", "metadata", "exists_nofollow"];
+
+/// One module's items as declared: the items, and where its `mod x;` finds its file.
+struct Decl {
+    items: Vec<syn::Item>,
+    file: PathBuf,
+    dir: PathBuf,
+}
+
+/// The crate's modules by path (`crate::store::cold`), read when a `self::`, `super::` or
+/// `crate::` path reaches one (#42003 review F3: a `super::` into a parent module in another
+/// file): from the crate's sources on disk, or a test's files by module path. A module declared
+/// more than once (one `mod` per `cfg`) is all of its declarations.
+struct Modules {
+    files: HashMap<String, syn::File>,
+    /// The root module's file on disk and the folder its `mod x;` finds `x.rs` in.
+    disk: Option<(PathBuf, PathBuf)>,
+    decls: RefCell<HashMap<Vec<String>, Rc<Vec<Decl>>>>,
+    scopes: RefCell<HashMap<Vec<String>, Option<Rc<Scope>>>>,
+}
+
+impl Modules {
+    /// The crate on disk: `src/lib.rs` and the modules it declares.
+    fn crate_on_disk() -> Self {
+        Modules::on_disk(&crate_src().join("lib.rs"), &crate_src())
     }
-    None
-}
 
-/// The scopes a path's leading `self::` / `super::` names start from, and how many leading
-/// names they are: `self` is the innermost module (not a block), each `super` one module out
-/// (#41970 review F1). `None`: no leading `self`/`super`, or more `super`s than modules here.
-fn module_scopes<'s>(scopes: &'s [Scope], segments: &[String]) -> Option<(&'s [Scope], usize)> {
-    let lead = segments.iter().take_while(|s| *s == "self" || *s == "super").count();
-    if lead == 0 || segments.iter().skip(1).take(lead - 1).any(|s| s == "self") {
-        return None;
+    /// The tree rooted at `root` (the module `crate`) on disk; its `mod x;` finds `x.rs` in `dir`.
+    fn on_disk(root: &Path, dir: &Path) -> Self {
+        Modules::new(HashMap::new(), Some((root.to_path_buf(), dir.to_path_buf())))
     }
-    let outward = segments.iter().take(lead).filter(|s| *s == "super").count();
-    let modules: Vec<usize> = (0..scopes.len()).rev().filter(|&i| scopes[i].opaque).collect();
-    let module = *modules.get(outward)?;
-    Some((&scopes[..=module], lead))
+
+    /// A test's files, each `(module path, file)`; `crate` is the root.
+    fn of_files(files: impl IntoIterator<Item = (String, syn::File)>) -> Self {
+        Modules::new(files.into_iter().collect(), None)
+    }
+
+    fn new(files: HashMap<String, syn::File>, disk: Option<(PathBuf, PathBuf)>) -> Self {
+        Modules { files, disk, decls: RefCell::default(), scopes: RefCell::default() }
+    }
+
+    fn decls(&self, module: &[String]) -> Rc<Vec<Decl>> {
+        if let Some(decls) = self.decls.borrow().get(module) {
+            return Rc::clone(decls);
+        }
+        let mut out = Vec::new();
+        let test_file = self.files.get(&module.join("::"));
+        match module {
+            [root] if root == "crate" => {
+                if let Some(file) = test_file {
+                    let items = file.items.clone();
+                    out.push(Decl { items, file: PathBuf::new(), dir: PathBuf::new() });
+                } else if let Some((root, dir)) = &self.disk
+                    && let Some(file) = parse_file_at(root)
+                {
+                    out.push(Decl { items: file.items, file: root.clone(), dir: dir.clone() });
+                }
+            }
+            [parent @ .., name] if !parent.is_empty() => {
+                for decl in self.decls(parent).iter() {
+                    for item in &decl.items {
+                        let syn::Item::Mod(m) = item else { continue };
+                        if m.ident != name || is_test_attr(&m.attrs) {
+                            continue;
+                        }
+                        if let Some((_, inline)) = &m.content {
+                            let dir = decl.dir.join(name);
+                            out.push(Decl { items: inline.clone(), file: decl.file.clone(), dir });
+                        } else if let Some(file) = test_file {
+                            let items = file.items.clone();
+                            out.push(Decl { items, file: PathBuf::new(), dir: PathBuf::new() });
+                        } else if self.disk.is_some() {
+                            let (child, dir) = mod_file(m, &decl.file, &decl.dir);
+                            if let Some(file) = parse_file_at(&child) {
+                                out.push(Decl { items: file.items, file: child, dir });
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        let decls = Rc::new(out);
+        self.decls.borrow_mut().insert(module.to_vec(), Rc::clone(&decls));
+        decls
+    }
+
+    /// The scope of the module at `module`, or `None` when no declaration of it can be read.
+    fn scope(&self, module: &[String]) -> Option<Rc<Scope>> {
+        if let Some(scope) = self.scopes.borrow().get(module) {
+            return scope.clone();
+        }
+        let decls = self.decls(module);
+        let scope = (!decls.is_empty())
+            .then(|| Rc::new(Scope::of(decls.iter().flat_map(|d| d.items.iter()), true)));
+        self.scopes.borrow_mut().insert(module.to_vec(), scope.clone());
+        scope
+    }
 }
 
-/// `segments` with its first name replaced by what it imports, again while that is an import
-/// of another local name (`use std::fs; use fs::metadata;`), a few steps at most.
-fn resolve(scopes: &[Scope], segments: &[String]) -> Vec<String> {
-    resolve_within(scopes, segments, 4)
+fn parse_file_at(path: &Path) -> Option<syn::File> {
+    syn::parse_file(&std::fs::read_to_string(path).ok()?).ok()
 }
 
-/// [`resolve`], following a `self::`/`super::` import (`use self::x as y;`) at most `steps`
-/// times.
-fn resolve_within(scopes: &[Scope], segments: &[String], steps: usize) -> Vec<String> {
-    let mut path = segments.to_vec();
-    // `self::x` / `super::x`: `x` as that module's imports name it; a name it defines (or one
-    // it does not name) is not std's and is left as written.
-    if let Some((module, lead)) = module_scopes(scopes, &path) {
-        let Some(name) = path.get(lead) else { return path };
-        let Some(full) = lookup(module, name) else { return path };
-        path.splice(..=lead, full);
-        return match steps.checked_sub(1) {
-            Some(left) => resolve_within(module, &path, left),
-            None => path,
+/// Where a call's path leads, in one build.
+#[derive(Debug)]
+enum Settled {
+    /// A path in std, core or alloc.
+    Std(Vec<String>),
+    /// An item of this crate (one `crate::home_fs` path counts as one: the held-home reads).
+    Own(Vec<String>),
+    /// A name no scope here binds: another crate's item, the prelude's, a local variable.
+    Outside(Vec<String>),
+    /// A path into this crate the resolver cannot follow, and why.
+    Lost(String),
+}
+
+/// What a name finds in a scope.
+enum Found {
+    Binding(Binding),
+    Glob(Vec<String>),
+    /// Nothing here: in a block or module, a name from outside the crate's sources.
+    Nothing,
+}
+
+/// The place a path is written: its module's path and the scopes around it (innermost last).
+#[derive(Clone)]
+struct At {
+    module: Vec<String>,
+    scopes: Vec<Rc<Scope>>,
+}
+
+/// How many imports a path is followed through before it counts as a loop.
+const STEPS: usize = 12;
+
+/// Resolves a path the way Rust does: through `use` imports (an alias, a group, a glob, one
+/// written `self::`, `super::` or relative to another import; #42003 review F2), into modules
+/// in other files, and down every `cfg` arm.
+struct Resolver<'m> {
+    modules: &'m Modules,
+}
+
+impl Resolver<'_> {
+    /// Where `path`, written at `at`, leads: one entry per build its `cfg`-gated bindings make.
+    fn resolve(&self, at: &At, path: &[String], steps: usize) -> Vec<Settled> {
+        let Some(steps) = steps.checked_sub(1) else {
+            return vec![Settled::Lost("a loop of imports".into())];
         };
+        let Some(first) = path.first() else {
+            return vec![Settled::Lost("an empty path".into())];
+        };
+        match first.as_str() {
+            "std" | "core" | "alloc" => vec![Settled::Std(path.to_vec())],
+            "Self" => vec![Settled::Own(path.to_vec())],
+            "crate" => self.in_module(&["crate".into()], &path[1..], steps),
+            "self" | "super" => {
+                let lead = path.iter().take_while(|s| *s == "self" || *s == "super").count();
+                let mut module = at.module.clone();
+                for (i, segment) in path[..lead].iter().enumerate() {
+                    if (segment == "self" && i > 0) || (segment == "super" && module.len() <= 1) {
+                        return vec![Settled::Lost(path.join("::"))];
+                    }
+                    if segment == "super" {
+                        module.pop();
+                    }
+                }
+                self.in_module(&module, &path[lead..], steps)
+            }
+            name => {
+                let rest = &path[1..];
+                let mut out = Vec::new();
+                for found in self.lookup(at, name, steps) {
+                    out.extend(match found {
+                        Found::Binding(Binding::Import(full)) => {
+                            self.resolve(at, &[&full[..], rest].concat(), steps)
+                        }
+                        Found::Binding(Binding::Module) => {
+                            let module = [&at.module[..], &path[..1]].concat();
+                            self.in_module(&module, rest, steps)
+                        }
+                        Found::Binding(Binding::Item) => {
+                            vec![Settled::Own([&at.module[..], path].concat())]
+                        }
+                        Found::Glob(glob) => self.resolve(at, &[&glob[..], path].concat(), steps),
+                        Found::Nothing => vec![Settled::Outside(path.to_vec())],
+                    });
+                }
+                out
+            }
+        }
     }
-    let mut replaced = false;
-    for _ in 0..4 {
-        let Some(first) = path.first() else { break };
-        if matches!(first.as_str(), "self" | "super") && replaced {
-            // An import named a `self::`/`super::` path (`use self::symlink_metadata as sm;`):
-            // resolve it from its module, as a call written that way is (#42003 review).
-            return match steps.checked_sub(1) {
-                Some(left) => resolve_within(scopes, &path, left),
-                None => path,
-            };
+
+    /// Where `rest` leads inside the module at `module`.
+    fn in_module(&self, module: &[String], rest: &[String], steps: usize) -> Vec<Settled> {
+        let full = [module, rest].concat();
+        if full.len() >= 2 && full[0] == "crate" && full[1] == "home_fs" {
+            return vec![Settled::Own(full)];
         }
-        if matches!(first.as_str(), "std" | "core" | "crate" | "self" | "super") {
-            break;
+        let Some(name) = rest.first() else { return vec![Settled::Own(full)] };
+        let Some(scope) = self.modules.scope(module) else {
+            return vec![Settled::Lost(full.join("::"))];
+        };
+        let at = At { module: module.to_vec(), scopes: vec![scope] };
+        // In a module path, a name that only some builds bind is in every build that compiles
+        // the call: the build without it does not compile, so it is no fallthrough.
+        let mut found = self.lookup(&at, name, steps);
+        if found.len() > 1 {
+            found.retain(|f| !matches!(f, Found::Nothing));
         }
-        let Some(full) = lookup(scopes, first) else { break };
-        if full.first() == Some(first) && full.len() == 1 {
-            break;
+        let mut out = Vec::new();
+        for found in found {
+            out.extend(match found {
+                Found::Binding(Binding::Import(path)) => {
+                    self.resolve(&at, &[&path[..], &rest[1..]].concat(), steps)
+                }
+                Found::Binding(Binding::Module) => {
+                    self.in_module(&[module, &rest[..1]].concat(), &rest[1..], steps)
+                }
+                Found::Binding(Binding::Item) => vec![Settled::Own(full.clone())],
+                Found::Glob(glob) => self.resolve(&at, &[&glob[..], rest].concat(), steps),
+                Found::Nothing => vec![Settled::Lost(full.join("::"))],
+            });
         }
-        path.splice(0..1, full);
-        replaced = true;
+        out
     }
-    path
+
+    /// What `name` means at `at`: the innermost scope that binds it by name or by a glob that
+    /// has it, each binding of it there (a gated one also the meaning without it, from the
+    /// scopes further out), and `Nothing` when no scope settles it.
+    fn lookup(&self, at: &At, name: &str, steps: usize) -> Vec<Found> {
+        let mut found = Vec::new();
+        for scope in at.scopes.iter().rev() {
+            let mut settled = false;
+            for (binding, gated) in scope.names.get(name).into_iter().flatten() {
+                found.push(Found::Binding(binding.clone()));
+                settled |= !gated;
+            }
+            if !settled {
+                for (glob, gated) in &scope.globs {
+                    if self.glob_has(at, glob, name, steps) {
+                        found.push(Found::Glob(glob.clone()));
+                        settled |= !gated;
+                    }
+                }
+            }
+            if settled {
+                return found;
+            }
+            if scope.opaque {
+                break;
+            }
+        }
+        found.push(Found::Nothing);
+        found
+    }
+
+    /// Whether `use glob::*;` brings in `name`: std::fs's public items, `Path` and `PathBuf` from
+    /// std::path, a crate module's names; one the lint cannot read, any name it reads by.
+    fn glob_has(&self, at: &At, glob: &[String], name: &str, steps: usize) -> bool {
+        let glob: Vec<&str> = glob.iter().map(String::as_str).collect();
+        match glob.as_slice() {
+            ["std", "fs"] => return STD_FS_ITEMS.contains(&name),
+            ["std", "path"] => return matches!(name, "Path" | "PathBuf"),
+            ["std" | "core" | "alloc", ..] => return false,
+            _ => {}
+        }
+        let glob: Vec<String> = glob.iter().map(|s| s.to_string()).collect();
+        let module = self.resolve(at, &glob, steps).into_iter().find_map(|settled| match settled {
+            Settled::Own(path) => self.modules.scope(&path),
+            _ => None,
+        });
+        match module {
+            Some(scope) => {
+                scope.names.contains_key(name) || (!scope.globs.is_empty() && READS.contains(&name))
+            }
+            None => READS.contains(&name),
+        }
+    }
 }
 
-fn is_std_fs(path: &[String]) -> bool {
-    path.len() == 2 && path[0] == "std" && path[1] == "fs"
-}
-
-/// Whether a call of `resolved` (its function's path, imports resolved) is std's existence or
-/// metadata read by path: `std::fs::x`, `std::path::Path::x` / `PathBuf::x`, or an `fs::x`,
-/// `Path::x` or `PathBuf::x` whose first name no import here names (an import the lint cannot
-/// see, which in this crate is std's).
-fn std_read_by_path(resolved: &[String]) -> bool {
-    let Some((last, head)) = resolved.split_last() else { return false };
+/// Whether `path` is std's existence or metadata read by path: `std::fs::x` or
+/// `std::path::Path::x` / `PathBuf::x`.
+fn std_read_by_path(path: &[String]) -> bool {
+    let Some((last, head)) = path.split_last() else { return false };
     if !(PATH_ONLY.contains(&last.as_str()) || last == "metadata") {
         return false;
     }
     let head: Vec<&str> = head.iter().map(String::as_str).collect();
-    matches!(
-        head.as_slice(),
-        ["std", "fs"]
-            | ["std", "path", "Path" | "PathBuf"]
-            | ["fs"]
-            | ["Path" | "PathBuf"]
-            | ["path", "Path" | "PathBuf"]
-    )
+    matches!(head.as_slice(), ["std", "fs"] | ["std", "path", "Path" | "PathBuf"])
+}
+
+/// What makes a call that leads to `settled` a row, if it is one: std's read by path, a
+/// `home_fs::exists_nofollow`, a name it reads by that the lint cannot settle (another crate's,
+/// or not bound here), or a path into this crate it cannot follow. A call is a row unless every
+/// build of it settles on a known item that is not a read by path (fail closed).
+fn offends(settled: &Settled) -> Option<String> {
+    fn last(path: &[String]) -> &str {
+        path.last().map(String::as_str).unwrap_or_default()
+    }
+    match settled {
+        Settled::Std(path) if std_read_by_path(path) => Some(path.join("::")),
+        Settled::Own(path) if last(path) == "exists_nofollow" => Some(path.join("::")),
+        Settled::Outside(path) if READS.contains(&last(path)) => Some(path.join("::")),
+        Settled::Lost(why) => Some(format!("unresolved: {why}")),
+        _ => None,
+    }
+}
+
+/// The attributes on `e`, whatever kind of expression it is.
+fn expr_attrs(e: &syn::Expr) -> &[syn::Attribute] {
+    use syn::Expr as E;
+    match e {
+        E::Array(x) => &x.attrs,
+        E::Assign(x) => &x.attrs,
+        E::Async(x) => &x.attrs,
+        E::Await(x) => &x.attrs,
+        E::Binary(x) => &x.attrs,
+        E::Block(x) => &x.attrs,
+        E::Break(x) => &x.attrs,
+        E::Call(x) => &x.attrs,
+        E::Cast(x) => &x.attrs,
+        E::Closure(x) => &x.attrs,
+        E::Const(x) => &x.attrs,
+        E::Continue(x) => &x.attrs,
+        E::Field(x) => &x.attrs,
+        E::ForLoop(x) => &x.attrs,
+        E::Group(x) => &x.attrs,
+        E::If(x) => &x.attrs,
+        E::Index(x) => &x.attrs,
+        E::Infer(x) => &x.attrs,
+        E::Let(x) => &x.attrs,
+        E::Lit(x) => &x.attrs,
+        E::Loop(x) => &x.attrs,
+        E::Macro(x) => &x.attrs,
+        E::Match(x) => &x.attrs,
+        E::MethodCall(x) => &x.attrs,
+        E::Paren(x) => &x.attrs,
+        E::Path(x) => &x.attrs,
+        E::Range(x) => &x.attrs,
+        E::RawAddr(x) => &x.attrs,
+        E::Reference(x) => &x.attrs,
+        E::Repeat(x) => &x.attrs,
+        E::Return(x) => &x.attrs,
+        E::Struct(x) => &x.attrs,
+        E::Try(x) => &x.attrs,
+        E::TryBlock(x) => &x.attrs,
+        E::Tuple(x) => &x.attrs,
+        E::Unary(x) => &x.attrs,
+        E::Unsafe(x) => &x.attrs,
+        E::While(x) => &x.attrs,
+        E::Yield(x) => &x.attrs,
+        _ => &[],
+    }
 }
 
 /// One function's checks: the names bound to a path in it, and the scopes its names resolve in.
 struct Scan<'a> {
     rel: &'a str,
     paths: HashSet<String>,
-    scopes: Vec<Scope>,
+    module: Vec<String>,
+    scopes: Vec<Rc<Scope>>,
+    resolver: Resolver<'a>,
     rows: Vec<String>,
 }
 
@@ -441,8 +731,10 @@ impl<'ast> Visit<'ast> for Scan<'_> {
     fn visit_item_mod(&mut self, m: &'ast syn::ItemMod) {
         if !is_test_attr(&m.attrs) {
             let items = m.content.as_ref().map_or(&[][..], |(_, items)| &items[..]);
-            self.scopes.push(Scope::of(items.iter(), true));
+            self.scopes.push(Rc::new(Scope::of(items.iter(), true)));
+            self.module.push(m.ident.to_string());
             syn::visit::visit_item_mod(self, m);
+            self.module.pop();
             self.scopes.pop();
         }
     }
@@ -451,7 +743,7 @@ impl<'ast> Visit<'ast> for Scan<'_> {
             syn::Stmt::Item(item) => Some(item),
             _ => None,
         });
-        self.scopes.push(Scope::of(items, false));
+        self.scopes.push(Rc::new(Scope::of(items, false)));
         syn::visit::visit_block(self, b);
         self.scopes.pop();
     }
@@ -461,21 +753,18 @@ impl<'ast> Visit<'ast> for Scan<'_> {
         }
     }
     fn visit_stmt(&mut self, s: &'ast syn::Stmt) {
-        if let syn::Stmt::Local(l) = s
-            && is_test_attr(&l.attrs)
-        {
-            return;
-        }
-        syn::visit::visit_stmt(self, s);
-    }
-    fn visit_expr(&mut self, e: &'ast syn::Expr) {
-        let attrs = match e {
-            syn::Expr::Block(b) => &b.attrs[..],
-            syn::Expr::Call(c) => &c.attrs[..],
-            syn::Expr::MethodCall(m) => &m.attrs[..],
+        let attrs = match s {
+            syn::Stmt::Local(l) => &l.attrs[..],
+            syn::Stmt::Macro(m) => &m.attrs[..],
             _ => &[][..],
         };
         if !is_test_attr(attrs) {
+            syn::visit::visit_stmt(self, s);
+        }
+    }
+    fn visit_expr(&mut self, e: &'ast syn::Expr) {
+        // Test-only code of any kind (`#[cfg(test)] if .. { .. }` too) is left out.
+        if !is_test_attr(expr_attrs(e)) {
             syn::visit::visit_expr(self, e);
         }
     }
@@ -524,18 +813,18 @@ impl<'ast> Visit<'ast> for Scan<'_> {
         if let syn::Expr::Path(f) = &*c.func {
             let segments: Vec<String> =
                 f.path.segments.iter().map(|s| s.ident.to_string()).collect();
-            // Judged by the path the imports resolve it to: `metadata(p)` after
-            // `use std::fs::metadata;` is std's, after a local `fn metadata` it is not.
-            let resolved = resolve(&self.scopes, &segments);
-            let last = resolved.last().cloned().unwrap_or_default();
-            let through_home_fs = resolved.iter().any(|s| s == "home_fs");
-            let by_path = !through_home_fs && std_read_by_path(&resolved);
-            if last == "exists_nofollow" || by_path {
+            // Judged by where the path leads in every build: `metadata(p)` after
+            // `use std::fs::metadata;` is std's, after a local `fn metadata` it is not, and one
+            // the resolver cannot settle is a row (fail closed).
+            let at = At { module: self.module.clone(), scopes: self.scopes.clone() };
+            let settled = self.resolver.resolve(&at, &segments, STEPS);
+            if let Some(shown) = settled.iter().find_map(offends) {
                 let written = segments.join("::");
-                let what = if segments.len() == 1
+                let what = if shown.starts_with("unresolved: ")
+                    || segments.len() == 1
                     || matches!(segments.first().map(String::as_str), Some("self" | "super"))
                 {
-                    format!("{written}(..) ({})", resolved.join("::"))
+                    format!("{written}(..) ({shown})")
                 } else {
                     format!("{written}(..)")
                 };
@@ -557,20 +846,31 @@ impl<'ast> Visit<'ast> for Scan<'_> {
     }
 }
 
-/// The rows of one file.
+/// The rows of one file, the root module of a crate of just that file.
 fn rows_in(rel: &str, file: &syn::File) -> Vec<String> {
-    rows_in_module(rel, file, &[])
+    let modules = Modules::of_files([("crate".to_string(), file.clone())]);
+    rows_in_module(rel, &["crate".into()], file, &modules)
 }
 
-/// The rows of one file whose module sits in the modules `around` (outermost first): a
-/// `super::` in it resolves in theirs.
-fn rows_in_module(rel: &str, file: &syn::File, around: &[Scope]) -> Vec<String> {
+/// The rows of one file, the module at `module` among `modules`: a `self::`, `super::` or
+/// `crate::` path in it resolves through the modules it names, in this file or another.
+fn rows_in_module(
+    rel: &str,
+    module: &[String],
+    file: &syn::File,
+    modules: &Modules,
+) -> Vec<String> {
     let mut rows = Vec::new();
-    let mut scopes = around.to_vec();
-    scopes.push(Scope::of(file.items.iter(), true));
+    let root = Rc::new(Scope::of(file.items.iter(), true));
     for item in &file.items {
-        let mut scan =
-            Scan { rel, paths: HashSet::new(), scopes: scopes.clone(), rows: Vec::new() };
+        let mut scan = Scan {
+            rel,
+            paths: HashSet::new(),
+            module: module.to_vec(),
+            scopes: vec![Rc::clone(&root)],
+            resolver: Resolver { modules },
+            rows: Vec::new(),
+        };
         scan.visit_item(item);
         rows.append(&mut scan.rows);
     }
@@ -590,8 +890,11 @@ fn nothing_in_the_store_checks_a_file_by_path() {
         !sources.iter().any(|(rel, ..)| rel.ends_with("_tests.rs")),
         "a test module is left out"
     );
-    let rows: Vec<String> =
-        sources.iter().flat_map(|(rel, file, around)| rows_in_module(rel, file, around)).collect();
+    let modules = Modules::crate_on_disk();
+    let rows: Vec<String> = sources
+        .iter()
+        .flat_map(|(rel, module, file)| rows_in_module(rel, module, file, &modules))
+        .collect();
     assert!(
         rows.is_empty(),
         "{} existence or metadata check(s) by path in the store: read each in the held home \
@@ -681,6 +984,13 @@ fn the_lint_finds_each_shape_of_a_check_by_path() {
 #[test]
 fn the_lint_resolves_imported_fs_functions() {
     let fixture = r#"
+        mod store {
+            pub mod disk {
+                pub struct Probe;
+                pub fn exists(_: &Path) -> bool { true }
+                pub fn metadata(_: &Path) -> Option<u64> { None }
+            }
+        }
         mod direct {
             use std::fs::symlink_metadata;
             fn a(p: &Path) -> bool { symlink_metadata(p).is_ok() }
@@ -798,6 +1108,13 @@ fn the_lint_resolves_imported_fs_functions() {
 #[test]
 fn the_lint_resolves_self_super_and_std_fs_glob_names() {
     let fixture = r#"
+        mod store {
+            pub mod disk {
+                pub struct Probe;
+                pub fn exists(_: &Path) -> bool { true }
+                pub fn metadata(_: &Path) -> Option<u64> { None }
+            }
+        }
         mod through_self {
             use std::fs::symlink_metadata;
             fn a(p: &Path) -> bool { self::symlink_metadata(p).is_ok() }
@@ -943,12 +1260,13 @@ fn the_lint_ignores_test_only_items_that_shadow_an_import() {
 /// The rows of the tree rooted at `src/store.rs` under `src`, sorted.
 fn tree_rows(src: &Path) -> Vec<String> {
     let mut out = Vec::new();
-    load(&src.join("store.rs"), &src.join("store"), &[], &mut out);
+    load(&src.join("store.rs"), &src.join("store"), vec!["crate".into()], &mut out);
+    let modules = Modules::on_disk(&src.join("store.rs"), &src.join("store"));
     let mut rows: Vec<String> = out
         .iter()
-        .flat_map(|(path, file, around)| {
+        .flat_map(|(path, module, file)| {
             let rel = path.strip_prefix(src).unwrap_or(path).to_string_lossy().replace('\\', "/");
-            rows_in_module(&rel, file, around)
+            rows_in_module(&rel, module, file, &modules)
         })
         .collect();
     rows.sort();
@@ -992,6 +1310,121 @@ fn the_lint_reads_a_file_backed_child_in_its_parent() {
             "store/child.rs:2 super::metadata(..) (std::fs::metadata)",
             "store/inline/deep.rs:2 super::symlink_metadata(..) (std::fs::symlink_metadata)",
             "store/shadowed/grandchild.rs:5 super::super::metadata(..) (std::fs::metadata)",
+        ],
+    );
+}
+
+/// The rows of `fixture`, read as a crate's root module, without their locations.
+fn rows_of(fixture: &str) -> Vec<String> {
+    rows_in("x.rs", &syn::parse_file(fixture).unwrap())
+        .into_iter()
+        .map(|row| row.split_once(' ').map(|(_, what)| what.to_string()).unwrap_or(row))
+        .collect()
+}
+
+/// #42003 review F1: "STD_FS_ITEMS lacks std::fs::try_exists (glob import misses it)".
+#[test]
+fn the_lint_reads_try_exists_through_a_std_fs_glob() {
+    let rows = rows_of(
+        r#"
+        mod globbed {
+            use std::fs::*;
+            fn a(p: &Path) -> bool { try_exists(p).unwrap_or(false) }
+        }
+        "#,
+    );
+    assert_eq!(rows, ["try_exists(..) (std::fs::try_exists)"]);
+}
+
+/// #42139 review F1: an import under a `#[cfg(..)]` that aliases a std::fs function is followed
+/// when it is written through another import (`fs::`) or `self::`, not only when it starts with
+/// `std`.
+#[test]
+fn the_lint_follows_a_cfg_gated_import_alias() {
+    let rows = rows_of(
+        r#"
+        mod gated_alias {
+            use std::fs;
+            #[cfg(unix)]
+            use fs::symlink_metadata as sm;
+            #[cfg(windows)]
+            use self::fs::metadata as m;
+            fn a(p: &Path) -> bool { sm(p).is_ok() }
+            fn b(p: &Path) -> bool { m(p).is_ok() }
+        }
+        "#,
+    );
+    assert_eq!(rows, ["sm(..) (std::fs::symlink_metadata)", "m(..) (std::fs::metadata)"]);
+}
+
+/// The resolver fails closed (#42003 review: "a call the resolver can't settle to a known
+/// non-fs path is reported, not skipped"): a `super::` past the crate root, another crate's
+/// `metadata`, a module the lint cannot read, an import into one and a loop of imports are rows,
+/// and a `crate::` path is followed to what it names. A call it settles on a known item that is
+/// not a read (the prelude's, another crate's other functions, a local fn, `Self::`,
+/// `crate::home_fs`, a fn or module defined once per `cfg` arm) is none, and so is test-only
+/// code (`#[cfg(test)] if ..`).
+#[test]
+fn the_lint_reports_a_call_it_cannot_resolve() {
+    let rows = rows_of(
+        r#"
+        mod gone;
+        mod inner {
+            pub use std::fs::metadata;
+        }
+        fn a(p: &Path) -> bool { super::metadata(p).is_ok() }
+        fn b(p: &Path) -> bool { tokio::fs::metadata(p).is_ok() }
+        fn c(p: &Path) -> bool { gone::probe(p) }
+        fn d(p: &Path) -> bool {
+            use self::gone::probe as q;
+            q(p)
+        }
+        fn e(p: &Path) -> bool { crate::inner::metadata(p).is_ok() }
+        mod cycle {
+            use self::b as a;
+            use self::a as b;
+            fn c(p: &Path) -> bool { a(p) }
+        }
+        struct Store;
+        impl Store {
+            fn known(&self, p: &Path) -> bool {
+                let _ = Vec::<u8>::new();
+                let _ = String::from("x");
+                let _ = serde_json::from_str::<u8>("1");
+                let _ = crate::home_fs::metadata(p);
+                Self::helper(p) && helper(p) && Some(1).is_some()
+            }
+            fn helper(_: &Path) -> bool { true }
+        }
+        fn helper(_: &Path) -> bool { true }
+        mod arms {
+            #[cfg(unix)]
+            pub fn probe(_: &Path) -> bool { true }
+            #[cfg(not(unix))]
+            pub fn probe(_: &Path) -> bool { false }
+        }
+        #[cfg(windows)]
+        mod win {
+            pub fn open(_: &Path) -> bool { true }
+        }
+        fn per_platform(p: &Path) -> bool { crate::arms::probe(p) && crate::win::open(p) }
+        fn test_only(p: &Path) {
+            #[cfg(test)]
+            if p.is_absolute() {
+                gone::probe(p);
+            }
+        }
+        "#,
+    );
+    assert_eq!(
+        rows,
+        [
+            "super::metadata(..) (unresolved: super::metadata)",
+            "tokio::fs::metadata(..)",
+            "gone::probe(..) (unresolved: crate::gone::probe)",
+            "q(..) (unresolved: crate::gone::probe)",
+            "crate::inner::metadata(..)",
+            "a(..) (unresolved: a loop of imports)",
         ],
     );
 }
