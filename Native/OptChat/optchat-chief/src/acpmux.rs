@@ -1874,7 +1874,10 @@ mod wait_start_tests {
             tags: chief_tags("home", role),
             ..SessionSpec::default()
         };
-        assert_eq!(session_meta(&spec(COMPACTOR_ROLE), None)["throwaway"], true);
+        assert_eq!(
+            session_meta(&spec(super::COMPACTOR_ROLE), None)["throwaway"],
+            true
+        );
         assert!(session_meta(&spec("turn"), None).get("throwaway").is_none());
         assert!(
             session_meta(&SessionSpec::default(), None)
