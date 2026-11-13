@@ -53,8 +53,8 @@ pub(super) async fn serve_stream(
     let limits = Limits { line: MAX_LINE_BYTES, small: SMALL_LINE_BYTES };
     if let Some(v2) = v2 {
         let reader = read_lines(rd, in_tx, last_tx, limits, Some(&v2));
-        let writer = tokio::spawn(write_lines(wr, out_rx, last_rx));
-        let serving = tokio::spawn(serve_connection_from(
+        let writer = write_lines(wr, out_rx, last_rx);
+        let serving = serve_connection_from(
             hub,
             in_rx,
             out_tx,
@@ -67,9 +67,9 @@ pub(super) async fn serve_stream(
             None,
             None,
             None,
-        ));
-        let (upgrade, writer_result, serving_result) = tokio::join!(reader, writer, serving);
-        if let (Some(upgrade), Ok(wr), Ok(())) = (upgrade, writer_result, serving_result) {
+        );
+        let (upgrade, wr, serving_result) = tokio::join!(reader, writer, serving);
+        if let (Some(upgrade), wr, Ok(())) = (upgrade, wr, serving_result) {
             let _ = upgrade.serve(wr, &v2, daemon_id).await;
         }
     } else {
