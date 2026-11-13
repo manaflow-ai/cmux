@@ -220,7 +220,10 @@ test("an edit during an unsettled retry does not resend unchanged comments", asy
     act(() => probe.render(<Probe />));
     await act(async () => hook.send());
     const originalOpid = sends[0]!.opid;
-    state.current.comments = [{ ...comment("c1", "a.ts", 1), message: "edited" }, comment("c2", "a.ts", 2)];
+    state.current.comments = [
+      { ...comment("c1", "a.ts", 1), message: "edited", updatedAt: "2026-11-07T00:01:00.000Z" },
+      comment("c2", "a.ts", 2),
+    ];
     await act(async () => hook.send());
     expect(sends[1]).toEqual({ ids: ["c2"], opid: originalOpid });
     act(() => probe.unmount());
