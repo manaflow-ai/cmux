@@ -252,6 +252,8 @@ extension AppServices {
             self?.menuBarExtra.computerUseActive = acting
             self?.menuBarExtra.computerUseSessionsChanged()
         }
+        // The agent's window, live in its own surface while the person looks at it.
+        computerUsePreview.start()
     }
 
     /// The device hub follows the hub address (`deviceHub.url` in DEV builds) and the cmux account.

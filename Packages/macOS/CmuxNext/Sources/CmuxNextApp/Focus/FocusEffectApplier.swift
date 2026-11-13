@@ -427,6 +427,8 @@ final class FocusEffectApplier: FocusEffectApplying {
         if FileExplorerService.hasKeyboard(controller.window) { next.insert(.fileExplorerFocused) }
         // The Files tree follows the focused terminal's folder.
         services.fileExplorers.focusChanged(in: controller)
+        // The Computer Use live preview shows over the focused agent surface only.
+        services.computerUsePreview.focusChanged()
         if registry.context != next { registry.context = next }
     }
 

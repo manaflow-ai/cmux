@@ -1,0 +1,286 @@
+import AppKit
+import CmuxNextAgentPane
+import CmuxNextComputerUse
+import CmuxNextCompat
+import CmuxNextDaemon
+import CmuxNextFocus
+import CmuxNextMacScreen
+import CmuxNextWakeups
+
+/// The live preview of an agent's Computer Use (`computerUse.livePreview`, on by default), as the
+/// ChatGPT app shows its Computer Use picture: a live video of the window the agent drives, docked
+/// at the top right of that agent's own surface (its terminal pane or its chat), while that surface
+/// is the one the person looks at in the key window of the active app. cmux Remote streams the
+/// window (it holds the Screen Recording grant and refuses private apps); the app only shows it.
+///
+/// Nothing is captured unless a preview shows: the stream opens with it and closes when the person
+/// looks elsewhere, hides it, turns the setting off, or the agent finishes (a short completion
+/// effect, then it goes away). What the person chose (expanded, hidden here, hidden for every
+/// active agent, the corner and the size) is kept in memory for this run.
+@MainActor
+final class ComputerUsePreviewController {
+    private unowned let services: AppServices
+    let rules = ComputerUsePreviewRules()
+    private var started = false
+
+    /// The preview on screen now: its surface, session, overlay and stream.
+    private struct Shown {
+        var surface: ComputerUsePreviewSurface
+        var session: String
+        weak var host: NSView?
+        let overlay: ComputerUsePreviewOverlay
+        var stream: ComputerUsePreviewStream?
+        /// The stream said its window's app is private: no picture is shown.
+        var blocked = false
+    }
+    private var shown: Shown?
+    /// What the person chose per surface (a new surface starts as a card).
+    private var choices: [ComputerUsePreviewSurface: ComputerUsePreviewPresentation] = [:]
+    private var corner = ComputerUsePreviewLayout.Corner.topRight
+    private var longSide = ComputerUsePreviewLayout.defaultLongSide
+    private let linger = DemandTimer(owner: "computer-use.preview.linger")
+    private let reopen = DemandTimer(owner: "computer-use.preview.reopen")
+    private var updateQueued = false
+    private var escapeMonitor: Any?
+    private var observers: [any NSObjectProtocol] = []
+    private var observation: Task<Void, Never>?
+
+    init(services: AppServices) {
+        self.services = services
+    }
+
+    /// Follows the agents' activity, the setting, the app's activation and key window, and (through
+    /// ``focusChanged()``) each window's focus.
+    func start() {
+        guard !started else { return }
+        started = true
+        let center = NotificationCenter.default
+        for name in [NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification,
+                     NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
+            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.focusChanged() } // main-proof: observer on queue: .main
+            })
+        }
+        let state = services.cmuxRemote.computerUse
+        observation = Task { [weak self] in
+            for await _ in ObservationStream({ [weak self] () -> String in
+                let enabled = self?.services.settings?.snapshot.computerUse.livePreview ?? true
+                let sessions = state.sessions.map { "\($0.id)#\($0.lastAction.timeIntervalSince1970)#\($0.stopped)" }
+                return "\(enabled)|" + sessions.joined(separator: ",")
+            }) {
+                self?.update()
+            }
+        }
+    }
+
+    /// A window's focus moved (FocusEffectApplier), or the app or its key window changed: look again
+    /// on the next turn, once for a burst.
+    func focusChanged() {
+        guard started, !updateQueued else { return }
+        updateQueued = true
+        // task-owner: one coalesced look at the focus, on the main actor's next turn.
+        Task { @MainActor [weak self] in
+            self?.updateQueued = false
+            self?.update()
+        }
+    }
+
+    // MARK: Deciding
+
+    private func update() {
+        let now = Date()
+        let enabled = services.settings?.snapshot.computerUse.livePreview ?? true
+        let focused = focusedSurface()
+        let candidates = services.cmuxRemote.computerUse.sessions.map {
+            ComputerUsePreviewCandidate(session: $0.id, agent: $0.agent, appName: $0.appName, lastAction: $0.lastAction, stopped: $0.stopped)
+        }
+        let pick = rules.session(for: focused?.surface, among: candidates, enabled: enabled, now: now)
+        guard let pick, let focused else {
+            // The setting is off, or the person looks elsewhere: nothing shows, nothing streams at
+            // once. Still looking at the same surface, the agent finished (it stopped, ended, or has
+            // not acted for a while): the completion effect plays first, as ChatGPT's does.
+            let finished = enabled && shown.map { focused?.surface == $0.surface } == true
+            dismiss(completing: finished)
+            return
+        }
+        if let lingers = rules.lingersUntil(pick, now: now) {
+            linger.schedule(after: .milliseconds(Int64((lingers.timeIntervalSince(now) * 1000).rounded(.up)) + 50)) { @MainActor [weak self] in
+                self?.update()
+            }
+        }
+        show(pick, on: focused)
+    }
+
+    /// The surface the person looks at: the focused tab of the key window's shown workspace, while
+    /// cmux is the active app; with the view the preview docks over.
+    private func focusedSurface() -> (surface: ComputerUsePreviewSurface, host: NSView)? {
+        guard services.appActiveSource(), let controller = services.windows.active, controller.window?.isKeyWindow == true,
+              let focus = NotificationCenterService.shownFocus(controller) else { return nil }
+        switch focus {
+        case .terminal(_, let tab):
+            guard let model = services.daemon.store.tab(id: tab), let resource = model.terminalResourceID?.rawValue,
+                  let view = services.cache.existingTerminal(tab)?.session.view else { return nil }
+            return (.terminal(resource: resource), view)
+        case .agentPage(_, let tab):
+            guard let session = services.agentTabs.session(of: tab), let key = services.agentTabs.views.onlyKey(ofTab: tab),
+                  let view = services.agentTabs.views[key] else { return nil }
+            return (.chat(session: session), view)
+        default:
+            return nil
+        }
+    }
+
+    private func presentation(for surface: ComputerUsePreviewSurface) -> ComputerUsePreviewPresentation {
+        choices[surface] ?? .card
+    }
+
+    // MARK: The menu bar's Live Preview row
+
+    /// Whether session `session`'s preview may show (true) or the person hid it (false); nil when
+    /// no preview applies: the setting is off, or the session names no terminal or chat.
+    func isShown(session: String) -> Bool? {
+        guard services.settings?.snapshot.computerUse.livePreview ?? true,
+              let surface = ComputerUsePreviewSurface(session: session) else { return nil }
+        return presentation(for: surface) != .hidden
+    }
+
+    /// Live Preview: Show or Hide for session `session`, as the preview's own Hide and chip do.
+    func set(session: String, shown: Bool) {
+        guard let surface = ComputerUsePreviewSurface(session: session) else { return }
+        choices[surface] = shown ? .card : .hidden
+        update()
+    }
+
+    // MARK: Showing
+
+    private func show(_ pick: ComputerUsePreviewCandidate, on focused: (surface: ComputerUsePreviewSurface, host: NSView)) {
+        if let current = shown, current.surface != focused.surface || current.session != pick.session || current.host !== focused.host {
+            dismiss(completing: false)
+        }
+        if shown == nil {
+            guard let container = focused.host.superview else { return }
+            let overlay = ComputerUsePreviewOverlay()
+            overlay.translatesAutoresizingMaskIntoConstraints = false
+            container.addSubview(overlay, positioned: .above, relativeTo: nil)
+            NSLayoutConstraint.activate([
+                overlay.leadingAnchor.constraint(equalTo: focused.host.leadingAnchor),
+                overlay.trailingAnchor.constraint(equalTo: focused.host.trailingAnchor),
+                overlay.topAnchor.constraint(equalTo: focused.host.topAnchor),
+                overlay.bottomAnchor.constraint(equalTo: focused.host.bottomAnchor),
+            ])
+            overlay.place(corner: corner, longSide: longSide)
+            overlay.onRequest = { [weak self] request in self?.handle(request) }
+            shown = Shown(surface: focused.surface, session: pick.session, host: focused.host, overlay: overlay)
+        }
+        guard var current = shown else { return }
+        let presentation = presentation(for: current.surface)
+        current.overlay.isHidden = current.blocked
+        current.overlay.present(presentation)
+        // The stream runs while a picture shows; a hidden preview (a chip) streams nothing.
+        if presentation == .hidden || current.blocked {
+            current.stream?.stop()
+            current.stream = nil
+        } else if current.stream == nil {
+            current.stream = openStream(for: pick.session, overlay: current.overlay)
+        }
+        shown = current
+        followEscape(presentation == .expanded)
+    }
+
+    private func openStream(for session: String, overlay: ComputerUsePreviewOverlay) -> ComputerUsePreviewStream {
+        let stream = ComputerUsePreviewStream(session: session, longSide: Int(ComputerUsePreviewLayout.maximumLongSide * 2)) { [weak self] event in
+            self?.streamEvent(event, session: session)
+        }
+        overlay.show(video: stream.displayLayer)
+        stream.start(remote: services.cmuxRemote)
+        return stream
+    }
+
+    private func streamEvent(_ event: ComputerUsePreviewStream.Event, session: String) {
+        guard var current = shown, current.session == session else { return }
+        switch event {
+        case .status(let status):
+            if let width = status.width, let height = status.height, width > 0, height > 0 {
+                current.overlay.aspect = CGFloat(width) / CGFloat(height)
+            }
+            if status.state == .streaming { current.overlay.show(still: nil) }
+            // A private window shows nothing at all; its stream has stopped on cmux Remote's side.
+            current.blocked = status.state == .blocked
+            current.overlay.isHidden = current.blocked
+        case .still(let data):
+            current.overlay.show(still: data)
+        case .closed:
+            // cmux Remote went away or refused: try again in a moment while the preview still shows.
+            current.stream = nil
+            reopen.schedule(after: .seconds(1)) { @MainActor [weak self] in self?.update() }
+        }
+        shown = current
+    }
+
+    private func dismiss(completing: Bool) {
+        linger.cancel()
+        followEscape(false)
+        guard let current = shown else { return }
+        shown = nil
+        current.stream?.stop()
+        guard completing else { return current.overlay.removeFromSuperview() }
+        current.overlay.complete { current.overlay.removeFromSuperview() }
+    }
+
+    // MARK: The person's requests
+
+    private func handle(_ request: ComputerUsePreviewRequest) {
+        guard let current = shown else { return }
+        switch request {
+        case .expand: choices[current.surface] = presentation(for: current.surface).after(.expand)
+        case .collapse: choices[current.surface] = presentation(for: current.surface).after(.collapse)
+        case .hideHere: choices[current.surface] = .hidden
+        case .hideEverywhere:
+            // "Hide for All Active Chats": every surface with an agent session now; an agent that
+            // starts later shows its preview again.
+            for session in services.cmuxRemote.computerUse.sessions where !session.stopped {
+                if let surface = ComputerUsePreviewSurface(session: session.id) { choices[surface] = .hidden }
+            }
+            choices[current.surface] = .hidden
+        case .show:
+            choices[current.surface] = .card
+        case .moved(let corner):
+            self.corner = corner
+            current.overlay.place(corner: corner, longSide: longSide)
+        case .resized(let side):
+            longSide = side
+            current.overlay.place(corner: corner, longSide: side)
+        case .showWindow:
+            showWindow(of: current.session)
+        }
+        update()
+    }
+
+    /// Show Window: the window comes forward in its app, then the app: the person asked for it, the
+    /// one time the preview moves focus (as ChatGPT's click on its picture does).
+    private func showWindow(of session: String) {
+        guard let live = services.cmuxRemote.computerUse.sessions.first(where: { $0.id == session })?.live else { return }
+        let remote = services.cmuxRemote
+        let focus = AppComputerUseFocus(services: services)
+        // task-owner: one Show Window for the person's click.
+        Task { @MainActor in
+            _ = try? await remote.computerUseSession(.raiseWindow, session: session)
+            _ = focus.raiseTarget(of: live)
+        }
+    }
+
+    /// Escape closes the expanded view in its window, without taking the keyboard from anything.
+    private func followEscape(_ on: Bool) {
+        if on, escapeMonitor == nil {
+            escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard event.keyCode == 53, let self, let current = self.shown, event.window === current.overlay.window,
+                      self.presentation(for: current.surface) == .expanded else { return event }
+                self.handle(.collapse)
+                return nil
+            }
+        } else if !on, let escapeMonitor {
+            NSEvent.removeMonitor(escapeMonitor)
+            self.escapeMonitor = nil
+        }
+    }
+}
