@@ -348,8 +348,11 @@ mod tests {
         let root = top.join("root");
         std::fs::create_dir_all(&root).unwrap();
         for pipe in [top.join("pipe"), root.join("pipe")] {
-            let made = std::process::Command::new("mkfifo").arg(&pipe).status().unwrap();
-            assert!(made.success(), "mkfifo {}", pipe.display());
+            use std::os::unix::ffi::OsStrExt as _;
+            let name = std::ffi::CString::new(pipe.as_os_str().as_bytes()).unwrap();
+            // SAFETY: a NUL-terminated path; the result is checked.
+            let made = unsafe { libc::mkfifo(name.as_ptr(), 0o600) };
+            assert_eq!(made, 0, "mkfifo {}", pipe.display());
         }
         // Nothing has a pipe open for a write: an open that waits for a writer does not end.
         assert!(Tree::open(&top.join("pipe")).is_none(), "a named pipe is no work tree");
