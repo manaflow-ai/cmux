@@ -53,10 +53,10 @@ import Testing
         let older = try await start([vmKind], link(3, 3), credential)
         #expect(older.0 == AgentSessionAttachClient.credentialsUnsupported)
         #expect(older.1 == nil, "a start that would run on the machine's own route went out")
-        let notOwner = try await start([vmKind, AgentSessionAttachClient.credentialsCapability], nil, credential)
+        let notOwner = try await start([vmKind, AgentSessionAttachClient.startCredentialsCapability], nil, credential)
         #expect(notOwner.0 == "agent_session.host_unverified")
         #expect(notOwner.1 == nil)
-        let owned = try await start([vmKind, AgentSessionAttachClient.credentialsCapability], link(3, 3), credential)
+        let owned = try await start([vmKind, AgentSessionAttachClient.startCredentialsCapability], link(3, 3), credential)
         let sent = try #require(owned.1?["credentials"] as? [String: Any])
         #expect(sent["connection"] as? String == "claude-token")
         // With no credential an older daemon still starts the chat (the machine's own route).
