@@ -117,6 +117,7 @@ pub enum ChatError {
     Book(BookError),
     Io(std::io::Error),
     Translate(translate::Error),
+    Failed,
     Response,
     SourceChanged,
 }
@@ -129,6 +130,7 @@ impl std::fmt::Display for ChatError {
             Self::Book(error) => write!(f, "chat book: {error}"),
             Self::Io(error) => write!(f, "chat actor: {error}"),
             Self::Translate(error) => write!(f, "chat translate: {error}"),
+            Self::Failed => f.write_str("chat actor is failed"),
             Self::Response => f.write_str("chat actor response was dropped"),
             Self::SourceChanged => f.write_str("chat source stamp changed"),
         }
@@ -176,10 +178,14 @@ impl Request {
 pub struct ChatHandle {
     tx: SyncSender<Request>,
     queued: Arc<Mutex<usize>>,
+    health: tokio::sync::watch::Receiver<crate::life::Health>,
 }
 
 impl ChatHandle {
     fn send(&self, request: Request) -> Result<(), ChatError> {
+        if *self.health.borrow() == crate::life::Health::Failed {
+            return Err(ChatError::Failed);
+        }
         let bytes = request.bytes();
         {
             let mut queued = self.queued.lock().map_err(|_| ChatError::Closed)?;
@@ -228,7 +234,8 @@ impl ChatActor {
     pub fn spawn(config: ChatConfig) -> Self {
         let (tx, rx) = sync_channel(256);
         let queued = Arc::new(Mutex::new(0));
-        let handle = ChatHandle { tx, queued: queued.clone() };
+        let (health, health_receiver) = tokio::sync::watch::channel(crate::life::Health::Starting);
+        let handle = ChatHandle { tx, queued: queued.clone(), health: health_receiver };
         let join = thread::Builder::new()
             .name(format!("acpmux-chat-{}", config.id))
             .spawn(move || {
@@ -238,7 +245,6 @@ impl ChatActor {
                     return;
                 };
                 let scope = cmux_scope::Scope::new("acpmux-chat");
-                let (health, _) = tokio::sync::watch::channel(crate::life::Health::Starting);
                 let receiver = Arc::new(Mutex::new(rx));
                 let _ = runtime.block_on(crate::life::supervise(
                     &scope,
@@ -252,7 +258,8 @@ impl ChatActor {
                             })
                             .await
                             {
-                                Ok(result) => result,
+                                Ok(Ok(result)) => Ok(result),
+                                Ok(Err(error)) => std::panic::panic_any(error),
                                 Err(error) if error.is_panic() => {
                                     std::panic::resume_unwind(error.into_panic())
                                 }
