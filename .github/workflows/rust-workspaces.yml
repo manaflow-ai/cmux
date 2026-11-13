@@ -66,6 +66,16 @@ jobs:
           fi
           echo "sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
 
+      # Git only, no cargo: a Cargo.lock the pull request touches gains no crate-version that no lock at the base
+      # has unless a Cargo.toml in it changes a dependency (cmux#42155 said it added none and added seven). An
+      # intended `cargo update` says so in a `Cargo-Lock-New-Crates: <reason>` line in the pull request body.
+      - name: A Cargo.lock change adds no crate-version its manifests did not ask for
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: python3 scripts/cmux-next/cargo-locks.py new-crates --base "$BASE_SHA"
+
       # Seconds, no build: each tracked Cargo.lock resolves from the registry index (cargo update --workspace
       # --locked). A manifest change in one workspace can leave another workspace's lock stale through a path
       # dependency; eb4f3eb1d94 (a direct push) did that to cmux-app-ffi, and every pull request went red on

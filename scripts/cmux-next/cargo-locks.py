@@ -37,6 +37,16 @@ fix     The same check, then `cargo update --workspace` in each stale workspace:
         The deadline is one absolute time for the whole run: the rewrites and their re-checks stop at it too, and
         a lock they did not reach is `left:` (cmux#41767 review F3: `fix --deadline 1.1` ran 1.44 s).
         Only Cargo.lock files are written: a run that would touch anything else is undone and reported.
+new-crates
+        --base BASE [--head HEAD]: git only, no cargo. Fails (exit 1, a `new crate: NAME VERSION in LOCK` line
+        each) when a Cargo.lock the change touches gains a registry or git crate-version (name and version) that
+        no Cargo.lock at BASE has, and no Cargo.toml in the change alters a dependency table ([dependencies],
+        [dev-dependencies], [build-dependencies], their [target.*] forms, [workspace.dependencies], [patch.*],
+        [replace]; a new manifest counts by the tables it adds). Path packages (a workspace's own crates) are not
+        crates here, so a member's version bump is not new. Opt-out, for an intended `cargo update`: a line
+        `Cargo-Lock-New-Crates: <reason>` in the pull request body (the PR_BODY environment variable) or in a
+        commit message in BASE..HEAD. cmux#42155, a lock "alignment" that said it added no crate-version, added
+        seven.
 
 Every workspace runs on one toolchain (RUSTUP_TOOLCHAIN, else the one active at the repository root, with no
 toolchain installs): a lock's consistency does not depend on the toolchain, and a pinned toolchain the host
@@ -45,9 +55,11 @@ lacks would otherwise leave that workspace unchecked.
 Callers: the pre-push gate (prepush-gate.py, CARGO_LOCK_CHECK) on any push that changes a Cargo.toml or
 Cargo.lock; rust-workspaces.yml's plan job on every pull request and push, with --strict and --base (CI is the
 backstop: an unchecked workspace is red there, a timeout only in a workspace the change touches); the base autofix
-(base-autofix.sh --locks) after a feat-cmux-next push that does.
+(base-autofix.sh --locks) after a feat-cmux-next push that does. new-crates: rust-workspaces.yml's plan job on
+every pull request.
 
 Usage: scripts/cmux-next/cargo-locks.py check|fix [--repo DIR] [--strict] [--base SHA] [--deadline S] [--jobs N]
+       scripts/cmux-next/cargo-locks.py new-crates --base SHA [--head SHA] [--repo DIR]
 """
 from __future__ import annotations
 
@@ -436,9 +448,109 @@ def fix(repo: Path, results: dict[str, tuple[str, str]], end: float | None = Non
     return lines
 
 
+def git_text(repo: Path, *args: str) -> str:
+    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True,
+                          check=True).stdout.decode("utf-8", "surrogateescape")
+
+
+def lock_crates(text: str) -> set[tuple[str, str]]:
+    """The (name, version) of each [[package]] in a Cargo.lock that comes from a registry or git (a `source` line);
+    the workspace's own path packages have none, so a member's version bump is not a new crate."""
+    found = set()
+    for block in text.split("[[package]]")[1:]:
+        fields = dict(re.findall(r'^(name|version|source) = "([^"]*)"', block, re.M))
+        if "source" in fields and "name" in fields and "version" in fields:
+            found.add((fields["name"], fields["version"]))
+    return found
+
+
+def dependency_tables(manifest: dict) -> dict:
+    """The parts of a parsed Cargo.toml that choose crates: [dependencies], [dev-dependencies], [build-dependencies]
+    and their [target.*] forms, [workspace.dependencies], [patch.*] and [replace]."""
+    tables = {key: manifest[key] for key in DEPENDENCY_KEYS if key in manifest}
+    target = manifest.get("target")
+    if isinstance(target, dict):
+        tables["target"] = {platform: {key: value[key] for key in DEPENDENCY_KEYS[:3] if key in value}
+                            for platform, value in target.items() if isinstance(value, dict)}
+    workspace = manifest.get("workspace")
+    if isinstance(workspace, dict) and "dependencies" in workspace:
+        tables["workspace.dependencies"] = workspace["dependencies"]
+    return tables
+
+
+def manifest_dependencies_changed(repo: Path, base: str, head: str, path: str) -> bool:
+    """PATH (a Cargo.toml) has different dependency tables at HEAD than at BASE; a new or deleted manifest counts by
+    the tables it adds or drops. Without tomllib (Python < 3.11) any change to the file counts."""
+    try:
+        import tomllib
+    except ImportError:
+        return True
+    sides = []
+    for ref in (base, head):
+        try:
+            text = git_text(repo, "show", f"{ref}:{path}")
+        except subprocess.CalledProcessError:
+            text = ""
+        try:
+            sides.append(dependency_tables(tomllib.loads(text)))
+        except tomllib.TOMLDecodeError:
+            return True
+    return sides[0] != sides[1]
+
+
+NEW_CRATES_OPT_OUT = "Cargo-Lock-New-Crates:"
+OPT_OUT_LINE = re.compile(rf"^[ \t]*{re.escape(NEW_CRATES_OPT_OUT)}[ \t]*\S", re.M)
+
+
+def new_crates(repo: Path, base: str, head: str, body: str = "") -> int:
+    """Fail a change whose Cargo.lock files gain a crate-version no lock at BASE has while no Cargo.toml in it
+    changes a dependency (cmux#42155: a lock "alignment" said it added no crate-version and added seven)."""
+    if not base or set(base) == {"0"}:
+        print("cargo-locks: new-crates: no base; nothing to compare", file=sys.stderr)
+        return 0
+    try:
+        git_text(repo, "cat-file", "-e", f"{base}^{{commit}}")
+        out = git_text(repo, "diff", "--name-only", "--no-renames", "--diff-filter=d", "-z", base, head)
+    except subprocess.CalledProcessError:
+        print(f"cargo-locks: new-crates: base {base} is not in this checkout; not checked", file=sys.stderr)
+        return 0
+    paths = [path for path in out.split("\0") if path]
+    locks = [path for path in paths if PurePosixPath(path).name == "Cargo.lock"]
+    if not locks:
+        return 0
+    known: set[tuple[str, str]] = set()
+    listed = git_text(repo, "ls-tree", "-r", "-z", "--name-only", base)
+    for path in listed.split("\0"):
+        if PurePosixPath(path).name == "Cargo.lock":
+            known |= lock_crates(git_text(repo, "show", f"{base}:{path}"))
+    added = {path: sorted(lock_crates(git_text(repo, "show", f"{head}:{path}")) - known) for path in locks}
+    added = {path: crates for path, crates in added.items() if crates}
+    if not added:
+        return 0
+    manifests = [path for path in git_text(repo, "diff", "--name-only", "--no-renames", "-z", base, head).split("\0")
+                 if PurePosixPath(path).name == "Cargo.toml"]
+    moved = [path for path in manifests if manifest_dependencies_changed(repo, base, head, path)]
+    if moved:
+        print(f"cargo-locks: new-crates: {sum(map(len, added.values()))} new crate-versions; dependencies change in "
+              + ", ".join(moved), file=sys.stderr)
+        return 0
+    messages = git_text(repo, "log", "--format=%B", f"{base}..{head}")
+    if OPT_OUT_LINE.search(body) or OPT_OUT_LINE.search(messages):
+        print(f"cargo-locks: new-crates: new crate-versions allowed by a `{NEW_CRATES_OPT_OUT}` line", file=sys.stderr)
+        return 0
+    for path, crates in sorted(added.items()):
+        for name, version in crates:
+            print(f"new crate: {name} {version} in {path} (no Cargo.lock at the base has it)")
+    print(f"cargo-locks: new-crates: these Cargo.lock changes add crate-versions no lock at the base has, and no "
+          f"Cargo.toml in the change alters a dependency. Move them to versions some lock already has, change the "
+          f"Cargo.toml that needs them, or say why in a `{NEW_CRATES_OPT_OUT} <reason>` line in the pull request "
+          f"body or a commit message (a `cargo update` for a fix)", file=sys.stderr)
+    return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("mode", choices=("check", "fix"))
+    parser.add_argument("mode", choices=("check", "fix", "new-crates"))
     parser.add_argument("--repo", default=".", help="the repository's top directory (default: .)")
     parser.add_argument("--strict", action="store_true", help="a workspace cargo could not judge fails the check")
     parser.add_argument("--base", default="", help="the change's base commit: under --strict, a timed-out "
@@ -446,8 +558,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--deadline", type=float, default=None,
                         help=f"seconds the whole check may take (default with no usable --base: {NO_BASE_DEADLINE})")
     parser.add_argument("--jobs", type=int, default=8)
+    parser.add_argument("--head", default="HEAD", help="new-crates: the change's head commit (default: HEAD)")
     args = parser.parse_args(argv)
     repo = Path(args.repo).resolve()
+    if args.mode == "new-crates":
+        return new_crates(repo, args.base, args.head, os.environ.get("PR_BODY", ""))
 
     touched = touched_roots(repo, tracked_roots(repo), args.base) if args.mode == "check" and args.strict else None
     # One absolute deadline for the whole run: check, then fix's rewrites and their re-checks.

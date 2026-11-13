@@ -665,5 +665,119 @@ class CiPassesTheBaseTests(unittest.TestCase):
         self.assertLess(workflow.index("id: base"), workflow.index("cargo-locks.py check"))
 
 
+REGISTRY = "registry+https://github.com/rust-lang/crates.io-index"
+
+
+def lock_text(own: tuple[str, str], *crates: tuple[str, str]) -> str:
+    """A Cargo.lock with the workspace's own package OWN (no source) and registry CRATES."""
+    blocks = [f'[[package]]\nname = "{own[0]}"\nversion = "{own[1]}"\n']
+    blocks += [f'[[package]]\nname = "{name}"\nversion = "{version}"\nsource = "{REGISTRY}"\nchecksum = "00"\n'
+               for name, version in crates]
+    return "version = 4\n\n" + "\n".join(blocks)
+
+
+class NewCratesTests(unittest.TestCase):
+    """A Cargo.lock change adds no crate-version that no lock at the base has unless a Cargo.toml in the change
+    asks for it (cmux#42155: a lock "alignment" said it added no crate-version and added seven). Git only."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="cmux-cargo-locks-new-")
+        self.addCleanup(temporary.cleanup)
+        self.repo = Path(temporary.name)
+        self.env = git_fixture_env.fixture_env({
+            **os.environ, "GIT_CONFIG_NOSYSTEM": "1", "GIT_AUTHOR_NAME": "F", "GIT_AUTHOR_EMAIL": "f@e",
+            "GIT_COMMITTER_NAME": "F", "GIT_COMMITTER_EMAIL": "f@e"})
+        self.env.pop("PR_BODY", None)
+        git_fixture_env.init_repo(self.repo, env=self.env)
+        # one uses serde 1.0.1; two, its own workspace, already has serde 1.0.2.
+        self.one_manifest = '[package]\nname = "one"\nversion = "0.1.0"\nedition = "2021"\n\n[dependencies]\nserde = "1"\n'
+        self.write("one/Cargo.toml", self.one_manifest)
+        self.write("one/Cargo.lock", lock_text(("one", "0.1.0"), ("serde", "1.0.1")))
+        self.write("two/Cargo.toml", '[package]\nname = "two"\nversion = "0.1.0"\nedition = "2021"\n\n'
+                   '[dependencies]\nserde = "1"\n')
+        self.write("two/Cargo.lock", lock_text(("two", "0.1.0"), ("serde", "1.0.2")))
+        self.git("add", "-A")
+        self.git("commit", "-qm", "base")
+        self.base = self.git("rev-parse", "HEAD").strip()
+
+    def write(self, relative, text):
+        path = self.repo / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+
+    def git(self, *args):
+        return subprocess.run(["git", "-C", str(self.repo), *args], env=self.env, check=True, capture_output=True,
+                              text=True).stdout
+
+    def change(self, files, message="change"):
+        for relative, text in files.items():
+            self.write(relative, text)
+        self.git("add", "-A")
+        self.git("commit", "-qm", message)
+
+    def new_crates(self, body=None):
+        env = dict(self.env)
+        if body is not None:
+            env["PR_BODY"] = body
+        return subprocess.run([sys.executable, "-I", str(SCRIPT), "new-crates", "--repo", str(self.repo),
+                               "--base", self.base], env=env, capture_output=True, text=True)
+
+    def test_a_lock_only_change_adding_a_crate_version_fails(self):
+        self.change({"one/Cargo.lock": lock_text(("one", "0.1.0"), ("serde", "1.0.3"))})
+
+        result = self.new_crates()
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("new crate: serde 1.0.3 in one/Cargo.lock", result.stdout)
+        self.assertIn("Cargo-Lock-New-Crates:", result.stderr)
+
+    def test_a_lock_only_change_to_a_version_another_base_lock_has_passes(self):
+        self.change({"one/Cargo.lock": lock_text(("one", "0.1.0"), ("serde", "1.0.2"))})
+
+        result = self.new_crates()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stdout, "")
+
+    def test_a_dependency_added_in_a_manifest_with_its_lock_lines_passes(self):
+        self.change({"one/Cargo.toml": self.one_manifest + 'log = "0.4"\n',
+                     "one/Cargo.lock": lock_text(("one", "0.1.0"), ("log", "0.4.0"), ("serde", "1.0.1"))})
+
+        result = self.new_crates()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_manifest_change_outside_the_dependency_tables_does_not_excuse_it(self):
+        self.change({"one/Cargo.toml": self.one_manifest.replace('edition = "2021"\n',
+                                                                 'edition = "2021"\ndescription = "x"\n'),
+                     "one/Cargo.lock": lock_text(("one", "0.1.0"), ("serde", "1.0.3"))})
+
+        result = self.new_crates()
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+
+    def test_a_members_own_version_bump_is_not_a_new_crate(self):
+        self.change({"one/Cargo.toml": self.one_manifest.replace('version = "0.1.0"', 'version = "0.2.0"'),
+                     "one/Cargo.lock": lock_text(("one", "0.2.0"), ("serde", "1.0.1"))})
+
+        self.assertEqual(self.new_crates().returncode, 0)
+
+    def test_the_opt_out_line_in_the_pull_request_body_or_a_commit_passes(self):
+        self.change({"one/Cargo.lock": lock_text(("one", "0.1.0"), ("serde", "1.0.3"))})
+
+        self.assertEqual(self.new_crates(body="Fixes a CVE.\n\nCargo-Lock-New-Crates: serde 1.0.3 fixes X\n")
+                         .returncode, 0)
+        self.assertEqual(self.new_crates(body="Cargo-Lock-New-Crates:\n").returncode, 1)
+        self.git("commit", "-q", "--allow-empty", "-m", "bump\n\nCargo-Lock-New-Crates: cargo update for X")
+        self.assertEqual(self.new_crates().returncode, 0)
+
+    def test_ci_runs_it_on_pull_requests_with_the_base_and_the_body(self):
+        workflow = (SOURCE / ".github/workflows/rust-workspaces.yml").read_text()
+        step = workflow[workflow.index("cargo-locks.py new-crates") - 600:workflow.index("cargo-locks.py new-crates")]
+        self.assertIn("github.event_name == 'pull_request'", step)
+        self.assertIn("PR_BODY: ${{ github.event.pull_request.body }}", step)
+        self.assertLess(workflow.index("id: base"), workflow.index("cargo-locks.py new-crates --base \"$BASE_SHA\""))
+
+
 if __name__ == "__main__":
     unittest.main()
