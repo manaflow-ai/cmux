@@ -118,6 +118,7 @@ await requireBrowserLane("composer-persistent-scrollbar.test.ts", async () => {
         top,
         height: Math.max(0, bottom - top),
         bar: Math.round(field.offsetWidth - field.clientWidth - borders),
+        dbg: { rectTop: rect.top, rectBottom: rect.bottom, corner, trackMT: track.marginTop, trackMB: track.marginBottom, actionsTop: actions?.top, anims: document.getAnimations().map((a) => `${a.playState}:${(a.effect as KeyframeEffect | null)?.target?.className ?? "?"}`.slice(0, 60)), settling: field.hasAttribute("data-cmux-scroller-settling") },
       };
     }, FIELD);
     if (box.bar <= 0 || box.height < 1) return { bar: box.bar, thumb: false, track: false };
@@ -146,6 +147,15 @@ await requireBrowserLane("composer-persistent-scrollbar.test.ts", async () => {
         }
       }
     }
+    const rows: string[] = [];
+    for (let y = 0; y < png.height; y++) {
+      const beside = at(1, y);
+      let hit = false;
+      for (let x = 4; x < end; x++) { const pixel = at(x, y); if (Math.abs(pixel[0]! - beside[0]!) + Math.abs(pixel[1]! - beside[1]!) + Math.abs(pixel[2]! - beside[2]!) > 24) { hit = true; break; } }
+      rows.push(hit ? "#" : ".");
+    }
+    const after = await page.evaluate((selector) => { const r = document.querySelector<HTMLElement>(selector)!.getBoundingClientRect(); return [r.top, r.bottom]; }, FIELD);
+    console.log("DBG", JSON.stringify({ ...box, after, png: [png.width, png.height], drawn, rows: rows.join("") }));
     return { bar: box.bar, thumb: drawn >= 8, track: drawn > png.height - 8 };
   }
 
