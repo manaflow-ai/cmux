@@ -94,6 +94,8 @@ mod shutdown_tests;
 #[cfg(test)]
 mod startup_wait_tests;
 #[cfg(test)]
+mod time_breakdown_restore_tests;
+#[cfg(test)]
 mod transcript_seq_tests;
 pub(crate) use fork::offers_fork;
 pub mod created_by;
