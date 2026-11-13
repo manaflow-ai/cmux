@@ -775,3 +775,52 @@ async fn not_ready_then_window_uses_the_same_subscription_until_unsub() {
     drop(client);
     task.await.unwrap().unwrap();
 }
+
+#[test]
+fn subscription_first_frame_consumes_its_request_reserve() {
+    let mut state = ConnectionState::new(crate::wire::CONNECTION_BUDGET_BYTES);
+    state.subscribe("s", Cursor(0)).unwrap();
+    let control = state.control("s").unwrap();
+    assert!(state.reserve_reply());
+    state.begin_subscription_reply(control);
+    let frame = frame(crate::wire::MAX_FRAME_BYTES - 8);
+    assert_eq!(state.offer("s", frame, Cursor(1)), Offer::Taken);
+    assert!(state.queued_bytes() <= crate::wire::CONNECTION_BUDGET_BYTES);
+    state.release_reply();
+}
+
+#[test]
+fn other_subscription_still_sees_the_request_reserve() {
+    let mut state = ConnectionState::new(crate::wire::CONNECTION_BUDGET_BYTES);
+    state.subscribe("s", Cursor(0)).unwrap();
+    state.subscribe("other", Cursor(0)).unwrap();
+    let control = state.control("s").unwrap();
+    assert!(state.reserve_reply());
+    state.begin_subscription_reply(control);
+    assert_eq!(
+        state.offer(
+            "other",
+            frame(crate::wire::CONNECTION_BUDGET_BYTES - crate::wire::MAX_FRAME_BYTES - 8),
+            Cursor(1)
+        ),
+        Offer::Taken
+    );
+    assert!(matches!(
+        state.offer("other", frame(16), Cursor(2)),
+        Offer::NotFed | Offer::Dropped { .. }
+    ));
+    state.release_reply();
+}
+
+#[test]
+fn subscription_first_frame_past_remaining_budget_drops_with_named_cursor() {
+    let mut state = ConnectionState::new(128);
+    state.subscribe("s", Cursor(7)).unwrap();
+    let control = state.control("s").unwrap();
+    assert!(state.reserve_reply());
+    state.begin_subscription_reply(control);
+    assert!(matches!(state.offer("s", frame(90), Cursor(8)), Offer::Taken));
+    assert!(matches!(state.offer("s", frame(90), Cursor(9)), Offer::Dropped { .. }));
+    assert_eq!(state.subscription_count(), 0);
+    state.release_reply();
+}
