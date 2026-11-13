@@ -1,7 +1,7 @@
 // The running tray moves on the transcript's motion (Leo 2026-10-27: "plus the bottom running situation
 // still not animating correctly"; 2026-10-28: "the background section area ... how it animates
 // differently from everything else"). The card settles in on the house settle (#37845: Leo, "they dont
-// overshoot but they decelerate at the end"; cubic-bezier(0.16, 1, 0.3, 1) over 265 ms), and its copy
+// overshoot but they decelerate at the end"; cubic-bezier(0.16, 1, 0.3, 1) over 180 ms), and its copy
 // leaves on the same settle, folding its height away as it fades. A line that
 // joins or leaves the open hat moves its height and opacity on the shared fold, a Web Animation
 // (SubagentTray.tsx `TrayRow`; Leo, 2026-11-07: "they shouldn't just, like, pop in, burst in"), so
@@ -72,12 +72,14 @@ await requireBrowserLane("subagent-tray-line-motion.test.ts", async () => {
     const line = await motionOf(p, ".acpmux-running-tray__list > li");
     const body = await motionOf(p, ".acpmux-running-tray__row");
     await p.close();
-    expect(row).toBe("cv-enter-fade 0.12s cubic-bezier(0, 0, 0.58, 1)");
+    // A row that arrives in the transcript fades in on the arrival step (--agent-motion-arrive, the
+    // quick step: Leo, 2026-11-09: "thinking, tool calls, etc... cannot lag nor can they take long").
+    expect(row).toBe("cv-enter-fade 0.08s cubic-bezier(0, 0, 0.58, 1)");
     // The hat's appearance: the settle's duration and curve (--cmux-motion-settle, --cmux-ease-settle).
-    expect(card).toBe("acpmux-tray-settle-in 0.265s cubic-bezier(0.16, 1, 0.3, 1)");
+    expect(card).toBe("acpmux-tray-settle-in 0.18s cubic-bezier(0.16, 1, 0.3, 1)");
     // Its copy leaves on the same settle, folding its height away as it fades (trayMotionModel.ts
     // `playTrayExit`).
-    expect(leave).toBe("acpmux-tray-leave 0.265s cubic-bezier(0.16, 1, 0.3, 1)");
+    expect(leave).toBe("acpmux-tray-leave 0.18s cubic-bezier(0.16, 1, 0.3, 1)");
     // Its height and opacity move on the shared fold (SubagentTray.tsx `TrayRow`), a Web Animation.
     expect(line.split(" ")[0]).toBe("none");
     expect(body.split(" ")[0]).toBe("none");

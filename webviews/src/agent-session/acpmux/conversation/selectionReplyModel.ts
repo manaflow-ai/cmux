@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { selectionText } from "./chipCopy";
 
 export type SelectionReplyLook = "chip" | "icon" | "none" | "row";
 const LOOKS: readonly SelectionReplyLook[] = ["chip", "icon", "none", "row"];
@@ -53,7 +54,8 @@ const elementOf = (node: Node | null): Element | null =>
 
 export type SelectionReplyTarget = {
   text: string;
-  /** Where the pointer let go (the end, or the start of a backward drag): the chip centres over it. */
+  /** Where the pointer let go (the end, or the start of a backward drag), at its nearest selected
+   *  character: the chip centres over it. */
   left: number;
   top: number;
   bottom: number;
@@ -78,6 +80,31 @@ function columnOf(node: Node | null): SelectionReplyTarget["column"] {
   return { left: block.left, right: body.right };
 }
 
+/// The text node of the selection's last selected character (its first for a backward drag). A
+/// drag let go deep past a block ends the range in the next block, or the next message: its column
+/// is not the selected text's. Walks from that end only, a few nodes, never the whole selection.
+function edgeTextOf(range: Range, backward: boolean): Node {
+  const container = backward ? range.startContainer : range.endContainer;
+  const offset = backward ? range.startOffset : range.endOffset;
+  const doc = container.ownerDocument;
+  if (!doc) return container;
+  const walker = doc.createTreeWalker(range.commonAncestorContainer, 4);
+  let node: Node | null = container.nodeType === 3 ? container : (container.childNodes[offset] ?? null);
+  if (!node) {
+    // Past the container's last child: its deepest last descendant.
+    node = container;
+    while (node.lastChild) node = node.lastChild;
+  }
+  walker.currentNode = node;
+  for (let at: Node | null = node; at; at = backward ? walker.nextNode() : walker.previousNode()) {
+    if (at.nodeType !== 3 || !(at as Text).data.trim() || !range.intersectsNode(at)) continue;
+    // The boundary's own text node holds no selected character when the range stops at its edge.
+    if (at === container && offset === (backward ? (at as Text).length : 0)) continue;
+    return at;
+  }
+  return container;
+}
+
 /// The selected transcript text and where its end is (viewport px), or undefined when the
 /// selection is collapsed, blank, or not wholly in transcript messages.
 export function selectionReplyTarget(doc: Document): SelectionReplyTarget | undefined {
@@ -87,7 +114,8 @@ export function selectionReplyTarget(doc: Document): SelectionReplyTarget | unde
     const element = elementOf(node);
     if (!element?.closest("[data-row-id]") || element.closest(EXCLUDED)) return undefined;
   }
-  const text = selection.toString().trim();
+  // A cmux link chip quotes as its link (chipCopy.ts).
+  const text = selectionText(selection).trim();
   if (!text) return undefined;
   const range = selection.getRangeAt(0);
   const rects = Array.from(range.getClientRects?.() ?? []).filter((rect) => rect.width || rect.height);
@@ -102,7 +130,11 @@ export function selectionReplyTarget(doc: Document): SelectionReplyTarget | unde
     (selection.anchorNode === selection.focusNode
       ? selection.focusOffset < selection.anchorOffset
       : Boolean(selection.anchorNode.compareDocumentPosition(selection.focusNode) & 2));
-  const rect = (backward ? rects[0] : rects[rects.length - 1]) ?? range.getBoundingClientRect?.();
+  // A drag let go deep in the blank space past a block (or before one, backward) leaves that
+  // caret-thin box where the pointer is not: the chip goes on the first or last selected character.
+  // Leo, 2026-11-11: "if you go close, you still get it. But if you go deep into it, there's
+  // something that messes up there."
+  const rect = (backward ? (wide[0] ?? rects[0]) : last) ?? range.getBoundingClientRect?.();
   if (!rect) return { text, left: 0, top: 0, bottom: 0 };
   const end = last ? { right: last.right, top: last.top, bottom: last.bottom } : undefined;
   return {
@@ -112,7 +144,7 @@ export function selectionReplyTarget(doc: Document): SelectionReplyTarget | unde
     bottom: rect.bottom,
     end,
     lineStart: last?.left,
-    column: columnOf(range.endContainer),
+    column: columnOf(edgeTextOf(range, backward)),
   };
 }
 

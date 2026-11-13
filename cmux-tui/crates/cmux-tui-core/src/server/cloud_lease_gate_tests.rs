@@ -145,12 +145,17 @@ fn cloud_environment_reads_and_patch_use_the_install_token_and_never_return_secr
     let (mux, app, plain, backend) = daemon();
     assert_eq!(reply(&mux, app, set(APP_BASE, "app.jwt"))["ok"], true);
     let record = json!({"id":"env_default","name":"Default","is_default":true,
-        "setup_script":null,"env_vars":[],"secrets":[{"name":"TOKEN","updated_at":"now","value":"never-return"}],
+        "setup_script":null,"env_vars":[],"secrets":[{"name":"TOKEN","updated_at":"now","value":"never-return",
+            "hosts":["api.example.com"],"header":{"name":"authorization","format":"Bearer {value}"}}],
         "network":{"mode":"full","package_managers":true,"domains":[]}});
     backend.reply("/v1/cloud-environments", 200, json!([record]));
     let listed = reply(&mux, app, environment("list", json!({})));
     assert_eq!(listed["ok"], true, "{listed}");
-    assert_eq!(listed["data"][0]["secrets"], json!([{"name":"TOKEN","updated_at":"now"}]));
+    assert_eq!(
+        listed["data"][0]["secrets"],
+        json!([{"name":"TOKEN","updated_at":"now",
+        "hosts":["api.example.com"],"header":{"name":"authorization","format":"Bearer {value}"}}])
+    );
     backend.reply("/v1/cloud-environments/env_default", 200, record.clone());
     let read = reply(&mux, app, environment("get", json!({"id":"env_default"})));
     assert_eq!(read["data"]["name"], "Default", "{read}");

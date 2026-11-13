@@ -116,11 +116,7 @@ impl Controller for Cubic {
             return;
         } else if self.cwnd < self.ssthresh {
             // Slow start: increase `cwnd` by 1 MSS per ACK.
-            self.cwnd = self
-                .cwnd
-                .saturating_add(segment)
-                .min(self.rwnd)
-                .max(self.mss);
+            self.cwnd = self.cwnd.saturating_add(segment).min(self.rwnd).max(self.mss);
             return;
         }
 
@@ -152,13 +148,13 @@ impl Controller for Cubic {
         // RFC 9438 §4.3: advance our reno-like suggested cwnd.
         // When cwnd exceeds prior cwnd, change α_cubic to match Reno's AIMD.
         let w_est = {
-            let alpha = if self.w_est >= self.cwnd_prior as f64 {
-                1.0
-            } else {
-                ALPHA_CUBIC
-            };
+            let alpha = if self.w_est >= self.cwnd_prior as f64 { 1.0 } else { ALPHA_CUBIC };
 
-            self.w_est += alpha * self.mss as f64 * segment as f64 / self.cwnd as f64;
+            // cmux patch: RFC 9438 counts all newly acknowledged bytes in
+            // congestion avoidance. The one-MSS cap belongs to slow start;
+            // using it here penalizes delayed ACKs and cumulative ACKs after
+            // a repaired hole, starving a busy stream of window growth.
+            self.w_est += alpha * self.mss as f64 * len as f64 / self.cwnd as f64;
             self.w_est
         };
 
@@ -180,7 +176,7 @@ impl Controller for Cubic {
 
         // TODO: clamps to 0 on small w_cubic_target (i.e. close to plateau)
         // add additional counter (linux `cwnd_cnt`?) to track "lost" bytes
-        let increment = (w_cubic_target as usize).saturating_sub(self.cwnd) * segment / self.cwnd;
+        let increment = (w_cubic_target as usize).saturating_sub(self.cwnd) * len / self.cwnd;
         self.cwnd = (self.cwnd + increment).min(self.rwnd).max(self.mss);
     }
 
@@ -221,6 +217,14 @@ impl Controller for Cubic {
             self.recovery_start = Some(now);
             self.in_fast_recovery = true;
             self.recompute_k();
+        }
+    }
+
+    fn on_sack_loss(&mut self, now: Instant, in_flight: usize) {
+        let entering = !self.in_fast_recovery;
+        self.on_loss(now, in_flight);
+        if entering {
+            self.cwnd = self.ssthresh.min(self.rwnd).max(self.mss);
         }
     }
 
@@ -332,8 +336,54 @@ mod test {
 
     const MSS: usize = 1024;
 
+    #[test]
+    fn test_sack_loss_cuts_without_inflation() {
+        let mut cubic = Cubic::new();
+        cubic.set_mss(MSS);
+        cubic.set_remote_window(usize::MAX);
+        let in_flight = 20 * MSS;
+        cubic.on_sack_loss(Instant::from_millis(0), in_flight);
+        let ssthresh = (in_flight as f64 * BETA_CUBIC) as usize;
+        assert_eq!(cubic.ssthresh, ssthresh);
+        assert_eq!(cubic.cwnd, ssthresh);
+        assert!(cubic.in_fast_recovery);
+        // A second report in the same recovery changes nothing.
+        cubic.on_sack_loss(Instant::from_millis(1), in_flight);
+        assert_eq!(cubic.cwnd, ssthresh);
+    }
+
     fn ack(cubic: &mut Cubic, len: usize, now: Instant) {
         cubic.on_ack(now, len, cubic.window().saturating_sub(MSS), &rtte())
+    }
+
+    #[test]
+    fn congestion_avoidance_credits_bytes_in_delayed_acks() {
+        fn recovered() -> Cubic {
+            let mut cubic = Cubic::new();
+            cubic.set_mss(MSS);
+            cubic.cwnd = 32 * MSS;
+            cubic.on_sack_loss(Instant::from_millis(0), cubic.cwnd);
+            ack(&mut cubic, MSS, Instant::from_millis(1));
+            cubic
+        }
+
+        let mut individual = recovered();
+        let mut delayed = recovered();
+        let start = individual.window();
+        // The receiver delivered exactly the same twenty segments in both
+        // cases. Delayed/cumulative ACKs must not halve window recovery.
+        for _ in 0..20 {
+            ack(&mut individual, MSS, Instant::from_millis(2));
+        }
+        for _ in 0..10 {
+            ack(&mut delayed, 2 * MSS, Instant::from_millis(2));
+        }
+        let individual_growth = individual.window() - start;
+        let delayed_growth = delayed.window() - start;
+        assert!(
+            delayed_growth >= individual_growth * 95 / 100,
+            "same delivered bytes: individual ACKs grew {individual_growth}, delayed ACKs {delayed_growth}"
+        );
     }
 
     fn rtte() -> RttEstimator {

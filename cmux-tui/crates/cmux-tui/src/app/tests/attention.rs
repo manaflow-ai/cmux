@@ -64,6 +64,29 @@ fn attention_entries_put_blocked_and_requested_tabs_before_unread_ones() {
     assert_eq!(order, vec![42, 41]);
 }
 
+/// W5-Q (bench r4 #5): the TUI's queue puts a finished agent turn nobody
+/// viewed (an idle agent with an unread notification) before an older bell,
+/// as `cmux attention list` does.
+#[test]
+fn w5q_tui_attention_puts_a_finished_agent_turn_before_a_bell() {
+    let base = notify_tree(41, true);
+    let mut workspace = base.workspaces()[0].clone();
+    let mut finished = workspace.screens[0].panes[0].tabs[0].clone();
+    finished.surface = 44;
+    finished.name = Some("pong".into());
+    finished.notification = Some(TabNotificationView { unread: true, level: "info", sequence: 9 });
+    workspace.screens[0].panes[0].tabs[0].notification =
+        Some(TabNotificationView { unread: true, level: "info", sequence: 2 });
+    workspace.screens[0].panes[0].tabs.push(finished);
+    let tree = TreeView::from_parts(vec![workspace], 0, Some(1), 0);
+    let mut idle = blocked_agent(44, 50);
+    idle.state = "idle".into();
+    let entries = tree_attention_entries(&tree, &[idle]);
+    let order: Vec<_> = entries.iter().map(|entry| entry.candidate.key).collect();
+    assert_eq!(order, vec![44, 41], "the finished turn first, then the older bell");
+    assert_eq!(entries[0].candidate.kind, crate::attention::AttentionKind::Done);
+}
+
 #[test]
 fn attention_host_context_follows_drawn_panes_host_focus_and_the_own_host_terminal() {
     let mux = Mux::new("attention-host-context-test", SurfaceOptions::default());

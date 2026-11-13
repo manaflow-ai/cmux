@@ -1,5 +1,6 @@
 @testable import CmuxNextCloud
 import CmuxNextDaemon
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -88,6 +89,32 @@ import Testing
         while let chunk = await stream.read() { bytes.append(chunk) }
         stream.close()
         #expect(String(decoding: bytes, as: UTF8.self) == "carrier dial --machine vm_abc123 --service desktop --deadline-ms 180000 https://p t-1 team_x ")
+    }
+
+    /// A desktop dial asks for progress lines; their text reaches the caller in order before the dial line,
+    /// and the stream after the dial line is the service's alone.
+    @Test func theDesktopDialHandsOverItsProgressText() async throws {
+        let cli = try Self.standIn("""
+        [ "$CMUX_CARRIER_PROGRESS" = 1 ] || exit 9
+        printf '{"progress":{"stage":"waking","text":"Waking up the machine, about 25 s left","eta_ms":25000,"deadline_ms":170000}}\\n' >&2
+        printf '{"progress":{"stage":"desktop","text":"Opening the desktop, about 2 s left","eta_ms":2000,"deadline_ms":150000}}\\n' >&2
+        printf '{"ok":true,"path_state":"relay","route":"carrier"}\\n' >&2
+        printf 'rd'
+        """)
+        defer { try? FileManager.default.removeItem(at: cli.deletingLastPathComponent()) }
+        let connector = CloudCarrierDial.Connector(cli: cli, dial: try #require(CloudCarrierDial(machine: "vm_abc123", service: .desktop))) { [:] }
+        let (texts, sink) = AsyncStream.makeStream(of: String.self)
+        let stream = try await connector.open { sink.yield($0) }
+        sink.finish()
+        var bytes = Data()
+        while let chunk = await stream.read() { bytes.append(chunk) }
+        stream.close()
+        var seen: [String] = []
+        for await text in texts { seen.append(text) }
+        #expect(seen == ["Waking up the machine, about 25 s left", "Opening the desktop, about 2 s left"])
+        #expect(String(decoding: bytes, as: UTF8.self) == "rd")
+        let mux = try #require(CloudCarrierDial(machine: "vm_abc123", service: .mux))
+        #expect(mux.bridge(cli: cli, environment: [:]).environment["CMUX_CARRIER_PROGRESS"] == nil, "only the desktop dial asks")
     }
 
     /// The session's link is the serve child's socket: the ready line hands it over, a later connect gives
@@ -294,21 +321,28 @@ import Testing
         let connector = CloudCarrierDial.Connector(cli: cli, dial: try #require(CloudCarrierDial(machine: "vm_abc123", service: .mux))) {
             ["CMUX_CLOUD_ACCESS_TOKEN": "t-\(await tokens.next())"]
         }
-        let serve = CloudCarrierServe(connector: connector, socket: "/tmp/cmux-link-0123456789ab.sock", refreshDelay: { _ in .milliseconds(20) }) { _ in }
+        let clock = ManualClock()
+        let serve = CloudCarrierServe(connector: connector, socket: "/tmp/cmux-link-0123456789ab.sock", refreshDelay: { _ in .seconds(60) },
+                                      clock: clock) { _ in }
         _ = try await serve.socketPath()
+        // The first refresh is asleep on the clock; moving the clock past its delay sends the next token.
+        try await clock.waitForSleeper()
+        clock.advance(by: .seconds(60))
         let stdin = folder.appendingPathComponent("stdin")
-        var deadline = ContinuousClock.now + .seconds(5)
+        let deadline = ContinuousClock.now + .seconds(5)
         while (try? String(contentsOf: stdin, encoding: .utf8))?.contains(#"{"access_token":"t-2"}"#) != true, ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(10))
         }
         #expect(try String(contentsOf: stdin, encoding: .utf8).hasPrefix(#"{"access_token":"t-2"}"# + "\n"))
+        // The refresh after it is asleep on the clock again: the loop runs while the child does.
+        try await clock.waitForSleeper()
         #expect(await serve.refreshing)
         await serve.stop()
-        deadline = ContinuousClock.now + .seconds(5)
-        while await serve.refreshing, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
         #expect(await serve.refreshing == false)
         let asked = await tokens.current()
-        try await Task.sleep(for: .milliseconds(200))
+        // Nothing is left asleep on the clock, so no amount of time asks for another token.
+        #expect(clock.sleeperCount == 0, "the refresh loop outlived the child")
+        clock.advance(by: .seconds(3_600))
         #expect(await tokens.current() == asked, "the refresh loop outlived the child")
     }
 
@@ -360,7 +394,10 @@ import Testing
         await serve.stop()
         // The next connect closes the first child and waits for it to exit.
         let connect = Task { try await serve.socketPath() }
-        try await Task.sleep(for: .milliseconds(300))
+        // The launch closed the first child and waits for its exit, next to the child's own exit watcher.
+        let deadline = ContinuousClock.now + .seconds(5)
+        while await serve.childExitWaiters < 2, ContinuousClock.now < deadline { await Task.yield() }
+        #expect(await serve.childExitWaiters == 2)
         await serve.stop()
         try Data().write(to: folder.appendingPathComponent("go"))
         await #expect(throws: CloudLinkError.disconnected(reason: "closed")) { _ = try await connect.value }
@@ -398,6 +435,73 @@ import Testing
         let next = try await withDeadline(.seconds(10), label: "next serve launch") { try await serve.socketPath() }
         #expect(next == socket)
         await serve.stop()
+    }
+
+    /// A pause parks the link through the real resolver: the serve child exits, nothing launches while the
+    /// machine is paused, and the next connect (a resume) launches a fresh child.
+    @Test func aParkStopsTheServeAndTheNextConnectLaunchesAnother() async throws {
+        let cli = try Self.standIn("d=$(dirname \"$0\")\necho launched >> \"$d/launches\"\nprintf '{\"ok\":true,\"socket\":\"%s\",\"route\":\"carrier\"}\\n' \"$6\" >&2\ncat >/dev/null\necho exited >> \"$d/launches\"\n")
+        let folder = cli.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let launches = folder.appendingPathComponent("launches")
+        func lines() -> [String] { ((try? String(contentsOf: launches, encoding: .utf8)) ?? "").split(separator: "\n").map(String.init) }
+        let socket = "/tmp/cmux-link-0123456789ab.sock"
+        let connector = CloudCarrierDial.Connector(cli: cli, dial: try #require(CloudCarrierDial(machine: "vm_abc123", service: .mux))) { [:] }
+        let serve = CloudCarrierServe(connector: connector, socket: socket) { _ in }
+        let link = CloudLinkSession(key: CloudLinkKey(machine: "vm_abc123"), resolver: CloudCarrierResolver(serve: serve) { .owner })
+        #expect(try await link.endpoint(try await link.connect(origin: .user)) == socket)
+        #expect(lines() == ["launched"])
+
+        await link.park(reason: "paused")
+        #expect(await link.isEnded)
+        let deadline = ContinuousClock.now + .seconds(5)
+        while lines() != ["launched", "exited"], ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(lines() == ["launched", "exited"], "the parked serve child exited")
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(lines() == ["launched", "exited"], "nothing launches while the machine is paused")
+
+        #expect(try await link.endpoint(try await link.connect(origin: .user)) == socket)
+        #expect(lines() == ["launched", "exited", "launched"], "the resume launched a fresh child")
+        await link.close()
+    }
+
+    /// A paused machine's carrier ask from the Cloud app server is refused as paused and starts no serve.
+    @Test func aPausedMachinesCarrierAskStartsNoServe() async throws {
+        let cli = try Self.standIn("d=$(dirname \"$0\")\necho launched >> \"$d/launches\"\nprintf '{\"ok\":true,\"socket\":\"%s\",\"route\":\"carrier\"}\\n' \"$6\" >&2\ncat >/dev/null\n")
+        let folder = cli.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let connector = CloudCarrierDial.Connector(cli: cli, dial: try #require(CloudCarrierDial(machine: "vm_abc123", service: .mux))) { [:] }
+        let serve = CloudCarrierServe(connector: connector, socket: "/tmp/cmux-link-0123456789ab.sock") { _ in }
+        let link = CloudLinkSession(key: CloudLinkKey(machine: "vm_abc123"), resolver: CloudCarrierResolver(serve: serve) { .owner })
+        let answer = await CloudLinkSession.carrierAnswer(link, machine: "vm_abc123", paused: true)
+        #expect(answer == .failure(.init(code: "cloud.machine.paused", message: "vm_abc123 is paused; resume it first")))
+        #expect(!FileManager.default.fileExists(atPath: folder.appendingPathComponent("launches").path), "no serve child started")
+        await link.close()
+    }
+
+    /// A closed child that ignores its stdin closing gets SIGTERM after the grace, so the next launch
+    /// (every resume after a pause) is not held forever.
+    @Test func aChildThatIgnoresItsClosedStdinIsTerminatedBeforeTheNextLaunch() async throws {
+        let cli = try Self.standIn("d=$(dirname \"$0\")\necho launched >> \"$d/launches\"\nprintf '{\"ok\":true,\"socket\":\"%s\",\"route\":\"carrier\"}\\n' \"$6\" >&2\nwhile [ ! -f \"$d/go\" ]; do sleep 0.05; done\necho exited >> \"$d/launches\"\n")
+        let folder = cli.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let socket = "/tmp/cmux-link-0123456789ab.sock"
+        let connector = CloudCarrierDial.Connector(cli: cli, dial: try #require(CloudCarrierDial(machine: "vm_abc123", service: .mux))) { [:] }
+        let serve = CloudCarrierServe(connector: connector, socket: socket) { _ in }
+        _ = try await serve.socketPath()
+        await serve.stop()
+        let next = try await withDeadline(CloudCarrierServe.exitGrace * 3, label: "relaunch past a stuck child") { try await serve.socketPath() }
+        #expect(next == socket)
+        #expect(try String(contentsOf: folder.appendingPathComponent("launches"), encoding: .utf8) == "launched\nlaunched\n", "the stuck first child was terminated, never let exit on its own")
+        // The second child ignores its stdin too: `go` ends it, so no stand-in outlives the test (the first
+        // died of the SIGTERM and wrote no `exited`).
+        try Data().write(to: folder.appendingPathComponent("go"))
+        await serve.stop()
+        let launches = folder.appendingPathComponent("launches")
+        let deadline = ContinuousClock.now + .seconds(5)
+        while (try? String(contentsOf: launches, encoding: .utf8)) != "launched\nlaunched\nexited\n", ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
     }
 
     private actor Gate {

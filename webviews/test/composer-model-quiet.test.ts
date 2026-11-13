@@ -3,13 +3,13 @@
 // ALREADY FIXED THE FONTS. THE BOLT DOESN'T GO THERE"), measured on the real composer in Chromium
 // (the bolt's move into the model button is its own change, with its own tests):
 //   - the button is quiet text: no edge, ring or fill at rest; the effort one step back of the name;
-//     keyboard focus (a menu closed with Esc hands it back) draws the soft pill, never the bright ring
+//     keyboard focus (a real Tab: a click, code focus or Esc draws none, FOCUS-RING,
+//     src/ui/focusModality.ts) draws the soft pill, never the bright ring
 //     the capture showed. The gallery stage loads no pages/shared/desktop.css, so that sheet is put in
 //     the page as the app's pane has it, and what the shared ring then draws is measured: a 1 px
 //     hairline at 22%, not its own 1.5 px at 48%;
-//   - the context ring sits on the row's grid: on the buttons' center line, its glyph 15 px after the
-//     effort (the 8 px pill inset of #24138, the ring's padding and composerFooterShared.css's 2 px),
-//     not the 17 that read as a loose spinner;
+//   - the context ring sits on the row's grid: on the buttons' center line, left of the model button,
+//     its glyph just before the button;
 //   - the button, its labels and the mode use the composer's own font, the prompt's (the app's UI
 //     font), so a fallback can never come from the row itself;
 //   - the row keeps "Opus 5.5  Medium" while it fits (a 410 px composer: live-qa read "Opus Med" with
@@ -21,6 +21,8 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { gateFocusVisible } from "../scripts/postcss/focusRingGate.mjs";
+import { focusByKey } from "./support/focusByKey";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { gridLength } from "../src/agent-session/acpmux/transcriptGrid";
@@ -150,11 +152,9 @@ await requireBrowserLane("composer-model-quiet.test.ts", async () => {
     const effort = await ink(page, `${BUTTON} .acpmux-model-detail:not(.acpmux-fit-label)`);
     expect(effort, "the effort sits one step back of the model's name").toBeLessThan(name - 8);
 
-    // Keyboard focus, as a menu closed with Esc leaves it: the soft pill, never the bright ring the
-    // shot showed. The gallery stage loads no pages/shared/desktop.css (the app's pane does, from its
+    // Keyboard focus, earned by a real Tab: the soft pill, never the bright ring the shot showed. The gallery stage loads no pages/shared/desktop.css (the app's pane does, from its
     // main.tsx), so no shared ring reaches this page at all and the outline measures 0 here.
-    await page.keyboard.press("Shift");
-    await page.locator(BUTTON).first().focus();
+    await focusByKey(page, BUTTON);
     expect(
       await page
         .locator(BUTTON)
@@ -170,9 +170,12 @@ await requireBrowserLane("composer-model-quiet.test.ts", async () => {
 
     // With that sheet in the page, as in the app, its ring is 1.5 px at 48% with `!important` and drew
     // the bright box around bare text (Leo 2026-10-21). The button narrows the two tokens the ring
-    // reads, so what draws is a hairline in the row's own ink.
-    await page.addStyleTag({ content: readFileSync(path.join(SHEETS, "../../pages/shared/desktop.css"), "utf8") });
-    await page.locator(BUTTON).first().focus();
+    // reads, so what draws is a hairline in the row's own ink. The sheet goes in as the build emits it,
+    // its `:focus-visible` gated (FOCUS-RING, scripts/postcss/focusRingGate.mjs), so its rules weigh
+    // what they weigh in the app against the stage's own gated ones.
+    const desktop = readFileSync(path.join(SHEETS, "../../pages/shared/desktop.css"), "utf8");
+    await page.addStyleTag({ content: gateFocusVisible(desktop) });
+    await focusByKey(page, BUTTON);
     await eased(page);
     const shared = await look(page);
     await page.close();
@@ -197,29 +200,25 @@ await requireBrowserLane("composer-model-quiet.test.ts", async () => {
     expect(outside, "no copy of it outside that query").toBeNull();
   });
 
-  test("the context ring sits on the row's grid, its glyph after the effort with no margin of its own", async () => {
+  test("the context ring sits on the row's grid, its glyph just before the model button", async () => {
     const page = await open("quiet-chips");
     const grid = await page.evaluate((selector) => {
       const button = document.querySelector<HTMLElement>(selector)!;
-      const effort = button.querySelector<HTMLElement>(".acpmux-model-detail:not(.acpmux-fit-label)")!;
       const ring = document.querySelector<HTMLElement>(".acpmux-composer-foot .acpmux-context-ring")!;
       const glyph = ring.querySelector("svg")!.getBoundingClientRect();
-      const text = document.createRange();
-      text.selectNodeContents(effort);
-      const words = text.getBoundingClientRect();
       const box = button.getBoundingClientRect();
       const ringBox = ring.getBoundingClientRect();
       return {
-        gap: glyph.left - words.right,
+        gap: box.left - glyph.right,
         centers: Math.abs((box.top + box.bottom) / 2 - (ringBox.top + ringBox.bottom) / 2),
       };
     }, BUTTON);
     await page.close();
-    // The button's 8 px pill inset (#24138), the ring's own padding and the 2 px of
-    // composerFooterShared.css, which outranks composerLocation.css's legacy margin: 15 px, not the
-    // 17 that read as a loose spinner beside the button (Leo 2026-10-21).
-    expect(grid.gap, "the ring's glyph follows the effort with no margin of its own").toBeLessThanOrEqual(16);
-    expect(grid.gap, "and never touches it").toBeGreaterThanOrEqual(6);
+    // The ring starts the right-aligned group, left of the model (composerLocation.css, the ring-left
+    // rule): half its box past the glyph and the ring gap, then the button's own pill inset (#24138).
+    // Close enough to read as one group, never on the button.
+    expect(grid.gap, "the ring's glyph sits just before the model button").toBeLessThanOrEqual(14);
+    expect(grid.gap, "and never on it").toBeGreaterThanOrEqual(2);
     expect(grid.centers, "on the buttons' center line").toBeLessThanOrEqual(0.5);
   });
 
@@ -266,10 +265,11 @@ await requireBrowserLane("composer-model-quiet.test.ts", async () => {
           .filter(visible)
           .map((part) => part.dataset.label ?? part.textContent?.trim() ?? "")
           .join(" ");
+      // In the row's order: the mode, the context ring, then the model (the ring stands left of it).
       const boxes = [
         foot.querySelector(".acpmux-access .acpmux-picker-button"),
-        foot.querySelector(".acpmux-model .acpmux-picker-button"),
         foot.querySelector(".acpmux-context-ring"),
+        foot.querySelector(".acpmux-model .acpmux-picker-button"),
       ]
         .filter((element): element is Element => element !== null)
         .map((element) => element.getBoundingClientRect());

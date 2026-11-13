@@ -35,7 +35,7 @@
 .acpmux-header-tools .acpmux-header-tool:not(:disabled):is([aria-pressed=true],[data-popup-open]),.acpmux-floating-header .acpmux-header-tool:not(:disabled):is([aria-pressed=true],[data-popup-open]),.acpmux-floating-bar .acpmux-header-tool:not(:disabled):is([aria-pressed=true],[data-popup-open]){background:var(--acpmux-header-tool-on,color-mix(in srgb,var(--agent-text) 12%,transparent))}
 .acpmux-header-tools .acpmux-header-tool[aria-pressed=true],.acpmux-header-tools .acpmux-header-tool[aria-pressed=true]:not(:disabled):hover{color:var(--agent-lit-glyph,var(--agent-accent,var(--agent-text)))}
 /* A pane without the keyboard (pageKey.ts marks the root data-page-inactive) keeps its tools quiet: an open panel's
-   toggle drops its filled square and lit ink at rest and keeps only its solid glyph, so the selected state shows at rest
+   toggle drops its filled square and lit ink at rest, so the selected state shows at rest
    in the focused pane alone (Leo 2026-11-07: "does it make sense for, like, when you're not highlighted on a thing to
    still ... be able to highlight whatever's going on down there?"). Hover and an open menu still light it, so it answers
    the pointer as in the focused pane. HeaderIcon's lit ink is an inline color, hence the important on the glyph; an animated header motion draws the plate
@@ -57,6 +57,8 @@
 .acpmux-chat-menu-image{flex:none;display:block;width:14px;aspect-ratio:1;border-radius:50%;object-fit:cover}
 .ui-menu-item.acpmux-chat-menu-item[data-highlighted],.ui-menu-item.acpmux-chat-menu-item[data-popup-open]{background:var(--acpmux-menu-hover);outline:none}
 .ui-menu-item.acpmux-chat-menu-item[data-disabled]{color:var(--agent-muted);opacity:1}
+/* Delete Machine… and a paused machine's near delete date: the danger colour, its glyph too, even on a row no click runs. */
+.ui-menu-item.acpmux-chat-menu-item.ui-menu-item-destructive,.ui-menu-item.acpmux-chat-menu-item.ui-menu-item-destructive>svg{color:var(--cmux-app-danger,var(--agent-danger,var(--agent-text)))}
 .acpmux-chat-menu-label{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .acpmux-chat-menu-key{flex:none;color:var(--agent-muted);font-family:var(--font-ui);font-size:var(--text-detail);line-height:18px;letter-spacing:var(--text-detail--letter-spacing)}
 .ui-popup.acpmux-chat-menu-popover .ui-separator{height:.5px;margin:4px 8px;background:var(--agent-border)}
@@ -106,7 +108,7 @@
 /* The pill's popover (cx-lyqio.4): the branch, what it is a worktree of, then Apply and where it stands. */
 .acpmux-worktree-status{width:280px}
 .acpmux-worktree-apply{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin-top:2px;padding:8px 6px 2px;border-top:.5px solid var(--acpmux-composer-edge);font-size:var(--text-detail);overflow-wrap:anywhere;letter-spacing:var(--text-detail--letter-spacing)}
-.acpmux-worktree-apply button{height:24px;padding:0 10px;border:0;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
+.acpmux-worktree-apply button{height:24px;padding:0 10px;border:0;border-radius:var(--ds-radius-control);background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
 .acpmux-worktree-apply button:hover:not(:disabled){background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)))}
 .acpmux-worktree-apply button:focus-visible{outline:2px solid var(--agent-accent);outline-offset:-2px}
 .acpmux-worktree-apply button:disabled{color:var(--agent-muted)}
@@ -143,7 +145,7 @@
 /* Sticky, so Merge stays in reach under a long check list. */
 .acpmux-pr-merge{position:sticky;bottom:-6px;display:flex;flex-direction:column;gap:6px;margin:6px 0 -6px;padding:8px 6px 8px;background:var(--surface-popup);border-top:.5px solid var(--acpmux-composer-edge);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-pr-merge-buttons{display:flex;justify-content:flex-end;gap:6px}
-.acpmux-pr-merge button{height:24px;padding:0 10px;border:0;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
+.acpmux-pr-merge button{height:24px;padding:0 10px;border:0;border-radius:var(--ds-radius-control);background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
 .acpmux-pr-merge button:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)))}
 .acpmux-pr-merge button:focus-visible{outline:2px solid var(--agent-accent);outline-offset:1px}
 .acpmux-pr-merge button[aria-disabled=true]{opacity:.6}
@@ -186,7 +188,8 @@
    chat, a handoff error) keeps the transcript below it; the App drops data-solo-tab from the stage then
    (App.tsx soloUnder), this is the backstop. */
 .acpmux-stage[data-solo-tab]:not(:has(>[data-enter=top],>.acpmux-checkpoint-review))>.acpmux-scroll{margin-top:calc(-1 * var(--acpmux-tab-row-height))}
-.acpmux-stage[data-solo-tab]>.acpmux-scroll[data-fade-top]{--acpmux-fade-top:var(--acpmux-tab-row-height)}
+/* Under the solo tab row the top edge hides the rows behind the row, so it keeps its full depth over the scroller's inline reach (conversation.css). */
+.acpmux-stage[data-solo-tab]>.acpmux-scroll[data-fade-top]{--acpmux-fade-top:var(--acpmux-tab-row-height);--acpmux-fade-top-reach:1!important}
 .acpmux-stage[data-solo-tab]>.acpmux-scroll :is(.acpmux-find,.acpmux-minimap){top:var(--acpmux-tab-row-height)}
 .acpmux-stage[data-solo-tab]>.acpmux-header[data-tab-row]::before{content:"";position:absolute;inset:0;z-index:var(--layer-backdrop,-1);pointer-events:none;-webkit-backdrop-filter:blur(var(--acpmux-solo-blur));backdrop-filter:blur(var(--acpmux-solo-blur));-webkit-mask-image:linear-gradient(#000 35%,transparent);mask-image:linear-gradient(#000 35%,transparent)}
 /* Reduce Transparency: no blur; rows still fade out across the row, so the tools never sit on full-ink text. */

@@ -93,7 +93,7 @@ extension WorkspacesList {
         var items: [UIMenuElement] = [
             action(ws.isPinned ? "Unpin Workspace" : "Pin Workspace", ws.isPinned ? "pin.slash" : "pin") {
                 theme.haptics.selection()
-                withAnimation(theme.motion.smooth.animation) { creator.setPinned(ws, !ws.isPinned) }
+                withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { creator.setPinned(ws, !ws.isPinned) }
             },
         ]
         let colors = WorkspaceColor.allCases.map { color in
@@ -121,11 +121,11 @@ extension WorkspacesList {
         var move: [UIMenuElement] = []
         if order.count > 1 {
             let up = action("Move Workspace Up", "arrow.up") {
-                withAnimation(theme.motion.smooth.animation) { creator.move(ws, by: -1, among: order) }
+                withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { creator.move(ws, by: -1, among: order) }
             }
             if order.first?.id == ws.id { up.attributes.insert(.disabled) }
             let down = action("Move Workspace Down", "arrow.down") {
-                withAnimation(theme.motion.smooth.animation) { creator.move(ws, by: 1, among: order) }
+                withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { creator.move(ws, by: 1, among: order) }
             }
             if order.last?.id == ws.id { down.attributes.insert(.disabled) }
             move += [up, down]
@@ -136,7 +136,7 @@ extension WorkspacesList {
             guard !targets.isEmpty else { continue }
             let choices = targets.map { target in
                 UIAction(title: target.title) { _ in
-                    withAnimation(theme.motion.smooth.animation) { creator.move(ws, side, target) }
+                    withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { creator.move(ws, side, target) }
                 }
             }
             move.append(UIMenu(title: side.title, image: UIImage(systemName: side.systemImage), children: choices))
@@ -144,7 +144,7 @@ extension WorkspacesList {
         if container.count > 1 {
             for edge in WorkspaceEdge.allCases {
                 let item = action(edge.title(grouped: ws.group != nil), edge == .top ? "arrow.up.to.line" : "arrow.down.to.line") {
-                    withAnimation(theme.motion.smooth.animation) { creator.move(ws, to: edge) }
+                    withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { creator.move(ws, to: edge) }
                 }
                 if edge.anchor(of: ws, in: container) == nil { item.attributes.insert(.disabled) }
                 move.append(item)
@@ -153,7 +153,7 @@ extension WorkspacesList {
         if sortable {
             let keys = WorkspaceSortKey.allCases.map { key in
                 let item = action(key.shortTitle, key.systemImage) {
-                    withAnimation(theme.motion.smooth.animation) { creator.sortWorkspaces(on: ws.macID, by: key) }
+                    withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { creator.sortWorkspaces(on: ws.macID, by: key) }
                 }
                 item.accessibilityLabel = key.title
                 return item
@@ -196,7 +196,7 @@ extension WorkspacesList {
         let choices = creator.groupChoices(for: ws)
         var move: [UIMenuElement] = choices.map { group in
             UIAction(title: group.displayName, image: WorkspaceColor(stored: group.color).map(WorkspaceSwatch.uiImage)) { _ in
-                withAnimation(theme.motion.smooth.animation) { creator.place(ws, in: group) }
+                withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { creator.place(ws, in: group) }
             }
         }
         let newGroup = action("Move Workspace to New Group", "folder.badge.plus") { startNewGroup(ws) }
@@ -204,7 +204,7 @@ extension WorkspacesList {
         var items: [UIMenuElement] = [UIMenu(title: "Move Workspace to Group…", image: UIImage(systemName: "folder.badge.questionmark"), children: move)]
         if ws.group != nil {
             items.append(action("Remove Workspace from Group", "folder.badge.minus") {
-                withAnimation(theme.motion.smooth.animation) { creator.place(ws, in: nil) }
+                withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { creator.place(ws, in: nil) }
             })
         }
         return UIMenu(title: "Group", image: UIImage(systemName: "folder"), children: items)
@@ -240,7 +240,7 @@ extension WorkspacesList {
                 UIMenu(title: group.displayName, options: .displayInline, children: [newInGroup]),
                 UIMenu(options: .displayInline, children: [
                     action("Delete Group", "trash", destructive: true) {
-                        withAnimation(theme.motion.smooth.animation) { creator.deleteEmptyGroup(group, on: macID) }
+                        withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { creator.deleteEmptyGroup(group, on: macID) }
                     },
                 ]),
             ])
@@ -255,7 +255,7 @@ extension WorkspacesList {
             UIMenu(title: "Set Workspace Group Color…", image: UIImage(systemName: "paintpalette"), children: colors),
             action(group.isCollapsed ? "Expand Workspace Group" : "Collapse Workspace Group",
                    group.isCollapsed ? "chevron.down" : "chevron.right") {
-                withAnimation(theme.motion.smooth.animation) { creator.setGroupCollapsed(group, on: macID, !group.isCollapsed) }
+                withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { creator.setGroupCollapsed(group, on: macID, !group.isCollapsed) }
             },
         ]
         if let options = groupOptions(group, macID: macID) { editItems.append(options) }
@@ -269,7 +269,7 @@ extension WorkspacesList {
         let edit = UIMenu(title: group.displayName, options: .displayInline, children: editItems)
         var removeItems: [UIMenuElement] = [
             action("Ungroup Workspaces", "rectangle.stack.badge.minus") {
-                withAnimation(theme.motion.smooth.animation) { creator.deleteGroup(group, on: macID) }
+                withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { creator.deleteGroup(group, on: macID) }
             },
         ]
         removeItems += groupCloses(group, macID: macID)
@@ -285,17 +285,17 @@ extension WorkspacesList {
         var items: [UIMenuElement] = []
         if groups.count > 1, creator.canCollapseOthers(keeping: group, on: macID) {
             items.append(action("Collapse Others", "arrow.down.forward.and.arrow.up.backward") {
-                withAnimation(theme.motion.smooth.animation) { creator.collapseOtherGroups(keeping: group, on: macID) }
+                withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { creator.collapseOtherGroups(keeping: group, on: macID) }
             })
         }
         if groups.contains(where: { !$0.isCollapsed }) {
             items.append(action("Collapse All Groups", "rectangle.compress.vertical") {
-                withAnimation(theme.motion.smooth.animation) { creator.setAllGroupsCollapsed(on: macID, true) }
+                withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { creator.setAllGroupsCollapsed(on: macID, true) }
             })
         }
         if groups.contains(where: \.isCollapsed) {
             items.append(action("Expand All Groups", "rectangle.expand.vertical") {
-                withAnimation(theme.motion.smooth.animation) { creator.setAllGroupsCollapsed(on: macID, false) }
+                withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { creator.setAllGroupsCollapsed(on: macID, false) }
             })
         }
         if let removeAll = removeAllColorsAction(macID) { items.append(removeAll) }
@@ -308,7 +308,7 @@ extension WorkspacesList {
     private func removeAllColorsAction(_ macID: String) -> UIAction? {
         guard creator.hasColors(on: macID) else { return nil }
         return action("Remove All Workspace Colors", "circle.slash") {
-            withAnimation(theme.motion.smooth.animation) { creator.removeAllColors(on: macID) }
+            withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { creator.removeAllColors(on: macID) }
         }
     }
 

@@ -34,6 +34,7 @@ copy of the app, and the window this script started, are stopped, each by its ex
 Never Lawrence's running cmux. Exit 0 pass, 1 fail, 2 a missing grant.
 """
 import argparse, datetime, glob, json, os, plistlib, secrets, signal, socket, stat, subprocess, sys, time
+import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -114,7 +115,7 @@ if failures:
 TAG = opts.tag
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 HOME_ACP = os.path.join(OUT, "acpmux-home")
-ACP_SOCKET = f"/tmp/cuav2-acp-{os.getpid()}.sock"
+ACP_SOCKET = os.path.join(tempfile.mkdtemp(prefix="cuav2-", dir="/tmp"), "acp.sock")  # a mkdtemp dir: a guessable /tmp name could be planted by another account
 WORK = os.path.join(OUT, "work")
 for path in (HOME_ACP, WORK):
     os.makedirs(path, exist_ok=True)
@@ -131,9 +132,11 @@ with open(os.path.join(HOME_ACP, "config.json"), "w") as f:
         "description": "cua-helper-v2-live.py scripted agent"}},
         # No real agent ever starts: the probe is the default and no session is pre-created.
         "defaultHarness": "cuaprobe", "pool": {"enabled": False}}, f, indent=1)
-TAG_STATE = os.path.expanduser(f"~/Library/Application Support/cmux/tags/{TAG}")
-if os.path.isdir(TAG_STATE) and not os.path.islink(TAG_STATE):
-    os.rename(TAG_STATE, TAG_STATE + ".old-" + str(int(time.time())))
+# NEXT's own folder and the one in classic's that a build from before it used (a new build adopts that at launch).
+for TAG_STATE in (os.path.expanduser(f"~/Library/Application Support/cmux-next/tags/{TAG}"),
+                  os.path.expanduser(f"~/Library/Application Support/cmux/tags/{TAG}")):
+    if os.path.isdir(TAG_STATE) and not os.path.islink(TAG_STATE):
+        os.rename(TAG_STATE, TAG_STATE + ".old-" + str(int(time.time())))
 if os.path.exists(SOCKET):
     os.unlink(SOCKET)
 USER_TMP = os.path.realpath(subprocess.run(["getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True).stdout.strip())

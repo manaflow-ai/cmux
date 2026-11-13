@@ -1018,6 +1018,76 @@ test("a prompt acpmux could not attribute is an unverified sender's card, never 
   });
 });
 
+test("a program acpmux saw send it names the card over the text's claim, still unverified", () => {
+  const program = { name: "next-autoland", path: "/Users/cmux/Projects/leo-workspace/tools/next-autoland" };
+  const provenance = { kind: "unverified", to: "s-1", transport: "unix", verified: false, program };
+  const text = "Merged #23727";
+  expect(incomingPrompt(text, { _meta: { provenance } })).toEqual({
+    kind: "message",
+    message: { name: "next-autoland", program, unverified: true, text, raw: text },
+  });
+  // The text's own name for its sender is only a claim: the program names the card, and the claim
+  // stays in the text. A signature naming the program itself only repeats it.
+  const claimed = "[coord-deputy] Merged #23727";
+  const read = incomingPrompt(claimed, { _meta: { provenance } });
+  expect(read?.kind === "message" && [read.message.name, read.message.text]).toEqual(["next-autoland", claimed]);
+  const signed = incomingPrompt("[next-autoland] Merged #23727", { _meta: { provenance } });
+  expect(signed?.kind === "message" && signed.message.text).toBe("Merged #23727");
+});
+
+test("a malformed program is ignored: the card is an unverified sender's", () => {
+  const text = "Merged the fix";
+  for (const program of [
+    {},
+    { name: "" },
+    { name: "  " },
+    { name: 42 },
+    { name: "two\nlines" },
+    { name: "x".repeat(65) },
+    "next-autoland",
+    ["next-autoland"],
+  ]) {
+    const provenance = { kind: "unverified", to: "s-1", transport: "unix", verified: false, program };
+    expect(incomingPrompt(text, { _meta: { provenance } })).toEqual({
+      kind: "message",
+      message: { name: "", unverified: true, text, raw: text },
+    });
+  }
+  // A bad path alone drops the path, never the checked name.
+  const long = {
+    kind: "unverified",
+    to: "s-1",
+    transport: "unix",
+    verified: false,
+    program: { name: "tool", path: `/${"p".repeat(256)}` },
+  };
+  const read = incomingPrompt(text, { _meta: { provenance: long } });
+  expect(read?.kind === "message" && read.message.program).toEqual({ name: "tool" });
+});
+
+test("a program a peer daemon checked names the machine that daemon read it on, never the claimed one", () => {
+  const provenance = {
+    kind: "unverified",
+    to: "s-1",
+    transport: "peer",
+    verified: false,
+    claimed: { cliHost: "claimed-box" },
+    forwardedBy: { host: "build-box" },
+    program: { name: "stall-reconciler", host: "build-box" },
+  };
+  const read = incomingPrompt("lane-a idle 40m", { _meta: { provenance }, client: "acpmux-peer#01a16e@build-box" });
+  expect(read?.kind === "message" && read.message).toMatchObject({
+    name: "stall-reconciler",
+    program: { name: "stall-reconciler", host: "build-box" },
+    remote: true,
+    unverified: true,
+  });
+  // A host that does not read as one is no host.
+  const odd = { ...provenance, program: { name: "stall-reconciler", host: "two words" } };
+  const plain = incomingPrompt("lane-a idle 40m", { _meta: { provenance: odd } });
+  expect(plain?.kind === "message" && plain.message.program).toEqual({ name: "stall-reconciler" });
+});
+
 test("an edited agent's message stays the agent's and says it was edited", () => {
   const sent = {
     kind: "agent_message",
@@ -1059,4 +1129,53 @@ test("a relayed or session-stamped sender with no sender record is verified, as 
   const forged = { ...relayed, fromRelay: { by: "lane-gh" } };
   const forgedPrompt = incomingPrompt(text, { _meta: { provenance: forged } });
   expect(forgedPrompt?.kind === "message" && forgedPrompt.message.unverified).toBe(true);
+});
+
+// cmux#38642 review: acpmux names a relayed sender by its `MACHINE/SESSION` cut to `fromAgent`'s 64
+// characters (prompt_provenance.rs `relayed_label`), so two sessions whose names share their first
+// 64 characters read as one label. The relay record (`fromRelay`, or the sender record's `relay`)
+// keeps the whole name, and the sender's chat is asked for by that: each opens its own.
+test("a relayed sender's chat is asked for by its whole relay address, not the cut label", () => {
+  const stem = "a-lane-session-whose-name-runs-past-the-sender-label-limit";
+  const relayed = (session: string, where: "provenance" | "record") => {
+    const address = `vm-1/${session}`;
+    const relay = { by: "lane-gh", machine: "vm-1", session };
+    const named = { kind: "agent_message", from: "fromAgent", fromName: address.slice(0, 64), to: "s-1" };
+    const provenance =
+      where === "provenance"
+        ? { ...named, fromRelay: relay }
+        : { ...named, sender: { verification: "verified", label: "coord", relay } };
+    const prompt = incomingPrompt("Merged the fix.", { _meta: { provenance } });
+    return prompt?.kind === "message" ? prompt.message : undefined;
+  };
+  for (const where of ["provenance", "record"] as const) {
+    const a = relayed(`${stem}-alpha`, where);
+    const b = relayed(`${stem}-bravo`, where);
+    expect(a?.name).toBe(b?.name ?? "");
+    expect(a?.lookup).toBe(`vm-1/${stem}-alpha`);
+    expect(b?.lookup).toBe(`vm-1/${stem}-bravo`);
+  }
+  // A relay record that is no relay's (no machine) names no address: the name is asked for.
+  const forged = {
+    kind: "agent_message",
+    from: "fromAgent",
+    fromName: "vm-1/x",
+    fromRelay: { by: "lane-gh", session: "x" },
+  };
+  const prompt = incomingPrompt("Merged the fix.", { _meta: { provenance: forged } });
+  expect(prompt?.kind === "message" && prompt.message.lookup).toBeFalsy();
+});
+
+// acpmux's own prompts (hub/inbox.rs `persons_prompt`) name no sender and are never the person's
+// (Leo, 2026-11-12: "i didnt send it myself"): the turn cap's notice and an inbox digest draw as
+// acpmux's message, with their words; the person's own prompt, even the same words, stays theirs.
+test("acpmux's turn cap notice and inbox digest draw as acpmux's message, never the person's", () => {
+  for (const [kind, text] of [
+    ["turn_cap", "This turn has run 30 minutes. Wrap up and end the turn."],
+    ["inbox_digest", "3 messages waited: 1 block, 2 FYIs"],
+  ] as const) {
+    const prompt = incomingPrompt(text, { _meta: { provenance: { kind } } });
+    expect(prompt).toEqual({ kind: "message", message: { name: "acpmux", text, raw: text } });
+    expect(incomingPrompt(text, {})).toBeUndefined();
+  }
 });

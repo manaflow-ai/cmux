@@ -75,6 +75,9 @@ struct TabsToolbar: View {
     /// finger): the upward translation and velocity in points (/s).
     var onSwipeUpChanged: (CGFloat, CGFloat) -> Void = { _, _ in }
     var onSwipeUpEnded: (CGFloat, CGFloat) -> Void = { _, _ in }
+    /// The system cancelled a bar drag on this axis (the app left the
+    /// foreground, a system gesture took the touch): no end comes.
+    var onSwipeCancelled: (BarSwipe.Axis) -> Void = { _ in }
 
     @State private var labelWidth: CGFloat = 69
     /// The bar drag's direction, fixed once it moved past the slop.
@@ -82,6 +85,9 @@ struct TabsToolbar: View {
     /// A bar drag moved past the slop: the button under the finger must not
     /// act on touch-up (Safari never opens a menu from a swipe).
     @State private var swipeMoved = false
+    /// True while a bar drag is down. A gesture state resets when the drag
+    /// ends or is cancelled; only an end calls `onEnded`.
+    @GestureState private var swipeDown = false
     @State private var progressShown: CGFloat = 0
     @State private var progressOpacity: Double = 0
     @Environment(\.tabsKitTheme) private var theme
@@ -144,7 +150,7 @@ struct TabsToolbar: View {
         }
         // Back <-> back | forward and the enabled tint morph with the toolbar spring.
         .animation(theme.motion.resolve(theme.motion.expandTap), value: splitBack)
-        .animation(.easeInOut(duration: 0.2), value: tab?.navigation.canGoBack == true)
+        .animation(theme.motion.resolve(.easeInOut(duration: 0.2)), value: tab?.navigation.canGoBack == true)
         .onChange(of: loading, initial: true) { _, loading in updateProgress(loading: loading) }
         .onChange(of: tab?.navigation.progress ?? 1) { _, _ in updateProgress(loading: loading) }
     }
@@ -304,7 +310,7 @@ struct TabsToolbar: View {
                 .font(.system(size: 17, weight: .medium))
                 .frame(width: 44, height: m.control)
                 .contentShape(.rect)
-                .animation(.easeInOut(duration: 0.15), value: loading)
+                .animation(theme.motion.resolve(.easeInOut(duration: 0.15)), value: loading)
             }
             .buttonStyle(.plain)
             .foregroundStyle(theme.colors.label)
@@ -324,6 +330,16 @@ struct TabsToolbar: View {
         .glassEffect(.regular.interactive(), in: .capsule)
         .contentShape(.capsule)
         .simultaneousGesture(swipe, including: chrome.editing || collapsed ? .subviews : .all)
+        .onChange(of: swipeDown) { _, down in
+            guard !down else { return }
+            // After `onEnded` of the same touch-up, which clears the axis.
+            Task { @MainActor in
+                guard let axis = swipeAxis else { return }
+                swipeAxis = nil
+                swipeMoved = false
+                onSwipeCancelled(axis)
+            }
+        }
         .overlay {
             // Collapsed: the whole pill is one hit target that starts the
             // expand spring on touch-up. A zero-distance drag ends on
@@ -433,6 +449,7 @@ struct TabsToolbar: View {
 
     private var swipe: some Gesture {
         DragGesture(minimumDistance: 12, coordinateSpace: .global)
+            .updating($swipeDown) { _, down, _ in down = true }
             .onChanged { v in
                 guard !chrome.editing, !collapsed else { return }
                 swipeMoved = true
@@ -466,13 +483,13 @@ struct TabsToolbar: View {
             if progressOpacity == 0 {
                 progressShown = 0
                 progressOpacity = 1
-                withAnimation(.easeOut(duration: 0.25)) { progressShown = p }
+                withAnimation(theme.motion.resolve(.easeOut(duration: 0.25))) { progressShown = p }
             } else {
-                withAnimation(.easeOut(duration: 0.25)) { progressShown = max(progressShown, p) }
+                withAnimation(theme.motion.resolve(.easeOut(duration: 0.25))) { progressShown = max(progressShown, p) }
             }
         } else if progressOpacity > 0 {
-            withAnimation(.easeOut(duration: 0.2)) { progressShown = 1 } completion: {
-                withAnimation(.easeOut(duration: 0.25)) { progressOpacity = 0 }
+            withAnimation(theme.motion.resolve(.easeOut(duration: 0.2))) { progressShown = 1 } completion: {
+                withAnimation(theme.motion.resolve(.easeOut(duration: 0.25))) { progressOpacity = 0 }
             }
         }
     }

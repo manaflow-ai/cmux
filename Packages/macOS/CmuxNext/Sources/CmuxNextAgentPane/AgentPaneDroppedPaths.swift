@@ -56,7 +56,7 @@ public final class AgentPaneDroppedPaths {
     /// Exact copies of the person's recording drops, never their parent folders. These remain
     /// usable by this pane's existing file open/drag actions after the preview path disappears.
     private(set) var retainedPaths: [String] = []
-    /// The files (never folders) this pane handed the page from the person's own drop, paste or
+    /// The files and folders this pane handed the page from the person's own drop, paste or
     /// pick, newest last, bounded to ``linkedLimit``: a new chat's first send to Cloud may carry these
     /// to the machine (``AgentPaneModel/cloudCarriedFiles(_:)``). Page script can't add one.
     private(set) var linkedFiles: [String] = []

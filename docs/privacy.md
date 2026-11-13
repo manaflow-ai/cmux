@@ -6,14 +6,34 @@ when code names a host that has no row here, and when a row's host is gone from 
 
 ## Telemetry
 
-Crash and error reports go to the crash reporting host below, only while telemetry is on (Settings, or
-`app.sendAnonymousTelemetry: false` in cmux.json to turn it off; `DO_NOT_TRACK=1` also turns it off for the
-`cmux` CLI). Before a report leaves the device, the scrubber (`Packages/Shared/CmuxSentryTelemetry`, `SentryScrubber`
-and `SentryEventScrubber`) removes API keys and tokens, passwords, cookies and session ids, credentials in URLs,
-email addresses and your user name in file paths, from every field of the report: message, exception, stack frames,
-breadcrumbs, context, tags, request and user. `SeededSecretTests` puts known secrets in every field and checks that
-none of them is left in the report as it is sent. Hang reports go to cmux.com only after you agree to send
-them, and the app never asks while telemetry is off.
+Crash and error reports go to the crash reporting host below, only while anonymous telemetry is on. It is on until
+you turn it off, and the `DisableTelemetry` managed policy turns it off for everyone on a managed Mac.
+
+- The Mac and iPhone apps keep the choice in their own preferences (`sendAnonymousTelemetry`). Before a report
+  leaves the device, the scrubber (`Packages/Shared/CmuxSentryTelemetry`, `SentryScrubber` and
+  `SentryEventScrubber`) removes API keys and tokens, passwords, cookies and session ids, credentials in URLs,
+  email addresses and your user name in file paths, from every field of the report: message, exception, stack
+  frames, breadcrumbs, context, tags, request and user. `SeededSecretTests` puts known secrets in every field and
+  checks that none of them is left in the report as it is sent.
+- A `cmux` CLI installed on its own (Linux, npm or PyPI; the copy inside the app sends nothing) sends its daemon's
+  panic and memory reports. It reads `app.sendAnonymousTelemetry: false` from `~/.config/cmux/cmux-next.json` (or the
+  file `CMUX_NEXT_CONFIG_FILE` names), and also stays off with `DO_NOT_TRACK=1`, `CMUX_TUI_TELEMETRY=off` or `CI` set.
+  Before sending, `crash_scrub` runs the same rules as the scrubber above on the panic message, location and
+  backtrace, and `seeded_secrets_never_leave_in_a_panic_event` seeds them the same way.
+
+Hang reports go to cmux.com only after you agree to send them, and the app never asks while telemetry is off.
+
+## Usage patterns (local only)
+
+Usage patterns are off until you turn on Record Usage Patterns (`diagnostics.usagePatterns`, Settings > Privacy and
+Security). They are never sent anywhere: each daemon on the machine (`cmux-tui`, acpmux) keeps one small file of
+counters under the state directory's `usage-patterns` folder (`cmux-tui/crates/cmux-usage-patterns`). A counter
+names a code-defined family and an identifier the program defines: a command or operation name, a split direction,
+a transport, a client kind, a harness, a token kind, or a 12-digit opaque stand-in for a paired machine's id. The
+key filter (`clean_key`) refuses anything with a space, quote, `@`, `?`, `=`, `~`, a backslash, `:/` or more than one
+`/`, so no prompt, terminal text, URL, file path or title becomes a key. Each family keeps at most 200 keys and the
+per-day rollup 90 days. `cmux usage-patterns` and the Agent Stats page show them; `cmux usage-patterns reset`
+deletes them.
 
 ## Hosts
 
@@ -31,6 +51,7 @@ Each row is a host, its kind and what the app sends there. Kinds:
 Not in this list: hosts you type or open yourself (the browser, git remotes, SSH hosts, a self-hosted server or an
 API endpoint you configure), hosts an agent you run reaches on its own, and a host the code builds from parts at run
 time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com`) and IP addresses are skipped.
+
 
 
 ### The app connects to
@@ -55,6 +76,7 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `html.duckduckgo.com` | connects | web search for an agent's search tool, when an agent searches |
 | `github.com` | connects | git, the GitHub CLI and the GitHub API for repos, PRs and Cloud machines; release media |
 | `api.github.com` | connects | the GitHub API, through the GitHub CLI or the app, for repos and PRs you open |
+| `api.githubcopilot.com` | connects | GitHub's hosted MCP server, for the GitHub tools an agent on a Cloud machine calls |
 | `uploads.github.com` | connects | GitHub uploads, through the GitHub CLI |
 | `avatars.githubusercontent.com` | connects | images in GitHub pages and agent replies |
 | `camo.githubusercontent.com` | connects | images in GitHub pages and agent replies |
@@ -74,8 +96,8 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `fonts.gstatic.com` | connects | fonts an agent's rendered page may load |
 | `www.linkedin.com` | connects | the LinkedIn integration, only when an agent uses it in your signed-in browser |
 | `app.notion.com` | connects | the Notion integration, only when an agent uses it in your signed-in browser |
-| `api.open-meteo.com` | connects | weather on the new tab page, when shown |
-| `geocoding-api.open-meteo.com` | connects | weather on the new tab page, when shown |
+| `api.open-meteo.com` | connects | the clock and weather widget's forecast, only when you install it (a customize template) |
+| `geocoding-api.open-meteo.com` | connects | the clock and weather widget's city search, only when you install it (a customize template) |
 | `api.openai.com` | connects | the OpenAI API: voice calls on iPhone, and when you use an OpenAI key |
 | `app.slack.com` | connects | the Slack integration, only when an agent uses it in your signed-in browser |
 | `api.stack-auth.com` | connects | the sign-in service |
@@ -132,9 +154,12 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `console.mistral.ai` | opens | a page to get an API key, opened from Settings |
 | `openrouter.ai` | opens | a page to get an API key, opened from Settings |
 | `console.x.ai` | opens | a page to get an API key, opened from Settings |
+| `accounts.x.ai` | opens | a provider's sign-in page, opened when you sign that agent in |
+| `auth.x.ai` | opens | a provider's sign-in page, opened when you sign that agent in |
 | `airbnb.com` | opens | a site the address bar suggests before it is in your history |
 | `amazon.com` | opens | a site the address bar suggests before it is in your history |
 | `console.aws.amazon.com` | opens | a page to get an API key, opened from Settings |
+| `anthropic.com` | opens | a site the address bar suggests; also an Anthropic host name the app recognizes |
 | `auth.anthropic.com` | opens | Anthropic sign-in pages, opened when you sign an agent in |
 | `console.anthropic.com` | opens | Anthropic sign-in pages, opened when you sign an agent in |
 | `docs.anthropic.com` | opens | setup docs for an agent, opened from onboarding |
@@ -148,6 +173,7 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `search.brave.com` | opens | a search engine, when you search with it |
 | `claude.com` | opens | Anthropic sign-in pages, opened when you sign an agent in |
 | `platform.claude.com` | opens | Anthropic sign-in pages, opened when you sign an agent in |
+| `cursor.com` | opens | a provider's sign-in page, opened when you sign that agent in |
 | `cnn.com` | opens | a site the address bar suggests before it is in your history |
 | `platform.deepseek.com` | opens | a page to get an API key, opened from Settings |
 | `discord.com` | opens | a site the address bar suggests before it is in your history |
@@ -159,6 +185,7 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `figma.com` | opens | a site the address bar suggests before it is in your history |
 | `cli.github.com` | opens | the GitHub CLI's page, named in an error message |
 | `gmail.com` | opens | a site the address bar suggests before it is in your history |
+| `google.com` | opens | a site the address bar suggests; also matched in an extension's update URL |
 | `aistudio.google.com` | opens | a page to get an API key, opened from Settings |
 | `chromewebstore.google.com` | opens | the Chrome Web Store, opened from browser extension settings |
 | `console.cloud.google.com` | opens | a page to get an API key, opened from Settings |
@@ -188,22 +215,27 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `tailscale.com` | opens | a Tailscale page, opened when you add a device |
 | `login.tailscale.com` | opens | a Tailscale page, opened when you add a device |
 | `twitter.com` | opens | a site the address bar suggests before it is in your history |
+| `vercel.com` | opens | a site the address bar suggests; also a docs host an agent catalog entry may link to |
 | `x.com` | opens | cmux on X, a link in Settings |
 | `search.yahoo.com` | opens | a search engine, when you search with it |
 | `news.ycombinator.com` | opens | a site the address bar suggests before it is in your history |
+| `youtube.com` | opens | a site the address bar suggests; also used to find captions in a page you have open |
 | `www.youtube.com` | opens | a search engine, when you search with it |
 | `discord.gg` | opens | cmux's Discord, a link in Settings |
 | `crates.io` | opens | a site the address bar suggests before it is in your history |
 | `www.ecosia.org` | opens | a search engine, when you search with it |
 | `developer.mozilla.org` | opens | a site the address bar suggests before it is in your history |
+| `wikipedia.org` | opens | a site the address bar suggests; also a search keyword's site |
 | `en.wikipedia.org` | opens | a search engine, when you search with it |
 | `notion.so` | opens | a site the address bar suggests before it is in your history |
+| `twitch.tv` | opens | a site the address bar suggests before it is in your history |
 
 ### Names the app never contacts
 
 | Host | Kind | What for |
 |---|---|---|
 | `x.ai` | identifier | an xAI tool method name, not a host |
+| `customize.io` | identifier | the error code `cmux customize` prints when a file read or write fails, not a host |
 | `netlify.app` | identifier | a shared hosting domain, so sites under it are told apart |
 | `ngrok-free.app` | identifier | a shared hosting domain, so sites under it are told apart |
 | `vercel.app` | identifier | a shared hosting domain, so sites under it are told apart |
@@ -211,9 +243,9 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `hf.co` | identifier | a git host name, so it is not shown as one of your computers |
 | `huggingface.co` | identifier | a git host name, so it is not shown as one of your computers |
 | `repl.co` | identifier | a shared hosting domain, so sites under it are told apart |
+| `manaflow.ai` | identifier | an email domain of the cmux team: an account under it gets the team's verbose connectivity diagnostics; nothing is sent to it |
 | `amazonaws.com` | identifier | a shared hosting domain, so sites under it are told apart |
 | `s3.amazonaws.com` | identifier | a shared hosting domain, so sites under it are told apart |
-| `anthropic.com` | identifier | an Anthropic host name the app recognizes |
 | `www.apple.com` | identifier | an XML or SVG namespace, never fetched |
 | `appspot.com` | identifier | a shared hosting domain, so sites under it are told apart |
 | `ssh.dev.azure.com` | identifier | a git host name, so it is not shown as one of your computers |
@@ -225,16 +257,13 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `ssh.github.com` | identifier | a git host name, so it is not shown as one of your computers |
 | `www.github.com` | identifier | a GitHub host name the app recognizes |
 | `altssh.gitlab.com` | identifier | a git host name, so it is not shown as one of your computers |
-| `google.com` | identifier | matched in an extension's update URL to tell store extensions apart |
 | `herokuapp.com` | identifier | a shared hosting domain, so sites under it are told apart |
 | `link.com` | identifier | a checkout host name the app recognizes |
 | `myshopify.com` | identifier | a shared hosting domain, so sites under it are told apart |
 | `onrender.com` | identifier | a shared hosting domain, so sites under it are told apart |
 | `stripe.com` | identifier | a checkout host name the app recognizes |
 | `trycloudflare.com` | identifier | a shared hosting domain, so sites under it are told apart |
-| `vercel.com` | identifier | a docs host an agent catalog entry may link to |
 | `vs-ssh.visualstudio.com` | identifier | a git host name, so it is not shown as one of your computers |
-| `youtube.com` | identifier | YouTube host names, to find captions in a page you have open |
 | `m.youtube.com` | identifier | YouTube host names, to find captions in a page you have open |
 | `fly.dev` | identifier | a shared hosting domain, so sites under it are told apart |
 | `pages.dev` | identifier | a shared hosting domain, so sites under it are told apart |
@@ -242,16 +271,25 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `github.io` | identifier | a shared hosting domain, so sites under it are told apart |
 | `gitlab.io` | identifier | a shared hosting domain, so sites under it are told apart |
 | `ngrok.io` | identifier | a shared hosting domain, so sites under it are told apart |
+| `ac.jp` | identifier | a public suffix, so sites under it are told apart |
+| `go.jp` | identifier | a public suffix, so sites under it are told apart |
+| `ne.jp` | identifier | a public suffix, so sites under it are told apart |
+| `or.jp` | identifier | a public suffix, so sites under it are told apart |
+| `or.kr` | identifier | a public suffix, so sites under it are told apart |
 | `azurewebsites.net` | identifier | a shared hosting domain, so sites under it are told apart |
 | `cloudfront.net` | identifier | a shared hosting domain, so sites under it are told apart |
+| `govt.nz` | identifier | a public suffix, so sites under it are told apart |
 | `bitbucket.org` | identifier | a known code forge, to read a module's source URL |
 | `altssh.bitbucket.org` | identifier | a git host name, so it is not shown as one of your computers |
 | `codeberg.org` | identifier | a known code forge, to read a module's source URL |
 | `www.ietf.org` | identifier | an RTP header extension id, never fetched |
 | `json-schema.org` | identifier | a JSON schema id, never fetched |
 | `www.w3.org` | identifier | an XML or SVG namespace, never fetched |
-| `wikipedia.org` | identifier | a search keyword's site |
 | `freestyle.sh` | identifier | a cloud host name the app recognizes |
+| `ac.uk` | identifier | a public suffix, so sites under it are told apart |
+| `ltd.uk` | identifier | a public suffix, so sites under it are told apart |
+| `me.uk` | identifier | a public suffix, so sites under it are told apart |
+| `plc.uk` | identifier | a public suffix, so sites under it are told apart |
 
 ### Samples and placeholders
 
@@ -271,6 +309,7 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 |---|---|---|
 | `task.ai` | not-a-host | a symbol or icon name |
 | `argument.app` | not-a-host | a localized string key |
+| `toast.detail.io` | not-a-host | a localized string key |
 | `cmux.app` | not-a-host | a file name |
 | `cmux-ios-com.cmux.app` | not-a-host | a URL scheme or bundle id |
 | `debug.crash.app` | not-a-host | a method, area or resource kind name |
@@ -290,6 +329,7 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | `local.io` | not-a-host | a method, area or resource kind name |
 | `machine.io` | not-a-host | a method, area or resource kind name |
 | `cloud.machine.io` | not-a-host | a method, area or resource kind name |
+| `config.ru` | not-a-host | a file name |
 | `agent-auth.sh` | not-a-host | a file name |
 | `build.sh` | not-a-host | a file name |
 | `cmux-debug-cli.sh` | not-a-host | a file name |

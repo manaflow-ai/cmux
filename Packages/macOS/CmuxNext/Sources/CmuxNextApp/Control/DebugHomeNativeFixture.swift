@@ -2,6 +2,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextHome
+import CmuxNextHomeEngine
 import CmuxNextHomeModel
 import CmuxNextSettings
 
@@ -19,10 +20,9 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     private var fixtures: [String: HomeNativeFixture] = [:]
     /// The app's made-ahead file picker, for each fixture's "+".
     private let openPanel: MadeAheadOpenPanel
+    private weak var homes: HomeChiefHomes? // registers each shown transcript's Start now row (startsOwnAgents)
 
-    init(openPanel: MadeAheadOpenPanel) {
-        self.openPanel = openPanel
-    }
+    init(openPanel: MadeAheadOpenPanel, homes: HomeChiefHomes?) { (self.openPanel, self.homes) = (openPanel, homes) }
     /// The open fixture whose transcript is `view`.
     func fixture(showing view: HomeNativeTranscriptView) -> HomeNativeFixture? { fixtures.values.first { $0.shows(view) } }
     /// The next page shows the attachment fixture (`{"attachments": true}`), under the chat column's compose button (`{"compose": true}`).
@@ -35,6 +35,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     func makeView(for key: String, in window: WindowController?) -> NSView {
         let fixture = HomeNativeFixture(attachments: next.attachments, openPanel: openPanel, compose: next.compose)
         next = (false, false)
+        fixture.onShow = { [weak homes = self.homes] in homes?.startsOwnAgents($0) }
         fixtures[key] = fixture
         return fixture.container
     }
@@ -58,10 +59,11 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     }
 
     /// `debug.home.drive` {action: focus | type | send | tapback | video | scroll
-    /// | chat_colors | menu | geometry | link | texts | typing | rows | resize | nudge | list | presence | live | agent_messages (notes, open, group, step, pill) | faces | chief_name (close), text, steps, elapsed, dx, dy, trims, mine, tab, prefix, limit}: drives the shown Home through its own entry points (the
+    /// | chat_colors | menu | geometry | link | texts | typing | rows | seed | resize | nudge | list | presence | live | agent_messages (notes, open, group, step, pill) | faces | chief_name (close), text, steps, elapsed, dx, dy, trims, rows, mine, tab, prefix, limit}: drives the shown Home through its own entry points (the
     /// field's text system, Return's send, the tapback picker's react, the
     /// scroll view) for screenshots and recordings on a window that is
     /// never key. `tab` (a key from `debug.home` page.tabs) drives that Home tab.
+    /// `seed` {rows: 50 | 500 | 5000}: FOR FILMS ONLY. Starts a fill of the shown transcript with generated rows and answers {started}; done when `debug.home` says shown_count == rows. The rows are ONLY in the store (the owner has none: a reconnect or a close + open reads the owner's tail again), and a send typed into a seeded Home collides with the seeded seqs.
     static func drive(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         if params["action"]?.stringValue == "list" { return DebugHome.driveDockList(params, services: services) }
         if params["action"]?.stringValue == "legacy_pins" { return DebugHome.legacyPins(params, services: services) }
@@ -76,9 +78,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             if let id, window == nil { return .object(["error": .string("no window \(id)")]) }
             view = HomeNativeTranscriptView.shown(in: window ?? services.windows.active?.window)
         }
-        guard let view else {
-            return .object(["error": .string("no Home conversation is shown")])
-        }
+        guard let view else { return .object(["error": .string("no Home conversation is shown")]) }
         let ok: Bool
         // The mock Home fixture showing `view` (nil for a real conversation): the fixture actions' one lookup.
         let shownFixture = (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.fixture(showing: view)
@@ -113,6 +113,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             return .object(["ok": .bool(fixture.debugTyping(params["on"]?.boolValue ?? true))])
         case "typing": return JSONValue(foundation: view.debugTypingState()) ?? .null
         case "rows": return JSONValue(foundation: view.debugRowsState()) ?? .null
+        case "seed": return JSONValue(foundation: view.debugStartSeed(rows: params["rows"]?.intValue)) ?? .null
         case "resize":
             // Width changes in one main-thread turn (one display frame): the pass counters and rows after each.
             let trims = params["trims"]?.arrayValue?.compactMap(\.doubleValue) ?? []
@@ -218,7 +219,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
         case "video": ok = view.debugToggleNewestVideo()
         case "scroll": view.debugScroll(by: CGFloat(params["dy"]?.doubleValue ?? -400)); ok = true
         default:
-            if let out = view.debugTreeDrive(params["action"]?.stringValue ?? "", params.compactMapValues(\.stringValue)) { return .object(out.mapValues { .string($0) }) }
+            if let out = view.debugTreeDrive(params["action"]?.stringValue ?? "", params.compactMapValues(\.stringValue)) ?? shownFixture?.debugDrive(params["action"]?.stringValue ?? "", params.compactMapValues(\.stringValue)) { return .object(out.mapValues { .string($0) }) }
             return .object(["error": .string("action must be focus, type, send, stream, tapback, video, scroll, menu, geometry, link, texts, typing, nudge, thread, escape, reply, post_escape, thread_state, reply_text, branch or permalink")])
         }
         return .object(["ok": .bool(ok)])
@@ -237,10 +238,9 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     }
 
     static func open(services: AppServices, attachments: Bool = false, compose: Bool = false, fresh: Bool = false) -> JSONValue {
-        if services.pages.provider(.homeNativeFixture) == nil { services.pages.register(DebugHomeNativeFixture(openPanel: services.openPanel)) }
+        if services.pages.provider(.homeNativeFixture) == nil { services.pages.register(DebugHomeNativeFixture(openPanel: services.openPanel, homes: services.home.chiefHomes)) }
         (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.next = (attachments, compose)
-        let view = fresh ? services.pages.openNew(.homeNativeFixture, in: services.windows.active, focus: true)
-            : services.pages.show(.homeNativeFixture, in: services.windows.active, focus: true)
+        let window = services.windows.active, view = fresh ? services.pages.openNew(.homeNativeFixture, in: window, focus: true) : services.pages.show(.homeNativeFixture, in: window, focus: true)
         return .object(["ok": .bool(view != nil), "page": .string(InternalPageID.homeNativeFixture.rawValue)])
     }
 }

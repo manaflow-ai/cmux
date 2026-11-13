@@ -1,5 +1,5 @@
-// A reply's footer: its buttons first, on the prose's left edge, and its time after them, shown on
-// hover; the finished chat's last reply keeps its buttons in sight at rest.
+// A reply's footer: its buttons, on the prose's left edge, and no time (the Codex app shows none;
+// Lawrence, 2026-11-11 standup); the finished chat's last reply keeps its buttons in sight at rest.
 //
 // Leo, 2026-11-02: "this should not be placed in front of the copy/whatever buttons. those buttons
 // should always just be there left aligned"; "i should be able to see the copy buttons on your
@@ -9,10 +9,9 @@
 // In gallery entry agent-pane.transcript-row-alignment, light and dark:
 // - `footer` (the pointer on the first turn's footer): every footer's first element is its button
 //   group, and its first glyph's box (the 16px icon box, design/grid.md 5.5) starts on the prose's
-//   left edge, for a turn whose time and tokens are known (they go in the time's tooltip) and for
-//   one without them;
-// - `finished` (a finished chat, no pointer): the last reply's buttons show at rest, its time is
-//   hidden; pointed at, the time shows after the last button and the buttons do not move.
+//   left edge, and no footer draws a time;
+// - `finished` (a finished chat, no pointer): the last reply's buttons show at rest; pointed at,
+//   no time shows and the buttons do not move.
 //
 // CMUX_REPLY_FOOTER_ARTIFACT_DIR=DIR (or fast-checks' FAST_CHECKS_OUT) also writes 2x stills of the
 // last reply and its footer, at rest and pointed at, in each theme.
@@ -113,7 +112,10 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
         found.push({
           first: line.firstElementChild?.className ?? "",
           glyph: glyph ? glyph.getBoundingClientRect().left - left : undefined,
-          detail: time?.getAttribute("title") ?? null,
+          // The tooltip's two lines: the exact time (title), then the turn's time and tokens.
+          detail: time
+            ? [time.getAttribute("title"), time.getAttribute("data-tooltip-detail")].filter(Boolean).join(" · ")
+            : null,
           buttons: buttons.map((button) => button.getBoundingClientRect().left - left),
           lastButtonRight: buttons.length ? buttons.at(-1)!.getBoundingClientRect().right - left : 0,
           actionsOpacity: Number(getComputedStyle(actions).opacity),
@@ -132,19 +134,10 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
         await page.locator(".acpmux-turnSummary .cv-turn-action-group").first().waitFor();
         const measured = await footers(page);
         console.log(`REPLY_FOOTER ${theme.file} footer ${JSON.stringify(measured)}`);
-        // The first turn's footer knows its time and tokens; the folded turn's footer does not, and its
-        // time's tooltip is the exact date and time, so every reply's time hovers (Leo, 2026-11-08: "for
-        // when things are yours, sometimes it's like I can't hover onto yours").
-        const withStats = measured.filter((footer) => footer.detail?.includes("Worked for"));
-        const without = measured.filter((footer) => !footer.detail?.includes("Worked for"));
-        expect(withStats.length, "a footer with the turn's time and tokens").toBeGreaterThan(0);
-        expect(without.length, "a footer without them").toBeGreaterThan(0);
-        for (const footer of without) expect(footer.detail).toMatch(/\b20\d\d\b/);
-        // The time on its own line, then one token count per row (turnTokensModel.ts `replyTimeDetail`).
-        for (const footer of withStats)
-          expect(footer.detail).toMatch(
-            /^Worked for 5s\nOutput .+\nInput across calls .+\u00a0uncached · .+\u00a0cached/,
-          );
+        // No footer draws a time (Lawrence, 2026-11-11 standup: the Codex app shows none, "when I
+        // hover, the time shows up on the right, which I don't think is good").
+        expect(measured.length).toBeGreaterThan(1);
+        for (const footer of measured) expect(footer.time).toBeUndefined();
         for (const footer of measured) {
           expect(footer.first).toContain("cv-turn-action-group");
           expect(footer.glyph).toBeDefined();
@@ -152,8 +145,6 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
             Math.abs(footer.glyph!),
             `first glyph at ${footer.glyph}px, not on the prose's edge`,
           ).toBeLessThanOrEqual(TOLERANCE);
-          // The time comes after the last button.
-          expect(footer.time!.left).toBeGreaterThanOrEqual(footer.lastButtonRight - TOLERANCE);
         }
         expect(await page.locator(".cv-turn-summary").count()).toBe(0);
       } finally {
@@ -161,7 +152,7 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
       }
     });
 
-    test(`a finished chat's last reply shows its buttons at rest and its time on hover (${theme.name})`, async () => {
+    test(`a finished chat's last reply shows its buttons at rest, and pointed at, no time (${theme.name})`, async () => {
       const page = await open("finished", theme.name);
       try {
         const last = ".acpmux-turnSummary.acpmux-row--final-footer";
@@ -173,22 +164,16 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
         expect(rest, "the chat's last footer").toBeDefined();
         expect(rest!.buttons.length).toBeGreaterThan(0);
         expect(rest!.actionsOpacity).toBe(1);
-        expect(rest!.time!.opacity).toBe(0);
+        expect(rest!.time).toBeUndefined();
         expect(Math.abs(rest!.glyph!)).toBeLessThanOrEqual(TOLERANCE);
         await page.hover(`${last} .cv-turn-action-group`);
-        await page.waitForFunction(
-          (selector) => getComputedStyle(document.querySelector(`${selector} .cv-turn-time`)!).opacity === "1",
-          last,
-          { timeout: 10_000 },
-        );
         const [hover] = await footers(page, last);
         console.log(`REPLY_FOOTER ${theme.file} hover ${JSON.stringify(hover)}`);
         await still(page, `${theme.file}-hover`);
-        expect(hover!.time!.opacity).toBe(1);
-        expect(hover!.time!.left).toBeGreaterThanOrEqual(hover!.lastButtonRight - TOLERANCE);
+        expect(hover!.time).toBeUndefined();
         expect(hover!.buttons).toEqual(rest!.buttons);
         // Earlier footers with a reply show their buttons at rest too, as ChatGPT's (Leo, 2026-11-04:
-        // "the thing always showing at hte bottom"); their time still waits for the pointer.
+        // "the thing always showing at hte bottom").
         await page.mouse.move(1, 1);
         const earlier = await footers(
           page,
@@ -197,7 +182,7 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
         expect(earlier.length).toBeGreaterThan(0);
         for (const footer of earlier) {
           expect(footer.actionsOpacity).toBe(1);
-          expect(footer.time?.opacity ?? 0).toBe(0);
+          expect(footer.time).toBeUndefined();
         }
       } finally {
         await page.close();
@@ -258,39 +243,13 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
         }
       });
     }
-    // A stopped turn's Continue is a labelled button: the footer's 32 squares are its icon buttons
-    // only, so its word is never clipped to one (#31690's review).
-    test(`a stopped turn's Continue keeps its label's width (${theme.name})`, async () => {
+    test(`a stopped turn resumes from the composer, with no footer Continue (${theme.name})`, async () => {
       const page = await open("turn-stopped", theme.name, "agent-pane.transcript");
       try {
-        const button = page.locator(".cv-turn-continue").first();
+        const button = page.locator('.acpmux-composer button[aria-label="Resume"]');
         await button.waitFor({ timeout: 10_000 });
-        const fit = await button.evaluate((el) => ({
-          width: el.getBoundingClientRect().width,
-          height: el.getBoundingClientRect().height,
-          scroll: el.scrollWidth,
-          client: el.clientWidth,
-          glyph: el.querySelector("svg")?.getBoundingClientRect().width ?? 0,
-          fontSize: getComputedStyle(el).fontSize,
-          captionSize: (() => {
-            const probe = document.createElement("span");
-            probe.style.fontSize = "var(--text-caption)";
-            document.body.append(probe);
-            const size = getComputedStyle(probe).fontSize;
-            probe.remove();
-            return size;
-          })(),
-          paddingInline: `${getComputedStyle(el).paddingLeft} ${getComputedStyle(el).paddingRight}`,
-          title: el.getAttribute("title"),
-        }));
-        console.log(`REPLY_FOOTER ${theme.file} continue ${JSON.stringify(fit)}`);
-        expect(fit.width).toBeGreaterThan(40);
-        expect(Math.abs(fit.height - 24)).toBeLessThanOrEqual(TOLERANCE);
-        expect(fit.scroll).toBeLessThanOrEqual(fit.client + 1);
-        expect(fit.glyph).toBeLessThan(20);
-        expect(fit.fontSize).toBe(fit.captionSize);
-        expect(fit.paddingInline).toBe("2px 2px");
-        expect(fit.title).toBeNull();
+        expect(await page.locator(".cv-turn-continue").count()).toBe(0);
+        expect(await button.locator('[data-icon="media.play"]').count()).toBe(1);
         await still(page, `${theme.file}-stopped-after`);
       } finally {
         await page.close();
@@ -301,7 +260,8 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
       test(`captures the stopped footer gallery arm (${variant}, ${theme.name})`, async () => {
         const page = await open(variant, theme.name, "agent-pane.stopped-turn");
         try {
-          await page.locator(".cv-turn-continue").waitFor({ timeout: 10_000 });
+          await page.locator('.acpmux-composer button[aria-label="Resume"]').waitFor({ timeout: 10_000 });
+          expect(await page.locator(".cv-turn-continue").count()).toBe(0);
           await still(page, `${theme.file}-${variant}`);
         } finally {
           await page.close();

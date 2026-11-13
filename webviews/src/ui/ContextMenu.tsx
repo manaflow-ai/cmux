@@ -13,6 +13,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { cx } from "./cx";
+import { MenuCheckGlyph } from "./MenuCheckGlyph";
 import { useScrollEdges } from "./scrollEdges";
 import { hasNativeMenuPick, nativeMenu, pickedId, type NativeMenuRow } from "./nativeMenu";
 import { useEscapingPopup, type AnchorBox } from "./popupHost";
@@ -162,11 +163,10 @@ export function ContextMenu({
   const edges = useScrollEdges();
   const attach = useCallback(
     (node: HTMLDivElement | null) => {
-      edges(node);
       menu.current = node;
       if (host) setShown(node);
     },
-    [host, edges],
+    [host],
   );
   useEffect(
     () => () => {
@@ -354,11 +354,24 @@ export function ContextMenu({
             <div
               className="ui-context-menu-backdrop"
               style={{ position: "fixed", inset: 0, zIndex: "var(--layer-dropdown)" }}
-              onPointerDown={() => close(true)}
+              // A right-click (or Control-click) comes as pointerdown then contextmenu: closing on its
+              // pointerdown would take the backdrop away before contextmenu, and the browser's menu
+              // would open. Every other press (a click, a middle click) has no contextmenu after it.
+              onPointerDown={(event) => {
+                if (event.button !== 2 && !(event.button === 0 && event.ctrlKey)) close(true);
+              }}
+              // A right-click on the open menu or its backdrop stays here: the browser's own menu
+              // would open over it, and under `asChild` no host above the portal takes the event.
+              // On the backdrop it closes the menu, as a click there does.
+              onContextMenu={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                if (event.target === event.currentTarget) close(true);
+              }}
             >
               <div
                 ref={attach}
-                className={cx("ui-popup ui-glass ui-context-menu ui-scroll-edge-fade", popupClassName)}
+                className={cx("ui-popup ui-glass ui-context-menu ui-popup-scroll-shell", popupClassName)}
                 role="menu"
                 // The App's menu glass under the page, as ui/Menu's popups (ui/glass/hostGlass.ts).
                 data-host-glass="menu"
@@ -381,43 +394,45 @@ export function ContextMenu({
                   onKeyDown(event);
                 }}
               >
-                {items.map((item) => (
-                  <div key={item.id} role="none">
-                    {item.separatorBefore ? <hr className="ui-separator" /> : null}
-                    <button
-                      type="button"
-                      role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"}
-                      aria-checked={item.checked}
-                      className={cx("ui-menu-item", item.destructive && "ui-menu-item-destructive")}
-                      disabled={item.disabled}
-                      aria-label={item.ariaLabel ?? (typeof item.label === "string" ? item.label : undefined)}
-                      onPointerEnter={() => !item.disabled && setActive(Math.max(0, enabled.indexOf(item)))}
-                      data-highlighted={enabled[active] === item ? "" : undefined}
-                      onClick={() => run(item)}
-                    >
-                      {/* A text label truncates with its full text as a tooltip; a composed label
+                <div ref={edges} className="ui-popup-scroll ui-scroll-edge-fade">
+                  {items.map((item) => (
+                    <div key={item.id} role="none">
+                      {item.separatorBefore ? <hr className="ui-separator" /> : null}
+                      <button
+                        type="button"
+                        role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"}
+                        aria-checked={item.checked}
+                        className={cx("ui-menu-item", item.destructive && "ui-menu-item-destructive")}
+                        disabled={item.disabled}
+                        aria-label={item.ariaLabel ?? (typeof item.label === "string" ? item.label : undefined)}
+                        onPointerEnter={() => !item.disabled && setActive(Math.max(0, enabled.indexOf(item)))}
+                        data-highlighted={enabled[active] === item ? "" : undefined}
+                        onClick={() => run(item)}
+                      >
+                        {/* A text label truncates with its full text as a tooltip; a composed label
                           (text plus a shortcut) keeps its own flex layout. */}
-                      {/* A toggle's check sits on the menu's state column and an icon in the
+                        {/* A toggle's check sits on the menu's state column and an icon in the
                           14 box at the leading (popupSurface.css, "EVERY MENU ON ONE GRID"), so
                           checked, unchecked and plain rows start their text on one line. */}
-                      {item.checked !== undefined ? (
-                        <span className="ui-menu-check" aria-hidden="true">
-                          {item.checked ? "✓" : null}
-                        </span>
-                      ) : null}
-                      {item.icon ? (
-                        <span className="ui-menu-icon" aria-hidden="true">
-                          {item.icon}
-                        </span>
-                      ) : null}
-                      {typeof item.label === "string" ? (
-                        <span className="ui-menu-label">{item.label}</span>
-                      ) : (
-                        item.label
-                      )}
-                    </button>
-                  </div>
-                ))}
+                        {item.checked !== undefined ? (
+                          <span className="ui-menu-check" aria-hidden="true">
+                            {item.checked ? <MenuCheckGlyph /> : null}
+                          </span>
+                        ) : null}
+                        {item.icon ? (
+                          <span className="ui-menu-icon" aria-hidden="true">
+                            {item.icon}
+                          </span>
+                        ) : null}
+                        {typeof item.label === "string" ? (
+                          <span className="ui-menu-label">{item.label}</span>
+                        ) : (
+                          item.label
+                        )}
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>,
             document.body,

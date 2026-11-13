@@ -45,11 +45,11 @@ final class SettingsBackdropThumbnails: PageDynamicResourceSource {
             cache[key] = data
             return PageResource(data: data, mimeType: "image/png")
         }
-        // Settings > Menus: a row's SF Symbol (MenuSymbolImages).
-        if request.prefix == MenuSymbolImages.prefix, request.path.count == 1, let name = request.path[0].removingPercentEncoding {
-            let key = MenuSymbolImages.prefix + "/" + name
+        // Settings > Menus: a row's SF Symbol (MenuSymbolImages); the category sidebar's, bold.
+        if let weight = MenuSymbolImages.weight(prefix: request.prefix), request.path.count == 1, let name = request.path[0].removingPercentEncoding {
+            let key = request.prefix + "/" + name
             if let data = cache[key] { return PageResource(data: data, mimeType: "image/png") }
-            guard let data = MenuSymbolImages().png(name) else { return nil }
+            guard let data = MenuSymbolImages().png(name, weight: weight) else { return nil }
             cache[key] = data
             return PageResource(data: data, mimeType: "image/png")
         }

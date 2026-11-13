@@ -57,11 +57,15 @@ export const MessageRow = memo(
                   from: [row.inboxThread.sender],
                   count: row.inboxThread.count,
                   preview: row.inboxThread.preview,
+                  ...(row.inboxThread.newest !== undefined ? { newest: row.inboxThread.newest } : {}),
                   blocker: false,
                   promptIds: [...row.inboxThread.promptIds],
                   ...(row.inboxThread.fromSession ? { fromSession: row.inboxThread.fromSession } : {}),
                   ...(row.inboxThread.fromHarness ? { fromHarness: row.inboxThread.fromHarness } : {}),
                   ...(row.inboxThread.unverified ? { unverified: row.inboxThread.unverified } : {}),
+                  // acpmux's record of who sent it: the chip asks for that chat by it (a label-only
+                  // sender by its whole label), never by the bare name the line shows.
+                  ...(row.inboxThread.senderRecord ? { sender: row.inboxThread.senderRecord } : {}),
                 },
               ],
             }}
@@ -208,6 +212,8 @@ export const MessageRow = memo(
         messageAt={row.at}
         artifactIdentity={row.id}
         artifactRevision={row.version}
+        // No claim marks (#39244's green or red underline on "tests pass"): Codex draws a reply as
+        // written (Lucas, 2026-11-11: "we want to remove this red line thing").
       />
     );
     // A finished reply its turn's footer does not serve keeps its own action row, whatever follows
@@ -222,6 +228,7 @@ export const MessageRow = memo(
   },
   (previous, next) =>
     previous.row.id === next.row.id &&
+    previous.row.at === next.row.at &&
     previous.row.version === next.row.version &&
     previous.replyActions === next.replyActions &&
     previous.githubRepository === next.githubRepository,

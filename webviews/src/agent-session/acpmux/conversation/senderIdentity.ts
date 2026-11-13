@@ -30,6 +30,12 @@ export type SenderRecord = {
   session?: string;
 };
 
+/// A relayed sender's address (`MACHINE/SESSION`, the relay's `--relayed-from`), whole: the chat its
+/// chip asks for. acpmux's label for it is cut to `fromAgent`'s 64 characters (prompt_provenance.rs
+/// `relayed_label`), so two sessions sharing their first 64 read as one there (cmux#38642 review).
+export const relayAddress = (relay: SenderRelay | undefined): string | undefined =>
+  relay?.machine && relay.session ? `${relay.machine}/${relay.session}` : undefined;
+
 /// `name` without the unverified suffix an older acpmux wrote into it, and whether it had one.
 export function bareSender(name: string): { name: string; declared: boolean } {
   const bare = name.replace(UNVERIFIED_SUFFIX, "");
@@ -51,7 +57,8 @@ export function senderRecord(value: unknown): SenderRecord | undefined {
       ? r.verification
       : r.authenticated === true
         ? "verified"
-        : r.labelDeclared === true
+        : // acpmux said it could not prove the sender, with or without a declared label.
+          r.labelDeclared === true || r.authenticated === false
           ? "declared"
           : undefined;
   const harness = word(r.harness);
@@ -85,6 +92,13 @@ export function provenanceAuthenticated(provenance: Record<string, unknown> | un
   if (!relay || typeof relay !== "object" || Array.isArray(relay)) return false;
   const { by, machine } = relay as Record<string, unknown>;
   return typeof by === "string" && RELAY_NAME.test(by) && typeof machine === "string" && RELAY_NAME.test(machine);
+}
+
+/// Whether acpmux verified a named sender by this host's sender token (`verifiedBy: "host-token"`,
+/// acpmux sender_token.rs): one of the owner's own tools, drawn by its name with no mark. Leo,
+/// 2026-11-11: "generally the "unverified sender" things should be more verified".
+export function hostTokenVerified(provenance: Record<string, unknown> | undefined): boolean {
+  return provenance?.verified === true && provenance.verifiedBy === "host-token";
 }
 
 /// Whether the transcript marks the sender unverified: its record says it is not verified, or (an

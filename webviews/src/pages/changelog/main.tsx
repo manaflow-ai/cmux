@@ -12,6 +12,7 @@ import { routeChipHost } from "./ChangePullRequest";
 import { MockChangelogProvider } from "./mockProvider";
 import {
   ChangelogStore,
+  parseCompareMode,
   parseDesign,
   parseNewsLayout,
   parseSheetLayout,
@@ -44,6 +45,7 @@ export function mountChangelogPage(root: HTMLElement, client: PageClient | null 
           news={parseNewsLayout(location.hash)}
           sheet={parseSheetLayout(location.hash)}
           prs={parseSheetLinks(location.hash)}
+          compare={parseCompareMode(location.hash)}
           focus={parseFocus(location.hash)}
         />
       </UiProvider>,

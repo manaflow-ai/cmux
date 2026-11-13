@@ -44,12 +44,12 @@ public struct CloudCarrierResolver: CloudLinkResolver {
         await serve?.observeOwnership(update)
     }
 
-    /// Ends the session's `carrier serve` (machine removed, sign-out, quit).
+    /// Stops the session's `carrier serve` (machine paused or removed, sign-out, quit); a later `open` starts another.
     public func close(_ key: CloudLinkKey) async { await serve?.stop() }
 }
 
 /// One Cloud session's `cmux carrier serve --machine <vm_id> --socket <path>` (#37278): started on the first
-/// connect and kept for the session. It gets a fresh access token on stdin (`{"access_token":…}`) at each
+/// connect and kept while the machine runs (a pause stops it; the next connect starts another). It gets a fresh access token on stdin (`{"access_token":…}`) at each
 /// later connect and, since the app's auth has no refresh signal, a minute before the last token's `exp`
 /// while it runs (``refreshDelay(_:now:)``), so every new dial carries a live bearer. Closing stdin stops it
 /// (it removes its socket); another starts only once it exited, so two never claim the same socket. After
@@ -58,6 +58,9 @@ public struct CloudCarrierResolver: CloudLinkResolver {
 public actor CloudCarrierServe {
     /// `carrier serve` binds at once and dials only per connection, so its ready line comes fast.
     static let readyDeadline: Duration = .seconds(15)
+    /// How long a closed child gets to exit before a relaunch sends it SIGTERM. Every resume after a pause
+    /// relaunches, so a child that ignores its stdin closing must not hold the resume forever.
+    static let exitGrace: Duration = .seconds(5)
     private let connector: CloudCarrierDial.Connector
     private let socket: String
     private let check: @Sendable (String) throws -> Void
@@ -78,7 +81,7 @@ public actor CloudCarrierServe {
     /// The current child's hold in its connector's ``CloudCarrierStreams``: an account end stops it at once.
     private var held: Int?
     /// Writes the next token line while the child runs; cancelled when it exits.
-    private let refresher = DemandTimer(owner: "CloudCarrierServe.tokenRefresh")
+    private let refresher: DemandTimer
     /// Whether the token refresh runs (it ends with the child).
     private(set) var refreshing = false
     private let nextRefresh: @Sendable (String) -> Duration
@@ -89,10 +92,15 @@ public actor CloudCarrierServe {
         self.init(connector: connector, socket: paths.linkSocket(machineID: connector.dial.machine)) { try CloudLinkSocketPolicy.check($0) }
     }
 
+    /// `clock` paces the token refresh; tests pass a manual clock.
     init(connector: CloudCarrierDial.Connector, socket: String, refreshDelay: @escaping @Sendable (String) -> Duration = { CloudCarrierServe.refreshDelay($0) },
-         check: @escaping @Sendable (String) throws -> Void) {
+         clock: any Clock<Duration> = ContinuousClock(), check: @escaping @Sendable (String) throws -> Void) {
         (self.connector, self.socket, self.check, nextRefresh) = (connector, socket, check, refreshDelay)
+        refresher = DemandTimer(owner: "CloudCarrierServe.tokenRefresh", clock: clock)
     }
+
+    /// The tasks waiting for the current child's exit (the exit watcher, and a launch waiting to replace it).
+    var childExitWaiters: Int { child?.exitWaiterCount ?? 0 }
 
     /// Why the link ended since the current connect: a refused dial's step, or the child no longer serving.
     var refusal: CloudLinkError? {
@@ -156,6 +164,14 @@ public actor CloudCarrierServe {
         release()
     }
 
+    /// Whether `child` exits within `limit`. A waiter that outlives the limit ends with the child's exit.
+    static func exits(_ child: ChildProcess, within limit: Duration) async -> Bool {
+        let (exited, sink) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
+        // task-owner: ends with the child's exit
+        Task { _ = await child.waitForExit(); sink.yield(); sink.finish() }
+        return (try? await withDeadline(limit, label: "carrier serve exit") { for await _ in exited { return true }; return true }) ?? false
+    }
+
     private func release() {
         if let held { connector.streams?.release(held) }
         held = nil
@@ -197,7 +213,14 @@ public actor CloudCarrierServe {
     }
 
     private func launch(generation mine: UInt64) async throws -> String {
-        if let previous = child { previous.closeInput(); _ = await previous.waitForExit() }
+        if let previous = child {
+            previous.closeInput()
+            if await !Self.exits(previous, within: Self.exitGrace) {
+                previous.terminate()
+                // Never a second child on a socket the first still holds.
+                guard await Self.exits(previous, within: Self.exitGrace) else { throw CloudLinkError.disconnected(reason: "the previous cmux carrier serve did not exit") }
+            }
+        }
         guard mine == generation else { throw Self.stopped }
         ready = false
         let fresh = try await connector.environment()

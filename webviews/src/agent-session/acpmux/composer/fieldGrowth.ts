@@ -1,4 +1,5 @@
-import { Plugin } from "@milkdown/kit/prose/state";
+import { Plugin, PluginKey, type Transaction } from "@milkdown/kit/prose/state";
+import { ReplaceStep } from "@milkdown/kit/prose/transform";
 import type { EditorView } from "@milkdown/kit/prose/view";
 import { FIELD_GROWTH_EVENT, type FieldGrowthDetail } from "./fieldGrowthEvent";
 import { experimentArm } from "../../../experiments/experiment";
@@ -7,6 +8,7 @@ import { MOTION_SPRINGS, springCurve, type SpringParameters } from "../../../fil
 import { MOTION_EASE_OUT, MOTION_MS } from "../../../motion/scale.generated";
 import { motionMode } from "../../../ui/motion/motionMode";
 import { fieldGrowthMotion, type FieldGrowthArm } from "./fieldGrowth.experiment";
+import { sliceHoldsInline } from "./inlineNode";
 
 // The prompt field's height moves to its text's on one motion, not in a step per line (Leo,
 // 2026-11-07: "it's like the composer kind of doesn't grow smoothly. It grows in bursts."). The
@@ -27,6 +29,11 @@ import { fieldGrowthMotion, type FieldGrowthArm } from "./fieldGrowth.experiment
 // mid-move the text is taller than the field, which would show the always-on composer thumb for the
 // motion's length although nothing is left to scroll once it lands (Leo 2026-11-08: "stop showing a
 // flash of the thumb scrollbar"). A move to the field's cap keeps its thumb: the text overflows.
+//
+// An edit that places an attachment (a paste, a drop, the + menu) changes the height in its frame:
+// its tile shows at its final slot from its first frame, and the lines already there keep their
+// place under the composer's top (composer-attach-no-jump.test.ts, Leo's #38155). Riding the moving
+// edge drew the new tile a line low and slid it up over the spring.
 //
 // An edit that lands while the field moves retargets from the height drawn, keeping the motion's
 // end. A value set from outside (a send clearing the prompt, a chat's draft), Reduce Motion and
@@ -56,6 +63,13 @@ type Motion = {
   /** The text's own size changes while it moves (a rewrap): retarget. */
   observer: ResizeObserver | undefined;
 };
+
+/** Whether a transaction placed an attachment's node: its steps' own slices, O(the edit). */
+const placesAttachment = (tr: Transaction) =>
+  tr.steps.some((step) => step instanceof ReplaceStep && sliceHoldsInline(step.slice));
+
+/** Set on the state an attachment was placed in, until the next edit. */
+const placedKey = new PluginKey<boolean>("fieldGrowthPlaced");
 
 /** The motion running on each field (`.acpmux-md-field`), read by caretInView. */
 const moving = new WeakMap<HTMLElement, Motion>();
@@ -91,6 +105,11 @@ function growthFrames(arm: FieldGrowthArm, from: number, to: number, remaining?:
 /** The plugin. `external` is true while the field applies a value set from outside it. */
 export function fieldGrowth(external: () => boolean): Plugin {
   return new Plugin({
+    key: placedKey,
+    state: {
+      init: () => false,
+      apply: (tr) => tr.docChanged && placesAttachment(tr),
+    },
     view(view: EditorView) {
       // The arm is read once per editor.
       const arm = experimentArm(fieldGrowthMotion);
@@ -130,7 +149,7 @@ export function fieldGrowth(external: () => boolean): Plugin {
         animation.addEventListener("cancel", done, { once: true });
       };
       // perf-hot: one layout read per edit (ProseMirror's own caret reveal reads the same layout next).
-      const follow = () => {
+      const follow = (atOnce = false) => {
         const field = scroller;
         if (!field) return;
         const running = moving.get(field);
@@ -143,7 +162,7 @@ export function fieldGrowth(external: () => boolean): Plugin {
         running?.animation.cancel();
         const to = field.getBoundingClientRect().height;
         shown = to;
-        if (running && Math.abs(to - running.to) < 0.5) {
+        if (running && !atOnce && Math.abs(to - running.to) < 0.5) {
           // The same end (a second edit on the same line, the text's observer's first call): the
           // motion goes on where it was, on the same curve and clock. A started animation given its
           // start time runs from the next frame; left pending it would hold a frame still.
@@ -155,7 +174,7 @@ export function fieldGrowth(external: () => boolean): Plugin {
         }
         if (running) land(field);
         if (from < 0 || Math.abs(to - from) < 0.5) return;
-        if (arm === "instant" || external() || motionMode(field.ownerDocument) !== "full") return;
+        if (atOnce || arm === "instant" || external() || motionMode(field.ownerDocument) !== "full") return;
         const lineHeight = Number.parseFloat(getComputedStyle(field).lineHeight) || 20;
         const capped = field.scrollHeight > field.clientHeight + 1;
         const reveal = capped || Math.abs(to - from) > lineHeight * REVEAL_LINES || (running?.reveal ?? false);
@@ -201,7 +220,7 @@ export function fieldGrowth(external: () => boolean): Plugin {
       return {
         update(next, previous) {
           if (!scroller) attach();
-          if (!next.state.doc.eq(previous.doc)) follow();
+          if (!next.state.doc.eq(previous.doc)) follow(placedKey.getState(next.state) === true);
         },
         destroy() {
           restObserver?.disconnect();

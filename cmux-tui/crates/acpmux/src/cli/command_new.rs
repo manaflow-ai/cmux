@@ -24,7 +24,11 @@ pub struct NewArgs {
     pub name: Option<String>,
     #[arg(long)]
     pub cwd: Option<PathBuf>,
-    /// Permission policy: ask, approve-reads, approve-edits, approve-all, deny-all.
+    /// Permission policy: ask, approve-reads, approve-edits, approve-all, deny-all, or `review`
+    /// for a reviewer: reads, searches and read-only shell commands (`git log`/`diff`/`show`,
+    /// `grep`, `rg`, `ls`, `cat`, `sed -n`) run unasked, and every write or other command is
+    /// denied at once, so it never waits for a person
+    /// (`acpmux run -m claude --policy review "review the diff in ~/proj"`).
     #[arg(long)]
     pub policy: Option<String>,
     /// The harness mode to start in (e.g. `auto`). One that does not ask needs the
@@ -104,7 +108,7 @@ pub struct NewArgs {
     /// label, matched ignoring case and outer spaces; an id is refused (exit 2).
     #[arg(long, value_name = "GROUP")]
     pub group: Option<String>,
-    /// When a session named --name already exists, use it instead of failing;
+    /// When a session named --name (in any case) already exists, use it instead of failing;
     /// the first prompt is not sent to it again.
     #[arg(long)]
     pub reuse: bool,
@@ -117,4 +121,14 @@ pub struct NewArgs {
     /// NAME` prints them too.
     #[arg(long)]
     pub full: bool,
+    /// Refuse to start unless the session asks before each change: a policy narrower than
+    /// approve-all, no --mode, and a harness the reviewed asking table lists
+    /// (`hub/require_asking.rs`). The acpmux MCP server's guest `new` passes it.
+    #[arg(long, hide = true)]
+    pub require_asking: bool,
+    /// The first prompt is SENDER's message (`_meta.acpmux.fromAgent`), never the person's
+    /// words, as `acpmux send --from` makes it. The acpmux MCP server's guest `new` passes its
+    /// app's name (`acpmux_mcp_guest.rs`).
+    #[arg(long, value_name = "SENDER", hide = true)]
+    pub from: Option<String>,
 }

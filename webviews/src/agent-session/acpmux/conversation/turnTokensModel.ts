@@ -20,13 +20,16 @@ export const readTokens = (split: TurnTokenSplit) => split.input + split.cacheRe
 export const hasTokens = (split: TurnTokenSplit | undefined): split is TurnTokenSplit =>
   split !== undefined && split.output + readTokens(split) > 0;
 
-/// The hover: "Output 12.4K · fresh input 1.2K · cache reads 3.8M · cache writes 40K".
+/// The hover, in plain words: "Wrote 12.4K tokens · read 60K new, 2.1M again". Never the prompt
+/// cache's jargon (Leo, 2026-11-12, on "Output 7K · fresh input 4 · cache reads 0 · cache writes
+/// 219.6K": "what even are cache writes? When I'm seeing this stuff, what's going on?"): what the
+/// model read for the first time is its fresh input plus what it saved to the cache, and what it
+/// read again is the cache's reads.
 export const tokenDetail = (t: Translate, language: PaneLanguage, split: TurnTokenSplit) =>
   t("turn.tokens.detail", {
     output: compactTokens(language, split.output),
-    input: compactTokens(language, split.input),
-    cacheRead: compactTokens(language, split.cacheRead),
-    cacheWrite: compactTokens(language, split.cacheWrite),
+    fresh: compactTokens(language, split.input + split.cacheWrite),
+    reused: compactTokens(language, split.cacheRead),
   });
 
 const UNCACHED = "\ue000";
@@ -46,9 +49,9 @@ function countsWithTheirWords(row: string, counts: ReadonlyMap<string, string>):
 }
 
 /// The reply time's token rows (TurnRows.tsx TurnFooter), one count per row: "Output 5.1K", "Input
-/// across calls 14.2K uncached · 930.9K cached", "Context at end 139.9K", "Model calls 7". The input
-/// row's two counts are its calls' added up and its label says so; the context is what the chat held
-/// after the last call, so it is never that sum. A turn an older acpmux recorded has no context and
+/// 14.2K uncached · 930.9K cached", "Context at end 139.9K", "Model calls 7". The input row's two
+/// counts are its calls' added up (Leo, 2026-11-09: "we can prob just have the last line be Input");
+/// the context is what the chat held after the last call, so it is never that sum. A turn an older acpmux recorded has no context and
 /// no call count, and draws neither row (gallery `agent-pane.reply-time-tokens`).
 export const tokenRows = (t: Translate, language: PaneLanguage, split: TurnTokenSplit): string[] => [
   t("turn.tokens.outputRow", { tokens: compactTokens(language, split.output) }),

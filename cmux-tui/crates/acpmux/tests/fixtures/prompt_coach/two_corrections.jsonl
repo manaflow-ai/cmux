@@ -1,0 +1,8 @@
+{"prompt":"rename the User model to Account"}
+{"turn_end":"completed","expect_offer":false}
+{"prompt":"no, keep the table name users, only rename the type"}
+{"turn_end":"completed","expect_offer":false}
+{"prompt":"actually also leave the API field names alone"}
+{"turn_end":"completed","expect_offer":false}
+{"prompt":"perfect, open a PR"}
+{"turn_end":"completed","expect_offer":false}

@@ -40,7 +40,10 @@ fn encode(machine: &Machine) -> Value {
 
 #[test]
 fn a_catalog_record_relays_every_field_as_it_came() {
-    let source = with(record("vm-1", "7"), json!({ "pause_reason": null, "desktop": true }));
+    let source = with(
+        record("vm-1", "7"),
+        json!({ "pause_reason": null, "desktop": true, "paused_hourly_rate_usd": 0.0014 }),
+    );
     let machine = decode(source.clone());
     assert_eq!(machine.record.status, CloudMachineStatus::Running);
     let encoded = encode(&machine);
@@ -216,6 +219,18 @@ fn a_connect_info_missing_a_catalog_required_field_is_a_bad_response() {
         source.as_object_mut().expect("info").remove(field);
         let error = decode_connect_info(OP, source).expect_err(field);
         assert_eq!(error.code, codes::BAD_RESPONSE, "{field}");
+    }
+}
+
+#[test]
+fn a_connect_info_revision_is_a_checked_decimal() {
+    let info = decode_connect_info(OP, with(connect_info(), json!({ "revision": "007" })))
+        .expect("decodes");
+    assert_eq!(info.revision, "7");
+    for bad in ["", "7a", "-1", " 7"] {
+        let error = decode_connect_info(OP, with(connect_info(), json!({ "revision": bad })))
+            .expect_err(bad);
+        assert_eq!(error.code, codes::BAD_RESPONSE, "{bad:?}");
     }
 }
 

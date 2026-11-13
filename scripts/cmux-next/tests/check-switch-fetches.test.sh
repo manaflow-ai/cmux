@@ -45,6 +45,7 @@ pass "$VIEW" "a state flag dependency" $'useEffect(() => {\n  if (!isLoading) vo
 pass "webviews/src/pages/Fixture.tsx" "a page outside the agent page" 'window.addEventListener("focus", reread);'
 
 python3 -I "$CHECK" --self-test >/dev/null
-# The real tree is clean.
-python3 -I "$CHECK" >/dev/null
+# The real tree is clean; a hit prints its file and line (a CI log that says only "1 hit(s)"
+# names nothing to fix).
+python3 -I "$CHECK"
 echo "check-switch-fetches: ok"

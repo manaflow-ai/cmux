@@ -143,7 +143,7 @@ enum TabCloseGuard {
     }
 
     static func prompt(_ warning: WindowRules.Warning, closing tabs: [TabModel]) -> DestructiveConfirmation.Prompt {
-        let title = tabs.count == 1 ? ConfirmationStrings.closeTitle(tabs[0].title) : ConfirmationStrings.closeTabsTitle(tabs.count)
+        let title = tabs.count == 1 ? ConfirmationStrings.closeTitle(tabs[0].titleText) : ConfirmationStrings.closeTabsTitle(tabs.count)
         switch warning {
         case .agent(let agent):
             return .init(title: title, body: ConfirmationStrings.agentStillWorking(agent ?? ConfirmationStrings.theAgent),
