@@ -82,7 +82,7 @@ final class TerminalResizeDemo {
         mark("foreground")
         model.setAppActive(true)
         try? await clock.sleep(for: .seconds(3))
-        mark("done.\(mac.claims).\(mac.releases)")
+        mark("done.\(mac.claims).\(mac.releases) \(mac.journal) pageStarted=\(model.pageStarted) attached=\(model.connectionState.isAttached)")
     }
 }
 
@@ -98,6 +98,9 @@ final class ResizeDemoMac: @unchecked Sendable {
     private var releaseCount = 0
 
     var claims: Int { lock.withLock { claimCount } }
+    /// Each request the Mac saw, for the UI test's record.
+    var journal: String { lock.withLock { log.joined(separator: ",") } }
+    private var log: [String] = []
     var releases: Int { lock.withLock { releaseCount } }
 
     init() {
@@ -112,7 +115,14 @@ final class ResizeDemoMac: @unchecked Sendable {
 
     private func request(_ line: Data) {
         guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
-              let id = object["id"] as? String, let cmd = object["cmd"] as? String else { return }
+              let id = object["id"] as? String, let cmd = object["cmd"] as? String else {
+            lock.withLock { log.append("unparsed") }
+            return
+        }
+        lock.withLock {
+            let size = (object["cols"] as? Int).map { "\($0)x\(object["rows"] as? Int ?? 0)" } ?? ""
+            log.append(size.isEmpty ? cmd : "\(cmd)@\(size)")
+        }
         let reply = Self.line(["id": id, "ok": true, "data": cmd == "identify"
             ? ["capabilities": ["attach-initial-size", "size-lease-v2", "size-lease-v1"]] as [String: Any]
             : [String: Any]()])

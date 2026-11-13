@@ -48,7 +48,12 @@ final class TerminalResizeDemoUITests: XCTestCase {
             }
         }
         print("resize demo: \(step)")
-        XCTContext.runActivity(named: "demo: \(step)") { _ in }
+        XCTContext.runActivity(named: "demo: \(step)") { activity in
+            let note = XCTAttachment(string: step)
+            note.name = "demo-step"
+            note.lifetime = .keepAlways
+            activity.add(note)
+        }
         XCTAssertTrue(step.hasPrefix("done."), "the demo finished (\(step))")
         XCTAssertEqual(taken.count, shots.count, "every step was captured (\(taken.sorted()))")
     }
