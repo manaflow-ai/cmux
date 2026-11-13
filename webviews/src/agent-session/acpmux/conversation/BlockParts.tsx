@@ -1,7 +1,7 @@
 // The parts every tool-call block in the transcript shares (an edit's diff, a command's Shell block,
-// a call's output): Wrap lines in its header beside Copy, a box `PREVIEW_LINES` lines tall that a
-// longer block scrolls inside, and lines drawn one block each, so a wrapped line hangs under its
-// first row.
+// a call's output): Wrap lines in its header beside Copy, and lines drawn one block each, so a
+// wrapped line hangs under its first row. A long body scrolls inside its own box
+// (outputScrollBox.css), never behind a Show all button.
 import { cornerAction } from "./cornerActions";
 import { memo, useMemo, useRef } from "react";
 import { useT } from "../i18n";

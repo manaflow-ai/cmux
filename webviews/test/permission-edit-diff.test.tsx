@@ -294,7 +294,7 @@ test("a long edit awaiting approval shows whole, never cut to a preview", async 
   );
   const diff = host.querySelector(".acpmux-ask .cv-edit-diff")!;
   expect(Boolean(diff)).toBe(true);
-  expect(diff.querySelector(".cv-edit-diff__body")?.hasAttribute("data-preview")).toBe(false);
+  expect(diff.querySelector(".cv-edit-diff__body")?.hasAttribute("data-scrolls")).toBe(false);
   expect([...diff.querySelectorAll("button")].some((node) => node.textContent?.startsWith("Show all"))).toBe(false);
 });
 
@@ -337,7 +337,7 @@ function shownChanges() {
     name: diff.querySelector(".cv-edit-diff__name")?.textContent,
     added: diff.querySelector(".cv-edit-diff__add")?.textContent,
     removed: diff.querySelector(".cv-edit-diff__del")?.textContent,
-    cut: diff.querySelector(".cv-edit-diff__body")?.hasAttribute("data-preview"),
+    cut: diff.querySelector(".cv-edit-diff__body")?.hasAttribute("data-scrolls"),
   }));
 }
 

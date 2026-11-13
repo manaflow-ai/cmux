@@ -282,37 +282,41 @@ test("ShellBlock keeps chunk identity when the live output tail slides", async (
   expect(line("line 200\n", "line 200")).toBe(middle);
 });
 
+test("a live output Find in Chat opened mounts every line, not the 400-line window", async () => {
+  const lines = (n: number) => Array.from({ length: n }, (_, at) => `line ${at + 1}`).join("\n");
+  const n = OUTPUT_LINE_WINDOW + 80;
+  await act(async () => root!.render(<ShellBlock command="sleep 5" output={lines(n)} live />));
+  expect(container.querySelectorAll(".cv-shell__output .cv-line")).toHaveLength(OUTPUT_LINE_WINDOW);
+  await act(async () => root!.render(<ShellBlock command="sleep 5" output={lines(n)} live reveal={1} />));
+  const rendered = [...container.querySelectorAll(".cv-shell__output .cv-line")];
+  expect(rendered).toHaveLength(n);
+  expect(rendered[0]!.textContent).toBe("line 1\n");
+});
+
 test("a live suffix keeps its final line free of an extra newline", async () => {
   const lines = (n: number) => Array.from({ length: n }, (_, at) => `line ${at + 1}`).join("\n");
   await act(async () => root!.render(<ShellBlock command="sleep 5" output={lines(500)} live />));
   expect(container.querySelector(".cv-shell__output")?.textContent?.endsWith("line 500")).toBe(true);
 });
 
-test("past eight lines the output scrolls in its box, with no Show all row", async () => {
-  // Leo 2026-11-12: "this is a really useless show all 9 lines".
-  const output = Array.from({ length: 9 }, (_, at) => `case ${at + 1}`).join("\n");
-  await act(async () => root!.render(<ShellBlock command="bun test" output={output} />));
-  const body = container.querySelector(".cv-shell__body")!;
-  expect(body.getAttribute("data-preview")).toBe("cut");
-  // Every line is drawn in the box, and no row under it offers to show them.
-  expect(body.textContent).toContain("case 9");
-  expect(container.querySelector(".cv-output-more")).toBeNull();
+// Leo, 2026-11-12: "this is a really useless show all 9 lines. i think [another chat app] just lets you scroll,
+// straight up?"
+test("the output draws every line in the shared scroll box, with no Show all", async () => {
+  for (const n of [9, 30]) {
+    const output = Array.from({ length: n }, (_, at) => `case ${at + 1}`).join("\n");
+    await act(async () => root!.render(<ShellBlock command="bun test" output={output} />));
+    const body = container.querySelector(".cv-shell__body")!;
+    expect(body.classList.contains("cv-scroll-box")).toBe(true);
+    // Focusable, so the arrow keys scroll it; copy and Find read its text.
+    expect(body.getAttribute("tabindex")).toBe("0");
+    expect(container.querySelectorAll(".cv-shell__output .cv-line").length).toBe(n);
+    expect(
+      [...container.querySelectorAll("button")].some((button) => /^Show (all|less)/.test(button.textContent ?? "")),
+    ).toBe(false);
+  }
   // A command with no output yet draws no output box.
   await act(async () => root!.render(<ShellBlock command="sleep 5" live />));
   expect(container.querySelector(".cv-shell__body")?.textContent).toBe("");
-});
-
-test("Show less closes up a long output that Find in Chat opened", async () => {
-  const output = Array.from({ length: 1000 }, (_, at) => `case ${at + 1}`).join("\n");
-  await act(async () => root!.render(<ShellBlock command="bun test" output={output} reveal={1} />));
-  const shown = () => container.querySelector(".cv-shell__output")?.textContent ?? "";
-  expect(shown().startsWith("case 1\n")).toBe(true);
-  const less = [...container.querySelectorAll("button")].find((button) => button.textContent === "Show less")!;
-  await act(async () => less.click());
-  expect(shown().startsWith("case 601\n")).toBe(true);
-  expect([...container.querySelectorAll("button")].some((button) => button.textContent === "Show all output")).toBe(
-    true,
-  );
 });
 
 test("while it runs, a reflow that grows the output keeps the newest line in view", async () => {

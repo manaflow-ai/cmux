@@ -550,23 +550,31 @@ test("a MultiEdit opens inline with every edit from its latest input", async () 
 });
 
 // The card draws outside ToolRows, under the transcript-wide Find reveal: only the card that holds
-// Find's current match opens its cut diff, not every open card whose diff has the query's text.
+// Find's current match asks for a repaint (its diff draws every line already, in its scroll box),
+// not every open card whose diff has the query's text.
 test.each([
-  ["another row's match leaves this card's diff cut", false, "cut"],
-  ["its own match opens it past the cut", true, "all"],
-])("Find in Chat: %s", async (_case, own, preview) => {
+  ["another row's match leaves this card alone", false, 0],
+  ["its own match repaints it", true, 1],
+])("Find in Chat: %s", async (_case, own, repaints) => {
   const { createRoot } = await import("react-dom/client");
   const { EditedFilesCard } = await import("../src/agent-session/acpmux/conversation/EditedFilesCard");
   const { FindReveal } = await import("../src/agent-session/acpmux/conversation/chatFind");
   // Each case its own row: a card's open state outlives its render (turnChanges/openStore).
   const row = activity(own ? "turn-find-own" : "turn-find-other", [await writeNewFile()]);
-  const find = { rowId: own ? row.id : "turn-elsewhere", card: true, needle: "step 9", repaint: () => {} };
+  let painted = 0;
+  const find = {
+    rowId: own ? row.id : "turn-elsewhere",
+    card: true,
+    needle: "step 9",
+    repaint: () => {
+      painted += 1;
+    },
+  };
   root = createRoot(host);
   // Opened before Find reveals anything.
   await act(async () => root!.render(<EditedFilesCard row={row} />));
   await click(host.querySelector(".acpmux-edited-toggle"));
-  const body = () => host.querySelector(".acpmux-edited .cv-edit-diff__body")?.getAttribute("data-preview");
-  expect(body()).toBe("cut");
+  expect(host.querySelector(".acpmux-edited .cv-edit-diff__body")?.classList.contains("cv-scroll-box")).toBe(true);
   await act(async () =>
     root!.render(
       <FindReveal.Provider value={find}>
@@ -574,7 +582,7 @@ test.each([
       </FindReveal.Provider>,
     ),
   );
-  expect(body()).toBe(preview);
+  expect(painted).toBe(repaints);
 });
 
 test("the nine-file reference card starts with three rows, expands and restores, and opens real file changes", async () => {

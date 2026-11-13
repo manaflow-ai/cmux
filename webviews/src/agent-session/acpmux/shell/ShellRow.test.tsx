@@ -34,24 +34,18 @@ const markup = (shell: ShellRun, expanded = false, given: ShellActions | null = 
     </ShellActionsContext.Provider>,
   );
 
-test("collapsed long output keeps the tail and offers expansion", () => {
-  const output = Array.from({ length: 10 }, (_, index) => `line ${index + 1}`).join("\n");
+// Leo, 2026-11-12: "this is a really useless show all 9 lines. i think [another chat app] just lets you scroll,
+// straight up?" Every line is drawn, in the shared scroll box, with nothing to expand.
+test("a long output draws every line in its scroll box, with no Show all", () => {
+  const output = Array.from({ length: 60 }, (_, index) => `line ${index + 1}`).join("\n");
   const html = markup(run({ output }));
-  expect(html).toContain("line 3");
-  expect(html).toContain("line 10");
-  expect(html).not.toContain("line 2");
-  expect(html).toContain("Show all output");
-  expect(html).toContain('aria-expanded="false"');
-});
-
-test("expanded output shows all lines and offers collapse", () => {
-  const output = Array.from({ length: 10 }, (_, index) => `line ${index + 1}`).join("\n");
-  const html = markup(run({ output }), true);
-  expect(html).toContain("line 1");
-  expect(html).toContain("line 10");
+  expect(html).toContain("line 1\n");
+  expect(html).toContain("line 60");
+  expect(html).toContain("cv-scroll-box");
+  expect(html).toContain('tabindex="0"');
   expect(html).not.toContain("acpmux-shell-block-cut");
-  expect(html).toContain("Show less");
-  expect(html).toContain('aria-expanded="true"');
+  expect(html).not.toContain("Show all");
+  expect(html).not.toContain("aria-expanded");
 });
 
 test.each([

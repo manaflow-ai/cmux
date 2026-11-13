@@ -1,8 +1,7 @@
 // l10n-allow-file: the gallery fixture supplies the transcript's messages.
-// Closing a long output from its Show less, scrolled down to at the transcript's end, keeps the
-// reader at the control they clicked (foldAnchor.ts `foldHoldTarget`): held by its row's top, the
-// row closed up above the view and the kept room left the view blank (review BLOCK at 5e59e449).
-// An opened call's line reads whole (Leo, ask-486cb2cec3: "why the fuck did you guys ffucking
+// A long output at the transcript's end scrolls inside its own box, read to its end without moving
+// the transcript, with no Show all row (Leo, 2026-11-12: "i think [another chat app] just lets you scroll,
+// straight up?"). An opened call's line reads whole (Leo, ask-486cb2cec3: "why the fuck did you guys ffucking
 // ellipsis EVERYTHING WITH NO WAY TO EXPAND WHAT WAS SAID TO SEE"). Both are the transcript gallery's
 // own plays, each failing its own check.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
@@ -33,7 +32,7 @@ await requireBrowserLane("agent-pane-show-less-keeps-place.test.ts", async () =>
     });
     await vite.listen();
     browser = await chromium.launch({ headless: true });
-    await warmGalleryFrame(vite, ENTRY, { browser, params: { variant: "show-less-keeps-place" } });
+    await warmGalleryFrame(vite, ENTRY, { browser, params: { variant: "long-output-scrolls-in-place" } });
   });
   afterAll(async () => {
     await browser?.close();
@@ -54,8 +53,8 @@ await requireBrowserLane("agent-pane-show-less-keeps-place.test.ts", async () =>
     return playFailures(report);
   }
 
-  test("Show less at the transcript's end keeps the clicked control in view", async () => {
-    expect(await play("show-less-keeps-place")).toEqual([]);
+  test("a long output at the transcript's end scrolls in its box, never the transcript", async () => {
+    expect(await play("long-output-scrolls-in-place")).toEqual([]);
   });
 
   test("an opened call's line draws its whole label", async () => {

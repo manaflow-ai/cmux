@@ -1,13 +1,13 @@
 // cmux-web-test-timeout: 300
-// The Show more / Show less row under every block the transcript cuts is the whole bottom row of
-// its block (Leo, 2026-11-07: "what if the whole bottom row area were clickable in this, like, show
+// The Show more / Show less row under a long sent prompt (output and code cards scroll in their own
+// box instead, output-scroll-box.test.ts) is the whole bottom row of its block (Leo, 2026-11-07: "what if the whole bottom row area were clickable in this, like, show
 // more show less area? And I mean likewise for the other bits ... my mouse is in the general
 // vicinity, it's in the general height area"): a click anywhere along it (its left edge, middle and
-// right edge) toggles the block, for a Shell block and a call's output past the 400 lines drawn of
-// their end (Show all output), a search's files and a long sent prompt. Pointing at it moves nothing
-// ("make sure you don't accidentally ... push out different kinds of layout"). An edit's diff and a
-// file read have no row: past eight lines they scroll in their box (Leo, 2026-11-12: "this is a
-// really useless show all 9 lines").
+// right edge) toggles the block, for an edit's diff (in the edited-files card and in a tool row),
+// a Shell block, a file read, a call's output and a long sent prompt. Pointing at it moves nothing
+// ("make sure you don't accidentally ... push out different kinds of layout"), and the edit's diff
+// is one surface: one rim, and the row on the code area's own background ("why is it, like, just
+// this hard line cut off here between the green and then the rest of the card situation?").
 //
 // It renders `agent-pane.expand-row` on the gallery stage in Chromium, dark and light.
 // CI fails the file when it cannot launch (requireBrowserLane). Locally:
@@ -17,10 +17,12 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { BLOCKS, CARD, ROW, type Block } from "../src/agent-session/acpmux/conversation/ExpandRow.gallery";
+import { CARD, ROW, type Block } from "../src/agent-session/acpmux/conversation/ExpandRow.gallery";
 
 await requireBrowserLane("expand-row.test.ts", async () => {
   const ENTRY = "agent-pane.expand-row";
+  // Output and code cards scroll in their own box instead (output-scroll-box.test.ts).
+  const BLOCKS: Block[] = ["prompt"];
   setDefaultTimeout(240_000);
   try {
     await (await chromium.launch({ headless: true })).close();

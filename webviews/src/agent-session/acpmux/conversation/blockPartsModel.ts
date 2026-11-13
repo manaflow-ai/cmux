@@ -2,25 +2,15 @@ import { useLayoutEffect, useRef, type RefObject } from "react";
 import { watchSideways } from "./sideways";
 import { SIDEWAYS_SCROLLER_ATTRIBUTE } from "../../../scrollers";
 
-/// Lines a block's box shows; a longer block scrolls inside it (Leo 2026-11-12: "this is a really
-/// useless show all 9 lines").
-export const PREVIEW_LINES = 8;
+/// Lines an output or code card draws whole. Past them the card's body keeps this height and scrolls
+/// inside, never behind a Show all button (Leo, 2026-11-12: "this is a
+/// really useless show all 9 lines. i think [another chat app] just lets you scroll, straight up?"). The CSS
+/// token `--cv-output-box-lines` (outputScrollBox.css) is the same number; a test holds them equal.
+export const OUTPUT_BOX_LINES = 24;
 
-/// A block's preview: whether it is long enough to scroll in its box (more than `PREVIEW_LINES`
-/// lines), and whether Find in Chat opened it whole. `data-preview` on its body is "cut" (the box
-/// scrolls) or "all", absent when it fits. Each new `reveal` (Find in Chat revealed the block, and a
-/// match may be in a long output's head, which is drawn only once opened) opens it.
-export function usePreview(lines: number, reveal = 0, overflows = false) {
-  const all = reveal > 0;
-  const long = lines > PREVIEW_LINES || overflows;
-  return {
-    long,
-    cut: long && !all,
-    all,
-    lines,
-    attribute: long ? (all ? "all" : "cut") : undefined,
-  };
-}
+/// The class of every such body (outputScrollBox.css): its cap and its inner scroll, which never
+/// traps the transcript's wheel (at its edge the wheel chains on to the transcript).
+export const OUTPUT_SCROLL_BOX = "cv-scroll-box";
 
 /// Keeps the right-edge fade of `ref`'s sideways scrollers current while it is drawn.
 export function useSidewaysEdge(ref: RefObject<HTMLElement | null>) {

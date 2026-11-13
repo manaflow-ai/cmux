@@ -26,18 +26,17 @@ const open: Play = async (ctx) => {
   await ctx.click({ selector: "button.cv-tool" });
   await ctx.waitFor(() => ctx.document.querySelector(".cv-tool-output-card"));
 };
-/// Opens the call and scrolls its rendered result to the end of its box: the last line shows whole
-/// and the bottom fade is gone (moreBelow.ts). Past eight lines a result scrolls in its box, with no
-/// Show all row under it.
+/// Opens the call and scrolls its output's box to the end, as a reader does with the wheel.
 const scrolled: Play = async (ctx) => {
   await open(ctx);
-  const body = ctx.document.querySelector<HTMLElement>(".cv-tool-output__markdown")!;
-  body.scrollTop = body.scrollHeight;
-  await ctx.waitFor(() => !body.hasAttribute("data-more-below"));
+  const box = ctx.document.querySelector<HTMLElement>(".cv-tool-output-card .cv-scroll-box")!;
+  box.scrollTop = box.scrollHeight;
+  box.dispatchEvent(new Event("scroll"));
+  await ctx.waitFor(() => !box.hasAttribute("data-more-below"));
 };
 /// Opens the call with its output's long lines folded back under their start. Output opens aligned
 /// (blockWrap.ts), so a state about a wrapped line turns Wrap lines on itself instead of leaning on
-/// the default: the one long line wraps past the viewport and scrolls in its eight-row box.
+/// the default: the one long line wraps past the viewport and scrolls inside its box.
 const openWrapped: Play = async (ctx) => {
   await open(ctx);
   const body = () => ctx.document.querySelector(".cv-tool-output");
@@ -89,12 +88,12 @@ export default componentEntry<Props>({
   height: 760,
   variants: {
     collapsed: { props, note: "The tool row at rest. Public-safe sample data." },
-    compact: { props, play: open, note: "Rendered Markdown in the compact viewport, scrolling in its box." },
-    scrolled: {
+    compact: {
       props,
-      play: scrolled,
-      note: "The rendered result scrolled to the end of its box: its last line whole, the bottom edge hard.",
+      play: open,
+      note: "Rendered Markdown in its scroll box: whole up to 24 lines, scrolling inside past them.",
     },
+    expanded: { props, play: scrolled, note: "The same box scrolled to its end: every line is there, no Show all." },
     raw: {
       props,
       play: async (ctx) => {
@@ -105,7 +104,7 @@ export default componentEntry<Props>({
     },
     "mcp-markdown": {
       props: { ...props, mcp: true },
-      note: "An opened MCP call whose response is Markdown: the same rendered body, scrolling in its box, with Raw.",
+      note: "An opened MCP call whose response is Markdown: the same rendered, scrollable body with Raw.",
     },
     json: {
       props: { output: JSON.stringify({ ok: true, nodes: ["reader", "viewer"], count: 2 }), kind: "fetch" },
@@ -118,7 +117,7 @@ export default componentEntry<Props>({
     "wrapped-line": {
       props: { output: "Long result: ".repeat(180) },
       play: openWrapped,
-      note: "One source line, Wrap lines on, wraps past eight rows; it scrolls in its box, with no Show all row.",
+      note: "One source line, Wrap lines on, wraps past the box's height and scrolls inside it.",
     },
   },
 });

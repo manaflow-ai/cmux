@@ -345,10 +345,10 @@ const EDIT_LONG_CODE =
     "}",
   ].join("\n") + "\n";
 
-/// Code past the eight-line preview, every line wider than the column.
+/// Code past the 24-line output box, every line wider than the column.
 const EDIT_LONG_CODE_CUT =
   Array.from(
-    { length: 14 },
+    { length: 40 },
     (_, index) =>
       `export const uploadRoute${index + 1} = { path: "/v2/uploads/:id/parts/${index + 1}", method: "PUT", timeoutMs: 30_000, retry: retryPolicy, headers: { "content-type": "application/octet-stream" } } as const;`,
   ).join("\n") + "\n";
@@ -363,8 +363,8 @@ const EDIT_LONG_PROSE =
 const shellLogLine = (index: number) =>
   `2026-10-21T09:${String(index).padStart(2, "0")}:12.481Z retry attempt=${index + 1} url=https://api.example.test/v2/uploads/9f3c2a71/parts?part=${index + 1}&checksum=sha256-4b1f0c9e2d7a6b5c status=503 delayMs=${250 * 2 ** (index % 6)}`;
 const SHELL_LONG_LOG = Array.from({ length: 6 }, (_, index) => shellLogLine(index)).join("\n");
-/// A log past the eight-line preview, every line wider than the column.
-const SHELL_LONG_LOG_CUT = Array.from({ length: 14 }, (_, index) => shellLogLine(index)).join("\n");
+/// A log past the 24-line output box, every line wider than the column.
+const SHELL_LONG_LOG_CUT = Array.from({ length: 40 }, (_, index) => shellLogLine(index)).join("\n");
 
 /// A command still running, its output streaming in, in its own row: its stretch ended with its
 /// summary while it ran on, and the turn went on past it (a lone running call reads only on the
@@ -451,68 +451,27 @@ const showCutLine = (open: boolean) => async (ctx: PlayContext) => {
   if (text.scrollWidth > text.clientWidth + 1) throw new Error("the opened line's label is still cut");
 };
 
-/// A long file list at the transcript's end, opened with Show all N files: closing it from its Show
-/// less, scrolled down to, leaves the reader at the control they clicked, never on a view of blank
-/// room under rows that closed up above it (foldAnchor.ts `foldHoldTarget`, review BLOCK at 5e59e449).
-/// A Glob's card is the block whose row still grows it: a long Shell block or output scrolls in its
-/// eight-line box, opened or not (Leo, 2026-11-12: "this is a really useless show all 9 lines").
-const SHOW_LESS_FILES = Array.from({ length: 160 }, (_, index) => `/work/app/src/net/retry${index + 1}.ts`).join("\n");
-const showLessRows = [
-  user("List every retry module", 3, { id: "gallery-show-less-user" }),
-  activity(
-    [
-      tool("Glob src/net/**/*.ts", "read", "completed", {
-        inputSummary: JSON.stringify({ pattern: "src/net/**/*.ts" }),
-        output: SHOW_LESS_FILES,
-      }),
-    ],
-    2.8,
-    { id: "gallery-show-less-activity" },
-  ),
-  assistant("There are 160 retry modules under src/net.", 2.6, { id: "gallery-show-less-answer" }),
-  summary(2.6, { id: "gallery-show-less-summary", status: "completed", toolCount: 1 }),
-];
-const showLessAtEnd = async (ctx: PlayContext) => {
-  await openWorked(ctx);
-  await ctx.click({ selector: ".cv-tool.is-toggle" });
-  await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-filematches .cv-output-more")));
-  const more = { selector: ".cv-filematches .cv-output-more" };
-  // The reader clicks the row's words, at its start. The row is the block's whole width
-  // (ExpandRow.tsx), so its centre sits under Jump to latest, centred over the view's foot.
-  const words = { selector: ".cv-filematches .cv-output-more .cv-expand-row__label" };
-  await ctx.click(words);
-  await ctx.waitFor(() => ctx.find(more).getAttribute("aria-expanded") === "true");
-  // The opened list lands first: its fold plays and the rows under it place by their drawn
-  // heights, so the content stops growing (three frames at one height, nothing animating).
+/// A long command output at the transcript's end scrolls inside its own box (outputScrollBox.css):
+/// reading it to its end moves the box, never the transcript, and nothing under it is a Show all
+/// row (Leo, 2026-11-12: "i think [another chat app] just lets you scroll, straight up?").
+const LONG_RUN_LOG = Array.from(
+  { length: 160 },
+  (_, index) => `(pass) retry backoff case ${index + 1} [0.${index % 10}ms]`,
+).join("\n");
+const longOutputScrollsInPlace = async (ctx: PlayContext) => {
+  await openSingleShell(ctx);
+  const box = ctx.find({ selector: ".cv-shell .cv-scroll-box" }) as HTMLElement;
+  await ctx.waitFor(() => box.hasAttribute("data-scrolls") && box.hasAttribute("data-more-below"));
+  if (getComputedStyle(box).overscrollBehaviorY === "contain")
+    throw new Error("a box that scrolls must chain the wheel to the transcript at its edge");
+  if (ctx.document.querySelector(".cv-shell .cv-expand-row")) throw new Error("a Shell block drew a Show all row");
   const scroller = ctx.find({ selector: ".acpmux-scroll" }) as HTMLElement;
-  let height = -1;
-  let still = 0;
-  await ctx.waitFor(() => {
-    still = scroller.scrollHeight === height ? still + 1 : 0;
-    height = scroller.scrollHeight;
-    return still >= 3 && scroller.getAnimations({ subtree: true }).every((a) => a.playState !== "running");
-  });
-  // The reader scrolls down to Show less, under the opened list, at the view's foot. A reader's
-  // scroll is a wheel, which lets go of the hold Show all's click started (App.tsx `release`); an
-  // offset set alone, inside that hold, is put back where the click held the row. The wheel is a
-  // pixel, so its own glide moves nothing that matters.
-  scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: 1, bubbles: true, cancelable: true }));
-  (ctx.find(more) as HTMLElement).scrollIntoView({ block: "end" });
-  scroller.dispatchEvent(new Event("scroll"));
-  const view = () => scroller.getBoundingClientRect();
-  await ctx.waitFor(() => (ctx.find(more) as HTMLElement).getBoundingClientRect().bottom <= view().bottom + 1);
-  const row = ctx.find(more).closest(".acpmux-row")!;
-  if (row.getBoundingClientRect().top >= view().top) throw new Error("the opened list's row top is still in view");
-  await ctx.click(words);
-  const clicked = performance.now();
-  // The hold is over well before 1.7 s (FOLD_HOLD_MIN_MS, or the fold and its settle); the view is the reader's after it.
-  await ctx.waitFor(
-    () => ctx.find(more).getAttribute("aria-expanded") === "false" && performance.now() - clicked > 1700,
-    { capMs: 5000 },
-  );
-  const control = (ctx.find(more) as HTMLElement).getBoundingClientRect();
-  if (control.bottom <= view().top || control.top >= view().bottom)
-    throw new Error("closing the list left the view on blank room: the control the reader clicked is out of view");
+  const before = scroller.scrollTop;
+  box.scrollTop = box.scrollHeight;
+  box.dispatchEvent(new Event("scroll"));
+  await ctx.waitFor(() => !box.hasAttribute("data-more-below"));
+  if (Math.abs(scroller.scrollTop - before) > 0.5)
+    throw new Error("reading the output to its end moved the transcript");
 };
 
 /// One long finished turn, shaped like the ones Lawrence and Leo pasted (synthetic text): runs of
@@ -1589,7 +1548,6 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/CommandRow.tsx",
     "agent-session/acpmux/conversation/ShellBlock.tsx#ShellBlock",
     "agent-session/acpmux/conversation/CopyButton.tsx#CopyButton",
-    "agent-session/acpmux/conversation/toolOutput.tsx#OutputMore",
     "agent-session/acpmux/conversation/EditDiff.tsx",
     "agent-session/acpmux/conversation/EditDiffHunks.tsx",
     "agent-session/acpmux/conversation/EditedFilesCard.tsx",
@@ -3621,7 +3579,7 @@ export default agentPaneEntry({
       },
     },
     "shell-long-colored-output": {
-      note: "A long, coloured test run: no colour codes, its last 400 lines scrolling in an eight-line box, with Show all output under it to draw the rest, and Wrap lines and Copy in the label.",
+      note: "A long, coloured test run: no colour codes, scrolling inside its 24-line box (never behind Show all), and Wrap lines and Copy in the label.",
       checks: shellDisclosureChecks,
       snapshot: chat(
         shellRows("gallery-shell-long", "Run the whole suite", "bun test", {
@@ -3634,7 +3592,7 @@ export default agentPaneEntry({
       ),
       play: async (ctx) => {
         await openSingleShell(ctx);
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-output-more")?.textContent === "Show all output");
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-shell .cv-scroll-box")?.hasAttribute("data-scrolls"));
       },
     },
     "edit-long-line-code": {
@@ -3644,25 +3602,22 @@ export default agentPaneEntry({
       play: openEditedDiff,
     },
     "edit-long-line-prose": {
-      note: "An Edited card's diff for a Markdown file: long lines wrap, each hanging under its start; it scrolls in an eight-line box whose bottom edge fades, with no Show all row under it.",
+      note: "An Edited card's diff for a Markdown file: long lines wrap, each hanging under its start; all 21 lines show whole, under the 24-line box.",
       checks: shellDisclosureChecks,
       snapshot: chat(editedRows("gallery-edit-prose", "docs/codex-excursions.md", EDIT_LONG_PROSE)),
       play: openEditedDiff,
     },
-    "edit-preview-scrolled": {
-      note: "The long diff scrolled to its end in its box: its last line shows whole, the bottom edge hard.",
+    "edit-preview-open": {
+      note: "The whole 21-line diff, rendered, with no Show all row under it.",
       checks: shellDisclosureChecks,
-      snapshot: chat(editedRows("gallery-edit-scrolled", "docs/codex-excursions.md", EDIT_LONG_PROSE)),
+      snapshot: chat(editedRows("gallery-edit-open", "docs/codex-excursions.md", EDIT_LONG_PROSE)),
       play: async (ctx) => {
         await openEditedDiff(ctx);
-        // The rendered diff's lines, not the placeholder drawn while their renderer loads
+        // The rendered diff: its lines, not the placeholder drawn while their renderer loads
         // (EditDiffLoading.tsx; the inline-diff-loading entry covers that).
         await ctx.waitFor(() =>
           ctx.document.querySelector(".cv-edit-diff diffs-container")?.shadowRoot?.querySelector("[data-line]"),
         );
-        const body = ctx.document.querySelector<HTMLElement>(".cv-edit-diff__body")!;
-        body.scrollTop = body.scrollHeight;
-        await ctx.waitFor(() => !body.hasAttribute("data-more-below"));
       },
     },
     "shell-unwrapped-long-line": {
@@ -3694,13 +3649,13 @@ export default agentPaneEntry({
       },
     },
     "edit-long-line-code-cut": {
-      note: "An Edited card's diff for code past eight lines, lines whole: it scrolls in an eight-line box whose bottom fades, and below the lines the thin sideways scrollbar, shown at rest while the lines run past the right edge.",
+      note: "An Edited card's diff for code past 24 lines, lines whole: a 24-line box that scrolls in place under a fade, and below them the thin sideways scrollbar, shown at rest while the lines run past the right edge.",
       checks: shellDisclosureChecks,
       snapshot: chat(editedRows("gallery-edit-code-cut", "src/net/uploadRoutes.ts", EDIT_LONG_CODE_CUT)),
       play: openEditedDiff,
     },
     "shell-unwrapped-long-cut": {
-      note: "A long command output with Wrap lines off: it scrolls in an eight-line box whose bottom fades, and below the lines the thin sideways scrollbar, shown at rest while the lines run past the right edge.",
+      note: "A long command output with Wrap lines off: a 24-line box that scrolls in place under a fade, and below them the thin sideways scrollbar, shown at rest while the lines run past the right edge.",
       checks: shellDisclosureChecks,
       snapshot: chat(
         shellRows("gallery-shell-unwrapped-cut", "Print the retry log", "cat logs/retry.log", {
@@ -3720,7 +3675,7 @@ export default agentPaneEntry({
       play: unwrapCall(".cv-shell__body", ".cv-shell__actions"),
     },
     "shell-live-unwrapped-long-cut": {
-      note: "A running command's long output with Wrap lines off: it scrolls in an eight-line box that follows its end, with the sideways scrollbar's lane under the lines while it runs.",
+      note: "A running command's long output with Wrap lines off: a 24-line box that follows the end and the sideways scrollbar's lane under them while it runs.",
       checks: shellDisclosureChecks,
       snapshot: chat(liveShellRows("gallery-shell-live-cut", SHELL_LONG_LOG_CUT), { isWorking: true }),
       play: unwrapCall(".cv-shell__body", ".cv-shell__actions"),
@@ -3739,14 +3694,14 @@ export default agentPaneEntry({
       play: unwrapCall(".cv-tool-output", ".cv-tool-output__actions"),
     },
     "output-unwrapped-long-cut": {
-      note: "A call's long output with Wrap lines off: it scrolls in a box of eight whole lines whose bottom fades, and the thin sideways scrollbar under them in the output's bottom padding, the preview that much taller (Codex review of #23967).",
+      note: "A call's long output with Wrap lines off: its lines whole in a 24-line box that scrolls in place under a fade, and the thin sideways scrollbar under them in the output's bottom padding, the box that much taller (Codex review of #23967).",
       checks: shellDisclosureChecks,
       snapshot: chat([
         user("Fetch the whole retry log", 3, { id: "gallery-output-unwrapped-cut-user" }),
         activity([tool("Fetch the whole retry log", "fetch", "completed", { output: SHELL_LONG_LOG_CUT })], 2.8, {
           id: "gallery-output-unwrapped-cut-activity",
         }),
-        assistant("It scrolls in an eight-line box.", 2.6, {
+        assistant("The whole log scrolls inside its 24-line box.", 2.6, {
           id: "gallery-output-unwrapped-cut-answer",
         }),
         summary(2.6, { id: "gallery-output-unwrapped-cut-summary", status: "completed", toolCount: 1 }),
@@ -3834,17 +3789,13 @@ export default agentPaneEntry({
       snapshot: chat(cutLineRows),
       play: showCutLine(true),
     },
-    "show-less-keeps-place": {
-      note: "A long Glob file list at the transcript's end, opened with Show all 160 files, then closed from Show less after scrolling down to it: the view stays on the control the reader clicked, with the rows above it, not on blank room under a row that closed up above the view.",
-      checks: {
-        layoutShiftMax: {
-          value: 1,
-          reason:
-            "Show all and Show less open and close a 160-file list; the play checks the clicked control stays in view.",
-        },
-      },
-      snapshot: chat(showLessRows),
-      play: showLessAtEnd,
+    "long-output-scrolls-in-place": {
+      note: "A 160-line command output at the transcript's end: it scrolls inside its 24-line box, read to its end without moving the transcript, and no Show all row under it.",
+      checks: shellDisclosureChecks,
+      snapshot: chat(
+        shellRows("gallery-long-run", "Run the whole suite", "bun test", { output: LONG_RUN_LOG, exitCode: 0 }),
+      ),
+      play: longOutputScrollsInPlace,
     },
     "background-turns": {
       note: "A person's turn, then a turn the agent ran on its own after a background task finished with nothing new to tell: one muted line, Background task finished, closed. Then one that has something to say (a failure and a question), drawn as its rows came. No Worked for or footer for either. Play: open the quiet line.",

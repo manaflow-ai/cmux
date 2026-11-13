@@ -147,12 +147,15 @@ test("a fetch result with prose Markdown renders it and keeps JSON mono", async 
   expect(host.querySelector(".cv-tool-output")).not.toBeNull();
 });
 
-test("a long Markdown result scrolls through every line and toggles to Raw", async () => {
-  const lines = Array.from({ length: 20 }, (_, index) => `## Result ${index}`);
+test("a long Markdown result draws every line in its scroll box and toggles to Raw", async () => {
+  const lines = Array.from({ length: 40 }, (_, index) => `## Result ${index}`);
   await openRow("fetch", lines.join("\n"), undefined, "Fetch https://example.com/report");
-  expect(host.querySelector(".cv-tool-output__markdown")?.getAttribute("data-preview")).toBe("cut");
-  expect(host.querySelector(".cv-tool-output__markdown")?.textContent).toContain("Result 19");
-  expect([...host.querySelectorAll("button")].some((node) => node.textContent?.startsWith("Show all"))).toBe(false);
+  const body = host.querySelector(".cv-tool-output__markdown")!;
+  expect(body.classList.contains("cv-scroll-box")).toBe(true);
+  expect(body.querySelectorAll("h2")).toHaveLength(40);
+  expect([...host.querySelectorAll("button")].some((node) => /^Show (all|less)/.test(node.textContent ?? ""))).toBe(
+    false,
+  );
 
   const raw = [...host.querySelectorAll("button")].find((node) => node.textContent?.trim() === "Raw");
   expect(raw).toBeDefined();
@@ -173,7 +176,6 @@ test("Find reveals the full rendered fetch result and copy keeps its complete so
       <ToolRow item={item} />
     </FindReveal.Provider>,
   );
-  expect(host.querySelector(".cv-tool-output__markdown")?.getAttribute("data-preview")).toBe("all");
   expect(host.querySelector(".cv-tool-output__markdown strong")?.textContent).toBe("service");
   expect(menuPartAt(host.querySelector(".cv-tool-output-card"))?.output).toBe(output);
 });
@@ -182,7 +184,9 @@ test("an output of exactly 400 lines and a final newline shows whole", async () 
   const lines = Array.from({ length: 400 }, (_, index) => `line ${index}`);
   await openRow("execute", `${lines.join("\n")}\n`, "seq 400");
   expect(host.querySelector(".cv-shell__output")?.textContent).toBe(lines.join("\n"));
-  expect([...host.querySelectorAll("button")].some((node) => node.textContent === "Show all output")).toBe(false);
+  expect([...host.querySelectorAll("button")].some((node) => /^Show (all|less)/.test(node.textContent ?? ""))).toBe(
+    false,
+  );
 });
 
 test("terminal charset, keypad and cursor-style codes do not show either", async () => {
@@ -190,16 +194,16 @@ test("terminal charset, keypad and cursor-style codes do not show either", async
   expect(host.querySelector(".cv-shell__output")?.textContent).toBe("done");
 });
 
-test("a long output shows its last lines until Show all output", async () => {
+test("a huge output draws its last lines in its scroll box, with no Show all", async () => {
   const lines = Array.from({ length: 5000 }, (_, index) => `line ${index}`);
   await openRow("execute", lines.join("\n"), "seq 5000");
   const shown = () => host.querySelector(".cv-shell__output")?.textContent ?? "";
   expect(shown().endsWith("line 4999")).toBe(true);
   expect(shown()).not.toContain("line 0\n");
-  expect(shown().split("\n").length).toBeLessThan(1000);
-  // Its end scrolls in the block's box; Show all output draws all of it.
-  await click([...host.querySelectorAll("button")].find((node) => node.textContent === "Show all output"));
-  expect(shown()).toBe(lines.join("\n"));
+  expect(shown().split("\n").length).toBeLessThanOrEqual(2000);
+  expect([...host.querySelectorAll("button")].some((node) => /^Show (all|less)/.test(node.textContent ?? ""))).toBe(
+    false,
+  );
 });
 
 // The `hover-actions` experiment's "all" arm: a Copy in the output's corner on hover.
