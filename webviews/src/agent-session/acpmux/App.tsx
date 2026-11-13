@@ -70,7 +70,7 @@ import { setCloudPreviewContext, useCloudPreviewPorts } from "./cloudPreviewPort
 import { CloudEnvironmentEditor } from "./CloudEnvironmentEditor";
 import { useChatCloudEnvironment } from "./CloudEnvironmentChip";
 import { NativeError } from "./nativeError";
-import { errorMessage, isStartCancelled, startCancelled } from "./transportErrors";
+import { errorMessage, isStartCancelled, knownRefusalText, startCancelled } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
 import { NewTabPage } from "./NewTabPage";
 import { FOCUS_LOCATION_EVENT, newTabHost, type NewTabChat, type NewTabHost } from "./newTabModel";
@@ -686,6 +686,7 @@ import { FolderChoice } from "./FolderChoice";
 import { showsFolderChoice } from "./folderChoiceModel";
 import { ownMachineFolders, type ExtraFolderDraft } from "./extraFolders";
 import { WorktreeFailure } from "./startFolder";
+import { NewProjectUnsupported } from "./newtab/NewProjectName";
 import {
   type FolderAsk,
   confirmFolder,
@@ -7496,7 +7497,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   }, [handedFolder, handshaken, chooseProject, notices]);
   /// New Worktree (cx-lyqio.2): the new chat starts in a worktree of its folder, or says why not.
 
-  const [worktreeError, setWorktreeError] = useState<{ message: string; sessionId?: string; visit?: string }>();
+  /// `cwd`: the folder the worktree was asked for, which its Retry asks again.
+  const [worktreeError, setWorktreeError] = useState<{ cwd: string; sessionId?: string; visit?: string }>();
   const startInWorktree = useCallback(
     (cwd: string) => {
       // A newer folder pick wins over this worktree, as between two picks; the request this one
@@ -7531,8 +7533,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           if (ask && pick === folderPick.current) setFolderAsk({ ask, use, sessionId, ...visitOf(visit) });
         })
         .catch((error: unknown) => {
-          if (pick === folderPick.current)
-            setWorktreeError({ message: errorMessage(error) || String(error), ...asked });
+          // The notice says it plainly with Retry; the host's own words go to the log.
+          console.warn("agent pane: New Worktree failed", error);
+          if (pick === folderPick.current) setWorktreeError({ cwd, ...asked });
         })
         .finally(() => {
           if (pick === folderPick.current) setWorktreeCreating(false);
@@ -8267,7 +8270,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         acpmuxPerf.markLaunch("connected");
         connectingClient = client;
         directClient.current = client;
-        client.toastSink = notices.transient;
+        client.toastSink = (text, kind) => (kind === "error" ? notices.failed(text) : notices.transient(text));
         connectedClients.connected(client);
         // connect() may have delivered its first snapshot before returning. Associate that
         // already-renderable snapshot only after the client binding exists (avoids a TDZ read).
@@ -8957,11 +8960,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   detail?: unknown;
                   reason?: unknown;
                 } | null;
-                if (typeof refused?.detail === "string") notices.transient(refused.detail);
-                else if (refused?.reason === "harness.prompt_unavailable")
-                  notices.transient(translate("harnesses.enableUnavailable"));
-                else if (refused?.code !== "transport.harness_not_confirmed")
-                  notices.transient(errorMessage(error) || String(error));
+                // A Cancel there changes nothing. Any refusal reads as one plain line with its way
+                // on (Try again); acpmux's reason (no Trust answer, an invalid file) goes to the log.
+                if (refused?.code === "transport.harness_not_confirmed") return undefined;
+                console.warn("agent pane: enabling the harness was refused", refused?.detail ?? error);
+                notices.failed(translate("harnesses.enableUnavailable"));
                 return undefined;
               },
             ),
@@ -9153,9 +9156,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             const refusal = shown ? forkRefusal(shown) : "unavailable";
             const target = shown ? forkToTarget(shown) : undefined;
             if (refusal || target === undefined) {
-              notices.transient(
-                refusal === "nothingYet" ? translate("notice.forkNothingYet") : translate("notice.forkFailed"),
-              );
+              if (refusal === "nothingYet") notices.transient(translate("notice.forkNothingYet"));
+              else notices.failed(translate("notice.forkFailed"));
               return undefined;
             }
             harnessSwitch.cancel();
@@ -9222,7 +9224,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             const sidePromptRefused = (error: unknown) => {
               const code = (error as { code?: unknown } | null)?.code;
               if (typeof code === "string" && code.startsWith("transport."))
-                notices.transient(translate("prompt.notSent", { reason: errorMessage(error) || code }));
+                notices.failed(
+                  translate("prompt.notSent", { reason: knownRefusalText(error) ?? translate("transport.refused") }),
+                );
             };
             // A chat on another machine that opens side chats there (Cloud, SSH): that machine forks,
             // tags and prompts it in one call, in the chat's folder there; the app opens it beside.
@@ -9635,7 +9639,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             (error: unknown) => {
               // The handshake succeeded. A rejected folder/model is a creation failure on
               // this connection, not a reason to reconnect and repeat session/new forever.
-              if (!cancelled && directClient.current === client) client.notice(errorMessage(error) || String(error));
+              console.warn("agent pane: the new chat on the machine did not start", error);
+              if (!cancelled && directClient.current === client)
+                client.notice(knownRefusalText(error) ?? translate("chat.newFailed"));
             },
           );
         } else if (harness && hasPrompt) {
@@ -9660,6 +9666,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           setSnapshot((current) => ({ ...current, connection: `connecting: ${String(error)}` }));
           // A chat too large to open says so in plain words; the reply's byte count stays in the log.
           const tooLarge = hostRefusedTooLarge(error);
+          // hostLine.ts words the line: only the pane's own text stands on it, the rest is Details.
           setHostError(tooLarge ? translate("host.tooLarge") : errorMessage(error) || String(error));
           setHostFailure(error);
           setHostRestoring(readHostRestoring((error as { details?: unknown } | null)?.details, Date.now()));
@@ -9976,7 +9983,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       }).catch((error: unknown) => {
         // The side chat opened but its prompt was not sent: that refusal says so itself.
         if (error instanceof CmuxCommandRefused) throw error;
-        const reason = errorMessage(error);
+        const reason = knownRefusalText(error);
+        if (!reason) console.warn("agent pane: /side did not fork", error);
         throw new CmuxCommandRefused(
           reason ? translate("notice.forkFailedReason", { reason }) : translate("notice.forkFailed"),
         );
@@ -10945,7 +10953,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         await callNative("chat.new", session.cwd ? { cwd: session.cwd } : {});
         await callNative("chat.send", { text: importedPrompt(session), attachments: [] });
       } catch (error) {
-        setImportError(errorMessage(error) || t("composer.cmuxImportFailed"));
+        // The chat the transcript would start in did not open: plain words, the host's in the log.
+        console.warn("agent pane: importing a transcript failed", error);
+        setImportError(knownRefusalText(error) ?? t("composer.cmuxImportNotStarted"));
       }
     },
     [t],
@@ -11697,7 +11707,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         if (generation !== folderConfirmGeneration.current) return;
         folderConfirmInFlight.current = false;
         setFolderConfirming(false);
-        setFolderAsk((current) => current ?? { ...pending, error: errorMessage(error) || String(error) });
+        // Use stays on the question as its Retry; the host's words go to the log.
+        console.warn("agent pane: using the folder failed", error);
+        setFolderAsk(
+          (current) => current ?? { ...pending, error: knownRefusalText(error) ?? translate("startFolder.failed") },
+        );
       },
     );
   }, [folderConfirming, pendingFolder, trustVisit]);
@@ -11900,7 +11914,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       .catch((error: unknown) => {
         // A deferred ask's caller (the folder menu) shows the failure with its Retry; one notice, not two.
         if (request?.deferPick) throw error;
-        setFolderError(errorMessage(error) || undefined);
+        console.warn("agent pane: Choose Folder failed", error);
+        setFolderError(knownRefusalText(error) ?? translate("agentHome.chooseFailed"));
         return undefined;
       });
   };
@@ -12051,8 +12066,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   if (result.done) setFolderNeeded(undefined);
                   else if (result.reason) setFolderNeeded({ reason: result.reason });
                 },
-                (error: unknown) =>
-                  setFolderNeeded((current) => current && { ...current, error: errorMessage(error) || String(error) }),
+                (error: unknown) => {
+                  console.warn("agent pane: choosing the chat's folder failed", error);
+                  setFolderNeeded(
+                    (current) =>
+                      current && { ...current, error: knownRefusalText(error) ?? translate("startFolder.failed") },
+                  );
+                },
               );
             }}
           />
@@ -12093,7 +12113,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           tier="error"
           when={inThisVisit(worktreeError, snapshot.sessionId, visitNow) && freshChat && !snapshot.sessionId}
         >
-          <WorktreeFailure error={worktreeError?.message ?? ""} onDismiss={() => setWorktreeError(undefined)} />
+          <WorktreeFailure
+            onRetry={() => worktreeError && startInWorktree(worktreeError.cwd)}
+            onDismiss={() => setWorktreeError(undefined)}
+          />
         </Notice>
         <Notice id="btw-failure" tier="error" when={btwFailure}>
           <output className="acpmux-switch-notice acpmux-folder-choice">
@@ -12595,7 +12618,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       )
                         return false;
                       setBtwFailure(undefined);
-                      const fail = (error: unknown) => setBtwFailure({ sessionId, reason: errorMessage(error) });
+                      // The side session's notice says it plainly (the prompt is back in the composer
+                      // to send again); a reason only when the pane words it, the rest in the log.
+                      const fail = (error: unknown) => {
+                        console.warn("agent pane: the side session did not start", error);
+                        setBtwFailure({ sessionId, reason: knownRefusalText(error) ?? "" });
+                      };
                       callNative<string>("chat.btw", { question: prompt }).then(
                         (side) => postNative("chat.sideChat", { sessionId: side }).catch(fail),
                         (error: unknown) => {
@@ -13214,7 +13242,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     const client = directClient.current;
                     return client?.newProjectSupported
                       ? client.newProject(name)
-                      : Promise.reject(new Error(translate("project.new.unavailable")));
+                      : Promise.reject(new NewProjectUnsupported());
                   }}
                   onNewWorktree={(cwd) => {
                     let folder: string | undefined;
@@ -13307,7 +13335,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                         shellRuns.start(command, cwd ? { cwd } : {});
                       },
                       clearError: () => setNewTabFixError(undefined),
-                      showError: (error) => setNewTabFixError(errorMessage(error) || String(error)),
+                      showError: (error) => {
+                        console.warn("agent pane: Fix in a new worktree failed", error);
+                        setNewTabFixError(knownRefusalText(error) ?? translate("chat.newFailed"));
+                      },
                     }),
                   )}
                   // A chat card's Compress Chat or Decompress Chat: acpmux's cold archive, on this page's
