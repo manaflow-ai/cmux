@@ -3400,6 +3400,21 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
 .cv-fold {
   display: flow-root;
 }
+/* The space between a line and the body it opens (`.cv-tools`' gap) is the body's own first item,
+   not the flex gap over it. The gap lies outside the height the fold animates: it stayed whole while
+   the body closed and left in one frame when the body was removed, so a close at the latest row
+   stopped one gap short for some frames and then jumped (transcript-details-toggle-steady-browser.test.ts,
+   "the clicked line stalled"), and an open began with the same step. The body takes the gap back and
+   holds the same space inside its box, so the layout at rest is the same and the space grows in and
+   folds away with the body, as the tray's divider does (subagents.css, `.acpmux-running-tray__fold::before`). */
+.cv-tools > * + .cv-fold {
+  margin-top: calc(-1 * var(--grid-base));
+}
+.cv-tools > * + .cv-fold::before {
+  content: "";
+  display: block;
+  height: var(--grid-base);
+}
 /* A row a closing "Worked for" hid, drawn where it was while it fades out under the rows sliding up
    over it (turnFold.ts): never hit, focused or selected. */
 .acpmux-row.acpmux-row--fold-ghost {
@@ -5684,7 +5699,10 @@ a.cv-sha:focus-visible {
   letter-spacing: 0.08em;
   user-select: text;
 }
-.cv-turn-error__details[open] {
+/* Details owns a full action-row slot in both states. The raw error grows below its summary when
+   open, but the disclosure itself never changes flex line or horizontal position (Leo, 2026-11-12:
+   "this details moves aroud"). */
+.cv-turn-error__details {
   flex-basis: 100%;
 }
 .cv-turn-error__raw {
