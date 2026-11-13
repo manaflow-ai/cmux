@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43459825605",
+  "recorded_at": "2026-11-13T16:20:21Z",
+  "reason": "cmux-tui 7e7a65e78c75 changes the image's cmux-tui (pinned 48fb8e4d4cde)",
+  "dry_run": false,
+  "cmux_tui": "7e7a65e78c75821739cf1d87b419964e5a2c847c",
+  "fixes": [
+    {
+      "sha": "7e7a65e78c75821739cf1d87b419964e5a2c847c",
+      "mergedAt": "2026-11-13T15:42:58Z",
+      "subject": "cmux-tui: a new terminal's connections are the terminal's from its first moment, so a burst of new terminals does not hold the session's 64 slots (#42620)"
+    },
+    {
+      "sha": "77c7f5b9fd96df9cb99e74fd99087dde8bc98331",
+      "mergedAt": "2026-11-13T07:37:07-08:00",
+      "subject": "settings.edit: several settings edits in one publish, with set_unset and reset_unchanged (#42538)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T16:20:21Z",
+    "snapshot_id": "sh-23100aa70b00411581ede8cc1960b3f9",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43459825605): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "2224f82f32c4676d8aa25b50b1a99522668ebb12",
+    "image": "cloud-native-auto-7e7a65e7-43459825605-1",
+    "revision": "ci-43459825605-1",
+    "at": "2026-11-13T16:20:21Z"
+  },
+  "rolled_back": false
+}
