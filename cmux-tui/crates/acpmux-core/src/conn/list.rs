@@ -147,7 +147,7 @@ fn open(hub: &Hub, sub: &Sub) -> Result<Delivery, ConnError> {
             return Ok(Delivery {
                 receiver,
                 first: raw_frame(&sub.sid, Some(ReplayMark::End), &[])?
-                    .map_err(|error| ConnError::InvalidRequest(error))?,
+                    .map_err(ConnError::InvalidRequest)?,
                 cursor,
                 mode: Mode::Live,
             });
@@ -157,8 +157,8 @@ fn open(hub: &Hub, sub: &Sub) -> Result<Delivery, ConnError> {
             let final_frame = span.last_seq >= target;
             let mode = if final_frame { Mode::Live } else { Mode::Replay(target) };
             let mark = final_frame.then_some(ReplayMark::End).or(Some(ReplayMark::Replay));
-            let frame = raw_frame(&sub.sid, mark, &span.bytes)?
-                .map_err(|error| ConnError::InvalidRequest(error))?;
+            let frame =
+                raw_frame(&sub.sid, mark, &span.bytes)?.map_err(ConnError::InvalidRequest)?;
             return Ok(Delivery { receiver, first: frame, cursor: Cursor(span.last_seq), mode });
         }
     }
