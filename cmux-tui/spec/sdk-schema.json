@@ -2333,6 +2333,19 @@
      "nullable": false,
      "default": [],
      "since": 12
+    },
+    "screen_device_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "capability": "machine-identity-v1",
+     "constraints": [
+      "The authenticated cmux Remote worker's independently generated screen UUID; present only with identify {machine_metadata: true}, and null when no worker screen identity is currently available."
+     ]
     }
    },
    "additional_properties": false
@@ -30292,6 +30305,41 @@
      }
     },
     "additional_properties": false
+   }
+  },
+  "screen-device-changed": {
+   "since": 12,
+   "capability": "screen-device-identity-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "screen-device-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "screen_device_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": true,
+      "description": "The authenticated worker screen UUID, or null when the worker is unavailable."
+     }
+    },
+    "additional_properties": false,
+    "constraints": [
+     "Delivered only to authenticated owner app subscribers (local Unix or owner WebSocket); page relays, paired clients, and other remote clients do not receive it.",
+     "The subscription sends one current-value replay before live events. A null replay or event means the worker has no available screen identity."
+    ]
    }
   },
   "selection-changed": {

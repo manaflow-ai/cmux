@@ -124,6 +124,10 @@ pub(crate) struct RemoteHostSupervisor {
 
 #[derive(Default)]
 struct Inner {
+    /// The daemon owner is weak so the host reader never keeps a Mux alive.
+    owner: Mutex<Weak<crate::mux::Mux>>,
+    /// Last validated worker screen UUID, replayed to local app subscribers.
+    screen_device_id: Mutex<Option<String>>,
     paths: Mutex<Option<Paths>>,
     config: Mutex<RemoteConfig>,
     state: Mutex<State>,
@@ -161,7 +165,8 @@ struct Connection {
 impl RemoteHostSupervisor {
     /// Lets this daemon run cmux Remote: reads the person's last choices and
     /// adopts or starts the host when one is wanted.
-    pub(crate) fn configure(&self, paths: Paths) {
+    pub(crate) fn configure(&self, paths: Paths, owner: Weak<crate::mux::Mux>) {
+        *lock(&self.inner.owner) = owner;
         let config = read_config(&paths.config());
         *lock(&self.inner.paths) = Some(paths);
         *lock(&self.inner.config) = config.clone();
@@ -253,6 +258,11 @@ impl RemoteHostSupervisor {
         }
         status
     }
+
+    /// Latest authenticated worker screen identity, if one is serving.
+    pub(crate) fn screen_device_id(&self) -> Option<String> {
+        lock(&self.inner.screen_device_id).clone()
+    }
 }
 
 impl Inner {
@@ -267,14 +277,39 @@ impl Inner {
         }
         let paths = lock(&this.paths).clone().ok_or("this daemon has no cmux Remote")?;
         let result = Self::adopt_or_start(this, &paths);
-        match &result {
-            Ok(connection) => {
-                *lock(&this.unavailable) = None;
-                *lock(&this.state) = State::Running(Arc::clone(connection));
+        match result {
+            Ok(connection) => Self::install_running(this, connection),
+            Err(reason) => {
+                *lock(&this.unavailable) = Some(reason.clone());
+                Err(reason)
             }
-            Err(reason) => *lock(&this.unavailable) = Some(reason.clone()),
         }
-        result
+    }
+
+    /// Install a connected host and publish the identity from its latest
+    /// authenticated status. The state lock covers the closed check, status
+    /// snapshot, and pointer install so a ready reader cannot race a stale
+    /// connection replacement.
+    fn install_running(
+        this: &Arc<Self>,
+        connection: Arc<Connection>,
+    ) -> Result<Arc<Connection>, String> {
+        let changed = {
+            let mut state = lock(&this.state);
+            if *lock(&connection.closed.0) {
+                let reason = "cmux Remote closed before becoming current".to_string();
+                *lock(&this.unavailable) = Some(reason.clone());
+                return Err(reason);
+            }
+            let status = lock(&connection.status).clone();
+            *state = State::Running(Arc::clone(&connection));
+            Self::set_screen_device_id(this, screen_device_id_from_status(&status))
+        };
+        *lock(&this.unavailable) = None;
+        if changed {
+            Self::emit_screen_device_id(this);
+        }
+        Ok(connection)
     }
 
     fn adopt_or_start(this: &Arc<Self>, paths: &Paths) -> Result<Arc<Connection>, String> {
@@ -390,6 +425,7 @@ impl Inner {
                 answer.pointer("/error/message").and_then(Value::as_str).unwrap_or("refused");
             return Err(format!("the host refused this daemon: {message}"));
         }
+        let weak = Arc::downgrade(this);
         let pid = record.pid;
         let connection = Arc::new(Connection {
             pid,
@@ -402,7 +438,6 @@ impl Inner {
             status: Mutex::new(answer),
             closed: (Mutex::new(false), std::sync::Condvar::new()),
         });
-        let weak = Arc::downgrade(this);
         let reading = Arc::clone(&connection);
         std::thread::Builder::new()
             .name("remote-host-read".into())
@@ -437,7 +472,8 @@ impl Inner {
             if message.get("event").and_then(Value::as_str) == Some("status") {
                 let status = message.get("status").cloned().unwrap_or(Value::Null);
                 let idle = !status.get("busy").and_then(Value::as_bool).unwrap_or(false);
-                *lock(&connection.status) = status;
+                *lock(&connection.status) = status.clone();
+                Self::update_screen_device_id(this, connection, &status);
                 if idle && this.upgrade().is_some_and(|inner| *lock(&inner.upgrade_pending)) {
                     // Never a call here: only this thread reads the answer.
                     connection.notify("drain");
@@ -451,15 +487,70 @@ impl Inner {
         Self::host_gone(&inner, connection);
     }
 
+    /// Read only the authenticated host status. The supervisor socket is
+    /// secret-bearing and peer-checked, so this value is safe to project to
+    /// the trusted local app; it never comes from a remote command.
+    fn update_screen_device_id(
+        this: &Weak<Self>,
+        expected_connection: &Arc<Connection>,
+        status: &Value,
+    ) {
+        let Some(inner) = this.upgrade() else { return };
+        let next = screen_device_id_from_status(status);
+        let changed = {
+            // A reader from a drained connection must not overwrite a newer
+            // host's UUID. The state lock also fences this against host_gone.
+            let state = lock(&inner.state);
+            // Only the installed connection may update the cache. A reader
+            // that outlives a replacement is rejected.
+            if !matches!(&*state, State::Running(running) if Arc::ptr_eq(running, expected_connection))
+            {
+                return;
+            }
+            Self::set_screen_device_id(&inner, next)
+        };
+        if changed {
+            Self::emit_screen_device_id(&inner);
+        }
+    }
+
+    fn set_screen_device_id(this: &Arc<Self>, next: Option<String>) -> bool {
+        let mut current = lock(&this.screen_device_id);
+        if *current == next {
+            false
+        } else {
+            *current = next;
+            true
+        }
+    }
+
+    fn emit_screen_device_id(this: &Arc<Self>) {
+        if let Some(mux) = lock(&this.owner).upgrade() {
+            mux.emit(crate::MuxEvent::ScreenDeviceChanged(lock(&this.screen_device_id).clone()));
+        }
+    }
+
     /// The host's connection ended (it exited, crashed or drained): forget it,
     /// and start a new one after the backoff delay while one is wanted.
     fn host_gone(this: &Arc<Self>, connection: &Arc<Connection>) {
+        // Fence the identity clear with the exact connection pointer. The
+        // state and UUID transition are linearized together, so a replacement
+        // host cannot be cleared by an old reader finishing late.
         {
             let mut state = lock(&this.state);
-            if matches!(&*state, State::Running(running) if Arc::ptr_eq(running, connection)) {
-                *state = State::Idle;
-            } else {
+            if !matches!(&*state, State::Running(running) if Arc::ptr_eq(running, connection)) {
                 return;
+            }
+            *state = State::Idle;
+            let mut current = lock(&this.screen_device_id);
+            let changed = current.take().is_some();
+            drop(current);
+            if changed {
+                // Keep the state lock through the notification so a new
+                // connection cannot publish a UUID before this clear.
+                if let Some(mux) = lock(&this.owner).upgrade() {
+                    mux.emit(crate::MuxEvent::ScreenDeviceChanged(None));
+                }
             }
         }
         let upgraded = std::mem::take(&mut *lock(&this.upgrade_pending));
@@ -511,6 +602,21 @@ impl Inner {
             connection.notify("drain");
         }
     }
+}
+
+/// Extract and validate the worker UUID from the supervisor's authenticated
+/// status. Production host startup is macOS-only; keeping parsing platform
+/// independent makes the authenticated cache contract testable on Linux.
+fn screen_device_id_from_status(status: &Value) -> Option<String> {
+    status
+        .pointer("/screen/device_id")
+        .or_else(|| status.pointer("/host/screen/device_id"))
+        .and_then(Value::as_str)
+        .and_then(validated_screen_device_id)
+}
+
+fn validated_screen_device_id(value: &str) -> Option<String> {
+    uuid::Uuid::parse_str(value).ok().map(|value| value.hyphenated().to_string())
 }
 
 impl Connection {
@@ -621,6 +727,157 @@ fn write_private(path: &Path, bytes: &[u8]) {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::{
+        Connection, HostRecord, Inner, State, screen_device_id_from_status,
+        validated_screen_device_id,
+    };
+    use serde_json::{Value, json};
+    use std::sync::Arc;
+    use std::sync::{Condvar, Mutex};
+    use std::time::Instant;
+
+    fn connection(status: Value) -> Arc<Connection> {
+        let (writer, _peer) = std::os::unix::net::UnixStream::pair().unwrap();
+        Arc::new(Connection {
+            pid: 7,
+            record: HostRecord {
+                pid: 7,
+                start_sec: 1,
+                start_usec: 2,
+                secret: "secret".into(),
+                bundle_digest: "digest".into(),
+                socket: "/tmp/cmux-remote-test.sock".into(),
+            },
+            adopted: false,
+            started: Instant::now(),
+            writer: Mutex::new(writer),
+            pending: Mutex::new(std::collections::HashMap::new()),
+            next_id: std::sync::atomic::AtomicU64::new(1),
+            status: Mutex::new(status),
+            closed: (Mutex::new(false), Condvar::new()),
+        })
+    }
+
+    #[test]
+    fn screen_identity_rejects_missing_malformed_and_wrong_shape_values() {
+        for status in [
+            json!({}),
+            json!({"host":{"screen":{"device_id":"not-a-uuid"}}}),
+            json!({"host":{"screen":{"device_id":42}}}),
+        ] {
+            assert_eq!(screen_device_id_from_status(&status), None);
+        }
+        assert_eq!(validated_screen_device_id("not-a-uuid"), None);
+    }
+
+    #[test]
+    fn screen_identity_reads_only_the_authenticated_status_path() {
+        let status = json!({
+            "device_id": "550e8400-e29b-41d4-a716-446655440000",
+            "screen": {"device_id": "550e8400-e29b-41d4-a716-446655440000"}
+        });
+        let expected = Some("550e8400-e29b-41d4-a716-446655440000".to_string());
+        assert_eq!(screen_device_id_from_status(&status), expected);
+    }
+
+    #[test]
+    fn screen_identity_normalizes_a_valid_uuid() {
+        assert_eq!(
+            validated_screen_device_id("550E8400-E29B-41D4-A716-446655440000"),
+            Some("550e8400-e29b-41d4-a716-446655440000".to_string())
+        );
+    }
+
+    #[test]
+    fn screen_identity_cache_dedupes_rotation_and_removal() {
+        let inner = Arc::new(Inner::default());
+        let first = "550e8400-e29b-41d4-a716-446655440000".to_string();
+        let second = "6ba7b810-9dad-11d1-80b4-00c04fd430c8".to_string();
+        assert!(Inner::set_screen_device_id(&inner, Some(first.clone())));
+        assert!(!Inner::set_screen_device_id(&inner, Some(first)));
+        assert!(Inner::set_screen_device_id(&inner, Some(second)));
+        assert!(Inner::set_screen_device_id(&inner, None));
+        assert!(!Inner::set_screen_device_id(&inner, None));
+    }
+
+    #[test]
+    fn screen_identity_ready_status_is_seeded_when_connection_becomes_running() {
+        let inner = Arc::new(Inner::default());
+        let id = "550e8400-e29b-41d4-a716-446655440000";
+        let installed =
+            Inner::install_running(&inner, connection(json!({"screen": {"device_id": id}})))
+                .unwrap();
+
+        assert_eq!(super::lock(&inner.screen_device_id).clone(), Some(id.to_string()));
+        assert!(matches!(
+            &*super::lock(&inner.state),
+            State::Running(current) if Arc::ptr_eq(current, &installed)
+        ));
+    }
+
+    #[test]
+    fn screen_identity_ready_update_while_idle_is_ignored_until_install() {
+        let inner = Arc::new(Inner::default());
+        let id = "550e8400-e29b-41d4-a716-446655440000";
+        let connection = connection(json!({"screen": {"device_id": id}}));
+
+        Inner::update_screen_device_id(
+            &Arc::downgrade(&inner),
+            &connection,
+            &json!({"screen": {"device_id": id}}),
+        );
+        assert_eq!(super::lock(&inner.screen_device_id).clone(), None);
+        Inner::install_running(&inner, connection).unwrap();
+        assert_eq!(super::lock(&inner.screen_device_id).clone(), Some(id.to_string()));
+    }
+
+    #[test]
+    fn screen_identity_closed_connection_is_rejected_before_install() {
+        let inner = Arc::new(Inner::default());
+        let connection = connection(json!({
+            "screen": {"device_id": "550e8400-e29b-41d4-a716-446655440000"}
+        }));
+        *super::lock(&connection.closed.0) = true;
+
+        let error = Inner::install_running(&inner, connection)
+            .err()
+            .expect("closed connection must be rejected");
+        assert_eq!(error, "cmux Remote closed before becoming current");
+        assert!(matches!(&*super::lock(&inner.state), State::Idle));
+        assert_eq!(super::lock(&inner.screen_device_id).clone(), None);
+    }
+
+    #[test]
+    fn screen_identity_stale_reader_cannot_restore_identity_after_clear_and_replacement() {
+        let inner = Arc::new(Inner::default());
+        let first_id = "550e8400-e29b-41d4-a716-446655440000";
+        let second_id = "6ba7b810-9dad-11d1-80b4-00c04fd430c8";
+        let first = connection(json!({"screen": {"device_id": first_id}}));
+        let second = connection(json!({"screen": {"device_id": second_id}}));
+
+        Inner::install_running(&inner, Arc::clone(&first)).unwrap();
+        Inner::host_gone(&inner, &first);
+        assert_eq!(super::lock(&inner.screen_device_id).clone(), None);
+        Inner::install_running(&inner, Arc::clone(&second)).unwrap();
+
+        Inner::host_gone(&inner, &first);
+        assert_eq!(super::lock(&inner.screen_device_id).clone(), Some(second_id.to_string()));
+
+        Inner::update_screen_device_id(
+            &Arc::downgrade(&inner),
+            &first,
+            &json!({"screen": {"device_id": first_id}}),
+        );
+        assert_eq!(super::lock(&inner.screen_device_id).clone(), Some(second_id.to_string()));
+        assert!(matches!(
+            &*super::lock(&inner.state),
+            State::Running(current) if Arc::ptr_eq(current, &second)
+        ));
+    }
+}
+
 /// A live process's start time (macOS), for the app grant.
 #[cfg(target_os = "macos")]
 pub(crate) fn process_stamp(pid: u32) -> Option<(u64, u64)> {
@@ -636,6 +893,8 @@ impl crate::mux::Mux {
         else {
             return;
         };
-        self.control_clients.remote_host.configure(paths_for(daemon_socket, &state_root));
+        self.control_clients
+            .remote_host
+            .configure(paths_for(daemon_socket, &state_root), Arc::downgrade(self));
     }
 }

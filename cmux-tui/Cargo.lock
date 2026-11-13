@@ -2301,6 +2301,7 @@ dependencies = [
  "tungstenite",
  "uds_windows",
  "url",
+ "uuid",
  "wait-timeout",
  "windows-sys 0.61.2",
  "zeroize",

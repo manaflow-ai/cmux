@@ -40,6 +40,9 @@ pub(crate) const SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY: &str = "subscribe-scroll
 /// tree delta as `selection-changed` (the changed workspace's whole selection) instead of a
 /// `tree-changed` that makes it read the whole tree again (#32408).
 pub(crate) const TREE_SELECTION_DELTAS_CAPABILITY: &str = "tree-selection-deltas-v1";
+/// An owner app that understands the authenticated worker's screen identity
+/// opts into its initial replay and live `screen-device-changed` events.
+pub(crate) const SCREEN_DEVICE_IDENTITY_CAPABILITY: &str = "screen-device-identity-v1";
 
 pub(super) fn subscribe_command(
     mux: &Arc<Mux>,
@@ -88,6 +91,12 @@ pub(super) fn subscribe_command(
     // A page relay hears only its page's events (page-router.json `events`;
     // client_hello admits its `subscribe` only when there are some).
     let page_events = super::origin_gate::page_relay_events(mux, client);
+    // Screen identity is an app-owned projection. The local app may arrive
+    // over its authenticated owner WebSocket as well as the Unix socket;
+    // page relays and unowned carriers never receive it.
+    let trusted_screen_client = mux.control_clients.is_owner_client(client)
+        && page_events.is_none()
+        && mux.control_clients.supports_capability(client, SCREEN_DEVICE_IDENTITY_CAPABILITY);
     // Its events are never tree deltas: render none only to drop them.
     let tree_deltas = tree_deltas && page_events.is_none();
     // A remote device hears nothing of an incognito workspace (#31210).
@@ -102,6 +111,22 @@ pub(super) fn subscribe_command(
     std::thread::Builder::new().name("mux-events-out".into()).spawn(move || {
         let _permit = permit;
         let mut transport_overflow = false;
+        // Replay the current authenticated worker identity before consuming
+        // live events. This closes the identify -> subscribe race and also
+        // clears stale aliases when the worker has gone away.
+        if trusted_screen_client {
+            let initial = json!({
+                "event": "screen-device-changed",
+                "screen_device_id": event_mux.control_clients.remote_host.screen_device_id(),
+            });
+            if let Err(error) = writer.send_stream_backpressured(&initial, &outbound_stream) {
+                transport_overflow = error.kind() == std::io::ErrorKind::WouldBlock;
+            }
+        }
+        if transport_overflow {
+            let _ = writer.send_terminal(&subscription_overflow_json(), &outbound_stream);
+            return;
+        }
         for challenge in pending_pairings {
             let value = json!({
                 "event": "pairing-requested",
@@ -133,6 +158,13 @@ pub(super) fn subscribe_command(
                 {
                     continue;
                 }
+                MuxEvent::ScreenDeviceChanged(_) if !trusted_screen_client => continue,
+                // Read the cache at send time rather than trusting a queued
+                // payload; a rapid rotation/removal cannot regress the app.
+                MuxEvent::ScreenDeviceChanged(_) => json!({
+                    "event": "screen-device-changed",
+                    "screen_device_id": event_mux.control_clients.remote_host.screen_device_id(),
+                }),
                 // A draft goes only to a trusted local connection that asked
                 // for drafts in set-client-info (the admission of
                 // `conversation.events`; old clients never see the event).
@@ -513,6 +545,10 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             }),
         },
         MuxEvent::Status(message) => json!({"event": "status", "message": message}),
+        MuxEvent::ScreenDeviceChanged(screen_device_id) => json!({
+            "event": "screen-device-changed",
+            "screen_device_id": screen_device_id,
+        }),
         MuxEvent::MachineUsageChanged(usage) => {
             let mut payload = machine_usage_json(usage.as_ref());
             payload.insert("event", json!("machine-usage-changed"));

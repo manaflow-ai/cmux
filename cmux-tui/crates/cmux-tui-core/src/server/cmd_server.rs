@@ -96,6 +96,12 @@ pub(super) fn identify(
         identity.insert("session_resource_id", json!(mux.session_public_id));
         identity.insert("machine_platform", crate::resource_api::machine_platform());
         identity.insert("machine_capabilities", crate::resource_api::machine_capabilities());
+        // The worker's independently generated screen UUID is intentionally
+        // separate from the daemon machine ID. It is read only from the
+        // authenticated local supervisor cache and omitted from legacy
+        // identify replies.
+        identity
+            .insert("screen_device_id", json!(mux.control_clients.remote_host.screen_device_id()));
     }
     Ok(identity)
 }

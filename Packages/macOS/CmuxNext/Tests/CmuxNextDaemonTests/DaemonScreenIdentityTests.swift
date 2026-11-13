@@ -6,6 +6,10 @@ import Testing
     private let first = "a1111111-1111-4111-8111-111111111111"
     private let second = "b2222222-2222-4222-8222-222222222222"
 
+    @Test func appHandshakeOptsIntoScreenIdentityReplay() {
+        #expect(DaemonConnectionConfiguration().handshakeCapabilities.contains("screen-device-identity-v1"))
+    }
+
     @Test func enrichedIdentityDecodesScreenUUIDSeparatelyFromMachineAndSession() throws {
         let wire = Data("""
         {"id":1,"ok":true,"data":{"app":"cmux-tui","protocol":12,"generation":"boot",

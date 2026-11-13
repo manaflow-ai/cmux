@@ -1940,14 +1940,14 @@ fn remote_screen_stop_uses_the_app_action_when_it_is_present() {
         .expect("a tool result");
     assert_eq!(result["isError"], false, "{result}");
     let sent = server.backend.sent.borrow();
-    assert!(
-        sent.iter().any(|item| {
-            item["kind"] == "app"
-                && item["method"] == "action.run"
-                && item["params"]["action"] == "macScreen.stopSharing"
-        }),
-        "{sent:?}"
-    );
+    let app = sent.iter().find(|item| {
+        item["kind"] == "app"
+            && item["method"] == "action.run"
+            && item["params"]["action"] == "macScreen.stopSharing"
+    });
+    let app = app.unwrap_or_else(|| panic!("{sent:?}"));
+    assert_eq!(app["params"]["wait"], true, "{app}");
+    assert_eq!(app["params"]["origin"], "cli", "{app}");
     assert!(!sent.iter().any(|item| item["kind"] == "daemon"), "{sent:?}");
 }
 
