@@ -82,6 +82,7 @@ class WebBundleReportTests(unittest.TestCase):
             self.assertIsNone(bundle["reachableBytes"])
             self.assertEqual(bundle["attributionMetric"], "rolldown-rendered-length")
             self.assertEqual(row["renderedLength"], 1_000)
+            self.assertEqual(row["originalLength"], 2_000)
             self.assertEqual(row["emittedBytes"], 0)
             self.assertEqual(bundle["outputs"][0]["bytes"], 600)
 
@@ -128,7 +129,26 @@ class WebBundleReportTests(unittest.TestCase):
             self.assertEqual(row["unknownValue"], 1_000)
             self.assertEqual(row["emittedBytes"], 0)
             markdown = MODULE.render_markdown({"bundles": [bundle], "duplicates": {}, "findings": []})
-            self.assertIn("| `src/module.ts` | 0 | unknown | unknown | unknown |", markdown)
+            self.assertIn("| `src/module.ts` | unknown | unknown | unknown | unknown |", markdown)
+
+    def test_unrecognized_metric_is_unknown(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            metafile = root / "future.json"
+            metafile.write_text(json.dumps({"outputs": {"entry.js": {"bytes": 10, "inputs": {
+                "module.js": {"bytesInOutput": 20, "metric": "future-metric"}
+            }}}}))
+            bundle = MODULE.load_bundle("future", metafile, None)
+            self.assertEqual(bundle["attributionMetric"], "unknown")
+            self.assertIsNone(bundle["attributionValue"])
+
+    def test_captured_empty_source_is_not_replaced_with_current_file_size(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            metafile = self.write_bundle(root, "zero", [("source.js", 0, 0)])
+            bundle = MODULE.load_bundle("zero", metafile, None)
+            self.assertEqual(bundle["modules"][0]["sourceBytes"], 0)
+            self.assertEqual(bundle["modules"][0]["sourceBytesKind"], "captured")
 
     def test_missing_rolldown_length_stays_unknown(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -283,6 +303,15 @@ class WebBundleReportTests(unittest.TestCase):
             ])
             bundle = MODULE.load_bundle("pages", metafile, None)
             self.assertEqual(len(bundle["devInputs"]), 3)
+
+    def test_shaken_fixture_does_not_warn_that_it_shipped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            metafile = self.write_bundle(root, "pages", [("src/mockFixture.ts", 100, 0)])
+            bundle = MODULE.load_bundle("pages", metafile, None)
+            self.assertEqual(bundle["devInputs"], [])
+            markdown = MODULE.render_markdown({"bundles": [bundle], "duplicates": {}, "findings": []})
+            self.assertNotIn("development-named (review usage)", markdown)
 
     def test_zero_byte_package_wrapper_does_not_count_as_another_copy(self):
         with tempfile.TemporaryDirectory() as tmp:

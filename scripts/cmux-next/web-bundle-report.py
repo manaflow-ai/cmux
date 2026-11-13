@@ -92,6 +92,8 @@ def load_bundle(
                 {
                     "path": input_path,
                     "sourceBytes": 0,
+                    "sourceBytesKind": "unknown",
+                    "originalLength": None,
                     "attributionValue": 0,
                     "renderedLength": 0,
                     "emittedBytes": 0,
@@ -103,11 +105,17 @@ def load_bundle(
             # esbuild records original source size in top-level inputs; output input
             # records contain only the contribution and may omit it entirely.
             source_record = source_inputs.get(input_path, {})
+            if not is_rolldown and any(value is not None for value in (
+                source_record.get("sourceBytes"), source_record.get("bytes"), contribution.get("bytes"),
+            )):
+                row["sourceBytesKind"] = "captured"
             row["sourceBytes"] = max(
                 row["sourceBytes"],
                 int(source_record.get("sourceBytes", source_record.get("bytes", 0)) or 0),
                 int(contribution.get("bytes", 0) or 0) if not is_rolldown else 0,
             )
+            if contribution.get("originalLength") is not None:
+                row["originalLength"] = max(row["originalLength"] or 0, int(contribution["originalLength"]))
             metric = contribution.get("metric")
             if metric is None and is_rolldown:
                 # Schema 1 Rolldown reports only had bytesInOutput, which is
@@ -115,6 +123,8 @@ def load_bundle(
                 metric = "unknown"
             elif metric is None:
                 metric = "emitted"
+            if metric not in ("emitted", "rolldown-rendered-length"):
+                metric = "unknown"
             if metric == "rolldown-rendered-length" and contribution.get("renderedLength") is None:
                 metric = "unknown"
             row["attributionMetric"] = metric if row["attributionMetric"] in (None, metric) else "mixed"
@@ -144,8 +154,9 @@ def load_bundle(
                 source_size = source.stat().st_size
                 # Captured builder sizes belong to the measured revision. A source
                 # checkout used for inspection may since have changed.
-                if not row["sourceBytes"]:
+                if row["sourceBytesKind"] == "unknown":
                     row["sourceBytes"] = source_size
+                    row["sourceBytesKind"] = "inspection"
                 if source_size <= 2_000_000:
                     text = source.read_text(encoding="utf-8", errors="ignore")
         except OSError:
@@ -173,7 +184,7 @@ def load_bundle(
             commonjs.append(row)
         lowered = path.lower()
         row["developmentNamed"] = any(token in lowered for token in ("gallery", "fixture", "debug", ".test."))
-        if row["developmentNamed"]:
+        if row["developmentNamed"] and row["reachableBytes"] != 0:
             dev_inputs.append(row)
         rows.append(row)
     rows_by_source = {source_paths[row["path"]]: row for row in rows if row["path"] in source_paths}
@@ -251,6 +262,7 @@ def render_markdown(report: dict[str, Any]) -> str:
         "can differ from that graph. Do not sum unlike metrics or treat attribution as a savings estimate.",
         "CommonJS findings use bundler format/import metadata or explicit .cjs/.cts extensions;",
         "metadata without that evidence is not proof that a module is ESM. Source text is not parsed for this check.",
+        "Source bytes without captured byte metadata come from the inspection checkout; originalLength is kept separately.",
         "", "## Top modules", "", "| Bundle | Module | source bytes | attribution | metric | ratio | flags |",
         "| --- | --- | ---: | ---: | --- | ---: | --- |",
     ]
@@ -261,12 +273,13 @@ def render_markdown(report: dict[str, Any]) -> str:
                 flags.append(f"barrel({row['barrel']})")
             if row["commonjs"]:
                 flags.append("commonjs")
-            if row["developmentNamed"]:
+            if row["developmentNamed"] and row["reachableBytes"] != 0:
                 flags.append("development-named (review usage)")
             known = row["attributionMetric"] not in ("unknown", "mixed")
             value = f"{row['attributionValue']:,}" if known else "unknown"
             ratio = f"{row['ratio']:.2f}" if row["attributionMetric"] == "emitted" else "unknown"
-            lines.append(f"| {bundle['name']} | `{row['path']}` | {row['sourceBytes']:,} | {value} | {row['attributionMetric']} | {ratio} | {', '.join(flags)} |")
+            source = f"{row['sourceBytes']:,}" if row["sourceBytesKind"] != "unknown" else "unknown"
+            lines.append(f"| {bundle['name']} | `{row['path']}` | {source} | {value} | {row['attributionMetric']} | {ratio} | {', '.join(flags)} |")
     lines += [
         "", "## Resolved inputs omitted from outputs", "",
         "These resolved source modules contribute no output. This demonstrates elimination in this graph;",
