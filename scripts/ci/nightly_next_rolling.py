@@ -12,17 +12,21 @@ builds alongside a running one instead of waiting behind it"):
 
 - nothing is building the newest nightly-next commit: promote now, so a landing
   on a quiet branch starts its build within minutes;
-- a build is running: promote once the oldest feat-cmux-next commit it does not
-  carry has waited --window-minutes (10) and the newest build started at least that
-  long ago, so at most one build starts per window and it is the newest tip. A burst of landings becomes one build
-  of the newest tip, started beside the running one, never cancelling it. The
-  window bounds the builds that run at once to about one per 10 minutes of
-  build time, and keeps landing-to-feed under the feed watch's 30 minutes once
-  a build takes under ~15.
+- a nightly-next push run is building (any commit's, not only the head's): wait.
+  nightly-next pushes share one concurrency group (nightly.yml on feat-cmux-next,
+  nightly-build-nightly-next-push, since 2026-11-05), so a promotion beside a
+  running build starts nothing beside it: GitHub cancels the run already waiting
+  on the group. Promoting every window that way cancelled 13 of 17 nightly-next
+  builds on 2026-11-12 00:40-02:56Z (Leo, ask-4f5b99b22b: "I THOUGHT WE FUCKING
+  STOPPED DOING THAT BULLSHIT LONG AGO"). The build's own finish starts a tick
+  (workflow_run on Nightly macOS build), which promotes the newest tip then, so
+  a burst of landings still becomes one build of the newest tip and no build is
+  ever cancelled. --window-minutes now only spaces starts when a run list lags.
 
-"Building" uses nightly_next_feed_watch.run_is_building: a run whose
-publication job finished, or that has sat 10 minutes with nothing running and
-every queued job without a runner, is not building anything. A promotion run on
+"Building" means holding the push group (nightly_next_feed_watch.holds_push_group: a
+push or the loop's retry dispatch; run_holds_group): a published run still holds it
+through its tail, and a run that has sat 10 minutes with nothing running and every
+queued job without a runner holds nothing. A promotion run on
 main that is still moving nightly-next counts as building for --promotion-minutes.
 
 A dispatch for one commit (a person, or the feed watch's starvation guard) never
@@ -113,7 +117,8 @@ def decide(now: dt.datetime, *, head: str, head_runs: list[dict], jobs_of,
     oldest feat-cmux-next commit after head and when it landed, None when nothing waits, or
     UNKNOWN (oldest_after); starts: recent nightly.yml push runs on nightly-next (any commit).
 
-    At most one new build starts per window while builds run, and it is always the newest
+    No new build starts while a nightly-next push run builds (they share one concurrency group,
+    so it could only get the run waiting there cancelled); the next start is the newest
     buildable commit (the request walks from the tip). Measuring the window only from landing
     let every tick after a cmux-tui tree stall promote again (2026-10-29 04:25-04:30: three
     starts in four minutes, five builds in flight on contended runners); now the newest start
@@ -135,16 +140,21 @@ def decide(now: dt.datetime, *, head: str, head_runs: list[dict], jobs_of,
             building = f"promotion run {run.get('html_url', run.get('id'))} is moving nightly-next"
             break
     if not building:
-        for run in head_runs:
-            if run.get("status") == "completed":
+        # Every recent push run, not only the head's: an older commit's build holding the push group
+        # while the head's run waits on it is the case a promotion would cancel.
+        seen = set()
+        for run in [*head_runs, *(starts or [])]:
+            if run.get("id") in seen or run.get("status") == "completed" or not watch.holds_push_group(run):
                 continue
+            seen.add(run.get("id"))
             try:
                 if now - watch.parse_time(run["created_at"]) > RUN_LOOKBACK:
                     continue
             except (KeyError, TypeError, ValueError):
                 pass
-            if watch.run_is_building(run, jobs_of(run), now):
-                building = f"nightly-next run {run.get('html_url', run.get('id'))} is building {head[:12]}"
+            if watch.run_holds_group(run, jobs_of(run), now):
+                building = (f"nightly-next run {run.get('html_url', run.get('id'))} is building "
+                            f"{(run.get('head_sha') or head)[:12]}")
                 break
     if not building:
         return True, f"nothing is building nightly-next ({head[:12]}); promoting the newest buildable commit now"
@@ -152,16 +162,9 @@ def decide(now: dt.datetime, *, head: str, head_runs: list[dict], jobs_of,
         return False, f"{building}, and no feat-cmux-next commit waits after it"
     if since_start is not None and since_start < window_minutes:
         return False, (f"{building}, and the newest build started {since_start:.0f} of {window_minutes:g} min ago; "
-                       "the next start, for the newest buildable commit, waits for the window")
-    if oldest_waiting == UNKNOWN:
-        return True, f"{building}, and the gap to the tip is unknown, so the oldest landing counts as old; promoting"
-    sha, landed = oldest_waiting
-    waited = (now - landed).total_seconds() / 60
-    if waited >= window_minutes:
-        return True, (f"{building}, and {sha[:12]} has waited {waited:.0f} min "
-                      f"(rolling window {window_minutes:g}); a newer build starts beside it")
-    return False, (f"{building}; the oldest waiting landing {sha[:12]} has waited {waited:.0f} of "
-                   f"{window_minutes:g} min, so the next landing, a finished build or the backstop cron asks again")
+                       "the next start, for the newest buildable commit, waits for it to finish")
+    return False, (f"{building}; nightly-next pushes share one concurrency group, so a promotion now would get "
+                   "the run waiting on it cancelled. Its finish ticks again and promotes the newest tip")
 
 
 def oldest_after(api, repo: str, head: str, tip: str):
@@ -291,9 +294,10 @@ def evaluate(now: dt.datetime, repo: str, tip: str, api=gh_api,
         return False, f"nightly-next ({head[:12]}) already has the tip {tip[:12]}; nothing waits to be promoted"
     try:
         base = f"repos/{repo}/actions/workflows/nightly.yml/runs?"
-        # One listing of nightly-next's recent push runs: its head's runs, and the newest start.
-        recent = api(base + urllib.parse.urlencode(
-            {"branch": "nightly-next", "event": "push", "per_page": 20}))["workflow_runs"]
+        # One listing of nightly-next's recent runs, kept to the push group's (pushes and the loop's
+        # retry dispatches, watch.holds_push_group): its head's runs, and the newest start.
+        recent = [run for run in api(base + urllib.parse.urlencode(
+            {"branch": "nightly-next", "per_page": 50}))["workflow_runs"] if watch.holds_push_group(run)]
     except Exception as error:  # noqa: BLE001
         print(f"::warning title=nightly-next rolling rule::could not read the running builds ({error!r}); promoting")
         return True, f"could not read the running builds ({error!r}); promoting"
