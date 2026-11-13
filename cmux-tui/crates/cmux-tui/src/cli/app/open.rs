@@ -49,14 +49,20 @@ pub(super) fn parse_open(args: &[String]) -> Result<AppCommand, UsageError> {
 /// even when a person is there: the bundled `cmux-open-url` that a terminal's `BROWSER` names
 /// (gh's "Press Enter to open ... in your browser") pipes the URL in and hands on the program's
 /// stdout, the person's terminal. Its stdout alone tells then; an agent's pipe has none.
+/// A program may also run its opener with stdout on /dev/null (Go's `exec.Command("open", url)`:
+/// pscale, pkg/browser), so for `-` the controlling terminal tells too: a program in the person's
+/// terminal has one, an agent's command (run with no terminal) has none.
 pub(super) fn open_is_interactive(
     args: &[String],
     stdin_tty: bool,
     stdout_tty: bool,
-    _controlling_tty: bool,
+    controlling_tty: bool,
 ) -> bool {
     let reads_stdin = args.iter().take_while(|arg| *arg != "--").any(|arg| arg == "-");
-    stdout_tty && (stdin_tty || reads_stdin)
+    if reads_stdin {
+        return stdout_tty || controlling_tty;
+    }
+    stdout_tty && stdin_tty
 }
 
 /// Whether this process has a controlling terminal (`/dev/tty` opens): a program run in a
