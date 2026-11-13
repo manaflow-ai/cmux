@@ -15,11 +15,43 @@ use imbl::OrdMap;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::cmp::Ordering;
+use std::ops::Bound::{Excluded, Unbounded};
+
+mod edition;
+pub use edition::IndexEdition;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, BufWriter, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+
+/// The identity of a row is independent of its current sort position.
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RowKey {
+    pub origin: Arc<str>,
+    pub chat_id: Arc<str>,
+}
+
+impl RowKey {
+    pub fn new(origin: impl Into<Arc<str>>, chat_id: impl Into<Arc<str>>) -> Self {
+        Self { origin: origin.into(), chat_id: chat_id.into() }
+    }
+
+    pub fn validate(&self) -> io::Result<()> {
+        if self.origin.len() > MAX_FIELD_BYTES || self.chat_id.len() > MAX_FIELD_BYTES {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "row key exceeds 256 bytes"));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct ForkOf {
+    #[serde(flatten)]
+    pub key: RowKey,
+    pub seq: u64,
+}
 
 /// The on-wire summary of one chat. `extra` is opaque to the daemon.
 #[derive(Debug, Deserialize, Serialize)]
@@ -34,6 +66,12 @@ pub struct Summary {
     pub workspace: Option<String>,
     pub origin: String,
     pub pinned: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<RowKey>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fork_of: Option<ForkOf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder: Option<String>,
     #[serde(default = "empty_object")]
     pub extra: Box<RawValue>,
 }
@@ -63,6 +101,9 @@ impl Clone for Summary {
             workspace: self.workspace.clone(),
             origin: self.origin.clone(),
             pinned: self.pinned,
+            parent: self.parent.clone(),
+            fork_of: self.fork_of.clone(),
+            folder: self.folder.clone(),
             extra: self.extra.to_owned(),
         }
     }
@@ -81,8 +122,40 @@ impl Summary {
             workspace: None,
             origin: "local".to_owned(),
             pinned: false,
+            parent: None,
+            fork_of: None,
+            folder: None,
             extra: empty_object(),
         }
+    }
+
+    pub fn key(&self) -> RowKey {
+        RowKey::new(self.origin.as_str(), self.chat_id.as_str())
+    }
+
+    /// Keys are refused, never shortened. Opaque data stays opaque.
+    pub fn validate(&self) -> io::Result<()> {
+        self.key().validate()?;
+        if let Some(parent) = &self.parent {
+            parent.validate()?;
+        }
+        if let Some(fork) = &self.fork_of {
+            fork.key.validate()?;
+        }
+        if self.folder.as_ref().is_some_and(|folder| folder.len() > 1024) {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "folder exceeds 1024 bytes"));
+        }
+        if self.encoded_len() > MAX_SUMMARY_BYTES {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "whole keys exceed summary budget",
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn is_live(&self) -> bool {
+        self.state != "closed"
     }
 
     pub fn encoded_len(&self) -> usize {
@@ -93,12 +166,10 @@ impl Summary {
     /// an extension that cannot fit is represented by the empty object rather
     /// than parsed or allowed to expand the list frame.
     pub fn bounded(mut self) -> Self {
-        self.chat_id = truncate_utf8(&self.chat_id, MAX_FIELD_BYTES);
         self.title = truncate_utf8(&self.title, MAX_TITLE_BYTES);
         self.harness = truncate_utf8(&self.harness, MAX_FIELD_BYTES);
         self.state = truncate_utf8(&self.state, MAX_FIELD_BYTES);
         self.workspace = self.workspace.map(|value| truncate_utf8(&value, MAX_FIELD_BYTES));
-        self.origin = truncate_utf8(&self.origin, MAX_FIELD_BYTES);
         if self.encoded_len() > MAX_SUMMARY_BYTES {
             self.extra = empty_object();
         }
@@ -131,12 +202,6 @@ impl Summary {
             {
                 shrink!(*value);
             }
-            if self.encoded_len() > MAX_SUMMARY_BYTES {
-                shrink!(self.origin);
-            }
-            if self.encoded_len() > MAX_SUMMARY_BYTES {
-                shrink!(self.chat_id);
-            }
             if !changed {
                 break;
             }
@@ -164,19 +229,32 @@ pub struct IndexRecord {
     pub seq: u64,
     pub chat_id: String,
     pub summary: Summary,
+    #[serde(default = "local_origin")]
+    pub origin: String,
     #[serde(default)]
     pub gone: bool,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct SortKey {
-    last_activity: u64,
-    chat_id: String,
+fn local_origin() -> String {
+    "local".to_owned()
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct SortKey {
+    pub last_activity: u64,
+    #[serde(flatten)]
+    pub row: RowKey,
+}
+
+impl SortKey {
+    pub fn of(summary: &Summary) -> Self {
+        Self { last_activity: summary.last_activity, row: summary.key() }
+    }
 }
 
 impl Ord for SortKey {
     fn cmp(&self, other: &Self) -> Ordering {
-        other.last_activity.cmp(&self.last_activity).then_with(|| self.chat_id.cmp(&other.chat_id))
+        other.last_activity.cmp(&self.last_activity).then_with(|| self.row.cmp(&other.row))
     }
 }
 
@@ -190,7 +268,7 @@ impl PartialOrd for SortKey {
 #[derive(Clone, Debug)]
 pub struct SummaryIndex {
     seq: u64,
-    by_id: OrdMap<String, Arc<Summary>>,
+    by_id: OrdMap<RowKey, Arc<Summary>>,
     ordered: OrdMap<SortKey, Arc<Summary>>,
 }
 
@@ -218,7 +296,11 @@ impl SummaryIndex {
     }
 
     pub fn get(&self, chat_id: &str) -> Option<Arc<Summary>> {
-        self.by_id.get(chat_id).cloned()
+        self.get_row(&RowKey::new("local", chat_id))
+    }
+
+    pub fn get_row(&self, key: &RowKey) -> Option<Arc<Summary>> {
+        self.by_id.get(key).cloned()
     }
 
     /// Applies one summary without walking the rest of the index.
@@ -226,17 +308,12 @@ impl SummaryIndex {
         let summary = Arc::new(summary.bounded());
         let mut by_id = self.by_id.clone();
         let mut ordered = self.ordered.clone();
-        if let Some(old) = by_id.get(&summary.chat_id) {
-            ordered.remove(&SortKey {
-                last_activity: old.last_activity,
-                chat_id: old.chat_id.clone(),
-            });
+        let key = summary.key();
+        if let Some(old) = by_id.get(&key) {
+            ordered.remove(&SortKey::of(old));
         }
-        ordered.insert(
-            SortKey { last_activity: summary.last_activity, chat_id: summary.chat_id.clone() },
-            summary.clone(),
-        );
-        by_id.insert(summary.chat_id.clone(), summary);
+        ordered.insert(SortKey::of(&summary), summary.clone());
+        by_id.insert(key, summary);
         Self { seq: self.seq.max(seq), by_id, ordered }
     }
 
@@ -258,39 +335,34 @@ impl SummaryIndex {
         self.iter().skip(start).take(limit).cloned().collect()
     }
 
-    /// Returns a keyset page. The key is exclusive, so inserts before the
-    /// anchor do not shift the next page.
-    pub fn page_after_key(&self, key: Option<(&u64, &str)>, limit: usize) -> Vec<Arc<Summary>> {
-        self.ordered
-            .iter()
-            .filter(|(sort, _)| {
-                key.is_none_or(|(activity, chat)| {
-                    sort.last_activity < *activity
-                        || (sort.last_activity == *activity && sort.chat_id.as_str() > chat)
-                })
-            })
-            .take(limit)
-            .map(|(_, summary)| summary.clone())
-            .collect()
+    /// Exclusive keyset seek: tree search plus only the requested rows.
+    pub fn after(&self, key: Option<&SortKey>, limit: usize) -> Vec<Arc<Summary>> {
+        let lower = key.map_or(Unbounded, Excluded);
+        self.ordered.range((lower, Unbounded)).take(limit).map(|(_, row)| row.clone()).collect()
     }
 
-    /// Returns the keyset page immediately before an exclusive anchor. The
-    /// ordered map is newest-first, so this collects the preceding range and
-    /// reverses it to preserve the list's display order.
-    pub fn page_before_key(&self, key: (&u64, &str), limit: usize) -> Vec<Arc<Summary>> {
+    pub fn before(&self, key: &SortKey, limit: usize) -> Vec<Arc<Summary>> {
         let mut rows: Vec<_> = self
             .ordered
-            .iter()
-            .filter(|(sort, _)| {
-                sort.last_activity > *key.0
-                    || (sort.last_activity == *key.0 && sort.chat_id.as_str() < key.1)
-            })
-            .map(|(_, summary)| summary.clone())
+            .range((Unbounded, Excluded(key)))
+            .rev()
+            .take(limit)
+            .map(|(_, row)| row.clone())
             .collect();
         rows.reverse();
-        rows.truncate(limit);
-        rows.reverse();
         rows
+    }
+
+    pub fn page_after_key(&self, key: Option<(&u64, &str)>, limit: usize) -> Vec<Arc<Summary>> {
+        self.after(
+            key.map(|(at, id)| SortKey { last_activity: *at, row: RowKey::new("local", id) })
+                .as_ref(),
+            limit,
+        )
+    }
+
+    pub fn page_before_key(&self, key: (&u64, &str), limit: usize) -> Vec<Arc<Summary>> {
+        self.before(&SortKey { last_activity: *key.0, row: RowKey::new("local", key.1) }, limit)
     }
 
     pub fn summaries(&self) -> Vec<Summary> {
@@ -298,11 +370,15 @@ impl SummaryIndex {
     }
 
     pub fn remove(&self, seq: u64, chat_id: &str) -> Option<Self> {
-        let old = self.by_id.get(chat_id)?.clone();
+        self.remove_row(seq, &RowKey::new("local", chat_id))
+    }
+
+    pub fn remove_row(&self, seq: u64, key: &RowKey) -> Option<Self> {
+        let old = self.by_id.get(key)?;
         let mut by_id = self.by_id.clone();
         let mut ordered = self.ordered.clone();
-        by_id.remove(chat_id);
-        ordered.remove(&SortKey { last_activity: old.last_activity, chat_id: old.chat_id.clone() });
+        by_id.remove(key);
+        ordered.remove(&SortKey::of(old));
         Some(Self { seq: self.seq.max(seq), by_id, ordered })
     }
 }
@@ -365,9 +441,12 @@ impl IndexLog {
     }
 
     pub fn append(&mut self, summary: Summary) -> io::Result<IndexRecord> {
+        let summary = summary.bounded();
+        summary.validate()?;
         self.next_seq = self.next_seq.saturating_add(1);
         let record = IndexRecord {
             seq: self.next_seq,
+            origin: summary.origin.clone(),
             chat_id: summary.chat_id.clone(),
             summary,
             gone: false,
@@ -380,11 +459,17 @@ impl IndexLog {
     }
 
     pub fn append_remove(&mut self, chat_id: impl Into<String>) -> io::Result<IndexRecord> {
+        self.append_gone(&RowKey::new("local", chat_id.into()))
+    }
+
+    pub fn append_gone(&mut self, key: &RowKey) -> io::Result<IndexRecord> {
+        key.validate()?;
         self.next_seq = self.next_seq.saturating_add(1);
-        let chat_id = chat_id.into();
+        let chat_id = key.chat_id.to_string();
         let record = IndexRecord {
             seq: self.next_seq,
             chat_id: chat_id.clone(),
+            origin: key.origin.to_string(),
             summary: Summary::new(chat_id),
             gone: true,
         };
@@ -482,7 +567,9 @@ pub fn replay_log_from(
             Err(_) => break,
         };
         index = if record.gone {
-            index.remove(record.seq, &record.chat_id).unwrap_or(index)
+            index
+                .remove_row(record.seq, &RowKey::new(record.origin, record.chat_id))
+                .unwrap_or(index)
         } else {
             index.apply(record.seq, record.summary)
         };
@@ -624,6 +711,54 @@ mod tests {
         summary.last_activity = at;
         summary.extra = RawValue::from_string(extra.to_owned()).unwrap();
         summary
+    }
+
+    #[test]
+    fn composite_identity_and_typed_edges_survive_log_snapshot_and_restart() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("index.log");
+        let mut local = summary("same", 3, "{\"future\": true}");
+        local.parent = Some(RowKey::new("local", "parent"));
+        local.fork_of = Some(ForkOf { key: RowKey::new("peer", "fork"), seq: 91 });
+        local.folder = Some("/work/project".to_owned());
+        let mut peer = local.clone();
+        peer.origin = "peer".to_owned();
+        let mut log = IndexLog::open(&path).unwrap();
+        log.append(local).unwrap();
+        log.append(peer).unwrap();
+        log.sync().unwrap();
+        let index = replay_log(&path, SummaryIndex::new()).unwrap();
+        assert_eq!(index.len(), 2);
+        log.compact(dir.path().join("index.snap"), &index).unwrap();
+        drop(log);
+        let mut log = IndexLog::open(&path).unwrap();
+        let restored = SortedSnapshot::read(dir.path().join("index.snap")).unwrap().unwrap();
+        for origin in ["local", "peer"] {
+            let row = restored.get_row(&RowKey::new(origin, "same")).unwrap();
+            assert_eq!(row.parent, Some(RowKey::new("local", "parent")));
+            assert_eq!(row.fork_of.as_ref().unwrap().seq, 91);
+            assert_eq!(row.folder.as_deref(), Some("/work/project"));
+        }
+        log.append_gone(&RowKey::new("peer", "same")).unwrap();
+        log.sync().unwrap();
+        let restored = replay_log(log.path(), restored).unwrap();
+        assert_eq!(restored.len(), 1);
+        assert!(restored.get("same").is_some());
+    }
+
+    #[test]
+    fn identities_are_never_cut_and_invalid_records_never_append() {
+        let dir = tempdir().unwrap();
+        let mut log = IndexLog::open(dir.path().join("index.log")).unwrap();
+        let id = "x".repeat(257);
+        let bounded = Summary::new(id.clone()).bounded();
+        assert_eq!(bounded.chat_id, id);
+        assert!(log.append(bounded).is_err());
+        assert_eq!(log.next_seq(), 0);
+        assert_eq!(log.offset(), 0);
+        let mut escaped = Summary::new("\u{0001}".repeat(256));
+        escaped.origin = "\u{0002}".repeat(256);
+        assert!(log.append(escaped).is_err());
     }
 
     #[test]

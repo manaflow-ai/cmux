@@ -414,6 +414,7 @@ impl HubWriter {
                 let seq = self.published.load().seq().saturating_add(1);
                 acpmux_book::index::IndexRecord {
                     seq,
+                    origin: summary.origin.clone(),
                     chat_id: summary.chat_id.clone(),
                     summary,
                     gone: false,
