@@ -59,7 +59,7 @@ cmux ext dev
 | `needs-you` | Agent chats waiting for an answer, refreshed on `agent_chat.changed`; click to open the chat. | `actions:run` |
 | `pull-watch` | Your open PRs from connected GitHub, with browser-pane links and shared signal refresh. CI status is not included. | `actions:run` |
 | `saved-links` | Your saved HTTPS dashboard links; click to open a browser tab beside the workspace. | `storage:local`, `actions:run` |
-| `branch-status` | Git branch and ahead/behind counts in the sidebar and Session Info; the latter reads that chat's folder. Use Refresh after external Git changes if the build does not send a Git event. | none |
+| `branch-status` | Git branch and ahead/behind counts in Session Info, reading that chat's folder. Use Refresh after external Git changes if the build does not send a Git event. | none |
 
 Read scopes (`workspace:read`, `integration:github:read`, ...) are granted at
 install. Every other scope stays off until the person turns it on in

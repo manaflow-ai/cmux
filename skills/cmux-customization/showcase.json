@@ -65,7 +65,7 @@
     {
       "id": "branch-status",
       "title": "Branch status",
-      "description": "See the branch and ahead/behind counts for your current folder.\nIn Session Info, the same view follows that chat’s repository.",
+      "description": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder.",
       "file": "skills/cmux-customization/templates/branch-status/main.js",
       "manifest": "skills/cmux-customization/templates/branch-status/cmux-app.json",
       "install": "extension",

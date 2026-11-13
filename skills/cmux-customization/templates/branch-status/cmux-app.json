@@ -12,15 +12,6 @@
     "main": "main.js"
   },
   "implements": {
-    "cmux.section/1": {
-      "export": "renderBranch",
-      "title": "Branch status",
-      "symbol": "arrow.triangle.branch",
-      "options": {
-        "defaultRegion": "bottom",
-        "maxRows": 12
-      }
-    },
     "cmux.session.info.section/1": {
       "export": "renderBranch",
       "title": "Branch status",

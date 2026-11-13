@@ -8,7 +8,7 @@ Runtime captures and NIGHTLY readback are pending. This table is the capture che
 | Needs you | questions waiting | no questions | read refused |
 | This workspace | mixed tabs | empty workspace | focus changed |
 | Dashboard links | saved links | first run | invalid link |
-| Branch status | branch ahead | detached HEAD | not a repository |
+| Branch status (Session Info) | branch ahead | detached HEAD | not a repository |
 | Review requests | review requests | no reviews | GitHub unavailable |
 | Working agents | working agents | blocked agents | no active agents |
 | Quick actions | default | light appearance | dark appearance |

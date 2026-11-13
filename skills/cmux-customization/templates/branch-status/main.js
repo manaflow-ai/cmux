@@ -1,4 +1,4 @@
-// In Session Info, use that chat's folder. In the sidebar, follow the focused tab.
+// Session Info supplies the chat's repository folder to this view.
 function renderBranch(context) {
   const params = context?.cwd ? { path: context.cwd } : {}
   const branch = cmux.live("git.status", params, { events: ["git.changed", "workspace.changed", "tab.changed"] })
