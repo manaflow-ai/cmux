@@ -1880,6 +1880,34 @@ export function devboxSettleBeforeSnapshotCommand(): string {
 }
 
 /**
+ * The seeded Claude team config (`<home>/.config/cmux/claude-team/.claude.json`,
+ * claude-onboarding.py) is still the seed in every home: onboarding done, the
+ * dark theme, "/" trusted, the placeholder key approved, mode 0600. A Claude
+ * Code start with that config dir rewrites the file without `theme` (Claude
+ * drops values equal to its defaults) and adds per-install ids
+ * (firstStartTime, machineID, userID) every clone would then share. The bake
+ * runs it right before the snapshot and the verifier on the clone, so a start
+ * during the bake fails the bake, not the verify after it.
+ */
+export function devboxClaudeTeamOnboardingCheckCommand(homes: readonly string[] = ["/root", DEVBOX_WORK_HOME]): string {
+  return `python3 -c 'import json, pathlib; homes = ${JSON.stringify(homes)}; configs = [pathlib.Path(h) / ".config/cmux/claude-team/.claude.json" for h in homes]; rows = [json.loads(p.read_text()) for p in configs]; assert all(j.get("hasCompletedOnboarding") is True and j.get("theme") == "dark" and j.get("projects", {}).get("/", {}).get("hasTrustDialogAccepted") is True and "-vm-edge-placeholder" in j.get("customApiKeyResponses", {}).get("approved", []) and "firstStartTime" not in j for j in rows), rows; assert all(p.stat().st_mode & 0o777 == 0o600 for p in configs)' && echo claude-team-onboarding-ok`;
+}
+
+/**
+ * The work user's `~/.config/cmux`, made before the acpmux daemon starts. The
+ * daemon watches `~/.config/cmux/harnesses` and cmux.json; while that folder
+ * is missing it watches the nearest existing ancestor (`~/.config`) for the
+ * folder on the way, and making it reloads the harness catalog, whose live
+ * model probe starts `claude`. With no `~/.config/cmux`, the bake's own seed
+ * of the team config (claude-onboarding) made it after the model-plane env
+ * existed, so that probe ran Claude in team mode on the fresh seed and
+ * rewrote it. Made here, the seed creates nothing the daemon reloads for.
+ */
+export function devboxWorkUserCmuxConfigDirCommand(): string {
+  return `sudo -n -u ${DEVBOX_WORK_USER} mkdir -p ${DEVBOX_WORK_HOME}/.config/cmux && [ "$(stat -c %U ${DEVBOX_WORK_HOME}/.config ${DEVBOX_WORK_HOME}/.config/cmux | sort -u)" = ${DEVBOX_WORK_USER} ] && echo cmux-config-dir-ok`;
+}
+
+/**
  * cmux-machine-health on the devbox (images/cmux-vm/machine-health, installed
  * with cmux-vm-image/machine-health.ts). A clone resumes with its monotonic
  * clock jumped by the snapshot's age, so a timer running at the snapshot fires

@@ -1165,6 +1165,16 @@ impl Hub {
                         });
                     }
                 }
+                // A record of the peer's session its link is not sent live: the copy continues
+                // past its seq (`peer_snapshot.rs` `take_unsent`).
+                PeerNotice::Notification { method: m, params, link } if m == method::MUX_UNSENT => {
+                    if let (Some(id), Some(seq)) = (
+                        params.get("sessionId").and_then(Value::as_str),
+                        params.get("seq").and_then(Value::as_u64),
+                    ) {
+                        self.capture_peer_unsent((&peer, generation, link), id, seq);
+                    }
+                }
                 PeerNotice::Notification { method: m, mut params, link } => {
                     let Some(id) =
                         params.get("sessionId").and_then(Value::as_str).map(str::to_owned)

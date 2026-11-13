@@ -121,7 +121,7 @@ impl View {
                             self.cursor = seq;
                             self.rows.insert(summary.chat_id, summary.last_activity);
                         }
-                        DeltaOp::Gone { seq, chat_id } => {
+                        DeltaOp::Gone { seq, chat_id, .. } => {
                             assert_eq!(seq, self.cursor + 1);
                             self.cursor = seq;
                             self.rows.remove(&chat_id);
@@ -162,6 +162,8 @@ async fn caught_up(rx: &mut watch::Receiver<u64>, target: u64) {
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct Stopped {
     rss_rise: usize,
+    whole_run_rise: usize,
+    rss_end: usize,
     retained: usize,
     peak_queue: usize,
     peak_outside: usize,
@@ -226,11 +228,22 @@ async fn stopped(shape: acpmux::god_fixture::Shape, dishonest_credit: bool) -> S
     // Subtracting a setup HWM instead of current RSS could hide a later rise.
     std::fs::write("/proc/self/clear_refs", b"5\n").unwrap();
     let baseline = memory_kib("VmRSS:");
-    let mut result = Stopped { rss_rise: 0, retained: 0, peak_queue: 0, peak_outside: 0, drops: 0 };
+    let mut result = Stopped {
+        rss_rise: 0,
+        whole_run_rise: 0,
+        rss_end: 0,
+        retained: 0,
+        peak_queue: 0,
+        peak_outside: 0,
+        drops: 0,
+    };
     let mut bytes = 0_u64;
     let mut iteration = 0_u64;
     let mut target = view.cursor;
     let mut send_credit = dishonest_credit;
+    let final_stretch_start = shape.connection_change_bytes().saturating_sub(8 << 20);
+    let mut final_hwm_reset = false;
+    let mut stretch_peak_queue = 0usize;
     while bytes < shape.connection_change_bytes() {
         for _ in 0..128 {
             let row = summary(0, 2_000_000 + iteration);
@@ -239,6 +252,14 @@ async fn stopped(shape: acpmux::god_fixture::Shape, dishonest_credit: bool) -> S
             iteration += 1;
         }
         caught_up(&mut progress, target).await;
+        let hwm_before_reset = memory_kib("VmHWM:").saturating_sub(baseline);
+        result.whole_run_rise = result.whole_run_rise.max(hwm_before_reset);
+        if !final_hwm_reset && bytes >= final_stretch_start {
+            // Keep the baseline from before the stream, but reset the kernel
+            // high-water mark so both sides sample the same final 8 MiB.
+            std::fs::write("/proc/self/clear_refs", b"5\n").unwrap();
+            final_hwm_reset = true;
+        }
         if send_credit {
             // Deliberately lying: no reads on this socket after its initial windows.
             credit(&mut slow, "slow", u64::MAX).await;
@@ -247,7 +268,11 @@ async fn stopped(shape: acpmux::god_fixture::Shape, dishonest_credit: bool) -> S
             }
         }
         result.retained = result.retained.max(source.not_fed_bytes());
-        result.rss_rise = result.rss_rise.max(memory_kib("VmHWM:").saturating_sub(baseline));
+        let hwm_rise = memory_kib("VmHWM:").saturating_sub(baseline);
+        if final_hwm_reset {
+            result.rss_rise = result.rss_rise.max(hwm_rise);
+            stretch_peak_queue = stretch_peak_queue.max(metrics.queued_bytes());
+        }
         result.peak_queue = result.peak_queue.max(metrics.queued_bytes());
         result.peak_outside = result.peak_outside.max(metrics.outside_budget_bytes());
         assert!(metrics.queued_bytes() <= wire::CONNECTION_BUDGET_BYTES);
@@ -321,10 +346,16 @@ async fn stopped(shape: acpmux::god_fixture::Shape, dishonest_credit: bool) -> S
     result.rss_rise = result.rss_rise.max(memory_kib("VmHWM:").saturating_sub(baseline));
     result.peak_queue = metrics.peak_queued_bytes();
     result.peak_outside = metrics.peak_outside_budget_bytes();
+    result.rss_end = memory_kib("VmRSS:").saturating_sub(baseline);
+    result.whole_run_rise = result.whole_run_rise.max(result.rss_rise);
     assert!(result.peak_queue <= wire::CONNECTION_BUDGET_BYTES);
-    if !dishonest_credit {
-        assert!(result.rss_rise < wire::CONNECTION_BUDGET_BYTES, "{result:?}");
-    }
+    let whole_run_budget = if dishonest_credit {
+        wire::CONNECTION_BUDGET_BYTES * 2
+    } else {
+        wire::CONNECTION_BUDGET_BYTES
+    };
+    assert!(result.whole_run_rise < whole_run_budget, "{result:?}");
+    assert!(result.rss_rise >= stretch_peak_queue, "{result:?}");
     println!(
         "stopped {} dishonest={dishonest_credit} bytes={bytes} records={iteration} {result:?}",
         shape.name

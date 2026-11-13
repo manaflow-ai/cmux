@@ -638,12 +638,33 @@ jobs:
             echo "Tree $published_key and commit $SHA's binaries are published; this pin push builds nothing (dispatch to republish)."
           fi
 
+          # A tree key is write-once, but commit-addressed manifests are not:
+          # every trusted feat-cmux-next tip is a client pin and needs its own
+          # manifest even when it has the same runtime tree as an older tip.
+          # The old tree-only shortcut skipped the build and silently left a
+          # successful run with no cmux-tui/$SHA/manifest.json (the SSH
+          # installer then had nothing to fetch).
+          commit_manifest_ready=false
+          if [[ "$EVENT_NAME" == push && "$REF" != refs/heads/cmux-tui-pin-* ]] &&
+              curl --head --fail --silent --show-error --connect-timeout 5 --max-time 15 -o /dev/null \
+                "https://files.cmux.com/cmux-tui/$SHA/manifest.json?preflight=$RUN_ID-commit" 2>/dev/null; then
+            commit_manifest_ready=true
+            echo "Commit $SHA already has a cmux-tui manifest."
+          fi
+
           # Main still needs commit-addressed artifacts and latest/ updates.
-          # Other trusted refs only spend macOS time for a new tree.
+          # Other trusted refs only spend macOS time for a new tree. A push
+          # whose commit has no manifest yet gets it without a build:
+          # adopt-commit-manifest writes cmux-tui/$SHA/ from the published
+          # tree's bytes (the tree key covers every cmux-tui input) and
+          # attests it as this commit's. #42574 rebuilt such a tip on macOS.
           if [[ "$tree_ready" == true && "$REF" != refs/heads/main &&
                 "$EVENT_NAME" != workflow_dispatch &&
                 ( "$REF" != refs/heads/cmux-tui-pin-* || "$pin_duplicate" == true ) ]]; then
             run_macos=false
+            if [[ "$EVENT_NAME" == push && "$REF" != refs/heads/cmux-tui-pin-* && "$commit_manifest_ready" != true ]]; then
+              echo "Tree $published_key is ready but commit $SHA has no manifest; adopt-commit-manifest writes it from the tree."
+            fi
           fi
           if [[ "${STALE:-}" == true ]]; then
             run_macos=false
@@ -771,6 +792,11 @@ jobs:
       # A deferring run's re-check can still take the key over (below).
       takeover: ${{ steps.recheck.outputs.takeover == 'true' && 'true' || steps.wait.outputs.takeover }}
       unmarked: ${{ steps.wait.outputs.unmarked }}
+      # This run builds nothing and left its deferred marker, so the key's
+      # owner re-runs it once the tree is published (rerun-deferred-commits)
+      # and that attempt writes its commit manifest. adopt-commit-manifest
+      # and verify-cdn-publication read it.
+      deferred: ${{ steps.deferred-marker.outcome == 'success' && steps.recheck.outputs.takeover != 'true' }}
     permissions:
       actions: read
       contents: read
@@ -1062,7 +1088,8 @@ jobs:
         run: printf '%s\n' "$KEY" > "$RUNNER_TEMP/deferred-key"
         env:
           KEY: ${{ needs.tree-preflight.outputs.key }}
-      - if: steps.wait.outputs.deferred == 'true'
+      - id: deferred-marker
+        if: steps.wait.outputs.deferred == 'true'
         continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -2946,6 +2973,318 @@ jobs:
       - name: Verify published Unix manifests
         run: *verify-published-unix-manifests
 
+  # A push that builds nothing still gets its commit manifest. A run whose key
+  # another run owns defers to it (tree-owner-wait), and a run whose tree is
+  # published skips its build (tree-preflight); neither ran publish, so 14 of
+  # the 17 first-parent feat-cmux-next commits from ed8510c8 to f8a39fdd had no
+  # cmux-tui/<sha>/manifest.json (2026-11-13). This job writes it from the
+  # published tree's bytes, with no build (scripts/ci/adopt_cmux_tui_commit.py),
+  # and attests it as this commit's, as publish does: installers check the
+  # attestation against the commit they expect, so only a run of this commit
+  # can write it. It writes nothing unless every object it names answers 200
+  # now. A deferring run whose owner has not published yet leaves it pending:
+  # the owner re-runs it once the tree is published (rerun-deferred-commits),
+  # and that attempt writes it. One look, no waiting.
+  adopt-commit-manifest:
+    # R2 credentials. Only a base branch's publish (which moves the channels) records a
+    # deployment; a lane branch's commit-addressed upload logs none on its PR.
+    environment:
+      name: artifacts
+      deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
+    name: write the commit manifest from the published tree
+    needs: [tree-preflight, tree-owner-wait]
+    # Every push verify-cdn-publication checks whose run builds nothing: the
+    # macOS targets are off (a published tree), or another run owns the key.
+    # main always builds; a superseded push publishes nothing on purpose.
+    if: ${{ always() && needs.tree-preflight.result == 'success' && needs.tree-preflight.outputs.stale != 'true' &&
+      github.event_name == 'push' && github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') &&
+      (needs.tree-preflight.outputs.run_macos != 'true' ||
+      (needs.tree-preflight.outputs.owns_key != 'true' && needs.tree-owner-wait.outputs.takeover != 'true')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    # About 25 s to read the tree's 1.1 GB (29 binaries for tree 77865e8e) and
+    # the same to upload it, plus one attestation back-off.
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    outputs:
+      # present: the commit had its manifest; adopted: this job wrote it;
+      # pending: the tree is not published and this run left its deferred
+      # marker; missing: the tree is not published and nobody will re-run this
+      # run (verify-cdn-publication is red).
+      state: ${{ steps.adopt.outputs.state }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/adopt_cmux_tui_commit.py
+            scripts/ci/deadline_http.py
+            scripts/ci/upload-r2-object.py
+            scripts/ci/gh_budget_wait.sh
+            cmux-tui/scripts/verify_published_manifest.py
+          sparse-checkout-cone-mode: false
+
+      - name: Prepare the commit prefix from the published tree
+        id: adopt
+        env:
+          KEY: ${{ needs.tree-preflight.outputs.key }}
+          DEFERRED: ${{ needs.tree-owner-wait.outputs.deferred }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SOURCE_REPOSITORY: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # The query string bypasses a cached 404 at the CDN edge.
+          code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 15 \
+            "https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json?adopt=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT")" || code=000
+          if [[ "$code" == 200 ]]; then
+            echo "Commit $GITHUB_SHA has its cmux-tui manifest."
+            echo "state=present" >> "$GITHUB_OUTPUT"; exit 0
+          elif [[ "$code" != 404 ]]; then
+            echo "::error::could not read https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json (HTTP $code)"; exit 1
+          fi
+          rc=0
+          python3 scripts/ci/adopt_cmux_tui_commit.py --sha "$GITHUB_SHA" --tree-key "$KEY" --out assets/cmux-tui \
+            --commit-time "$(git show -s --format=%cI "$GITHUB_SHA")" --run-url "$RUN_URL" \
+            --source-repository "$SOURCE_REPOSITORY" || rc=$?
+          if [[ "$rc" == 0 ]]; then
+            echo "state=adopted" >> "$GITHUB_OUTPUT"
+          elif [[ "$rc" == 1 && "$DEFERRED" == true ]]; then
+            echo "::notice title=commit manifest pending::tree $KEY is not published yet; its owner re-runs this run when it is, and that attempt writes cmux-tui/$GITHUB_SHA/manifest.json."
+            echo "state=pending" >> "$GITHUB_OUTPUT"
+          elif [[ "$rc" == 1 ]]; then
+            echo "::error title=commit manifest missing::tree $KEY is not published, this run builds nothing and left no deferred marker: nobody writes cmux-tui/$GITHUB_SHA/manifest.json. Re-run this run once the tree is published."
+            echo "state=missing" >> "$GITHUB_OUTPUT"
+          else
+            exit 1
+          fi
+
+      # The bytes come from R2, which only this workflow writes; their
+      # publisher's manifest must still carry its own attestation before this
+      # run attests the same digests as its commit's. Offline from the bundle
+      # the publisher uploaded, as the installer checks it, else the API.
+      - name: Verify the publishing commit's attested manifest
+        if: steps.adopt.outputs.state == 'adopted'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SIGNER: ${{ github.repository }}/.github/workflows/cmux-tui-artifacts.yml
+        run: |
+          set -euo pipefail
+          source="$(python3 -c 'import json; print(json.load(open("assets/cmux-tui/manifest.json"))["adoptedFrom"]["commit"])')"
+          mv assets/cmux-tui/source-manifest.json "$RUNNER_TEMP/source-manifest.json"
+          digest="$(sha256sum "$RUNNER_TEMP/source-manifest.json" | awk '{print $1}')"
+          args=(--repo "$GITHUB_REPOSITORY" --signer-workflow "$SIGNER" --source-digest "$source")
+          if curl -fsS --connect-timeout 5 --max-time 30 -o "$RUNNER_TEMP/source.sigstore.json" \
+              "https://files.cmux.com/cmux-tui-attestations/sha256-$digest.sigstore.json" &&
+              gh attestation verify "$RUNNER_TEMP/source-manifest.json" --bundle "$RUNNER_TEMP/source.sigstore.json" "${args[@]}" >/dev/null; then
+            echo "The manifest of $source is attested (offline bundle)."
+          else
+            gh attestation verify "$RUNNER_TEMP/source-manifest.json" "${args[@]}" >/dev/null
+            echo "The manifest of $source is attested (attestations API)."
+          fi
+
+      # The same artifacts as publish's own check (Verify Unix manifests
+      # before upload): the publisher's set, so a tree published without one
+      # of them is not adopted (tests/test_ci_cmux_tui_latest_acpmux.py).
+      - name: Verify the prepared manifest
+        if: steps.adopt.outputs.state == 'adopted'
+        run: |
+          python3 cmux-tui/scripts/verify_published_manifest.py \
+            --manifest-file assets/cmux-tui/manifest.json \
+            --expected-commit "$GITHUB_SHA" \
+            --require-provenance \
+            --require-artifact cmux-tui-aarch64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-aarch64-unknown-linux-musl \
+            --require-artifact cmux-tui-acpmux-aarch64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-acpmux-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-app-host-aarch64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-app-host-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-app-host-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-app-host-aarch64-unknown-linux-musl \
+            --require-artifact cmux-tui-cloud-server-aarch64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-cloud-server-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-browser-host-aarch64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-browser-host-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-host-aarch64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-host-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-holder-aarch64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-holder-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-agent-screen-detection-aarch64-apple-darwin \
+            ${CMUX_TUI_DARWIN_X86_64:+--require-artifact cmux-tui-agent-screen-detection-x86_64-apple-darwin} \
+            --require-artifact cmux-tui-agent-screen-detection-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-agent-screen-detection-aarch64-unknown-linux-musl \
+            --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
+            --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
+            --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
+            --forbid-artifact cmux-tui-acpmux-x86_64-pc-windows-gnu.exe \
+            --artifact-directory assets/cmux-tui
+
+      - name: Attest raw binary subjects
+        id: attest_adopted
+        if: steps.adopt.outputs.state == 'adopted'
+        continue-on-error: true
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with: &attest-adopted
+          subject-path: |
+            assets/cmux-tui/cmux-tui-*
+            assets/cmux-tui/manifest.json
+          push-to-registry: false
+
+      - name: Back off before the last attestation try
+        if: steps.attest_adopted.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_BUDGET_WAIT_MAX_SECONDS: "900"
+          ATTEST_PROBE: repos/${{ github.repository }}/attestations/sha256:0000000000000000000000000000000000000000000000000000000000000000
+        run: bash scripts/ci/gh_budget_wait.sh --backoff-probe 1 "$ATTEST_PROBE" "the attestation"
+
+      - name: Attest raw binary subjects (last try)
+        id: attest_adopted_2
+        if: steps.attest_adopted.outcome == 'failure'
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with: *attest-adopted
+
+      # The bundle, the binaries, then manifest.json last: a manifest exists
+      # only for a complete prefix. All write-once; an identical object is kept.
+      - name: Upload the commit prefix to R2
+        if: steps.adopt.outputs.state == 'adopted'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          BUNDLE: ${{ steps.attest_adopted.outputs.bundle-path || steps.attest_adopted_2.outputs.bundle-path }}
+          KEY: ${{ needs.tree-preflight.outputs.key }}
+        run: |
+          set -euo pipefail
+          upload() { # <file> <key> <content type>
+            python3 scripts/ci/upload-r2-object.py --write-once --file "$1" --endpoint-url "$R2_ENDPOINT" \
+              --bucket cmux-binaries --key "$2" --content-type "$3" \
+              --cache-control "public, max-age=31536000, immutable"
+          }
+          export -f upload
+          if [[ -s "$BUNDLE" ]]; then
+            digest="$(sha256sum assets/cmux-tui/manifest.json | awk '{print $1}')"
+            status=0
+            python3 scripts/ci/upload-r2-object.py --write-once --conflict-exit-code 75 --file "$BUNDLE" \
+              --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries --key "cmux-tui-attestations/sha256-$digest.sigstore.json" \
+              --content-type application/json --cache-control "public, max-age=31536000, immutable" || status=$?
+            [[ "$status" == 0 || "$status" == 75 ]] || exit "$status"
+          fi
+          # A conflict (other bytes under this commit) fails here: another
+          # publication of this commit owns the prefix, and its manifest is the
+          # one verify-cdn-publication reads.
+          find assets/cmux-tui -maxdepth 1 -type f -name 'cmux-tui-*' -printf '%f\n' |
+            xargs -P 8 -I{} bash -c 'upload "assets/cmux-tui/$1" "cmux-tui/$GITHUB_SHA/$1" application/octet-stream' _ {}
+          upload assets/cmux-tui/manifest.json "cmux-tui/$GITHUB_SHA/manifest.json" application/json
+          echo "Published: https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json (from tree $KEY)"
+
+  # A published tree re-runs every run that deferred to it: each built nothing,
+  # and its re-run writes its own commit manifest (adopt-commit-manifest). The
+  # owner does it after publish-tree, and a run that adopted the tree does it
+  # too for any marker left behind. The unpublished case stays with
+  # notify-unpublished-tree, which re-runs one deferred run to build the key.
+  rerun-deferred-commits:
+    name: re-run the runs that deferred to the published tree
+    needs: [tree-preflight, publish-tree, adopt-commit-manifest]
+    if: ${{ always() && github.event_name == 'push' && needs.tree-preflight.result == 'success' &&
+      (needs.publish-tree.result == 'success' || needs.adopt-commit-manifest.outputs.state == 'adopted') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 5
+    # Secrets only: no deployment on the PR. The spare token (below) is the cmux-bot App's.
+    environment:
+      name: ci-routing-agent
+      deployment: false
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+
+      # As notify-unpublished-tree's hand-off: a rate-limited workflow token
+      # moves to the cmux-bot App's (HANDOFF_NEVER_SILENT).
+      - name: Mint the hand-off's spare token
+        id: cmux-bot-token
+        if: (github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/main') && vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+
+      - name: Re-run the runs that deferred to this tree
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}
+          KEY: ${{ needs.tree-preflight.outputs.key }}
+          RUN_ID: ${{ github.run_id }}
+        run: python3 scripts/ci/cmux_tui_tree_handoff.py --repo "$GITHUB_REPOSITORY" --run-id "$RUN_ID" --key "$KEY" --published
+
+  # A green publish job is not enough: the installer reads through the CDN,
+  # and a tree-only shortcut can otherwise leave the immutable commit prefix
+  # absent while every Actions job is green. Keep this as a final, independent
+  # gate so a skipped publish is also red when its manifest is missing.
+  verify-cdn-publication:
+    name: verify cmux-tui CDN publication
+    if: ${{ always() && needs.tree-preflight.result == 'success' &&
+      (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next'))) &&
+      !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') }}
+    needs: [tree-preflight, publish, publish-tree, adopt-commit-manifest]
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/verify_cmux_tui_publication.py
+            scripts/ci/deadline_http.py
+          sparse-checkout-cone-mode: false
+      # Two runs skip the check. A deferring run whose owner has not published
+      # yet (adopt-commit-manifest state pending): the owner re-runs it once the
+      # tree is published, and that attempt adopts and is checked here. And a
+      # superseded push (tree-preflight stale), which publishes nothing on
+      # purpose. Any other missing manifest stays red.
+      - name: Verify commit and tree metadata through the CDN
+        env:
+          TREE_KEY: ${{ needs.tree-preflight.outputs.key }}
+          ADOPT_STATE: ${{ needs.adopt-commit-manifest.outputs.state }}
+          STALE: ${{ needs.tree-preflight.outputs.stale }}
+        run: |
+          if [[ "$STALE" == true ]]; then
+            echo "::notice::a newer push superseded this one; it publishes nothing, and the newer push's run checks its own manifest."
+            exit 0
+          fi
+          # pending holds only while the tree is still unpublished. Once its
+          # completion.json answers, the owner may have looked while this run
+          # was still in progress, and GitHub refuses to re-run a live run
+          # (review of #42580, F1): red, so the gap shows. The next
+          # feat-cmux-next push's sweep-commit-manifests re-runs this run.
+          # The red's last word, cmux-tui-manifest-rerun-pending, keeps it out of
+          # cmuxterm-hq base_red_watch's base reds while that re-run is due.
+          if [[ "$ADOPT_STATE" == pending ]]; then
+            completion="$(curl -sS --connect-timeout 5 --max-time 15 \
+              "https://files.cmux.com/cmux-tui/tree/$TREE_KEY/completion.json?verify=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" 2>/dev/null)" || completion=""
+            if python3 -c 'import json,sys; sys.exit(0 if json.loads(sys.argv[1]).get("key") == sys.argv[2] else 1)' "$completion" "$TREE_KEY" 2>/dev/null; then
+              echo "::error title=commit manifest missing::tree $TREE_KEY was published after this run deferred, and cmux-tui/$GITHUB_SHA/manifest.json was not written; the next feat-cmux-next push's sweep re-runs this run (or re-run this run by hand). cmux-tui-manifest-rerun-pending"
+              exit 1
+            fi
+            echo "::notice title=commit manifest pending::this run deferred tree $TREE_KEY to its owner, which re-runs it once the tree is published; that attempt writes and checks cmux-tui/$GITHUB_SHA/manifest.json."
+            exit 0
+          fi
+          python3 scripts/ci/verify_cmux_tui_publication.py --sha "$GITHUB_SHA" --tree-key "$TREE_KEY"
+
   # The Windows pass of publish (the same steps): this commit's
   # cmux-tui-windows/<sha>/ prefix, once build-windows is done. The prefixes the
   # first pass wrote are write-once, so this pass keeps them as published.
@@ -3853,6 +4192,52 @@ jobs:
         # --tip-branch: the script fetches the tip (the public repository needs
         # no credentials) after listing this commit's window.
         run: scripts/cmux-next/tree-commit-marker.sh write --window 40 --tip-branch feat-cmux-next
+
+  # The post-publish 404 detector (review of #42580, F1). A run that deferred
+  # to its key's owner and was still in progress when the owner published was
+  # not re-run (GitHub refuses a live run), so its commit kept no manifest.
+  # Every feat-cmux-next push looks at its 40-commit window once the markers
+  # are written: a commit whose tree is marked published and whose manifest
+  # answers 404 gets its completed run re-run, and that attempt writes the
+  # manifest (adopt-commit-manifest). A run still in progress waits for the
+  # next push; nothing here waits (scripts/ci/cmux_tui_manifest_sweep.py).
+  sweep-commit-manifests:
+    name: re-run the runs of commits whose manifest is missing
+    needs: [tree-preflight, mark-tree-commits]
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.mark-tree-commits.result == 'success' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 10
+    # Secrets only: no deployment on the PR. The spare token (below) is the cmux-bot App's.
+    environment:
+      name: ci-routing-agent
+      deployment: false
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 41
+
+      # As notify-unpublished-tree's hand-off: a rate-limited workflow token
+      # moves to the cmux-bot App's (HANDOFF_NEVER_SILENT).
+      - name: Mint the sweep's spare token
+        id: cmux-bot-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+
+      - name: Re-run the runs of commits whose tree is published and manifest missing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}
+        run: python3 scripts/ci/cmux_tui_manifest_sweep.py --repo "$GITHUB_REPOSITORY" --window 40 --tip-branch feat-cmux-next
 
   # Cloud machines keep their cmux-tui and cmux-tui-hook on the newest
   # feat-cmux-next build by themselves (the updater role of `cmux host run`,

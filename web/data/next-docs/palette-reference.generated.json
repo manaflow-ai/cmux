@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1400,
+    "entries": 1402,
     "shortcuts": 190
   },
   "sections": [
@@ -6148,6 +6148,12 @@
           "command": "cmux notification preview-sound"
         },
         {
+          "id": "toasts.showHidden",
+          "title": "Show Hidden Toasts Again",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "showNotifications",
           "title": "Show Notifications",
           "shortcut": null,
@@ -8294,6 +8300,12 @@
           "title": "Thick Pane Borders",
           "shortcut": null,
           "command": "cmux settings toggle-thick-pane-borders"
+        },
+        {
+          "id": "debug.toastTuning",
+          "title": "Toast Tuning",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "debug.actionLatencyHUD",
