@@ -100,10 +100,10 @@ async fn pr05b_compaction_keeps_writing_through_one_million_changes() {
                 || writer.retirement.is_some();
             let mut phase = if writer.compaction.is_some() {
                 1
-            } else if writer.maintenance.is_some() {
-                5
             } else if writer.retirement.is_some() {
                 2
+            } else if writer.maintenance.is_some() {
+                5
             } else {
                 0
             };

@@ -280,7 +280,7 @@ fn retire_shadow(shadow: ChangedRows, evicted: usize) {
     let before = std::env::var("V2_GATE_MODE")
         .ok()
         .filter(|mode| mode.starts_with("evict-") || mode.starts_with("attrib-"))
-        .map(|_| super::disk_gates::rss_fields_kb());
+        .map(|_| disk_gates::rss_fields_kb());
     #[cfg(test)]
     let began = Instant::now();
     let trimmed = evicted >= PAGE_RETURN_MIN_EVICTED_ROWS;
@@ -290,7 +290,7 @@ fn retire_shadow(shadow: ChangedRows, evicted: usize) {
     #[cfg(test)]
     if let Some((before_anon, _, before_rss)) = before {
         let elapsed = if trimmed { began.elapsed().as_nanos() } else { 0 };
-        let (after_anon, _, after_rss) = super::disk_gates::rss_fields_kb();
+        let (after_anon, _, after_rss) = disk_gates::rss_fields_kb();
         eprintln!(
             "PR5b trim rows_evicted={evicted} called={trimmed} wall_ns={elapsed} before_rss_kb={before_rss} after_rss_kb={after_rss} before_anon_kb={before_anon} after_anon_kb={after_anon}"
         );
