@@ -4,7 +4,7 @@
 // really responding to my messages. I'm not sure if they're reading them at all.").
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
-import { turnView } from "./turns";
+import { turnView, turnViewFrom } from "./turns";
 
 const row = (id: string, kind: string, at: number, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
   id,
@@ -68,4 +68,21 @@ test("a steer the agent read carries no mark", () => {
     call("wait", 10_000, { id: "t1", kind: "execute", title: "sleep 9", command: "sleep 9", status: "in_progress" }),
   ]);
   expect(steerIn(rows)?.steerBehind).toBeUndefined();
+});
+
+test("another session's waiting message keeps its row, for the waiting card's group", () => {
+  const incoming = row("msg", "user", 20_000, {
+    text: "From the lane",
+    steer: "waiting",
+    steerPromptId: "p-3",
+    incoming: { kind: "message", message: { from: "lane", text: "From the lane" } } as AcpmuxRow["incoming"],
+  });
+  const source = [
+    row("prompt", "user", 0, { text: "Land the three fixes" }),
+    call("wait", 10_000, { id: "t1", kind: "execute", title: "sleep 9", command: "sleep 9", status: "in_progress" }),
+    incoming,
+  ];
+  const view = turnViewFrom(source, new Set(), { now: 60_000, working: true, agentFamily: "claude" });
+  const all = [...view.rows, ...(view.pending ?? [])];
+  for (const drawn of all.filter((r) => r.id === "msg")) expect(drawn).toBe(incoming);
 });

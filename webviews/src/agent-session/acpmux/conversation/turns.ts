@@ -2520,9 +2520,11 @@ function liveTurn(
 /// them at all"): Claude Code reads a steer only when its current step ends, so behind a long
 /// command or foreground subagents a message can wait for an hour with nothing saying why. A fresh
 /// row with its own version (the label's hash, above any version acpmux gives the prompt), so the
-/// memoized bubble draws again as the step changes; a steer read is the store's row again.
+/// memoized bubble draws again as the step changes; a steer read is the store's row again. Only the
+/// person's own steers: another session's waiting message leaves the turn for the waiting card
+/// (`pendingMessagesRow`), which keeps its group while its rows stay the same objects.
 function withSteerBehind(shaped: AcpmuxRow[]): AcpmuxRow[] {
-  if (!shaped.some((row) => row.kind === "user" && row.steer === "waiting")) return shaped;
+  if (!shaped.some(ownWaitingSteer)) return shaped;
   let line: AcpmuxRow | undefined;
   for (let index = shaped.length - 1; index >= 0 && !line; index -= 1)
     if (shaped[index]!.kind === THINKING || shaped[index]!.kind === ACTIVITY_LINE) line = shaped[index];
@@ -2543,12 +2545,13 @@ function withSteerBehind(shaped: AcpmuxRow[]): AcpmuxRow[] {
   let hash = 1;
   for (let index = 0; index < key.length; index += 1) hash = (hash * 31 + key.charCodeAt(index)) % STEER_BEHIND_SPAN;
   return shaped.map((row) =>
-    row.kind === "user" && row.steer === "waiting"
+    ownWaitingSteer(row)
       ? { ...row, version: row.version * (STEER_BEHIND_SPAN + 1) + 1 + hash, steerBehind: behind }
       : row,
   );
 }
 const STEER_BEHIND_SPAN = 1_000_003;
+const ownWaitingSteer = (row: AcpmuxRow) => row.kind === "user" && row.steer === "waiting" && !row.incoming;
 
 /// The running turn's retries (the client's `TURN_RETRY` row, direct.ts) on its "Thinking" line:
 /// while its harness retries a failed model request the line says the model cannot be reached,
