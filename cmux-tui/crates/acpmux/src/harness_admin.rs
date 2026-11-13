@@ -479,7 +479,7 @@ impl EndpointKey<'static> {
 /// pass the check, a later key never lands under another profile, and a remove
 /// never deletes the key of an add that came between. Released when the file
 /// closes.
-fn lock_endpoint_adds(dir: &Path) -> Result<std::fs::File, AdminError> {
+fn lock_endpoint_adds(dir: &Path) -> Result<cmux_file_lock::FileLock, AdminError> {
     ensure_dir(dir)?;
     let file = crate::home_fs::OpenOptions::new()
         .create(true)
@@ -487,8 +487,8 @@ fn lock_endpoint_adds(dir: &Path) -> Result<std::fs::File, AdminError> {
         .write(true)
         .open(dir.join(".endpoint-add.lock"))
         .map_err(failed)?;
-    file.lock().map_err(failed)?;
-    Ok(file)
+    // Unlocked before it closes, so a child another daemon thread forks meanwhile keeps no lock.
+    cmux_file_lock::FileLock::take(file, cmux_file_lock::Kind::Exclusive).map_err(failed)
 }
 
 /// `add` for an endpoint example with its key (the daemon's add with `apiKey`,

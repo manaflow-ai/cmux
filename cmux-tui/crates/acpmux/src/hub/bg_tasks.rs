@@ -475,15 +475,12 @@ async fn workflow_bg_wait_lock(path: PathBuf) -> Result<(), RpcError> {
 }
 
 /// Blocks until the runner that holds `file`'s lock lets go (a shared flock taken, as the
-/// runner's exclusive one excludes it).
+/// runner's exclusive one excludes it). The shared lock is unlocked before the file closes:
+/// a child another daemon thread forked meanwhile keeps no lock, so the task's liveness probe
+/// reads the ended runner as gone.
 #[cfg(unix)]
 fn wait_released(file: std::fs::File) -> std::io::Result<()> {
-    use std::os::fd::AsRawFd;
-    // SAFETY: this function owns the descriptor, which closes on return.
-    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH) } != 0 {
-        return Err(std::io::Error::last_os_error());
-    }
-    Ok(())
+    cmux_file_lock::FileLock::take(file, cmux_file_lock::Kind::Shared).map(drop)
 }
 
 /// Clears the moved folders of earlier purges whose runners are all gone.

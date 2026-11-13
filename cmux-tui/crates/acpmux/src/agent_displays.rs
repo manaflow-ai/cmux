@@ -81,10 +81,12 @@ pub fn display_for(dir: &Path, workspace: &str) -> Result<u32> {
     display_for_locked(lock, dir, workspace)
 }
 
-/// [`display_for`] under the display lock opened as `lock`, which this takes and lets go.
+/// [`display_for`] under the display lock opened as `lock`, which this takes and lets go. The
+/// drop unlocks before it closes, so a child another daemon thread forks meanwhile keeps no lock.
 fn display_for_locked(lock: std::fs::File, dir: &Path, workspace: String) -> Result<u32> {
     let lock_path = dir.join("lock");
-    lock.lock().with_context(|| format!("lock {}", lock_path.display()))?;
+    let _held = cmux_file_lock::FileLock::take(lock, cmux_file_lock::Kind::Exclusive)
+        .with_context(|| format!("lock {}", lock_path.display()))?;
     let file = dir.join("displays.json");
     let mut displays: BTreeMap<String, u32> = match std::fs::read(&file) {
         Ok(bytes) => {
@@ -107,7 +109,7 @@ fn display_for_locked(lock: std::fs::File, dir: &Path, workspace: String) -> Res
     displays.insert(workspace, n);
     let doc = json!({"version": 1, "displays": displays});
     crate::agent_tools::write_private(&file, doc.to_string().as_bytes())?;
-    // The lock goes with `lock` when it drops.
+    // The lock goes with `_held` when it drops.
     Ok(n)
 }
 
