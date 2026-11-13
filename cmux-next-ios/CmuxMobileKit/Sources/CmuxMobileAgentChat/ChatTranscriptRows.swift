@@ -19,9 +19,15 @@ struct ChatRow: Equatable, Identifiable, Sendable {
         /// says where what is shown starts instead of when the session started.
         case sessionStart(Date, earlier: Bool)
         case prompt(text: String, attachments: [AgentAttachment], at: Date, isLast: Bool)
+        /// The Chief's view over a subagent's first prompt (`ChiefEnvelope`), one collapsed line;
+        /// the prompt row under it shows only the task.
+        case chiefContext(String, lines: Int)
         /// The turn's prompt is another agent's message: its card (AgentIncomingCard), not the person's
         /// bubble, with the images and files the prompt carried.
         case incoming(AgentIncoming, attachments: [AgentAttachment], at: Date)
+        /// A message steered into the running turn, where it went in: the person's bubble, or
+        /// another agent's card (`incoming`). It takes none of the turn prompt's edit actions.
+        case steer(SteeredMessage)
         /// One block of the agent message `messageID` (the whole message is copied).
         case block(messageID: String, block: MarkdownBlock)
         case thought(text: String, isLive: Bool)
@@ -183,7 +189,7 @@ final class ChatTranscriptBuilder {
     private func assignSenderTones(_ turns: [AgentTurn]) {
         var added = false
         for turn in turns {
-            for message in turn.incoming?.messages ?? [] {
+            for message in Self.incomingMessages(turn) {
                 guard let id = message.senderID, senderFirstSeen[id] == nil else { continue }
                 senderFirstSeen[id] = turn.promptAt.timeIntervalSince1970
                 added = true
@@ -193,9 +199,18 @@ final class ChatTranscriptBuilder {
         senderTones = tones.assign(senderFirstSeen.map { AgentTones.Agent(id: $0.key, startedAt: $0.value) })
     }
 
+    /// Other agents' messages in `turn`: its prompt's card, then the cards steered into it.
+    private static func incomingMessages(_ turn: AgentTurn) -> [AgentIncoming.Message] {
+        var out = turn.incoming?.messages ?? []
+        for case .steer(let steered) in turn.items {
+            out += steered.incoming?.messages ?? []
+        }
+        return out
+    }
+
     private func turnTones(_ turn: AgentTurn) -> [String: Int] {
         var out: [String: Int] = [:]
-        for message in turn.incoming?.messages ?? [] {
+        for message in Self.incomingMessages(turn) {
             if let id = message.senderID, let tone = senderTones[id] { out[id] = tone }
         }
         return out
@@ -215,10 +230,18 @@ final class ChatTranscriptBuilder {
         }
         // An inbox notice with nothing to show (AgentIncoming with no messages) draws no prompt row.
         if turn.incoming?.messages.isEmpty != true {
+            var gap: Double = context.isFirst ? 0 : (context.followsActions ? 18 : 24)
+            var prompt = turn.prompt
+            // A Chief subagent's first prompt: the Chief's view collapses to one line over the task.
+            if turn.incoming == nil, let envelope = ChiefEnvelope(turn.prompt) {
+                rows.append(ChatRow(id: "cx-\(turnID)", turnID: turnID, kind: .chiefContext(envelope.context, lines: envelope.lines), gap: gap))
+                prompt = envelope.task
+                gap = 6
+            }
             rows.append(ChatRow(id: "u-\(turnID)", turnID: turnID,
                                 kind: turn.incoming.map { .incoming(Self.toned($0, context.senderTones), attachments: turn.attachments, at: turn.promptAt) }
-                                    ?? .prompt(text: turn.prompt, attachments: turn.attachments, at: turn.promptAt, isLast: context.isLast),
-                                gap: context.isFirst ? 0 : (context.followsActions ? 18 : 24)))
+                                    ?? .prompt(text: prompt, attachments: turn.attachments, at: turn.promptAt, isLast: context.isLast),
+                                gap: gap))
         }
         let turnRows = turn.rows
         let running = turn.status == .running
@@ -227,7 +250,8 @@ final class ChatTranscriptBuilder {
         let wrote = turn.status == .completed ? NextStepAsk.lastWrapUp(turnRows) : nil
         var wrapUp = wrote
         if let ask = wrapUp, !ask.question.isEmpty, !context.isLast, context.nextPrompt == nil {
-            wrapUp = ask.recap.map { NextStepAsk(tag: ask.tag, recap: $0, question: "", detail: nil, options: [], rest: "") }
+            wrapUp = ask.recap != nil || ask.tryIt != nil
+                ? NextStepAsk(tag: ask.tag, recap: ask.recap, question: "", detail: nil, options: [], rest: "", tryIt: ask.tryIt) : nil
         }
         // A finished turn's answer that ends on one tagged ask: the ask draws as a card under it.
         var nextStep: (rowID: String, ask: NextStepAsk)?
@@ -282,6 +306,9 @@ final class ChatTranscriptBuilder {
                 if let question = turn.question(id) { add(row.id, .question(question)) }
             case .subagents(_, let ids):
                 add(row.id, .subagents(ids))
+            case .steer(var message):
+                message.incoming = message.incoming.map { Self.toned($0, context.senderTones) }
+                add(row.id, .steer(message))
             }
         }
         if let wrapUp {

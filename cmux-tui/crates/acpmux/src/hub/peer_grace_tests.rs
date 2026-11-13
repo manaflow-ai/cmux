@@ -13,7 +13,11 @@ fn fixture() -> (Arc<Hub>, Arc<Peer>, Vec<Value>) {
         json!({"sessionId":"live", "name":"live", "status":"ready"}),
         json!({"sessionId":"done", "name":"done", "status":"closed"}),
     ];
-    hub.apply_peer_notice(&peer.name, peer.generation, PeerNotice::Sessions(rows.clone()));
+    hub.apply_peer_notice(
+        &peer.name,
+        peer.generation,
+        PeerNotice::sessions_from_values(rows.clone()),
+    );
     (hub, peer, rows)
 }
 
@@ -31,7 +35,7 @@ async fn short_peer_flap_keeps_rows_and_emits_no_status_events() {
     tokio::time::advance(Duration::from_secs(9)).await;
     assert_eq!(hub.resolve_remote("live").unwrap().2["status"], "ready");
     hub.peer_notices
-        .send((peer.name.clone(), peer.generation, PeerNotice::Sessions(rows)))
+        .send((peer.name.clone(), peer.generation, PeerNotice::sessions_from_values(rows)))
         .await
         .unwrap();
     send(&hub, &peer, PeerNotice::Connected).await;
@@ -55,7 +59,7 @@ async fn persistent_drop_marks_only_live_rows_and_retries_do_not_extend_grace() 
     assert_eq!(events.try_recv().unwrap().session_id, "live");
     assert!(events.try_recv().is_err(), "closed rows must never be announced on a drop");
     hub.peer_notices
-        .send((peer.name.clone(), peer.generation, PeerNotice::Sessions(rows)))
+        .send((peer.name.clone(), peer.generation, PeerNotice::sessions_from_values(rows)))
         .await
         .unwrap();
     send(&hub, &peer, PeerNotice::Connected).await;
@@ -70,7 +74,11 @@ async fn replaced_peer_ignores_old_drop_deadline() {
     send(&hub, &peer, PeerNotice::Disconnected("reset".into())).await;
     let replacement = Peer::new("remote", "ws://127.0.0.1:1", None, None, hub.peer_notices.clone());
     hub.peers.lock().unwrap().insert(peer.name.clone(), replacement.clone());
-    hub.apply_peer_notice(&peer.name, replacement.generation, PeerNotice::Sessions(rows));
+    hub.apply_peer_notice(
+        &peer.name,
+        replacement.generation,
+        PeerNotice::sessions_from_values(rows),
+    );
     tokio::time::advance(Duration::from_secs(11)).await;
     tokio::task::yield_now().await;
     assert_eq!(hub.resolve_remote("live").unwrap().2["status"], "ready");
@@ -104,7 +112,7 @@ fn disk_fixture() -> (Arc<Hub>, Arc<Peer>, cmux_unix_socket::TestDir) {
     let peer = Peer::new("remote", "ws://127.0.0.1:1", None, None, hub.peer_notices.clone());
     hub.peers.lock().unwrap().insert(peer.name.clone(), peer.clone());
     let rows = vec![json!({"sessionId":"live", "name":"live", "status":"ready"})];
-    hub.apply_peer_notice(&peer.name, peer.generation, PeerNotice::Sessions(rows));
+    hub.apply_peer_notice(&peer.name, peer.generation, PeerNotice::sessions_from_values(rows));
     // Within the save throttle of the list's save: not written yet.
     hub.apply_peer_notice(
         &peer.name,
@@ -119,7 +127,7 @@ fn disk_fixture() -> (Arc<Hub>, Arc<Peer>, cmux_unix_socket::TestDir) {
 }
 
 fn saved_rows(dir: &cmux_unix_socket::TestDir) -> String {
-    std::fs::read_to_string(dir.path().join("peers/remote.json")).unwrap()
+    super::peer_cache_disk::saved_json(&dir.path().join("peers"), "remote").to_string()
 }
 
 #[tokio::test(start_paused = true)]

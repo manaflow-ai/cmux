@@ -8,7 +8,7 @@ import { UiProvider } from "../../ui/UiProvider";
 import { nativePopupHost } from "../../ui/popupHost";
 import { installNativeMenu } from "../../ui/nativeMenu";
 import { postNative } from "./native";
-import { startFlickerLog } from "./flickerLog";
+import { pageHostFlickerSend, startFlickerLog } from "./flickerLog";
 import { pageHostClient } from "./pageHost";
 import { appPopupHost } from "../../pages/shared/pagePopupHost";
 import { installMessageMenuReporter } from "./conversation/messageMenu";
@@ -18,8 +18,6 @@ import { installRevealSettle } from "../shared/pageReveal";
 import { setHarnessSymbolHost } from "../shared/harnessIcons";
 import { experimentArm } from "../../experiments/experiment";
 import { liveBackground } from "../../ui/liveBackground/liveBackground.experiment";
-import { reportHostGlass } from "../../ui/glass/hostGlass";
-import { chatUnderHoverCard, hostGlassCover } from "./chatUnderGlass";
 import { installUiPointer, type UiPointerControl } from "./uiPointer/picker";
 import { reportChatSnapshot } from "./chatSnapshot/live";
 
@@ -34,6 +32,8 @@ reportChatSnapshot(postNative);
   document,
   {
     post: (report) => void postNative("uiPointer.report", report),
+    // Esc that reached the page: the native picker stops too (UIInspectorController.pageReport).
+    cancel: () => void postNative("uiPointer.report", { cancelled: true }),
   },
 );
 
@@ -74,15 +74,11 @@ export function mountAcpmux(initialChat?: InitialChat): void {
   // its call with the page client; the legacy bridge answers `contextMenu.show`.
   if (!pageHostClient() && window.webkit?.messageHandlers?.agentSession)
     installNativeMenu((request) => postNative("contextMenu.show", { ...request }));
-  // Floating glass the page marks (data-host-glass: Session Info first) is the App's own glass under
-  // the page, as its native menus are (ui/glass/hostGlass.ts).
-  if (pageHostClient() || window.webkit?.messageHandlers?.agentSession)
-    reportHostGlass(document, (surfaces) => postNative("pane.glass", { surfaces }), {
-      candidates: chatUnderHoverCard,
-      options: hostGlassCover,
-    });
-  // The always-on flicker detector (flickerLog.ts), on the pane's own WebKit handler only.
-  if (!pageHostClient()) startFlickerLog();
+  // No App glass under the page's popovers and menus (CMUX-561): the App's glass was drawn from boxes
+  // the page sent, so a zoom left it apart from the page's content. The page draws their glass itself.
+  // The always-on flicker detector (flickerLog.ts): on the shared page host its batches are the
+  // `diag.flicker` op, on the old host the pane's own WebKit handler takes them.
+  startFlickerLog(window, pageHostClient() ? pageHostFlickerSend() : undefined);
   createRoot(root).render(
     <UiProvider container={root} popupHost={popupHost}>
       <PaneBoundary onRetry={() => window.location.reload()}>

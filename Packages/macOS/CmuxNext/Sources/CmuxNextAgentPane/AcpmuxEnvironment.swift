@@ -30,7 +30,7 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     /// Non-secret Computer Use launch configuration for this daemon. The v2
     /// endpoint directory is allowed; legacy socket tokens are withheld.
     public var computerUse: [String: String] = [:]
-    /// Whether the daemon this app spawns gets ``offerToolsKey`` (`1`): its local sessions then get
+    /// Whether the daemon this app spawns gets ``offerToolsKey`` `1` rather than `0`: its local sessions then get
     /// the cmux-sessions MCP server (`offer_session`), whatever the harness. On while suggested tasks
     /// are on (``AgentPaneSuggestedTasks``); ``AcpmuxHost`` reads it at each daemon start, so a running
     /// daemon keeps the value it started with.
@@ -84,7 +84,7 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
 
     /// Where this app writes why it could not reach the daemon: its own home's `daemon.log`, so an
     /// attached daemon's log (another app's home) gets no line from this app.
-    public var logPath: String { (ownHome ?? home).appendingPathComponent("daemon.log").path }
+    public var logPath: String { (ownHome ?? home).appending(path: "daemon.log", directoryHint: .notDirectory).path }
 
     /// Whether `ACPMUX_HOME` (`custom`) names another build's home while this build has a home of
     /// its own (`ownHome` is not `root`): the shared root (NIGHTLY's `~/.acpmux`), another
@@ -157,7 +157,7 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     }
 
     static func defaultSocketPath(home: URL, uid: UInt32) -> String {
-        let preferred = home.appendingPathComponent("acpmux.sock").path
+        let preferred = home.appending(path: "acpmux.sock", directoryHint: .notDirectory).path
         if preferred.utf8.count < 96 { return preferred }
         return shortAlias(home.path, uid: uid)
     }

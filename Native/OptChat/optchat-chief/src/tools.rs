@@ -948,9 +948,7 @@ impl Call {
                     None | Some("") => tasks,
                     Some(v) => {
                         let Some(choice) = crate::sidebar_choice::Requested::parse(v) else {
-                            return Err(format!(
-                                "spawn: no sidebar {v}; one of auto, shown, hidden"
-                            ));
+                            return Err(format!("spawn: no sidebar {v}; one of auto, user, chief"));
                         };
                         tasks
                             .into_iter()

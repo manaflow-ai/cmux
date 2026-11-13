@@ -13,7 +13,7 @@
 //! two never share a key: the transport locks only its own key and runs as
 //! before, next to a serving link.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -30,6 +30,7 @@ use serde::{Deserialize, Serialize};
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::{RwLock, watch};
 use tokio::task::{JoinHandle, JoinSet};
+use zeroize::Zeroizing;
 
 const CONNECT_BOUND: Duration = Duration::from_secs(10);
 const MAX_BRIDGES: usize = 64;
@@ -61,7 +62,20 @@ pub struct Transport {
     local: SocketAddr,
     /// This machine's WireGuard key lock, released when the transport stops.
     key: Mutex<Option<Arc<KeyHolder>>>,
+    /// What [`Self::restart`] starts the mesh again with: the service address, the
+    /// configured peers and the listener the bridge forwards to.
+    service: SocketAddr,
+    peers: Vec<WgPeer>,
+    websocket: SocketAddr,
+    /// The daemon's other users of the node key this lock guards (the hub carrier): each takes a
+    /// rotated key as [`Self::put_key`] puts it in place.
+    key_users: Mutex<Vec<KeyUser>>,
 }
+
+/// Another user of the node key: given the new private key and `write` (which makes it the
+/// machine's node key on disk), it runs `write` and takes the key, both or neither.
+pub(crate) type KeyUser =
+    Arc<dyn Fn(&[u8; 32], &mut dyn FnMut() -> Result<()>) -> Result<()> + Send + Sync>;
 
 /// Where acpmux takes the lock for its node key, beside the cmux link whose state directory is
 /// `link_dir`. The link holds the machine's lock (`state_dir`) for its whole life. When the key
@@ -192,23 +206,12 @@ impl Transport {
         let websocket = local_websocket(websocket)?;
         let local = socket.local_addr()?;
         let (_, private_key) = crate::cli::mesh_node_key::load_or_create_held(state_dir, &key)?;
-        let mesh = WgMesh::start(
-            WgMeshConfig {
-                private_key,
-                addresses: vec![InterfaceAddress {
-                    address: settings.address.ip(),
-                    prefix: host_prefix(settings.address.ip()),
-                }],
-                mtu: cmux_wg::DEFAULT_MTU,
-            },
-            socket,
-        )?;
+        let mesh = WgMesh::start(mesh_config(private_key, settings.address), socket)?;
         let mut routes = BTreeMap::new();
-        let mut identities = BTreeSet::new();
+        let mut peers: BTreeMap<[u8; 32], WgPeer> = BTreeMap::new();
         for (name, peer) in configured {
             let Some(peer) = &peer.wireguard else { continue };
             let public_key = public_key(&peer.public_key)?;
-            ensure!(identities.insert(public_key), "duplicate WireGuard peer key");
             ensure!(
                 peer.address.port() != 0
                     && peer.address.ip() != settings.address.ip()
@@ -237,7 +240,7 @@ impl Transport {
             let endpoint = *usable
                 .first()
                 .context("WireGuard endpoint has no address matching the UDP socket family")?;
-            mesh.add_peer(WgPeer {
+            let wg_peer = WgPeer {
                 public_key,
                 preshared_key: None,
                 allowed_ips: vec![IpNetwork::new(
@@ -247,9 +250,34 @@ impl Transport {
                 route: Some(endpoint.into()),
                 candidates: usable.into_iter().map(PeerCandidate::from).collect(),
                 persistent_keepalive: None,
-            })
-            .await?;
+            };
+            // Configured names may alias one host. Its cryptographic identity
+            // owns one session, with all explicitly configured addresses and
+            // endpoint candidates; adding it twice would replace that session.
+            match peers.entry(public_key) {
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    entry.insert(wg_peer);
+                }
+                std::collections::btree_map::Entry::Occupied(mut entry) => {
+                    let existing = entry.get_mut();
+                    for address in wg_peer.allowed_ips {
+                        if !existing.allowed_ips.contains(&address) {
+                            existing.allowed_ips.push(address);
+                        }
+                    }
+                    for candidate in wg_peer.candidates {
+                        if !existing.candidates.contains(&candidate) {
+                            existing.candidates.push(candidate);
+                        }
+                    }
+                }
+            }
             routes.insert(name.clone(), peer.clone());
+        }
+        let peers: Vec<_> = peers.into_values().collect();
+        for peer in &peers {
+            // The mesh still refuses an address claimed by different keys.
+            mesh.add_peer(peer.clone()).await?;
         }
         let listener = mesh.listen(settings.address.port()).await?;
         let (stop, stopped) = watch::channel(false);
@@ -261,7 +289,72 @@ impl Transport {
             bridge: Mutex::new(Some(bridge)),
             local,
             key: Mutex::new(Some(Arc::new(key))),
+            service: settings.address,
+            peers,
+            websocket,
+            key_users: Mutex::new(Vec::new()),
         }))
+    }
+
+    /// `f` with this transport's key lock, while it holds it (until [`Self::shutdown`]).
+    pub(crate) fn with_key<R>(&self, f: impl FnOnce(&KeyHolder) -> R) -> Option<R> {
+        self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_deref().map(f)
+    }
+
+    /// `user` takes every key a rekey puts in place from now on ([`Self::put_key`]).
+    #[cfg_attr(not(feature = "hub-carrier"), allow(dead_code))]
+    pub(crate) fn add_key_user(&self, user: KeyUser) {
+        self.key_users.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(user);
+    }
+
+    /// A rekey's new key in place: `write` (the key file's rename) runs inside each key user's
+    /// own rotation, so every one takes the key with the file or none does. The mesh itself
+    /// starts again with it in [`Self::restart`].
+    pub(crate) fn put_key(
+        &self,
+        private: &[u8; 32],
+        write: &mut dyn FnMut() -> Result<()>,
+    ) -> Result<()> {
+        fn nest(
+            users: &[KeyUser],
+            private: &[u8; 32],
+            write: &mut dyn FnMut() -> Result<()>,
+        ) -> Result<()> {
+            match users.split_first() {
+                None => write(),
+                Some((user, rest)) => user(private, &mut || nest(rest, private, &mut *write)),
+            }
+        }
+        let users =
+            self.key_users.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        nest(&users, private, write)
+    }
+
+    /// Start the mesh again with `private_key` on the same UDP port, peers and service
+    /// address: what a rekey (`machine_tunnel.rs`) does once the new key is on disk. Open
+    /// tunnel streams and bridges end; peers handshake again with the new key.
+    pub(crate) async fn restart(&self, private_key: Zeroizing<[u8; 32]>) -> Result<()> {
+        let mut mesh = self.mesh.write().await;
+        ensure!(!*self.stop.borrow() && mesh.is_some(), "WireGuard transport stopped");
+        let old_bridge =
+            self.bridge.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+        if let Some(old_bridge) = old_bridge {
+            old_bridge.abort();
+            let _ = old_bridge.await;
+        }
+        if let Some(old) = mesh.take() {
+            old.shutdown().await;
+        }
+        let socket = UdpSocket::bind(self.local).await.context("bind WireGuard UDP again")?;
+        let fresh = WgMesh::start(mesh_config(private_key, self.service), socket)?;
+        for peer in &self.peers {
+            fresh.add_peer(peer.clone()).await?;
+        }
+        let listener = fresh.listen(self.service.port()).await?;
+        let task = tokio::spawn(bridge(listener, self.websocket, self.stop.subscribe()));
+        *self.bridge.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(task);
+        *mesh = Some(fresh);
+        Ok(())
     }
 
     /// This machine's WireGuard key lock while the transport runs: the daemon's other user of
@@ -327,6 +420,17 @@ impl Drop for Transport {
         {
             task.abort();
         }
+    }
+}
+
+fn mesh_config(private_key: Zeroizing<[u8; 32]>, service: SocketAddr) -> WgMeshConfig {
+    WgMeshConfig {
+        private_key,
+        addresses: vec![InterfaceAddress {
+            address: service.ip(),
+            prefix: host_prefix(service.ip()),
+        }],
+        mtu: cmux_wg::DEFAULT_MTU,
     }
 }
 

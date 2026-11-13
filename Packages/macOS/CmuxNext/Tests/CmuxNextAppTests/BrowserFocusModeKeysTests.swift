@@ -31,6 +31,7 @@ import Testing
         Key(name: "Cmd-T", characters: "t", keyCode: 17),
         Key(name: "Cmd-W", characters: "w", keyCode: 13),
         Key(name: "Cmd-D", characters: "d", keyCode: 2),
+        Key(name: "Cmd-B", characters: "b", keyCode: 11),
     ] + zip(1...9, [18, 19, 20, 21, 23, 22, 26, 28, 25] as [UInt16]).map { Key(name: "Cmd-\($0)", characters: "\($0)", keyCode: $1) }
 
     static func event(_ key: Key) throws -> NSEvent {

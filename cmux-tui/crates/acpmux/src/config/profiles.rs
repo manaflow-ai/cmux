@@ -33,8 +33,8 @@ mod env_refs;
 mod sessions;
 use env_refs::is_reference;
 pub use env_refs::{
-    file_secret, has_env_refs, has_keychain_refs, keychain_lookup, parse_security_password,
-    resolve_env_refs,
+    env_ref_names, file_secret, has_env_refs, has_keychain_refs, keychain_lookup,
+    parse_security_password, resolve_env_refs,
 };
 pub use sessions::{
     FieldSelector, SESSION_BUILTIN_ADAPTERS, SESSION_DATA_ADAPTERS, SESSION_FIELDS, SessionsResume,
@@ -486,8 +486,8 @@ fn load_cmux_json(path: &Path, out: &mut LoadedProfiles) {
         }
     };
     // cmux.json is JSON with comments; its own reader reports syntax errors,
-    // so a file this simple parser cannot read is left to it.
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(&strip_json_comments(&text)) else {
+    // so a file that does not parse is left to it.
+    let Some(value) = crate::user_settings::document(&text) else {
         return;
     };
     let Some(map) = value.pointer("/agents/harnesses") else { return };
@@ -889,50 +889,4 @@ pub fn secret_looking(key: &str) -> bool {
     ["KEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD", "CREDENTIAL", "AUTH", "COOKIE"]
         .iter()
         .any(|w| k.contains(w))
-}
-
-/// JSON with `//` and `/* */` comments, comments removed (strings kept).
-fn strip_json_comments(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut chars = text.chars().peekable();
-    let mut in_string = false;
-    while let Some(c) = chars.next() {
-        if in_string {
-            out.push(c);
-            if c == '\\' {
-                if let Some(n) = chars.next() {
-                    out.push(n);
-                }
-            } else if c == '"' {
-                in_string = false;
-            }
-            continue;
-        }
-        match (c, chars.peek()) {
-            ('"', _) => {
-                in_string = true;
-                out.push(c);
-            }
-            ('/', Some('/')) => {
-                for n in chars.by_ref() {
-                    if n == '\n' {
-                        out.push('\n');
-                        break;
-                    }
-                }
-            }
-            ('/', Some('*')) => {
-                chars.next();
-                let mut prev = ' ';
-                for n in chars.by_ref() {
-                    if prev == '*' && n == '/' {
-                        break;
-                    }
-                    prev = n;
-                }
-            }
-            _ => out.push(c),
-        }
-    }
-    out
 }

@@ -16,13 +16,17 @@ public nonisolated struct MenuBarMenuState: Sendable, Hashable {
         public var lines: [String]
         /// The selected team's name; its row opens the team picker.
         public var team: String?
+        /// The selected team's icon: a person for the person's own team, people for a shared one.
+        public var teamSymbol: String
 
         /// - Parameters:
         ///   - lines: Who is signed in, top to bottom.
         ///   - team: The selected team, nil without one.
-        public init(lines: [String], team: String? = nil) {
+        ///   - teamSymbol: The team row's SF Symbol (the account menu's and Switch Active Team's).
+        public init(lines: [String], team: String? = nil, teamSymbol: String = "person.2") {
             self.lines = lines
             self.team = team
+            self.teamSymbol = teamSymbol
         }
     }
 
@@ -90,9 +94,13 @@ public nonisolated struct MenuBarMenuState: Sendable, Hashable {
     public struct KeepingAwake: Sendable, Hashable {
         /// Terminal commands that keep it awake (`sessions.keepAwakeForCommands`); 0 hides their line.
         public var commands: Int
+        /// The setting behind the hold (`sessions.keepAwake`, `phone.keepAwake`), which the line
+        /// opens; nil (the Keep Mac Awake action alone) leaves it a plain line.
+        public var setting: String?
 
-        public init(commands: Int = 0) {
+        public init(commands: Int = 0, setting: String? = nil) {
             self.commands = commands
+            self.setting = setting
         }
     }
 

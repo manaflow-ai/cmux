@@ -68,6 +68,8 @@ public actor DaemonConnection {
     /// The ready connection's `client-hello` `user_origin_allowed` (`HandshakeLines.Replies`); false when not ready.
     public var userOriginAllowed: Bool { if case .ready(let ready) = phase { ready.userOriginAllowed } else { false } }
     public private(set) var endpoint: DaemonEndpoint?
+    /// Workspaces the next first-terminal request makes too (``makesWorkspace(with:)``), by key.
+    var workspacesToMake: [WorkspaceKey: NewTerminalWorkspace] = [:]
     /// Quiet handoff (`DaemonConnection+QuietHandoff`): requests in flight, the waits for none, and
     /// the requests held while a handoff runs (nil: none runs).
     var inFlight = 0
@@ -142,6 +144,13 @@ public actor DaemonConnection {
         continuation.finish()
     }
 
+    /// Drops the current socket only (app health's restart of a connection that stopped answering): the
+    /// close reaches ``transportClosed(serial:reason:)``, which reconnects. Unlike ``close()``, it never
+    /// stops the reconnect or finishes `events`.
+    public func dropTransport() {
+        if case .ready(let ready) = phase { ready.transport.close() }
+    }
+
     /// Also waits for an in-flight endpoint/reconnect attempt to finish before its owner is reaped.
     public func closeAndWait() async {
         let connect = connectTask
@@ -211,8 +220,15 @@ public actor DaemonConnection {
     }
 
     public func request<R: DaemonRequest>(_ request: R, timeout: Duration?) async throws -> R.Response {
+        try await self.request(request, timeout: timeout, on: nil)
+    }
+
+    /// `request` on the transport of connection `serial` (``DaemonEventEnvelope/connectionSerial``) only, when given:
+    /// a write its caller checked against that connection's tree (a surface it names) fails as not connected once
+    /// another transport, maybe to a daemon that numbers surfaces anew, took its place.
+    func request<R: DaemonRequest>(_ request: R, timeout: Duration?, on serial: UInt64?) async throws -> R.Response {
         await waitOutHandoff()
-        guard let ready else { throw DaemonError.notConnected }
+        guard let ready, serial.map({ $0 == ready.serial }) ?? true else { throw DaemonError.notConnected }
         requestStarted()
         defer { requestEnded() }
         try R.requireServed(by: identity)
@@ -221,7 +237,12 @@ public actor DaemonConnection {
             response = try await Self.perform(request, on: ready.transport, timeout: timeout)
         } catch let refused as PaneNotReady {
             throw reported(refused)
+        } catch {
+            // App health: a request the daemon left unanswered (a terminal start's own deadline is not the daemon's health).
+            if case DaemonError.timedOut = error, !(R.self is any TerminalSpawningRequest.Type) { configuration.health?.noteRequest(timedOut: true) }
+            throw error
         }
+        configuration.health?.noteRequest(timedOut: false)
         DaemonCommandScope.noteCreated(by: request, response: response)
         return response
     }
@@ -297,7 +318,8 @@ public actor DaemonConnection {
         do {
             let endpoint = try await endpointProvider()
             DaemonLaunchTimings.shared.mark("daemon.endpoint_resolved")
-            let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge, latency: configuration.requestLatency)
+            let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge, latency: configuration.requestLatency,
+                                              slowLog: configuration.slowRequestLog)
             opened = transport
             DaemonLaunchTimings.shared.mark("daemon.socket_connected")
             let gate = EventGate()

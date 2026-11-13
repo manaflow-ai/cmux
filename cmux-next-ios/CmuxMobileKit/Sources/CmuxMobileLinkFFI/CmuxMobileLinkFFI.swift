@@ -2604,6 +2604,97 @@ public func FfiConverterTypeBrowserStats_lower(_ value: BrowserStats) -> RustBuf
 
 
 /**
+ * What to do on this launch.
+ */
+public struct ClassicCleanupPlan: Equatable, Hashable {
+    /**
+     * Classic Keychain items to delete, sorted.
+     */
+    public var keychainDeletes: [KeychainDelete]
+    /**
+     * Classic UserDefaults keys to remove, sorted.
+     */
+    public var defaultsDeletes: [String]
+    /**
+     * Items and keys left alone: NEXT's own, or not known to be classic.
+     */
+    public var kept: UInt32
+    /**
+     * Whether to record that the cleanup ran. False only when the Keychain could
+     * not be read: the next launch tries again.
+     */
+    public var markDone: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Classic Keychain items to delete, sorted.
+         */keychainDeletes: [KeychainDelete], 
+        /**
+         * Classic UserDefaults keys to remove, sorted.
+         */defaultsDeletes: [String], 
+        /**
+         * Items and keys left alone: NEXT's own, or not known to be classic.
+         */kept: UInt32, 
+        /**
+         * Whether to record that the cleanup ran. False only when the Keychain could
+         * not be read: the next launch tries again.
+         */markDone: Bool) {
+        self.keychainDeletes = keychainDeletes
+        self.defaultsDeletes = defaultsDeletes
+        self.kept = kept
+        self.markDone = markDone
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ClassicCleanupPlan: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeClassicCleanupPlan: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ClassicCleanupPlan {
+        return
+            try ClassicCleanupPlan(
+                keychainDeletes: FfiConverterSequenceTypeKeychainDelete.read(from: &buf), 
+                defaultsDeletes: FfiConverterSequenceString.read(from: &buf), 
+                kept: FfiConverterUInt32.read(from: &buf), 
+                markDone: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ClassicCleanupPlan, into buf: inout [UInt8]) {
+        FfiConverterSequenceTypeKeychainDelete.write(value.keychainDeletes, into: &buf)
+        FfiConverterSequenceString.write(value.defaultsDeletes, into: &buf)
+        FfiConverterUInt32.write(value.kept, into: &buf)
+        FfiConverterBool.write(value.markDone, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeClassicCleanupPlan_lift(_ buf: RustBuffer) throws -> ClassicCleanupPlan {
+    return try FfiConverterTypeClassicCleanupPlan.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeClassicCleanupPlan_lower(_ value: ClassicCleanupPlan) -> RustBuffer {
+    return FfiConverterTypeClassicCleanupPlan.lower(value)
+}
+
+
+/**
  * Dial options beyond the transport. Every field has a default, so
  * `ConnectOptions()` in Swift is the plain dial.
  */
@@ -2718,6 +2809,121 @@ public func FfiConverterTypeConnectOptions_lift(_ buf: RustBuffer) throws -> Con
 #endif
 public func FfiConverterTypeConnectOptions_lower(_ value: ConnectOptions) -> RustBuffer {
     return FfiConverterTypeConnectOptions.lower(value)
+}
+
+
+/**
+ * A Keychain delete: the service, and the account when the item had one.
+ */
+public struct KeychainDelete: Equatable, Hashable {
+    public var service: String
+    public var account: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(service: String, account: String?) {
+        self.service = service
+        self.account = account
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension KeychainDelete: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeKeychainDelete: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> KeychainDelete {
+        return
+            try KeychainDelete(
+                service: FfiConverterString.read(from: &buf), 
+                account: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: KeychainDelete, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.service, into: &buf)
+        FfiConverterOptionString.write(value.account, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeKeychainDelete_lift(_ buf: RustBuffer) throws -> KeychainDelete {
+    return try FfiConverterTypeKeychainDelete.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeKeychainDelete_lower(_ value: KeychainDelete) -> RustBuffer {
+    return FfiConverterTypeKeychainDelete.lower(value)
+}
+
+
+/**
+ * One generic-password item as the Keychain listed it. Either attribute may be
+ * missing or not UTF-8 (Swift passes `None` then).
+ */
+public struct KeychainLeftover: Equatable, Hashable {
+    public var service: String?
+    public var account: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(service: String?, account: String?) {
+        self.service = service
+        self.account = account
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension KeychainLeftover: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeKeychainLeftover: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> KeychainLeftover {
+        return
+            try KeychainLeftover(
+                service: FfiConverterOptionString.read(from: &buf), 
+                account: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: KeychainLeftover, into buf: inout [UInt8]) {
+        FfiConverterOptionString.write(value.service, into: &buf)
+        FfiConverterOptionString.write(value.account, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeKeychainLeftover_lift(_ buf: RustBuffer) throws -> KeychainLeftover {
+    return try FfiConverterTypeKeychainLeftover.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeKeychainLeftover_lower(_ value: KeychainLeftover) -> RustBuffer {
+    return FfiConverterTypeKeychainLeftover.lower(value)
 }
 
 
@@ -3606,6 +3812,30 @@ fileprivate struct FfiConverterOptionInt64: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
+    typealias SwiftType = String?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterString.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterString.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeLinkObserver: FfiConverterRustBuffer {
     typealias SwiftType = LinkObserver?
 
@@ -3648,6 +3878,105 @@ fileprivate struct FfiConverterOptionTypePredictionLayout: FfiConverterRustBuffe
         case 1: return try FfiConverterTypePredictionLayout.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionSequenceTypeKeychainLeftover: FfiConverterRustBuffer {
+    typealias SwiftType = [KeychainLeftover]?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterSequenceTypeKeychainLeftover.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterSequenceTypeKeychainLeftover.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
+    typealias SwiftType = [String]
+
+    public static func write(_ value: [String], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterString.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [String] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [String]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterString.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeKeychainDelete: FfiConverterRustBuffer {
+    typealias SwiftType = [KeychainDelete]
+
+    public static func write(_ value: [KeychainDelete], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeKeychainDelete.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [KeychainDelete] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [KeychainDelete]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeKeychainDelete.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeKeychainLeftover: FfiConverterRustBuffer {
+    typealias SwiftType = [KeychainLeftover]
+
+    public static func write(_ value: [KeychainLeftover], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeKeychainLeftover.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [KeychainLeftover] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [KeychainLeftover]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeKeychainLeftover.read(from: &buf))
+        }
+        return seq
     }
 }
 
@@ -3869,6 +4198,50 @@ public func setCellularPath(cellular: Bool)  {try! rustCall() {
     )
 }
 }
+/**
+ * Whether this launch should run the cleanup: the marker is missing, not a
+ * number, or from an older version of the rules.
+ */
+public func classicCleanupDue(marker: Int64?) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_classic_cleanup_due(
+        FfiConverterOptionInt64.lower(marker),$0
+    )
+})
+}
+/**
+ * The marker key, for Swift.
+ */
+public func classicCleanupMarkerKey() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_classic_cleanup_marker_key($0
+    )
+})
+}
+/**
+ * The plan for this launch. `bundle_id` is the running app's
+ * (`Bundle.main.bundleIdentifier`); `keychain` is every generic-password item
+ * the app can see, or `None` when the Keychain could not be read;
+ * `defaults_keys` are the keys of the app's own UserDefaults domain.
+ */
+public func classicCleanupPlan(bundleId: String, keychain: [KeychainLeftover]?, defaultsKeys: [String]) -> ClassicCleanupPlan  {
+    return try!  FfiConverterTypeClassicCleanupPlan_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_classic_cleanup_plan(
+        FfiConverterString.lower(bundleId),
+        FfiConverterOptionSequenceTypeKeychainLeftover.lower(keychain),
+        FfiConverterSequenceString.lower(defaultsKeys),$0
+    )
+})
+}
+/**
+ * The marker value to store once a plan with `mark_done` ran.
+ */
+public func classicCleanupVersion() -> Int64  {
+    return try!  FfiConverterInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_classic_cleanup_version($0
+    )
+})
+}
 
 private enum InitializationResult {
     case ok
@@ -3904,6 +4277,18 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_set_cellular_path() != 64638) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_classic_cleanup_due() != 41191) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_classic_cleanup_marker_key() != 43577) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_classic_cleanup_plan() != 63419) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_classic_cleanup_version() != 33020) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_channelhandle_close() != 40361) {

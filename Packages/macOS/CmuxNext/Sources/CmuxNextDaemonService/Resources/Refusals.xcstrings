@@ -8785,6 +8785,268 @@
         }
       }
     },
+    "handlers.refusal.noDivider": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "that divider is no longer on the screen"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その区切り線は画面にもうありません"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يعد هذا الفاصل على الشاشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "taj razdjelnik više nije na ekranu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "den skillelinje er ikke længere på skærmen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "diese Trennlinie ist nicht mehr auf dem Bildschirm"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ese divisor ya no está en la pantalla"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ce séparateur n’est plus à l’écran"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "quel divisore non è più sullo schermo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្ទាត់ខណ្ឌនោះលែងនៅលើអេក្រង់ទៀតហើយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "그 구분선은 더 이상 화면에 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "den skillelinjen er ikke lenger på skjermen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ten separator nie jest już na ekranie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "esse divisor não está mais na tela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "этого разделителя больше нет на экране"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เส้นแบ่งนั้นไม่อยู่บนหน้าจอแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "bu ayırıcı artık ekranda değil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "цього роздільника більше немає на екрані"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "đường chia đó không còn trên màn hình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "该分隔线已不在屏幕上"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "該分隔線已不在螢幕上"
+          }
+        }
+      }
+    },
+    "handlers.refusal.dividerBrowser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a browser can’t open between these panes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このペインの間にブラウザを開けません"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن فتح متصفح بين هذين الجزأين"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "preglednik se ne može otvoriti između ovih okna"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "en browser kan ikke åbne mellem disse ruder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "zwischen diesen Bereichen kann kein Browser geöffnet werden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "no se puede abrir un navegador entre estos paneles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "impossible d’ouvrir un navigateur entre ces panneaux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "impossibile aprire un browser tra questi riquadri"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចបើកកម្មវិធីរុករកនៅចន្លោះផ្ទាំងទាំងនេះបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 창 사이에 브라우저를 열 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "en nettleser kan ikke åpnes mellom disse rutene"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "nie można otworzyć przeglądarki między tymi panelami"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "não é possível abrir um navegador entre estes painéis"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "между этими панелями нельзя открыть браузер"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถเปิดเบราว์เซอร์ระหว่างบานหน้าต่างเหล่านี้ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "bu bölmeler arasında tarayıcı açılamıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "між цими панелями не можна відкрити браузер"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "không thể mở trình duyệt giữa các ngăn này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法在这些窗格之间打开浏览器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法在這些窗格之間開啟瀏覽器"
+          }
+        }
+      }
+    },
     "handlers.refusal.screenHasOnePane": {
       "extractionState": "manual",
       "localizations": {
@@ -25823,6 +26085,138 @@
         }
       }
     },
+    "handlers.refusal.agentRemoteStart.untrustedSource": {
+      "comment": "A Cloud start from a folder this Mac does not trust: its copy on the Cloud machine is trusted only when this Mac trusts the folder. %1$@ is the folder on this Mac, %2$@ the same folder as one shell word.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac doesn't trust %1$@, so its copy on a Cloud machine isn't trusted either. Trust it on this Mac (Trust Folder in a chat in that folder, or `cmux setup trust %2$@`), then start the chat again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac は %1$@ を信頼していないため、Cloud マシン上のそのコピーも信頼されません。この Mac で信頼してから（そのフォルダのチャットで「フォルダを信頼」、または `cmux setup trust %2$@`）、チャットをもう一度開始してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هذا الـ Mac لا يثق في %1$@، لذا فإن نسخته على جهاز Cloud ليست موثوقة أيضًا. اجعله موثوقًا على هذا الـ Mac (Trust Folder في دردشة داخل ذلك المجلد، أو `cmux setup trust %2$@`)، ثم ابدأ الدردشة مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj Mac ne vjeruje folderu %1$@, pa ni njegova kopija na Cloud mašini nije pouzdana. Označite ga kao pouzdan na ovom Macu (Trust Folder u chatu u tom folderu ili `cmux setup trust %2$@`), pa ponovo pokrenite chat."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne Mac betror ikke %1$@, så kopien på en Cloud-maskine er heller ikke betroet. Betro mappen på denne Mac (Trust Folder i en chat i mappen, eller `cmux setup trust %2$@`), og start chatten igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Mac vertraut %1$@ nicht, daher ist auch die Kopie auf einem Cloud-Rechner nicht vertrauenswürdig. Vertraue dem Ordner auf diesem Mac (Trust Folder in einem Chat in diesem Ordner oder `cmux setup trust %2$@`) und starte den Chat dann erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este Mac no confía en %1$@, así que su copia en una máquina de Cloud tampoco es de confianza. Confía en ella en este Mac (Trust Folder en un chat de esa carpeta o `cmux setup trust %2$@`) y vuelve a iniciar el chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce Mac n’approuve pas %1$@, donc sa copie sur une machine Cloud n’est pas approuvée non plus. Approuvez-le sur ce Mac (Trust Folder dans une discussion de ce dossier, ou `cmux setup trust %2$@`), puis relancez la discussion."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo Mac non considera attendibile %1$@, quindi nemmeno la sua copia su una macchina Cloud lo è. Rendilo attendibile su questo Mac (Trust Folder in una chat in quella cartella, oppure `cmux setup trust %2$@`), poi avvia di nuovo la chat."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac នេះមិនទុកចិត្ត %1$@ ទេ ដូច្នេះច្បាប់ចម្លងរបស់វានៅលើម៉ាស៊ីន Cloud ក៏មិនត្រូវបានទុកចិត្តដែរ។ ទុកចិត្តវានៅលើ Mac នេះ (Trust Folder ក្នុងការជជែកក្នុងថតនោះ ឬ `cmux setup trust %2$@`) រួចចាប់ផ្ដើមការជជែកម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Mac은 %1$@을(를) 신뢰하지 않으므로 Cloud 머신에 있는 사본도 신뢰되지 않습니다. 이 Mac에서 신뢰한 다음(해당 폴더의 채팅에서 Trust Folder 또는 `cmux setup trust %2$@`) 채팅을 다시 시작하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne Macen stoler ikke på %1$@, så kopien på en Cloud-maskin er heller ikke klarert. Stol på mappen på denne Macen (Trust Folder i en chat i mappen, eller `cmux setup trust %2$@`), og start chatten på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten Mac nie ufa folderowi %1$@, więc jego kopia na maszynie Cloud też nie jest zaufana. Oznacz go jako zaufany na tym Macu (Trust Folder w czacie w tym folderze lub `cmux setup trust %2$@`), a potem uruchom czat ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este Mac não confia em %1$@, então a cópia dela em uma máquina do Cloud também não é confiável. Confie nela neste Mac (Trust Folder em um chat nessa pasta ou `cmux setup trust %2$@`) e inicie o chat novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот Mac не доверяет папке %1$@, поэтому её копия на машине Cloud тоже не доверенная. Доверьтесь ей на этом Mac (Trust Folder в чате в этой папке или `cmux setup trust %2$@`), затем снова запустите чат."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac เครื่องนี้ไม่เชื่อถือ %1$@ สำเนาบนเครื่อง Cloud จึงไม่ได้รับความเชื่อถือด้วย ให้เชื่อถือบน Mac เครื่องนี้ (Trust Folder ในแชทในโฟลเดอร์นั้น หรือ `cmux setup trust %2$@`) แล้วเริ่มแชทอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu Mac %1$@ klasörüne güvenmiyor, bu yüzden bir Cloud makinesindeki kopyası da güvenilir değil. Bu Mac'te ona güvenin (o klasördeki bir sohbette Trust Folder veya `cmux setup trust %2$@`), sonra sohbeti yeniden başlatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей Mac не довіряє теці %1$@, тож її копія на машині Cloud теж не довірена. Довіртеся їй на цьому Mac (Trust Folder у чаті в цій теці або `cmux setup trust %2$@`), а потім знову запустіть чат."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac này không tin cậy %1$@, nên bản sao của nó trên máy Cloud cũng không được tin cậy. Hãy tin cậy nó trên Mac này (Trust Folder trong một cuộc trò chuyện ở thư mục đó, hoặc `cmux setup trust %2$@`), rồi bắt đầu lại cuộc trò chuyện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "这台 Mac 不信任 %1$@，所以它在 Cloud 机器上的副本也不受信任。请先在这台 Mac 上信任它（在该文件夹的聊天中点 Trust Folder，或运行 `cmux setup trust %2$@`），然后重新开始聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "這台 Mac 不信任 %1$@，所以它在 Cloud 機器上的副本也不受信任。請先在這台 Mac 上信任它（在該資料夾的聊天中點 Trust Folder，或執行 `cmux setup trust %2$@`），然後重新開始聊天。"
+          }
+        }
+      }
+    },
     "handlers.refusal.agentRemoteStart.harnessRefused": {
       "extractionState": "manual",
       "localizations": {
@@ -33952,6 +34346,402 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "沒有其他可加入此標籤頁的標籤頁群組。"
+          }
+        }
+      }
+    },
+    "refusal.daemon.restoringSessions": {
+      "comment": "The session owner is restoring while the app waits for it (launch window, sidebar). %@ is how long so far, such as 4m 12s.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restoring sessions… %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جارٍ استعادة الجلسات… %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vraćanje sesija… %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gendanner sessioner… %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sitzungen werden wiederhergestellt … %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Restaurando sesiones… %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Restauration des sessions… %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ripristino delle sessioni… %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "セッションを復元中… %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងស្ដារវគ្គ… %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "세션 복원 중… %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gjenoppretter økter … %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przywracanie sesji… %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Restaurando sessões… %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Восстановление сеансов… %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังกู้คืนเซสชัน… %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oturumlar geri yükleniyor… %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відновлення сеансів… %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang khôi phục phiên… %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在恢复会话… %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在還原工作階段… %@"
+          }
+        }
+      }
+    },
+    "refusal.daemon.pendingOpenWaits": {
+      "comment": "Toast after a chat was clicked while the sessions restore: it opens once they are ready.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opens when your sessions are restored."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "セッションの復元が終わると開きます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سيُفتح عند استعادة جلساتك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvara se kada se vaše sesije vrate."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbner, når dine sessioner er gendannet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wird geöffnet, sobald deine Sitzungen wiederhergestellt sind."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se abrirá cuando se restauren tus sesiones."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "S’ouvrira une fois vos sessions restaurées."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Si aprirà quando le sessioni saranno ripristinate."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នឹងបើកនៅពេលវគ្គរបស់អ្នកត្រូវបានស្ដារ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "세션이 복원되면 열립니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpnes når øktene dine er gjenopprettet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otworzy się po przywróceniu sesji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abre quando suas sessões forem restauradas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Откроется, когда сеансы будут восстановлены."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "จะเปิดเมื่อกู้คืนเซสชันของคุณเสร็จ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oturumlarınız geri yüklendiğinde açılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкриється, коли сеанси буде відновлено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sẽ mở khi các phiên của bạn được khôi phục."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "会话恢复后将打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "工作階段還原後將開啟。"
+          }
+        }
+      }
+    },
+    "refusal.daemon.pendingOpenDropped": {
+      "comment": "Toast when a chat clicked during a restore no longer waits to open (its window closed, or 10 minutes passed).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopped waiting to open the chat you clicked."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "クリックしたチャットを開く待機を中止しました。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "توقّف انتظار فتح الدردشة التي نقرت عليها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prestalo je čekanje na otvaranje razgovora koji ste kliknuli."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter ikke længere på at åbne den chat, du klikkede på."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Warten auf den angeklickten Chat wurde beendet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se dejó de esperar para abrir el chat en el que hiciste clic."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’attente de l’ouverture de la discussion cliquée a été arrêtée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non si attende più di aprire la chat su cui hai fatto clic."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានឈប់រង់ចាំបើកការជជែកដែលអ្នកបានចុច។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "클릭한 채팅 열기 대기를 중단했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sluttet å vente på å åpne chatten du klikket på."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przestano czekać na otwarcie klikniętego czatu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Parou de esperar para abrir o chat em que você clicou."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ожидание открытия выбранного чата прекращено."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หยุดรอเปิดแชทที่คุณคลิกแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tıkladığınız sohbeti açmak için beklemek durduruldu."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Очікування відкриття вибраного чату припинено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã ngừng chờ mở cuộc trò chuyện bạn đã nhấp."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已停止等待打开你点击的聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已停止等待開啟你點選的聊天。"
           }
         }
       }

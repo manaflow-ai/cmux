@@ -433,6 +433,12 @@ prompts the cut turn held (`hub/auto_resume.rs`). While it waits the session row
 retry: the failed prompt goes again as its next `~resume-<n>` (a continuation when the turn had
 output, joined agent messages or hidden context); `retry.busy` while a turn or a retry runs,
 `retry.stopped` when Stop comes before it starts, `retry.nothing_failed` when nothing failed.
+On a sub-session whose last turn was stopped (`cancelled`; capability `subsession-resume-v1`)
+it continues it instead, in the same chat and agent session: one new turn told to carry on from
+where it stopped (provenance `{kind: "auto_resume", reason: "stopped", promptId, turnId, manual:
+true}`, prompt id `stopped-resume-<ms>`), never queued (`retry.busy`), answered once it starts
+(`hub/subsession_resume.rs`). A top-level chat's stopped turn still says `retry.nothing_failed`.
+A parent's Stop stops only the parent's own turn; its sub-sessions run on.
 With `subagentId` (`acpmux retry NAME --subagent ID`, `retry_session {subagent}`; capability
 `subagent-retry-v1`) it resumes that failed subagent instead, by its id or agent id: a waiting
 automatic retry fires now, else one more goes, as the prompt the automatic one sends
@@ -592,7 +598,8 @@ pi and their forks show their catalogs before any session exists; Claude uses a 
 table.
 
 ```
-Enter        send prompt        Ctrl-s   steer, or queue when the agent cannot steer
+Enter        send prompt; steers a running turn when the agent steers
+Ctrl-s       queue the prompt for after the running turn
 Ctrl-t / n   new session tab    Alt-n     new session tab    Ctrl-g   cancel turn
 Cmd-Ctrl-h/j/k/l  move focus like cmux panes: h sidebar, l content, k transcript, j composer
                   (Alt-h/j/k/l on terminals that do not deliver Cmd)
@@ -1264,7 +1271,22 @@ own environment lacks. Every child: PATH (login PATH first), MISE_*, ASDF_*, NVM
 BUN_INSTALL, HTTPS_PROXY, HTTP_PROXY, ALL_PROXY, NO_PROXY (both cases),
 NODE_EXTRA_CA_CERTS, SSL_CERT_FILE, SSL_CERT_DIR. Claude harnesses also: ANTHROPIC_*, CLAUDE_*,
 DISABLE_*, *_TELEMETRY; AWS_* only with the person's own CLAUDE_CODE_USE_BEDROCK (a profile's switch unlocks only AWS_PROFILE, AWS_REGION, AWS_DEFAULT_REGION, AWS_CONFIG_FILE, AWS_SHARED_CREDENTIALS_FILE); GOOGLE_*, CLOUDSDK_*, GCLOUD_*, CLOUD_ML_REGION, VERTEX_REGION_* (non-secret ones only from a profile's switch) only
-with CLAUDE_CODE_USE_VERTEX. Codex harnesses also: OPENAI_*, CODEX_*. Nothing else (GITHUB_TOKEN,
+with CLAUDE_CODE_USE_VERTEX. Codex harnesses also: OPENAI_*, CODEX_*, AZURE_OPENAI_API_KEY. Gemini: GEMINI_*, GOOGLE_*.
+Grok: XAI_API_KEY. DeepSeek Harness: DEEPSEEK_API_KEY.
+Muse: MUSE_*, META_*. OpenCode, OpenCode v2, pi, omp, Prime, cmux Harness and Hermes also: a fixed
+list of provider keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY, GROQ_API_KEY,
+DEEPSEEK_API_KEY, HF_TOKEN and the rest of `PROVIDER_KEYS` in `src/login_env.rs`, plus
+ANTHROPIC_BASE_URL and OPENAI_BASE_URL), exact names only; the cache keeps only the keys' names, so after a cached start such a harness waits
+for the shell (at most 3 s) while a key's value is missing. A plain base URL is cached by value; one
+that carries a credential (userinfo, or a key or token in its query) is cached by name only, and
+Claude, Codex and these harnesses wait for it the same way unless their profile sets it. So does a
+profile's `${env:X}` reference to a name the cache lacks. If the shell is slower than the wait, a
+missing base URL or reference refuses the start, naming the variable, rather than running on the
+default endpoint. Only a name the child's final env plan takes counts: never one its route unsets
+(`codex-login`) or a remote-origin launch, whose env is cleared. Every spawn path builds its command
+through the same check (`agent::harness_command_ready`, chat forks included; the sign-in check and
+the live-model probe call `login_env::await_child_env` on their own command). The same list keeps these keys in the
+daemon's own environment from Claude, Codex and every other agent (`agent/foreign_login.rs`). Nothing else (GITHUB_TOKEN,
 GH_TOKEN, NPM_TOKEN, ...) unless `loginEnvAllow` in config.json names it (exact names or `PREFIX_*`;
 default empty), or (for local launches only, never a remote-origin one) it is a machine declaration below or a name delivered to this machine in `~/.config/cmux/machine-secrets.env`
 (`cmux cloud deliver-secrets`; its value is never cached). Local child launches also read
@@ -1350,7 +1372,13 @@ When a send (with or without `--no-wait`) is refused because its target names no
 no peer lists it, the CLI runs `my-relay send SESSION -` with the message on stdin and
 `ACPMUX_FROM` set to the sender it would have named (`--from`, `ACPMUX_FROM`, or the session it
 runs in), prints the command's stdout (say, its delivery id) and exits with its status, so a
-refusal there is this send's failure. `--json` prints
+refusal there is this send's failure. A Claude Code subagent's send (the Bash hook's mark, or the
+MCP `send` call's tool use id) also sets `ACPMUX_FROM_SUBAGENT` (`TYPE:ID`) and
+`ACPMUX_FROM_LABEL` (`LEAD's TYPE subagent ID`, the name cut to one line of at most 64 bytes):
+labels for the relay to show. Both are unverified claims: nothing on the far side can check them
+yet. A Codex subagent's relayed send has no label (the daemon finds a Codex subagent by its thread
+after the relay choice is made). `ACPMUX_FROM` stays the lead's name, the reply address, so the
+far side's answer reaches the lead. `--json` prints
 `{"target", "status": "relayed"|"refused", "relayed", "exit", "output"}`. A target here or on a
 peer, a peer that is down included, is never relayed, and the relay carries text only: a send with
 `--attach` to such a target is refused. Unset (the default), nothing changes.
@@ -1556,7 +1584,7 @@ Extensions:
 | `_acpmux/media_open {sessionId, path}` | Open an image or video the chat names, on the machine that runs it, and answer `{handle, size, mimeType, identity}`. Relative paths start in the chat folder; absolute paths may be inside that folder, `/tmp`, the user's home, or the chat uploads. Every component is opened with `O_NOFOLLOW`, the opened file must be a regular file with one link, inside those roots and not a dot name, key file or `~/Library` path, and its bytes must be png, jpeg, gif or webp (at most 10 MiB) or mp4, mov, m4v or webm (at most 200 MiB). At most 8 handles per connection, each closed after 2 minutes idle and all at disconnect. A peer chat goes to the peer only when its `initialize` features list `mediaRead` (else `mediaRead.unsupported`); never from a Web connection (`mediaRead.remote`). |
 | `_acpmux/media_range {sessionId, handle, offset, length}` | Read 1 to 6 MiB of an open handle and answer `{offset, size, identity, data}` (base64), `size` and `identity` repeating the open. A file changed since the open (device, inode, size or mtime) is refused (`media.changed`) and its handle closed; the range that reaches the end closes it too. |
 | `_acpmux/peers`, `_acpmux/peer_add {name, url, token}`, `_acpmux/peer_remove {name}` | Mirror remote daemons. |
-| `_acpmux/shutdown` | Stop the daemon. |
+| `_acpmux/shutdown` | Stop the daemon. `reason` (optional) names the client's trigger; the daemon logs it with the client's executable (`a client asked this daemon to stop ... reason=...`). |
 
 Notifications to attached clients: `session/update` (standard), `_acpmux/event` (mux-internal
 records such as `user_message`, `status`, `turn_result`, `permission_request`),

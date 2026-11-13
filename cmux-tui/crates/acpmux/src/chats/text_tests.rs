@@ -134,6 +134,50 @@ fn a_query_is_answered_from_memory_once_until_the_text_changes() {
     let _ = std::fs::remove_file(&text.path);
 }
 
+/// A key typed onto the query searches only the chats the query before found; a text change, a
+/// key taken back or a word that is not inside the new ones searches every chat again.
+#[test]
+fn a_narrowing_query_searches_the_last_hits_until_the_text_changes() {
+    let text = index();
+    let said = |id: &str| match id {
+        "a" => "the deploy failed",
+        "b" => "a deep dive",
+        _ => "nothing here",
+    };
+    let chats = |c_updated: i64| vec![chat("a", 1), chat("b", 1), chat("c", c_updated)];
+    text.update(&chats(1), &|entry| Some(vec![turn("x", said(&entry.session_id))]));
+    let keys = |found: &HashMap<String, Found>| {
+        let mut keys: Vec<String> = found.keys().cloned().collect();
+        keys.sort();
+        keys
+    };
+    let at = text.scanned();
+    assert_eq!(keys(&text.search(&needle("de"))), ["codex:a", "codex:b"]);
+    assert_eq!(text.scanned() - at, 3, "the first key searches every chat");
+    let at = text.scanned();
+    assert_eq!(keys(&text.search(&needle("dep"))), ["codex:a"]);
+    assert_eq!(text.scanned() - at, 2, "the next key searches the two the first found");
+    let at = text.scanned();
+    assert_eq!(keys(&text.search(&needle("DEPLOY fail"))), ["codex:a"]);
+    assert_eq!(text.scanned() - at, 1, "a word added narrows too");
+    // A chat now says the words: the text changed, so every chat is searched again.
+    text.update(&chats(2), &|entry| {
+        let said =
+            if entry.session_id == "c" { "deploy failed again" } else { said(&entry.session_id) };
+        Some(vec![turn("x", said)])
+    });
+    let at = text.scanned();
+    assert_eq!(keys(&text.search(&needle("deploy failed"))), ["codex:a", "codex:c"]);
+    assert_eq!(text.scanned() - at, 3, "the text changed: every chat");
+    let at = text.scanned();
+    assert_eq!(keys(&text.search(&needle("de"))), ["codex:a", "codex:b", "codex:c"]);
+    assert_eq!(text.scanned() - at, 3, "a key taken back: every chat");
+    let at = text.scanned();
+    assert_eq!(keys(&text.search(&needle("dive"))), ["codex:b"]);
+    assert_eq!(text.scanned() - at, 3, "a word that does not hold the last one: every chat");
+    let _ = std::fs::remove_file(&text.path);
+}
+
 #[test]
 fn a_hit_has_a_short_snippet_around_the_words_with_their_characters() {
     let text = index();
@@ -317,4 +361,35 @@ fn search_bench() {
         took[took.len() - 1]
     );
     let _ = std::fs::remove_file(&text.path);
+}
+
+/// A save under the held home is whole or not there: its copy is written and synced beside the
+/// file, then renamed over it in the same folder. Interrupted between the two (the process ends
+/// at `config::seams::on_before_rename`), the old copy is still there, whole.
+#[test]
+fn a_held_save_interrupted_before_its_rename_leaves_the_old_copy() {
+    crate::lost_home_race_tests::isolated(
+        module_path!(),
+        "a_held_save_interrupted_before_its_rename_leaves_the_old_copy",
+        |home| {
+            let path = home.join("chat-index").join("text-v1.json");
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, "old").unwrap();
+            crate::config::hold_home();
+            let _hold = crate::config::seams::on_before_rename(|_| {
+                println!("held-before-rename");
+                std::process::exit(0);
+            });
+            let text = ChatText::new(path);
+            text.update(&[chat("a", 1)], &|_| Some(vec![turn("x", "new words")]));
+        },
+        |home, stdout| {
+            assert!(
+                stdout.contains("held-before-rename"),
+                "the save never stopped at a synced copy before its rename: {stdout}"
+            );
+            let kept = std::fs::read_to_string(home.join("chat-index").join("text-v1.json"));
+            assert_eq!(kept.unwrap(), "old", "an interrupted save changed the old copy");
+        },
+    );
 }

@@ -2,7 +2,14 @@
 import { expect, test } from "bun:test";
 import { BACKGROUND_TURN } from "./conversation/backgroundTurns";
 import { SUBAGENT_DONE } from "./subagents/subagentRows";
-import { layoutConversation, placeRows, type AcpmuxRow, type RowHeights } from "./model";
+import {
+  finalFooterId,
+  isOverlayFooter,
+  layoutConversation,
+  placeRows,
+  type AcpmuxRow,
+  type RowHeights,
+} from "./model";
 import {
   TRANSCRIPT_BLOCK_GAP,
   TRANSCRIPT_COMPOSER_GAP,
@@ -12,6 +19,8 @@ import {
   TRANSCRIPT_TURN_GAP,
   MARK_CARD,
   MARK_FOOTER_ROW,
+  MARK_FOOTER,
+  rowMark,
   MARK_MESSAGE,
   MARK_PROMPT,
   MARK_STATUS,
@@ -105,7 +114,7 @@ test("incremental placement matches fresh placement when a continuation becomes 
   ).toEqual(layoutConversation(changed, 720));
 });
 
-test("failure and Continue controls remain content; a reply's footer is a row of its own", () => {
+test("failure controls remain content; a reply's footer is a row of its own", () => {
   expect(layoutConversation([footer], 720).totalHeight).toBe(TRANSCRIPT_FOOTER_CONTROL);
   for (const fields of [{ status: "failed", error: "Retry" }, { resumable: true }])
     expect(layoutConversation([{ ...footer, ...fields }], 720).heights[0]).toBeGreaterThan(0);
@@ -149,8 +158,10 @@ test("placed gaps follow an Interface Size change, kept rows included", () => {
     expect(relaid.scale).toBe(1.25);
     expect(relaid.gaps?.[1]).toBe(30);
   } finally {
-    g.document = saved.document;
-    g.getComputedStyle = saved.getComputedStyle;
+    if (saved.document === undefined) delete g.document;
+    else g.document = saved.document;
+    if (saved.getComputedStyle === undefined) delete g.getComputedStyle;
+    else g.getComputedStyle = saved.getComputedStyle;
   }
 });
 
@@ -190,8 +201,10 @@ test("estimated grid rows follow the Interface Size", () => {
       expect(atLarger).toBeCloseTo(atOne * 1.25, 5);
     }
   } finally {
-    g.document = saved.document;
-    g.getComputedStyle = saved.getComputedStyle;
+    if (saved.document === undefined) delete g.document;
+    else g.document = saved.document;
+    if (saved.getComputedStyle === undefined) delete g.getComputedStyle;
+    else g.getComputedStyle = saved.getComputedStyle;
   }
 });
 
@@ -257,15 +270,15 @@ test("a finished work disclosure shares the activity rhythm when closed or opene
     [worked, run, answer],
   ]) {
     const layout = layoutConversation(rows, 720);
-    // The 22px activity line, 4 to its rule, then 12 to the next row, with no stack gap after it
-    // (Lucas, 2026-11-07).
-    expect(layout.heights[0]).toBe(38);
+    // The 22px activity line, 4 to its rule, then 8 to the next row, with no stack gap after it
+    // (Lucas, 2026-11-07; Leo, 2026-11-09: "we need to reduce the after").
+    expect(layout.heights[0]).toBe(34);
     expect(layout.gaps?.[1]).toBe(0);
     const replyIndex = rows.length - 1;
     // A reply right under the line takes no gap of its own; under the opened fold's rows, the run gap.
     const replyGap = rows.length === 2 ? 0 : TRANSCRIPT_RUN_GAP;
     expect(layout.gaps?.[replyIndex]).toBe(replyGap);
-    if (rows.length === 3) expect(layout.tops[1]! - layout.tops[0]!).toBe(38);
+    if (rows.length === 3) expect(layout.tops[1]! - layout.tops[0]!).toBe(34);
     const placed = placeRows(layout, () => 22);
     expect(placed.tops[replyIndex]! - placed.tops[replyIndex - 1]! - 22).toBe(replyGap);
   }
@@ -347,4 +360,28 @@ test("an edited-files card stands the run gap from the lines and prose around it
   // Toward a footer row and a prompt it keeps a step row's gaps.
   expect(transcriptGap(MARK_CARD, MARK_FOOTER_ROW)).toBe(TRANSCRIPT_FOOTER_GAP);
   expect(transcriptGap(MARK_CARD, MARK_PROMPT)).toBe(TRANSCRIPT_TURN_GAP);
+});
+
+for (const status of ["cancelled", "interrupted"])
+  test(`${status} resume metadata reserves no Continue-only footer band`, () => {
+    const stopped = row("stopped-footer", "turnSummary", { status, durationMs: 5_000, resumable: true });
+    const plain = { ...stopped, resumable: undefined };
+    expect(isOverlayFooter(stopped)).toBe(true);
+    expect(finalFooterId([stopped])).toBeUndefined();
+    expect(rowMark(stopped)).toBe(MARK_FOOTER);
+    expect(layoutConversation([stopped], 720).heights[0]).toBe(0);
+    expect(layoutConversation([stopped], 720)).toEqual(layoutConversation([plain], 720));
+    expect(stopped.resumable).toBe(true);
+    const withReply = { ...stopped, text: "A partial reply." };
+    expect(rowMark(withReply)).toBe(MARK_FOOTER_ROW);
+    expect(layoutConversation([withReply], 720)).toEqual(
+      layoutConversation([{ ...withReply, resumable: undefined }], 720),
+    );
+  });
+
+test("failed continuable recovery keeps its existing footer geometry", () => {
+  const failed = row("failed-footer", "turnSummary", { status: "failed", error: "Overloaded", continuable: true });
+  expect(isOverlayFooter(failed)).toBe(false);
+  expect(layoutConversation([failed], 720).heights[0]).toBeGreaterThan(0);
+  expect(layoutConversation([{ ...failed, resumable: true }], 720)).toEqual(layoutConversation([failed], 720));
 });

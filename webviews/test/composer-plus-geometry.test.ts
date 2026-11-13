@@ -377,8 +377,21 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
           }
         }
         inline = !!prompt?.querySelector(".acpmux-md-inline");
-        // The first line's text: what is typed, else the placeholder.
-        if (chosen)
+        // New Tab's prompt centers its first line box, not its glyphs' ink, on the controls (cmux#42292:
+        // `--acpmux-text-drop: 0`; newtab-input-scale.test.ts checks + at the field's top padding and
+        // half a line): its line is the field's first line box.
+        const ntField = card?.matches(".nt-box") ? card.querySelector<HTMLElement>(".nt-field") : null;
+        if (ntField && shown(ntField)) {
+          const style = getComputedStyle(ntField);
+          const top =
+            ntField.getBoundingClientRect().top +
+            parseFloat(style.borderTopWidth) +
+            parseFloat(style.paddingTop) -
+            ntField.scrollTop;
+          const height = parseFloat(style.lineHeight);
+          line = { top, center: top + height / 2, bottom: top + height, source: `${textSource} line box` };
+        } else if (chosen)
+          // The first line's text: what is typed, else the placeholder.
           line = {
             top: chosen.top,
             center: (chosen.top + chosen.bottom) / 2,
@@ -528,12 +541,13 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
     const glyph = m.plus.glyphBox;
     const glyphLeft = glyph ? glyph.left - m.box.left : null;
     const glyphCenter = glyph ? centerX(glyph) - m.box.left : null;
-    // The suggestions' popover frosts what is under it: the menus' tint (78%) and a blur.
+    // The suggestions' popover frosts what is under it: every popup's one material, the menu
+    // level's tint (78%) and blur (glass.css GLASS LEVELS; Leo 2026-11-11, "the styles mix").
     if (layout.expect?.includes("suggestions")) {
       if (!m.popover) out.push("the suggestions' popover is not drawn");
       else {
-        if (m.popover.alpha < 0.85)
-          out.push(`the suggestions' fill is ${f(m.popover.alpha)} opaque, under the + menu's 0.86`);
+        if (m.popover.alpha < 0.77)
+          out.push(`the suggestions' fill is ${f(m.popover.alpha)} opaque, under the menu level's 0.78`);
         if (!/blur\(/.test(m.popover.backdrop))
           out.push(`the suggestions' popover has no blur (${m.popover.backdrop})`);
       }
@@ -645,7 +659,9 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
         out.push(`the first line has ${f(over)} px over it and ${f(under)} px under it`);
       if (under < MIN_ROOM - TOLERANCE) out.push(`the first line has ${f(under)} px under it, under ${MIN_ROOM}`);
     }
-    if (!m.bar && m.caret && m.plus) {
+    // The caret's box is its glyphs' height, so it centers on a line box only where the ink does:
+    // New Tab's line box centers on + instead (cmux#42292), checked above as the first line.
+    if (!m.bar && m.caret && m.plus && !m.line?.source.endsWith("line box")) {
       const dy = centerY(m.caret) - centerY(m.plus.button);
       if (Math.abs(dy) > TOLERANCE) out.push(`the caret's center sits ${f(dy)} px off +'s center`);
     }

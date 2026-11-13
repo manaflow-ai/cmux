@@ -112,6 +112,9 @@ pub fn paused_for(before_ns: i128, after_ns: i128) -> Option<Duration> {
 pub struct PauseWatch {
     last_look_ns: std::sync::atomic::AtomicI64,
     pauses: std::sync::atomic::AtomicU64,
+    /// The look the last counted pause came after (its `last_look_ns` then),
+    /// or [`PAUSE_FROM_NONE`]: which wake a count is ([`PauseSeen::pause_from_ns`]).
+    pause_from_ns: std::sync::atomic::AtomicI64,
     /// Odd while a look is being published: a reader that sees it odd, or
     /// changed across its reads, reads again ([`PauseWatch::seen`]).
     version: std::sync::atomic::AtomicU64,
@@ -132,6 +135,7 @@ impl PauseWatch {
         Self {
             last_look_ns: std::sync::atomic::AtomicI64::new(0),
             pauses: std::sync::atomic::AtomicU64::new(0),
+            pause_from_ns: std::sync::atomic::AtomicI64::new(PAUSE_FROM_NONE),
             version: std::sync::atomic::AtomicU64::new(0),
             publish: std::sync::Mutex::new(()),
             file: std::sync::OnceLock::new(),
@@ -142,29 +146,35 @@ impl PauseWatch {
     /// One look of the watch at boot time `now_ns`: whether it found a pause.
     pub fn looked(&self, now_ns: i128, paused: bool) {
         let look = i64::try_from(now_ns).unwrap_or(i64::MAX);
-        self.publish_with(|pauses, _| (pauses + u64::from(paused), look));
+        self.publish_with(|pauses, last_look, from| {
+            if paused { (pauses + 1, look, last_look) } else { (pauses, look, from) }
+        });
     }
 
     /// A resume another way found (a clock set that moved realtime against
     /// the boot clock, where the boot clock stops).
     pub fn found(&self) {
-        self.publish_with(|pauses, last_look| (pauses + 1, last_look));
+        self.publish_with(|pauses, last_look, _| (pauses + 1, last_look, PAUSE_FROM_NONE));
     }
 
     /// Publishes the count and the last look `next` makes of the current
     /// ones as one look: the version is odd while the fields change, so a
     /// reader never takes one field old and the other new. Then the file,
     /// both fields in one rename.
-    fn publish_with(&self, next: impl FnOnce(u64, i64) -> (u64, i64)) {
+    fn publish_with(&self, next: impl FnOnce(u64, i64, i64) -> (u64, i64, i64)) {
         use std::sync::atomic::Ordering;
         let _one = self.publish.lock().unwrap_or_else(|e| e.into_inner());
-        let (pauses, last_look) =
-            next(self.pauses.load(Ordering::SeqCst), self.last_look_ns.load(Ordering::SeqCst));
+        let (pauses, last_look, from) = next(
+            self.pauses.load(Ordering::SeqCst),
+            self.last_look_ns.load(Ordering::SeqCst),
+            self.pause_from_ns.load(Ordering::SeqCst),
+        );
         self.version.fetch_add(1, Ordering::SeqCst);
         self.pauses.store(pauses, Ordering::SeqCst);
         self.last_look_ns.store(last_look, Ordering::SeqCst);
+        self.pause_from_ns.store(from, Ordering::SeqCst);
         self.version.fetch_add(1, Ordering::SeqCst);
-        self.write(pauses, last_look);
+        self.write(pauses, last_look, from);
     }
 
     /// The count and the last look together, as one look of the watch saw
@@ -183,8 +193,9 @@ impl PauseWatch {
             #[cfg(test)]
             between_reads();
             let last_look_ns = i128::from(self.last_look_ns.load(Ordering::SeqCst));
+            let pause_from_ns = i128::from(self.pause_from_ns.load(Ordering::SeqCst));
             if self.version.load(Ordering::SeqCst) == version {
-                return PauseSeen { pauses, last_look_ns };
+                return PauseSeen { pauses, last_look_ns, pause_from_ns };
             }
         }
     }
@@ -207,7 +218,7 @@ impl PauseWatch {
     /// update check`) read the same record ([`PauseWatch::load`]).
     pub fn persist_to(&self, path: std::path::PathBuf) {
         let _ = self.file.set(path);
-        self.publish_with(|pauses, last_look| (pauses, last_look));
+        self.publish_with(|pauses, last_look, from| (pauses, last_look, from));
     }
 
     /// The record another process wrote at `path`, read again at every look
@@ -226,12 +237,17 @@ impl PauseWatch {
         self.seen().last_look_ns != 0
     }
 
-    /// The record as `{"last_look_ns", "pauses"}`, written beside and renamed
-    /// so a reader never sees half of it. Errors are dropped: a record that
-    /// can't be written leaves the other processes reading none.
-    fn write(&self, pauses: u64, last_look_ns: i64) {
+    /// The record as `{"last_look_ns", "pauses", "pause_from_ns"}`, written
+    /// beside and renamed so a reader never sees half of it. Errors are
+    /// dropped: a record that can't be written leaves the other processes
+    /// reading none.
+    fn write(&self, pauses: u64, last_look_ns: i64, pause_from_ns: i64) {
         let Some(path) = self.file.get() else { return };
-        let body = serde_json::json!({ "last_look_ns": last_look_ns, "pauses": pauses });
+        let body = serde_json::json!({
+            "last_look_ns": last_look_ns,
+            "pauses": pauses,
+            "pause_from_ns": pause_from_ns,
+        });
         let part = path.with_extension("json.part");
         if std::fs::write(&part, body.to_string()).is_ok() {
             let _ = std::fs::rename(&part, path);
@@ -247,7 +263,10 @@ impl PauseWatch {
         let field = |name: &str| read.as_ref().and_then(|v| v.get(name));
         let look = field("last_look_ns").and_then(serde_json::Value::as_i64).unwrap_or(0);
         let pauses = field("pauses").and_then(serde_json::Value::as_u64).unwrap_or(0);
-        self.publish_with(|_, _| (pauses, look));
+        // A record from before the field names no wake: its counts are never the refresh's own.
+        let from =
+            field("pause_from_ns").and_then(serde_json::Value::as_i64).unwrap_or(PAUSE_FROM_NONE);
+        self.publish_with(|_, _, _| (pauses, look, from));
     }
 }
 
@@ -258,7 +277,15 @@ pub struct PauseSeen {
     pub pauses: u64,
     /// The boot clock at the watch's last look (ns, 0 for never).
     pub last_look_ns: i128,
+    /// The look the last counted pause came after ([`PAUSE_FROM_NONE`] when
+    /// none, or when it was found another way): a count is the wake from a
+    /// given look only when this names that look.
+    pub pause_from_ns: i128,
 }
+
+/// [`PauseSeen::pause_from_ns`] for no pause counted after a look: a clock
+/// set's [`PauseWatch::found`], a record without the field, or none yet.
+pub const PAUSE_FROM_NONE: i64 = -1;
 
 impl PauseSeen {
     /// Whether the watch, as seen, has not looked for longer than a pause

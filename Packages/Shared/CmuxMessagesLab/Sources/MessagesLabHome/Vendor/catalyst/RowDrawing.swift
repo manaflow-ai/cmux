@@ -209,7 +209,7 @@ enum RowDraw {
             // As the unsent notice below (ask 9, HostHooks.swift).
             // cmux: at the typing bubble's left edge, the row above it (Layout), not centered.
             // cmux: one row per line, each cut to the column (HomeNoticeRows; one line draws as upstream's).
-            HomeNoticeRows.draw(s, x: noticeLeft, baseline: top + 12, maxWidth: m.receiptRight - noticeLeft, in: ctx)
+            HomeNoticeRows.draw(s, x: noticeLeft(spec), baseline: top + 12, maxWidth: m.receiptRight - noticeLeft(spec), in: ctx)
         case let .unsent(outgoing):
             let s = outgoing ? Strings.unsentMine : Strings.unsentTheirs
             let f = HomeFonts.system(ofSize: 11) // HomeFonts (cx-qpqs)
@@ -220,7 +220,7 @@ enum RowDraw {
             let c: UIColor = color == .failure ? UIColor(red: 1, green: 0.27, blue: 0.23, alpha: 1)
                 : color == .link ? Fixture.labelLink : Fixture.secondaryText // cmux: themed link tint
             let w = TextDraw.width(text, font: f)
-            TextDraw.line(text, font: f, color: c, x: outgoing ? m.receiptRight - w : Fixture.labelLeft, baseline: top + 11, in: ctx)
+            TextDraw.line(text, font: f, color: c, x: outgoing ? m.receiptRight - w : Fixture.labelLeft + spec.cmuxIndent, baseline: top + 11, in: ctx) // cmux: group indent
         case let .replies(count, _, outgoing):
             let f = HomeFonts.system(ofSize: 10, weight: .semibold) // HomeFonts (cx-qpqs)
             let s = Strings.replies(count)
@@ -279,6 +279,8 @@ enum RowDraw {
     static var senderNameLeft: CGFloat { Fixture.leftEdge + SenderAvatar.bubbleInset + Fixture.bubblePadX }
     /// cmux: the host status line's left edge (row coordinates): the typing bubble's, a point in.
     static var noticeLeft: CGFloat { typingBubble.minX + 1 }
+    /// cmux: the status line's left edge in `spec`'s row: in a group, the bubbles' column (the typing bubble moves too).
+    static func noticeLeft(_ spec: RowSpec) -> CGFloat { noticeLeft + spec.cmuxIndent }
     /// The point the typing bubble grows from (row coordinates): Messages' fitted scale centre,
     /// 19.1 pt left of and 8.7 pt above the bubble's centre (tools/evidence/ANIMATIONS.md section 6).
     static var typingAnchor: CGPoint { CGPoint(x: typingBubble.midX - 19.07, y: typingBubble.midY - 8.71) }

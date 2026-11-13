@@ -1135,6 +1135,10 @@ impl ClientConnection {
             self.set_diagnostics_state(ConnectionState::Reconnecting);
             let attempt_timeout = remaining(policy.attempt_timeout);
             let attempt_started = tokio::time::Instant::now();
+            // The attempt's report, owed even when this recovery is dropped:
+            // a reader whose `select!` sees the published generation first
+            // cancels the receive that runs it, after the new carrier is up.
+            let mut report = AttemptReport::new(self, attempt_started);
             // This dial starts on the network as it is now; only a change
             // while it is in flight abandons it.
             network.borrow_and_update();
@@ -1169,9 +1173,7 @@ impl ClientConnection {
             if self.closed.load(Ordering::Acquire) && result.is_ok() {
                 return Err(ConnectionError::Closed);
             }
-            if let Some(hooks) = self.resume_hooks() {
-                hooks.attempt_ended(result.as_ref().map(|_| ()), attempt_started.elapsed());
-            }
+            report.ended(result.as_ref().map(|_| ()));
             // Every failed redial is the reason the link reports, a gone session too.
             self.set_last_failure(result.as_ref().err().map(ToString::to_string));
             match result {
@@ -1315,6 +1317,39 @@ impl ClientConnection {
         match result_rx.await {
             Ok(result) => result,
             Err(_) => wait_for_close(self.close_state.subscribe()).await,
+        }
+    }
+}
+
+/// One resume attempt's [`ResumeHooks::attempt_ended`] call, made once:
+/// with the attempt's result, or, when the attempt is dropped before it
+/// ends (its caller was cancelled), `Ok` if it had already published a new
+/// generation and nothing otherwise.
+struct AttemptReport<'a> {
+    connection: &'a ClientConnection,
+    started: tokio::time::Instant,
+    generation: u64,
+    done: bool,
+}
+
+impl<'a> AttemptReport<'a> {
+    fn new(connection: &'a ClientConnection, started: tokio::time::Instant) -> Self {
+        let generation = *connection.generation.borrow();
+        Self { connection, started, generation, done: false }
+    }
+
+    fn ended(&mut self, result: Result<(), &ConnectionError>) {
+        self.done = true;
+        if let Some(hooks) = self.connection.resume_hooks() {
+            hooks.attempt_ended(result, self.started.elapsed());
+        }
+    }
+}
+
+impl Drop for AttemptReport<'_> {
+    fn drop(&mut self) {
+        if !self.done && *self.connection.generation.borrow() != self.generation {
+            self.ended(Ok(()));
         }
     }
 }
@@ -1533,7 +1568,16 @@ async fn authenticate_one(
     let primary = lanes[0];
     let physical =
         group.open(LinkRequest { lane: primary, generation: context.generation }).await?;
-    let secure = initiate_secure_link(
+    // Every step of a link's setup shares the attempt's deadline, the daemon's welcome and its
+    // link-ready too: a link that stalls after the Noise exchange fails this attempt (so it is
+    // retried) instead of hanging it, and cannot hand back a session the daemon dropped meanwhile
+    // as an incomplete link group. An invitation is the exception: its welcome waits on a person's
+    // approval, so only its link-ready, once the welcome is in, has the deadline.
+    let timeout = config.reconnect.attempt_timeout;
+    let timed_out = || ConnectionError::Crypto(CryptoError::HandshakeTimeout { timeout });
+    let invitation = matches!(auth, ClientAuthMode::Invitation { .. });
+    let started = tokio::time::Instant::now();
+    let setup = initiate_secure_link(
         physical,
         ClientHandshake {
             identity: config.identity.clone(),
@@ -1548,9 +1592,19 @@ async fn authenticate_one(
             resume,
             handshake_timeout: config.reconnect.attempt_timeout,
         },
-    )
-    .await?;
-    let ready = match receive_control::<LinkHandshakeResponse>(&secure).await? {
+    );
+    let (secure, deadline) = if invitation {
+        let secure = setup.await?;
+        (secure, tokio::time::Instant::now() + timeout)
+    } else {
+        let deadline = started + timeout;
+        (tokio::time::timeout_at(deadline, setup).await.map_err(|_| timed_out())??, deadline)
+    };
+    let answer =
+        tokio::time::timeout_at(deadline, receive_control::<LinkHandshakeResponse>(&secure))
+            .await
+            .map_err(|_| timed_out())?;
+    let ready = match answer? {
         LinkHandshakeResponse::Ready(ready) => ready,
         LinkHandshakeResponse::Rejected(LinkRejected {
             rejected: LinkRejection::SessionUnavailable,

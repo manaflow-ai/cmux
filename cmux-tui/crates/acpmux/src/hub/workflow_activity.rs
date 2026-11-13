@@ -155,6 +155,7 @@ impl Hub {
                     prompt,
                     Some(run.cwd.clone()),
                     Some(&task_id),
+                    run.caller_subagent.clone(),
                     None,
                     false,
                     false,
@@ -1021,6 +1022,7 @@ mod tests {
                 activities: Default::default(),
                 outcome: None,
                 local_principal: false,
+                caller_subagent: None,
             })
             .unwrap();
         let child = ActivityRecord {
