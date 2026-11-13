@@ -146,3 +146,27 @@ is served by the WebRTC host. The phone keeps WebRTC until the link ships as a l
 - The phone on cmux.rd/1 (iOS starts no helper process: the link has to be a library there).
 - Frames in flight follow the round trip at stream start only, not during the session.
 - Content filters that hide password and authentication windows.
+
+### Same-session WebRTC fallback
+
+The Rust carrier may emit a typed `AppLine.fallback` only after authenticating
+its peer and before media starts. The decision names rd-wg, a carrier failure,
+and WebRTC as the retry. Consent, peer identity and revocation errors are not
+fallback reasons. The app reads that decision through the Rust line reader;
+it does not classify stderr strings or turn arbitrary disconnections into retries.
+
+The viewer forwards its already-open ticket signaling into `ScreenSession`.
+Its new WebRTC offer and answer still pass through `TicketSignaling` fingerprint
+signing and verification. The host buffers Rust's decision because that local
+stdout line and the signed offer can arrive in either order. It switches only
+when the decision permits it, retaining the original session and view-only scope.
+There is no new approval, ticket redemption or automatic reconnect after streaming.
+
+Both carriers feed the same `RemoteFramePresenter` and remote input surface.
+WebRTC's decoded hardware pixel buffers are passed through without copying;
+software I420 frames use the existing pooled NV12 conversion. Disconnect fences
+late render callbacks before another session can show frames.
+
+The comparison remains unverified until the same two Macs run both carriers
+and Apple Screen Sharing on both network paths. Historical decoder timings
+are not presented-frame measurements; no performance win follows from this glue.

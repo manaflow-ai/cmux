@@ -49,4 +49,20 @@ import Testing
             }
         }
     }
+
+    @Test func onlyTypedCarrierFailurePermitsFallbackAndItDoesNotLeakToTheNextLine() throws {
+        let reader = try #require(RemoteRdLineReader())
+        let bytes = Data("""
+        {"fallback":{"carrier":"rd_wg","reason":"timeout","retry":"web_rtc"}}
+        {"ended":"revoked"}
+        {"fallback":{"carrier":"rd_wg","reason":"revoked","retry":"web_rtc"}}
+        {"fallback":true}
+
+        """.utf8)
+        let lines = reader.push(bytes)
+        #expect(lines.count == 2)
+        #expect(lines.first?.fallbackToWebRTC == true)
+        #expect(lines.last?.fallbackToWebRTC == false)
+        #expect(lines.last?.ended == "revoked")
+    }
 }

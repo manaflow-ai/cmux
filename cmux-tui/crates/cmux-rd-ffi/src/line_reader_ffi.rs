@@ -230,3 +230,20 @@ pub unsafe extern "C" fn cmux_rd_line_reader_next(
         1
     })
 }
+
+/// Whether the current line permits a WebRTC retry (1), or does not (0).
+/// This accessor keeps the existing `CmuxRdLine` allocation/layout unchanged.
+/// Unknown or malformed fallback decisions are rejected by `AppLine::decode`.
+///
+/// # Safety
+/// `reader` is NULL or live and is not used concurrently.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_rd_line_reader_fallback(reader: *mut CmuxRdLineReader) -> i32 {
+    with_reader(reader, |handle| {
+        i32::from(handle.current.as_ref().is_some_and(|(line, _)| {
+            line.fallback.as_ref().is_some_and(|fallback| {
+                matches!(fallback.retry, cmux_rd_proto::app_line::RetryCarrier::WebRtc)
+            })
+        }))
+    })
+}

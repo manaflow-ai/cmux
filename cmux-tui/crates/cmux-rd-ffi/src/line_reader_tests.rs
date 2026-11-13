@@ -142,6 +142,26 @@ fn a_line_without_its_newline_waits() {
 }
 
 #[test]
+fn fallback_accessor_is_typed_current_and_does_not_advance_the_reader() {
+    let reader = Reader::new();
+    // SAFETY: one live reader, used serially for the whole test.
+    let fallback = || unsafe { cmux_rd_line_reader_fallback(reader.0) };
+    assert_eq!(fallback(), 0);
+    assert_eq!(reader.push(b"{\"fallback\":{\"carrier\":\"rd_wg\",\"reason\":\"timeout\",\"retry\":\"web_rtc\"}}\n{\"ended\":\"revoked\"}\n"), 2);
+    assert!(reader.next().is_some());
+    assert_eq!(fallback(), 1);
+    assert_eq!(fallback(), 1);
+    assert_eq!(reader.next(), Some(serde_json::json!({"ended": "revoked"})));
+    assert_eq!(fallback(), 0);
+    assert_eq!(reader.next(), None);
+    assert_eq!(fallback(), 0);
+    assert_eq!(reader.push(b"{\"fallback\":{\"carrier\":\"rd_wg\",\"reason\":\"revoked\",\"retry\":\"web_rtc\"}}\n"), 0);
+    assert_eq!(reader.push(b"{\"fallback\":true}\n"), 0);
+    // SAFETY: NULL is a supported error input.
+    assert_eq!(unsafe { cmux_rd_line_reader_fallback(std::ptr::null_mut()) }, CMUX_RD_ERR_NULL);
+}
+
+#[test]
 fn null_arguments_and_a_null_reader_are_refused() {
     let mut line = CmuxRdLine::default();
     // SAFETY: NULL reader with a valid out pointer.

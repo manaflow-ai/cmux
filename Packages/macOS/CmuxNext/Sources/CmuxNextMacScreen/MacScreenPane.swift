@@ -80,8 +80,7 @@ public final class MacScreenPane {
     private let inputSink: MacScreenInputSink?
     private var visible = false
     private let hideTimer = DemandTimer(owner: "mac-screen.hidden-grace")
-    /// The decoder of the current transport (one per session).
-    private var decodeTask: Task<Void, Never>?
+    private lazy var videoPipeline = MacScreenVideo(presenter: view.presenter) { [weak self] in self?.framesShown($0) }
 
     /// One of the user's devices from the device hub. Each stream is one
     /// approved session: `viewer` asks for it and hands its ticket's
@@ -123,7 +122,14 @@ public final class MacScreenPane {
     }
 
     private func wire(_ session: MacScreenSession) {
-        session.onTransport = { [weak self] transport in self?.decode(transport) }
+        session.onTransport = { [weak self] transport in
+            self?.model.hasFrame = false
+            self?.videoPipeline.decode(transport)
+        }
+        session.onVideoTrack = { [weak self] track in
+            self?.model.hasFrame = false
+            self?.videoPipeline.present(track)
+        }
         view.presenter.onFrameSize = { [weak self, weak session] size in
             guard let self else { return }
             view.video.setFramePixels(size)
@@ -169,23 +175,6 @@ public final class MacScreenPane {
         observePhase(session)
     }
 
-    /// Decodes a new transport's video into the presenter; the first frame shows the picture.
-    private func decode(_ transport: RemoteRdStreamTransport) {
-        decodeTask?.cancel()
-        model.hasFrame = false
-        let presenter = view.presenter
-        let counter = MacScreenFrameCounter()
-        let deliver: @Sendable (RemoteDecodedFrame) -> Void = { [weak self] frame in
-            presenter.present(frame)
-            // The stats and the first picture, without a main-actor hop per frame.
-            guard counter.tick() else { return }
-            Task { @MainActor [weak self] in self?.framesShown(counter.take()) }
-        }
-        let pipeline = RemoteDecodePipeline(source: transport, deliver: deliver)
-        // task-owner: this transport's decoder; ends with its stream or the next session's
-        decodeTask = Task.detached(priority: .userInitiated) { await pipeline.run() }
-    }
-
     private func framesShown(_ count: Int) {
         guard let session else { return }
         for _ in 0 ..< count { session.framePresented(size: view.video.framePixels) }
@@ -207,6 +196,8 @@ public final class MacScreenPane {
                     model.everConnected = true
                 } else {
                     model.hasFrame = false
+                    if case .ended = session.phase { videoPipeline.stop() }
+                    if case .failed = session.phase { videoPipeline.stop() }
                 }
                 model.hub?.streamStalled(session.isStalled)
                 // A device hub stream that could not start, or dropped: the hub hears it too.
@@ -257,7 +248,7 @@ public final class MacScreenPane {
     /// The tab closed: end the session now.
     public func close() {
         hideTimer.cancel()
-        decodeTask?.cancel()
+        videoPipeline.stop()
         visible = false
         if let hub = model.hub, hub.phase != .idle {
             // The hub hears why first, then the stream closes.

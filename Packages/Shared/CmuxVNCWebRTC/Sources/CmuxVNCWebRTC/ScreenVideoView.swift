@@ -122,7 +122,7 @@ private final class SampleBufferSink: NSObject, RTCVideoRenderer, @unchecked Sen
     private let renderer: AVSampleBufferVideoRenderer
     private var size = CGSize.zero
     private var format: CMVideoFormatDescription?
-    private var pool: CVPixelBufferPool?
+    private let pixels = ScreenVideoPixels()
 
     init(renderer: AVSampleBufferVideoRenderer) {
         self.renderer = renderer
@@ -131,7 +131,7 @@ private final class SampleBufferSink: NSObject, RTCVideoRenderer, @unchecked Sen
     func setSize(_ size: CGSize) {}
 
     func renderFrame(_ frame: RTCVideoFrame?) {
-        guard let frame, let pixelBuffer = pixelBuffer(of: frame) else { return }
+        guard let frame, let pixelBuffer = pixels.pixelBuffer(of: frame) else { return }
         let pixels = CGSize(width: CVPixelBufferGetWidth(pixelBuffer), height: CVPixelBufferGetHeight(pixelBuffer))
         if pixels != size {
             size = pixels
@@ -155,45 +155,7 @@ private final class SampleBufferSink: NSObject, RTCVideoRenderer, @unchecked Sen
         renderer.enqueue(sample)
     }
 
-    /// The frame's pixels: the decoder's own buffer (hardware decode), else
-    /// an I420 frame copied into a pooled NV12 buffer.
-    private func pixelBuffer(of frame: RTCVideoFrame) -> CVPixelBuffer? {
-        if let buffer = frame.buffer as? RTCCVPixelBuffer { return buffer.pixelBuffer }
-        let i420 = frame.buffer.toI420()
-        let width = Int(i420.width), height = Int(i420.height)
-        if pool == nil || size != CGSize(width: width, height: height) {
-            let attributes: [String: Any] = [
-                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
-                kCVPixelBufferWidthKey as String: width, kCVPixelBufferHeightKey as String: height,
-                kCVPixelBufferIOSurfacePropertiesKey as String: [String: Any](),
-            ]
-            pool = nil
-            CVPixelBufferPoolCreate(nil, nil, attributes as CFDictionary, &pool)
-        }
-        guard let pool else { return nil }
-        var out: CVPixelBuffer?
-        guard CVPixelBufferPoolCreatePixelBuffer(nil, pool, &out) == kCVReturnSuccess, let out else { return nil }
-        CVPixelBufferLockBaseAddress(out, [])
-        defer { CVPixelBufferUnlockBaseAddress(out, []) }
-        if let y = CVPixelBufferGetBaseAddressOfPlane(out, 0) {
-            let stride = CVPixelBufferGetBytesPerRowOfPlane(out, 0)
-            for row in 0 ..< height {
-                memcpy(y + row * stride, i420.dataY + row * Int(i420.strideY), width)
-            }
-        }
-        if let uv = CVPixelBufferGetBaseAddressOfPlane(out, 1)?.assumingMemoryBound(to: UInt8.self) {
-            let stride = CVPixelBufferGetBytesPerRowOfPlane(out, 1)
-            for row in 0 ..< (height + 1) / 2 {
-                let u = i420.dataU + row * Int(i420.strideU), v = i420.dataV + row * Int(i420.strideV)
-                let line = uv + row * stride
-                for column in 0 ..< (width + 1) / 2 {
-                    line[2 * column] = u[column]
-                    line[2 * column + 1] = v[column]
-                }
-            }
-        }
-        return out
-    }
+
 }
 #endif
 

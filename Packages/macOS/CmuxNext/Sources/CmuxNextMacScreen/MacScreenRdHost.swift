@@ -69,15 +69,24 @@ nonisolated final class MacScreenRdHost: Sendable {
     /// this side's session key, displays and candidates, and relays candidates both ways.
     func serve(_ signaling: any ScreenSignaling) async throws {
         var started = false
+        var consideredFallback = false
         let session = self.session
         let process = self.process
+        // The signed WebRTC offer and the local Rust decision may arrive in either order.
+        // Buffer the single decision; Rust owns eligibility and its negotiation deadline.
+        let (fallbackDecisions, fallbackDecision) = AsyncStream.makeStream(of: Bool.self, bufferingPolicy: .bufferingOldest(1))
         // task-owner: the host's output for this session; ends with the process or disconnectViewer
         let output = Task { [weak self] in
+            defer { fallbackDecision.finish() }
             var answered = false
             var answer: MacScreenRdDocument?
             var connected = false
             for await line in process.lines {
                 guard let self else { return }
+                if line.fallbackToWebRTC {
+                    fallbackDecision.yield(true)
+                    return
+                }
                 if let displays = line.displays {
                     var document = answer ?? MacScreenRdDocument(key: "")
                     document.displays = displays.compactMap { $0.count == 2 ? CGSize(width: Double($0[0]), height: Double($0[1])) : nil }
@@ -105,6 +114,8 @@ nonisolated final class MacScreenRdHost: Sendable {
                     }
                 }
                 if line.connected == true, !connected {
+                    fallbackDecision.yield(false)
+                    fallbackDecision.finish()
                     connected = true
                     logger.info("cmux rd: viewer connected")
                     emit(.viewerConnected)
@@ -134,7 +145,15 @@ nonisolated final class MacScreenRdHost: Sendable {
                 continue
             }
             switch signal {
-            case let .offer(text) where !started && MacScreenRdDocument(text: text) == nil:
+            case let .offer(text) where MacScreenRdDocument(text: text) == nil:
+                if started {
+                    guard !consideredFallback else { continue }
+                    consideredFallback = true
+                    var decision = fallbackDecisions.makeAsyncIterator()
+                    guard await decision.next() == true, !Task.isCancelled else { continue }
+                    output.cancel()
+                    process.stop()
+                }
                 // A WebRTC viewer: its offer and every later signal go to the WebRTC host.
                 started = true
                 let (stream, continuation) = AsyncThrowingStream.makeStream(of: ScreenSignal.self, throwing: (any Error).self,

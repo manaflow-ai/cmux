@@ -28,6 +28,8 @@ public nonisolated final class RemoteRdLineReader {
         public var displays: [[UInt32]]?
         public var current: Int?
         public var error: String?
+        /// The Rust carrier permits WebRTC on this already approved session.
+        public var fallbackToWebRTC = false
     }
 
     private let handle: OpaquePointer
@@ -53,7 +55,9 @@ public nonisolated final class RemoteRdLineReader {
         lines.reserveCapacity(Int(ready))
         var raw = CmuxRdLine()
         while cmux_rd_line_reader_next(handle, &raw) == 1 {
-            lines.append(Self.line(raw))
+            var line = Self.line(raw)
+            line.fallbackToWebRTC = cmux_rd_line_reader_fallback(handle) == 1
+            lines.append(line)
         }
         return lines
     }

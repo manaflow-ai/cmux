@@ -445,6 +445,9 @@ int32_t cmux_rd_line_reader_push(CmuxRdLineReader *reader, const uint8_t *bytes,
 /* Takes the next ready line into *out: 1 when it wrote one, CMUX_RD_OK (0)
    when none is ready. */
 int32_t cmux_rd_line_reader_next(CmuxRdLineReader *reader, CmuxRdLine *out);
+/* Current line permits a WebRTC retry: 1; absent: 0; negative: reader error.
+   Does not advance the reader or invalidate pointers in CmuxRdLine. */
+int32_t cmux_rd_line_reader_fallback(CmuxRdLineReader *reader);
 
 #ifdef __cplusplus
 }
