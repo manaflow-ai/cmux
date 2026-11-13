@@ -17,6 +17,7 @@ public extension WindowOverlayHost {
             return handle
         }
         if content.frame.size == .zero { content.setFrameSize(content.fittingSize) }
+        endStaleFades()
         let container = panel.container(for: options.effectiveLayer)
         var scrim: OverlayScrimView?
         if options.dimsContent, !isAppHost {
@@ -226,8 +227,15 @@ extension WindowOverlayHost {
     /// window takes key back. The dialog is already gone: it takes no input, and the window under it
     /// is usable at once. A view leaves only if it is still where the fade found it: a dialog
     /// presented again meanwhile, here or in another window (its tab moved there), stays where it went.
+    /// Ends every fade-out that began more than ``staleFadeAge`` ago (`now`, system uptime): its completion was lost.
+    func endStaleFades(now: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        for (_, fade) in fades.sorted(by: { $0.key < $1.key }) where now - fade.began > Self.staleFadeAge { fade.end() }
+    }
+
     private func fadeOut(_ views: [NSView], content: NSView) {
         fadingOut += 1
+        let fadeID = nextFadeID
+        nextFadeID += 1
         let parents = (views + [content]).map { ($0, $0.superview) }
         let scrims = views.filter { $0 is OverlayScrimView }, cards = views.filter { !($0 is OverlayScrimView) }
         if let layer = content.layer {
@@ -236,7 +244,7 @@ extension WindowOverlayHost {
                                 movementFade: .fadeOut)
         }
         let finished = OverlayCountdown(scrims.isEmpty ? 1 : 2) { [weak self] in
-            guard let self else { return }
+            guard let self, fades.removeValue(forKey: fadeID) != nil else { return }
             fadingOut -= 1
             let presented = handles.contains { $0.content === content }
             for (view, parent) in parents where parent != nil && view.superview === parent && !(presented && view === content) {
@@ -249,6 +257,7 @@ extension WindowOverlayHost {
             }
             syncPanel()
         }
+        fades[fadeID] = (ProcessInfo.processInfo.systemUptime, { finished.finish() })
         Motion.overlays.animate(.fadeOut, in: cards.first, {
             cards.forEach { $0.animator().alphaValue = 0 }
         }, completion: { finished.done() })
@@ -325,7 +334,13 @@ final class OverlayCountdown {
 
     func done() {
         left -= 1
-        guard left <= 0, let body else { return }
+        guard left <= 0 else { return }
+        finish()
+    }
+
+    /// Runs the body now, once, whatever parts are still out (a fade whose completion was lost).
+    func finish() {
+        guard let body else { return }
         self.body = nil
         body()
     }

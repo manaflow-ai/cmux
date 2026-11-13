@@ -169,6 +169,30 @@ import Testing
         #expect(answer?.button == "confirm", "a leftover view above the card took the click on Close")
     }
 
+    /// A fade-out whose completion never came ends at the next present: its card leaves the panel.
+    @Test func aFadeWhoseCompletionWasLostEndsAtTheNextPresent() throws {
+        let shown = try Self.show { _ in }
+        defer { shown.window.close() }
+        let host = try #require(WindowOverlayHost.existingHost(for: shown.window))
+        let card = try #require(shown.center.dialog(shown.id)?.view)
+        // A fade that never completes: registered as a running fade with its card still on the panel.
+        host.fadingOut += 1
+        let id = host.nextFadeID
+        host.nextFadeID += 1
+        host.fades[id] = (ProcessInfo.processInfo.systemUptime - 60, { [weak host, weak card] in
+            host?.fades[id] = nil
+            host?.fadingOut -= 1
+            card?.removeFromSuperview()
+        })
+        shown.center.dismiss(shown.id)
+        let stale = NSView(frame: .zero)
+        host.panel.modalContainer.addSubview(stale)
+        host.endStaleFades()
+        #expect(host.fades[id] == nil, "a fade older than staleFadeAge still runs")
+        #expect(card.superview == nil)
+        #expect(host.fadingOut == 0)
+    }
+
     @Test func aClickOnTheCheckBoxChecksIt() throws {
         let shown = try Self.show { _ in }
         defer { shown.center.dismiss(shown.id); shown.window.close() }
