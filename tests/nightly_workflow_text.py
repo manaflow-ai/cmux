@@ -60,7 +60,9 @@ def write_out_step_aliases(text: str) -> str:
         indent, name = match.group(1), match.group(2)
         if anchors.get(name, ("",))[0] != indent:
             return match.group(0)
-        return f"{indent}- " + anchors[name][1][len(indent) + 2:]
+        # A copy keeps no anchor of its own (a value anchored inside the step): YAML refuses one defined twice.
+        body = re.sub(r"(:|-) &[A-Za-z0-9_-]+( |\n)", r"\1\2", anchors[name][1])
+        return f"{indent}- " + body[len(indent) + 2:]
 
     text = re.sub(r"^( *)- \*([A-Za-z0-9_-]+)\n", alias, text, flags=re.MULTILINE)
     return STEP_ANCHOR.sub(lambda m: f"{m.group(1)}- " + m.group(3)[len(m.group(1)) + 2:], text)
