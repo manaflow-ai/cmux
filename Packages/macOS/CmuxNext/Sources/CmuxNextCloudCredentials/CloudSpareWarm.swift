@@ -150,7 +150,6 @@ public extension CloudHarnessLoginDecision {
                                          otherTeams: [String?]) async -> [String: String]? {
     guard let teamID,
           let credential = try? await CloudCredentialLogin.loadAny(provider: .claude, teamID: teamID, otherTeams: otherTeams, userID: userID),
-          let credential,
           let fingerprint = CloudMachineLogin.fingerprint(credential) else { return nil }
     return ["platform": platform.absoluteString, "team": teamID, "install": install, "credential": fingerprint]
 }
