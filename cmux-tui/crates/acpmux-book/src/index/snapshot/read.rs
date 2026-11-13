@@ -31,24 +31,34 @@ impl DiskSnapshot {
             ReadSide::Around => true,
         };
         let position = self.seek_position(anchor, seek_inclusive)?;
+        // A page needs only the requested candidate rows. The seek has
+        // already located one record, so size the single physical read from
+        // that record's frame length instead of consuming the whole 256 KiB
+        // response budget for every request. A later page may reread the
+        // bounded piece when a row is larger than this estimate.
+        let physical_bytes = position
+            .record_len
+            .map(|length| length.saturating_mul(limit as u64).min(max_bytes as u64) as usize)
+            .filter(|bytes| *bytes > 0)
+            .unwrap_or(max_bytes);
         let (start, end) = match side {
             ReadSide::After => (
                 position.offset,
-                position.offset.saturating_add(max_bytes as u64).min(self.head.data_end),
+                position.offset.saturating_add(physical_bytes as u64).min(self.head.data_end),
             ),
             ReadSide::Before => (
-                position.offset.saturating_sub(max_bytes as u64).max(HEADER_BYTES as u64),
+                position.offset.saturating_sub(physical_bytes as u64).max(HEADER_BYTES as u64),
                 position.offset,
             ),
             ReadSide::Around => {
                 let pivot = position.record_len.unwrap_or_default();
-                if pivot > max_bytes {
+                if pivot > physical_bytes {
                     return Err(page_bound());
                 }
-                let left = ((max_bytes - pivot) / 2) as u64;
+                let left = ((physical_bytes - pivot) / 2) as u64;
                 let start = position.offset.saturating_sub(left).max(HEADER_BYTES as u64);
-                let end = start.saturating_add(max_bytes as u64).min(self.head.data_end);
-                (end.saturating_sub(max_bytes as u64).max(HEADER_BYTES as u64), end)
+                let end = start.saturating_add(physical_bytes as u64).min(self.head.data_end);
+                (end.saturating_sub(physical_bytes as u64).max(HEADER_BYTES as u64), end)
             }
         };
         let bytes = self.read_range(start, (end - start) as usize)?;
@@ -89,7 +99,10 @@ impl DiskSnapshot {
         {
             return Err(page_bound());
         }
-        Ok(self.finish_piece(rows, first_ordinal, next_offset, position.bytes_read + bytes.len()))
+        // `bytes_read` is the one bounded page read. Sparse seek reads are
+        // reported by the seek API and do not inflate the per-page payload
+        // measurement.
+        Ok(self.finish_piece(rows, first_ordinal, next_offset, bytes.len()))
     }
 
     pub fn first_rows(&self, rows: usize, max_bytes: usize) -> io::Result<SnapshotPiece> {
