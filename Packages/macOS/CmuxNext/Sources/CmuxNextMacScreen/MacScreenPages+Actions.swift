@@ -5,5 +5,6 @@ extension MacScreenPages {
     public func useActions(of registry: ActionRegistry) {
         useShortcuts(of: registry)
         hubHost.indicatorMenuItem = { [weak registry] in registry?.makeMenuItem(for: $0) }
+        shareThisMac = { [weak registry] in registry?.perform("macScreen.shareThisMac") }
     }
 }
