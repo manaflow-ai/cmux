@@ -111,7 +111,6 @@
     "cmux-tui/crates/acpmux/src/hub/turns.rs:rust-duration": {"count": 3, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "cmux-tui/crates/acpmux/src/hub/usage_view.rs:rust-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "cmux-tui/crates/acpmux/src/hub/watch_events.rs:rust-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
-    "cmux-tui/crates/acpmux/src/hub/withdraw.rs:rust-duration": {"count": 2, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "cmux-tui/crates/acpmux/src/hub/worktree_care/revive.rs:rust-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "cmux-tui/crates/acpmux/src/linux_sandbox/bwrap.rs:rust-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "cmux-tui/crates/acpmux/src/linux_sandbox/keeper.rs:rust-duration": {"count": 2, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},

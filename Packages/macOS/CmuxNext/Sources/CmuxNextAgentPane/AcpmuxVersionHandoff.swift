@@ -172,6 +172,7 @@ nonisolated enum AcpmuxVersionHandoff {
     /// restart) while the new app waited for it. Throws the ask's failure when nothing was sent.
     /// `reason` is logged by the daemon with its stop (every stop names why).
     @concurrent static func handOffShutdown(
+        // timeout: a local socket shutdown ask during an update relaunch; a daemon that does not answer gets SIGTERM instead
         _ environment: AcpmuxEnvironment, pid: Int32, reason: String, deadline: Duration = .seconds(2),
         shutdown: @Sendable (AcpmuxEnvironment, String, Duration) async throws -> Void = AcpmuxVersionHandoff.askShutdown,
         finish: @Sendable (AcpmuxEnvironment, Int32) async -> Bool = AcpmuxVersionHandoff.finishBySignal
