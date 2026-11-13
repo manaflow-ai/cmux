@@ -542,6 +542,14 @@ where
                     .decode_json::<Value>()
                     .ok()
                     .and_then(|value| value.get("sid").and_then(Value::as_str).map(str::to_owned));
+                if sid_hint.as_deref().is_some_and(|sid| !self.subscriptions.contains_key(sid)) {
+                    // An unheld page cannot be applied to any current
+                    // subscription. Skip it before generic decoding, since a
+                    // Value client could otherwise surface it as a Page.
+                    self.skips.unheld_sid = self.skips.unheld_sid.saturating_add(1);
+                    self.charge_frame_now(None, frame_bytes);
+                    return;
+                }
                 let is_folders = sid_hint.as_deref().is_some_and(|sid| {
                     self.subscriptions
                         .get(sid)
@@ -1278,6 +1286,22 @@ tail"#;
         assert_eq!(value.pointer("/params/anchor"), Some(&Value::String("end".into())));
         assert!(value.pointer("/params/cursor").is_none());
         assert!(value.pointer("/params/edition").is_none());
+
+        // A late page for the retired folder SID must not fall through the
+        // generic PageResult<Value> decoder.
+        let before = client.skip_counters();
+        let stale_page = Frame::json(
+            FrameKind::Page,
+            &serde_json::json!({
+                "sid":"folders","rows":[{"chatId":"old"}],
+                "hasBefore":false,"hasAfter":false
+            }),
+        )
+        .unwrap()
+        .encode();
+        client.received(&stale_page);
+        assert!(client.next_change().is_none());
+        assert_eq!(client.skip_counters().unheld_sid, before.unheld_sid + 1);
     }
 
     #[test]
