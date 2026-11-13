@@ -1,0 +1,16 @@
+[package]
+name = "acpmux-client"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The v2 agent service wire vocabulary"
+
+[lints]
+workspace = true
+
+[dependencies]
+acpmux-book = { path = "../acpmux-book" }
+serde.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }

@@ -80,6 +80,36 @@ pub const GATE_ROWS: &[GateRow] = &[
         measured: false,
     },
     GateRow {
+        pr: "4",
+        name: "v2.pr04.credit_without_read_drop",
+        done_when: "A reader that sends credit without reading gets dropped on that sid; the connection stays up and another sid remains ordered.",
+        measured: false,
+    },
+    GateRow {
+        pr: "4",
+        name: "v2.pr04.offer_256_subscriptions",
+        done_when: "Offering one frame to 256 subscriptions costs at most 1.2x the one-subscription case.",
+        measured: false,
+    },
+    GateRow {
+        pr: "4",
+        name: "v2.pr04.list_resume_end",
+        done_when: "A list resume that missed nothing ends with one empty end frame, and no live op precedes the end mark.",
+        measured: false,
+    },
+    GateRow {
+        pr: "4",
+        name: "v2.pr04.not_fed_bytes",
+        done_when: "A subscriber that is not fed retains zero frame bytes through the god run.",
+        measured: false,
+    },
+    GateRow {
+        pr: "4",
+        name: "v2.pr04.chat_stopped_reader",
+        done_when: "Chat stopped-reader resume is measured after PR 3c wires chat actors into the connection.",
+        measured: false,
+    },
+    GateRow {
         pr: "5",
         name: "v2.pr05.index_list_stream",
         done_when: "First list window within 200 ms of listen with 11k sessions, 1.2x against 20. One summary change costs O(1): no work proportional to the list.",
@@ -184,7 +214,7 @@ fn parse_measure(value: Value, source: &Path) -> Result<Measure, String> {
         .get("god_p95")
         .and_then(Value::as_f64)
         .ok_or_else(|| format!("{source:?}: {name} has no numeric god_p95"))?;
-    if !small_p95.is_finite() || small_p95 <= 0.0 || !god_p95.is_finite() || god_p95 < 0.0 {
+    if !small_p95.is_finite() || small_p95 < 0.0 || !god_p95.is_finite() || god_p95 < 0.0 {
         return Err(format!("{source:?}: {name} has invalid p95 values"));
     }
     let unit = object
@@ -233,6 +263,15 @@ fn merge_measures(
     Ok(joined)
 }
 
+fn measured_row(row: &GateRow, measure: &Measure) -> Value {
+    let ratio = if measure.small_p95 == 0.0 {
+        if measure.god_p95 == 0.0 { 1.0 } else { f64::INFINITY }
+    } else {
+        measure.god_p95 / measure.small_p95
+    };
+    json!({ "name": row.name, "pr": row.pr, "done_when": row.done_when, "status": if ratio <= GOD_SMALL_LIMIT { "ok" } else { "red" }, "reason": if ratio <= GOD_SMALL_LIMIT { "within 1.2x god/small" } else { "god p95 exceeds 1.2x small p95" }, "small_p95": measure.small_p95, "god_p95": measure.god_p95, "ratio": ratio, "unit": measure.unit })
+}
+
 /// Build the nightly-report JSON. `--measures` is optional while all rows are placeholders.
 pub fn report(measure_files: &[PathBuf]) -> Result<Value, String> {
     let required =
@@ -240,8 +279,7 @@ pub fn report(measure_files: &[PathBuf]) -> Result<Value, String> {
     let measures = merge_measures(&read_measures(measure_files)?, &required)?;
     let rows = GATE_ROWS.iter().map(|row| {
         if let Some(measure) = measures.get(row.name) {
-            let ratio = measure.god_p95 / measure.small_p95;
-            json!({ "name": row.name, "pr": row.pr, "done_when": row.done_when, "status": if ratio <= GOD_SMALL_LIMIT { "ok" } else { "red" }, "reason": if ratio <= GOD_SMALL_LIMIT { "within 1.2x god/small" } else { "god p95 exceeds 1.2x small p95" }, "small_p95": measure.small_p95, "god_p95": measure.god_p95, "ratio": ratio, "unit": measure.unit })
+            measured_row(row, measure)
         } else if row.measured {
             unreachable!("measured rows are checked before rendering")
         } else {
@@ -265,4 +303,29 @@ pub fn print_report(measure_files: &[PathBuf], output: Option<&Path>) -> Result<
         println!("{text}");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod zero_baseline_tests {
+    use super::*;
+    fn zero_measure(god: f64) -> Value {
+        let row = GATE_ROWS.first().unwrap();
+        let measure = parse_measure(
+            json!({"name":row.name,"small_p95":0,"god_p95":god,"unit":"bytes"}),
+            Path::new("zero-test"),
+        )
+        .unwrap();
+        let joined = merge_measures(&[measure], &[row.name]).unwrap();
+        measured_row(row, joined.get(row.name).unwrap())
+    }
+    #[test]
+    fn zero_at_both_sizes_is_in_bound() {
+        let row = zero_measure(0.0);
+        assert_eq!(row.get("status"), Some(&json!("ok")));
+        assert_eq!(row.get("ratio"), Some(&json!(1.0)));
+    }
+    #[test]
+    fn zero_small_and_nonzero_god_is_red() {
+        assert_eq!(zero_measure(1.0).get("status"), Some(&json!("red")));
+    }
 }
