@@ -1,0 +1,13 @@
+{
+ "title": "The omnibar's profile avatar opens Chrome's profile menu (https://github.com/manaflow-ai/cmux/issues/42438): the tab's profile, the other profiles to switch to in one click, Add, Guest and Manage, then the profile's own actions. Record with: cmux-ci capture SHA --state scripts/cmux-next/media/states/browser-profile-switcher-menu.json",
+ "steps": [
+  {"title": "Launch", "wait": 2, "shot": false},
+  {"title": "Profile Work", "cmux": ["action", "run", "browserProfile.new", "--arg", "name=Work", "--arg", "color=blue"], "wait": 1, "shot": false},
+  {"title": "Profile Personal", "cmux": ["action", "run", "browserProfile.new", "--arg", "name=Personal", "--arg", "color=green"], "wait": 1, "shot": false},
+  {"title": "New workspace", "cmux": ["workspace", "new", "--name", "Profiles"], "shot": false},
+  {"title": "Show it", "cmux": ["workspace", "name:Profiles", "focus"], "wait": 1.5, "shot": false},
+  {"title": "Open example.com in a browser tab", "cmux": ["tab", "create", "browser", "--url", "https://example.com", "--name", "Example"], "wait": 5, "shot": false},
+  {"title": "A browser tab in the default profile; the omnibar shows its avatar", "wait": 0.5},
+  {"title": "Click the omnibar's profile avatar: the profile menu", "rpc": {"method": "debug.mouse", "params": {"action": "click", "view": "cmux.browser.profileBadge"}}, "wait": 1.5}
+ ]
+}
