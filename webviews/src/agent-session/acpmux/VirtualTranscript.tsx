@@ -5136,7 +5136,10 @@ function TranscriptView({
     if (!node) return;
     const intent = userScrollIntent(node);
     // First on the window, so a fling's momentum held after a jump reaches no other listener.
-    const removeMomentumHold = installMomentumHold(node, scrollRunning);
+    // VEHICLE, never merges: `?nohold=1` leaves the momentum hold out, so a web run can compare.
+    const removeMomentumHold = new URLSearchParams(node.ownerDocument.location.search).has("nohold")
+      ? () => {}
+      : installMomentumHold(node, scrollRunning);
     const detachIntent = attachUserScrollIntent(node);
     const followIntent = (next: boolean) => followRef.current(next);
     const cancelProgrammatic = (event?: Event) => {

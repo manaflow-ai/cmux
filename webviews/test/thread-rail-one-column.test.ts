@@ -64,11 +64,11 @@ await requireBrowserLane("thread-rail-one-column.test.ts", async () => {
     row(`summary-${index + 1}`, "turnSummary", undefined, { status: "completed", durationMs: 1_000 }),
   ]).flat();
 
-  async function open(): Promise<Page> {
+  async function open(query = ""): Promise<Page> {
     const { port } = vite!.httpServer!.address() as { port: number };
     const page = await browser!.newPage({ viewport: { width: 1280, height: 820 } });
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await page.goto(`http://127.0.0.1:${port}/test/browser/thread-minimap.html`);
+    await page.goto(`http://127.0.0.1:${port}/test/browser/thread-minimap.html${query}`);
     await page.waitForFunction(() => "__showRows" in window);
     await page.evaluate((shown) => {
       (window as unknown as { __showRows(rows: unknown): void }).__showRows(shown);
@@ -90,6 +90,80 @@ await requireBrowserLane("thread-rail-one-column.test.ts", async () => {
     expect(new Set(bars.map((bar) => bar.left)).size).toBe(1);
     expect(new Set(bars.map((bar) => bar.width)).size).toBe(1);
     await page.close();
+  });
+
+  // VEHICLE, never merges: what the page shows after a hover on tick 7 and on tick 8, with the
+  // momentum hold (as on feat) and without it (`?nohold=1`), 3 tries each. It prints and asserts nothing.
+  test("VEHICLE: the card after a hover, with and without the momentum hold, every read printed", async () => {
+    for (const arm of ["", "?nohold=1"]) {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const page = await open(arm);
+        const errors: string[] = [];
+        page.on("pageerror", (error) => errors.push(`pageerror ${String(error).slice(0, 300)}`));
+        page.on("console", (message) => {
+          if (message.type() === "error") errors.push(`console ${message.text().slice(0, 300)}`);
+        });
+        for (const [index, words] of [
+          [7, "Step 8 landed"],
+          [8, "the number 9."],
+        ] as const) {
+          const box = await page.evaluate((at) => {
+            const rect = document.querySelector<HTMLElement>(`[data-tick="${at}"]`)!.getBoundingClientRect();
+            return { x: rect.left + 8, y: rect.top + rect.height / 2 };
+          }, index);
+          await page.mouse.move(box.x, box.y);
+          // 12 reads, one each 10 frames (about 2 s at 60 Hz), in the page's own frame callbacks.
+          const states = await page.evaluate(
+            ({ text, point }) =>
+              new Promise<Array<{ has: boolean; card: string; line: string; ticks: number }>>((resolve) => {
+                const out: Array<{ has: boolean; card: string; line: string; ticks: number }> = [];
+                let frame = 0;
+                const step = () => {
+                  if (frame % 10 === 0) {
+                    const card = document.querySelector<HTMLElement>(".acpmux-minimap__card");
+                    const prompt = card?.querySelector(".acpmux-minimap__prompt");
+                    const under = document.elementFromPoint(point.x, point.y) as HTMLElement | null;
+                    const scroll = document.querySelector<HTMLElement>(".acpmux-scroll");
+                    const active = Array.from(document.querySelectorAll<HTMLElement>('[data-tick][data-tone="active"]'))
+                      .map((tick) => tick.dataset.tick)
+                      .join(",");
+                    const below = under
+                      ? `${under.tagName}.${String(under.className).slice(0, 60)} tick=${under.closest<HTMLElement>("[data-tick]")?.dataset.tick ?? "-"}`
+                      : "NOTHING";
+                    const top = scroll
+                      ? `${scroll.scrollTop.toFixed(1)}/${scroll.scrollHeight}/${scroll.clientHeight}`
+                      : "NO SCROLLER";
+                    out.push({
+                      has: prompt?.textContent?.includes(text) === true,
+                      card: card ? card.outerHTML.slice(0, 500) : "NO CARD",
+                      line: `f${frame} active=${active} prompt=${prompt ? `[${(prompt.textContent ?? "").slice(0, 60)}]` : "NO PROMPT"} under=${below} top=${top}`,
+                      ticks: document.querySelectorAll("[data-tick]").length,
+                    });
+                  }
+                  frame += 1;
+                  if (frame > 110) resolve(out);
+                  // raf-read: a vehicle that prints the DOM for about 2 s; it measures no frame.
+                  else requestAnimationFrame(step);
+                };
+                // raf-read: a vehicle that prints the DOM for about 2 s; it measures no frame.
+                requestAnimationFrame(step);
+              }),
+            { text: words, point: box },
+          );
+          const found = states.findIndex((state) => state.has);
+          const reads = states.map((state) => state.line);
+          for (const at of [0, states.length - 1])
+            console.log(
+              `VEHICLE arm=${arm || "hold"} try=${attempt} tick=${index} read=${at} ticks=${states[at]!.ticks} card=${states[at]!.card}`,
+            );
+          console.log(
+            `VEHICLE arm=${arm || "hold"} try=${attempt} tick=${index} FOUND=${found >= 0 ? `yes at read ${found}` : "NO"} ${reads.join(" | ")}`,
+          );
+        }
+        console.log(`VEHICLE arm=${arm || "hold"} try=${attempt} errors=${errors.length} ${errors.join(" || ")}`);
+        await page.close();
+      }
+    }
   });
 
   test("the hover preview still names the sender of another session's message, and only there", async () => {
