@@ -289,13 +289,16 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
               await page.evaluate(
                 ({ x, y }) => {
                   const target = document.elementFromPoint(x, y);
-                  return Boolean(
+                  const empty = Boolean(
                     target?.closest(".acpmux-thread, .acpmux-spacer, .acpmux-scroll") && !target.closest(".acpmux-row"),
                   );
+                  if (empty) return "empty";
+                  const row = target?.closest(".acpmux-row")?.getAttribute("data-row-id");
+                  return `${target?.tagName.toLowerCase()}.${String(target?.className).replace(/\s+/g, ".")} in ${row} at ${x},${y}`;
                 },
                 { x, y: midpoint },
               ),
-            ).toBe(true);
+            ).toBe("empty");
             await drag(page, { x, y: midpoint }, box.after);
             expect((await selected(page)).length).toBeGreaterThan(0);
             const anchor = await page.evaluate(() => {

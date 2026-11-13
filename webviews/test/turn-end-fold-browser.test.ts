@@ -340,8 +340,12 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
       console.log(
         `TURN_END_FOLD ${JSON.stringify(folding.map((sample) => [sample.prompt, sample.answer, sample.gap, sample.work]))}`,
       );
-      // The prompt comes down to the folded line over several frames, not in one step.
-      expect(after.prompt - before.prompt).toBeGreaterThan(40);
+      // The prompt comes down to the folded line over several frames, not in one step. The asides
+      // between the runs stay outside the fold as the agent's own paragraphs (#42279, #42247) and
+      // the turn's footer and edits card come in under the answer, so the fold's height shows as
+      // the prompt coming down and the answer going up together.
+      expect(after.prompt - before.prompt).toBeGreaterThan(8);
+      expect(after.prompt - before.prompt + (after.answer - before.answer)).toBeGreaterThan(40);
       const between = folding.filter(
         (sample) => sample.prompt > before.prompt + 2 && sample.prompt < after.prompt - 2,
       ).length;
