@@ -3118,6 +3118,11 @@ export class AcpmuxDirectClient {
   /// rail geometry stable while the adjacent transcript pages warm; a real event row supersedes
   /// the placeholder on the next snapshot.
   private indexedPlaceholders = new Map<string, AcpmuxRow>();
+  /// Stretches between an indexed page and the history held below it (`mergeIndexedPage`), newest
+  /// jump first, read forward one bounded page at a time (`fillIndexedGaps`) so the turns between a
+  /// rail target and the tail draw whole instead of as prompt-only placeholders.
+  private indexedGaps: { after: number; before: number }[] = [];
+  private indexedGapFill?: Promise<void>;
   /// The prompt that opened the turn the held history starts in, when that prompt is older than
   /// every held event: a Chief subagent's first prompt carries the Chief's whole view (100+ KB),
   /// so once its turn's output passes the open page's cap the page starts mid-turn and the prompt
@@ -4287,7 +4292,7 @@ export class AcpmuxDirectClient {
     // A page still in flight belongs to the session before; it is dropped when it lands.
     this.loadingOlder = undefined;
     this.rows.clear();
-    this.indexedPlaceholders.clear();
+    this.clearIndexedHistory();
     this.planBuilds.clear();
     this.memoryEarly.clear();
     this.presetApprovals.clear();
@@ -6990,6 +6995,8 @@ export class AcpmuxDirectClient {
       this.usage = undefined;
       // An older page already in flight was read for the transcript that just went.
       this.historyEpoch += 1;
+      // So were the rail's indexed placeholders and the gaps still being filled under them.
+      this.clearIndexedHistory();
     }
     // A reconnect to the same session keeps its events, and open() fills the gap to the new page
     // (every kind, usage included): the client still holds what it held. A fresh attach (Infinity,
@@ -14233,7 +14240,7 @@ export class AcpmuxDirectClient {
   private indexedPage(seq: number): Promise<EventRecord[]> | undefined {
     const sessionId = this.selectedSessionId;
     const generation = this.selectionGeneration;
-    if (!sessionId || !Number.isFinite(seq) || seq < 1 || generation !== this.selectionGeneration) return undefined;
+    if (!sessionId || !Number.isFinite(seq) || seq < 1) return undefined;
     const bucket = Math.floor(seq / INDEXED_PAGE_RADIUS);
     const key = `${sessionId}:${generation}:${bucket}`;
     const held = this.indexedPages.get(key);
@@ -14283,7 +14290,75 @@ export class AcpmuxDirectClient {
     for (const row of indexedPromptPlaceholders(this.promptIndex?.rows ?? [], held, pageStart, tailStart))
       this.indexedPlaceholders.set(row.id, row);
     this.emit("history");
+    // The page sits below the held tail with a hole between them: no older page reads across it
+    // (they page down from `firstSeq`), so read it forward from the page's end, in the background.
+    const pageEnd = Math.max(...page.map((event) => event.seq));
+    if (Number.isFinite(tailStart) && pageEnd + 1 < tailStart) {
+      this.indexedGaps.unshift({ after: pageEnd, before: tailStart });
+      this.indexedGapFill ??= this.fillIndexedGaps().finally(() => (this.indexedGapFill = undefined));
+    }
     return true;
+  }
+
+  private clearIndexedHistory(): void {
+    this.indexedPlaceholders.clear();
+    this.indexedPages.clear();
+    this.indexedGaps = [];
+  }
+
+  /// Reads each indexed gap forward, one page of at most OLDER_PAGE_BYTES at a time (a relayed
+  /// daemon's socket never carries more than one), merging every page as it lands so the turns just
+  /// below the reader's jump target draw first. A new jump's gap goes first; another chat, visit or
+  /// held history (`clearIndexedHistory`) ends the fill.
+  private async fillIndexedGaps(): Promise<void> {
+    const sessionId = this.selectedSessionId;
+    const generation = this.selectionGeneration;
+    const epoch = this.historyEpoch;
+    const stale = () =>
+      this.closed ||
+      generation !== this.selectionGeneration ||
+      this.selectedSessionId !== sessionId ||
+      epoch !== this.historyEpoch;
+    const kinds = ["transcript", ...(this.localOrigin ? PRESET_APPROVAL_KINDS : [])];
+    while (sessionId && !stale()) {
+      const gap = this.indexedGaps[0];
+      if (!gap) return;
+      if (gap.after + 1 >= gap.before) {
+        this.indexedGaps.shift();
+        continue;
+      }
+      let result: any;
+      try {
+        // `afterSeq` alone: with `beforeSeq` too acpmux reads the stretch newest first
+        // (server/requests.rs), which would skip the gap's oldest records.
+        result = await this.typed("_acpmux/events", {
+          sessionId,
+          afterSeq: gap.after,
+          limit: OLDER_PAGE_RECORDS,
+          maxBytes: OLDER_PAGE_BYTES,
+          kinds,
+        });
+      } catch {
+        // The next jump or reconnect reads again; a failed read must not spin.
+        return;
+      }
+      if (stale()) return;
+      const read = records(result?.events);
+      const page = read.filter((event) => event.seq > gap.after && event.seq < gap.before);
+      const reachedTail = result?.hasMore !== true || read.some((event) => event.seq >= gap.before - 1);
+      if (page.length === 0) {
+        if (this.indexedGaps[0] === gap) this.indexedGaps.shift();
+        continue;
+      }
+      gap.after = reachedTail ? gap.before - 1 : Math.max(...page.map((event) => event.seq));
+      this.events = mergeEventRecords(this.events, page);
+      this.sawPrompts(page);
+      this.rebuildKeepingLiveState(Math.min(...page.map((event) => event.seq)) - 1);
+      const held = new Set(page.map((event) => event.seq));
+      for (const [id, row] of this.indexedPlaceholders)
+        if (row.seq !== undefined && held.has(row.seq)) this.indexedPlaceholders.delete(id);
+      this.emit("history");
+    }
   }
 
   /// Pages history in until the record at `seq` is held: a click on the rail's tick of a prompt
