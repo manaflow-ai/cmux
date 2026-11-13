@@ -74,6 +74,16 @@
    "shot": false
   },
   {
+   "title": "Show the browser tab",
+   "cmux": [
+    "tab",
+    "name:Example",
+    "show"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
    "title": "A browser tab in the default profile; the omnibar shows its avatar",
    "wait": 0.5
   },
