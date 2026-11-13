@@ -130,7 +130,10 @@ def load_bundle(
             source_texts[path] = text
         row["ratio"] = round(row["reachableBytes"] / row["sourceBytes"], 4) if row["sourceBytes"] else 0
         row["package"] = package_name(path)
-        row["packageInstance"] = package_instance(path)
+        # esbuild reports paths relative to its working directory; Rolldown
+        # reports absolute paths. Resolve both before counting installed roots,
+        # while keeping nested node_modules (actual separate copies) distinct.
+        row["packageInstance"] = package_instance(str(source) if source is not None else path)
         row["barrel"] = len(EXPORT_STAR.findall(clean_comments(text)))
         source_record = source_inputs.get(path, {})
         row["commonjs"] = (
