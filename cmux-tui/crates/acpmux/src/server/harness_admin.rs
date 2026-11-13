@@ -397,7 +397,15 @@ pub(super) async fn handle(
 /// marked a start-mode notice (`hub/start_mode.rs`), which only local
 /// connections get (a remote-origin connection's chats get no start mode).
 pub(super) fn watch_note(conn: &super::Conn, note: Value) {
-    if let Some(state) = note.get(crate::peer_states::STATE_NOTE) {
+    if let Some(state) = note.get(super::connections::CONNECTIONS_NOTE) {
+        // Model connections (`server/connections.rs`): this machine's own, never to Web or a peer.
+        if !conn.origin.web_class() {
+            conn.send(&crate::rpc::Message::notification(
+                method::MUX_CONNECTIONS_CHANGED,
+                state.clone(),
+            ));
+        }
+    } else if let Some(state) = note.get(crate::peer_states::STATE_NOTE) {
         conn.send(&crate::rpc::Message::notification(
             method::MUX_PEER_STATE_CHANGED,
             state.clone(),
