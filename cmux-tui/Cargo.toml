@@ -18,6 +18,7 @@ resolver = "2"
 members = [
     "crates/acpmux",
     "crates/acpmux-core",
+    "crates/acpmux-client",
     "crates/cmux-tailnet",
     "crates/acpmux-build-id",
     "crates/acpmux-book",
@@ -137,6 +138,7 @@ members = [
 default-members = [
     "crates/acpmux",
     "crates/acpmux-core",
+    "crates/acpmux-client",
     "crates/acpmux-build-id",
     "crates/acpmux-book",
     "crates/cmux-coderouter",

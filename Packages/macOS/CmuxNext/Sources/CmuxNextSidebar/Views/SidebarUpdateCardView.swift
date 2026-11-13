@@ -90,10 +90,16 @@ final class SidebarUpdateCardView: NSView {
     /// (``scheduleNotesClose()``): one-shot, re-armed while the pointer is on its way.
     /// Tests swap in one on a manual clock.
     var notesCloseTimer = DemandTimer(owner: "sidebar.update-card.notes-close")
+    /// The popup's delayed open after the pointer came onto the card (``scheduleNotesOpen()``):
+    /// one-shot, cancelled when the pointer leaves first, so a pass over the card opens nothing.
+    /// Tests swap in one on a manual clock.
+    var notesOpenTimer = DemandTimer(owner: "sidebar.update-card.notes-open")
     /// How long the pending close has already waited (capped at ``notesCorridorLimit``).
     var notesCloseWaited: Duration = .zero
     /// How many close checks ran (tests wait on it instead of a fixed number of yields).
     var notesCloseChecks = 0
+    /// How many open checks ran (tests wait on it).
+    var notesOpenChecks = 0
     /// The popup closed while the pointer was still on the card (Hide, an
     /// action, the app resigning active): moves over the card do not reopen it
     /// until the pointer leaves and comes back.
@@ -337,12 +343,14 @@ final class SidebarUpdateCardView: NSView {
 
     // MARK: Hover
 
-    /// The pointer came onto the card: the notes show. It left (or the card
-    /// moved or hid under it): the popover stays while the pointer went into
-    /// it (to click a link), else it closes.
+    /// The pointer came onto the card: the notes show once it rests there for
+    /// ``notesOpenDelay`` (a popup still closing stays at once). It left (or the card
+    /// moved or hid under it): a pending open is dropped, and the popover stays while
+    /// the pointer went into it (to click a link), else it closes.
     private func setHovered(_ hovering: Bool) {
         isHovered = hovering
-        if hovering { return showNotes() }
+        if hovering { return notesAreShown ? showNotes() : scheduleNotesOpen() }
+        cancelNotesOpen()
         notesDismissedWhileHovered = false
         guard !pointerIsOverNotes() else { return }
         // Not at once: the pointer may be on its way to the popup (``scheduleNotesClose()``).
@@ -361,7 +369,7 @@ final class SidebarUpdateCardView: NSView {
     override func mouseMoved(with event: NSEvent) {
         guard !isHovered || !notesAreShown else { return }
         pointerHover?.refresh()
-        if isHovered, !notesAreShown, !notesDismissedWhileHovered { showNotes() }
+        if isHovered, !notesAreShown, !notesDismissedWhileHovered { scheduleNotesOpen() }
     }
 
     // MARK: Click

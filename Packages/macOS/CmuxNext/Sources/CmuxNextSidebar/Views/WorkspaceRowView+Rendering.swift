@@ -79,7 +79,8 @@ extension WorkspaceRowView {
     override func updateLayer() {
         performWithTheme {
             // Every row's title, named or not ("workspace-1", "~"), reads in the same ink (Lucas 2026-11-12).
-            title.textColor = Palette.sidebarTitle
+            title.textColor = SidebarStyle.titleInk
+            icon.alphaValue = (isArchived ? SidebarStyle.archivedAlpha : 1) * SidebarStyle.glyphOpacity
             // A detail line is the Codex sidebar's `text-tertiary` (#39956): quieter than the title by a full step.
             subtitle.setColor(Palette.textTertiary); [timeLabel, metaLabel].forEach { $0.setColor(Palette.textTertiary) }
             if isArchived { // dimmed (archiving-DESIGN.md)
@@ -140,7 +141,7 @@ extension WorkspaceRowView {
         switch iconKind {
         case nil: side = 0 // text only: no kind glyph (WORKSPACE-ROWS-NO-DEFAULT-ICON)
         case .swatch?: side = SidebarStyle.dotSize + Metrics.space1
-        case .symbol?, .emoji?, .favicon?, .pagePlaceholder?: side = SidebarStyle.iconColumnBox
+        case .symbol?, .emoji?, .favicon?, .pagePlaceholder?, .page?: side = SidebarStyle.iconColumnBox
         }
         // The icon's box starts on lead (where an iconless title would start) and its glyph's ink starts there too, as
         // the pins' and Home's do (`SidebarStyle.iconColumnGlyphX`, Lawrence msg 19643); the text column is the

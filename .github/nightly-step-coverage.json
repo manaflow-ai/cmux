@@ -193,6 +193,7 @@
         "Put llvm-lipo on PATH as lipo": {"plumbing": true},
         "Require the cmux-tui client build-nightly-app bundled": {"nightly_only": "compares the cmux-tui.version build-nightly-app wrote with the commit resolve-nightly-cmux-tui-client chose; only the nightly installs a resolved client into a Release app"}},
       "build-sign-notarize-nightly": {
+        "Download prepared app (parallel)": {"plumbing": true, "note": "a ranged, digest-checked download (download-run-artifact.py, tests/test_download_run_artifact_modes.py); download-artifact stays the fallback"},
         "Hold the whole Mac before any credential": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
         "Claim the whole Mac for signing": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
         "Yield the sign slot to a newer build": {"nightly_only": "reads the in-progress nightly-next push runs' sign jobs through the Actions API, only on attempt 1 of a nightly-next push; the decision and its wiring are checked by tests/test_nightly_sign_yield.py"},
@@ -272,6 +273,7 @@
       "await-nightly-tree-marker": {
         "Wait for the build commit's tree-commit marker": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"}},
       "publish-nightly": {
+        "Download nightly variant artifacts (parallel)": {"plumbing": true, "note": "a ranged, digest-checked download (download-run-artifact.py, tests/test_download_run_artifact_modes.py); download-artifact stays the fallback"},
         "Take the nightly-next publish lease": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next feed writers' R2 lease"},
         "Release the nightly-next publish lease": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next feed writers' R2 lease"},
         "Hold the whole Mac before any credential": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
@@ -329,6 +331,7 @@
         "Find the attempt that compiled the published build": {"nightly_only": "looks up the published binary's producing run and its dSYM artifacts; a pull request has no published nightly build"},
         "Upload the build's dSYMs to Sentry": {"nightly_only": "uploads the published build's dSYMs to Sentry with the Sentry token, in the tail run outside the push group"}},
       "keep-published-dsyms": {
+        "Download the published build's dSYMs from the run that compiled it (parallel)": {"plumbing": true, "note": "a ranged, digest-checked download (download-run-artifact.py, tests/test_download_run_artifact_modes.py); download-artifact stays the fallback"},
         "Hold the whole Mac before any credential": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
         "Clean this job's workdir on an owned Mac": {"pr": "ci-guards.yml:workflow-guard-tests:Validate every nightly job runs on our own Mac minis and the publishers hold the whole Mac"},
         "Claim the whole Mac for signing": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
@@ -353,6 +356,7 @@
         "Pick a drained owned Mac for the signing jobs": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
         "Leave notarization to a newer published build": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly signing jobs take a Blacksmith label with a moving queue"}},
       "generate-nightly-deltas": {
+        "Download published variant (parallel)": {"plumbing": true, "note": "a ranged, digest-checked download (download-run-artifact.py, tests/test_download_run_artifact_modes.py); download-artifact stays the fallback"},
         "Hold the whole Mac before any credential": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
         "Forget the kept clone's sparse-checkout mode": {"plumbing": true},
         "Claim the whole Mac for signing": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
@@ -408,6 +412,7 @@
         "Compute Xcode compilation cache key": {"plumbing": true},
         "Restore Xcode compilation cache": {"plumbing": true, "note": "local action: restores or saves a cache with actions/cache, WarpBuilds/cache or R2 and reports a receipt; no product check. Re-review this entry if the action gains a check"},
         "Install compilation dependencies": {"plumbing": true},
+        "Start the third-party notices (they need no build output)": {"plumbing": true, "note": "starts the same generation the notices step runs, in the background, into its hand-off; tests/test_nightly_background_steps.py"},
         "Fetch the resolved cmux-tui tree companions": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"},
         "Stand in for the acpmux companion while the tree publishes": {"plumbing": true},
         "Prefetch the cmux-tui client while the tree publishes": {"plumbing": true, "note": "fills the client cache beside the compile; Bundle the cmux-tui client re-verifies every slice against the attested manifest"},
@@ -427,6 +432,7 @@
         "Read whether the OptChat Chief was rebuilt": {"plumbing": true, "note": "reads the build script's reused/built result so only a rebuilt Chief entry is saved; scripts/cmux-next/tests/optchat-chief-input-cache.test.sh checks the result"},
         "Save the OptChat Chief cache": {"plumbing": true, "note": "publishes a rebuilt Chief artifact as a new generation of the exact source and environment key"},
         "Mark the kept Release DerivedData built (dedicated nightly-next builder)": {"plumbing": true},
+        "Finish the third-party notices": {"plumbing": true, "note": "joins the background notices run (continue-on-error: a failed one packs no hand-off and the next step generates them); tests/test_nightly_background_steps.py runs both outcomes on fixtures"},
         "Generate third-party notices (cmux-next)": {"pr": "cmux-next-guards.yml:rust-notices-tree:Generate the Rust notices from this tree (as the nightly does)"},
         "Drop the empty Iroh.framework stub (nightly-next)": {"nightly_only": "nm and otool on Iroh.framework inside the Release app; needs the Release cmux.app that only the nightly builds (xcodebuild Release on a Mac)"},
         "Bound Xcode compilation cache size": {"plumbing": true},
@@ -510,6 +516,7 @@
         "Check the run that published": {"nightly_only": "reads the run that published through the API (tests/test_nightly_next_tail_off_push_group.py runs check-source on real and forged runs)"},
         "Read the published build": {"nightly_only": "reads a published build's record, which only a publication or its dispatched post-publish run has (tests/test_nightly_next_tail_off_push_group.py round-trips the script)"}},
       "build-nightly-deltas": {
+        "Download published variant (parallel)": {"plumbing": true, "note": "a ranged, digest-checked download (download-run-artifact.py, tests/test_download_run_artifact_modes.py); download-artifact stays the fallback"},
         "Select Xcode": {"plumbing": true}, "Select the SDK of the selected Xcode": {"plumbing": true},
         "Build the deltas without the key": {"nightly_only": "diffs the published DMG against earlier releases' DMGs with BinaryDelta (tests/test_nightly_deltas_keyless_prebuild.py)"}},
       "published-in": {

@@ -3228,3 +3228,5 @@ mod tests;
 mod cloud_api;
 #[cfg(unix)]
 mod cloud_repos;
+#[cfg(unix)]
+mod cloud_runs;

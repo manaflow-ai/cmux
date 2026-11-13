@@ -12,6 +12,7 @@
 import type { AcpmuxUsageLimits } from "../../agent-session/acpmux/model";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 import type { WorktreeRecipe } from "../../worktreeRecipe";
+import { OWNER_SENTENCE } from "../shared/userMessage";
 
 /** A museum search result (cmux.settings.art.search); its thumbnail is at `museum/<key>`. */
 export type MuseumArtResult = {
@@ -1363,7 +1364,15 @@ export type ErrorCode =
 
 const unavailableCodes = new Set(["cmux.protocol.closed", "cmux.page.unavailable", "cmux.protocol.auth_refused"]);
 
-/** The error a call rejected with, as a plain record. */
+/** Refusals the host words for the person: the updater's (Go Back, Switch, Update) and a
+ * person-only action's (RefusalStrings). Any other failure shows the plain sentence. */
+export const SETTINGS_SENTENCES = {
+  "cmux.page.refused": OWNER_SENTENCE,
+  "cmux.app.user_only": OWNER_SENTENCE,
+} as const;
+
+/** The error a call rejected with, as a plain record (its `message` is for logs; the page shows
+ * `userMessage(error)`). */
 export function wireError(error: unknown): WireError {
   if (typeof error === "object" && error !== null && typeof (error as WireError).code === "string") {
     const { code, message, details } = error as WireError;

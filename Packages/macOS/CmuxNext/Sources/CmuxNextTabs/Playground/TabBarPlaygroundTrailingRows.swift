@@ -6,7 +6,7 @@ import CmuxNextIcons
 /// toolbar row (Back, Reload, an address field, Extensions, DevTools, ⋮), laid out by a
 /// ``TabBarPlaygroundTrailingSpec``. A faint line marks each row's last control center, so a gallery
 /// shows whether the two ⋮ share one column.
-final class TabBarPlaygroundTrailingRows: NSView {
+final class TabBarPlaygroundTrailingRows: NSView, TabBarPlaygroundRow {
     private let spec: TabBarPlaygroundTrailingSpec
     private let strip: TabStripView
     private let tabBarButtons: [TitlebarBandButton]

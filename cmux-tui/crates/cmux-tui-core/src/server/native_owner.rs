@@ -138,6 +138,7 @@ const CAPABILITIES: &[&str] = &[
     AGENT_SESSION_START_MODEL_CAPABILITY,
     AGENT_SESSION_START_MODE_CAPABILITY,
     agent_session_attach::AGENT_SESSION_PRESENCE_CAPABILITY,
+    agent_session_attach::AGENT_SESSION_ATTENTION_CAPABILITY,
     agent_session_attach::AGENT_SESSION_CONTEXT_CAPABILITY,
     agent_session_attach::AGENT_SESSION_BTW_CAPABILITY,
     agent_session_attach::agent_session_children::AGENT_SESSION_CHILDREN_CAPABILITY,

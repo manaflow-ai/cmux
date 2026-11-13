@@ -9,6 +9,7 @@ import { afterAll, expect, mock, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { installJsdomScroller } from "./support/jsdomScroller";
+import { settleReact } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -79,7 +80,8 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   if (ownNow) Object.defineProperty(performance, "now", ownNow);
   else delete (performance as unknown as Record<string, unknown>).now;
   dom.window.close();
