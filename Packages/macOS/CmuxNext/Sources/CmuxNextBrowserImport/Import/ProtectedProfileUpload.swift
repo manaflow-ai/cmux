@@ -107,14 +107,14 @@ public struct ProtectedProfileUpload: Sendable {
     private func upload<T>(from folder: URL, names: [String], over transport: BrowserDataReader.Transport,
                            _ body: (String) async throws -> T) async throws -> T {
         let id = UUID().uuidString
-        let drop: () async -> Void = { _ = try? await transport(JSONEncoder().encode(Drop(upload: id))) }
+        let dropRequest = try JSONEncoder().encode(Drop(upload: id))
         do {
             for name in names { try await send(folder.appending(path: name), as: name, to: id, over: transport) }
             let result = try await body(id)
-            await drop()
+            _ = try? await transport(dropRequest)
             return result
         } catch {
-            await drop()
+            _ = try? await transport(dropRequest)
             throw error
         }
     }
