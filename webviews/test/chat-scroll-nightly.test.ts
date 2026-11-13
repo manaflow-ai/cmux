@@ -358,6 +358,11 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
         session: { turnCount: OLDER + 12 + 1 },
       });
       const page = await pane.open({ width: 1100, height: 760 });
+      const pageErrors: string[] = [];
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+      page.on("console", (message) => {
+        if (message.type() === "error") pageErrors.push(message.text());
+      });
       await page.emulateMedia({ reducedMotion: "no-preference" });
       // Session Info open beside the chat, as Leo has it (the header state the app sends, then its
       // toggle; session-info-overlay-toggle.test.ts), and done entering before the wheel starts.
@@ -394,7 +399,18 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
       const traces: Awaited<ReturnType<typeof traceUpwardAnchors>>[] = [];
       const driftLog: string[] = [];
       const roundLog: string[] = [];
-      const waitForTranscript = () => page.locator(".acpmux-scroll").waitFor({ state: "attached", timeout: 10_000 });
+      const waitForTranscript = async () => {
+        try {
+          await page.locator(".acpmux-scroll").waitFor({ state: "attached", timeout: 10_000 });
+        } catch (error) {
+          const state = await page.evaluate(() => ({
+            scrollers: document.querySelectorAll(".acpmux-scroll").length,
+            main: document.querySelector(".acpmux-main")?.outerHTML.slice(0, 600) ?? null,
+            body: document.body.innerText.slice(0, 600),
+          }));
+          throw new Error(`${String(error)}; transcript state ${JSON.stringify({ state, pageErrors })}`);
+        }
+      };
       try {
         // On up to the chat's first prompt: every older page lands under the wheel, the last one
         // included, which gives back whatever room the estimate left over.
