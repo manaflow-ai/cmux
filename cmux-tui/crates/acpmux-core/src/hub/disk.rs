@@ -30,6 +30,49 @@ pub(super) struct Hydration {
 }
 
 impl HubWriter {
+    /// Quarantines the damaged derived files and leaves the hot in-memory
+    /// rows as the sole published view. The next compaction writes a clean
+    /// snapshot, while the rebuild counter tells each source to walk again.
+    pub(super) fn rebuild_if_requested(&mut self) {
+        if !self.rebuild_requested.swap(false, Ordering::AcqRel) {
+            return;
+        }
+        let Some(directory) = self.directory.clone() else {
+            // In-memory hubs have no derived files to quarantine. Still fence
+            // subscribers through the same source-walk epoch.
+            self.rebuild_count.fetch_add(1, Ordering::AcqRel);
+            self.mark_rebuild_ready();
+            return;
+        };
+        let current = self.published.load_full();
+        self.hydration = None;
+        self.maintenance = None;
+        self.compaction = None;
+        self.retirement = None;
+        self.log = None;
+        if super::quarantine_index(&directory).is_err() {
+            // Keep the hub alive even if the quarantine itself hits a
+            // transient storage error; the old files are still ignored once
+            // the new writer is opened from an empty derived state.
+            self.log_errors.fetch_add(1, Ordering::Relaxed);
+        }
+        match IndexLog::open_with_snapshot(directory.join("index.log"), None) {
+            Ok(log) => self.log = Some(log),
+            Err(_) => self.log_errors.fetch_add(1, Ordering::Relaxed),
+        }
+        let next = current.empty_for_rebuild();
+        self.published.store(Arc::new(next));
+        drop(current);
+        self.rebuild_count.fetch_add(1, Ordering::AcqRel);
+        self.next_compaction = Some(std::time::Instant::now());
+        self.storage_retry = None;
+        self.mark_rebuild_ready();
+    }
+
+    fn mark_rebuild_ready(&self) {
+        self.hydrated.send_replace(HydrationState::Ready);
+    }
+
     pub(super) fn persist_origin(&mut self, record: &OriginRecord) -> Result<(), HubError> {
         if let Some(log) = self.log.as_mut() {
             if let Err(error) = log.append_origin(record) {
@@ -176,6 +219,7 @@ impl HubWriter {
         {
             self.turn_measure = TurnMeasure::default();
         }
+        self.rebuild_if_requested();
         // Installation and releasing the old maps stay off runtime workers.
         self.install_compaction();
         self.maintain_compaction();

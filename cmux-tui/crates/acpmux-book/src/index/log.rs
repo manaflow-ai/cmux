@@ -119,6 +119,14 @@ impl IndexLog {
                         io::ErrorKind::UnexpectedEof | io::ErrorKind::InvalidData
                     ) =>
                 {
+                    // A short final frame is the existing torn-tail repair.
+                    // Once the complete frame boundary is present, however,
+                    // a bad length, checksum or payload means the next log
+                    // boundary is unknown and the hub must rebuild from its
+                    // sources instead of silently cutting history.
+                    if complete_frame_at(&file, offset)? {
+                        return Err(error);
+                    }
                     break;
                 }
                 Err(error) => return Err(error),
@@ -285,6 +293,26 @@ impl IndexLog {
         self.closed_bytes = 0;
         debug_assert!(self.generation > covered_generation);
     }
+}
+
+/// Whether the bytes beginning at `offset` contain a complete framed record.
+/// A declared length beyond the format bound is structural damage even when
+/// the file ends before that length, because no safe next boundary exists.
+fn complete_frame_at(file: &File, offset: u64) -> io::Result<bool> {
+    let total = file.metadata()?.len();
+    let remaining = total.saturating_sub(offset);
+    if remaining < 8 {
+        return Ok(false);
+    }
+    let mut probe = file.try_clone()?;
+    probe.seek(SeekFrom::Start(offset))?;
+    let mut header = [0; 8];
+    std::io::Read::read_exact(&mut probe, &mut header)?;
+    let length = u32::from_le_bytes(header[..4].try_into().unwrap()) as u64;
+    if length > (super::MAX_INDEX_RECORD_BYTES - 8) as u64 {
+        return Ok(true);
+    }
+    Ok(remaining >= 8 + length)
 }
 
 pub fn replay_log(path: impl AsRef<Path>, index: SummaryIndex) -> io::Result<SummaryIndex> {
