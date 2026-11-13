@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43363372603",
+  "recorded_at": "2026-11-13T04:09:09Z",
+  "reason": "cmux-tui 8cb149962547 changes the image's cmux-tui (pinned a7c2e958f145)",
+  "dry_run": false,
+  "cmux_tui": "8cb14996254757a617c63e2b87780e601616a704",
+  "fixes": [
+    {
+      "sha": "8cb14996254757a617c63e2b87780e601616a704",
+      "mergedAt": "2026-11-12T19:41:43-08:00",
+      "subject": "acpmux: a prompt reads three fields of each chat, not a copy of every chat meta (#42167)"
+    },
+    {
+      "sha": "74658690e0f9292e526dbfde37357db4c63e8188",
+      "mergedAt": "2026-11-12T19:40:17-08:00",
+      "subject": "feat: add GUI palette target policy for Cloud and other subjects (#42266)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-13T04:09:09Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
