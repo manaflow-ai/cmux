@@ -23,6 +23,8 @@ use super::{GlobalArgs, OutputMode, UsageError};
 /// The app bounds the mint at 25 s; the CLI waits a little longer so the
 /// app's own error reaches it.
 const AUTH_TOKEN_TIMEOUT: Duration = Duration::from_secs(30);
+/// `auth.status` is a local read of the app's signed-in state.
+const STATUS_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Invocation {
@@ -90,14 +92,20 @@ pub(super) fn whoami_if_requested(args: &[String]) -> Option<i32> {
         Err(error) => return Some(super::wire::print_local_error(&error, global.output, 3)),
     };
     let answer = super::app::request(&mut stream, "auth.token", json!({}), AUTH_TOKEN_TIMEOUT);
+    // The email comes from the app's local `auth.status` (no network); `auth.token` does not carry it.
+    let mut status =
+        || match super::app::request(&mut stream, "auth.status", json!({}), STATUS_TIMEOUT) {
+            Ok(Ok(value)) => Some(value),
+            _ => None,
+        };
     Some(match answer {
-        Ok(Ok(value)) => print_identity(&identity(Some(&value)), global.output),
+        Ok(Ok(value)) => print_identity(&identity(Some(&value), status().as_ref()), global.output),
         Ok(Err(error)) => match error.get("code").and_then(Value::as_str) {
             Some("not_signed_in") => {
                 super::app::failure("not_signed_in", messages.whoami_signed_out, global.output, 3)
             }
             // Signed in with no team chosen: the user is known to the app, not to this answer.
-            Some("no_team") => print_identity(&identity(None), global.output),
+            Some("no_team") => print_identity(&identity(None, status().as_ref()), global.output),
             _ => super::wire::print_local_error(&error, global.output, exit_code(&error)),
         },
         Err(message) => super::app::failure("app.transport", &message, global.output, 3),
@@ -105,10 +113,18 @@ pub(super) fn whoami_if_requested(args: &[String]) -> Option<i32> {
 }
 
 /// Who `auth.token` says is signed in: its user and team, never the token. `None` is signed in
-/// with no team.
-pub(super) fn identity(token: Option<&Value>) -> Value {
+/// with no team. `status` is the app's `auth.status`, which adds the account email (lowercased,
+/// trimmed; null when signed out there or absent).
+pub(super) fn identity(token: Option<&Value>, status: Option<&Value>) -> Value {
     let field = |key: &str| token.and_then(|token| token.get(key)).cloned().unwrap_or(Value::Null);
-    json!({"signed_in": true, "user": field("user"), "team": field("team")})
+    let email = status
+        .filter(|status| status.get("signed_in").and_then(Value::as_bool) == Some(true))
+        .and_then(|status| status.get("email"))
+        .and_then(Value::as_str)
+        .map(|email| email.trim().to_lowercase())
+        .filter(|email| !email.is_empty())
+        .map_or(Value::Null, Value::String);
+    json!({"signed_in": true, "user": field("user"), "team": field("team"), "email": email})
 }
 
 fn print_identity(identity: &Value, output: OutputMode) -> i32 {
