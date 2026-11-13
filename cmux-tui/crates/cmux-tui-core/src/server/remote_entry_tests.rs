@@ -139,7 +139,7 @@ fn a_process_that_is_not_the_link_gets_nothing_and_registers_no_client() {
     let entry = entry(false, Arc::new(AdmitAll));
     let (mut stream, mut reader) = connect(&entry);
     // The entry closes a refused process at once, so each write races that
-    // close; the read below stays the assertion.
+    // close; the read below stays the assertion that no reply comes.
     send_racing_close(&mut stream, STAMP);
     send_racing_close(&mut stream, r#"{"id":1,"cmd":"ping"}"#);
     let mut line = String::new();
