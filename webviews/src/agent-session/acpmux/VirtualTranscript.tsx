@@ -4938,7 +4938,12 @@ function TranscriptView({
     // gesture into a visible rebound. The pending input and `giveRoomNearTop` below remove the
     // reserve; once the input is acknowledged, the clamp keeps layout-only corrections at the
     // loaded-room edge. A scrollbar drag is the reader's own position too (#42348).
-    if (room > 0 && layoutScrollTop(node) < room && !readerUpPending.current && !userScrollIntent(node).isScrollbarDragging()) {
+    if (
+      room > 0 &&
+      layoutScrollTop(node) < room &&
+      !readerUpPending.current &&
+      !userScrollIntent(node).isScrollbarDragging()
+    ) {
       wheelGlide.current?.stop();
       node.scrollTop = physicalScrollTop(node, room);
     }
