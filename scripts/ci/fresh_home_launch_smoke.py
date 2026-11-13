@@ -740,10 +740,12 @@ def user_processes() -> list[tuple[int, str]]:
     return [(int(pid), args.strip()) for pid, _, args in pairs if pid.isdigit() and int(pid) != os.getpid()]
 
 
-def pids_under(root: Path) -> list[int]:
-    """This user's processes whose command line names the run's private root, never by name."""
+def pids_under(root: Path, processes: list[tuple[int, str]] | None = None) -> list[int]:
+    """This user's processes whose command line names the run's private root, never by name. PROCESSES: a
+    user_processes read that the caller made already."""
     real = os.path.realpath(root)
-    return [pid for pid, args in user_processes() if f"{root}/" in args or f"{real}/" in args]
+    listed = user_processes() if processes is None else processes
+    return [pid for pid, args in listed if f"{root}/" in args or f"{real}/" in args]
 
 
 # Where a cmux NEXT terminal host records itself under the run's HOME: <id>.json names its host_pid. A build from
@@ -778,10 +780,11 @@ def terminal_host_pids(root: Path) -> list[int]:
     return pids
 
 
-def own_pids(root: Path) -> list[int]:
+def own_pids(root: Path, processes: list[tuple[int, str]] | None = None) -> list[int]:
     """Everything this run started that may still run: processes naming its root, and its terminal hosts (those
-    of the seeded arm too, whose home is under ROOT/SEEDED)."""
-    return sorted(set(pids_under(root)) | set(terminal_host_pids(root)) | set(terminal_host_pids(root / SEEDED)))
+    of the seeded arm too, whose home is under ROOT/SEEDED). PROCESSES as pids_under."""
+    return sorted(set(pids_under(root, processes)) | set(terminal_host_pids(root))
+                  | set(terminal_host_pids(root / SEEDED)))
 
 
 def alive(pid: int) -> bool:
@@ -821,13 +824,13 @@ def stop(pids: list[int], grace: float = 5.0) -> None:
                 pass
 
 
-def clone_helpers(root: Path) -> dict[int, str | None]:
+def clone_helpers(root: Path, processes: list[tuple[int, str]] | None = None) -> dict[int, str | None]:
     """This run's code-sign clone cleanup helpers that run now: pid -> the clone suffix that its command line
     names (None when it names none). A helper is found as every process of the run is: its command line names
-    the run's private root (the app copy's path)."""
+    the run's private root (the app copy's path). PROCESSES as pids_under."""
     real = os.path.realpath(root)
     found: dict[int, str | None] = {}
-    for pid, args in user_processes():
+    for pid, args in (user_processes() if processes is None else processes):
         if (f"{root}/" in args or f"{real}/" in args) and CLONE_CLEANUP in args.split():
             named = CLONE_SUFFIX.search(args)
             found[pid] = named.group(1) if named else None
@@ -883,11 +886,15 @@ def stop_own(root: Path, bundle_id: str | None, wait: float | None = None) -> di
     (CLONE_CLEANUP) is the last: it gets up to WAIT seconds (CLONE_HELPER_WAIT; none in a run that a signal cut)
     to remove the launch's clone and end by itself, then what is left is stopped. A clone that the helper did
     not remove is removed here, only when the helper's command line named its suffix. Returns what was seen, for
-    the report; a fault in here is told there and never fails or cuts the run."""
+    the report; a fault in here is told there and never fails or cuts the run.
+
+    One read of the process list serves the search for the helpers and the first stop, so a launch with no
+    helper costs the one read that it cost before; the second read is only for a launch that had a helper."""
     facts: dict = {"helpers": 0}
     try:
-        helpers = clone_helpers(root)
-        stop([pid for pid in own_pids(root) if pid not in helpers])
+        processes = user_processes()
+        helpers = clone_helpers(root, processes)
+        stop([pid for pid in own_pids(root, processes) if pid not in helpers])
         if helpers:
             if wait is None:
                 wait = 0.0 if CUT else float(os.environ.get("CMUX_FRESH_SMOKE_CLONE_HELPER_WAIT_SECONDS",
@@ -900,7 +907,8 @@ def stop_own(root: Path, bundle_id: str | None, wait: float | None = None) -> di
     except Exception as error:  # noqa: BLE001 - the stop below must run, and the verdict is not of this
         helpers = {}
         facts["error"] = f"{type(error).__name__}: {error}"[:300]
-    stop(own_pids(root))
+    if helpers or "error" in facts:
+        stop(own_pids(root))
     try:
         if helpers:
             suffixes = sorted({suffix for suffix in helpers.values() if suffix})
