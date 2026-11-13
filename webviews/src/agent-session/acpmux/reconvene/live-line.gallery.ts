@@ -44,6 +44,24 @@ const midThinking = () => chat([...earlier, prompt, activity([thinking(), grep],
 /// Mid-command: the tests run, the live line names them ("Running bun test ... 30s").
 const midCommand = () => chat([...earlier, prompt, activity([thinking(), tests], 0.3)], { isWorking: true });
 
+/// A turn of only a reply (Leo, 2026-11-12: "the thinking timer is overstaying its welome after you
+/// just replied!"): the reply streaming (`writing`), the reply in and the turn not ended yet
+/// (`replied`, "Thinking" with no clock), and the turn ended (`ended`, the reply's buttons).
+const answer = "Only network errors and 5xx answers retry now; a 404 throws at once.";
+const afterReply = (stage: "writing" | "replied" | "ended") =>
+  stage === "ended"
+    ? chat([...earlier, prompt, assistant(answer, 0.2), summary(0.1, { status: "completed", durationMs: 24_000 })])
+    : chat([...earlier, prompt, assistant(answer, stage === "writing" ? 0 : 0.2)], { isWorking: true });
+const replyVariant = (stage: "writing" | "replied" | "ended", note: string): AgentPaneVariant => ({
+  note,
+  snapshot: afterReply(stage),
+  play: async (ctx) => {
+    if (stage !== "ended") await lineDrawn(ctx);
+    if (stage === "replied" && ctx.document.querySelector(".acpmux-scroll .cv-worked--live .cv-worked__time"))
+      throw new Error("the line still ticks the turn's clock under a finished reply");
+  },
+});
+
 /// The live line drawn as the last row, its words in place.
 const lineDrawn = (ctx: PlayContext) =>
   ctx.waitFor(() => ctx.document.querySelector(".acpmux-scroll .cv-worked--live:not(.is-quiet) .cv-thinking"));
@@ -189,5 +207,14 @@ export default agentPaneEntry({
       true,
       "Mid-command under `line`: no finished thought row, the running command's live line under the prompt.",
     ),
+    "after-reply-writing": replyVariant(
+      "writing",
+      'A turn of only a reply, while it streams: "Writing" with the turn\'s time.',
+    ),
+    "after-reply": replyVariant(
+      "replied",
+      'The reply is in and the turn has not ended yet: "Thinking" alone, no clock or token count ticking under the reply.',
+    ),
+    "after-reply-ended": replyVariant("ended", "The turn ended: the live line gives way to the reply's buttons."),
   },
 });

@@ -48,7 +48,9 @@ extension PaletteModel {
     /// (``PaletteProvider/itemUpdates()``). Same generation: the rows update, the selection stays.
     private func loadTask(_ provider: any PaletteProvider, into state: PageState) -> Task<Void, Never> {
         let providerID = provider.id
-        return Task { [weak self, weak state] in
+        state.liveReads += 1
+        return Task { [weak self, weak state, weak counted = state] in
+            defer { counted?.liveReads -= 1 }
             if let updates = provider.itemUpdates() {
                 var any = false
                 for await items in updates {

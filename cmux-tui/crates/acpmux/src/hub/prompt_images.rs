@@ -564,6 +564,10 @@ impl Hub {
         {
             msg.set("hiddenContext", Value::Bool(true));
         }
+        // Purged once its creator is done: the log keeps no long body (`ephemeral.rs`).
+        if session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner).throwaway {
+            super::ephemeral::leave_out_body(&mut msg);
+        }
         // A turn Claude Code started on its own and still runs: the rest is this prompt's turn.
         self.end_background_turn(session, "prompt");
         self.append(session, "mux", "user_message", msg);

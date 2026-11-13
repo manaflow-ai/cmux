@@ -75,23 +75,14 @@ struct SidebarCodexMatchTests {
 
     // MARK: The list heading
 
-    @Test func oneListIsHeadedWorkspaces() throws {
+    /// One list draws no heading: its first workspace row is its first row (https://github.com/manaflow-ai/cmux/issues/42373).
+    @Test func oneListStartsWithItsFirstRow() throws {
         var o = SidebarLayoutOptions()
-        (o.flattensMachines, o.headsWorkspaceList) = (true, true)
-        let m = SidebarLayoutMetrics.standard
-        let layout = SidebarLayout.make(sections: [Self.machine(["a", "b"])], metrics: m, options: o)
-        let heading = try #require(layout.rows.first)
-        #expect(heading.key == .listHeader(.workspaces))
-        let a = try #require(layout.row(for: .workspace(WorkspaceID("a"))))
-        #expect(a.y == heading.maxY + m.rowSpacing, "the first row follows the heading")
-        // Off, a filter, or nothing to head: no heading.
-        o.headsWorkspaceList = false
-        #expect(!SidebarLayout.make(sections: [Self.machine(["a"])], metrics: m, options: o).rows.contains { $0.key == .listHeader(.workspaces) })
-        o.headsWorkspaceList = true
-        o.filterMatches = [WorkspaceID("a")]
-        #expect(!SidebarLayout.make(sections: [Self.machine(["a"])], metrics: m, options: o).rows.contains { $0.key == .listHeader(.workspaces) })
-        o.filterMatches = nil
-        #expect(!SidebarLayout.make(sections: [Self.machine([])], metrics: m, options: o).rows.contains { $0.key == .listHeader(.workspaces) })
+        o.flattensMachines = true
+        let layout = SidebarLayout.make(sections: [Self.machine(["a", "b"])], metrics: .standard, options: o)
+        let first = try #require(layout.rows.first)
+        #expect(first.key == .workspace(WorkspaceID("a")), "the list starts with its first workspace, not a heading")
+        #expect(!layout.rows.contains { if case .listHeader = $0.key { true } else { false } })
     }
 
     @Test func headingsAreTheRowSizeAtTheRegularWeight() {

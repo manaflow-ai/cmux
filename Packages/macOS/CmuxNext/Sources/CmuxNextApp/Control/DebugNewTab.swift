@@ -3,53 +3,45 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
+import CmuxNextBrowser
 import CmuxNextResources
 import CmuxNextSettings
 import CmuxNextWakeups
 import Darwin
 import WebKit
 
-/// `debug.new_tab` (DEBUG builds): the instant new tab measurements
-/// (plans/cmux-next/new-tab.md section 2.3). Never changes app focus.
+/// `debug.new_tab` (DEBUG builds): the instant new tab measurements (plans/cmux-next/new-tab.md section 2.3). Never changes app focus.
 ///
-/// `action`: `state` (each window's spare: its WebContent pid and physical
-/// footprint, and the recorded openings: spare or cold, main-thread ms),
-/// `open_and_type` (`text`: in ONE main-actor turn, the New Tab Page action
-/// on the focused pane of the first window, then each character as a
-/// key-down through `debug.key`'s dispatch, so no key can arrive before the
-/// page; returns the opening), `field` (the focused pane's new tab field:
-/// its text and whether it has focus), `retarget` (park the spare in window
-/// `window`, as a key-window change does). `window` (an index into the main
+/// `action`: `state` (each window's spare: its WebContent pid and physical footprint, and the recorded openings: spare or cold, main-thread ms),
+/// `open_and_type` (`text`: in ONE main-actor turn, the New Tab Page action on the focused pane of the first window, then each character as a
+/// key-down through `debug.key`'s dispatch, so no key can arrive before the page; returns the opening), `field` (the focused pane's new tab field:
+/// its text and whether it has focus), `retarget` (park the spare in window `window`, as a key-window change does). `window` (an index into the main
 /// windows, default 0) picks the window for `open_and_type` and `field`.
-/// `open_and_leave` (`text`): in ONE main-actor turn, the New Tab Page action, a switch back to
-/// the tab the pane showed, then each character as a key-down: the page is left before its field
-/// could report readiness, so its key hold must end and the keys reach the tab shown (nightly
+/// `open_and_leave` (`text`): in ONE main-actor turn, the New Tab Page action, a switch back to the tab the pane showed, then each character as a
+/// key-down: the page is left before its field could report readiness, so its key hold must end and the keys reach the tab shown (nightly
 /// 2026-10-11: they waited forever and Cmd-T opened nothing).
+/// `switch_and_type` (`tab`, `text`): in ONE main-actor turn, a click on `tab` (selected in its pane, the pane focused), then each character as a
+/// key-down straight through `debug.key`'s dispatch, with no wait for a key hold: a person who types at the click, while a Chromium page's focus
+/// grant still waits. Returns the page's `page_ready` at the click and whether the window held each key; with `probe`, only the report; without `tab`, the focused pane's tabs.
 /// `drop_spare` drops the prewarmed spare, so the next opening loads cold; with `slow`, WebKit's setup is also marked slow.
 @MainActor
 enum DebugNewTab {
     static func handle(_ params: [String: JSONValue], _ services: AppServices?) async -> JSONValue {
         guard let services else { return .null }
         switch params["action"]?.stringValue ?? "state" {
-        case "state":
-            return await state(services)
-        case "open_and_type":
-            return openAndType(params, services: services)
-        case "open_and_leave":
-            return openAndType(params, services: services, leave: true)
-        case "field":
-            return await field(params, services)
+        case "state": return await state(services)
+        case "open_and_type": return openAndType(params, services: services)
+        case "open_and_leave": return openAndType(params, services: services, leave: true)
+        case "switch_and_type": return switchAndType(params, services: services)
+        case "field": return await field(params, services)
         case "open_tab":
             // Clicks Open Tabs row `index` of the focused split page (cx-jfo7), as a person does.
             let index = params["index"]?.intValue ?? 0
             return await field(params, services, before: "document.querySelectorAll('.nt-open-tab')[\(index)]?.click();")
         case "bench_close", "bench_bang", "bench_open":
             guard let controller = controller(params, services) else { return .object(["error": .string("no such window")]) }
-            switch params["action"]?.stringValue {
-            case "bench_close": return await DebugNewTabBench.close(params, controller, services)
-            case "bench_open": return await DebugNewTabBench.open(params, controller, services)
-            default: return await DebugNewTabBench.bang(params, controller, services)
-            }
+            if params["action"]?.stringValue == "bench_close" { return await DebugNewTabBench.close(params, controller, services) }
+            return params["action"]?.stringValue == "bench_open" ? await DebugNewTabBench.open(params, controller, services) : await DebugNewTabBench.bang(params, controller, services)
         case "bench_create":
             // Cmd-N / Cmd-T / Cmd-D / Cmd-Shift-D: key to visible and to confirmed (instant-new-surfaces).
             guard let controller = controller(params, services) else { return .object(["error": .string("no such window")]) }
@@ -113,32 +105,36 @@ enum DebugNewTab {
 
     /// The window `index` (`window` param, an index into the main windows), else the first.
     private static func controller(_ params: [String: JSONValue], _ services: AppServices) -> WindowController? {
-        let controllers = services.windows.controllers
-        let index = params["window"]?.intValue ?? 0
+        let controllers = services.windows.controllers, index = params["window"]?.intValue ?? 0
         return controllers.indices.contains(index) ? controllers[index] : nil
     }
 
     private static func openAndType(_ params: [String: JSONValue], services: AppServices, leave: Bool = false) -> JSONValue {
         let text = params["text"]?.stringValue ?? ""
         let target = controller(params, services)
-        guard let pane = target?.content?.focusedPane else {
-            return .object(["error": .string("no focused pane")])
-        }
+        guard let pane = target?.content?.focusedPane else { return .object(["error": .string("no focused pane")]) }
         let shown = pane.currentTabKey
         pane.newTabPage()
         if leave, let shown { pane.select(StripTabID(shown)) }
         // Where the first key goes: the adopted page's web view, or a stale responder.
         let responder = pane.view.window?.firstResponder.map { String(describing: type(of: $0)) } ?? "none"
-        for character in text {
-            var key: [String: JSONValue] = ["key": .string(String(character))]
-            if let id = target?.state.id { key["window"] = .string(id) }
-            _ = DebugKey.send(key, services: services)
-        }
+        for character in text { _ = DebugKey.send(["key": .string(String(character))].merging(target.map { ["window": .string($0.state.id)] } ?? [:]) { $1 }, services: services) }
         return .object([
             "opening": services.newTabSpares.openings.last.map(opening) ?? .null,
             "first_responder": .string(responder),
             "holding": .bool(services.keyRouter.newTabInputCoordinator.isHolding(in: pane.view.window)),
         ])
+    }
+
+    private static func switchAndType(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
+        guard let target = controller(params, services), let content = target.content else { return .object(["error": .string("no window")]) }
+        guard let tab = params["tab"]?.stringValue else { return .object(["tabs": .array(content.focusedPane?.pane.tabs.map { JSONValue.object(["id": .string($0.id), "browser": .bool($0.kind == .browser)]) } ?? [])]) }
+        guard let pane = content.panes.values.first(where: { $0.orderedIDs.contains(StripTabID(tab)) }) else { return .object(["error": .string("no pane shows that tab")]) }
+        if params["probe"]?.boolValue != true { pane.select(StripTabID(tab)); PaneHandlers.focus(pane.layoutPaneID, in: content) }
+        var ready: JSONValue = .null, ask: JSONValue = .null
+        if case .browser(let entry)? = pane.currentContent, entry.tab.id.rawValue == tab { (ready, ask) = (.bool(entry.tab.pageReady), (entry.tab as? CEFTab).map { .string($0.focusAskState) } ?? .null) }
+        let held = (params["text"]?.stringValue ?? "").map { character -> JSONValue in _ = DebugKey.send(["key": .string(String(character)), "window": .string(target.state.id)], services: services); return .bool(services.keyRouter.creationInputCoordinator.isHolding(in: target.window)) }
+        return .object(["page_ready": ready, "held": .array(held), "app_active": .bool(NSApp.isActive), "focus_ask": ask, "first_responder": .string(target.window?.firstResponder.map { String(describing: type(of: $0)) } ?? "none")])
     }
 
     private static func field(_ params: [String: JSONValue], _ services: AppServices, before: String = "") async -> JSONValue {

@@ -25,6 +25,8 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).parent))
 from test_ci_fork_runner_routing import parse_expression
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_FILE = Path(os.environ.get('NIGHTLY_WORKFLOW_FILE', ROOT / '.github/workflows/nightly.yml'))
@@ -63,6 +65,7 @@ NIGHTLY_NEXT_ONLY_OWNED = ('republish-nightly-deltas',)
 # route choice, so it stays a hand list; this is the other half of it: job -> why it is not hosted. A new secret job
 # must be named in one of the two (test_every_secret_job_is_hosted_or_named_owned), so none escapes the route check.
 OWNED_SECRET_JOBS = {
+    'nightly-next-one': "builds, signs and publishes nightly-next in one job on cmux15's signer label (NIGHTLY_NEXT_ONE_JOB)",
     'decide': 'reads the routing App key (ci-routing-agent) to place early controls; a credentialed control',
     'pick-nightly-build-runner': 'reads the routing App key (ci-routing-agent) to pick the build mini; a credentialed control',
     'pick-nightly-sign-runner': 'reads the routing App key (ci-routing-agent) to pick the signer; a credentialed control',
@@ -695,8 +698,7 @@ class NightlyTrustedRouting(unittest.TestCase):
                 'github.event_name': 'push',
                 'github.run_id': run_id,
             }
-            return re.sub(r'\$\{\{(.*?)\}\}',
-                          lambda match: str(evaluate(parse_expression(match[1]), context)),
+            return gh_expressions.EXPRESSION.sub(lambda match: str(evaluate(parse_expression(match[1]), context)),
                           DOC['concurrency']['group'])
         self.assertEqual(group('main'), 'nightly-build-nightly-shared-full')
         # Every nightly-next push shares one group: a waiting push run is replaced by a newer one, so only the
@@ -719,8 +721,7 @@ class NightlyTrustedRouting(unittest.TestCase):
                 'vars.CI_SIDE_LANE_RUNNER': 'glaeda-side-std-xcode-26.6',
             }
             context.update(changes)
-            return re.sub(r'\$\{\{(.*?)\}\}',
-                          lambda match: str(evaluate(parse_expression(match[1]), context)),
+            return gh_expressions.EXPRESSION.sub(lambda match: str(evaluate(parse_expression(match[1]), context)),
                           job['concurrency']['group'])
         self.assertEqual(group(), 'nightly-build-app-1')
         self.assertNotEqual(group(**{'github.run_id': '2'}), group())
@@ -809,7 +810,7 @@ class NightlyTrustedRouting(unittest.TestCase):
             for name in TAIL_CONTROL_JOBS:
                 with self.subTest(job=name):
                     self.assertEqual(check(runs_on_text(DOC['jobs'][name], name)), 0)
-            route = DOC['jobs'][TAIL_CONTROL_JOBS[0]]['runs-on']
+            route = workflow_jobs.single_runs_on(DOC['jobs'][TAIL_CONTROL_JOBS[0]])
             for old, new in (("github.repository == 'manaflow-ai/cmux'", "github.repository == 'manaflow-ai/other'"),
                              ("track == 'nightly-next'", "track == 'nightly'"),
                              ("github.run_attempt == 1", "github.run_attempt >= 1"),

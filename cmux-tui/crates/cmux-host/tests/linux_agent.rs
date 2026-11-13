@@ -311,7 +311,8 @@ fn agent_binds_parks_adopts_and_restarts() {
     wait_until("status", || h.status().is_some_and(|s| s.daemon_pid.is_some()));
     let first_pid = h.status().unwrap().daemon_pid.unwrap();
     let env = fs::read_to_string(h.daemon_log.with_file_name("daemon.env")).unwrap();
-    assert!(env.lines().any(|l| l == "TERM_PROGRAM=ghostty"), "{env}");
+    assert!(env.lines().any(|l| l == "TERM_PROGRAM=cmux"), "{env}");
+    assert!(!env.lines().any(|l| l.starts_with("TERM_PROGRAM_VERSION=")), "{env}");
     assert!(!env.contains("INVOCATION_ID"), "{env}");
     assert!(!env.contains("CMUX_SERVER_MODE"), "{env}");
     for expected in [

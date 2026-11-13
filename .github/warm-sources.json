@@ -10,6 +10,7 @@
     "product-reuse": {"what": "A green compile receipt or built product for the same tree, reused instead of compiled again (scripts/ci/reuse_app_host_products.py, nightly_release_product_reuse.py, dev_release_product_reuse.py, reuse_release_product.py, job_reuse.py)", "runbook": "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/WARM-RESOURCES.md#product-reuse"}
   },
   "jobs": {
+    "cmux-next-quality-report.yml:report": {"class": "linux-rust", "warm": ["actions-cache"]},
     "acpmux-sim-sweep.yml:sweep": {"class": "linux-rust", "warm": ["actions-cache"]},
     "agent-brands.yml:swift-test": {"class": "mac-test", "warm": [], "exempt": "cold: swift build or test into a fresh .build; no warm source wired yet"},
     "app-ffi-release.yml:build": {"class": "mac-build", "warm": [], "exempt": "cold: cargo from an empty target directory; a build script from a clean tree; no warm source wired yet"},
@@ -99,6 +100,9 @@
     "cmux-next-web-bundle-publish.yml:build": {"class": "webview", "warm": [], "exempt": "cold: a build script from a clean tree; no warm source wired yet"},
     "cmux-next-web-bundles.yml:bundles": {"class": "webview", "warm": [], "exempt": "cold: a build script from a clean tree; no warm source wired yet"},
     "cmux-next-web-bundles.yml:webviews-checks": {"class": "webview", "warm": ["actions-cache"]},
+    "cmux-next-size-budget.yml:size-budget": {"class": "webview", "warm": [], "exempt": "cold: reads git and Cargo.lock and the byte counts the web jobs hand over; it builds nothing"},
+    "cmux-next-size-budget.yml:web-base": {"class": "webview", "warm": [], "exempt": "cold: builds the base's web bundles from a clean tree, only when a web input changed, so the size compare starts from nothing either side"},
+    "cmux-next-size-budget.yml:web-head": {"class": "webview", "warm": [], "exempt": "cold: builds the head's web bundles from a clean tree, only when a web input changed, so the size compare starts from nothing either side"},
     "cmux-next.yml:app-compile-fleet": {"class": "pr-release-compile", "warm": ["linux-pool-warm"]},
     "cmux-next.yml:cmux-scheme-compile": {"class": "pr-release-compile", "warm": ["deriveddata-reuse", "dev-cas", "actions-cache", "product-reuse"]},
     "cmux-next.yml:daemon-test": {"class": "pr-swift-test", "warm": ["spm-shared", "actions-cache"]},
@@ -190,6 +194,7 @@
     "nightly.yml:await-nightly-tree-marker": {"class": "mac-sign", "warm": [], "exempt": "a nightly control on the dedicated nightly mini (#30249): waits for the build commit's tree marker through the API; compiles nothing"},
     "nightly.yml:await-release-surface-ack": {"class": "mac-sign", "warm": [], "exempt": "a nightly control on the dedicated nightly mini (#30249): records the release surface approval (an environment gate, no secret); compiles nothing"},
     "nightly.yml:build-nightly-app": {"class": "nightly-release-compile", "warm": ["actions-cache", "deriveddata-reuse", "product-reuse", "ssd-cas"]},
+    "nightly.yml:nightly-next-one": {"class": "nightly-release-compile", "warm": ["actions-cache", "deriveddata-reuse"]},
     "nightly.yml:build-nightly-ghostty-cli-helper": {"class": "nightly-release-compile", "warm": ["actions-cache"]},
     "nightly.yml:build-nightly-inputs": {"class": "webview", "warm": ["actions-cache"]},
     "nightly.yml:build-nightly-remote-daemon": {"class": "linux-build", "warm": [], "exempt": "cold: a build script from a clean tree; no warm source wired yet"},
@@ -263,7 +268,6 @@
     "stable-next.yml:smoke-26": {"class": "mac-run-product", "warm": [], "exempt": "UI tests of the signed cmux NEXT Stable DMG the sign job made; compiles nothing"},
     "stable-next.yml:smoke-27": {"class": "mac-run-product", "warm": [], "exempt": "UI tests of the signed cmux NEXT Stable DMG the sign job made; compiles nothing"},
     "swift-linux-packages.yml:swift-linux-packages": {"class": "linux-swift", "warm": ["actions-cache"]},
-    "swift-packages-linux.yml:packages": {"class": "linux-swift", "warm": ["actions-cache"]},
     "terminal-hang-diagnostics.yml:phase-attribution": {"class": "mac-test", "warm": [], "exempt": "cold: swift build or test into a fresh .build; no warm source wired yet"},
     "test-feed-reply-providers.yml:full-text": {"class": "mac-test", "warm": [], "exempt": "cold: swift build or test into a fresh .build; no warm source wired yet"},
     "test-feed-reply-providers.yml:verify": {"class": "mac-test", "warm": [], "exempt": "cold: swift build or test into a fresh .build; no warm source wired yet"},

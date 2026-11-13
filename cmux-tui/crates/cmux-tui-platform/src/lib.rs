@@ -13,8 +13,13 @@ pub mod platform;
 #[cfg(unix)]
 pub mod process_identity;
 pub mod process_resources;
+#[cfg(all(unix, any(test, feature = "test-support")))]
+mod read_wait;
 #[cfg(unix)]
 pub mod unix_process_scope;
 #[cfg(windows)]
 mod windows_processes;
 pub mod write_budget;
+
+#[cfg(all(unix, any(test, feature = "test-support")))]
+pub use read_wait::{ReadWait, read_timeout_or_ended};
