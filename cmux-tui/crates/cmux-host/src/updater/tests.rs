@@ -2258,6 +2258,12 @@ impl FirstIo {
     }
 }
 
+/// The channel build's two files, as [`FirstIo`] serves them.
+#[cfg(target_os = "linux")]
+fn first_files(tui: &str, hook: &str) -> Vec<(String, Vec<u8>)> {
+    vec![(tui.to_owned(), b"new".to_vec()), (hook.to_owned(), b"hok".to_vec())]
+}
+
 #[cfg(target_os = "linux")]
 impl first_ready::Io for FirstIo {
     fn read_channel(&mut self) -> Result<Payload, String> {
@@ -2291,9 +2297,10 @@ impl first_ready::Io for FirstIo {
 fn a_machine_made_on_an_old_image_reports_ready_already_on_the_channel_build() {
     let dir = tempfile::tempdir().unwrap();
     let paths = image(dir.path());
-    let new_tui = sha(b"new");
-    let payload: Payload = serde_json::from_value(payload_json(&new_tui, OLD_HOOK)).unwrap();
-    let mut io = FirstIo::serving(payload, vec![(new_tui.clone(), b"new".to_vec())]);
+    // The image's store has neither binary of the channel's build: both download.
+    let (new_tui, new_hook) = (sha(b"new"), sha(b"hok"));
+    let payload: Payload = serde_json::from_value(payload_json(&new_tui, &new_hook)).unwrap();
+    let mut io = FirstIo::serving(payload, first_files(&new_tui, &new_hook));
     let deadline = std::time::Instant::now() + first_ready::BOUND;
     let first = first_ready::before_ready(&paths, TARGET, deadline, &mut io);
     assert_eq!(first, first_ready::First::Flipped(COMMIT.to_owned()));
@@ -2303,6 +2310,7 @@ fn a_machine_made_on_an_old_image_reports_ready_already_on_the_channel_build() {
     for name in ["cmux", "cmux-tui", "acpmux"] {
         assert_eq!(store::linked_package(&paths, current, name).unwrap(), new_tui, "{name}");
     }
+    assert_eq!(store::linked_package(&paths, current, "cmux-tui-hook").unwrap(), new_hook);
     // The exec'd process proves it or rolls it back, as after any flip.
     let pending = load_pending(&paths).expect("the update is pending its health check");
     assert_eq!((pending.from, pending.to, pending.cmux_tui.as_str()), (1, 2, new_tui.as_str()));
@@ -2321,9 +2329,9 @@ fn a_machine_made_on_an_old_image_reports_ready_already_on_the_channel_build() {
 fn no_flip_after_ready_on_the_first_ready_path() {
     let dir = tempfile::tempdir().unwrap();
     let paths = image(dir.path());
-    let new_tui = sha(b"new");
-    let payload: Payload = serde_json::from_value(payload_json(&new_tui, OLD_HOOK)).unwrap();
-    let mut io = FirstIo::serving(payload.clone(), vec![(new_tui.clone(), b"new".to_vec())]);
+    let (new_tui, new_hook) = (sha(b"new"), sha(b"hok"));
+    let payload: Payload = serde_json::from_value(payload_json(&new_tui, &new_hook)).unwrap();
+    let mut io = FirstIo::serving(payload.clone(), first_files(&new_tui, &new_hook));
     let deadline = std::time::Instant::now() + first_ready::BOUND;
     let flipped = first_ready::before_ready(&paths, TARGET, deadline, &mut io);
     assert_eq!(flipped, first_ready::First::Flipped(COMMIT.to_owned()));
@@ -2348,7 +2356,7 @@ fn no_flip_after_ready_on_the_first_ready_path() {
         let marker = paths.at(file);
         fs::create_dir_all(marker.parent().unwrap()).unwrap();
         fs::write(&marker, "{}").unwrap();
-        let mut io = FirstIo::serving(payload.clone(), vec![(new_tui.clone(), b"new".to_vec())]);
+        let mut io = FirstIo::serving(payload.clone(), first_files(&new_tui, &new_hook));
         let first = first_ready::before_ready(&paths, TARGET, deadline, &mut io);
         assert!(matches!(first, first_ready::First::NotFirst(_)), "{file}: {first:?}");
         assert_eq!((io.reads, store::current_generation(&paths).unwrap()), (0, 1), "{file}");
