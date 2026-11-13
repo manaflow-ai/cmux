@@ -1086,6 +1086,9 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         case .setDraft, .attach, .removeDraftAttachment, .reply, .closeThread, .openThreadPath: rowsChange = false
         case .appendText, .remeasureCustom(_, false): animate = false
         case .prependPage, .appendPage, .evict, .replaceWindow: paging = true; animate = false
+        // cmux: senders change rows but not the messages array, so the next width pass would bring back the old
+        // rows (`widthRows`' buffer check): a Chief's letter came back over its picture when a panel opened.
+        case .cmuxSetParticipants, .cmuxSetSenders: widthDerived = nil
         default: break
         }
         RowCell.inPaging = paging

@@ -43,6 +43,15 @@ public final class RemoteDesktopPaneView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    /// False shows only the video: no toolbar, state card, banner or stock pointer (an embedded preview draws its own).
+    public var showsChrome = true {
+        didSet {
+            guard let state else { return }
+            shownOverlay = nil
+            render(state: state, settings: settings)
+        }
+    }
+
     /// The view that takes keyboard focus for the pane.
     public var focusView: NSView { capture }
 
@@ -51,16 +60,16 @@ public final class RemoteDesktopPaneView: NSView {
         self.settings = settings
         capture.controller.settings = settings
         capture.controlMode = state.effectiveMode == .control
-        video.showsRemoteCursor = state.effectiveMode == .view
+        video.showsRemoteCursor = state.effectiveMode == .view && showsChrome
         toolbar.update(state: state, settings: settings, colors: colors)
-        banner.isHidden = !state.showsLatencyBanner
+        banner.isHidden = !state.showsLatencyBanner || !showsChrome
         if state.showsLatencyBanner { banner.update(state: state, colors: colors) }
         upstreamIndicator.update(kinds: state.upstreamIndicator, colors: colors)
         let reason = state.status?.connectingReason
         if state.overlay != shownOverlay || state.overlay == nil || reason != shownReason {
             shownOverlay = state.overlay
             shownReason = reason
-            card.isHidden = state.overlay == nil
+            card.isHidden = state.overlay == nil || !showsChrome
             if let overlay = state.overlay {
                 card.configure(overlay: overlay, host: state.hostName, viaCloudTunnel: state.viaCloudTunnel, reconnecting: state.reconnecting,
                                reason: reason, colors: colors)
@@ -113,7 +122,7 @@ public final class RemoteDesktopPaneView: NSView {
     }
 
     private func updateToolbarVisibility(animated: Bool) {
-        let visible = isHovering || (state?.pinsToolbar ?? true)
+        let visible = showsChrome && (isHovering || (state?.pinsToolbar ?? true))
         let target: CGFloat = visible ? 1 : 0
         // A transparent toolbar must not take clicks meant for the host, but it is never hidden:
         // a hidden view leaves the Accessibility tree, and VoiceOver could not reach Take over.

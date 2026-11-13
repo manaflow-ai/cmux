@@ -183,7 +183,7 @@ public extension ActionInvocation {
     /// that gets what automation must not (raw screen pixels, a read of a folder macOS guards). A run
     /// the control socket carries is automation even when it claims the `user` origin, and so is a
     /// run that names a caller (an app, an agent chat or a terminal), even during the person's gesture in it.
-    var isPersonsOwnRun: Bool {
+    nonisolated var isPersonsOwnRun: Bool {
         origin == .user && !viaControlSocket && callerApp == nil && callerAgentSession == nil && callerTerminal == nil
     }
 }

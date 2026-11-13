@@ -14,12 +14,24 @@ extension HomeHostView {
         panel.view.onClose = { [weak self] in self?.closeProfile() }
         panel.view.onTab = { [weak self] in self?.computerPopup.update() }
         panel.view.onExpand = { [weak services] in
+            // A Cloud machine's Expand is its live desktop, the stream Show Desktop opens.
+            if let services, let machine = ChiefComputerPageService.attachedMachine(services, conversation) {
+                services.openChiefComputerDesktop(machine: machine)
+                return
+            }
             _ = services?.registry.perform(ChiefComputerPageService.toggleActionID,
                                            invocation: ActionInvocation(arguments: ["conversation": .string(conversation), "open": .string("1")], origin: .user))
         }
         let shown = settingsView.onComputerShown
         settingsView.onComputerShown = { [weak self] in
             shown()
+            if let self {
+                let conversation = control.conversation.rawValue, store = control.services.cloud.computerControl
+                if store.attachedMachines[conversation] != settingsView.attachedMachine {
+                    store.attachedMachines[conversation] = settingsView.attachedMachine
+                    if panel.view.computer.isOpen { panel.view.computer.open() }
+                }
+            }
             self?.followComputerControl()
         }
     }
@@ -61,8 +73,11 @@ extension HomeHostView {
     /// The control bar's computer: a Cloud Chief's own, else the Cloud machine a Chief of this Mac uses, else its own.
     func followComputerControl() {
         let services = control.services, conversation = control.conversation.rawValue
-        let machine = services.home.cloudChiefs.chief(for: conversation) == nil ? settingsView.attachedMachine : nil
+        let machine = ChiefComputerPageService.attachedMachine(services, conversation)
         panel.follow(agent: machine == nil ? ChiefComputerPageService.computerKey(services, conversation) : nil, machine: machine) { [weak services] in
+            services?.chiefComputerControlSource(agent: $0, machine: $1)
+        }
+        computerPopup.followControl(agent: machine == nil ? ChiefComputerPageService.computerKey(services, conversation) : nil, machine: machine) { [weak services] in
             services?.chiefComputerControlSource(agent: $0, machine: $1)
         }
     }

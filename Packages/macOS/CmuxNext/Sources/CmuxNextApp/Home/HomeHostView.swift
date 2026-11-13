@@ -137,6 +137,14 @@ final class HomeHostView: PaneMotionFollowingView {
             return page.shows(conversation, in: self.window)
         }
         computerPopup.onOpen = { [weak self] in _ = self?.openProfile(.computer) }
+        computerPopup.inUse = { [weak self] in
+            guard let self, let machine = ChiefComputerPageService.attachedMachine(control.services, control.conversation.rawValue) else { return false }
+            return control.services.cloud.computerControl.isInUse(machine: machine)
+        }
+        let chiefID = control.conversation
+        computerPopup.chief = { [weak service] in service?.chiefName(of: chiefID) ?? HomeStrings.chiefName }
+        panel.view.computer.pointerPainter = ChiefComputerPageService.pointerPainter(chief: computerPopup.chief)
+        computerPopup.section.pointerPainter = ChiefComputerPageService.pointerPainter(chief: computerPopup.chief)
         computerPopup.onVisibility = { [weak self] in self?.transcript.needsLayout = true }
         transcript.setFloatingAccessory(computerPopup)
         settingsView.onAvatar = { [weak self, weak service] in
@@ -249,7 +257,8 @@ final class HomeHostView: PaneMotionFollowingView {
                 self.isChief = isChief
                 openPendingSettings()
                 isWorking = isChief && typing
-                computerPopup.follow(working: isWorking && cloud)
+                followComputerControl()
+                computerPopup.follow(working: isWorking && (cloud || ChiefComputerPageService.attachedMachine(control.services, control.conversation.rawValue) != nil))
                 transcript.isWorking = isWorking
                 turnActions.update(control: control.turnControl, isChief: isChief, working: isWorking, sequence: lastSeq)
                 if cloud != showsCloud || (cloud && hosted != showsHosted) {

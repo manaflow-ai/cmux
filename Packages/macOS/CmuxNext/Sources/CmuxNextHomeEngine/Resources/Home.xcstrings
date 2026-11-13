@@ -3433,7 +3433,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Setting up %@’s computer. This takes a few minutes."
+            "value": "Setting up %@’s computer…"
           }
         },
         "ar": {
@@ -25832,7 +25832,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Computer Use"
+            "value": "Computer"
           }
         },
         "ar": {
@@ -25963,7 +25963,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Computer"
+            "value": "cmux Computer Use"
           }
         },
         "ar": {
@@ -26094,7 +26094,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The Chief uses this Cloud computer's desktop and browser, from its next turn."
+            "value": "The Chief clicks, types and browses on this Cloud computer, starting with its next turn."
           }
         },
         "ar": {
@@ -26225,7 +26225,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The Chief uses this Mac's apps. Pick a Cloud computer to keep its clicks and typing off this Mac."
+            "value": "The Chief clicks and types in this Mac's apps. Pick a Cloud computer to keep it off this Mac."
           }
         },
         "ar": {

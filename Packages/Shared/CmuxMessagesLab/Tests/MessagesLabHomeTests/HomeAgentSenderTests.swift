@@ -41,12 +41,39 @@ import Testing
         let names = rows.compactMap { row -> String? in
             if case let .senderName(n) = row.kind { n } else { nil }
         }
-        #expect(names == ["Grok bot › Ada", "Muse", "Chief"])
+        #expect(names == ["Grok bot › Ada", "Muse"], "my own Chief is never named in its own chat")
         let avatars = rows.compactMap { row -> SenderAvatar? in
             if case let .part(p) = row.kind, !p.outgoing { p.cmuxAvatar } else { nil }
         }
         #expect(avatars.first == .brand("grok"))
         #expect(avatars.dropFirst().first == .brand("meta"))
+    }
+
+    /// One agent's message used to give the Chief a name label and its name's letter in its own chat.
+    @Test func myOwnChiefKeepsItsAvatarAndNeverDrawsALetterBesideAnAgent() throws {
+        var core = ProjectionCore(me: G.me)
+        let (conv, _) = core.install(G.id, items: Self.twoBots, summary: G.summary([G.me, G.chief]))
+        var state = AppState(conversation: conv)
+        func chiefAvatar() -> SenderAvatar? {
+            RowBuilder.rows(state, messages: state.conversation.messages, now: G.date(60)).compactMap { row -> SenderAvatar? in
+                if case let .part(p) = row.kind, !p.outgoing, case let .text(t, _) = p.part, t == "Thanks, both." { p.cmuxAvatar } else { nil }
+            }.first
+        }
+        #expect(chiefAvatar() == nil, "before the host's avatars come: nothing, not the letter C")
+        let picture = "file:///Users/me/.cmux/chiefs/agent_chief/3f2a.png"
+        let swap = try #require(core.setAvatars([G.chief.rawValue: .image(picture)]))
+        _ = Reducer.reduce(&state, swap, now: G.date(61), newID: { "new" })
+        #expect(chiefAvatar() == .image(picture))
+    }
+
+    @Test func aChiefSharedWithAPersonIsStillNamed() {
+        var core = ProjectionCore(me: G.me)
+        let (conv, _) = core.install(G.id, items: Self.twoBots, summary: G.summary([G.me, G.alice, G.chief]))
+        let rows = RowBuilder.rows(AppState(conversation: conv), messages: conv.messages, now: G.date(60))
+        let names = rows.compactMap { row -> String? in
+            if case let .senderName(n) = row.kind { n } else { nil }
+        }
+        #expect(names.last == "Chief")
     }
 
     @Test(arguments: [("Claude Code › 3fa9c1d2@mini", "claude"), ("Codex", "openai"), ("Grok bot", "grok"), ("Muse", "meta")])

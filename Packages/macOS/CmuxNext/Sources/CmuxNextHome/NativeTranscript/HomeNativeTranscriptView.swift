@@ -179,6 +179,10 @@ public final class HomeNativeTranscriptView: NSView {
     var floatingAccessory: NSView?
     /// The Set Up cmux card under the pinned section (HomeNativeTranscriptView+PinnedSection.swift) and its height.
     var setupCard: (view: NSView, height: CGFloat)?
+    /// Clips the Set Up cmux card as it scrolls with the rows, so it never runs under the header or the field.
+    lazy var setupCardClip = HomeSetupCardClipView()
+    /// Where the card ends at the top of the scroll range; nil before it has a size.
+    var setupCardBottom: CGFloat?
     /// The window's key and occlusion observers; each token removes itself when released (on any thread).
     private var observers: [MainActorObservation] = []
     /// The window's typing hold for the compose field's cursor rects (HomeCursorRectHold).

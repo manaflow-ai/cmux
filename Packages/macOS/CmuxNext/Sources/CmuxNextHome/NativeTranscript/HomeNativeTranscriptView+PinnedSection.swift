@@ -34,11 +34,18 @@ extension HomeNativeTranscriptView {
     }
 
     /// Shows `view` (Home's Set Up cmux card, a page sized to its card) under the pinned section, `height` points
-    /// tall; nil removes it. Like the pinned section it lies over the transcript, so no message moves.
+    /// tall; nil removes it. It sits above the oldest message and scrolls with the rows, so it never covers one.
     public func setSetupCard(_ view: NSView?, height: CGFloat) {
         if view !== setupCard?.view {
             setupCard?.view.removeFromSuperview()
-            if let view { addSubview(view, positioned: .below, relativeTo: noticeLabel) }
+            if let view {
+                if setupCardClip.superview == nil {
+                    addSubview(setupCardClip, positioned: .below, relativeTo: noticeLabel)
+                    setupCardClip.onWheel = { [weak self] in self?.transcript.scrollRows(with: $0) }
+                }
+                setupCardClip.addSubview(view)
+            }
+            transcript.onScrolled = view == nil ? nil : { [weak self] in self?.layoutPinnedSection() }
         }
         setupCard = view.map { ($0, height) }
         needsLayout = true
@@ -47,7 +54,7 @@ extension HomeNativeTranscriptView {
     /// The room the pinned section and the setup card take under the header (the first-run panel starts below them).
     var pinnedSectionClearance: CGFloat {
         let bottoms = [pinned.flatMap { ($0.height ?? 0) > 0 ? $0.view.frame.maxY : nil },
-                       setupCard.flatMap { $0.height > 0 ? $0.view.frame.maxY : nil }].compactMap { $0 }
+                       setupCard.flatMap { $0.height > 0 ? setupCardBottom : nil }].compactMap { $0 }
         guard let bottom = bottoms.max() else { return 0 }
         return bottom - transcript.headerHeight + 8
     }
@@ -76,10 +83,18 @@ extension HomeNativeTranscriptView {
             // Before its first size the page stays in the window at 1 pt (never hidden): a hidden web view
             // stops measuring, and the card would never report the height that shows it.
             // Taller than the room above the message box, the slot stops there and the page scrolls.
-            let shown = min(card.height, max(0, transcript.fieldTop - top - 8))
-            let frame = CGRect(x: x, y: top, width: width, height: max(shown, 1))
+            let room = max(0, transcript.fieldTop - top - 8)
+            let shown = min(card.height, room)
+            let clip = CGRect(x: x, y: top, width: width, height: max(room, 1))
+            if setupCardClip.frame != clip { setupCardClip.frame = clip }
+            // At the top of the rows' range, and up out of the clip as they scroll.
+            let frame = CGRect(x: 0, y: -transcript.scrolledFromTop, width: width, height: max(shown, 1))
             if card.view.frame != frame { card.view.frame = frame }
-            if shown > 0 { bottom = frame.maxY }
+            setupCardBottom = shown > 0 ? top + shown : nil
+            if shown > 0 { bottom = top + shown }
+        } else {
+            setupCardBottom = nil
+            if setupCardClip.frame != .zero { setupCardClip.frame = .zero }
         }
         // The oldest message scrolls clear of the cards (only the top of the scroll range moves).
         transcript.rowsTopClearance = bottom.map { max(0, $0 - transcript.headerHeight + 4) } ?? 0
@@ -109,4 +124,27 @@ extension HomeNativeTranscriptView {
     static let pinnedSectionMaxWidth: CGFloat = 640
     /// The least of a sized setup card's height a pinned section leaves it: its title and a row, the rest scrolls.
     static let setupCardMinHeight: CGFloat = 120
+}
+
+/// Holds the Set Up cmux card while it scrolls with the rows: only the card takes clicks, and a wheel over it scrolls the chat.
+final class HomeSetupCardClipView: NSView {
+    var onWheel: ((NSEvent) -> Void)?
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.masksToBounds = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
+
+    override var isFlipped: Bool { true }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        return hit === self ? nil : hit
+    }
+
+    override func scrollWheel(with event: NSEvent) { onWheel?(event) }
 }

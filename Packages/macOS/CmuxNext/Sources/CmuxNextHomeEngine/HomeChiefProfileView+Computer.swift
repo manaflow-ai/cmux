@@ -5,7 +5,7 @@ import AppKit
 extension HomeChiefProfileView {
     /// The note for `gate` (nil: the screen shows).
     func showGate(_ gate: Gate?) {
-        gateMoveButton.isHidden = gate != .noComputer
+        gateMoveButton.isHidden = gate != .noComputer || provisionAsk == .unavailable || provisionAsk == .asking || computer.provisioning
         switch gate {
         case .paywall:
             gateLabel.stringValue = HomeEngineStrings.computerPaywall(name())
@@ -17,7 +17,7 @@ extension HomeChiefProfileView {
                 : HomeEngineStrings.computerNeedsCloudOrMachine(name())
             gateButton.title = HomeEngineStrings.computerMove
             gateButton.isHidden = false
-        case .noComputer, .notSetUp where onProvision != nil:
+        case .noComputer, .notSetUp where onProvision != nil || makeMachine != nil:
             // The person gives the Chief its computer (a Chief of this Mac too, the move beside it); it takes a few
             // minutes, and the status says when it is there.
             showSetUp(making: provisionAsk == .asking || computer.provisioning, failed: computer.provisionFailed)
@@ -82,7 +82,7 @@ extension HomeChiefProfileView {
 
     /// Whether Set Up Computer is offered for a Chief of this Mac: its card is here to pick the computer once made.
     var setsUpLocally: Bool {
-        onProvision != nil && localComputer() != nil && settings?.source.isLocal == true
+        (makeMachine != nil || (onProvision != nil && localComputer() != nil)) && settings?.source.isLocal == true
     }
 
     /// Set Up Computer: one ask at a time; the section reads the status again at once so the note follows it.
@@ -115,6 +115,12 @@ extension HomeChiefProfileView {
     /// The ask for a Chief of this Mac: the Cloud service makes its own computer, then the Chief's card picks it for
     /// Computer Use (engine.json's `computer`), so its `cloud_computer` tool drives it. A pick the brain did not take fails.
     private func provisionLocally() -> (@MainActor () async throws -> Void)? {
+        if let makeMachine, let settings {
+            return {
+                let machine = try await makeMachine()
+                guard await settings.attach("machine:\(machine)") else { throw CancellationError() }
+            }
+        }
         guard let onProvision, let target = localComputer(), let settings else { return nil }
         return {
             try await onProvision()

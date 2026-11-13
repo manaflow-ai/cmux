@@ -1238,7 +1238,7 @@ enum RowBuilder {
                 // cmux: an aside (the Chief's agent messages, Message.cmuxAside) has no name and no avatar: they stay
                 // with the sender's own bubbles, so rows that come, fold and open under them never move the avatar.
                 let aside = m.cmuxAside == true
-                if let name = sender?.displayName, !name.isEmpty, startsRun, connector == nil, !aside {
+                if let name = sender?.displayName, !name.isEmpty, sender?.cmuxUnnamed != true, startsRun, connector == nil, !aside {
                     // cmux: under a group quote the name sits so that the bubble's top is 35 pt under the quote (Messages).
                     if let q = groupQuote, let row = rows[checked: q], case let .threadPreview(pv) = row.kind {
                         gap = max(0, ThreadPreview.cmuxReplyTopUnderQuote - (row.height - pv.box.height) - 14 - 1)

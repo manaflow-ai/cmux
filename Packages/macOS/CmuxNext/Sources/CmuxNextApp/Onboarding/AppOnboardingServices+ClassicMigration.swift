@@ -240,7 +240,7 @@ extension AppOnboardingServices {
             // The hosts still connecting, waited for together (each within its connect limit).
             let waiting = Set(later.compactMap { $0.saved.remote?.sshDestination })
             let waits = waiting.compactMap { destination in
-                hosts[destination].map { daemon in Task { @MainActor in (destination, (try? await self.connected(daemon)) != nil) } }
+                hosts[destination].map { daemon in Task<(String, Bool), Never> { @MainActor in (destination, (try? await self.connected(daemon)) != nil) } }
             }
             for wait in waits {
                 let (destination, up) = await wait.value

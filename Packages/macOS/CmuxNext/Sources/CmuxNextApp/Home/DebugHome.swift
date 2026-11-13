@@ -45,6 +45,13 @@ enum DebugHome {
             }
             return .object(row)
         }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        let popups: [CmuxNextSettings.JSONValue] = home.debugHostViews.allObjects.map { view in
+            .object(view.computerPopup.debugState.mapValues(CmuxNextSettings.JSONValue.string))
+        }
+        #else
+        let popups: [CmuxNextSettings.JSONValue] = []
+        #endif
         let local = services.machines.local
         let workspace = home.homeWorkspace
         let tabs = workspace?.screens.flatMap(\.panes).flatMap(\.tabs) ?? []
@@ -71,7 +78,7 @@ enum DebugHome {
         return .object(["available": .bool(home.isAvailable), "chief_owner": owner, "home_workspace": setup,
                         "chief_names": chiefNames(home, tabs: tabs),
                         "conversations": .array(conversations), "page": page(services: services), "classic": .bool(home.dock.isClassic),
-                        "dock": dock(services: services), "hosted_chief": hosted(home),
+                        "dock": dock(services: services), "hosted_chief": hosted(home), "computer_popups": .array(popups),
                         "migration_notice": home.migrationNotice.map { .string($0) } ?? .null])
     }
 

@@ -514,10 +514,15 @@ enum HomeMapping {
     /// `items`: the shown messages; each agent that sent one through my CLI is a participant too (HomeAgentSender).
     static func participants(_ summary: ConversationSummary?, me: ParticipantID,
                              avatars: [String: Participant.Avatar] = [:], items: [TranscriptItem] = []) -> [Participant] {
-        var out = (summary?.participants ?? []).map {
+        // A Chief alone with me: only agents' messages make this transcript name senders, so the Chief itself is
+        // never named, and before the host's avatars come it draws nothing, never its name's letter.
+        let namesPeople = summary?.showsSenderNames(me: me) == true
+        var out = (summary?.participants ?? []).map { person -> Participant in
+            let ownChief = person.isChief && !namesPeople
             // The name a person reads (never an internal id): a group transcript shows it over their bubbles.
-            Participant(id: $0.id.rawValue, displayName: $0.visibleName, isMe: $0.id == me,
-                        avatar: avatars[$0.id.rawValue] ?? .monogram($0.initials))
+            return Participant(id: person.id.rawValue, displayName: person.visibleName, isMe: person.id == me,
+                               avatar: avatars[person.id.rawValue] ?? (ownChief ? nil : .monogram(person.initials)),
+                               cmuxUnnamed: ownChief ? true : nil)
         }
         if !out.contains(where: \.isMe) { out.append(Participant(id: me.rawValue, displayName: "", isMe: true, avatar: nil)) }
         out += HomeAgentSender.all(in: items, me: me).map(\.participant)

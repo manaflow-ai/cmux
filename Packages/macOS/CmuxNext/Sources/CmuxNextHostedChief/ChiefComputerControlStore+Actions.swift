@@ -45,7 +45,9 @@ extension ChiefComputerControlStore {
     /// person's own gesture in this app, as for take_over, and for a machine the Chief holds.
     public func heldRefusal(_ invocation: ActionInvocation, machine: String) -> String? {
         do throws(Refusal) {
-            try checkNotHeld(machine: machine, byPerson: Self.byPerson(invocation))
+            let byPerson = Self.byPerson(invocation)
+            try checkNotHeld(machine: machine, byPerson: byPerson)
+            if !byPerson { noteAutomatedUse(machine: machine) }
             return nil
         } catch {
             return error.message
