@@ -20,11 +20,12 @@
 //!
 //! FULL-PATH row (the lead's condition): the same split when the registry has lost its fold of the
 //! journal, which is its state after a commit whose receipt did not come
-//! (`abandon_effect_commit`) and was its state after each daemon start (a start now states the
-//! session again before its first request: `lost_fold_journal`). On his Mac this is the
+//! (`abandon_effect_commit`) and its state after each daemon start. On his Mac this is the
 //! candidate for the 2157 ms: without the fold the create took the FULL projection, which reads
 //! the whole stored topology and every terminal record and writes one journal value for each
-//! resource of the session.
+//! resource of the session. Now a create with no fold states its own workspace only
+//! (`lost_fold_journal`, `scoped_kinds`), and a worker states the session again after the start
+//! in parts of at most 8 workspaces (`restate_parts`).
 //!
 //! FOCUS row (a product defect at the same site, not a cost): an empty workspace made with focus
 //! commits the workspace rows and the active workspace, but its journal record did not state
