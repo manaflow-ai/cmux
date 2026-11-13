@@ -289,6 +289,9 @@ public final class ScreenSharingService {
     public func select(_ mac: HubDevice, scope: SessionScope? = nil) {
         let scope = scope ?? preferences.defaultScope
         if let refusal = unavailability(of: mac) {
+            // One thing at a time: a request still waiting for the hub ends, so it can't go full
+            // screen under the alert.
+            leaveUnshownRequest()
             alert = ScreenSharingMacAlert(hostID: mac.id, hostName: mac.name, refusal: refusal, requested: scope)
         } else {
             connect(to: mac, scope: scope)
@@ -303,9 +306,10 @@ public final class ScreenSharingService {
 
     /// Check Again: reads the list again, then connects if the Mac can be shared now, or says
     /// why it still can't. Nothing when a request for that Mac already started meanwhile.
+    /// Cancelled (the page went away) while the list is read: nothing happens after.
     func checkAgain(_ id: String, scope: SessionScope) async {
         await refresh()
-        guard viewer?.hostID != id else { return }
+        guard !Task.isCancelled, viewer?.hostID != id else { return }
         select(id, scope: scope)
     }
 

@@ -423,3 +423,23 @@ extension ScreenSharingViewerTests {
     }
 }
 #endif
+
+#if os(iOS)
+extension ScreenSharingViewerTests {
+    /// Review: a request still waiting when an unavailable Mac is tapped would go full screen
+    /// under that Mac's alert.
+    @Test func tappingAnUnavailableMacEndsARequestStillWaiting() throws {
+        let (service, _) = makeService()
+        service.select(mac(), scope: .full)
+        let waiting = try #require(service.viewer)
+        let offline = HubDevice(id: "other-mac", name: "Office iMac", platform: .macos, signingKey: "", macScreenShared: true, online: false)
+        service.select(offline)
+        #expect(service.viewer == nil)
+        #expect(service.alert?.refusal == .hostOffline)
+        // The hub's late answer doesn't bring the old request on screen.
+        waiting.requestAnswered(.success(HubSession(id: "s3", state: .pending, scope: .full)), scope: .full)
+        #expect(service.viewerOnScreen == nil)
+    }
+
+}
+#endif

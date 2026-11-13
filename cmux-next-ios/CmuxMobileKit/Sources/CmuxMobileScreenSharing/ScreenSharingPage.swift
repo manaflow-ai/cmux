@@ -20,6 +20,8 @@ public struct ScreenSharingPage: View {
     /// its Mac); nil, or no Mac by that name, leaves the choice to the list.
     let connectTo: String?
     @State private var connectedOnce = false
+    /// Check Again's list read; the page going away cancels it.
+    @State private var checking: Task<Void, Never>?
 
     public init(service: ScreenSharingService, connectTo: String? = nil) {
         self.service = service
@@ -43,8 +45,12 @@ public struct ScreenSharingPage: View {
             connectToNamedMac()
         }
         // A request still waiting for the hub when the page goes (Done, back) ends with it.
-        .onDisappear { service.leaveUnshownRequest() }
-        .onChange(of: service.macs.map { service.unavailability(of: $0) == nil }) { connectToNamedMac() }
+        .onDisappear {
+            checking?.cancel()
+            checking = nil
+            service.leaveUnshownRequest()
+        }
+        .onChange(of: service.macs.map { "\($0.id)|\($0.name)|\(service.unavailability(of: $0) == nil)" }) { connectToNamedMac() }
         .fullScreenCover(item: Binding(get: { service.viewerOnScreen }, set: { if $0 == nil { service.dismissViewer() } })) { viewer in
             ScreenSharingViewerScreen(viewer: viewer, retry: { viewer.request(viewer.lastScope) },
                                       close: { service.dismissViewer() })
@@ -63,8 +69,10 @@ public struct ScreenSharingPage: View {
         switch alert.refusal {
         case .notShared, .hostOffline, .permissionNone:
             Button("Check Again") {
-                // task-owner: one list refresh for the alert's Check Again, then that tap's outcome
-                Task { await service.checkAgain(alert.hostID, scope: alert.requested) }
+                checking?.cancel()
+                // task-owner: one list refresh for the alert's Check Again, then that tap's outcome;
+                // cancelled when the page goes away
+                checking = Task { await service.checkAgain(alert.hostID, scope: alert.requested) }
             }
             Button("OK", role: .cancel) {}
         case .viewOnly:
