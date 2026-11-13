@@ -130,6 +130,32 @@ struct ChatTailDiskTests {
         #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).count == 30)
     }
 
+    /// The folder's bound is its files' bytes: the oldest go first once the newest add up past it,
+    /// however few chats that is, and the newest is kept even alone over it.
+    @Test func theDiskIsBoundedByBytes() async throws {
+        let directory = Self.folder()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let tail = Self.json(ChatTailCacheTests.tail(2))
+        let size = tail.compactText.utf8.count
+        let disk = AgentPaneTailDisk(directory: directory, files: 100, bytes: 4096, totalBytes: size * 3)
+        for index in 0..<5 {
+            disk.write(tail, for: "s-\(index)")
+            await disk.settled()
+            try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: Double(1000 + index))],
+                                                  ofItemAtPath: disk.url(for: "s-\(index)").path)
+        }
+        disk.write(tail, for: "s-5")
+        await disk.settled()
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).count == 3)
+        #expect(await disk.read("s-2") == nil)
+        #expect(await disk.read("s-3") != nil)
+        #expect(await disk.read("s-5") != nil)
+        let alone = AgentPaneTailDisk(directory: Self.folder(), files: 100, bytes: 4096, totalBytes: 1)
+        defer { try? FileManager.default.removeItem(at: alone.directory) }
+        alone.write(tail, for: "only")
+        #expect(await alone.read("only") != nil)
+    }
+
     /// #36492 review F1: after a relaunch memory is empty, and a sidebar hover's read ahead
     /// (`ifNewer`) that ends on an older record than the tail an earlier launch saved must not
     /// replace it, or the next open draws stale rows. A newer one still wins.
