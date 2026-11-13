@@ -6,7 +6,6 @@
 //! time.
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
-use serde_json::value::RawValue;
 use std::fmt;
 use std::mem::size_of;
 
@@ -213,9 +212,6 @@ pub struct Page {
     pub before: Option<Position>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub after: Option<Position>,
-    /// When present, page the settled rows hidden by this closed group.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fold: Option<u64>,
     #[serde(default = "default_page_bytes")]
     pub max_bytes: u32,
 }
@@ -239,7 +235,6 @@ impl Page {
             stream: stream.into(),
             before: (side == PageSide::Before).then_some(Position::Row(row_id)),
             after: (side == PageSide::After).then_some(Position::Row(row_id)),
-            fold: None,
             max_bytes: default_page_bytes(),
         }
     }
@@ -262,7 +257,6 @@ impl Page {
             stream: stream.into(),
             before: (side == PageSide::Before).then_some(Position::List(key.clone())),
             after: (side == PageSide::After).then_some(Position::List(key)),
-            fold: None,
             max_bytes: default_page_bytes(),
         }
     }
@@ -298,130 +292,6 @@ pub enum Delta<T> {
 
 pub fn delta_frame<T: Serialize>(delta: &Delta<T>) -> Result<Frame, FrameError> {
     Frame::json(FrameKind::Delta, delta)
-}
-
-/// A settled or open row as it appears in a chat frame. The row text remains one compact JSON
-/// value; the wire layer never turns it into a second object tree.
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatRow {
-    pub id: u64,
-    pub rev: u32,
-    pub text: Box<RawValue>,
-}
-
-/// A bounded chat window. `rows` is in book order and `open` is the checkpoint's live state.
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatWindow {
-    pub sid: String,
-    pub cursor: u64,
-    pub rows: Vec<ChatRow>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub open: Vec<ChatRow>,
-    pub has_before: bool,
-    pub has_after: bool,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub queue: Vec<QueueEntry>,
-    #[serde(default)]
-    pub queue_count: u32,
-}
-
-/// The bounded queue projection that sits beside a chat window.
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct QueueEntry {
-    pub id: String,
-    pub state: String,
-    pub at: u64,
-    pub text: String,
-    pub text_bytes: u32,
-}
-
-/// Chat-specific delta operations. `seq` is the last settled record for operations that do not
-/// themselves settle a row (`text` and `queue`), exactly as specified by the protocol.
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", tag = "op")]
-pub enum ChatDelta {
-    Row { sid: String, seq: u64, row: ChatRow },
-    Text { sid: String, seq: u64, row_id: u64, text: String },
-    Patch { sid: String, seq: u64, row: ChatRow },
-    Queue { sid: String, seq: u64, entry: Option<QueueEntry>, queue_count: u32 },
-    Gone { sid: String, seq: u64 },
-}
-
-/// A delta frame can carry the replay marker. Replay frames carry `"replay"`; the final state
-/// frame carries `"end"`, and subscribers become live in the same step that frame is sent.
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatDeltaFrame {
-    pub sid: String,
-    pub ops: Vec<ChatDelta>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub replay: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub open: Vec<ChatRow>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub queue: Vec<QueueEntry>,
-}
-
-pub fn chat_window_frame(window: &ChatWindow) -> Result<Frame, FrameError> {
-    Frame::json(FrameKind::Window, window)
-}
-
-pub fn chat_page_frame(window: &ChatWindow) -> Result<Frame, FrameError> {
-    Frame::json(FrameKind::Page, window)
-}
-
-pub fn chat_delta_frame(delta: &ChatDeltaFrame) -> Result<Frame, FrameError> {
-    Frame::json(FrameKind::Delta, delta)
-}
-
-/// Explicit chat request aliases make the protocol's stream names discoverable to callers while
-/// retaining the one shared `sub` and `page` frame shape.
-pub type ChatSub = Sub;
-pub type ChatPage = Page;
-
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BlobRequest {
-    pub sid: String,
-    pub stream: Stream,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub chat: Option<String>,
-    pub row_id: Option<u64>,
-    pub prompt_id: Option<String>,
-    pub offset: u64,
-    pub max_bytes: u32,
-}
-
-impl BlobRequest {
-    pub fn row(sid: impl Into<String>, chat_id: impl Into<String>, row_id: u64) -> Self {
-        Self {
-            sid: sid.into(),
-            chat: Some(chat_id.into()),
-            stream: Stream::new("chat"),
-            row_id: Some(row_id),
-            prompt_id: None,
-            offset: 0,
-            max_bytes: 1024 * 1024,
-        }
-    }
-
-    pub fn with_range(mut self, offset: u64, max_bytes: u32) -> Self {
-        self.offset = offset;
-        self.max_bytes = max_bytes;
-        self
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BlobFrame {
-    pub sid: String,
-    pub offset: u64,
-    pub total_bytes: u64,
-    pub bytes: Vec<u8>,
 }
 
 /// A frame kind. The payload is encoded separately so the framing layer can be
@@ -556,7 +426,11 @@ impl FrameDecoder {
             if self.bytes.len().saturating_sub(self.head) < expected {
                 break;
             }
-            let body = self.bytes[self.head..self.head + expected].to_vec();
+            let body = self
+                .bytes
+                .get(self.head..self.head + expected)
+                .ok_or(FrameError::Truncated)?
+                .to_vec();
             self.head += expected;
             self.expected = None;
             let (kind, payload) = body.split_first().ok_or(FrameError::Truncated)?;

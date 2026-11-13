@@ -14,10 +14,11 @@ public import CmuxNextDesignTokens
 /// then curves away and no concave foot that ends in a point. The sidebar's `+`, the window
 /// buttons and the tabs share one center line.
 ///
-/// The default is `flush-goo` (Leo, 2026-11-10: in light mode the selected tab should be white,
-/// the content's own color, not a gray highlight that reads as backgrounded; "morph it in as like,
-/// you know how folder tabs look"), over the stock chrome (``defaultFits``). Compact density keeps
-/// the pill under every value. `off` keeps the older pill look.
+/// The default is `flush`, no goo, over the stock chrome (``defaultFits``): the selected tab runs into
+/// the card with no fillets (Leo, 2026-11-13: "lawrence wanted no goo by default"). `flush-goo`, the
+/// folder tab with fillets (Leo, 2026-11-10: "morph it in as like, you know how folder tabs look"),
+/// stays one Debug Settings choice away. Compact density keeps the pill under every value. `off`
+/// keeps the older pill look.
 public nonisolated enum CornerFlush: String, Sendable, CaseIterable, TunableChoice {
     /// The older corner: the selected tab is a gray pill on the frame.
     case off
@@ -40,8 +41,8 @@ public nonisolated enum CornerFlush: String, Sendable, CaseIterable, TunableChoi
 
     public static let tunable = Tunable<CornerFlush>.choice(
         "chrome.cornerFlush", .sidebar, "Corner flush",
-        help: "Thunderdome r2 A: the sidebar, the titlebar and the tab strips are one frame around a rounded content card; the selected tab is the card's color and runs into it, and each strip's first tab starts on its pane's edge, so the sidebar's edge rises straight into the first tab. Compact density keeps the pill. The default is goo, a folder tab, over the stock chrome. Off: the gray pill.",
-        default: .goo, code: "CornerFlush.tunable")
+        help: "Thunderdome r2 A: the sidebar, the titlebar and the tab strips are one frame around a rounded content card; the selected tab is the card's color and runs into it, and each strip's first tab starts on its pane's edge, so the sidebar's edge rises straight into the first tab. Compact density keeps the pill. The default is flush, no goo, over the stock chrome; goo adds the folder tab's fillets. Off: the gray pill.",
+        default: .flush, code: "CornerFlush.tunable")
 
     /// The value in effect: `off` at compact density, which keeps the pill; else a Debug Settings
     /// value, else the default where the default chrome fits it (``defaultFits``), else `off`.
@@ -78,8 +79,11 @@ public nonisolated enum CornerFlush: String, Sendable, CaseIterable, TunableChoi
     /// every other value.
     @MainActor public var feetRadius: CGFloat { self == .goo ? Metrics.scale(8) : 0 }
 
-    /// The card's radius: one grid step inside the 16 pt window corner (design/grid.md radii).
-    @MainActor public var cardRadius: CGFloat { Metrics.scale(12) }
+    /// The card's radius in a window with square corners (fullscreen, borderless): the titled window's
+    /// radius less the frame's gap, as windowed (12 pt in macOS 26's 16 pt corner, 6 pt in macOS 15's 10 pt),
+    /// so a fullscreen toggle reshapes no corner. A fixed 12 pt, scaled, read 12 against a windowed 6 on
+    /// macOS 15 and 15 against 11 at a 1.25 interface scale.
+    @MainActor public var cardRadius: CGFloat { max(0, Metrics.standardWindowCornerRadius - gap) }
 
     /// The frame's gap around the card (window edges, sidebar side under `flush`).
     @MainActor public var gap: CGFloat { Metrics.scale(LayoutGrid.base) }
@@ -137,7 +141,7 @@ public final class CornerFlushChrome: NSView {
     private let strips = NSHashTable<AnyObject>.weakObjects()
     /// What the wedges were last drawn for (``apply``), so a strip's report redraws them alone.
     /// `card` is the content's whole frame; the card below the tab row is its top less a strip.
-    private var drawn: (card: CGRect, radius: CGFloat, alpha: CGFloat, sidebarOnLeft: Bool)?
+    private var drawn: (card: CGRect, radius: CGFloat, alpha: CGFloat)?
     /// The shade under the content, whose hole goes square with the leading wedge.
     private weak var shade: MainPaneChromeShadeView?
     /// The content the card holds, whose top corners round again while no strip shows.
@@ -196,7 +200,7 @@ public final class CornerFlushChrome: NSView {
     /// corner around its part below the top tab row, whose top corners the wedges drawn here round, with
     /// only the content's bottom corners clipped; else around the content's frame, with no wedges. Joins
     /// `root` above `content` either way, so the strips find it (``stripDidChange(_:)``).
-    public func apply(content: NSView, radius: CGFloat, isDark: Bool, page: Bool, sidebarOnLeft: Bool,
+    public func apply(content: NSView, radius: CGFloat, isDark: Bool, page: Bool,
                       shade: MainPaneChromeShadeView, in root: NSView) {
         let alpha = Metrics.mainPaneChromeShade(isDark: isDark)
         let card = content.frame
@@ -215,7 +219,7 @@ public final class CornerFlushChrome: NSView {
         }
         frame = root.bounds
         isHidden = false
-        drawn = (card, radius, alpha, sidebarOnLeft)
+        drawn = (card, radius, alpha)
         self.shade = shade
         self.content = content
         redraw()
@@ -228,7 +232,8 @@ public final class CornerFlushChrome: NSView {
         defer { CATransaction.commit() }
         wedges.frame = bounds
         var card = drawn.card
-        card.size.height = max(0, card.height - Metrics.tabStripHeight) // the top is maxY
+        let stripHeight = PaneChromeMetrics.current.resolvedStripHeight(scale: window?.backingScaleFactor ?? 2)
+        card.size.height = max(0, card.height - stripHeight) // the top is maxY
         // A top pane hid its strip or its strip left the top (vertical tabs, a hidden tab bar, a canvas
         // pan): no whole tab row, so the card is the whole content, rounded on every corner, with no
         // wedges and no shade band over that pane's content.
@@ -252,15 +257,14 @@ public final class CornerFlushChrome: NSView {
             return
         }
         if let content { Self.roundBottomOnly(content, true) }
-        markTopRow(card: card, in: root)
-        let square = leadingTabSelected(card: card, sidebarOnLeft: drawn.sidebarOnLeft, in: root)
-        wedges.path = Self.wedgePath(card: card, radius: drawn.radius, squareLeading: square, sidebarOnLeft: drawn.sidebarOnLeft)
+        let square = leadingTabSelected(card: card, in: root)
+        markTopRow(card: card, radius: drawn.radius, squareLeading: square, in: root)
+        wedges.path = Self.wedgePath(card: card, radius: drawn.radius, squareLeading: square)
         wedges.fillColor = NSColor.black.withAlphaComponent(drawn.alpha).cgColor
-        // The shade under a translucent terminal would show the rounded corner the wedge no longer draws.
-        shade?.update(card: card, radius: drawn.radius, alpha: drawn.alpha, squareTopLeading: square,
+        // Each wedge shades its corner once, including over transparent content.
+        shade?.update(card: card, radius: drawn.radius, alpha: drawn.alpha, squareTopCorners: true,
                       folders: folderHoles(card: card, in: root),
-                      divider: Self.dividerLine(card: tabRowEdge(card: card, in: root), radius: drawn.radius, squareLeading: square && drawn.sidebarOnLeft,
-                                                squareTrailing: square && !drawn.sidebarOnLeft))
+                      divider: Self.dividerLine(card: tabRowEdge(card: card, in: root), radius: drawn.radius, squareLeading: square))
     }
 
     /// The tab row's divider: the card's top edge (maxY is the top) between its rounded corners, as a rect of no
@@ -268,9 +272,9 @@ public final class CornerFlushChrome: NSView {
     /// so the line runs under the unselected tabs and ends where a folder's fillet curves into the content).
     /// `radius` 0: the whole width (the pill look, whose card top is the tab row's top). Leo, 2026-11-12, on the
     /// two tones: "THERE IS THE DIVIDER THERE ARE WAYS TO MAKE THE 'BACKGROUND' LESS CONTRAST THAN IT DOES NOW".
-    static func dividerLine(card: CGRect, radius: CGFloat, squareLeading: Bool, squareTrailing: Bool = false) -> CGRect {
+    static func dividerLine(card: CGRect, radius: CGFloat, squareLeading: Bool) -> CGRect {
         let r = min(radius, card.width / 2, card.height / 2)
-        let minX = card.minX + (squareLeading ? 0 : r), maxX = card.maxX - (squareTrailing ? 0 : r)
+        let minX = card.minX + (squareLeading ? 0 : r), maxX = card.maxX - r
         return CGRect(x: minX, y: card.maxY, width: max(0, maxX - minX), height: 0)
     }
 
@@ -328,17 +332,26 @@ public final class CornerFlushChrome: NSView {
     /// Tells each strip of this window whether it is on the top row of `card` (nil: no tab row, so none
     /// is), so only those run their selected tab into the card; the rest, inside the card, tone their own row
     /// while the top row's tabs are folders. O(strips); a strip relays out only on a change.
-    private func markTopRow(card: CGRect?, in root: NSView) {
+    private func markTopRow(card: CGRect?, radius: CGFloat = 0, squareLeading: Bool = false, in root: NSView) {
+        var clip = card
+        if squareLeading {
+            clip?.origin.x -= radius
+            clip?.size.width += radius
+        }
         for case let strip as (any TabStripCorner & NSView) in strips.allObjects where strip.window === root.window {
             let onTop = card.map { !strip.isHidden && abs(root.convert(strip.cornerFrameInWindow, from: nil).minY - $0.maxY) < 2 } ?? false
             strip.setRunsIntoCard(onTop)
             strip.setTonedInCard(card != nil && !onTop && !strip.isHidden)
+            for case let area as PaneContentAreaView in strip.superview?.subviews ?? [] {
+                area.setChromeClip(card: onTop ? clip : nil, radius: radius, in: root)
+            }
         }
     }
 
-    /// Whether the shown strip at the card's top corner on the sidebar's side selects its first tab.
-    private func leadingTabSelected(card: CGRect, sidebarOnLeft: Bool, in root: NSView) -> Bool {
-        guard sidebarOnLeft else { return false }
+    /// Whether the shown strip at the card's top leading corner (minX) selects its first tab. Tabs run from minX
+    /// whichever side the sidebar is on, so a sidebar on the right squares this corner too: the first tab's
+    /// folder has no foot on its leading side, and over a rounded corner it ended in a 12 pt shaded notch.
+    private func leadingTabSelected(card: CGRect, in root: NSView) -> Bool {
         for case let strip as (any TabStripCorner) in strips.allObjects {
             guard let view = strip as? NSView, view.window === root.window, !view.isHiddenOrHasHiddenAncestor else { continue }
             let frame = root.convert(strip.cornerFrameInWindow, from: nil)
@@ -360,11 +373,11 @@ public final class CornerFlushChrome: NSView {
     }
 
     /// The top corner squares (maxY is the top) less the card's rounded rect; without the
-    /// sidebar side's when `squareLeading`.
-    public static func wedgePath(card: CGRect, radius: CGFloat, squareLeading: Bool, sidebarOnLeft: Bool) -> CGPath {
+    /// leading one (minX, where the first tab sits) when `squareLeading`.
+    public static func wedgePath(card: CGRect, radius: CGFloat, squareLeading: Bool) -> CGPath {
         let r = min(radius, card.width / 2, card.height / 2)
         let corners = CGMutablePath()
-        for (x, leading) in [(card.minX, sidebarOnLeft), (card.maxX - r, !sidebarOnLeft)] where !(leading && squareLeading) {
+        for (x, leading) in [(card.minX, true), (card.maxX - r, false)] where !(leading && squareLeading) {
             corners.addRect(CGRect(x: x, y: card.maxY - r, width: r, height: r))
         }
         return corners.subtracting(CGPath(roundedRect: card, cornerWidth: r, cornerHeight: r, transform: nil))

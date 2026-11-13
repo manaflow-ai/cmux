@@ -12,8 +12,8 @@ workspace = true
 
 [dependencies]
 crc32fast = "1.5"
-imbl.workspace = true
 bincode = "1.3"
+imbl.workspace = true
 serde.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
 

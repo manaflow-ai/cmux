@@ -95,8 +95,10 @@ await requireBrowserLane("transcript-system-rows.test.ts", async () => {
         return null;
       };
       const rows = [...document.querySelectorAll<HTMLElement>(".acpmux-row")].filter(shown);
-      // A row that draws only punctuation or nothing: Leo's lone ".".
+      // A row that draws only punctuation or nothing: Leo's lone ".". A turn's footer is its icon
+      // buttons alone, with no time since the Codex parity pass (TurnRows.tsx TurnFooter): not bare.
       const bare = rows
+        .filter((row) => !row.querySelector("button"))
         .map((row) => (row.innerText || "").replace(/\s+/g, " ").trim())
         .filter((text) => /^[.\s]*$/.test(text) && rows.length > 0);
       return {

@@ -18,7 +18,11 @@ _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
     "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
-import workflow_jobs
+# tests/workflow_jobs.py, loaded by path as well (`python3 -I`).
+_workflow_jobs_spec = _git_fixture_importlib.spec_from_file_location(
+    "workflow_jobs", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "workflow_jobs.py"))
+workflow_jobs = _git_fixture_importlib.module_from_spec(_workflow_jobs_spec)
+_workflow_jobs_spec.loader.exec_module(workflow_jobs)
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
 import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
@@ -2387,9 +2391,6 @@ def test_cmux_next_daemon_tests_take_blacksmith_linux_and_the_mac_shadow_never_t
     assert "vars.MACOS_RUNNER_26" not in shadow, shadow
     assert "fromJSON(vars.RUNNER_POOLS).macos_15" in shadow, shadow
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 def test_tree_publish_and_nightly_promotion_do_not_wait_for_daemon_tests() -> None:
     # Chief 2026-10-13 (hq-11): the daemon tests' macOS runner queues up to ~1 h,
@@ -2419,7 +2420,16 @@ def test_tree_publish_and_nightly_promotion_do_not_wait_for_daemon_tests() -> No
     assert {"publish-tree", "cmux-next-daemon-tests"} <= set(marker["needs"])
     assert "needs.cmux-next-daemon-tests.result == 'success'" in marker["if"]
     assert "needs.cmux-next-daemon-tests.outputs.key == needs.tree-preflight.outputs.key" in marker["if"]
-    assert workflow_jobs.resolve(marker).environment == {"name": "artifacts"}
+    # The name gives the R2 credentials; the deployment line says which refs record a
+    # deployment (#40138). Its text is exact here: a change of who may deploy must show.
+    assert workflow_jobs.resolve(marker).environment == {
+        "name": "artifacts",
+        "deployment": (
+            "${{ contains(fromJSON('"
+            '["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'
+            "'), github.ref) }}"
+        ),
+    }
     assert marker_script in str(marker["steps"])
     assert [name for name, job in jobs.items() if marker_script in str(job.get("steps", ""))] == ["publish-tree-tested"]
     script_text = (ROOT / marker_script).read_text()
@@ -2458,3 +2468,9 @@ def test_cmux_tui_preflight_seeds_canonical_key_before_docs_skip():
         result = subprocess.run(["bash", "-c", 'key=canonical; legacy_key=legacy; tree_complete() { [[ "$1" == "' + ready + '" ]]; }; ' + selection + 'echo "$tree_ready"'], capture_output=True, text=True, check=True)
         assert result.stdout.strip() == expected
     assert '--version v2-legacy "$SOURCE_COMMIT"' in inspect
+
+
+# Keep this the last statement of the file: unittest.main() ends the process, so a
+# test defined after it never runs in `python3 tests/test_tui_publish_workflow_security.py`.
+if __name__ == "__main__":
+    unittest.main()

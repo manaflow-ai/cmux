@@ -55,7 +55,8 @@
 # 1/2 or 2/2). Sharding happens after the git-index file list is built, so every shard keeps the
 # same per-file process and Vite-cache isolation rules while covering a disjoint deterministic set.
 # Files with a recorded duration split by load, longest first; the rest by a stable hash of their
-# path, so a new file moves only itself (webviews_test_shards.py).
+# path, so a new file moves only itself (webviews_test_shards.py). CMUX_WEB_TEST_SHARD_HEAD_START
+# (`SHARD:SECONDS,...`, read by the split) gives a shard whose job does other work first that much less.
 # CMUX_WEB_TEST_DURATIONS: optional JSON manifest {file: seconds} of earlier runs. Every shard of one
 # run must read the same copy. With it, each Vite config warms on its shortest file and the files
 # start longest first, so a long file never runs last alone.

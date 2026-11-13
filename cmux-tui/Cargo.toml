@@ -71,6 +71,7 @@ members = [
     "crates/cmux-holder-v3",
     "crates/cmux-process",
     "crates/cmux-scope",
+    "crates/cmux-file-lock",
     "crates/cmux-remote-protocol",
     "crates/cmux-build-identity",
     "crates/cmux-remote",
@@ -177,6 +178,7 @@ default-members = [
     "crates/cmux-pty",
     "crates/cmux-process",
     "crates/cmux-scope",
+    "crates/cmux-file-lock",
     "crates/cmux-remote-protocol",
     "crates/cmux-build-identity",
     "crates/cmux-remote",
@@ -280,6 +282,7 @@ ghostty-vt-sys = { path = "crates/ghostty-vt-sys" }
 ghostty-vt = { path = "crates/ghostty-vt" }
 cmux-tui-core = { path = "crates/cmux-tui-core" }
 cmux-git = { path = "crates/cmux-git" }
+cmux-file-lock = { path = "crates/cmux-file-lock" }
 cmux-worktree-care = { path = "crates/cmux-worktree-care" }
 cmux-conductor-import = { path = "crates/cmux-conductor-import" }
 cmux-classic-import = { path = "crates/cmux-classic-import" }
@@ -308,6 +311,7 @@ cmux-palette-ranker = { path = "crates/cmux-palette-ranker" }
 cmux-action-catalog = { path = "crates/cmux-action-catalog" }
 cmux-host-budget = { path = "crates/cmux-host-budget" }
 cmux-usage-patterns = { path = "crates/cmux-usage-patterns" }
+cmux-command-class = { path = "crates/cmux-command-class" }
 cmux-vault-egress = { path = "crates/cmux-vault-egress" }
 cmux-url-input = { path = "crates/cmux-url-input" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
