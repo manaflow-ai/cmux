@@ -117,7 +117,8 @@ def run_bench(name, argv, log_dir, timeout):
     except subprocess.TimeoutExpired:
         code = "timeout"
     took = round(time.time() - start, 1)
-    tail = open(log, errors="replace").read().splitlines()[-6:]
+    # A bench that failed shows enough of its log to carry the reason (a crash report's keys alone fill six lines).
+    tail = open(log, errors="replace").read().splitlines()[-(6 if code == 0 else 40):]
     print(f"--- {name}: exit {code} in {took}s", *("    " + t for t in tail), sep="\n", flush=True)
     return {"exit": code, "seconds": took, "log": log}
 
