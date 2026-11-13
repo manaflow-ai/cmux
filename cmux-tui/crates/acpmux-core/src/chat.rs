@@ -66,6 +66,7 @@ pub struct ChatConfig {
     pub boot_id: u64,
     pub source_stamp: u64,
     pub source_factory: SourceFactory,
+    pub edition_random: Arc<dyn Fn() -> u32 + Send + Sync>,
 }
 
 impl ChatConfig {
@@ -78,11 +79,20 @@ impl ChatConfig {
             boot_id: 0,
             source_stamp: 1,
             source_factory: Arc::new(|| Ok(Box::new(EmptySource))),
+            edition_random: Arc::new(|| 1),
         }
     }
 
     pub fn with_source_factory(mut self, source_factory: SourceFactory) -> Self {
         self.source_factory = source_factory;
+        self
+    }
+
+    pub fn with_edition_random(
+        mut self,
+        edition_random: Arc<dyn Fn() -> u32 + Send + Sync>,
+    ) -> Self {
+        self.edition_random = edition_random;
         self
     }
 }
@@ -324,6 +334,7 @@ fn run_supervised(config: ChatConfig, rx: Receiver<Request>, queued: Arc<Mutex<u
                     return;
                 }
             }
+            Ok(Err(ChatError::SourceChanged)) => continue,
             Ok(Err(_)) | Err(_) => return,
         }
     }
@@ -344,6 +355,8 @@ fn open_state(config: ChatConfig) -> Result<ActorState, ChatError> {
 }
 
 fn rebuild_from_raw(config: ChatConfig) -> Result<ActorState, ChatError> {
+    let previous =
+        log::CheckpointHead::read(&config.book).map_err(ChatError::Book)?.map(|head| head.edition);
     let mut new_config = config.clone();
     new_config.book = config.book.with_extension("new");
     let source_cell = RefCell::new((new_config.source_factory)()?);
@@ -363,6 +376,7 @@ fn rebuild_from_raw(config: ChatConfig) -> Result<ActorState, ChatError> {
             break;
         }
     }
+    state.edition = next_edition(previous, || (config.edition_random)());
     checkpoint(&mut state)?;
     let new_book = state.config.book.clone();
     drop(state);
@@ -447,7 +461,7 @@ fn open_state_from_log(
             || checkpoint.cursors.iter().any(|cursor| cursor.stamp != actor.source_stamp)
     });
     if stamp_changed {
-        actor.edition = next_edition(Some(actor.edition), || 1);
+        actor.edition = next_edition(Some(actor.edition), || (actor.config.edition_random)());
         actor.boot_id = actor.config.boot_id;
     }
     if rebuilt_edition.is_some() || recovered.replayed != 0 || stamp_changed {
