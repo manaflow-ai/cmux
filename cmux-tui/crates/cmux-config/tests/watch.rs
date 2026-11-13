@@ -167,6 +167,27 @@ fn watch_hints_when_a_watched_file_changes_mode() {
     expect_hint(&hints, "a watched file made readable again");
 }
 
+/// A watched name that is a folder (the daemon watches its apps folders by
+/// name, and arms a folder when its mode lets it): a mode change hints, also
+/// the one that makes a folder readable that was not when the watch started.
+/// Linux only: on macOS a mode change of a watched folder or socket hints
+/// with the next change of an entry beside it (`kqueue.rs` compares the
+/// watched names then), not by itself.
+#[cfg(target_os = "linux")]
+#[test]
+fn watch_hints_when_a_watched_folder_changes_mode() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let scratch = Scratch::new("folder-mode");
+    let folder = scratch.0.join("apps");
+    fs::create_dir_all(&folder).unwrap();
+    fs::set_permissions(&folder, fs::Permissions::from_mode(0o000)).unwrap();
+    let (_watcher, hints) = armed(&[&folder]);
+    fs::set_permissions(&folder, fs::Permissions::from_mode(0o755)).unwrap();
+    expect_hint(&hints, "a watched folder made readable");
+    fs::set_permissions(&folder, fs::Permissions::from_mode(0o700)).unwrap();
+    expect_hint(&hints, "a mode change of a watched folder");
+}
+
 /// A settings file kept in another folder (a dotfiles checkout) and linked to
 /// its place: the watch follows the link, so a write in place to the file it
 /// names hints, and after the link is pointed at another file, a write to
