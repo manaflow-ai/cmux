@@ -295,7 +295,7 @@ async fn pump(
             },
         };
         let result = match read {
-            RawRead::Lagged { .. } => {
+            RawRead::Lagged => {
                 sub.cursor = None;
                 match open(&hub, &sub) {
                     Ok(delivery) => {

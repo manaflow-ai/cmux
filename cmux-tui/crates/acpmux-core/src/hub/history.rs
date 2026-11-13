@@ -335,6 +335,27 @@ mod tests {
     }
 
     #[test]
+    fn raw_frame_span_inserts_only_operation_separators_and_stops_at_the_cap() {
+        let mut history = History::new();
+        history.append(&gone(1)).unwrap();
+        history.append(&gone(2)).unwrap();
+        let one = history.after_frame(0, 2, 40).unwrap();
+        assert_eq!(one.last_seq, 1);
+        let parsed: Vec<serde_json::Value> = serde_json::from_slice(
+            format!("[{}]", String::from_utf8(one.bytes).unwrap()).as_bytes(),
+        )
+        .unwrap();
+        assert_eq!(parsed.len(), 1);
+        let both = history.after_frame(0, 2, usize::MAX).unwrap();
+        assert_eq!(both.last_seq, 2);
+        let parsed: Vec<serde_json::Value> = serde_json::from_slice(
+            format!("[{}]", String::from_utf8(both.bytes).unwrap()).as_bytes(),
+        )
+        .unwrap();
+        assert_eq!(parsed.len(), 2);
+    }
+
+    #[test]
     fn summary_bytes_release_rows_and_round_trip_escaped_keys() {
         let mut history = History::new();
         let mut summary = Summary::new("chat\"\n雪");

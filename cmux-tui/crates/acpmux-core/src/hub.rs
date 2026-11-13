@@ -122,7 +122,7 @@ pub struct ListReceiver {
 
 pub(crate) enum RawRead {
     Span(history::RawSpan),
-    Lagged { cursor: u64 },
+    Lagged,
 }
 
 impl Drop for ListReceiver {
@@ -213,7 +213,7 @@ impl ListReceiver {
             if let Ok(mut state) = self.subscriber.state.lock() {
                 state.ended = true;
             }
-            return Some(RawRead::Lagged { cursor });
+            return Some(RawRead::Lagged);
         };
         if let Ok(mut state) = self.subscriber.state.lock() {
             state.cursor = state.cursor.max(span.last_seq);

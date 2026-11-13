@@ -68,7 +68,9 @@ async fn interrupted_write_preserves_frame_bytes_and_completed_cursor() {
 }
 
 use crate::hub::Hub;
-use crate::wire::{CREDIT_WINDOW_BYTES, Credit, DeltaFrame, MAX_FRAME_BYTES, ReplayMark, Window};
+use crate::wire::{
+    CREDIT_WINDOW_BYTES, Credit, DeltaFrame, DeltaOp, MAX_FRAME_BYTES, ReplayMark, Window,
+};
 use acpmux_book::index::{Summary, SummaryIndex};
 use std::time::Duration;
 use tokio::io::{AsyncWriteExt, DuplexStream};
@@ -274,6 +276,32 @@ async fn missed_history_returns_window_and_caught_up_resume_has_empty_end() {
         assert_eq!(delta.replay, None);
         assert_eq!(delta.ops.len(), 1);
     }
+    drop(client);
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn retained_resume_is_one_raw_frame_at_operation_boundaries() {
+    let (mut client, task, _hub, mut writer, _source) = list_pair();
+    writer.apply(summary(1)).unwrap();
+    writer.apply(summary(2)).unwrap();
+    hello(&mut client).await;
+    send(
+        &mut client,
+        json!({"method":"sub","params":{"sid":"s","stream":"list","cursor":0,"edition":0}}),
+    )
+    .await;
+    let frame = receive(&mut client).await;
+    assert_eq!(frame.kind, FrameKind::Delta);
+    let delta: DeltaFrame<Summary> = frame.decode_json().unwrap();
+    assert_eq!(delta.replay, Some(ReplayMark::End));
+    assert_eq!(delta.ops.len(), 2);
+    assert!(matches!(delta.ops.first(), Some(DeltaOp::Summary { seq: 1, .. })));
+    assert!(matches!(delta.ops.get(1), Some(DeltaOp::Summary { seq: 2, .. })));
+    writer.apply(summary(3)).unwrap();
+    let live: DeltaFrame<Summary> = receive(&mut client).await.decode_json().unwrap();
+    assert_eq!(live.replay, None);
+    assert_eq!(live.ops.len(), 1);
     drop(client);
     task.await.unwrap().unwrap();
 }
