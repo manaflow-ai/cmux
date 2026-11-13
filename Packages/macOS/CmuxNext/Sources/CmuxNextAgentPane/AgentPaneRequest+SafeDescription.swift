@@ -119,7 +119,6 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .dictation: "dictation"
         case .dictationHandoff: "dictationHandoff"
         case .dictationSources: "dictationSources"
-        case .watchMicrophone: "watchMicrophone"
         case .externalAccessOpenSettings: "externalAccessOpenSettings"
         case .openFile: "openFile"
         case .openPreview: "openPreview"

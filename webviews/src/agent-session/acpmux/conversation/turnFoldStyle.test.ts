@@ -4,7 +4,7 @@
 // families fold (muse, gemini)", then, on Claude: "you can't do it for Claude ... it's just too lossy
 // if you do it for Claude". Lucas, 2026-11-06 (Codex parity): Claude, Gemini and Muse fold a finished
 // turn under "Worked for" as Codex does; Claude's in-place runs are the experiment's `runs` arm.
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import { SINCE_DIVIDER, type AcpmuxRow } from "../model";
 import { WORKED, turnView } from "./turns";
 import { CLAUDE_IN_PLACE, TURN_FOLD_STYLES, turnFoldStyle } from "./turnFoldStyle";
@@ -13,8 +13,13 @@ import { CLAUDE_IN_PLACE, TURN_FOLD_STYLES, turnFoldStyle } from "./turnFoldStyl
 const inPlace = () => {
   globalThis.cmuxExperiments = { "claude-turn-fold": "runs" };
 };
+let experimentsBefore: PropertyDescriptor | undefined;
+beforeEach(() => {
+  experimentsBefore = Object.getOwnPropertyDescriptor(globalThis, "cmuxExperiments");
+});
 afterEach(() => {
-  delete (globalThis as { cmuxExperiments?: unknown }).cmuxExperiments;
+  if (experimentsBefore) Object.defineProperty(globalThis, "cmuxExperiments", experimentsBefore);
+  else delete (globalThis as { cmuxExperiments?: unknown }).cmuxExperiments;
 });
 
 const call = (id: string) => ({
@@ -73,11 +78,11 @@ test("the table is the one place a family's fold is named", () => {
   expect(turnFoldStyle("gemini", () => true)).toBe(TURN_FOLD_STYLES.gemini!);
 });
 
-test("codex: one closed header over the conclusion, counting the messages it folds", () => {
+test("codex: one closed Worked for header over the conclusion", () => {
   const rows = drawn("codex");
   const worked = rows.find((row) => row.kind === WORKED)!;
   expect(worked.foldOpen).toBe(false);
-  expect(worked.previous).toBe(6);
+  expect(worked.previous).toBeUndefined();
   expect(ids(rows.filter((row) => row.kind !== "turnSummary"))).toEqual([worked.id, "a"]);
 });
 
@@ -108,8 +113,7 @@ for (const family of ["claude", "codex", "gemini", "muse"])
     const rows = drawn(family, new Set(), replied);
     const worked = rows.find((row) => row.kind === WORKED)!;
     expect(worked.foldOpen).toBe(false);
-    // Codex's header counts the messages it folds; the other families read "Worked for" alone.
-    expect(worked.previous === undefined).toBe(family !== "codex");
+    expect(worked.previous).toBeUndefined();
     expect(ids(rows.filter((row) => row.kind !== "turnSummary"))).toEqual([worked.id, "a"]);
   });
 
@@ -156,7 +160,7 @@ test("claude: a running turn draws its work as it happens, no Worked for yet", (
 
 test("the in-place arm leaves Codex, Gemini and Muse as their rows say", () => {
   inPlace();
-  expect(drawn("codex").find((row) => row.kind === WORKED)?.previous).toBe(6);
+  expect(drawn("codex").find((row) => row.kind === WORKED)?.previous).toBeUndefined();
   for (const family of ["gemini", "muse"]) expect(drawn(family).some((row) => row.kind === WORKED)).toBe(true);
 });
 

@@ -114,13 +114,29 @@ name = "acpmux-book"
 version = "0.1.0"
 dependencies = [
  "crc32fast",
+ "imbl",
  "libc",
+ "serde",
+ "serde_json",
  "tempfile",
 ]
 
 [[package]]
 name = "acpmux-build-id"
 version = "1.0.0"
+
+[[package]]
+name = "acpmux-core"
+version = "1.0.0"
+dependencies = [
+ "acpmux-book",
+ "arc-swap",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+]
 
 [[package]]
 name = "acpmux-hot"
@@ -1483,6 +1499,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-file-lock"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "cmux-flow-trace"
 version = "0.1.0"
 dependencies = [
@@ -1502,6 +1525,7 @@ dependencies = [
 name = "cmux-git"
 version = "0.1.0"
 dependencies = [
+ "cmux-file-lock",
  "libc",
  "serde_json",
  "sha2 0.10.9",
