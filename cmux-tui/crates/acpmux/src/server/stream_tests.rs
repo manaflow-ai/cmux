@@ -1,6 +1,9 @@
 //! The socket reader's bounds and the writer's end (`stream.rs`, manaflow-ai/cmuxterm-hq#2888).
 
-use super::{Limits, read_lines, write_lines};
+use super::{Limits, is_v2_upgrade, read_lines, write_lines};
+use acpmux_book::index::SummaryIndex;
+use acpmux_core::life::V2;
+use serde_json::json;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{mpsc, oneshot};
@@ -213,4 +216,26 @@ async fn an_http_upgrade_with_the_carrier_header_ends_the_connection() {
         assert!(!super::http_request_line(line), "{line}");
     }
     assert!(super::http_request_line("POST /x HTTP/1.0\r"));
+}
+
+#[test]
+fn v2_upgrade_requires_every_requested_surface() {
+    let (hub, writer) = acpmux_core::hub::Hub::new(SummaryIndex::new());
+    let v2 = V2::with_surfaces(hub, writer, ["list".to_owned()].into_iter().collect());
+    let line = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "_acpmux/v2",
+        "params": {"protocol": 2, "surfaces": ["list"]}
+    }))
+    .unwrap();
+    assert!(is_v2_upgrade(&line, &v2));
+    let line = serde_json::to_string(&json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "_acpmux/v2",
+        "params": {"protocol": 2, "surfaces": ["list", "chat"]}
+    }))
+    .unwrap();
+    assert!(!is_v2_upgrade(&line, &v2));
 }

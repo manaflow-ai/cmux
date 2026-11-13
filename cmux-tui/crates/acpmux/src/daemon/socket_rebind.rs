@@ -41,9 +41,19 @@ pub(super) async fn rebind(
 pub(super) async fn serve(
     hub: Arc<crate::hub::Hub>,
     listener: UnixListener,
-    mut swap: mpsc::Receiver<UnixListener>,
+    swap: mpsc::Receiver<UnixListener>,
 ) -> anyhow::Result<()> {
-    let mut serving = tokio::spawn(crate::server::serve_unix(hub.clone(), listener));
+    serve_with_v2(hub, listener, swap, None).await
+}
+
+pub(super) async fn serve_with_v2(
+    hub: Arc<crate::hub::Hub>,
+    listener: UnixListener,
+    mut swap: mpsc::Receiver<UnixListener>,
+    v2: Option<Arc<acpmux_core::life::V2>>,
+) -> anyhow::Result<()> {
+    let mut serving =
+        tokio::spawn(crate::server::serve_unix_with_v2(hub.clone(), listener, v2.clone()));
     loop {
         tokio::select! {
             served = &mut serving => return served?,
@@ -51,7 +61,7 @@ pub(super) async fn serve(
                 Some(listener) => {
                     serving.abort();
                     let _ = (&mut serving).await;
-                    serving = tokio::spawn(crate::server::serve_unix(hub.clone(), listener));
+                    serving = tokio::spawn(crate::server::serve_unix_with_v2(hub.clone(), listener, v2.clone()));
                 }
                 None => return serving.await?,
             },

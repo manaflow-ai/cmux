@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use thiserror::Error;
 use tokio::sync::Notify;
 
-use crate::wire::{Frame, FrameError, FrameKind, Sub};
+use crate::wire::{DeltaFrame, DeltaOp, Frame, FrameError, FrameKind, Sub};
 
 pub use crate::wire::{Delta, Window};
 
@@ -140,27 +140,31 @@ impl ListReceiver {
                 if let Some(cursor) = state.dropped.take() {
                     return Some(ListItem::Dropped { cursor });
                 }
-                // The subscriber deliberately retains no event frames. Select the newest
-                // event for each chat from the shared history only when the reader asks for
-                // one, then advance the cursor to the selected event. This preserves the old
-                // coalescing behaviour while making an unread subscriber cost a cursor.
+                // The subscriber deliberately retains no event frames. Read the first retained
+                // record after the cursor only when the reader asks for one. The source advances
+                // the cursor after the connection accepts the frame; a full credit window must
+                // therefore retry this same record instead of skipping it.
                 if let Ok(history) = self.history.lock() {
                     let oldest = history.front().map(item_seq);
                     if oldest.is_some_and(|seq| state.cursor.saturating_add(1) < seq) {
                         return Some(ListItem::Dropped { cursor: state.cursor });
                     }
-                    let mut latest = HashMap::<String, ListItem>::new();
-                    for item in history.iter().filter(|item| item_seq(item) > state.cursor) {
-                        let key = match item {
-                            ListItem::Summary(event) => event.summary.chat_id.clone(),
-                            ListItem::Gone { chat_id, .. } => chat_id.clone(),
-                            ListItem::Dropped { .. } => continue,
-                        };
-                        latest.insert(key, item.clone());
-                    }
-                    if let Some(item) = latest.into_values().min_by_key(item_seq) {
-                        state.cursor = state.cursor.max(item_seq(&item));
-                        return Some(item);
+                    if let Some(oldest) = oldest {
+                        // History sequences are assigned once per retained record. Indexing by
+                        // the sequence offset avoids rescanning the whole deque for a reader
+                        // that is many records behind while keeping the lock to one clone.
+                        let offset = state.cursor.saturating_add(1).saturating_sub(oldest) as usize;
+                        if let Some(item) = history.get(offset)
+                            && item_seq(item) > state.cursor
+                        {
+                            return Some(item.clone());
+                        }
+                        // Be defensive around a future source that introduces sequence gaps.
+                        if let Some(item) =
+                            history.iter().find(|item| item_seq(item) > state.cursor)
+                        {
+                            return Some(item.clone());
+                        }
                     }
                 }
             }
@@ -279,11 +283,40 @@ impl Hub {
         let mut bytes = 0usize;
         let mut items = Vec::new();
         for item in history.iter().filter(|item| item_seq(item) > cursor) {
-            bytes = bytes.saturating_add(match item {
-                ListItem::Summary(event) => event.summary.encoded_len().saturating_add(32),
-                ListItem::Gone { .. } => 32,
-                ListItem::Dropped { .. } => 0,
-            });
+            let encoded = match item {
+                ListItem::Summary(event) => Frame::json(
+                    FrameKind::Delta,
+                    &DeltaFrame {
+                        sid: sub.sid.clone(),
+                        replay: Some(crate::wire::ReplayMark::Replay),
+                        ops: vec![DeltaOp::Summary {
+                            seq: event.seq,
+                            summary: (*event.summary).clone(),
+                        }],
+                    },
+                )?
+                .encoded_len(),
+                ListItem::Gone { seq, chat_id } => Frame::json(
+                    FrameKind::Delta,
+                    &DeltaFrame::<serde_json::Value> {
+                        sid: sub.sid.clone(),
+                        replay: Some(crate::wire::ReplayMark::Replay),
+                        ops: vec![DeltaOp::Gone { seq: *seq, chat_id: chat_id.clone() }],
+                    },
+                )?
+                .encoded_len(),
+                ListItem::Dropped { cursor: dropped } => Frame::json(
+                    FrameKind::Dropped,
+                    &crate::wire::Dropped {
+                        sid: sub.sid.clone(),
+                        cursor: crate::wire::Cursor(*dropped),
+                    },
+                )?
+                .encoded_len(),
+            };
+            // Leave room for the final end marker and framing overhead. A conservative bound
+            // chooses a fresh window rather than constructing a replay that cannot be admitted.
+            bytes = bytes.saturating_add(encoded.saturating_add(64));
             if bytes > crate::wire::CREDIT_WINDOW_BYTES as usize {
                 return Ok(None);
             }
@@ -310,7 +343,8 @@ impl Hub {
         validate_window(sub)?;
         let cursor = sub.cursor.map_or(0, |cursor| cursor.0);
         let index = self.snapshot();
-        let resume_cursor = if sub.cursor.is_some() && cursor <= index.seq() {
+        let edition_matches = sub.edition.is_none_or(|edition| edition == 0);
+        let resume_cursor = if edition_matches && sub.cursor.is_some() && cursor <= index.seq() {
             let history = self.history.lock().map_err(|_| HubError::WriterGone)?;
             history
                 .front()
@@ -748,12 +782,18 @@ mod tests {
         let subscription = hub.subscribe(&Sub::new("live", "list")).unwrap();
         hub.submit(summary("live-chat", 1)).unwrap();
         match subscription.receiver.recv().await.unwrap() {
-            ListItem::Summary(event) => assert_eq!(event.summary.chat_id, "live-chat"),
+            ListItem::Summary(event) => {
+                assert_eq!(event.summary.chat_id, "live-chat");
+                subscription.receiver.advance_to(event.seq);
+            }
             other => panic!("expected summary, got {other:?}"),
         }
         hub.remove("live-chat").unwrap();
         match subscription.receiver.recv().await.unwrap() {
-            ListItem::Gone { chat_id, .. } => assert_eq!(chat_id, "live-chat"),
+            ListItem::Gone { seq, chat_id } => {
+                assert_eq!(chat_id, "live-chat");
+                subscription.receiver.advance_to(seq);
+            }
             other => panic!("expected removal, got {other:?}"),
         }
         hub.close();
@@ -761,17 +801,42 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn replay_does_not_replace_newer_live_item_for_same_chat() {
+    async fn replay_preserves_each_record_in_sequence_order() {
         let (hub, mut writer) = Hub::new(SummaryIndex::new());
         writer.apply(summary("same", 1)).unwrap();
         let subscription = hub.subscribe(&Sub::new("resume", "list").from_cursor(0)).unwrap();
         writer.apply(summary("same", 2)).unwrap();
         match subscription.receiver.recv().await.unwrap() {
-            ListItem::Summary(event) => assert_eq!(event.seq, 2),
+            ListItem::Summary(event) => {
+                assert_eq!(event.seq, 1);
+                subscription.receiver.advance_to(event.seq);
+            }
+            other => panic!("expected newer summary, got {other:?}"),
+        }
+        match subscription.receiver.recv().await.unwrap() {
+            ListItem::Summary(event) => {
+                assert_eq!(event.seq, 2);
+                subscription.receiver.advance_to(event.seq);
+            }
             other => panic!("expected newer summary, got {other:?}"),
         }
         let state = subscription.receiver.subscriber.state.lock().unwrap();
         assert_eq!(state.cursor, 2);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn receiver_cursor_does_not_advance_until_source_accepts_the_record() {
+        let (hub, mut writer) = Hub::new(SummaryIndex::new());
+        writer.apply(summary("retry", 1)).unwrap();
+        let subscription = hub.subscribe(&Sub::new("retry", "list").from_cursor(0)).unwrap();
+        let first = subscription.receiver.recv().await.unwrap();
+        let first_seq = item_seq(&first);
+        assert_eq!(first_seq, 1);
+        assert_eq!(subscription.receiver.subscriber.state.lock().unwrap().cursor, 0);
+        let retry = subscription.receiver.recv().await.unwrap();
+        assert_eq!(item_seq(&retry), first_seq);
+        subscription.receiver.advance_to(first_seq);
+        assert_eq!(subscription.receiver.subscriber.state.lock().unwrap().cursor, 1);
     }
 
     #[test]
@@ -780,6 +845,18 @@ mod tests {
         writer.apply(summary("current", 1)).unwrap();
         let subscription =
             hub.subscribe(&Sub::new("ahead", "list").from_cursor(Cursor(10))).unwrap();
+        let window: Window<Summary> = subscription.window.decode_json().unwrap();
+        assert_eq!(window.cursor, 1);
+        assert_eq!(subscription.receiver.subscriber.state.lock().unwrap().cursor, 1);
+    }
+
+    #[test]
+    fn a_cursor_from_another_edition_gets_a_fresh_current_window() {
+        let (hub, mut writer) = Hub::new(SummaryIndex::new());
+        writer.apply(summary("current", 1)).unwrap();
+        let mut sub = Sub::new("edition", "list").from_cursor_in_edition(0, 7);
+        sub.edition = Some(7);
+        let subscription = hub.subscribe(&sub).unwrap();
         let window: Window<Summary> = subscription.window.decode_json().unwrap();
         assert_eq!(window.cursor, 1);
         assert_eq!(subscription.receiver.subscriber.state.lock().unwrap().cursor, 1);

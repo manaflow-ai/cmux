@@ -419,6 +419,25 @@ pub enum Delta<T> {
     },
 }
 
+/// One bounded delta frame. Resume frames carry at most 256 KiB of operations;
+/// the final frame has `replay: "end"` and may contain no operations.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeltaFrame<T> {
+    pub sid: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replay: Option<ReplayMark>,
+    pub ops: Vec<DeltaOp<T>>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "op")]
+pub enum DeltaOp<T> {
+    Summary { seq: u64, summary: T },
+    Gone { seq: u64, chat_id: String },
+    Queue { seq: u64, bytes: u64 },
+}
+
 pub fn delta_frame<T: Serialize>(delta: &Delta<T>) -> Result<Frame, FrameError> {
     Frame::json(FrameKind::Delta, delta)
 }

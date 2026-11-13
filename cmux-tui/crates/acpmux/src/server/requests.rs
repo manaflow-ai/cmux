@@ -871,14 +871,14 @@ pub(super) async fn handle_request(
     mut params: Value,
     sender_token: Option<crate::sender_token::Presented>,
 ) -> Result<Value, RpcError> {
-    if m == method::MUX_V2 {
-        return v2_upgrade(hub, conn, &params).await;
-    }
     if conn.is_trigger() && !m.starts_with("trigger/chat.") {
         return Err(RpcError::new(
             -32001,
             "trigger connection accepts trigger/chat operations only",
         ));
+    }
+    if m == method::MUX_V2 {
+        return v2_upgrade(hub, conn, &params).await;
     }
     if matches!(
         m,
@@ -1066,8 +1066,9 @@ async fn v2_upgrade(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value
         .and_then(Value::as_array)
         .map(|surfaces| surfaces.iter().filter_map(Value::as_str).collect::<Vec<_>>())
         .unwrap_or_default();
-    let enabled = hub.config.read().await.acpmux_v2.enabled();
-    let allowed = requested.iter().any(|surface| enabled.contains(surface));
+    let config = hub.config.read().await;
+    let enabled = config.acpmux_v2.enabled();
+    let allowed = requested.iter().all(|surface| enabled.contains(surface));
     if protocol != Some(2) || requested.is_empty() || !allowed {
         return Err(RpcError::method_not_found(method::MUX_V2));
     }

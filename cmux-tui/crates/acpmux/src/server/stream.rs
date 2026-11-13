@@ -13,7 +13,7 @@ use futures_util::StreamExt;
 use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::codec::{FramedRead, LinesCodec, LinesCodecError};
 
@@ -43,12 +43,33 @@ pub(super) async fn serve_stream(
     peer: Option<cmux_link::app_caller::PeerToken>,
     provisioner: bool,
     socket_peer: crate::sender_harness::SocketPeer,
+    v2: Option<std::sync::Arc<acpmux_core::life::V2>>,
 ) {
-    let (rd, wr) = crate::local_stream::split(stream);
+    let (mut rd, mut wr) = crate::local_stream::split(stream);
+    let first = match read_first_line(&mut rd).await {
+        Ok(Some(line)) => line,
+        Ok(None) | Err(_) => return,
+    };
+    if let Some(v2) = v2.as_ref().filter(|v2| is_v2_upgrade(&first, v2)) {
+        let Ok(Message::Request { id, params: Some(params), .. }) = Message::parse(&first) else {
+            return;
+        };
+        let surfaces = params.get("surfaces").cloned().unwrap_or(Value::Array(Vec::new()));
+        let reply = Message::ok(id, json!({"protocol": 2, "surfaces": surfaces, "upgrade": true}));
+        if wr.write_all(reply.to_line().as_bytes()).await.is_err() {
+            return;
+        }
+        let source = std::sync::Arc::new(acpmux_core::conn::HubSource::new(v2.hub()));
+        let _ = acpmux_core::conn::run(rd, wr, source, "acpmux").await;
+        return;
+    }
     let (in_tx, in_rx) = mpsc::channel::<String>(INBOUND_LINES);
     let (out_tx, out_rx) = mpsc::channel::<String>(4096);
     let (last_tx, last_rx) = oneshot::channel();
     let limits = Limits { line: MAX_LINE_BYTES, small: SMALL_LINE_BYTES };
+    if in_tx.send(first).await.is_err() {
+        return;
+    }
     tokio::spawn(read_lines(rd, in_tx, last_tx, limits));
     tokio::spawn(write_lines(wr, out_rx, last_rx));
     serve_connection_from(
@@ -65,6 +86,42 @@ pub(super) async fn serve_stream(
         None,
     )
     .await;
+}
+
+async fn read_first_line<R: AsyncRead + Unpin>(reader: &mut R) -> std::io::Result<Option<String>> {
+    let mut bytes = Vec::new();
+    loop {
+        let mut byte = [0_u8; 1];
+        if reader.read_exact(&mut byte).await.is_err() {
+            return if bytes.is_empty() { Ok(None) } else { Ok(None) };
+        }
+        if byte[0] == b'\n' {
+            if bytes.last() == Some(&b'\r') {
+                bytes.pop();
+            }
+            return String::from_utf8(bytes)
+                .map(Some)
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error));
+        }
+        bytes.push(byte[0]);
+        if bytes.len() > MAX_LINE_BYTES {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "line too long"));
+        }
+    }
+}
+
+fn is_v2_upgrade(line: &str, v2: &acpmux_core::life::V2) -> bool {
+    let Ok(Message::Request { method, params: Some(params), .. }) = Message::parse(line) else {
+        return false;
+    };
+    if method != crate::rpc::method::MUX_V2
+        || params.get("protocol").and_then(Value::as_u64) != Some(2)
+    {
+        return false;
+    }
+    let Some(surfaces) = params.get("surfaces").and_then(Value::as_array) else { return false };
+    let requested: Vec<&str> = surfaces.iter().filter_map(Value::as_str).collect();
+    v2.allows_surfaces(&requested)
 }
 
 /// Hands each line `rd` reads to `in_tx`, holding at most `limits.line` bytes of one (and the
