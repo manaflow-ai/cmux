@@ -2014,3 +2014,222 @@ fn a_304_to_an_unconditional_read_is_refused() {
     let err = role::read_channel_from(&cache, &origin.url, "=http", &keys(), 5_000).unwrap_err();
     assert!(err.contains("no verified file is kept"), "{err}");
 }
+
+/// `realtime - boottime` at the own-flip tests' flip.
+#[cfg(target_os = "linux")]
+const FLIP_OFFSET_NS: i128 = 1_794_000_000 * SECOND_NS - 86_400 * SECOND_NS;
+
+/// An update's flip at `at_ms` (its last step inside the gate, with no
+/// carrier session), the service's restart `restart_after_ms` later and the
+/// restarted updater's start hold: true when the start took no hold.
+#[cfg(target_os = "linux")]
+fn own_flip_then_restart(paths: &Paths, at_ms: u64, restart_after_ms: u64) -> bool {
+    let (gated, _) = role::flip_in_gate(
+        paths,
+        || at_ms,
+        gate::Honor::All,
+        || Ok(Vec::new()),
+        || false,
+        |inside| {
+            inside.flip_restart_queued(at_ms, FLIP_OFFSET_NS);
+            Ok::<(), ()>(())
+        },
+    );
+    assert!(matches!(gated, role::Gated::Flipped), "{gated:?}");
+    let gate = gate::Gate::new(paths);
+    gate.service_started();
+    role::start_hold(paths, at_ms + restart_after_ms, FLIP_OFFSET_NS + SECOND_NS / 10)
+}
+
+/// Builds merging less than 5 min apart: the machine that took the first
+/// restarts into it and, with no carrier session or bind since, keeps looking
+/// at the channel during what was the connect hold. A build the channel
+/// shows at any time in those 5 minutes flips at the worker's next look, one
+/// poll interval later, not after the hold.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_own_flip_restart_with_no_session_picks_up_a_build_within_one_poll_interval() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let restart = T0_MS + 4_000;
+    assert!(own_flip_then_restart(&paths, T0_MS, 4_000), "the own flip's restart took a hold");
+    let gate = gate::Gate::new(&paths);
+    let poll = role::next_look(&role::Outcome::Current(COMMIT.to_owned()), u64::MAX);
+    assert!(poll <= std::time::Duration::from_secs(20), "{poll:?}");
+    let poll_ms = poll.as_millis() as u64;
+    let hold_ms = gate::CONNECT_HOLD.as_millis() as u64;
+    for published in [restart, restart + 30_000, restart + 120_000, restart + hold_ms - poll_ms] {
+        // The worker's loop waits out `held_for` before it looks: nothing here.
+        let look = published + poll_ms;
+        assert_eq!(gate.held_left(published), None, "a hold at {} s", (published - restart) / 1000);
+        let mut flipped = false;
+        let (gated, _) = role::flip_in_gate(
+            &paths,
+            || look,
+            gate::Honor::All,
+            || Ok(Vec::new()),
+            || false,
+            |_| {
+                flipped = true;
+                Ok::<(), ()>(())
+            },
+        );
+        assert!(
+            matches!(gated, role::Gated::Flipped) && flipped,
+            "a build published {} s after the restart did not flip at the next look: {gated:?}",
+            (published - restart) / 1000
+        );
+    }
+}
+
+/// The own flip's restart skips the start hold only until a person's link
+/// shows up: a bind (also one queued while the restart was pending) or a new
+/// carrier session takes the full connect hold, and no flip goes inside it.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_own_flip_restart_with_a_connect_inside_the_hold_does_not_swap() {
+    let hold_ms = gate::CONNECT_HOLD.as_millis() as u64;
+
+    // A bind 60 s after the restart (`hold_then_bind`).
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    assert!(own_flip_then_restart(&paths, T0_MS, 4_000), "the own flip's restart took a hold");
+    let gate = gate::Gate::new(&paths);
+    assert!(gate.run(T0_MS + 10_000, gate::Honor::All, |_| ()).is_ok(), "no connect yet: it flips");
+    let bind = T0_MS + 64_000;
+    assert!(gate::hold_connects(&paths, bind, gate::HoldKind::Connect), "the bind goes");
+    for look in [bind + 15_000, T0_MS + 4_000 + hold_ms, bind + hold_ms - 1] {
+        let (gated, _) = role::flip_in_gate(
+            &paths,
+            || look,
+            gate::Honor::All,
+            || Ok(Vec::new()),
+            || false,
+            no_flip,
+        );
+        assert!(matches!(gated, role::Gated::Held(_)), "{gated:?}");
+    }
+    assert_eq!(gate.held_left(bind), Some(gate::CONNECT_HOLD), "the bind's hold is a full one");
+
+    // A bind that came while the flip's restart was pending (it waits for the
+    // restarted service, but its hold is on before the restart).
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let gate = gate::Gate::new(&paths);
+    let (gated, _) = role::flip_in_gate(
+        &paths,
+        || T0_MS,
+        gate::Honor::All,
+        || Ok(Vec::new()),
+        || false,
+        |inside| {
+            inside.flip_restart_queued(T0_MS, FLIP_OFFSET_NS);
+            Ok::<(), ()>(())
+        },
+    );
+    assert!(matches!(gated, role::Gated::Flipped), "{gated:?}");
+    assert!(!gate::hold_connects(&paths, T0_MS + 1_000, gate::HoldKind::Connect));
+    gate.service_started();
+    role::start_hold(&paths, T0_MS + 4_000, FLIP_OFFSET_NS);
+    assert!(gate.run(T0_MS + 20_000, gate::Honor::All, |_| ()).is_err(), "it flipped");
+
+    // A carrier session that attaches after the restart: the flip's look
+    // inside the gate finds it, takes the full hold and never flips; nor
+    // does a look after it detached.
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let now = role::wall_ms();
+    let gate = gate::Gate::new(&paths);
+    assert!(own_flip_then_restart(&paths, now, 4_000), "the own flip's restart took a hold");
+    let id = format!("own-flip/{}#1", T0_MS + 11);
+    let (gated, _) = role::flip_in_gate(
+        &paths,
+        || now + 30_000,
+        gate::Honor::All,
+        || Ok(vec![id.clone()]),
+        || false,
+        no_flip,
+    );
+    assert!(matches!(gated, role::Gated::Busy(_)), "{gated:?}");
+    assert_eq!(gate.held_left(now + 30_000), Some(gate::CONNECT_HOLD), "a full hold");
+    let (gated, _) = role::flip_in_gate(
+        &paths,
+        || now + 45_000,
+        gate::Honor::All,
+        || Ok(Vec::new()),
+        || false,
+        no_flip,
+    );
+    assert!(matches!(gated, role::Gated::Held(_)), "{gated:?}");
+}
+
+/// A start that is not the own flip's restart takes the 5 min hold: a cold
+/// boot, a start whose mark is older than the restart's bound, from the
+/// future, from before a reboot or a snapshot restore, or already taken by
+/// an earlier start, and the restart a rollback queued. The own flip's
+/// restart, from the same marks, takes none.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_cold_start_keeps_the_five_minute_hold() {
+    let flip_dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(flip_dir.path());
+    assert!(own_flip_then_restart(&paths, T0_MS, 4_000), "the own flip's restart took a hold");
+    assert_eq!(gate::Gate::new(&paths).held_left(T0_MS + 4_000), None);
+    // The next start takes it no more: the mark is gone.
+    assert!(!role::start_hold(&paths, T0_MS + 9_000, FLIP_OFFSET_NS));
+    assert_eq!(gate::Gate::new(&paths).held_left(T0_MS + 9_000), Some(gate::CONNECT_HOLD));
+
+    let cold = |mark: Option<(u64, i128)>, start_ms: u64, offset_ns: i128, what: &str| {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::new(dir.path());
+        let gate = gate::Gate::new(&paths);
+        if let Some((at_ms, at_offset)) = mark {
+            assert!(
+                gate.run(at_ms, gate::Honor::All, |i| i.flip_restart_queued(at_ms, at_offset))
+                    .is_ok()
+            );
+            gate.service_started();
+        }
+        assert!(!role::start_hold(&paths, start_ms, offset_ns), "{what}: no start hold");
+        assert_eq!(gate.held_left(start_ms), Some(gate::CONNECT_HOLD), "{what}");
+        let (gated, _) = role::flip_in_gate(
+            &paths,
+            || start_ms + 299_000,
+            gate::Honor::All,
+            || Ok(Vec::new()),
+            || false,
+            no_flip,
+        );
+        assert!(matches!(gated, role::Gated::Held(_)), "{what}: {gated:?}");
+    };
+    let pending_ms = gate::RESTART_PENDING_FOR.as_millis() as u64;
+    cold(None, T0_MS, FLIP_OFFSET_NS, "a cold boot");
+    cold(
+        Some((T0_MS, FLIP_OFFSET_NS)),
+        T0_MS + pending_ms + 1,
+        FLIP_OFFSET_NS,
+        "a mark past the restart's bound",
+    );
+    cold(Some((T0_MS + 60_000, FLIP_OFFSET_NS)), T0_MS, FLIP_OFFSET_NS, "a mark from the future");
+    cold(
+        Some((T0_MS, FLIP_OFFSET_NS)),
+        T0_MS + 30_000,
+        FLIP_OFFSET_NS + 3_600 * SECOND_NS,
+        "a reboot since the mark",
+    );
+    cold(
+        Some((T0_MS, FLIP_OFFSET_NS)),
+        T0_MS + 30_000,
+        FLIP_OFFSET_NS + 5 * SECOND_NS,
+        "a snapshot restore since the mark",
+    );
+
+    // A rollback's restart leaves no mark.
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let gate = gate::Gate::new(&paths);
+    assert!(gate.run(T0_MS, gate::Honor::Nothing, |i| i.restart_queued(T0_MS)).is_ok());
+    gate.service_started();
+    assert!(!role::start_hold(&paths, T0_MS + 4_000, FLIP_OFFSET_NS), "a rollback's restart");
+    assert_eq!(gate.held_left(T0_MS + 4_000), Some(gate::CONNECT_HOLD));
+}

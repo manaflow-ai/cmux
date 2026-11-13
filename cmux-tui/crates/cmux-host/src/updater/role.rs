@@ -191,7 +191,9 @@ fn clocks() -> (i128, u64) {
 
 /// The pause count ([`crate::agent::PauseWatch::pause_seq`]) this process's
 /// updater last handled, kept across its waits and checks. The role start
-/// takes the count then: a pause before it is covered by the start's hold.
+/// takes the count then: a pause before it is covered by the start's hold
+/// (or, at the own flip's restart, which takes none, was in the two minutes
+/// the mark is good for, and a restore in them makes the start a cold one).
 static HANDLED: AtomicU64 = AtomicU64::new(0);
 
 /// Starts the connect hold at `now` when `watch` counted a pause after the
@@ -493,7 +495,7 @@ impl Role for UpdaterRole {
         if !self.paths.at(store::CURRENT_LINK).exists() {
             return Ok(());
         }
-        hold_connects(&self.paths, HoldKind::Resume);
+        start_hold(&self.paths, wall_ms(), crate::linux::realtime_minus_boottime_ns());
         hold_after_restore(&self.paths);
         HANDLED.store(crate::agent::PAUSES.pause_seq(), Ordering::SeqCst);
         let (tx, rx) = mpsc::channel();
@@ -540,6 +542,25 @@ impl Role for UpdaterRole {
             _ => Ok(()),
         }
     }
+}
+
+/// The role start's hold at `now_ms` (`realtime - boottime` at `offset_ns`):
+/// a boot may be a new or claimed machine whose first link comes up in the
+/// next minutes, so it takes the connect hold (resume kind). The restart an
+/// update's own flip queued ([`super::gate::Gate::take_own_flip`]) is the
+/// machine that was just idle enough to flip, neither new nor claimed: it
+/// takes none, so the worker keeps looking at the channel and can take a
+/// newer build at once. A bind, a `Bound` or a new carrier session after it
+/// takes its own connect hold, and a pause or restore its resume hold, as on
+/// any machine; attached carrier sessions and busy agent turns still hold the
+/// flip. True when it was the own flip's restart.
+pub(super) fn start_hold(paths: &Paths, now_ms: u64, offset_ns: i128) -> bool {
+    if Gate::new(paths).take_own_flip(now_ms, offset_ns) {
+        log("the restart after this machine's own update: no start hold");
+        return true;
+    }
+    super::gate::hold_connects(paths, now_ms, HoldKind::Resume);
+    false
 }
 
 /// Waits `d` or until a message: false when the role stops.
@@ -809,7 +830,7 @@ fn check_inner(
             short_hex(&plan.cmux_tui.sha256),
             short_hex(&plan.commit)
         ));
-        inside.restart_queued(wall_ms());
+        inside.flip_restart_queued(wall_ms(), crate::linux::realtime_minus_boottime_ns());
         restart_after_flip(&store_binary(&plan.old_cmux_tui));
         Ok::<(), std::io::Error>(())
     });
