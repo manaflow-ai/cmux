@@ -674,3 +674,70 @@ fn git_files_list_gives_a_submodule_as_a_folder_and_the_search_gives_it_as_no_fi
     assert_eq!(client.listed_kind(&repo, "inner-repo"), "directory", "a real folder");
     assert_eq!(client.found(&repo, "inner-repo"), NO_PATH, "a folder is no file");
 }
+
+/// The number of matches that `git.files.search` gives in `folder` for `query`.
+fn match_count(client: &mut Client, folder: &Path, query: &str) -> Value {
+    client.read_with("git.files.search", folder, &[("query", query)])["total_matches"].clone()
+}
+
+/// A new repository whose tracked folder `dir`, with the tracked file `dir/below.txt`, is now
+/// a link to `outside`.
+fn repository_with_a_link_to(outside: &Path) -> PathBuf {
+    let repo = fresh_repository();
+    std::fs::create_dir_all(repo.join("dir")).unwrap();
+    std::fs::write(repo.join("dir/below.txt"), "inside\n").unwrap();
+    git(&repo, &["add", "dir/below.txt"]);
+    git(&repo, &["commit", "--quiet", "-m", "dir"]);
+    std::fs::rename(repo.join("dir"), repo.join(".git").join("dir-away")).unwrap();
+    std::os::unix::fs::symlink(outside, repo.join("dir")).unwrap();
+    repo
+}
+
+#[test]
+fn review2_git_files_search_counts_the_same_matches_whatever_is_behind_a_link() {
+    // The folder behind one link has a file with the tracked name; the other has none.
+    let with_the_name = outside_folder("below.txt", b"outside\n");
+    let without_the_name = outside_folder("other.txt", b"outside\n");
+    let mut client = Client::of_a_new_daemon();
+    let with = match_count(&mut client, &repository_with_a_link_to(&with_the_name), "below");
+    let without = match_count(&mut client, &repository_with_a_link_to(&without_the_name), "below");
+    assert_eq!(with, without, "the count of matches says what is behind a link");
+}
+
+#[test]
+fn review2_git_diff_counts_no_line_outside_when_the_top_folder_became_a_link_after_the_listing() {
+    let repo = fresh_repository();
+    std::fs::write(repo.join("new.txt"), "inside\n").unwrap();
+    let outside = outside_folder("new.txt", b"outside one\noutside two\noutside three\n");
+    let mut client = Client::of_a_new_daemon();
+    let before = client.changed_file(&repo, "new.txt");
+    assert_eq!(before["additions"], 1, "the untracked file of the work tree: {before}");
+
+    // After git's listing, the top folder goes away and a link to `outside` has its name.
+    let away = fixture().dir.join(unique("w"));
+    let hook = repo.join(".git").join("after-untracked-listing");
+    let script = format!(
+        "#!/bin/sh\nmv '{top}' '{away}' && ln -s '{outside}' '{top}'\n",
+        top = repo.display(),
+        away = away.display(),
+        outside = outside.display(),
+    );
+    std::fs::write(&hook, script).unwrap();
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let during = client.changed_file(&repo, "new.txt");
+    let top = std::fs::symlink_metadata(&repo).unwrap();
+    assert!(top.file_type().is_symlink(), "the stand-in git did not put the link there");
+    assert_eq!(during["status"], "untracked", "{during}");
+    assert_ne!(during["additions"], 3, "lines of a file that is not in the work tree: {during}");
+}
+
+#[test]
+fn review2_git_diff_counts_no_line_of_an_untracked_name_of_a_file_outside_the_work_tree() {
+    let repo = fresh_repository();
+    let outside = outside_folder("two-names.txt", b"outside one\noutside two\noutside three\n");
+    // The file outside the work tree gets a second name in it (not a link: the same file).
+    std::fs::hard_link(outside.join("two-names.txt"), repo.join("second-name.txt")).unwrap();
+    let file = Client::of_a_new_daemon().changed_file(&repo, "second-name.txt");
+    assert_eq!(file["status"], "untracked", "{file}");
+    assert_eq!(file["additions"], 0, "lines of a file that is outside the work tree too: {file}");
+}
