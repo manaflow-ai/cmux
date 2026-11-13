@@ -379,3 +379,58 @@ fn the_last_step_states_each_terminal_that_has_no_view_one_time() {
     assert_eq!(full_projections(&mux), full);
     mux.shutdown();
 }
+
+/// A part that the registry refuses keeps only its own workspace out. 12 workspaces; the live
+/// name of one changed with no new name revision, which the fence of the stored name refuses
+/// (`workspace_name_store::fence_stored_name`). The 8 workspaces of its part go back and each
+/// gets a part of its own: 7 are stated, the one stays not whole, and the part of the last 4
+/// runs after it. Before, the first refused part stopped the restatement, and the rows of each
+/// workspace after it stayed as the start left them.
+#[test]
+fn a_part_that_the_registry_refuses_keeps_only_its_own_workspace_out() {
+    let mux = without_crosscheck(|| session_in(test_mux(), 12));
+    let workspaces = workspace_ids(&mux);
+    lose_the_fold(&mux);
+    {
+        let mut state = mux.state.lock().unwrap();
+        state.workspaces[5].name = "no-new-revision".into();
+    }
+    let (revision, full) = (revision_of(&mux), full_projections(&mux));
+    let tally = mux.restate_session_in_parts().expect("one refused part stopped the restatement");
+    assert_eq!(full_projections(&mux), full, "a part ran a full projection");
+    let sizes = tally.parts.iter().map(|part| part.workspaces).collect::<Vec<_>>();
+    assert_eq!(sizes, [1, 1, 1, 1, 1, 1, 1, 4], "the workspaces of each committed part");
+    let records = records_after(&mux, revision);
+    for (index, workspace) in workspaces.iter().enumerate() {
+        assert_eq!(
+            records_that_state(&records, workspace),
+            usize::from(index != 5),
+            "records that state the workspace at {index}"
+        );
+    }
+    assert_eq!(whole_workspaces(&mux), 11, "each workspace but the refused one is whole");
+    mux.shutdown();
+}
+
+/// No part starts while the daemon ends terminals: each step stands back and commits nothing,
+/// with no limit of times (it is not a locker that waits), and the part runs when the
+/// teardown ends. The same test holds for a shutdown and a hand-off of the hosts
+/// (`journal_maintenance_paused`). Before, the worker read the shutdown flag only.
+#[test]
+fn no_part_starts_while_the_daemon_ends_terminals() {
+    let mux = without_crosscheck(|| session_in(test_mux(), 10));
+    lose_the_fold(&mux);
+    let mut parts = mux.session_restate_parts();
+    let revision = revision_of(&mux);
+    let teardown = mux.begin_terminal_teardown();
+    for round in 0..RESTATE_MAX_DEFERS + 2 {
+        let step = mux.restate_step(&mut parts, 0).unwrap();
+        assert_eq!(step, PartStep::Deferred, "round {round} while the daemon ends terminals");
+    }
+    assert_eq!(revision_of(&mux), revision, "a part started while the daemon ended terminals");
+    assert_eq!(parts.tally.defers, 0, "a teardown counted as a locker: {:?}", parts.tally);
+    drop(teardown);
+    let step = mux.restate_step(&mut parts, 0).unwrap();
+    assert!(matches!(step, PartStep::Stated(_)), "after the teardown the part runs: {step:?}");
+    mux.shutdown();
+}
