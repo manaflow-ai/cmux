@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43511646856",
+  "recorded_at": "2026-11-13T21:42:18Z",
+  "reason": "cmux-tui 7d3458daa268 changes the image's cmux-tui (pinned d4b46451332c)",
+  "dry_run": false,
+  "cmux_tui": "7d3458daa2685d59708266ddf011b628ffbc2ea4",
+  "fixes": [
+    {
+      "sha": "7d3458daa2685d59708266ddf011b628ffbc2ea4",
+      "mergedAt": "2026-11-13T13:04:53-08:00",
+      "subject": "cmux-host: the Cloud status report carries the updater's last outcome and swap (#42668)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T21:42:18Z",
+    "snapshot_id": "sh-c0c6b79c9f76430a83d08b0cadcfca73",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43511646856): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "f6335369e3d3360ca3d1d18cb09110021509a426",
+    "image": "cloud-native-auto-7d3458da-43511646856-1",
+    "revision": "ci-43511646856-1",
+    "at": "2026-11-13T21:42:18Z"
+  },
+  "rolled_back": false
+}
