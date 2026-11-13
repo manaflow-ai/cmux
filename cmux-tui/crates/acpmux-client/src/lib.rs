@@ -623,7 +623,7 @@ where
     }
 
     fn summary_is_live(value: &Value) -> bool {
-        value.get("state").and_then(Value::as_str).is_some_and(acpmux_book::index::is_live_state)
+        value.get("state").and_then(Value::as_str).is_none_or(acpmux_book::index::is_live_state)
     }
 
     fn row_identity(key: &ListKey) -> (String, String) {
@@ -1930,7 +1930,7 @@ tail"#;
         .encode();
         client.received(&delta);
         assert!(matches!(client.next_change(), Some(Change::Left { .. })));
-        assert!(matches!(client.next_change(), Some(Change::Left { .. })));
+        assert!(matches!(client.next_change(), Some(Change::Summary { .. })));
     }
 
     #[test]
