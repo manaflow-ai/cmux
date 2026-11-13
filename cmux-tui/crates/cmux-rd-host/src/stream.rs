@@ -46,8 +46,7 @@ pub struct SessionCfg {
     pub upstream_record: Option<std::path::PathBuf>,
     /// Most bytes one session records (`--upstream-record-max-mb`, default 1024).
     pub upstream_record_max_bytes: u64,
-    /// Frames the engine may have unacknowledged (1 on the development carriers; a hub
-    /// session sizes it to its path's round trip).
+    /// Frames the engine may have unacknowledged before a hybrid path reports its RTT.
     pub frames_in_flight: u32,
     /// After injected input, frames skip the frame-rate cap for a short window
     /// (`--input-frame-now 1`; the engine's `input_frame_now`).
@@ -62,6 +61,7 @@ pub struct MediaSession {
     desktop: Box<dyn Desktop>,
     au: Vec<u8>,
     engine: MediaEngine,
+    max_fps: u32,
     /// Upstream media the viewer opened (rd change C4).
     upstreams: Upstreams<Box<dyn UpstreamSink>>,
     deferred_error: Option<String>,
@@ -166,6 +166,7 @@ impl MediaSession {
             desktop,
             au: Vec::new(),
             engine,
+            max_fps: cfg.max_fps,
             upstreams: Upstreams::new(sink, negotiated_caps),
             deferred_error: None,
             stats_frames_sent: 0,
@@ -246,6 +247,11 @@ impl MediaSession {
             incoming.clear();
             if let Err(reason) = carrier.receive(&mut incoming) {
                 return reason;
+            }
+            if let Some(rtt_us) = carrier.take_path_rtt_us() {
+                let frames_in_flight =
+                    cmux_rd_engine::frames_in_flight_for(rtt_us, self.max_fps).max(2);
+                self.engine.set_frames_in_flight(frames_in_flight);
             }
             for item in incoming.drain(..) {
                 match item {

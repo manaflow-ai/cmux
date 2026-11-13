@@ -1,19 +1,14 @@
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
-// Continue after a stop. Leo, 2026-10-22: "and we should add a continue button if things were
-// stopped, just like codex". The last turn, when the reader stopped it and no prompt followed,
-// offers Continue on its footer; it sends the continue prompt through the composer's send, and goes
-// once that prompt shows. Completed and failed turns, and older stopped turns, offer none.
-import { afterEach, expect, test } from "bun:test";
-import { act, type ReactNode } from "react";
-import { createRoot, type Root } from "react-dom/client";
+// Stopped-turn eligibility belongs to the empty composer's Resume control. The footer has no
+// Continue control; failed-turn recovery keeps its existing text fallback.
+import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { JSDOM } from "jsdom";
 import { translate } from "../i18n";
-import type { AcpmuxRow } from "../model";
-import { CONTINUE_PROMPT, resumeThrough, TurnActionsContext } from "./turnActions";
+import { layoutConversation, type AcpmuxRow } from "../model";
+import { CONTINUE_PROMPT, resumeThrough, RetryTargetContext, TurnActionsContext } from "./turnActions";
 import { TurnFooter } from "./TurnRows";
+import { PromptActions } from "./MessageActions";
 import { isEmptyFooter, turnView } from "./turns";
-import { settleReact } from "../../../../test/support/domTeardown";
 
 const prompt = (id: string, at: number, fields: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
   id,
@@ -39,21 +34,21 @@ const footers = (rows: AcpmuxRow[], working = false) =>
 
 const stoppedTurn = [prompt("p1", 1_000), answer("a1", 30_000), summary("s1", 41_000, { status: "cancelled" })];
 
-test("a stopped last turn offers Continue", () => {
+test("a stopped last turn exposes Resume eligibility", () => {
   expect(footers(stoppedTurn).map((row) => row.resumable)).toEqual([true]);
   // An interruption reads as a stop too.
   const interrupted = [prompt("p1", 1_000), summary("s1", 41_000, { status: "interrupted" })];
   expect(footers(interrupted).map((row) => row.resumable)).toEqual([true]);
 });
 
-test("completed and failed turns offer no Continue", () => {
+test("completed and failed turns expose no stopped-turn Resume", () => {
   for (const status of ["completed", "failed", "error"]) {
     const rows = [prompt("p1", 1_000), answer("a1", 30_000), summary("s1", 41_000, { status })];
     expect(footers(rows)[0]!.resumable).toBeUndefined();
   }
 });
 
-test("an older stopped turn offers no Continue; only the last one can", () => {
+test("only the latest stopped turn exposes Resume eligibility", () => {
   const rows = [
     ...stoppedTurn,
     prompt("p2", 50_000),
@@ -65,12 +60,12 @@ test("an older stopped turn offers no Continue; only the last one can", () => {
   expect(footers(completedLast).map((row) => row.resumable)).toEqual([undefined, undefined]);
 });
 
-test("a stopped turn the agent went on from on its own offers no Continue once that turn ends", () => {
+test("a stopped turn loses Resume eligibility after the agent finishes its successor", () => {
   const rows = [...stoppedTurn, answer("a2", 50_000), summary("s2", 51_000, { status: "completed" })];
   expect(footers(rows).every((row) => !row.resumable)).toBe(true);
 });
 
-test("a turn the agent started on its own and the reader stopped offers Continue on its own footer", () => {
+test("an agent-started stopped turn records Resume eligibility on its own summary", () => {
   for (const status of ["cancelled", "interrupted"]) {
     const rows = [
       prompt("p1", 1_000),
@@ -82,17 +77,17 @@ test("a turn the agent started on its own and the reader stopped offers Continue
     const [first, second] = footers(rows);
     expect(first!.resumable).toBeUndefined();
     expect(second!.resumable).toBe(true);
-    // Its version moves, so the memoized footer redraws with the button.
+    // Its version moves, so readers of resumable eligibility update.
     expect(second!.version).not.toBe(1);
-    // A prompt sent after it takes the button away again.
+    // A prompt sent after it removes that eligibility again.
     const sent = footers([...rows, prompt("p2", 60_000, { pending: true })]);
     expect(sent.every((row) => !row.resumable)).toBe(true);
   }
 });
 
 // Review at c3ec4170 (P2): with daemon turn ids, the agent's own turn in the tail names a turn other
-// than the prompt's; that is what makes it the agent's, and the reader's Stop of it still offers Continue.
-test("an agent-started turn with its own turn id, stopped by the reader, offers Continue", () => {
+// than the prompt's; its Stop still exposes Resume eligibility.
+test("an agent-started stopped turn retains Resume eligibility with its own turn id", () => {
   const rows = [
     prompt("p1", 1_000, { turnId: "turn-a" }),
     answer("a1", 30_000),
@@ -105,12 +100,12 @@ test("an agent-started turn with its own turn id, stopped by the reader, offers 
   expect(second!.resumable).toBe(true);
 });
 
-test("a turn a prompt sent now ended is not a stop, so it offers no Continue", () => {
+test("a continued result does not expose stopped-turn Resume", () => {
   const rows = [prompt("p1", 1_000), summary("s1", 41_000, { status: "cancelled", continued: true })];
   expect(footers(rows).every((row) => !row.resumable)).toBe(true);
 });
 
-test("Continue goes once the next prompt is sent, and while the new turn runs", () => {
+test("Resume eligibility clears when another prompt starts or the turn runs again", () => {
   // The continue prompt is sent and not yet taken: it waits under the stopped turn.
   const sending = [...stoppedTurn, prompt("p2", 50_000, { text: CONTINUE_PROMPT, pending: true })];
   expect(footers(sending)[0]!.resumable).toBeUndefined();
@@ -121,13 +116,13 @@ test("Continue goes once the next prompt is sent, and while the new turn runs", 
   expect(footers(stoppedTurn, true)[0]!.resumable).toBeUndefined();
 });
 
-test("the footer's version changes when Continue comes or goes, so memoized rows redraw", () => {
+test("the summary version changes when Resume eligibility comes or goes", () => {
   const offered = footers(stoppedTurn)[0]!;
   const gone = footers([...stoppedTurn, prompt("p2", 50_000, { pending: true })])[0]!;
   expect(offered.version).not.toBe(gone.version);
 });
 
-test("the footer draws Continue only with the action, and shows at rest", () => {
+test("a stopped footer has no Continue even when resume is available", () => {
   const row = footers(stoppedTurn)[0]!;
   const withResume = renderToStaticMarkup(
     <TurnActionsContext.Provider value={{ resume: async () => undefined }}>
@@ -135,9 +130,27 @@ test("the footer draws Continue only with the action, and shows at rest", () => 
     </TurnActionsContext.Provider>,
   );
   // In whatever language the table is in (another test file may have switched it).
-  expect(withResume).toContain(translate("turn.continue"));
-  expect(withResume).toContain("cv-turn-actions--resumable");
-  expect(withResume).toContain(translate("turn.stopped", { time: "40s" }));
+  expect(withResume).not.toContain("cv-turn-continue");
+  expect(withResume).not.toContain("cv-turn-actions--resumable");
+  // By default the footer says nothing of the stop: no muted Stopped and no time with its tooltip
+  // (Lawrence and Lucas, 2026-11-11 standup: Codex shows no "Stopped" and no time on hover).
+  expect(withResume).not.toContain("cv-turn-stopped");
+  expect(withResume).not.toContain(translate("turn.stopped", { time: "40s" }));
+  // The "word" arm still draws Stopped, with how long it ran in its tooltip.
+  const originalExperiments = Object.getOwnPropertyDescriptor(globalThis, "cmuxExperiments");
+  globalThis.cmuxExperiments = { "stopped-turn-look": "word" };
+  try {
+    const word = renderToStaticMarkup(
+      <TurnActionsContext.Provider value={{ resume: async () => undefined }}>
+        <TurnFooter row={row} />
+      </TurnActionsContext.Provider>,
+    );
+    expect(word).toContain("cv-turn-stopped");
+    expect(word).toContain(translate("turn.stopped", { time: "40s" }));
+  } finally {
+    if (originalExperiments) Object.defineProperty(globalThis, "cmuxExperiments", originalExperiments);
+    else delete (globalThis as { cmuxExperiments?: unknown }).cmuxExperiments;
+  }
   // No action (a View Only chat, or not connected): no button.
   expect(renderToStaticMarkup(<TurnFooter row={row} />)).not.toContain("cv-turn-continue");
   // There a folded stopped turn with nothing else to show (no answer and nothing it said to copy)
@@ -155,59 +168,12 @@ test("the footer draws Continue only with the action, and shows at rest", () => 
   ).not.toContain("cv-turn-continue");
 });
 
-let dom: JSDOM | undefined;
-let root: Root | undefined;
-const scope = globalThis as Record<string, unknown>;
-const saved = new Map<string, unknown>();
-
-afterEach(async () => {
-  if (root) await act(async () => root!.unmount());
-  root = undefined;
-  await settleReact();
-  dom?.window.close();
-  dom = undefined;
-  for (const [key, value] of saved) {
-    if (value === undefined) delete scope[key];
-    else scope[key] = value;
-  }
-  saved.clear();
-});
-
-async function render(node: ReactNode): Promise<HTMLElement> {
-  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
-  for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
-    saved.set(key, scope[key]);
-  Object.assign(scope, {
-    window: dom.window,
-    document: dom.window.document,
-    navigator: dom.window.navigator,
-    Node: dom.window.Node,
-    HTMLElement: dom.window.HTMLElement,
-    Element: dom.window.Element,
-    IS_REACT_ACT_ENVIRONMENT: true,
-  });
-  const container = dom.window.document.getElementById("root")!;
-  await act(async () => {
-    root = createRoot(container);
-    root.render(node);
-  });
-  return container;
-}
-
-test("clicking Continue sends the continue prompt through chat.send", async () => {
+test("failed recovery sends the existing continue-text fallback through chat.send", async () => {
   const calls: [string, Record<string, unknown>][] = [];
   const resume = resumeThrough(async (method, params) => {
     calls.push([method, params]);
   });
-  const container = await render(
-    <TurnActionsContext.Provider value={{ resume }}>
-      <TurnFooter row={footers(stoppedTurn)[0]!} />
-    </TurnActionsContext.Provider>,
-  );
-  const button = container.querySelector<HTMLButtonElement>(".cv-turn-continue")!;
-  expect(button.textContent).toBe(translate("turn.continue"));
-  expect(button.getAttribute("title")).toBeNull();
-  await act(async () => button.click());
+  await resume();
   expect(calls).toEqual([["chat.send", { text: CONTINUE_PROMPT }]]);
 });
 
@@ -216,28 +182,7 @@ test("a refused continue send is swallowed; its row says why", async () => {
   await expect(resume()).resolves.toBeUndefined();
 });
 
-test("a second click while the first send is in flight sends nothing more", async () => {
-  const calls: string[] = [];
-  let settle: () => void = () => undefined;
-  const resume = resumeThrough((method) => {
-    calls.push(method);
-    return new Promise<void>((resolve) => (settle = resolve));
-  });
-  const container = await render(
-    <TurnActionsContext.Provider value={{ resume }}>
-      <TurnFooter row={footers(stoppedTurn)[0]!} />
-    </TurnActionsContext.Provider>,
-  );
-  const button = container.querySelector<HTMLButtonElement>(".cv-turn-continue")!;
-  await act(async () => button.click());
-  await act(async () => button.click());
-  expect(calls).toEqual(["chat.send"]);
-  expect(button.disabled).toBe(true);
-  await act(async () => settle());
-  expect(button.disabled).toBe(false);
-});
-
-test("a stopped last turn whose work folds keeps its line for Continue", () => {
+test("a folded stopped turn keeps Resume metadata without a footer band", () => {
   const rows = [
     prompt("p1", 1_000),
     {
@@ -254,5 +199,41 @@ test("a stopped last turn whose work folds keeps its line for Continue", () => {
   const row = footers(rows)[0]!;
   expect(row.folded).toBe(true);
   expect(row.resumable).toBe(true);
-  expect(isEmptyFooter(row)).toBe(false);
+  expect(isEmptyFooter(row)).toBe(true);
+  expect(layoutConversation([row], 720).heights[0]).toBe(0);
+  expect(renderToStaticMarkup(<TurnFooter row={row} />)).toContain("cv-turn-actions--empty");
+});
+
+test("a stopped footer keeps resend off its action row", () => {
+  const row = footers(stoppedTurn)[0]!;
+  const html = renderToStaticMarkup(
+    <TurnActionsContext.Provider
+      value={{
+        canSendPromptAgain: true,
+        retry: async () => undefined,
+        retryWith: {
+          models: [
+            { id: "a", name: "A" },
+            { id: "b", name: "B" },
+          ],
+          retry: async () => undefined,
+        },
+      }}
+    >
+      <TurnFooter row={row} />
+    </TurnActionsContext.Provider>,
+  );
+  expect(html).not.toContain("cv-turn-retry");
+  expect(html).not.toContain("cv-turn-continue");
+});
+
+test("an empty stopped footer does not move resend under the user prompt", () => {
+  const html = renderToStaticMarkup(
+    <TurnActionsContext.Provider value={{ retry: async () => undefined }}>
+      <RetryTargetContext.Provider value={{ promptId: "p1" }}>
+        <PromptActions row={prompt("p1", 1000)} text="Add retries" />
+      </RetryTargetContext.Provider>
+    </TurnActionsContext.Provider>,
+  );
+  expect(html).not.toContain("cv-message-retry");
 });

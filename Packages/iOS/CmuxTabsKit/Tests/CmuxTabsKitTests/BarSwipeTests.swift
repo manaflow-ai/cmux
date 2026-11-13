@@ -78,4 +78,55 @@ struct BarSwipeTests {
         #expect(BarSwipe.travel(path: ZoomRectPath(full: full, card: CGRect(x: 20, y: 600, width: 170, height: 240))) == BarSwipe.minimumTravel)
         #expect(BarSwipe.travel(path: ZoomRectPath(full: full, card: .zero)) == BarSwipe.defaultTravel)
     }
+
+    /// The travel is fixed when the swipe starts: the card's rect moving
+    /// under the page (the grid's first scroll-origin report) does not move
+    /// the page under the finger.
+    @Test func travelIsFrozenAtTheStart() {
+        let full = CGRect(x: 0, y: 0, width: 400, height: 860)
+        let swipe = BarSwipe.Tracking(path: ZoomRectPath(full: full, card: CGRect(x: 20, y: 120, width: 170, height: 240)))
+        #expect(swipe.travel == 500)
+        let before = swipe.progress(up: 200)
+        // The grid reports its origin: the card moves 300 pt down.
+        let moved = BarSwipe.Tracking(path: ZoomRectPath(full: full, card: CGRect(x: 20, y: 420, width: 170, height: 240)))
+        #expect(moved.travel != swipe.travel)
+        #expect(swipe.progress(up: 200) == before)
+        #expect(before == BarSwipe.progress(up: 200, travel: 500))
+        #expect(swipe.velocity(1000) == BarSwipe.velocity(1000, travel: 500))
+        #expect(BarSwipe.Tracking(path: nil).travel == BarSwipe.defaultTravel)
+    }
+
+    /// Only a zoom left interactive with no pinch holding it is released on
+    /// a cancel; a settled or running zoom, or a pinch's, is left alone.
+    @Test func cancelReleasesOnlyTheSwipesInteractiveZoom() {
+        #expect(BarSwipe.releasesOnCancel(phase: .interactive, pinchActive: false))
+        #expect(!BarSwipe.releasesOnCancel(phase: .interactive, pinchActive: true))
+        #expect(!BarSwipe.releasesOnCancel(phase: .page, pinchActive: false))
+        #expect(!BarSwipe.releasesOnCancel(phase: .overview, pinchActive: false))
+        #expect(!BarSwipe.releasesOnCancel(phase: .animating, pinchActive: false))
+    }
+
+    /// A swipe cancelled part-way settles at the nearer end and never stays
+    /// interactive: short of half way back to the page (the bar takes
+    /// touches again), past it on to the grid; also from the rubber band.
+    @Test func cancelledSwipeSettlesAtTheNearerEnd() {
+        let swipe = BarSwipe.Tracking(path: nil)
+        let cases: [(up: CGFloat, toOverview: Bool)] = [(0, false), (60, false), (200, false), (260, true), (450, true), (900, true), (-40, false)]
+        for c in cases {
+            var s = TabZoomState()
+            s.beginInteraction()
+            s.updateInteraction(progress: swipe.progress(up: c.up), velocity: swipe.velocity(1500))
+            #expect(BarSwipe.releasesOnCancel(phase: s.phase, pinchActive: false), "up \(c.up)")
+            let toOverview = BarSwipe.releaseToOverviewOnCancel(progress: s.progress)
+            #expect(toOverview == c.toOverview, "up \(c.up)")
+            s.updateInteraction(progress: s.progress, velocity: 0)
+            s.release(toOverview: toOverview)
+            #expect(s.phase != .interactive, "up \(c.up)")
+            var t = 0.0
+            while t < 1.5 { s.step(1.0 / 60); t += 1.0 / 60 }
+            #expect(s.phase == (toOverview ? .overview : .page), "up \(c.up)")
+            #expect(toOverview ? s.gridInteractive : s.pageInteractive, "up \(c.up)")
+            #expect(!BarSwipe.releasesOnCancel(phase: s.phase, pinchActive: false), "up \(c.up)")
+        }
+    }
 }

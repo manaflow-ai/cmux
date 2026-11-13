@@ -246,7 +246,7 @@ final class ShellModel {
             toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "That workspace is no longer open")
             return
         }
-        store.noteOpened(tabID: item.tabID, in: workspace.id)
+        store.requestOpen(tabID: item.tabID, in: workspace.id)
         store.markSeen(workspace.id)
         tab = .workspaces
         if workspacesPath.last?.id == workspace.id {
@@ -464,7 +464,7 @@ final class ShellModel {
             guard let workspace = store.workspace(id: workspaceID) else { return }
             // The saved tab, never the Needs-you jump to a waiting agent
             // (that is for a user's tap, `WorkspacesList.openWorkspace`).
-            if let tabID { store.noteOpened(tabID: tabID, in: workspaceID) }
+            if let tabID { store.requestOpen(tabID: tabID, in: workspaceID) }
             tab = .workspaces
             workspacesPath = [workspace]
             // Its tabs come from its Mac: link it, as a tap on the row does.

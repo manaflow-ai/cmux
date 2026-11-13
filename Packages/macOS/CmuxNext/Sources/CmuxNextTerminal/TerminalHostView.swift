@@ -22,7 +22,10 @@ public final class TerminalHostView: NSView {
     /// a label shows: a new terminal's "connected" or quick "Restoring…" builds and shows nothing.
     lazy var statusLabel = TerminalStatusLabel(clock: statusClock, install: { [weak self] banner in
         self?.addChrome(banner, .statusLabel)
-    }, didReveal: { [weak self] in self?.needsLayout = true })
+    }, didReveal: { [weak self] in
+        self?.syncRetryButton()
+        self?.needsLayout = true
+    })
     private let statusClock: any Clock<Duration>
     /// The scroller: thin, shown only while scrolling (SCROLLBARS-THIN). Overlay and hidden at rest,
     /// so it is built the first time the viewport moves through the scrollback, not with the
@@ -221,13 +224,19 @@ public final class TerminalHostView: NSView {
             retryButton = button
             addChrome(button, .overlay)
         }
-        if let retryButton {
-            let hidden = retryButton.isHidden
-            retryButton.show(status)
-            changed = changed || hidden != retryButton.isHidden
-        }
+        changed = syncRetryButton() || changed
         // A new terminal's "connected" (or a label still waiting) changes nothing on screen: no layout.
         if changed { needsLayout = true }
+    }
+
+    /// Shows Retry for the shown status with the label it sits over: not while that label still waits
+    /// out its reveal delay (a drop that heals within it shows neither). Returns whether it changed.
+    @discardableResult
+    private func syncRetryButton() -> Bool {
+        guard let retryButton else { return false }
+        let hidden = retryButton.isHidden
+        retryButton.show(shownStatus, waiting: statusLabel.isWaiting)
+        return hidden != retryButton.isHidden
     }
 
     /// Builds the restart button once the shell has ended, or cmux lost its

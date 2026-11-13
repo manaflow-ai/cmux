@@ -61,7 +61,7 @@
           "title": "Edited Files Shown",
           "help": "",
           "kind": "number",
-          "default": 5,
+          "default": 3,
           "group": "Agent Chat",
           "range": {
             "min": 1,
@@ -2062,7 +2062,7 @@
           "title": "Unread Banner",
           "help": "When you come back to a chat that kept working, a banner at the top left says how many turns are new and jumps to them. Collapsed, it is a small pill. Right-click the banner or the New line to hide it or bring it back.",
           "kind": "choice",
-          "default": "expanded",
+          "default": "off",
           "group": "Agent Chat",
           "values": [
             "expanded",
@@ -2099,8 +2099,8 @@
           "default": 1,
           "group": "Density and Motion",
           "range": {
-            "min": 0.85,
-            "max": 1.5,
+            "min": 0.25,
+            "max": 5,
             "unit": "fraction"
           }
         },

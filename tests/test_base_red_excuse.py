@@ -13609,7 +13609,7 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "indexnow-tests.yml", "ios-reliability-matrix.yml", "ios-review-gate.yml", "iroh-v2.yml", "mux.yml",
             "nightly-next-canary.yml", "nightly-next-cua-signed-host.yml", "nightly-next-launch-smoke.yml",
             "r2-upload-tests.yml", "relay-tls.yml", "rust-workspaces.yml", "signing-keychain-macos.yml",
-            "swift-acpmux-protocol.yml", "swift-linux-packages.yml", "swift-packages-linux.yml",
+            "swift-acpmux-protocol.yml", "swift-linux-packages.yml",
             "terminal-hang-diagnostics.yml", "test-ios.yml", "vendored-agent-cursor.yml", "web-complexity.yml",
             "web-complexity-trusted.yml", "web-validation.yml", "cmux-next-ios-kit.yml", "cmux-actions.yml",
             "cmux-skill-contract.yml", "agent-brands.yml",

@@ -419,15 +419,30 @@ print(json.dumps(missing))
 """
 
 
-def _here_has(module, name):
-    """True when this Python has MODULE (and NAME in it): a name a newer stdlib added, not one no stdlib has here."""
+def _found(fullname):
+    """True when this Python can find the module FULLNAME. find_spec imports the parent of a dotted name and never
+    the module itself."""
+    if fullname in sys.modules:
+        return True
     try:
-        __import__(module)
-        if name is not None and not hasattr(sys.modules[module], name):
-            __import__(module + "." + name)
+        return importlib.util.find_spec(fullname) is not None
+    except ModuleNotFoundError:
+        return False  # its parent is not here, or is no package
+
+
+def _here_has(module, name):
+    """True when this Python has MODULE (and NAME in it): a name a newer stdlib added, not one no stdlib has here.
+    It asks find_spec and imports no module by a computed name (tests/test_script_module_loads.py cannot read
+    one); a submodule that is found counts as there, whether or not its import would pass."""
+    try:
+        if not _found(module):
+            return False
+        if name is None:
+            return True
+        # _found(MODULE.NAME) imported MODULE as the parent, so sys.modules has it for the attribute read.
+        return _found(module + "." + name) or hasattr(sys.modules[module], name)
     except Exception:
         return False
-    return True
 
 
 def _version(python):

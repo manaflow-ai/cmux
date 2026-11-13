@@ -846,14 +846,15 @@ const footerActionsPlacement = (placement: "left" | "right") => async (ctx: Play
       datasetMatches &&
       group !== null &&
       group.querySelector('button[aria-label="Copy"]') !== null &&
-      group.querySelector('button[aria-label="Retry"]') !== null
+      group.querySelector('button[aria-label="Read aloud"]') !== null
     );
   });
   const footer = ctx.document.querySelector<HTMLElement>(".cv-turn-actions");
   const group = ctx.document.querySelector<HTMLElement>(".cv-turn-action-group");
   const copy = group?.querySelector('button[aria-label="Copy"]');
-  const retry = group?.querySelector('button[aria-label="Retry"]');
-  if (!footer || !group || !copy || !retry) throw new Error("turn footer actions did not render");
+  const readAloud = group?.querySelector('button[aria-label="Read aloud"]');
+  if (!footer || !group || !copy || !readAloud) throw new Error("turn footer actions did not render");
+  if (group.querySelector('button[aria-label="Retry"]')) throw new Error("completed resend belongs in the menu");
   await ctx.focus({ selector: 'button[aria-label="Copy"]' });
   const footerBox = footer.getBoundingClientRect();
   const groupBox = group.getBoundingClientRect();
@@ -863,12 +864,37 @@ const footerActionsPlacement = (placement: "left" | "right") => async (ctx: Play
     throw new Error(`turn footer actions are not ${placement}-aligned`);
 };
 
-/// The live line at the bottom of a running turn never overlaps the row over it. Under a run of
-/// one-line rows it is one more line of the run, flush, 22 apart top to top (#31497,
-/// design/chat-transcript.md "One-line row pitch", transcriptGrid.ts `transcriptGap`), never a gap
-/// apart; under prose it keeps the footer slot's gap (`TRANSCRIPT_FOOTER_GAP`; Leo, 2026-10-21: "THE
-/// RUNNING A COMMAND IS WAY TOO CLOSE"). Its words shimmer, and its "⌃B to run in background" waits
-/// for the pointer.
+/** Observe the finite sweep while it runs, rather than requiring a loop during its three-second rest. */
+const runningLineSweep = async (ctx: PlayContext, line: HTMLElement) => {
+  await ctx.waitFor(() => {
+    const animations = line
+      .getAnimations({ subtree: true })
+      .filter(
+        (animation) =>
+          animation.effect?.getTiming().iterations === Infinity ||
+          (animation as CSSAnimation).animationName?.startsWith("cmux-cadenced-shimmer-"),
+      );
+    const check = checkRunningLineLoops(
+      animations.map((animation) => {
+        const effect = animation.effect as KeyframeEffect | null;
+        return {
+          name: (animation as CSSAnimation).animationName,
+          target: effect?.target instanceof Element ? effect.target : null,
+          playState: animation.playState,
+          playbackRate: animation.playbackRate,
+          currentTime: animation.currentTime,
+          duration: Number(effect?.getTiming().duration),
+          iterations: effect?.getTiming().iterations ?? 0,
+          progress: effect?.getComputedTiming().progress ?? null,
+        };
+      }),
+    );
+    return hasCompleteRunningLineShimmer(check);
+  });
+};
+
+/// The live line never overlaps the row over it: work keeps the grid's run-gap token and prose
+/// keeps at least the footer gap. Its words sweep, and "⌃B to run in background" waits for hover.
 const liveLineClear = async (ctx: PlayContext) => {
   const doc = ctx.document;
   await ctx.waitFor(() => doc.querySelector(".cv-worked.is-below .cv-thinking"));
@@ -876,8 +902,8 @@ const liveLineClear = async (ctx: PlayContext) => {
   const live = doc.querySelector<HTMLElement>(".cv-worked.is-below")!.getBoundingClientRect();
   // Resolve through a box so both Interface Size and document zoom enter the same geometry.
   const probe = doc.createElement("span");
-  // The transcript's run gap is the inner gap (transcriptGrid.ts TRANSCRIPT_RUN_GAP, 12 since 2026-11-11).
-  probe.style.cssText = "position:absolute;visibility:hidden;width:0;height:var(--grid-gap-inner)";
+  // Resolve the same run-gap token the transcript grid uses, including Interface Size.
+  probe.style.cssText = "position:absolute;visibility:hidden;width:0;height:var(--grid-gap-run)";
   doc.body.append(probe);
   const runGap = probe.getBoundingClientRect().height;
   probe.style.height = "var(--grid-gap-footer)";
@@ -902,24 +928,7 @@ const liveLineClear = async (ctx: PlayContext) => {
     throw new Error("the ⌃B hint shows before the pointer is on the line");
   if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
     const line = doc.querySelector<HTMLElement>(".cv-worked.is-below .cv-thinking")!;
-    const loops = line
-      .getAnimations({ subtree: true })
-      .filter((animation) => animation.effect?.getTiming().iterations === Infinity)
-      .map((animation) => {
-        const effect = animation.effect as KeyframeEffect | null;
-        return {
-          name: (animation as CSSAnimation).animationName,
-          target: effect?.target instanceof Element ? effect.target : null,
-          playState: animation.playState,
-          playbackRate: animation.playbackRate,
-          currentTime: animation.currentTime,
-          duration: Number(effect?.getTiming().duration),
-          progress: effect?.getComputedTiming().progress ?? null,
-        };
-      });
-    const check = checkRunningLineLoops(loops);
-    if (check.unapproved.length || check.duplicateTargets.length || !hasCompleteRunningLineShimmer(check))
-      throw new Error("the live line's words do not shimmer as one loop per text layer");
+    await runningLineSweep(ctx, line);
   }
   await ctx.hover({ selector: ".cv-worked.is-below" });
   if (hint) await ctx.waitFor(() => getComputedStyle(hint).opacity === "1");
@@ -974,31 +983,9 @@ const runningLineStill =
     if (line.querySelector(".cv-working-mark, .cv-activity__dots")) throw new Error("a working mark draws on the line");
     const first = line.firstElementChild?.textContent?.trim() ?? "";
     if (!label.test(first)) throw new Error(`the line starts with ${JSON.stringify(first)}, not its words`);
-    const loops = line
-      .getAnimations({ subtree: true })
-      .filter((animation) => animation.effect?.getTiming().iterations === Infinity);
-    const check = checkRunningLineLoops(
-      loops.map((animation) => {
-        const effect = animation.effect as KeyframeEffect | null;
-        return {
-          name: (animation as CSSAnimation).animationName,
-          target: effect?.target instanceof Element ? effect.target : null,
-          playState: animation.playState,
-          playbackRate: animation.playbackRate,
-          currentTime: animation.currentTime,
-          duration: Number(effect?.getTiming().duration),
-          progress: effect?.getComputedTiming().progress ?? null,
-        };
-      }),
-    );
-    if (check.unapproved.length || check.duplicateTargets.length)
-      throw new Error(
-        `${check.unapproved.length + check.duplicateTargets.length} unapproved or duplicate animations loop on the running line`,
-      );
-    // Motion allowed (the gallery stage), the word Thinking sweeps; Reduce Motion stills it (CSS).
-    if (shimmers && !hasCompleteRunningLineShimmer(check))
-      throw new Error(`Thinking shimmers ${check.shimmer.length} times, not one loop per text layer`);
-    if (!shimmers && check.shimmer.length) throw new Error("a line other than Thinking shimmers");
+    if (shimmers) await runningLineSweep(ctx, line);
+    else if (line.getAnimations({ subtree: true }).some((animation) => animation.playState === "running"))
+      throw new Error("a line other than Thinking animates");
   };
 
 /// A run of commands longer than a group shows at once (ToolGroupRow.tsx GROUP_TAIL).
@@ -1053,17 +1040,20 @@ const loneToolCalls = () =>
     summary(2.6, { status: "completed", toolCount: 2, durationMs: 24_000 }),
   ]);
 
-/// Opens the turn's Worked for and its folded run ("Searched the web"). At rest the finished
-/// call's check and time are hidden and keep their room; the failure's red word shows.
+/// Opens the turn's Worked for and its folded run ("Searched the web"). A finished call draws no
+/// check and no time (Codex parity, 2026-11-11); the failure's word is for screen readers only.
+const noFinishedCallMarks = (ctx: PlayContext) => {
+  if (ctx.document.querySelector(".cv-tool .cv-command__ok, .cv-tool .cv-command__time"))
+    throw new Error("a finished call draws a check or a time");
+};
 const loneToolMetaAtRest = async (ctx: PlayContext) => {
   await openWorked(ctx);
   // Each call between the agent's asides is its own run, so a lone call draws as its own row; a
   // folded run line, when there is one, opens too.
   if (ctx.document.querySelector(".cv-tools > .cv-tool.is-toggle")) await openFoldedRun(ctx);
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-tool .cv-command__ok"));
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-tool .cv-tool__failed"));
   const view = ctx.document.defaultView!;
-  for (const node of ctx.document.querySelectorAll(".cv-tool .cv-command__ok, .cv-tool .cv-command__time"))
-    if (view.getComputedStyle(node).opacity !== "0") throw new Error("a finished call's check or time shows at rest");
+  noFinishedCallMarks(ctx);
   // For Codex parity a failure draws no word: it stays for screen readers, clipped away whole.
   const failed = ctx.find({ selector: ".cv-tool__failed" });
   const style = view.getComputedStyle(failed);
@@ -1681,13 +1671,13 @@ export default agentPaneEntry({
       snapshot: completedFooterSnapshot,
     },
     "footer-actions-left": {
-      note: "A completed answer keeps Copy and Retry at the transcript's left edge.",
+      note: "A completed answer keeps Copy and Read aloud at the transcript's left edge.",
       theme: { turnActionsPlacement: "left" },
       snapshot: completedFooterSnapshot,
       play: footerActionsPlacement("left"),
     },
     "footer-actions-right": {
-      note: "A completed answer keeps Copy and Retry at the transcript's right edge.",
+      note: "A completed answer keeps Copy and Read aloud at the transcript's right edge.",
       theme: { turnActionsPlacement: "right" },
       snapshot: completedFooterSnapshot,
       play: footerActionsPlacement("right"),
@@ -2790,7 +2780,7 @@ export default agentPaneEntry({
       },
     },
     "tool-hover-meta": {
-      note: "A finished command's check and run time show only while it is pointed at; a failed one draws no word (Codex parity), which a screen reader still reads. Play: hover the first command.",
+      note: "A finished command draws no check and no run time, pointed at or not, and a failed one draws no word (Codex parity), which a screen reader still reads. Play: hover the first command.",
       snapshot: chat([
         user("Run the checks", 3),
         activity(
@@ -2805,35 +2795,28 @@ export default agentPaneEntry({
       ]),
       play: async (ctx) => {
         await openGroupedRun(ctx);
-        const ok = () => ctx.find({ selector: ".cv-command .cv-command__ok" });
         const failed = ctx.document.defaultView!.getComputedStyle(
           ctx.find({ selector: ".cv-command .cv-command__failed" }),
         );
         if (failed.position !== "absolute" || failed.clipPath !== "inset(50%)")
           throw new Error("the failure word is drawn");
-        if (ctx.document.defaultView!.getComputedStyle(ok()).opacity !== "0")
-          throw new Error("the check shows at rest");
+        noFinishedCallMarks(ctx);
         await ctx.hover({ selector: ".cv-command" });
-        await ctx.waitFor(() => ctx.document.defaultView!.getComputedStyle(ok()).opacity === "1");
+        noFinishedCallMarks(ctx);
       },
     },
     "tool-hover-meta-lone": {
-      note: "Calls that are not shells, at rest: a finished fetch shows no check or time, a failed one draws no word (Codex parity). Play: open Worked for and its run.",
+      note: "Calls that are not shells, at rest: a finished fetch draws no check or time, a failed one draws no word (Codex parity). Play: open Worked for and its run.",
       snapshot: loneToolCalls(),
       play: loneToolMetaAtRest,
     },
     "tool-hover-meta-lone-hovered": {
-      note: "The same calls with the finished fetch pointed at: its green check and run time fade in; the failed call stays as it was. Play: open Worked for and its run, hover the fetch.",
+      note: "The same calls with the finished fetch pointed at: it still draws no check and no run time (Codex parity); the failed call stays as it was. Play: open Worked for and its run, hover the fetch.",
       snapshot: loneToolCalls(),
       play: async (ctx) => {
         await loneToolMetaAtRest(ctx);
-        const row = ctx.find({ selector: ".cv-tool:has(.cv-command__ok)" });
-        await ctx.hover({ selector: ".cv-tool:has(.cv-command__ok)" });
-        await ctx.waitFor(() =>
-          [...row.querySelectorAll(".cv-command__ok, .cv-command__time")].every(
-            (node) => getComputedStyle(node).opacity === "1",
-          ),
-        );
+        await ctx.hover({ selector: ".cv-tool:not(.is-toggle):not(:has(.cv-tool__failed))" });
+        noFinishedCallMarks(ctx);
       },
     },
     "mcp-calls": {
