@@ -1,6 +1,6 @@
 // l10n-allow-file: test fixture prompts, commands and replies, not shipped UI.
-// Finished runs fold while a turn runs. At its end the whole turn folds under "Worked for",
-// leaving only the final answer. Closing the turn resets every disclosure inside it.
+// Finished runs fold while a turn runs. At its end the work folds under "Worked for", leaving
+// substantive replies visible. Closing the turn resets every disclosure inside it.
 // The real agent pane talks to a stand-in acpmux daemon and measures each painted frame.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";

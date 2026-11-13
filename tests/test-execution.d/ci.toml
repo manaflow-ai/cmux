@@ -403,6 +403,10 @@ path = "tests/test_ci_portable_job_placement.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_post_merge_checks.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_pr_media_privacy.py"
 lane = "linux-guard"
 
@@ -476,6 +480,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_r2_storage_census.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_recovery_runs_after_a_timeout.py"
 lane = "linux-guard"
 
 [[test]]
@@ -631,6 +639,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_starved_labels.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_step_table.py"
 lane = "linux-guard"
 
 [[test]]

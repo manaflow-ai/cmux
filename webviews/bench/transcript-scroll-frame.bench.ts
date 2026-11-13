@@ -13,7 +13,7 @@
 // Each line: interval, react, layout and other are p50/p95/max ms per frame.
 /// <reference types="bun" />
 import path from "node:path";
-import { webkit } from "playwright";
+import { webkit } from "./browsers";
 import { createServer } from "vite";
 import { warmViteServer } from "../test/support/warmDevServer";
 import { installPaintedFrames } from "../test/support/paintedFrames";

@@ -1891,11 +1891,12 @@ impl Hub {
             self.end_trigger_background(session, turn_id);
         }
         self.reset_stream(session);
-        // Nobody showing it: the sidebar dot and `wait --until done` see it. While work it
-        // started still runs (a background subagent, a working sub-session) the task is not
-        // done: the dot waits for that work to end (`work_below.rs`, manaflow-ai/cmux#25563).
-        if !trigger && !self.shown(session) {
-            self.mark_unread_unless_work_below(session);
+        // Nobody attending it (not shown, or shown to a person who is away, `seen.rs`): the
+        // sidebar dot and `wait --until done` see it. While work it started still runs (a
+        // background subagent, a working sub-session) the task is not done: the dot waits for
+        // that work to end (`work_below.rs`, manaflow-ai/cmux#25563).
+        if !trigger {
+            self.note_turn_end(session);
         }
         if session.status() != SessionStatus::Closed {
             let alive = child.is_alive().await;
@@ -2432,7 +2433,7 @@ impl Hub {
             .lock()
             .unwrap()
             .values()
-            .any(|s| s.id != session.id && s.meta().name == name)
+            .any(|s| s.id != session.id && s.read_meta(|m| m.name == name))
         {
             return Err(RpcError::invalid_params(format!("session name {name:?} is taken")));
         }
@@ -2549,7 +2550,12 @@ impl Hub {
             super::watches::before_purge(self, &session.id).await?;
             // Its background tasks end with it (`bg_tasks.rs`); a stop keeps them.
             self.bg_purge(session).await?;
-            session.purged.store(true, Ordering::SeqCst);
+            {
+                // Under the breakdown's lock: a time breakdown save running now lands before the
+                // folder is deleted, and none starts after (`views.rs` `write_time_breakdown`).
+                let _breakdown = session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
+                session.purged.store(true, Ordering::SeqCst);
+            }
             // Its spend, title and folder leave the cost ledger with it (`hub/ledger`).
             self.ledger.purge(&session.id);
             self.remove_cached_closed_summary(&session.id);
@@ -2620,8 +2626,11 @@ impl Hub {
                 remote: None,
                 update_line: Default::default(),
                 row: Default::default(),
+                list_seq: 0,
             });
             drop(sessions);
+            // Its parent's row and the rows below it read it (#42091 F1).
+            self.note_rows_reading(session);
         }
         Ok(())
     }

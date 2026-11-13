@@ -171,6 +171,7 @@ DYNAMIC_INDEX = re.compile(r"\b(?:secrets|needs|outputs)\s*\[")
 REF_CONDITION = re.compile(r"\bgithub\.ref(?:_name)?\b")
 AFTER_STEP = re.compile(r"^\s*steps\.([\w-]+)\.outcome\s*==\s*'failure'\s*$")
 RUNS_AFTER_FAILURE = keychain_guard.runs_after_failure
+AFTER_STEP_RAN = re.compile(r"always\(\)\s*&&\s*steps\.([\w-]+)\.outcome\s*!=\s*'skipped'")
 # A Sparkle EdDSA private key (SPARKLE_PRIVATE_KEY, NIGHTLY_SPARKLE_PRIVATE_KEY, SPARKLE_NEXT_PRIVATE_KEY, ...),
 # as a secret name tests/workflow_jobs.py reads in any form.
 SPARKLE_KEY = re.compile(r"\w*SPARKLE\w*PRIVATE_KEY")
@@ -447,7 +448,14 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
                 # source artifact); the unconditional first-step gate is what fails the job without the claim.
                 if str(steps[claim].get("continue-on-error", "false")) != "false":
                     failures.append(f"{label}: the claim step must fail the job (no continue-on-error)")
+                # `always() && steps.X.outcome != 'skipped'` runs only when step X ran: an X after the claim whose own
+                # `if` cannot run after a failure (nightly-next-one's publish lease) never ran after a failed claim.
+                ran_after_claim = {str(step.get("id")) for step in steps[claim + 1:]
+                                   if step.get("id") and not RUNS_AFTER_FAILURE(step.get("if"))}
                 for index, step in enumerate(steps, 0):
+                    after = AFTER_STEP_RAN.fullmatch(str(step.get("if", "")).strip())
+                    if after and after.group(1) in ran_after_claim:
+                        continue
                     if reads_any_secret(step) and RUNS_AFTER_FAILURE(step.get("if")):
                         failures.append(f"{label}: step {index} names a secret and runs after a failed claim "
                                         f"(if: {step.get('if')})")

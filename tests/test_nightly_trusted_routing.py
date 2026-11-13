@@ -65,6 +65,7 @@ NIGHTLY_NEXT_ONLY_OWNED = ('republish-nightly-deltas',)
 # route choice, so it stays a hand list; this is the other half of it: job -> why it is not hosted. A new secret job
 # must be named in one of the two (test_every_secret_job_is_hosted_or_named_owned), so none escapes the route check.
 OWNED_SECRET_JOBS = {
+    'nightly-next-one': "builds, signs and publishes nightly-next in one job on cmux15's signer label (NIGHTLY_NEXT_ONE_JOB)",
     'decide': 'reads the routing App key (ci-routing-agent) to place early controls; a credentialed control',
     'pick-nightly-build-runner': 'reads the routing App key (ci-routing-agent) to pick the build mini; a credentialed control',
     'pick-nightly-sign-runner': 'reads the routing App key (ci-routing-agent) to pick the signer; a credentialed control',

@@ -34,6 +34,113 @@ test("a completed turn has no live timer row", () => {
   expect(shown.some((row) => row.kind === THINKING || row.kind === WORKING)).toBe(false);
 });
 
+test("a partial same-chat refresh keeps an assistant row while tool rows arrive", () => {
+  const folds = new Set<string>();
+  const previous = turnViewFrom(
+    [
+      user(1_000),
+      { id: "answer", version: 1, at: 2_000, kind: "assistant", text: "The answer is still on screen." },
+      { id: "tool", version: 1, at: 3_000, kind: "activity", items: [], toolCount: 1 },
+    ],
+    folds,
+  );
+  // A refresh can publish the activity row before the reply body is present. The old visible
+  // message must stay mounted until the replacement snapshot is complete.
+  const refreshed = turnViewFrom(
+    [user(1_000), { id: "tool", version: 2, at: 3_000, kind: "activity", items: [], toolCount: 1 }],
+    folds,
+    {},
+    previous,
+  );
+
+  expect(refreshed.rows.some((row) => row.kind === "activity")).toBe(true);
+  expect(refreshed.rows.some((row) => row.kind === "assistant" && row.text === "The answer is still on screen.")).toBe(
+    true,
+  );
+  const visibleItems = (rows: readonly AcpmuxRow[]) =>
+    rows.filter((row) => row.kind === "user" || row.kind === "assistant" || row.kind === "activity").length;
+  expect(visibleItems(refreshed.rows)).toBeGreaterThanOrEqual(visibleItems(previous.rows));
+});
+
+test("a partial refresh keeps a reply when its body is empty or its id is recreated", () => {
+  const folds = new Set<string>();
+  const previous = turnViewFrom(
+    [
+      user(1_000),
+      { id: "answer", version: 1, at: 2_000, kind: "assistant", text: "Keep this answer." },
+      { id: "tool", version: 1, at: 3_000, kind: "activity", items: [], toolCount: 1 },
+    ],
+    folds,
+  );
+  const empty = turnViewFrom(
+    [
+      user(1_000),
+      { id: "answer", version: 2, at: 2_000, kind: "assistant", text: "" },
+      { id: "tool", version: 2, at: 3_000, kind: "activity", items: [], toolCount: 1 },
+    ],
+    folds,
+    {},
+    previous,
+  );
+  const rekeyed = turnViewFrom(
+    [
+      user(1_000),
+      { id: "answer-new", version: 1, at: 2_000, kind: "assistant", text: "New suffix." },
+      { id: "tool", version: 3, at: 3_000, kind: "activity", items: [], toolCount: 1 },
+    ],
+    folds,
+    {},
+    previous,
+  );
+  expect(empty.rows.some((row) => row.kind === "assistant" && row.text === "Keep this answer.")).toBe(true);
+  expect(empty.rows.filter((row) => row.kind === "assistant")).toHaveLength(1);
+  expect(rekeyed.rows.some((row) => row.kind === "assistant" && row.text === "Keep this answer.")).toBe(true);
+});
+
+test("an activity-only update does not duplicate an unchanged reply", () => {
+  const folds = new Set<string>();
+  const previous = turnViewFrom(
+    [
+      user(1_000),
+      { id: "answer", version: 1, at: 2_000, kind: "assistant", text: "Keep one copy." },
+      { id: "tool-1", version: 1, at: 3_000, kind: "activity", items: [], toolCount: 1 },
+      { id: "tool-2", version: 1, at: 4_000, kind: "activity", items: [], toolCount: 1 },
+    ],
+    folds,
+  );
+  const refreshed = turnViewFrom(
+    [
+      user(1_000),
+      previous.source[1]!,
+      previous.source[2]!,
+      { id: "tool-2", version: 2, at: 4_000, kind: "activity", items: [], toolCount: 1 },
+    ],
+    folds,
+    {},
+    previous,
+  );
+  expect(refreshed.rows.filter((row) => row.kind === "assistant")).toHaveLength(1);
+});
+
+test("a superseded reply is not resurrected by a partial refresh", () => {
+  const folds = new Set<string>();
+  const previous = turnViewFrom(
+    [
+      user(1_000),
+      { id: "old-answer", version: 1, at: 2_000, kind: "assistant", text: "Abandoned retry." },
+      { id: "old-tool", version: 1, at: 3_000, kind: "activity", items: [], toolCount: 1 },
+    ],
+    folds,
+  );
+  const refreshed = turnViewFrom(
+    [user(1_000), { id: "retry-tool", version: 1, at: 4_000, kind: "activity", items: [], toolCount: 1 }],
+    folds,
+    { supersededReplyIds: new Set(["old-answer"]) },
+    previous,
+  );
+  expect(refreshed.rows.some((row) => row.id === "old-answer")).toBe(false);
+});
+
 test("the line under a streaming answer keeps the live turn start", () => {
   const shown = turnView(
     [

@@ -28,8 +28,6 @@ struct ChatComposer: View {
     /// Window y the slash-command list may not rise above (under the chat's header and
     /// what the bottom stack shows over the composer); nil when the host does not say.
     var suggestionsCeiling: CGFloat?
-    /// A Retry uses the same send path, including queue/steer and draft clearing.
-    var retryCount = 0
     /// The cmux commands this chat offers (`/status`, `/fork`, `/continue`), listed before the
     /// agent's own, and what runs one when it is sent alone: nil when it ran, else the refusal
     /// shown over the composer (the draft stays). Empty: none offered.
@@ -102,7 +100,6 @@ struct ChatComposer: View {
             Task { await loadPhotos(items) }
         }
         .cmuxMobileSensoryFeedback(.impact(weight: .light), trigger: sendCount)
-        .onChange(of: retryCount) { _, _ in sendFromKeyboard() }
         .onChange(of: focus.wrappedValue) { _, focused in
             if focused { expandRequested = false }
         }
@@ -130,7 +127,8 @@ struct ChatComposer: View {
         .onChange(of: store.returnedDraft) { _, draft in
             guard let draft else { return }
             store.returnedDraft = nil
-            if trimmed.isEmpty { text = draft.text }
+            // Typed meanwhile: the returned text goes before it, never lost.
+            text = trimmed.isEmpty ? draft.text : draft.text + "\n\n" + text
             attachments = draft.attachments + attachments.filter { own in !draft.attachments.contains { $0.id == own.id } }
         }
         // The flip is placed even when the target stays (focused or drafting as the history

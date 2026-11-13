@@ -1,5 +1,18 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-13 (ask-b931ea5095): a cmux page draws its own icon, never the site globe. Leo, verbatim (2026-11-12, on
+  the Cloud machine row `chat-800dd580cab0487c`, whose focused tab is the machine's desktop): "and it's using the old
+  crummy icon". `cmux://remote-view?...` parsed as a site with host "remote-view" and no favicon, so the row and its
+  hover card tab drew `WorkspaceIcon.pagePlaceholder`. A cmux page's face now carries the tab strip's icon
+  (`BrowserTabIconState.pageIcon`) as `WorkspaceIcon.page` and `SidebarTab.pageIcon`, ahead of the globe; the saved
+  sidebar keeps it (`page:<icon>`). A cmux page with no icon of its own keeps the globe slot.
+  A Cloud desktop wears `.cloud`, the icon its machine has on every other surface; another computer's desktop keeps
+  `.machineRemote`. Regression: `CloudDesktopPageIconTests`.
+- 2026-11-12: no "Needs a newer cmux" card under the pins. Lawrence, verbatim: "get rid of “Needs a newer cmux”".
+  A build whose daemon has no `cmux-app-host` beside it advertises no `apps-v1`, so an app section in the layout
+  showed the apps-unavailable reason as a card; updating cmux would not change it. An app section now draws nothing
+  (no card, no gap) while apps cannot run here (`needsNewerDaemon`, `turnedOff`); it still shows "not connected"
+  while the daemon connects. The Apps page banner keeps the reason. Regression: `AppSectionUnavailableTests`.
 - 2026-11-11: Home, the pinned rows and the "Workspaces" heading keep one row pitch at every density. Lawrence
   (8:04 PM screenshot of Home, six pins and the heading), verbatim: "spacing here is not consistent anymore either".
   A list block's rows stacked edge to edge while the list keeps its `space1` row gap, so pins stepped 2 pt tighter than
@@ -46,10 +59,11 @@
   other density keeps its rows, its `space1` gap and the tab radius. At every density: titles in `Palette.sidebarTitle`
   (the primary text 12% toward the ground, 4.5:1 on every fill), detail lines tertiary, section and list headings at the
   row size, regular, secondary ink (`SidebarStyle.headerFont`, was 12 pt semibold); the neutral hover, selection and
-  pressed fills are Codex's 5/8/12% dark and 4/6/10% light (`ThemeTokens`). Two take back earlier calls and each has a
-  Debug toggle: a dim layer over the sidebar (`sidebar.surfaceDim.dark`, `.light`; off since 2026-11-11, see below;
-  Lawrence 2026-10-19 had one surface; skipped under `appearance.surfaces.sidebar` or a separate chrome shade) and a quiet "Workspaces" heading over
-  the one list (`sidebar.listHeading`; cx-mdo0 had none). What paints the sidebar's own color (badge cutout rings, the
+  pressed fills are Codex's 5/8/12% dark and 4/6/10% light (`ThemeTokens`). Two took back earlier calls: a dim layer over
+  the sidebar (Debug `sidebar.surfaceDim.dark`, `.light`; off since 2026-11-11, see below; Lawrence 2026-10-19 had one
+  surface; skipped under `appearance.surfaces.sidebar` or a separate chrome shade) and a quiet "Workspaces" heading over
+  the one list (`sidebar.listHeading`; cx-mdo0 had none), removed again with its toggle for
+  https://github.com/manaflow-ai/cmux/issues/42373: no label between the pinned rows and the list. What paints the sidebar's own color (badge cutout rings, the
   Needs-You tray backing, favicon grounds) reads `SidebarStyle.ground`, the background under the dim. The softer fills
   also move every theme's secondary and tertiary inks (theme-ink-vectors.json regenerated). Regression:
   `SidebarCodexMatchTests`.
@@ -2149,3 +2163,37 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   nightly automatically downloads and installs/unpacks and you simply click and it restarts with the new version".
 - 2026-11-11 (a1074, Lawrence 8:04 PM "spacing here is not consistent anymore either"): Home to the first pin and pin
   to pin step at the workspace rows' pitch at every density. Sidebar-Look: Home, pinned rows and the Workspaces heading keep one row pitch.
+- 2026-11-12 (carries #41640 for the two-tone polish): the sidebar's full-height edge line and its hover and drag glow
+  come back under the default flush corner (`Metrics.cardEdgeIsSidebarSeam`), and the line is `Palette.chromeDivider`.
+  Leo, verbatim: "you've slightly regressed the border thing, the border divider. And then there's no more drag
+  divider highlight". Sidebar-Look: the sidebar's edge line and its drag highlight are back.
+- 2026-11-12 (lane two-tone-polish-native, on #41640): under a style whose card edge is the sidebar's seam (the explicit
+  Two-Tone and card styles, a flush corner picked in Debug Settings) the resize handle's hover now lights its glow,
+  along the whole edge, and `sidebar.border` on draws the full-height line instead of clipping it to the titlebar
+  band (`SidebarResizeHandle`). Leo, verbatim: "you've slightly regressed the border thing, the border divider. And
+  then there's no more drag divider highlight". Sidebar-Look: the glow shows on hover in every style; a sidebar
+  border runs the whole edge.
+- 2026-11-12 (#41952 review follow-up): the sidebar's edge line takes a theme's split divider colour
+  (`Palette.surfaceOverride(.splitDivider)`) before `Palette.chromeDivider`, as the split lines and the page's
+  `--cmux-sidebar-line` do, so the three match under such a theme. Sidebar-Look: the sidebar edge matches the split lines under a themed divider.
+- 2026-11-12 (#41935): in Two-Tone the sidebar's edge line runs beside the curved card, not only in the titlebar band.
+  On a shaded chrome (`appearance.sidebarSurface` separate) the card's edge is a 0.02 light / 0.12 dark shade and did
+  not read as the seam; the same-surface curved styles keep the line in the band. The workspace hover card is smaller:
+  18 titles wide by default (232 pt at a 12 pt title), 24 at its widest (a tab's detail line reads whole), six history rows before it scrolls. Tests:
+  `SidebarPaneGapTests.twoToneDrawsTheSidebarLineBesideTheCard`, `TwoToneWindowStyleTests`, `SidebarHoverCardSizeTests`.
+  Sidebar-Look: Leo 2026-11-12, "in two-tone mode, it, like, the one between the sidebar and the transcript disappears
+  for some reason" and "the hover previews for the sidebar are still just too big".
+- 2026-11-12 (ask-818bf85ca4, the flush tab row's corners): the hover card rows, their disclosure fill and the drag
+  ghost round on the rows' and tabs' curve (`Metrics.tabCornerCurve`, circular by default) instead of a hard-coded
+  continuous one, so every 8 pt row corner in and beside the sidebar is one shape. Leo, verbatim: "all corners
+  looking good". Sidebar-Look: the hover card rows and the drag ghost round as the rows do.
+- 2026-11-12 (https://github.com/manaflow-ai/cmux/issues/42373, Austin: "no label between pinned rows and the workspace
+  list"): the one list's quiet "Workspaces" heading and its `sidebar.listHeading` toggle are gone; the first workspace
+  row sits one row gap under the last pin. Regression: `SidebarTopRowsRhythmTests`. Sidebar-Look: no heading under the pins.
+- 2026-11-12 (a1158): the Update Ready card's What's New popup opens after a 500 ms rest on the card
+  (`SidebarUpdateCardView.notesOpenDelay`), not on the first enter or move; leaving first cancels it, a click opens
+  (and pins) it at once, and a popup still closing stays when the pointer comes back. Lawrence, verbatim (msg 30807):
+  "hovering on update should wait longer beefore opening the card to the right". Regression:
+  `UpdateReadyCardLayoutTests.aPassOverTheCardOpensNothing`, `restingOnTheCardOpensThePopupAfterTheDelayAndAClickAtOnce`.
+  Captures: `scripts/cmux-next/media/states/update-card-hover-early.json`, `update-card-hover-rested.json`.
+  Sidebar-Look: the update card's popup waits for a rest before it opens.
