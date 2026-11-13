@@ -963,6 +963,7 @@ impl HubWriter {
             return Ok(event);
         }
         let current = self.published.load_full();
+        self.check_source(source, &summary.origin)?;
         if summary.origin != "local"
             && !self.origins.releasing
             && self.origins.ended.contains_key(summary.origin.as_str())
@@ -972,7 +973,6 @@ impl HubWriter {
         {
             return Ok(SummaryEvent { seq: current.seq(), summary: Arc::new(summary) });
         }
-        self.check_source(source, &summary.origin)?;
         // Latest wins even if an earlier version never reached the log.
         self.retry_log.remove(&key);
         if summary.origin != "local" && !summary.is_live() && current.get_row(&key).is_none() {
@@ -1061,6 +1061,7 @@ impl HubWriter {
             self.hold_update(UpdateKey::Row(key), PendingUpdate::Gone { source })?;
             return Ok(false);
         }
+        self.check_source(source, origin)?;
         if !self.origins.releasing
             && self.origins.ended.contains_key(origin)
             && self
@@ -1071,7 +1072,6 @@ impl HubWriter {
         {
             return Ok(false);
         }
-        self.check_source(source, origin)?;
         self.apply_remove(source, &key)
     }
 
