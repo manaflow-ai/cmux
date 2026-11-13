@@ -95,7 +95,7 @@ final class CreationInputCoordinator {
 
     /// Opens the window's buffer for one creation that moves focus under the user intent
     /// `generation`; nil without a window, or when the creation may not move focus (a CLI,
-    /// script or agent run without `focus`), which leaves the keys where they are.
+    /// script or agent run without `focus`), which leaves the keys where they are. `newTerminal`: `CreationInputBuffer.open`'s.
     func begin(in window: NSWindow?, generation: UInt64?, earlyTab: String? = nil, tab: String? = nil, machine: String? = nil, newTerminal: Bool = false) -> CreationInputBuffer.Ticket? {
         guard let window, let generation, ActionRunScope.viewChangeAllowed() else { return nil }
         defer { router?.newTabInputCoordinator.creationTookKeys(in: window) } // the newer intent: a New Tab hold's keys come here, in order

@@ -78,7 +78,7 @@ public final class CreationInputBuffer {
     /// `earlyTab`: the tab of the new terminal's view when that view takes keys before the reply
     /// (its keys reach the daemon by terminal id, which queues them, cx-wb5.78).
     /// `tab`: the provisional tab the creation shows, so a close of it can cancel the hold (`cancel(tab:)`).
-    /// `machine`: the machine the creation's terminal is on (its keys reach it there when its view is gone).
+    /// `machine`: the machine the creation's terminal is on (its keys reach it there when its view is gone). `newTerminal`: a New Terminal Tab, which owns the keys typed for it (``NewTerminalKeys``).
     /// `newWorkspace`: the creation makes a new workspace with its terminal; the keys typed for it wait until the window
     /// shows that workspace with its terminal, also after the person left it (``shownWorkspaceToWaitFor``,
     /// ``leftWorkspaceWithKeys``), and are dropped when it fails or has not shown by the hold's limit
@@ -307,6 +307,8 @@ public final class CreationInputBuffer {
     }
 
     private func isStranded(_ id: Int?) -> Bool { id.map { strandedWorkspaces.contains($0) || (laneTabs[$0] == nil && newTerminals.lost($0)) } ?? false } // or a made terminal with no tab and no stand-in
+    /// The hold has a key of a made New Terminal Tab that has no stand-in and no tab in the store yet (the reply came before `tab-added`): flushed now the key is lost, so the hold waits for the tab, at most its limit. No other key makes it wait.
+    public var awaitsMadeTerminal: Bool { events.contains { key in key.creation.map { laneTabs[$0] == nil && newTerminals.lost($0) } ?? false } }
 
     public func awaits(_ generation: UInt64) -> Bool { awaited.contains(generation) }
 

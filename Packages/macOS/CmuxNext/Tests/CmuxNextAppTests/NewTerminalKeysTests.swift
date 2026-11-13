@@ -70,8 +70,9 @@ import Testing
         #expect(Self.ends(buffer.take(focused: "other") { _, _ in false }) == ["run"], "only the key typed after the move stays")
     }
 
-    /// The daemon made the tab: the keys wait for the store to list it, then go into that tab's terminal (typed into it
-    /// when it is not the focused one, run as typed when it is). The stand-in's id names no tab then.
+    /// The daemon made the tab and the store lists it: the keys go into that tab's terminal (typed into it when it is not
+    /// the focused one, run as typed when it is). The stand-in's id names no tab then. With a stand-in the hold never
+    /// waits for the tab (review of the fix: with no wake-up, each key of the window waited to the hold's limit).
     @Test func theKeysOfAMadeTerminalGoIntoItsTab() throws {
         for focused in ["press", "tab_9"] {
             let buffer = CreationInputBuffer(began: .now), store = Store()
@@ -79,12 +80,27 @@ import Testing
             buffer.capture(try Self.key("l"), focusedTab: "pending_tab_1")
             buffer.capture(try Self.key("s"), focusedTab: "pending_tab_1")
             buffer.resolve(ticket, awaitsFocus: true, madeTab: { store.tab })
-            #expect(buffer.awaitsMadeTerminal, "the hold does not wait for the made terminal's tab")
+            #expect(!buffer.awaitsMadeTerminal, "the hold waits for the tab of a made terminal that has a stand-in")
             store.tab = "tab_9"
-            #expect(!buffer.awaitsMadeTerminal, "the hold still waits after the store listed the tab")
             let ends = Self.ends(buffer.take(focused: focused) { _, _ in false })
             #expect(ends == (focused == "tab_9" ? ["run", "run"] : ["type 2 into tab_9"]), "focused \(focused): \(ends)")
         }
+    }
+
+    /// No stand-in (an older daemon), the daemon made the tab and the store does not list it yet: the hold waits for the
+    /// tab only while it holds a key of the new terminal. A key typed after the person moved does not make it wait.
+    @Test func theHoldWaitsForAMadeTerminalsTabOnlyWithNoStandInAndAKeyOfIt() throws {
+        let buffer = CreationInputBuffer(began: .now), store = Store()
+        let ticket = buffer.open(generation: 7, machine: "local", newTerminal: true)
+        buffer.capture(try Self.key("s"), focusedTab: "other", forNewestIntent: false)
+        buffer.resolve(ticket, awaitsFocus: true, madeTab: { store.tab })
+        #expect(!buffer.awaitsMadeTerminal, "the hold waits for a made terminal that has no key in it")
+        buffer.capture(try Self.key("l"), focusedTab: "press", forNewestIntent: true)
+        #expect(buffer.awaitsMadeTerminal, "the hold does not wait for the tab of a made terminal whose key it holds")
+        store.tab = "tab_9"
+        #expect(!buffer.awaitsMadeTerminal, "the hold still waits after the store listed the tab")
+        let ends = Self.ends(buffer.take(focused: "other") { _, _ in false })
+        #expect(ends == ["run", "type 1 into tab_9"], "\(ends)")
     }
 
     /// The daemon made the tab, the store does not list it by the hold's end, and there is no stand-in (an older daemon):

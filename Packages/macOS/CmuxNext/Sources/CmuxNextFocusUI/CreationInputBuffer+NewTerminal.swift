@@ -9,8 +9,9 @@
 /// - With no stand-in (a daemon from before `terminal-placement-env-v1`), the focus names the terminal of the press
 ///   until the reply: a key typed while the person did nothing since the press is the creation's (``ticket(newest:over:)``).
 /// - Made: the keys are the daemon tab's of the new terminal (``tab(_:)``). The stand-in's id names no tab after the swap.
-///   The hold waits for the store to list that tab, at most its limit. With no tab then, the keys go into the stand-in's
-///   view, which is that terminal's own; with no stand-in they are lost, and no terminal gets them (``lost(_:)``).
+///   Until the store lists that tab the keys go into the stand-in's view, which is that terminal's own, so the hold
+///   waits for nothing more. With no stand-in the hold waits for the tab while it holds such a key, at most its limit
+///   (`CreationInputBuffer.awaitsMadeTerminal`); with no tab then they are lost, and no terminal gets them (``lost(_:)``).
 /// - Refused: the keys go with the creation, into no terminal (``resolve(_:landed:madeTab:)``).
 /// - Past the reply bound the keys run as typed, as every creation's do (cmux-ad m12): the creation is off this list.
 @MainActor
@@ -37,9 +38,6 @@ struct NewTerminalKeys {
     /// The daemon's tab of the terminal the creation behind `ticket` made, once the store lists it.
     func tab(_ ticket: Int) -> String? { made[ticket].flatMap { $0() } }
 
-    /// A made terminal's tab is not in the store yet (the reply came before its `tab-added`).
-    var awaitsTab: Bool { made.values.contains { $0() == nil } }
-
     /// The creation behind `ticket` made a terminal that the store lists no tab of. At the hold's end (its limit, or the
     /// focus left the content) its keys go to its stand-in's lane; with none they have no terminal: they are counted and
     /// never typed, as a stranded workspace's (the terminal of the press is not theirs).
@@ -47,10 +45,6 @@ struct NewTerminalKeys {
 }
 
 extension CreationInputBuffer {
-    /// A terminal that New Terminal Tab made has no tab in the store yet: its keys wait for it, at most the hold's limit
-    /// (typed now, they went into its stand-in's view, or with no stand-in ran in the terminal of the press).
-    public var awaitsMadeTerminal: Bool { newTerminals.awaitsTab }
-
     /// The creation whose keys alone keep waiting (``leftWorkspaceWithKeys``) while the window shows `shown` and its
     /// terminal has the keyboard there or not (`terminalReady`); nil when no left workspace's keys wait any more, or when
     /// the window shows the workspace the person did not leave (``shownWorkspaceToWaitFor``): the hold ends there, and the
