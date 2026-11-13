@@ -14,6 +14,8 @@ use super::CREATION_ATTEMPT_KEYS_CAPABILITY;
 use super::CREATION_RECEIPTS_CAPABILITY;
 use super::CREATION_SELECTOR_FALLBACKS_CAPABILITY;
 use super::ClientIdentityWire;
+use super::EVENT_SUBSCRIPTIONS_PER_CLIENT_CAPACITY;
+use super::EVENT_SUBSCRIPTIONS_SERVER_CAPACITY;
 use super::GUARDED_BROWSER_POINTER_CAPABILITY;
 use super::HOST_GRID_VIEW_CAPABILITY;
 use super::LOOPBACK_FORWARD_CAPABILITY;
@@ -372,6 +374,10 @@ pub(crate) struct ClientRegistry {
     pub(super) next_id: AtomicU64,
     pub(super) resource_stream_admission: Arc<ResourceWorkerAdmission>,
     pub(super) resource_wait_admission: Arc<ResourceWorkerAdmission>,
+    /// Where the git requests of every connection wait and run (server/git_lane.rs).
+    pub(super) git_lane: super::git_lane::GitLane,
+    /// One permit per open v1 `subscribe` stream, held by its thread.
+    pub(super) event_subscription_admission: Arc<ResourceWorkerAdmission>,
     /// Every connection's record. A change publishes the [`ClientFacts`] projection, which a connection's
     /// own line and key paths read without this lock (R-DAEMON-STATE stage S1).
     pub(super) state: crate::published::Published<ClientRegistryState, ClientFacts>,
@@ -451,6 +457,11 @@ impl ClientRegistry {
                 RESOURCE_WAITS_PER_CLIENT_CAPACITY,
                 RESOURCE_WAITS_SERVER_CAPACITY,
             ),
+            git_lane: Default::default(),
+            event_subscription_admission: ResourceWorkerAdmission::new(
+                EVENT_SUBSCRIPTIONS_PER_CLIENT_CAPACITY,
+                EVENT_SUBSCRIPTIONS_SERVER_CAPACITY,
+            ),
             state: crate::published::Published::new(
                 ClientRegistryState::default(),
                 ClientFacts::of,
@@ -517,6 +528,11 @@ impl ClientRegistry {
                 started_tabs: HashSet::new(),
             },
         );
+        // Opt-in usage patterns: connections by transport, and the most open at once.
+        if cmux_usage_patterns::enabled() {
+            cmux_usage_patterns::count("connection", transport.as_str());
+            cmux_usage_patterns::peak("connections.open", state.clients.len() as u64);
+        }
         drop(state);
         self.notify_client_presence();
         client
@@ -725,6 +741,8 @@ impl ClientRegistry {
             record.name = Some(clamp_client_label(name));
         }
         if let Some(kind) = kind {
+            // Opt-in usage patterns: which kinds of client connect (`cmux-next`, `cli`, ...).
+            cmux_usage_patterns::count("client", &kind);
             record.kind = Some(clamp_client_label(kind));
         }
         if let Some(capabilities) = capabilities {
@@ -759,6 +777,9 @@ impl ClientRegistry {
                     // No placement restatement on `session.events`
                     // (state/placement_shift.rs).
                     || capability == crate::state::placement_shift::CAPABILITY
+                    // `live` in the `session.events` cursors
+                    // (server/session_event_stream.rs).
+                    || capability == super::SESSION_LIVE_CURSOR_CAPABILITY
                     || capability == crate::state::sidebar_doc_store::CAPABILITY
                     || capability == super::participant_avatars::PARTICIPANT_AVATARS_CAPABILITY
                     || capability == super::chief_registry_resource::CHIEF_EVENTS_CAPABILITY

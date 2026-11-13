@@ -38,7 +38,7 @@ use super::supervisor::{Out, Supervisor};
 type Prints = HashMap<String, u64>;
 
 /// Files read per package for its fingerprint (a runaway folder costs no more).
-const MAX_FILES: usize = 2_000;
+pub(super) const MAX_FILES: usize = 2_000;
 
 /// File bytes hashed per package for its fingerprint. An app's scripts and
 /// manifest are kilobytes; a large asset past this budget is fingerprinted by
@@ -77,6 +77,11 @@ impl Supervisor {
         prints: &Prints,
         load: impl FnOnce(&catalog::Sources) -> catalog::Catalog,
     ) -> Prints {
+        // Safe mode: nothing reloads. The prints stay as they were, so the
+        // saves made meanwhile apply when it ends (`safe_mode.rs`).
+        if self.safe_mode_on() {
+            return prints.clone();
+        }
         let before = PrintsBefore::take(&self.config.sources);
         let catalog = load(&self.config.sources);
         let next = before.of(&self.config.sources, &catalog);
@@ -105,6 +110,7 @@ impl Supervisor {
                     inner.catalog.packages.get(CUSTOMIZE_APP).map(|p| p.facts().requested);
                 inner.customize_reads_offered = Some(declared.unwrap_or_default());
             }
+            inner.local_prints = next.clone();
             let mut catalog = catalog;
             for (app, _) in &refused {
                 // The live host goes on running the last script that loaded;
@@ -326,13 +332,13 @@ impl PrintsBefore {
 
 /// The fingerprint of a watched folder that had none before the catalog
 /// read (`PrintsBefore::of`); `fingerprint` never returns it.
-const UNREAD: u64 = 0;
+pub(super) const UNREAD: u64 = 0;
 
 /// Every file's path, size and contents under `dir` (dot folders and
 /// node_modules skipped), hashed. Contents, not the modification time: a
 /// coarse file clock gives a same-size save the old time. Files past
 /// `MAX_HASHED_BYTES` in all count by their modification time.
-fn fingerprint(dir: &Path) -> u64 {
+pub(super) fn fingerprint(dir: &Path) -> u64 {
     let mut files = Vec::new();
     collect(dir, &mut files);
     files.sort();

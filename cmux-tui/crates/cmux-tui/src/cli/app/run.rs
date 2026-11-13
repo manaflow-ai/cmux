@@ -70,8 +70,8 @@ pub(in crate::cli) fn not_run_deadline(timeout: Option<Duration>) -> Duration {
     timeout.map_or(NOT_RUN_DEADLINE_FLOOR, |timeout| timeout.max(NOT_RUN_DEADLINE_FLOOR))
 }
 
-/// One request; an app that says the run never started and why it may pass
-/// (`retry_before_running`) is asked again after the delay it names, doubled
+/// One request; an app that did not get to it for a cause that passes
+/// (`retry_before_running`; never a refusal the app decided) is asked again after the delay it names, doubled
 /// each time up to [`MAX_RETRY_WAIT`], until [`not_run_deadline`] from now.
 /// The caller sees only the last answer.
 pub(in crate::cli) fn request_with_retry(

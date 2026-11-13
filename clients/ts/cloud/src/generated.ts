@@ -3082,18 +3082,43 @@ export interface CloudOps {
       readonly installation_id?: string
       readonly setup_action?: string
     }
-    readonly result: Connection
+    readonly result: {
+      readonly id: ConnectionId
+      readonly owner: TeamId
+      readonly created_by: UserId
+      readonly provider: IntegrationProvider
+      readonly account: {
+        readonly key: string
+        readonly name: string
+        readonly url?: string
+      } | null
+      readonly scopes_requested: ReadonlyArray<string>
+      readonly scopes_granted: ReadonlyArray<string>
+      readonly status: ConnectionStatus
+      readonly status_detail?: string
+      readonly sharing: "private" | "team"
+      readonly resources?: {
+        readonly repos: ReadonlyArray<string> | null
+      }
+      readonly created_at: number
+      readonly updated_at: number
+      readonly return_to?: string
+      readonly configure_url?: string
+    }
   }
-  /** Start connecting a provider account: returns a pending connection and the provider URL a human opens to approve it. */
+  /** Start connecting a provider account: returns a pending connection and the provider URL a human opens to approve it, or connected when a connection already covers the GitHub repository asked for. */
   readonly "integration.connect": {
     readonly params: {
       readonly provider: IntegrationProvider
       readonly scopes?: ReadonlyArray<string>
       readonly sharing?: "private" | "team"
+      readonly repo?: string
+      readonly return_to?: string
     }
     readonly result: {
       readonly connection: Connection
-      readonly authorize_url: string
+      readonly authorize_url?: string
+      readonly connected?: true
     }
   }
   /** List the team's connections the caller may use (no secrets) and which providers this deployment can connect. */

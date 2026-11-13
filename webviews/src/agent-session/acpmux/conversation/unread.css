@@ -145,7 +145,6 @@
   color: inherit;
   font: inherit;
   letter-spacing: inherit;
-  cursor: pointer;
 }
 .acpmux-since-jump button:hover {
   background-image: linear-gradient(var(--unread-wash), var(--unread-wash));

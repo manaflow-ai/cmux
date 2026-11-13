@@ -23,6 +23,9 @@ public final class AgentChatsModel {
     public private(set) var chats: [AgentChatListing] = []
     public private(set) var nextCursor: String?
     public private(set) var loadingMore = false
+    /// The first page is being read again over the rows shown (the ones this run kept): the
+    /// list shows that it is updating. A pull to refresh shows its own progress instead.
+    public private(set) var refreshing = false
     public var scope: AgentChatScope = .chats
     public var query = ""
     /// The chat being opened or archived (its row shows progress; others wait).
@@ -38,17 +41,33 @@ public final class AgentChatsModel {
     /// append a page after the new first page and skip the ones between).
     @ObservationIgnored private var loadingFirstPage = false
     @ObservationIgnored private weak var backend: (any AgentChatsBackend)?
+    /// Each Mac's chats as this run last listed them: a list opened again starts from them.
+    @ObservationIgnored private let memory: AgentChatsMemory?
 
-    public init(macID: String, backend: (any AgentChatsBackend)?) {
+    /// Starts from the chats `memory` kept for the Mac (shown at once, then read again by
+    /// ``load()``), else from the loading state.
+    public init(macID: String, backend: (any AgentChatsBackend)?, memory: AgentChatsMemory? = .shared) {
         self.macID = macID
         self.backend = backend
+        self.memory = memory
+        if !macID.isEmpty, let kept = memory?.page(for: macID) {
+            chats = kept.chats
+            nextCursor = kept.nextCursor
+            phase = .loaded
+        }
+    }
+
+    /// The chats listed now are what a list opened again starts from.
+    private func remember() {
+        guard !macID.isEmpty, phase == .loaded else { return }
+        memory?.keep(AgentChatPage(chats: chats, nextCursor: nextCursor), for: macID)
     }
 
     /// The rows the list shows now.
     public var visible: [AgentChatListing] { AgentChatListing.filter(chats, scope: scope, query: query) }
 
-    /// The first page (again, for pull to refresh).
-    public func load() async {
+    /// The first page (again, for pull to refresh: `pulled`, whose own control shows progress).
+    public func load(pulled: Bool = false) async {
         guard let backend else {
             phase = .failed("Not connected to the Mac.")
             return
@@ -57,13 +76,20 @@ public final class AgentChatsModel {
         listGeneration &+= 1
         let generation = listGeneration
         loadingFirstPage = true
-        defer { if generation == listGeneration { loadingFirstPage = false } }
+        refreshing = !chats.isEmpty && !pulled
+        defer {
+            if generation == listGeneration {
+                loadingFirstPage = false
+                refreshing = false
+            }
+        }
         do {
             let page = try await backend.agentChats(on: macID, cursor: nil)
             guard generation == listGeneration else { return }
             chats = page.chats
             nextCursor = page.nextCursor
             phase = .loaded
+            remember()
         } catch {
             guard generation == listGeneration else { return }
             let message = Self.message(error)
@@ -83,6 +109,7 @@ public final class AgentChatsModel {
             let known = Set(chats.map(\.id))
             chats += page.chats.filter { !known.contains($0.id) }
             nextCursor = page.nextCursor
+            remember()
         } catch {
             guard generation == listGeneration else { return }
             failure = Self.message(error)
@@ -115,6 +142,7 @@ public final class AgentChatsModel {
         do {
             let now = try await backend.setAgentChatArchived(chat, archived: archived, on: macID)
             if let index = chats.firstIndex(where: { $0.id == chat.id }) { chats[index] = now }
+            remember()
             theme.haptics.success()
         } catch {
             failure = Self.message(error)
@@ -181,7 +209,7 @@ struct AgentChatsScreen: View {
                     .accessibilityIdentifier("agentChats.filter")
                 }
             }
-            .refreshable { await model.load() }
+            .refreshable { await model.load(pulled: true) }
             .task { await model.load() }
             .confirmationDialog(stopAllTitle, isPresented: $confirmingStopAll, titleVisibility: .visible) {
                 Button("Stop All Agents", role: .destructive) { Task { await model.stopAll() } }
@@ -228,6 +256,19 @@ struct AgentChatsScreen: View {
     private var list: some View {
         let rows = model.visible
         return List {
+            // The kept rows show while the Mac's newest page loads (a pull to refresh has its own).
+            if model.refreshing {
+                HStack(spacing: 8) {
+                    CmuxSpinner().controlSize(.small)
+                    Text("Updating…")
+                        .font(.footnote)
+                        .foregroundStyle(theme.colors.label2.color)
+                }
+                .frame(maxWidth: .infinity)
+                .listRowBackground(Color.clear)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("agentChats.updating")
+            }
             ForEach(rows) { chat in
                 row(chat)
             }
