@@ -4,7 +4,10 @@
 //! starts working takes over, and a route the peer's packets come from is
 //! learned.
 
-use cmux_rd_link::{Endpoint, EndpointEvent, Event, KeyPair, Role, Route};
+use cmux_rd_link::{
+    Endpoint, EndpointEvent, Event, HANDSHAKE_RETRY_US, HANDSHAKE_TIMEOUT_US, KeyPair, LinkError,
+    Role, Route,
+};
 use cmux_transport::PathKind;
 use std::net::SocketAddr;
 
@@ -152,9 +155,26 @@ fn an_initial_handshake_waits_for_a_candidate_instead_of_being_dropped() {
 
     // The network thread can poll once before the signaling command adds the host candidate.
     assert!(viewer.poll_transmit(0).unwrap().is_empty(), "there is no route yet");
-    viewer.add_path(Route::Udp(addr(HOST_LAN)), PathKind::DirectLan, 1);
+    assert_eq!(viewer.next_deadline_us(), Some(HANDSHAKE_RETRY_US));
+    assert!(viewer.poll_transmit(HANDSHAKE_RETRY_US).unwrap().is_empty());
+    assert_eq!(viewer.next_deadline_us(), Some(HANDSHAKE_RETRY_US * 2));
+    viewer.add_path(Route::Udp(addr(HOST_LAN)), PathKind::DirectLan, HANDSHAKE_RETRY_US + 1);
     assert!(
-        !viewer.poll_transmit(1).unwrap().is_empty(),
+        !viewer.poll_transmit(HANDSHAKE_RETRY_US + 1).unwrap().is_empty(),
         "the queued first handshake must go as soon as a route exists"
     );
+}
+
+#[test]
+fn a_missing_candidate_still_reaches_the_handshake_timeout() {
+    let viewer_key = KeyPair::generate().unwrap();
+    let host_key = KeyPair::generate().unwrap();
+    let mut viewer =
+        Endpoint::new(Role::Initiator, b"timeout", &viewer_key, host_key.public, 0).unwrap();
+
+    assert!(viewer.poll_transmit(0).unwrap().is_empty());
+    assert!(matches!(
+        viewer.poll_transmit(HANDSHAKE_TIMEOUT_US + 1),
+        Err(LinkError::HandshakeTimeout)
+    ));
 }
