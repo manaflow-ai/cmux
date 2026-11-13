@@ -28,31 +28,36 @@ type Bench = {
   ownPart?: boolean;
 };
 
-/// Short arguments; the timeouts of the benches without `ownPart` sum to 29.5 minutes, under perf-cron.py's 30-minute cap on the suite.
+/// Short arguments; the timeouts of the benches without `ownPart` sum to at most SUITE_CAP_MS (29.5 minutes), under
+/// perf-cron.py's 30-minute cap on the suite (test/web-ui-suite-order.test.ts holds them to it). Each timeout is about 1.5x
+/// or more of what its bench takes on the perf cron's runner (blacksmith-4vcpu), which runs these benches about 1.7x as
+/// long as a fast-checks runner does (the base's ui-stability failed its Chromium launch after 57-59 s there, 30-34 s on
+/// fast-checks runs 43373098960 and 43374947921).
 /// Not here: thread-minimap-frame-cost (an A/B check of the VS Code Minimap against its own 1 ms budget,
 /// which exits non-zero by design when over it; its rail frame cost is covered by thread-rail-jump),
 /// diff-stream (the diff-viewer part already runs it) and thread-rail-drag (an adapter, not a bench).
 export const BENCHES: readonly Bench[] = [
+  // These three take 0 to 2 s on the perf runner (2026-11-12).
   {
     name: "agent-activity-groups",
     file: "agent-activity-groups.bench.ts",
     args: ["5", "50"],
-    timeoutMs: 120_000,
+    timeoutMs: 30_000,
   },
   {
     name: "edit-turns-stream",
     file: "edit-turns-stream.bench.ts",
     args: ["5", "100"],
-    timeoutMs: 120_000,
+    timeoutMs: 30_000,
   },
   {
     name: "transcript-view-rows",
     file: "transcript-view-rows.bench.ts",
     args: ["500", "500", "3"],
-    timeoutMs: 120_000,
+    timeoutMs: 30_000,
   },
-  // chat-open takes about 18 s on the perf runner (2026-11-08); 165 s leaves the suite's sum where it was.
-  { name: "chat-open", file: "chat-open.bench.ts", args: ["3", "300"], timeoutMs: 165_000 },
+  // chat-open takes about 36 s on the perf runner (2026-11-12).
+  { name: "chat-open", file: "chat-open.bench.ts", args: ["3", "300"], timeoutMs: 105_000 },
   { name: "chat-switch", file: "chat-switch.bench.ts", args: ["3", "300"], timeoutMs: 255_000 },
   {
     name: "transcript-scroll-frame",
@@ -60,13 +65,15 @@ export const BENCHES: readonly Bench[] = [
     args: ["3000", "2"],
     timeoutMs: 240_000,
   },
+  // thread-rail-jump takes 24 to 29 s on the perf runner (2026-11-12).
   {
     name: "thread-rail-jump",
     file: "thread-rail-jump.bench.ts",
     args: ["1000", "5"],
-    timeoutMs: 150_000,
+    timeoutMs: 90_000,
   },
-  { name: "ui-stability", file: "ui-stability.bench.ts", args: ["2"], timeoutMs: 240_000 },
+  // ui-stability takes 130 to 134 s on a fast-checks runner (about 225 s on the perf runner) once its Chromium launches.
+  { name: "ui-stability", file: "ui-stability.bench.ts", args: ["2"], timeoutMs: 360_000 },
   // A turn that ends while the reader is scrolled up: CLS, the anchor's drift and rows folded away.
   {
     name: "transcript-turn-end-shift",
@@ -80,7 +87,9 @@ export const BENCHES: readonly Bench[] = [
     name: "transcript-replay",
     file: "transcript-replay.bench.ts",
     args: ["--turns", "600"],
-    timeoutMs: 150_000,
+    // 93 to 99 s on a fast-checks runner (about 165 s on the perf runner, where 150 s timed it out on every tip
+    // measurement since 2026-11-12), the same before #40642 and #41096 (94 s at 842118ab39d9).
+    timeoutMs: 300_000,
   },
   // 50 tool calls landing in a running turn on the wall clock, as an agent sends them: frame gaps, long tasks, a
   // record's arrival to its paint, task ms per call and layout shift.
@@ -155,6 +164,9 @@ export const BENCHES: readonly Bench[] = [
     ownPart: true,
   },
 ];
+
+/// What the benches without `ownPart` may take together: perf-cron.py's 30-minute cap on the suite, less 30 s.
+export const SUITE_CAP_MS = 1_770_000;
 
 export type Failure = { bench: string; why: string; tail: string[] };
 

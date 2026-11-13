@@ -1,7 +1,7 @@
 // The web UI perf harness lists rows slowest first relative to their target (bench/web-ui-suite.ts); a row whose
 // target is 0 (a layout shift or an idle wakeup count, bench/stability.ts) is over it whenever it is above 0.
 import { describe, expect, test } from "bun:test";
-import { failureTail, overTarget, slowestFirst } from "../bench/web-ui-suite";
+import { BENCHES, failureTail, overTarget, slowestFirst, SUITE_CAP_MS } from "../bench/web-ui-suite";
 import { PERF_ROW_MARK } from "../bench/perfRow";
 
 describe("web-ui-suite slowestFirst", () => {
@@ -48,5 +48,13 @@ describe("web-ui-suite failureTail", () => {
     expect(tail[0]).toBe(`${PERF_ROW_MARK}{bad`);
     expect(tail.slice(1, 9)).toEqual(Array.from({ length: 8 }, (_, i) => `out ${i + 12}`));
     expect(tail.slice(9)).toEqual(Array.from({ length: 12 }, (_, i) => `err ${i + 8}`));
+  });
+});
+
+// A bench's timeout raised past the suite's cap would let perf-cron.py kill the whole suite with no report at all.
+describe("web-ui-suite timeouts", () => {
+  test("the benches the suite runs by default fit perf-cron.py's cap on it", () => {
+    const sum = BENCHES.filter((bench) => !bench.ownPart).reduce((total, bench) => total + bench.timeoutMs, 0);
+    expect(sum).toBeLessThanOrEqual(SUITE_CAP_MS);
   });
 });
