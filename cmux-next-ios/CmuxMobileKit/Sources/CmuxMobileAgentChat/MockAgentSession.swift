@@ -28,6 +28,8 @@ public final class MockAgentSession: AgentSessionSource {
     private let richFirstTurn: Bool
     /// false: a brand-new session (no earlier turns to replay).
     private let history: Bool
+    /// The row gallery part this session replays instead of its history (`replayRowGallery`).
+    private let gallery: String?
     /// Events collected while replaying, sent as one `.batch`.
     private var batch: [AgentSessionEvent]?
     /// Checkpoints recorded around turns (newest last).
@@ -37,12 +39,13 @@ public final class MockAgentSession: AgentSessionSource {
     public var chunkDelay: Duration = .milliseconds(16)
 
     public init(
-        summary: AgentSessionSummary, richFirstTurn: Bool = true, history: Bool = true,
+        summary: AgentSessionSummary, richFirstTurn: Bool = true, history: Bool = true, gallery: String? = nil,
         sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     ) {
         self.summary = summary
         self.richFirstTurn = richFirstTurn
-        self.history = history
+        self.history = gallery == nil && history
+        self.gallery = gallery
         self.sleep = sleep
     }
 
@@ -52,7 +55,11 @@ public final class MockAgentSession: AgentSessionSource {
         // History (and a waiting turn's opening) arrive as one change.
         batch = []
         replayHistory()
-        if summary.status == .waiting { startWaitingTurn() }
+        if let gallery {
+            replayRowGallery(gallery)
+        } else if summary.status == .waiting {
+            startWaitingTurn()
+        }
         let replayed = batch ?? []
         batch = nil
         continuation.yield(.batch(replayed))

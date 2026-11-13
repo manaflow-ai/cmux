@@ -32,8 +32,16 @@ final class ChatDisclosures {
     /// The person's choice; nil when they never touched it.
     func isOpen(_ key: String) -> Bool? {
         access(keyPath: \.revision)
+        #if DEBUG
+        if Self.opensAll { return open[key] ?? true }
+        #endif
         return open[key]
     }
+
+    #if DEBUG
+    /// The row gallery's expanded pass (`CMUX_MOBILE_ROW_GALLERY_OPEN=1`): every disclosure starts open.
+    private static let opensAll = ProcessInfo.processInfo.environment["CMUX_MOBILE_ROW_GALLERY_OPEN"] == "1"
+    #endif
 
     func set(_ key: String, _ value: Bool?) {
         guard open[key] != value else { return }

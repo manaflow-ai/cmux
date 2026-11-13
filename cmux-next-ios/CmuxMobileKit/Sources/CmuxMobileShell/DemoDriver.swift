@@ -26,7 +26,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-feed", "retry-terminal", "retry-home-offline", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-feed", "retry-terminal", "retry-home-offline", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "row-gallery", "workspace-open-top-left"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -186,6 +186,19 @@ struct DemoDriver {
             }
             shell.tab = .home
             shell.homePath.append(AgentChatDestination(workspaceID: "ws-cmux", tabID: "t-claude"))
+        case "row-gallery":
+            // Every agent chat row kind (MockAgentSession+RowGallery), opened as the workspace's
+            // agent tab; CMUX_MOBILE_ROW_GALLERY picks the part (AgentRowGalleryCaptureUITests).
+            let part = ProcessInfo.processInfo.environment["CMUX_MOBILE_ROW_GALLERY"] ?? "prompts"
+            AgentSessionDirectory.shared.makeSource = { summary in
+                var summary = summary
+                summary.status = part.hasPrefix("live-") ? .running : .idle
+                return MockAgentSession(summary: summary, richFirstTurn: false, history: false, gallery: part)
+            }
+            shell.store.requestOpen(tabID: "t-claude", in: "ws-cmux")
+            shell.tab = .workspaces
+            await pause(1.0)
+            if let ws = shell.store.workspace(id: "ws-cmux") { shell.workspacesPath = [ws] }
         case "slow-history-chat":
             // An existing chat whose Mac answers 4 s late (AgentChatLoadingUITests): the chat
             // shows its loading state, never the new-chat screen, until the history lands.
