@@ -222,3 +222,7 @@ pub(crate) fn lock_config(config_path: &Path) -> Option<std::fs::File> {
     file.lock().ok()?;
     Some(file)
 }
+
+#[cfg(all(test, unix))]
+#[path = "owner_lock_tests.rs"]
+mod lock_tests;
