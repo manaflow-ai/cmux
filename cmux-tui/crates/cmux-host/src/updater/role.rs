@@ -725,13 +725,9 @@ fn check_inner(
     let Some(target) = channel::local_target() else {
         return Outcome::Off(format!("no build for {}", std::env::consts::ARCH));
     };
-    let body = match fetch(CHANNEL_URL, CHANNEL_MAX_BYTES as u64, None) {
-        Ok(body) => body,
-        Err(e) => return Outcome::Failed(format!("reading {CHANNEL_URL}: {e}")),
-    };
-    let payload = match channel::verify(&body, &channel::trusted_keys(), now()) {
+    let payload = match read_channel() {
         Ok(payload) => payload,
-        Err(e) => return Outcome::Failed(format!("refusing {CHANNEL_URL}: {e}")),
+        Err(e) => return Outcome::Failed(e),
     };
     let mut state = load_state(paths);
     let plan = match decide(paths, &state, &payload, target) {
@@ -856,13 +852,9 @@ pub fn adopt(paths: &Paths) -> Outcome {
     let Some(target) = channel::local_target() else {
         return Outcome::Off(format!("no build for {}", std::env::consts::ARCH));
     };
-    let body = match fetch(CHANNEL_URL, CHANNEL_MAX_BYTES as u64, None) {
-        Ok(body) => body,
-        Err(e) => return Outcome::Failed(format!("reading {CHANNEL_URL}: {e}")),
-    };
-    let payload = match channel::verify(&body, &channel::trusted_keys(), now()) {
+    let payload = match read_channel() {
         Ok(payload) => payload,
-        Err(e) => return Outcome::Failed(format!("refusing {CHANNEL_URL}: {e}")),
+        Err(e) => return Outcome::Failed(e),
     };
     let mut state = load_state(paths);
     let plan = match decide(paths, &state, &payload, target) {
@@ -1046,14 +1038,78 @@ fn free_bytes(path: &Path) -> Option<u64> {
     Some(st.f_bavail as u64 * st.f_frsize as u64)
 }
 
+/// The last channel file that verified in this process, with its validators
+/// ([`channel::Cache`]).
+static CHANNEL_CACHE: Mutex<channel::Cache> = Mutex::new(channel::Cache::new());
+
+/// The channel's payload, verified now: a conditional GET of [`CHANNEL_URL`]
+/// against [`CHANNEL_CACHE`].
+fn read_channel() -> Result<channel::Payload, String> {
+    read_channel_from(&CHANNEL_CACHE, CHANNEL_URL, "=https", &channel::trusted_keys(), now())
+}
+
+/// Room for the status line and headers `--include` puts before the body.
+const HEAD_MAX_BYTES: u64 = 32 << 10;
+
+/// [`read_channel`] from `url` over `proto` (curl's `--proto`): sends the
+/// kept file's validators, and hands the answer, a whole file or a 304, to
+/// [`channel::Cache::take`], which verifies whatever payload it returns. The
+/// cache is not held during the GET.
+pub(super) fn read_channel_from(
+    cache: &Mutex<channel::Cache>,
+    url: &str,
+    proto: &str,
+    keys: &[(String, [u8; 32])],
+    now: u64,
+) -> Result<channel::Payload, String> {
+    let (etag, last_modified) = cache.lock().unwrap_or_else(|e| e.into_inner()).validators();
+    let mut headers = Vec::new();
+    if let Some(etag) = etag {
+        headers.push(format!("If-None-Match: {etag}"));
+    }
+    if let Some(last_modified) = last_modified {
+        headers.push(format!("If-Modified-Since: {last_modified}"));
+    }
+    let max = CHANNEL_MAX_BYTES as u64;
+    let raw = curl(url, proto, max, max + HEAD_MAX_BYTES, &headers, true, None)
+        .map_err(|e| format!("reading {url}: {e}"))?;
+    let answer = channel::parse_response(&raw).map_err(|e| format!("reading {url}: {e}"))?;
+    cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .take(answer, keys, now)
+        .map_err(|e| format!("refusing {url}: {e}"))
+}
+
 /// HTTPS GET with curl (the image has it; no redirects), at most `max`
 /// bytes; into `out`, or the body.
 fn fetch(url: &str, max: u64, out: Option<&Path>) -> Result<Vec<u8>, String> {
+    curl(url, "=https", max, max, &[], false, out)
+}
+
+/// GET `url` with curl over `proto`, a body of at most `max_body` bytes and
+/// at most `max` bytes on stdout, with `headers`; with `include`, stdout
+/// starts with the response's status line and headers. Into `out`, or stdout.
+fn curl(
+    url: &str,
+    proto: &str,
+    max_body: u64,
+    max: u64,
+    headers: &[String],
+    include: bool,
+    out: Option<&Path>,
+) -> Result<Vec<u8>, String> {
     let mut cmd = Command::new("curl");
-    cmd.args(["--fail", "--silent", "--show-error", "--proto", "=https", "--tlsv1.2"])
+    cmd.args(["--fail", "--silent", "--show-error", "--proto", proto, "--tlsv1.2"])
         .args(["--connect-timeout", "20", "--max-time", "900", "--retry", "2"])
         .arg("--max-filesize")
-        .arg(max.to_string());
+        .arg(max_body.to_string());
+    for header in headers {
+        cmd.arg("--header").arg(header);
+    }
+    if include {
+        cmd.arg("--include");
+    }
     if let Some(out) = out {
         cmd.arg("--output").arg(out);
     }
