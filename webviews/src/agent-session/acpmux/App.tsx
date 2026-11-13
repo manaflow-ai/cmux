@@ -650,6 +650,7 @@ import {
   hostErrorShows,
   hostIsReconnecting,
   hostRefusedTooLarge,
+  lostRetryDelay,
   nextRetryDelay,
   offersAcpmuxRestart,
   readHostRestoring,
@@ -7834,6 +7835,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     window.addEventListener(NEW_TAB_CLOSE_EVENT, discardUnsent);
     let retryTimer: number | undefined;
     let retryDelay = 250;
+    /// When the last client connected: its loss starts the backoff over only if it stayed up
+    /// (hostRetry.ts `lostRetryDelay`).
+    let connectedAt = 0;
     // Once a daemon was lost, handshakes only look for one: the user may have stopped it.
     // Looking is cheap, so a daemon started again elsewhere is found within seconds.
     let reconnect = false;
@@ -8208,8 +8212,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             // the handshakes fail past the deadline, then the waiting line or the failure.
             failingSince = Date.now();
             setRelinkingSince(failingSince);
-            retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
-            retryDelay = nextRetryDelay(retryDelay, true);
+            // A client lost soon after it connected keeps the backoff growing: a daemon that drops
+            // the pane right after every connect is not asked again every 250 ms.
+            const lost = lostRetryDelay(retryDelay, Date.now() - connectedAt);
+            retryTimer = window.setTimeout(() => void connectHost(), lost.wait);
+            retryDelay = lost.next;
           },
           mockModule
             ? () => new mockModule.MockAcpmuxSocket(undefined, window.cmuxAcpmuxMockScript) as unknown as WebSocket
@@ -8294,7 +8301,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         setCatalogSource({ id: catalogClientId.current, client });
         // A refreshed harness list or live model list re-reads the catalog (no polling).
         followHarnessChanges(client, queryClient, catalogClientId.current);
-        retryDelay = 250;
+        connectedAt = Date.now();
         // A mock session is not one the host can reopen.
         const persistSession = (sessionId?: string) =>
           sessionId && !mock

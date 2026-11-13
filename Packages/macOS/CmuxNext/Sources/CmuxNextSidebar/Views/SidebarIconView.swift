@@ -174,7 +174,9 @@ final class SidebarIconView: NSView {
             swatch.cornerRadius = bounds.height * 0.25
         } else {
             let dot = SidebarStyle.dotSize
-            let x = leadsWithInk ? SidebarStyle.iconColumnGlyphX(leading: 0, ink: CGRect(x: 0, y: 0, width: dot, height: dot))
+            // A leading dot centers in the rows' one optical glyph square, on the line every row glyph centers on (#42431).
+            let scale = max(1, window?.backingScaleFactor ?? 2)
+            let x = leadsWithInk ? ((SidebarStyle.rowGlyphOpticalSide - dot) / 2 * scale).rounded() / scale
                 : (bounds.width - dot) / 2
             swatch.frame = CGRect(x: x, y: (bounds.height - dot) / 2, width: dot, height: dot)
             swatch.cornerRadius = dot / 2
@@ -184,8 +186,8 @@ final class SidebarIconView: NSView {
     }
 
     /// The image view's frame that draws the shown symbol or favicon at the rows' one optical size
-    /// (`SidebarStyle.rowGlyphOptics`): its measured ink's larger side is that size, its ink starts at x 0 and centers
-    /// vertically, on the pixel grid. A favicon with a transparent margin (an app icon) draws larger than its square so its
+    /// (`SidebarStyle.rowGlyphOptics`): its measured ink's larger side is that size, its ink centers in that square from x 0
+    /// and vertically (#42431), on the pixel grid. A favicon with a transparent margin (an app icon) draws larger than its square so its
     /// ink matches a full-bleed mark's. Nil without a measurable image.
     private func leadingImageFrame(side: CGFloat) -> CGRect? {
         guard let image = imageView.image, image.size.width > 0, image.size.height > 0,
