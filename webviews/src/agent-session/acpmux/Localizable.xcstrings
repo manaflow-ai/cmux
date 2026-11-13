@@ -1256,6 +1256,7 @@
     "turn.live.compacting": {"comment":"Agent pane: the running turn's live line while the agent compacts the conversation's context, in place of Thinking (Compacting conversation… 12s)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"جارٍ ضغط المحادثة…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Sažimanje razgovora…"}},"da":{"stringUnit":{"state":"needs_review","value":"Komprimerer samtalen…"}},"de":{"stringUnit":{"state":"needs_review","value":"Unterhaltung wird komprimiert …"}},"en":{"stringUnit":{"state":"translated","value":"Compacting conversation…"}},"es":{"stringUnit":{"state":"needs_review","value":"Compactando la conversación…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Compactage de la conversation…"}},"it":{"stringUnit":{"state":"needs_review","value":"Compattazione della conversazione…"}},"ja":{"stringUnit":{"state":"needs_review","value":"会話を圧縮しています…"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងបង្រួមការសន្ទនា…"}},"ko":{"stringUnit":{"state":"needs_review","value":"대화를 압축하는 중…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Komprimerer samtalen …"}},"pl":{"stringUnit":{"state":"needs_review","value":"Kompaktowanie rozmowy…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Compactando a conversa…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Сжатие беседы…"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังบีบอัดการสนทนา…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Konuşma sıkıştırılıyor…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Стискання розмови…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang thu gọn cuộc trò chuyện…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在压缩对话…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在壓縮對話…"}}}},
     "turn.live.stepTime": {"comment":"Agent pane: on the running turn's live line, the finished step's own time, named so it is not read as the turn's clock beside it. {time} is a duration such as 3s (step 3s · turn 21s)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الخطوة {time}"}},"bs":{"stringUnit":{"state":"needs_review","value":"korak {time}"}},"da":{"stringUnit":{"state":"needs_review","value":"trin {time}"}},"de":{"stringUnit":{"state":"needs_review","value":"Schritt {time}"}},"en":{"stringUnit":{"state":"translated","value":"step {time}"}},"es":{"stringUnit":{"state":"needs_review","value":"paso {time}"}},"fr":{"stringUnit":{"state":"needs_review","value":"étape {time}"}},"it":{"stringUnit":{"state":"needs_review","value":"passo {time}"}},"ja":{"stringUnit":{"state":"needs_review","value":"ステップ {time}"}},"km":{"stringUnit":{"state":"needs_review","value":"ជំហាន {time}"}},"ko":{"stringUnit":{"state":"needs_review","value":"단계 {time}"}},"nb":{"stringUnit":{"state":"needs_review","value":"trinn {time}"}},"pl":{"stringUnit":{"state":"needs_review","value":"krok {time}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"etapa {time}"}},"ru":{"stringUnit":{"state":"needs_review","value":"шаг {time}"}},"th":{"stringUnit":{"state":"needs_review","value":"ขั้นตอน {time}"}},"tr":{"stringUnit":{"state":"needs_review","value":"adım {time}"}},"uk":{"stringUnit":{"state":"needs_review","value":"крок {time}"}},"vi":{"stringUnit":{"state":"needs_review","value":"bước {time}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"步骤 {time}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"步驟 {time}"}}}},
     "turn.live.turnTime": {"comment":"Agent pane: on the running turn's live line, the turn's clock since the prompt, named so it is not read as the step's own time beside it. {time} is a duration such as 21s (step 3s · turn 21s)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الدور {time}"}},"bs":{"stringUnit":{"state":"needs_review","value":"potez {time}"}},"da":{"stringUnit":{"state":"needs_review","value":"tur {time}"}},"de":{"stringUnit":{"state":"needs_review","value":"Runde {time}"}},"en":{"stringUnit":{"state":"translated","value":"turn {time}"}},"es":{"stringUnit":{"state":"needs_review","value":"turno {time}"}},"fr":{"stringUnit":{"state":"needs_review","value":"tour {time}"}},"it":{"stringUnit":{"state":"needs_review","value":"turno {time}"}},"ja":{"stringUnit":{"state":"needs_review","value":"ターン {time}"}},"km":{"stringUnit":{"state":"needs_review","value":"វេន {time}"}},"ko":{"stringUnit":{"state":"needs_review","value":"턴 {time}"}},"nb":{"stringUnit":{"state":"needs_review","value":"tur {time}"}},"pl":{"stringUnit":{"state":"needs_review","value":"tura {time}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"turno {time}"}},"ru":{"stringUnit":{"state":"needs_review","value":"ход {time}"}},"th":{"stringUnit":{"state":"needs_review","value":"รอบ {time}"}},"tr":{"stringUnit":{"state":"needs_review","value":"tur {time}"}},"uk":{"stringUnit":{"state":"needs_review","value":"хід {time}"}},"vi":{"stringUnit":{"state":"needs_review","value":"lượt {time}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"本轮 {time}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"本輪 {time}"}}}},
+    "turn.live.waiting": {"comment":"Agent pane: the running turn's live line once nothing has arrived from the agent for a while (no chunk, call or reply), in place of a stale Thinking; the time since it last heard follows (Waiting 12s · turn 15m)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"في الانتظار"}},"bs":{"stringUnit":{"state":"needs_review","value":"Čeka"}},"da":{"stringUnit":{"state":"needs_review","value":"Venter"}},"de":{"stringUnit":{"state":"needs_review","value":"Wartet"}},"en":{"stringUnit":{"state":"translated","value":"Waiting"}},"es":{"stringUnit":{"state":"needs_review","value":"Esperando"}},"fr":{"stringUnit":{"state":"needs_review","value":"En attente"}},"it":{"stringUnit":{"state":"needs_review","value":"In attesa"}},"ja":{"stringUnit":{"state":"needs_review","value":"待機中"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងរង់ចាំ"}},"ko":{"stringUnit":{"state":"needs_review","value":"대기 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"Venter"}},"pl":{"stringUnit":{"state":"needs_review","value":"Czeka"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Aguardando"}},"ru":{"stringUnit":{"state":"needs_review","value":"Ожидание"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังรอ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bekliyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Очікування"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang chờ"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"等待中"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"等待中"}}}},
     "transcript.sentFrom": {"comment":"Agent pane: small muted line, beside the Chief's avatar, above a prompt the Chief sent this chat on the person's behalf; {name} is the Chief's name","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"أُرسلت من {name}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Poslano iz {name}"}},"da":{"stringUnit":{"state":"needs_review","value":"Sendt fra {name}"}},"de":{"stringUnit":{"state":"needs_review","value":"Gesendet von {name}"}},"en":{"stringUnit":{"state":"translated","value":"Sent from {name}"}},"es":{"stringUnit":{"state":"needs_review","value":"Enviado desde {name}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Envoyé depuis {name}"}},"it":{"stringUnit":{"state":"needs_review","value":"Inviato da {name}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{name} から送信"}},"km":{"stringUnit":{"state":"needs_review","value":"បានផ្ញើពី {name}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{name}에서 보냄"}},"nb":{"stringUnit":{"state":"needs_review","value":"Sendt fra {name}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wysłano z {name}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Enviado de {name}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отправлено из {name}"}},"th":{"stringUnit":{"state":"needs_review","value":"ส่งจาก {name}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{name} üzerinden gönderildi"}},"uk":{"stringUnit":{"state":"needs_review","value":"Надіслано з {name}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Gửi từ {name}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"从 {name} 发送"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"從 {name} 傳送"}}}},
     "needsYou.expand": {"comment":"Agent pane Needs you: button that expands an ask's row to its whole text, options and next steps","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إظهار المزيد"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prikaži više"}},"da":{"stringUnit":{"state":"needs_review","value":"Vis mere"}},"de":{"stringUnit":{"state":"needs_review","value":"Mehr anzeigen"}},"en":{"stringUnit":{"state":"translated","value":"Show more"}},"es":{"stringUnit":{"state":"needs_review","value":"Mostrar más"}},"fr":{"stringUnit":{"state":"needs_review","value":"Afficher plus"}},"it":{"stringUnit":{"state":"needs_review","value":"Mostra altro"}},"ja":{"stringUnit":{"state":"needs_review","value":"さらに表示"}},"km":{"stringUnit":{"state":"needs_review","value":"បង្ហាញបន្ថែម"}},"ko":{"stringUnit":{"state":"needs_review","value":"더 보기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Vis mer"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pokaż więcej"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Mostrar mais"}},"ru":{"stringUnit":{"state":"needs_review","value":"Показать больше"}},"th":{"stringUnit":{"state":"needs_review","value":"แสดงเพิ่มเติม"}},"tr":{"stringUnit":{"state":"needs_review","value":"Daha fazla göster"}},"uk":{"stringUnit":{"state":"needs_review","value":"Показати більше"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hiện thêm"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"显示更多"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"顯示更多"}}}},
     "needsYou.collapse": {"comment":"Agent pane Needs you: button that folds an expanded ask's row back to one card","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إظهار أقل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prikaži manje"}},"da":{"stringUnit":{"state":"needs_review","value":"Vis mindre"}},"de":{"stringUnit":{"state":"needs_review","value":"Weniger anzeigen"}},"en":{"stringUnit":{"state":"translated","value":"Show less"}},"es":{"stringUnit":{"state":"needs_review","value":"Mostrar menos"}},"fr":{"stringUnit":{"state":"needs_review","value":"Afficher moins"}},"it":{"stringUnit":{"state":"needs_review","value":"Mostra meno"}},"ja":{"stringUnit":{"state":"needs_review","value":"表示を減らす"}},"km":{"stringUnit":{"state":"needs_review","value":"បង្ហាញតិច"}},"ko":{"stringUnit":{"state":"needs_review","value":"간단히 보기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Vis mindre"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pokaż mniej"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Mostrar menos"}},"ru":{"stringUnit":{"state":"needs_review","value":"Показать меньше"}},"th":{"stringUnit":{"state":"needs_review","value":"แสดงน้อยลง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Daha az göster"}},"uk":{"stringUnit":{"state":"needs_review","value":"Показати менше"}},"vi":{"stringUnit":{"state":"needs_review","value":"Ẩn bớt"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"收起"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"收合"}}}},
@@ -186977,133 +186978,133 @@
       }
     },
     "turn.tokens.detail": {
-      "comment": "Agent pane: the hover on a turn's split tokens (↓ 12.4K out ↑ 3.9M in). {output} is what the model wrote, {input} the fresh input, {cacheRead} and {cacheWrite} the prompt cache's reads and writes, each a compact count (12.4K, 3.8M).",
+      "comment": "Agent pane: the hover on a turn's token count, in plain words, never cache jargon (Leo, 2026-11-12: \"what even are cache writes?\"). {output} is what the model wrote, {fresh} what it read for the first time, {reused} what it read again from earlier calls, each a compact count (12.4K, 2.1M).",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "المخرجات {output} · مدخلات جديدة {input} · قراءات ذاكرة التخزين المؤقت {cacheRead} · كتابات ذاكرة التخزين المؤقت {cacheWrite}"
+            "value": "كتب {output} رمزًا · قرأ {fresh} جديدًا و{reused} مرة أخرى"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Izlaz {output} · novi ulaz {input} · čitanja iz keša {cacheRead} · upisi u keš {cacheWrite}"
+            "value": "Napisao {output} tokena · pročitao {fresh} novih, {reused} ponovo"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Output {output} · nyt input {input} · cachelæsninger {cacheRead} · cacheskrivninger {cacheWrite}"
+            "value": "Skrev {output} tokens · læste {fresh} nye, {reused} igen"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ausgabe {output} · neue Eingabe {input} · Cache-Lesezugriffe {cacheRead} · Cache-Schreibzugriffe {cacheWrite}"
+            "value": "{output} Tokens geschrieben · {fresh} neu gelesen, {reused} erneut"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Output {output} · fresh input {input} · cache reads {cacheRead} · cache writes {cacheWrite}"
+            "value": "Wrote {output} tokens · read {fresh} new, {reused} again"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Salida {output} · entrada nueva {input} · lecturas de caché {cacheRead} · escrituras de caché {cacheWrite}"
+            "value": "Escribió {output} tokens · leyó {fresh} nuevos, {reused} de nuevo"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sortie {output} · nouvelle entrée {input} · lectures du cache {cacheRead} · écritures du cache {cacheWrite}"
+            "value": "A écrit {output} jetons · lu {fresh} nouveaux, {reused} à nouveau"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Output {output} · nuovo input {input} · letture dalla cache {cacheRead} · scritture nella cache {cacheWrite}"
+            "value": "Ha scritto {output} token · letti {fresh} nuovi, {reused} di nuovo"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "出力 {output} · 新規入力 {input} · キャッシュ読み取り {cacheRead} · キャッシュ書き込み {cacheWrite}"
+            "value": "{output} トークンを書き込み · 新規 {fresh} を読み込み、{reused} を再読"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "លទ្ធផល {output} · ការបញ្ចូលថ្មី {input} · ការអានឃ្លាំងសម្ងាត់ {cacheRead} · ការសរសេរឃ្លាំងសម្ងាត់ {cacheWrite}"
+            "value": "បានសរសេរ {output} ថូខឹន · បានអាន {fresh} ថ្មី, {reused} ម្ដងទៀត"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "출력 {output} · 새 입력 {input} · 캐시 읽기 {cacheRead} · 캐시 쓰기 {cacheWrite}"
+            "value": "{output} 토큰 작성 · 새로 {fresh} 읽음, {reused} 다시 읽음"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Utdata {output} · ny inndata {input} · hurtigbufferlesinger {cacheRead} · hurtigbufferskrivinger {cacheWrite}"
+            "value": "Skrev {output} tokener · leste {fresh} nye, {reused} på nytt"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wyjście {output} · nowe wejście {input} · odczyty z pamięci podręcznej {cacheRead} · zapisy do pamięci podręcznej {cacheWrite}"
+            "value": "Napisano {output} tokenów · przeczytano {fresh} nowych, {reused} ponownie"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Saída {output} · entrada nova {input} · leituras do cache {cacheRead} · gravações no cache {cacheWrite}"
+            "value": "Escreveu {output} tokens · leu {fresh} novos, {reused} de novo"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Вывод {output} · новый ввод {input} · чтения из кэша {cacheRead} · записи в кэш {cacheWrite}"
+            "value": "Написано {output} токенов · прочитано {fresh} новых, {reused} повторно"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เอาต์พุต {output} · อินพุตใหม่ {input} · การอ่านแคช {cacheRead} · การเขียนแคช {cacheWrite}"
+            "value": "เขียน {output} โทเค็น · อ่านใหม่ {fresh} อ่านซ้ำ {reused}"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Çıktı {output} · yeni girdi {input} · önbellek okumaları {cacheRead} · önbellek yazmaları {cacheWrite}"
+            "value": "{output} jeton yazdı · {fresh} yeni, {reused} yeniden okudu"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Вивід {output} · новий ввід {input} · читання з кешу {cacheRead} · записи в кеш {cacheWrite}"
+            "value": "Написано {output} токенів · прочитано {fresh} нових, {reused} повторно"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Đầu ra {output} · đầu vào mới {input} · lượt đọc bộ nhớ đệm {cacheRead} · lượt ghi bộ nhớ đệm {cacheWrite}"
+            "value": "Đã viết {output} token · đọc {fresh} mới, {reused} lại"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "输出 {output} · 新输入 {input} · 缓存读取 {cacheRead} · 缓存写入 {cacheWrite}"
+            "value": "写入 {output} 个 token · 新读取 {fresh}，重读 {reused}"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "輸出 {output} · 新輸入 {input} · 快取讀取 {cacheRead} · 快取寫入 {cacheWrite}"
+            "value": "寫入 {output} 個 token · 新讀取 {fresh}，重讀 {reused}"
           }
         }
       }

@@ -30,13 +30,40 @@ use crate::daemon_spec::{WORK_HOME, WORK_USER};
 
 /// The first check after `cmux host run` starts (a boot or an update's restart).
 const BOOT_DELAY: Duration = Duration::from_secs(30);
-/// Every minute while the machine runs: a merged fix reaches an idle machine
-/// within about a minute of the channel moving, not five. One check is a GET
-/// of the small signed channel file (served uncached, max-age 60) and a
-/// signature check; it logs only when its outcome changes.
-const INTERVAL: Duration = Duration::from_secs(60);
-/// An update waiting for a turn to end looks again this soon.
-const BUSY_RETRY: Duration = Duration::from_secs(60);
+/// Every 15 s while the machine runs (plus [`JITTER`]): a merged fix reaches
+/// an idle machine within about 20 s of the channel moving. The fleet's first
+/// machine on a new build waited half the interval on average, so at 60 s
+/// that wait was most of the published-to-first-seen stage (23 builds of
+/// 2026-11-13: p50 65 s over a 17 s floor). One check is a GET of the small
+/// signed channel file (about 2 KB; the CDN does not cache it, every GET
+/// reads the origin) and a signature check, no process but curl; it logs
+/// only when its outcome changes.
+const INTERVAL: Duration = Duration::from_secs(15);
+/// An update waiting for a turn to end or a carrier session to detach looks
+/// again this soon, so it goes within about 20 s of the machine going idle,
+/// not up to a minute after. The busy look is local (acpmux and the session
+/// host's admin channel) and runs only while an update waits.
+const BUSY_RETRY: Duration = Duration::from_secs(15);
+/// At most this much is added to each wait, a fresh draw each time
+/// ([`next_look`]), so machines that started together (spares restored from
+/// one snapshot, a fleet that restarted into one update) do not look in step.
+const JITTER: Duration = Duration::from_millis(3_750);
+
+/// How long the worker waits after a check that ended in `outcome` before it
+/// looks again: [`BUSY_RETRY`] while an update waits for idle, else
+/// [`INTERVAL`], plus `draw` folded into [`JITTER`].
+pub(super) fn next_look(outcome: &Outcome, draw: u64) -> Duration {
+    let base = if matches!(outcome, Outcome::Busy(_)) { BUSY_RETRY } else { INTERVAL };
+    base + Duration::from_millis(draw % (JITTER.as_millis() as u64 + 1))
+}
+
+/// A fresh random draw for [`next_look`] (std's per-process random hash keys).
+fn jitter_draw() -> u64 {
+    use std::hash::{BuildHasher as _, Hasher as _};
+    let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+    hasher.write_u64(wall_ms());
+    hasher.finish()
+}
 pub(super) use super::gate::CONNECT_HOLD;
 /// The new build has this long to serve after its restart: a session host
 /// replays its journal before it listens (minutes for a large one).
@@ -543,7 +570,7 @@ fn run(paths: &Paths, rx: &Receiver<Msg>) {
             continue;
         }
         let (outcome, _) = check(paths, Honor::All);
-        let next = if matches!(outcome, Outcome::Busy(_)) { BUSY_RETRY } else { INTERVAL };
+        let next = next_look(&outcome, jitter_draw());
         if !wait_watching(paths, rx, next) {
             return;
         }
@@ -666,7 +693,7 @@ pub fn check(paths: &Paths, honor: Honor) -> (Outcome, Option<HoldKind>) {
 /// Runs one check (`inner`), then the pause look over it on every way out
 /// but a flip (which looked right before it): a check that returned early
 /// after a pause (a busy look that timed out across it) starts the connect
-/// hold, or a flip could follow a minute later.
+/// hold, or a flip could follow at the next look.
 pub(super) fn check_step(
     paths: &Paths,
     watch: &crate::agent::PauseWatch,
@@ -698,13 +725,9 @@ fn check_inner(
     let Some(target) = channel::local_target() else {
         return Outcome::Off(format!("no build for {}", std::env::consts::ARCH));
     };
-    let body = match fetch(CHANNEL_URL, CHANNEL_MAX_BYTES as u64, None) {
-        Ok(body) => body,
-        Err(e) => return Outcome::Failed(format!("reading {CHANNEL_URL}: {e}")),
-    };
-    let payload = match channel::verify(&body, &channel::trusted_keys(), now()) {
+    let payload = match read_channel() {
         Ok(payload) => payload,
-        Err(e) => return Outcome::Failed(format!("refusing {CHANNEL_URL}: {e}")),
+        Err(e) => return Outcome::Failed(e),
     };
     let mut state = load_state(paths);
     let plan = match decide(paths, &state, &payload, target) {
@@ -829,13 +852,9 @@ pub fn adopt(paths: &Paths) -> Outcome {
     let Some(target) = channel::local_target() else {
         return Outcome::Off(format!("no build for {}", std::env::consts::ARCH));
     };
-    let body = match fetch(CHANNEL_URL, CHANNEL_MAX_BYTES as u64, None) {
-        Ok(body) => body,
-        Err(e) => return Outcome::Failed(format!("reading {CHANNEL_URL}: {e}")),
-    };
-    let payload = match channel::verify(&body, &channel::trusted_keys(), now()) {
+    let payload = match read_channel() {
         Ok(payload) => payload,
-        Err(e) => return Outcome::Failed(format!("refusing {CHANNEL_URL}: {e}")),
+        Err(e) => return Outcome::Failed(e),
     };
     let mut state = load_state(paths);
     let plan = match decide(paths, &state, &payload, target) {
@@ -1019,14 +1038,78 @@ fn free_bytes(path: &Path) -> Option<u64> {
     Some(st.f_bavail as u64 * st.f_frsize as u64)
 }
 
+/// The last channel file that verified in this process, with its validators
+/// ([`channel::Cache`]).
+static CHANNEL_CACHE: Mutex<channel::Cache> = Mutex::new(channel::Cache::new());
+
+/// The channel's payload, verified now: a conditional GET of [`CHANNEL_URL`]
+/// against [`CHANNEL_CACHE`].
+fn read_channel() -> Result<channel::Payload, String> {
+    read_channel_from(&CHANNEL_CACHE, CHANNEL_URL, "=https", &channel::trusted_keys(), now())
+}
+
+/// Room for the status line and headers `--include` puts before the body.
+const HEAD_MAX_BYTES: u64 = 32 << 10;
+
+/// [`read_channel`] from `url` over `proto` (curl's `--proto`): sends the
+/// kept file's validators, and hands the answer, a whole file or a 304, to
+/// [`channel::Cache::take`], which verifies whatever payload it returns. The
+/// cache is not held during the GET.
+pub(super) fn read_channel_from(
+    cache: &Mutex<channel::Cache>,
+    url: &str,
+    proto: &str,
+    keys: &[(String, [u8; 32])],
+    now: u64,
+) -> Result<channel::Payload, String> {
+    let (etag, last_modified) = cache.lock().unwrap_or_else(|e| e.into_inner()).validators();
+    let mut headers = Vec::new();
+    if let Some(etag) = etag {
+        headers.push(format!("If-None-Match: {etag}"));
+    }
+    if let Some(last_modified) = last_modified {
+        headers.push(format!("If-Modified-Since: {last_modified}"));
+    }
+    let max = CHANNEL_MAX_BYTES as u64;
+    let raw = curl(url, proto, max, max.saturating_add(HEAD_MAX_BYTES), &headers, true, None)
+        .map_err(|e| format!("reading {url}: {e}"))?;
+    let answer = channel::parse_response(&raw).map_err(|e| format!("reading {url}: {e}"))?;
+    cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .take(answer, keys, now)
+        .map_err(|e| format!("refusing {url}: {e}"))
+}
+
 /// HTTPS GET with curl (the image has it; no redirects), at most `max`
 /// bytes; into `out`, or the body.
 fn fetch(url: &str, max: u64, out: Option<&Path>) -> Result<Vec<u8>, String> {
+    curl(url, "=https", max, max, &[], false, out)
+}
+
+/// GET `url` with curl over `proto`, a body of at most `max_body` bytes and
+/// at most `max` bytes on stdout, with `headers`; with `include`, stdout
+/// starts with the response's status line and headers. Into `out`, or stdout.
+fn curl(
+    url: &str,
+    proto: &str,
+    max_body: u64,
+    max: u64,
+    headers: &[String],
+    include: bool,
+    out: Option<&Path>,
+) -> Result<Vec<u8>, String> {
     let mut cmd = Command::new("curl");
-    cmd.args(["--fail", "--silent", "--show-error", "--proto", "=https", "--tlsv1.2"])
+    cmd.args(["--fail", "--silent", "--show-error", "--proto", proto, "--tlsv1.2"])
         .args(["--connect-timeout", "20", "--max-time", "900", "--retry", "2"])
         .arg("--max-filesize")
-        .arg(max.to_string());
+        .arg(max_body.to_string());
+    for header in headers {
+        cmd.arg("--header").arg(header);
+    }
+    if include {
+        cmd.arg("--include");
+    }
     if let Some(out) = out {
         cmd.arg("--output").arg(out);
     }
