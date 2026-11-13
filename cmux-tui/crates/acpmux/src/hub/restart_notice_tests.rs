@@ -97,8 +97,15 @@ impl LinkServing {
         .unwrap();
         let store =
             crate::store::open(&self.cfg.store, std::path::Path::new("/nonexistent")).unwrap();
-        let hub =
-            Hub::build(self.cfg.clone(), store, Mailbox::memory(), false, false, wireguard.clone());
+        let hub = Hub::build(
+            self.cfg.clone(),
+            store,
+            Mailbox::memory(),
+            false,
+            false,
+            wireguard.clone(),
+            true,
+        );
         let peer = hub.peers.lock().unwrap().get("b").cloned().unwrap();
         let paths = peer.summary()["paths"].clone();
         let vias = paths

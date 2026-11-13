@@ -2333,6 +2333,26 @@ async fn a_narrower_policy_reaches_an_agent_whose_host_is_not_adopted_yet() {
     );
 }
 
+/// Leo, 2026-11-12: "it took well over 90 seconds to start anything... everything waits on
+/// everything". A new chat waits for what an agent start needs (the login environment, the
+/// catalog, the launcher checks), never for the agent hosts' adoption: here adoption is held 8 s
+/// (`ACPMUX_TEST_ADOPT_HOLD_MS`, as one host whose hello never comes holds it), and the new chat
+/// answers well inside that.
+#[tokio::test]
+async fn a_new_chat_does_not_wait_for_adoption() {
+    const HOLD: Duration = Duration::from_secs(8);
+    let hold = HOLD.as_millis().to_string();
+    let daemon = Daemon::with_env("nogate", "approve-all", &[("ACPMUX_TEST_ADOPT_HOLD_MS", &hold)]);
+    let started = Instant::now();
+    let session = new_session(&daemon).await;
+    assert!(!session.is_empty());
+    assert!(
+        started.elapsed() < HOLD / 2,
+        "session/new waited {:?} for the agent hosts' adoption",
+        started.elapsed()
+    );
+}
+
 /// `_acpmux/info` with `waitLogs: false` answers while a restarted daemon still reads the chat
 /// logs, and says so (`logsLoading`). The app daemon's callers give info 2 s (cmux-tui-core
 /// `agent_message_acpmux.rs`, `agent_session_link.rs`) and read only what the session list

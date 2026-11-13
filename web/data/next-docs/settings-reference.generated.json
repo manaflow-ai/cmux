@@ -61,7 +61,7 @@
           "title": "Edited Files Shown",
           "help": "",
           "kind": "number",
-          "default": 5,
+          "default": 3,
           "group": "Agent Chat",
           "range": {
             "min": 1,
@@ -1758,7 +1758,7 @@
           "title": "New Workspace Position",
           "help": "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. A workspace made in a group goes to the same place inside that group. Pinned workspaces stay above it.",
           "kind": "choice",
-          "default": "afterCurrent",
+          "default": "top",
           "group": "Sidebar",
           "values": [
             "top",
@@ -2062,7 +2062,7 @@
           "title": "Unread Banner",
           "help": "When you come back to a chat that kept working, a banner at the top left says how many turns are new and jumps to them. Collapsed, it is a small pill. Right-click the banner or the New line to hide it or bring it back.",
           "kind": "choice",
-          "default": "expanded",
+          "default": "off",
           "group": "Agent Chat",
           "values": [
             "expanded",
@@ -2099,8 +2099,8 @@
           "default": 1,
           "group": "Density and Motion",
           "range": {
-            "min": 0.85,
-            "max": 1.5,
+            "min": 0.25,
+            "max": 5,
             "unit": "fraction"
           }
         },
@@ -5837,7 +5837,7 @@
         {
           "key": "diagnostics.usagePatterns",
           "title": "Record Usage Patterns",
-          "help": "Counts how you use cmux on this computer: commands, pane splits, agent chats, prompts and tokens, and connections, by day and hour. It never records prompts, terminal text, web addresses, file names or anything you type, and nothing is sent anywhere. See them with cmux usage-patterns or on the Agent Stats page.",
+          "help": "Counts how you use cmux on this computer: commands, pane splits, agent chats, prompts and tokens, and connections, by day and hour. It never records prompts, terminal text, web addresses, file names or anything you type, and nothing is sent anywhere. See them with cmux usage-patterns or on the Agent Stats page. It also counts which packages agents install, by name.",
           "kind": "toggle",
           "default": false,
           "group": "Usage Patterns"

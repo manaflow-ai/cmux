@@ -5,6 +5,7 @@
 // family's account with the family's mark at its corner, and a click opens a card that switches it.
 // A click applies at once and the menu stays open; Return closes it. Left and Right move between
 // the columns, Up and Down within one.
+import { HarnessUpdatesSection } from "./HarnessUpdates";
 import React, { Fragment, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Spinner } from "./conversation/icons";
 import { AgentMark } from "../shared/AgentMark";
@@ -1429,8 +1430,6 @@ function Columns({
         data-popup-open={open ? "" : undefined}
         aria-label={chip.label}
         title={chip.title}
-        aria-haspopup="dialog"
-        aria-expanded={open}
         {...press}
         // A mouse press never focuses the chip, as the list menu's button: a press that closes the
         // menu and lands a pick leaves the keyboard in the prompt the picker focused.
@@ -1448,6 +1447,7 @@ function Columns({
         {children}
       </button>
       <Popover
+        id={press["aria-controls"]}
         open={open}
         onOpenChange={(next, details) => {
           // Escape first closes the account card, then clears a search, then closes the menu.
@@ -1829,29 +1829,42 @@ function Columns({
               )}
             </div>
           </div>
-          {menu.update && (
-            <>
-              <hr className="acpmux-cols-sep" />
-              <div className="acpmux-cols-update">
-                <span>{menu.update.text}</span>
-                <button
-                  ref={updateAction}
-                  type="button"
-                  className="acpmux-cols-update-action"
-                  onKeyDown={(event) => {
-                    if (event.key !== "ArrowUp") return;
-                    event.preventDefault();
-                    field.current?.focus();
-                  }}
-                  onClick={() => {
-                    menu.update?.run();
-                    close();
-                  }}
-                >
-                  {t("harness.update")}
-                </button>
-              </div>
-            </>
+          {menu.updates ? (
+            <HarnessUpdatesSection
+              updates={menu.updates}
+              onOwnUpdate={close}
+              firstAction={updateAction}
+              onFirstKeyDown={(event) => {
+                if (event.key !== "ArrowUp") return;
+                event.preventDefault();
+                field.current?.focus();
+              }}
+            />
+          ) : (
+            menu.update && (
+              <>
+                <hr className="acpmux-cols-sep" />
+                <div className="acpmux-cols-update">
+                  <span>{menu.update.text}</span>
+                  <button
+                    ref={updateAction}
+                    type="button"
+                    className="acpmux-cols-update-action"
+                    onKeyDown={(event) => {
+                      if (event.key !== "ArrowUp") return;
+                      event.preventDefault();
+                      field.current?.focus();
+                    }}
+                    onClick={() => {
+                      menu.update?.run();
+                      close();
+                    }}
+                  >
+                    {t("harness.update")}
+                  </button>
+                </div>
+              </>
+            )
           )}
         </div>
       </Popover>
