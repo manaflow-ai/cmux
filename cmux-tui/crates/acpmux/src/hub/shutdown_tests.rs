@@ -663,9 +663,31 @@ async fn handoff_persistence_does_not_block_the_runtime_and_still_seals_the_stor
     );
     hub.audit.record(json!({"at": 1, "sessionId": "kept", "kind": "approval",
         "decision": {"kind": "allow"}, "answeredBy": {"person": true}}));
+    // An async loader was cancelled while its blocking worker still owned a chat's
+    // restore. Its recovered record must land before persistence seals the store.
+    let (restoring, restore_started) = tokio::sync::oneshot::channel();
+    let (finish_restore, restore_released) = std::sync::mpsc::channel();
+    let restored = {
+        let hub = hub.clone();
+        let mut recovered = record.clone();
+        recovered.seq = 2;
+        tokio::task::spawn_blocking(move || {
+            let session = hub.sessions().into_iter().find(|s| s.id == "kept").unwrap();
+            let _loading = session.log_load.lock().unwrap();
+            let _ = restoring.send(());
+            restore_released.recv_timeout(Duration::from_secs(2)).unwrap();
+            hub.store.append("kept", &recovered).unwrap();
+        })
+    };
+    restore_started.await.unwrap();
     hub.begin_shutdown();
     let deadline = tokio::time::Instant::now() + Duration::from_millis(100);
     let mut persistence = tokio::spawn(hub.clone().persist_for_handoff(deadline));
+    let sealed_early =
+        tokio::time::timeout(Duration::from_millis(30), entered.notified()).await.is_ok();
+    let _ = finish_restore.send(());
+    restored.await.unwrap();
+    assert!(!sealed_early, "the store sealed ahead of an in-flight log restore");
     tokio::time::timeout(Duration::from_secs(3), entered.notified()).await.unwrap();
     let started = std::time::Instant::now();
     let timed_out = tokio::time::timeout_at(deadline, &mut persistence).await.is_err();
@@ -677,6 +699,6 @@ async fn handoff_persistence_does_not_block_the_runtime_and_still_seals_the_stor
     assert!(hub.store.append("kept", &record).is_err(), "late writes were not fenced");
     assert_eq!(hub.audit.all().unwrap().len(), 1, "shutdown lost the pending approval");
     let reopened = crate::store::open(&Default::default(), dir.path()).unwrap();
-    assert_eq!(reopened.events("kept", 0, 10).unwrap().len(), 1);
+    assert_eq!(reopened.events("kept", 0, 10).unwrap().len(), 2);
     reopened.seal();
 }

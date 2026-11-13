@@ -164,11 +164,19 @@ impl Hub {
     /// holds its ownership lock until all three finish; if its deadline expires, the process
     /// exits with that lock still held and the next daemon replays the durable journal.
     pub(crate) async fn persist_for_handoff(self: Arc<Self>, deadline: tokio::time::Instant) {
+        // Cancelling session cleanup may have dropped its metadata task handle. The blocking
+        // index read still owns the sessions it will publish; include them before the fence.
+        self.wait_store().await;
         let (metadata_done, metadata_saved) = tokio::sync::oneshot::channel::<()>();
         let store = {
             let hub = self.clone();
             tokio::task::spawn_blocking(move || {
                 for session in hub.sessions() {
+                    // A cancelled async log loader can leave its blocking restore running.
+                    // It may append recovered events and save metadata: join that chat's
+                    // restore before draining it. Shutdown prevents new restores under this
+                    // lock, so earlier chats cannot start writing again before the seal.
+                    let _restored = session.log_load.lock().unwrap_or_else(|e| e.into_inner());
                     let _ = hub.store_deferred(&session);
                     // Every mutation already queued its snapshot. Wait for those writes;
                     // rewriting every unchanged chat adds one durable commit per chat.

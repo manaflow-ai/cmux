@@ -52,6 +52,10 @@ session cleanup is joined before sealing, and the daemon's ownership lock stays
 with the persistence task until its writers and PID/token cleanup finish. At the
 deadline the CLI exits with ownership retained; a new daemon cannot race a
 detached writer in the same home. The final diagnostic flush shares the deadline.
+Persistence waits for the metadata index and each active log restore under that
+chat's existing load lock. A new restore checks the shutdown fence under the same
+lock; a cancelled async loader cannot leave its blocking writes racing the seal.
+The CLI owns the handoff task scope through process exit.
 
 The native document resource supplies the selected chat identity before `ready`.
 The saved HTML frame remains the preferred presentation. If that frame is absent,

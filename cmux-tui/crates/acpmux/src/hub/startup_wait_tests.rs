@@ -18,6 +18,8 @@ fn hub() -> Arc<Hub> {
 async fn daemon_peer_gate_waits_for_local_initialization() {
     let mut cfg = Config::default();
     cfg.store.mode = StoreMode::Memory;
+    cfg.peers
+        .insert("held".into(), serde_json::from_value(json!({"url": "ws://127.0.0.1:1"})).unwrap());
     let store = crate::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
     let hub = Hub::build(cfg, store, Mailbox::memory(), true, true, None, false);
     assert!(
@@ -30,6 +32,9 @@ async fn daemon_peer_gate_waits_for_local_initialization() {
     tokio::time::timeout(std::time::Duration::from_millis(1), hub.wait_local_ready())
         .await
         .expect("local initialization releases peer dialing");
+    hub.begin_shutdown();
+    hub.start_saved_peers().await;
+    assert!(hub.peers.lock().unwrap().is_empty(), "a released peer gate dialed during shutdown");
 }
 
 #[tokio::test(start_paused = true)]

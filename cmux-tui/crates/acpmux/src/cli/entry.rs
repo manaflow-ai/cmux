@@ -295,17 +295,23 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             if let Some(p) = crate::oom_rank::protect_daemon() {
                 tracing::info!("{}", crate::oom_rank::describe(p));
             }
-            let result = crate::daemon::run(DaemonOptions {
-                ws_listen: listen,
-                ws_token: token,
-                insecure_network_listen,
-                memory,
-                ready_fd,
-                person_key_fd,
-                dev_origins: allow_dev_origin,
-                dev,
-                take_over,
-            })
+            // Handoff writers retain the home lock until drained or process exit. This scope
+            // outlives daemon::run's deadline and the final log flush below.
+            let exit_tasks = cmux_scope::Scope::new("daemon-exit");
+            let result = crate::daemon::run(
+                DaemonOptions {
+                    ws_listen: listen,
+                    ws_token: token,
+                    insecure_network_listen,
+                    memory,
+                    ready_fd,
+                    person_key_fd,
+                    dev_origins: allow_dev_origin,
+                    dev,
+                    take_over,
+                },
+                &exit_tasks,
+            )
             .await;
             // The lines logged so far reach the log before the process ends.
             crate::log_sink::flush(crate::daemon::shutdown_time_left().unwrap_or(LOG_FLUSH_BUDGET));

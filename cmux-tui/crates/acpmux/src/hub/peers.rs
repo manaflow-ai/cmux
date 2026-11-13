@@ -111,7 +111,11 @@ impl Hub {
     pub(crate) async fn start_saved_peers(&self) {
         let peers = self.config.read().await.peers.clone();
         for (name, pc) in peers {
-            self.start_peer(&name, &pc);
+            // A gate released during shutdown cannot start a new tunnel after the existing
+            // peers were stopped. Registration and the shutdown fence share this lock.
+            if self.before_shutdown(|| self.start_peer(&name, &pc)).is_none() {
+                break;
+            }
         }
     }
 

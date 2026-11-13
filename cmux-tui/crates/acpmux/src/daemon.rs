@@ -196,7 +196,9 @@ pub(crate) fn shutdown_time_left() -> Option<Duration> {
         .map(|deadline| deadline.saturating_duration_since(std::time::Instant::now()))
 }
 
-pub async fn run(opts: DaemonOptions) -> Result<()> {
+/// `exit_tasks` belongs to the CLI and stays alive until process exit. Shutdown persistence
+/// may use the end of that lifetime while retaining this daemon's exclusive home lock.
+pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<()> {
     *SHUTDOWN_DEADLINE.lock().unwrap_or_else(PoisonError::into_inner) = None;
     // The start of every startup phase in `daemon status` is timed from (`gauges.rs`).
     let gauges = crate::gauges::global();
@@ -836,7 +838,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // the socket is already ready.
     {
         let peers = hub.clone();
-        hub.scope.spawn_named("peer-start-gate", async move {
+        hub.scope.spawn_until_cancelled("peer-start-gate", async move {
             tokio::select! {
                 _ = peers.wait_local_ready() => {}
                 _ = tokio::time::sleep(Duration::from_secs(2)) => {}
@@ -914,9 +916,12 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 {
                     let hub = hub.clone();
                     let gauges = gauges;
-                    tokio::spawn(async move {
+                    hub.clone().scope.spawn_until_cancelled("restore-chat-logs", async move {
                         let _phase = gauges.phase("all chat logs");
                         hub.load_logs_async().await;
+                        if hub.shutting_down() {
+                            return;
+                        }
                         hub.finish_clone_boot(&home());
                         // Once every log is read: a pass reads only chats whose log is loaded.
                         let _worker = hub.retention_worker();
@@ -1157,7 +1162,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // daemon; unknown (a timeout) counts as kept.
     let mut sessions = {
         let hub = hub.clone();
-        tokio::spawn(async move {
+        exit_tasks.spawn_named("shutdown-sessions", async move {
             // A signal can arrive while metadata loads. Snapshot every stored session before
             // detaching or ending hosts. A timeout conservatively keeps their router below.
             let _ = metadata.await;
@@ -1184,7 +1189,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     let (cleanup_done, cleanup_finished) = tokio::sync::oneshot::channel::<()>();
     let persistence = {
         let hub = hub.clone();
-        tokio::spawn(async move {
+        exit_tasks.spawn_named("shutdown-persistence", async move {
             // Abort is cooperative: a synchronous final session write may still be under way.
             // Never seal ahead of it or release ownership while it can still mutate the home.
             if let Some(sessions) = unfinished_sessions {
