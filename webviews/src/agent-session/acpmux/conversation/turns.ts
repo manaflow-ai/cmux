@@ -1140,8 +1140,9 @@ const isWork = (row: AcpmuxRow) =>
   row.kind === "activity" &&
   (row.items ?? []).some((item) => item.tool && !isEditTool(item.tool) && !renderCall(item.tool));
 
-/// Explicit phases identify the answer. Older, unphased turns fall back to their last takeaway
-/// or nonempty reply after the final tool call. -1 means every reply belongs to the work.
+/// Explicit phases select the final answer and footer; older, unphased turns fall back to their
+/// last takeaway or nonempty reply after the final tool call. Earlier substantive replies stay
+/// visible independently, even when the provider labels them commentary.
 function answerAt(rows: readonly AcpmuxRow[]): number {
   if (rows.some((row) => row.kind === "assistant" && row.assistantPhase !== undefined)) {
     for (let at = rows.length - 1; at >= 0; at -= 1) if (isFinalAnswer(rows[at]!)) return at;
@@ -1200,8 +1201,8 @@ const isOwnSteer = (row: AcpmuxRow) => !row.incoming && !row.received;
 /// The person's steer always does: it and the reply before it stay in sight under every arm. Another
 /// agent's message does only after a reply that stays in sight beside the closed fold: with none, the
 /// fold above it would close onto the next one with nothing between them, so it folds in place, the
-/// nearest fold's entry. Under turnFoldReplies' `answer` arm (Codex's) every earlier reply folds with
-/// the work, so no agent's message splits.
+/// nearest fold's entry. The default `answer` arm keeps one work disclosure across received
+/// messages, with the person's replies beside it; only a personal steer splits that disclosure.
 const startsFold = (row: AcpmuxRow, replied: boolean) =>
   splitsFold(row) && (isOwnSteer(row) || (replied && experimentArm(turnFoldReplies) !== "answer"));
 /// A reply that lets another agent's message start a fold (`startsFold`), read the same way off the
@@ -1304,7 +1305,7 @@ function repliesIn(body: readonly AcpmuxRow[]): Set<string> {
       stepped = answered = false;
       continue;
     }
-    if (isReply(row) && (isTakeaway(row) || (!stepped && !answered))) {
+    if (isReply(row) && (isTakeaway(row) || (row.assistantPhase === undefined && !stepped && !answered))) {
       replies.add(row.id);
       answered = true;
     }
@@ -1561,11 +1562,12 @@ function shapeTurn(
   const edits: AcpmuxRow[] = [];
   const replies = repliesIn(body);
   // How the closed fold treats the earlier replies (turnFoldReplies.experiment.ts). The `answer` arm,
-  // Codex's: every earlier reply folds with the work; `replies` still marks them, so each keeps its
-  // action row once the fold opens. A reply whose question another agent's message cut off stays
-  // out: its card waits on the person, under it (`cutOff`).
+  // Codex's: short narration folds with the work, while substantive replies stay in sight; `replies`
+  // still marks them, so each keeps its action row once the fold opens. A reply whose question another
+  // agent's message cut off stays out: its card waits on the person, under it (`cutOff`).
   const repliesArm = experimentArm(turnFoldReplies);
-  const keptOut: ReadonlySet<string> = repliesArm === "answer" ? new Set(cutOff ? [cutOff.reply.id] : []) : replies;
+  const keptOut: ReadonlySet<string> =
+    repliesArm === "answer" ? new Set([...replies, ...(cutOff ? [cutOff.reply.id] : [])]) : replies;
   const steerDialogue = steerDialogueIn(body);
   // A turn the person steered still has one fold (Leo, 2026-11-07, on a closed "Worked for 5m 15s"
   // with "Finished 2 background tasks and ran 8 commands" beside it: "this could have been, like,
@@ -2821,8 +2823,9 @@ function codexRuns(rows: AcpmuxRow[], named?: string, lineOnly = false, carried?
 /// lines at the pane's width.
 export const SHORT_NOTE_CHARS = 160;
 const TAKEAWAY_LINES = 3;
-/// A reply that reads as a takeaway, not narration of the work: over about three lines, or with a
-/// question, a list, a link, a code block or a second paragraph (Leo, 2026-10-21). Inline code alone
+/// A reply that reads as a takeaway, not narration of the work: over about three lines, more than
+/// about two sentences, or with a question, a list, a link, a code block or a second paragraph (Leo,
+/// 2026-10-21). Inline code alone
 /// does not make one: narration names files and calls ("Reading `client.ts` next."), and that is
 /// the work Lawrence asked to collapse; a short note keeps the fold it had before. Another agent's words
 /// always are. Shared by the finished turn's final answer and the running turn's runs
@@ -2832,10 +2835,41 @@ export function isTakeaway(row: AcpmuxRow): boolean {
   const text = (row.text ?? "").trim();
   if (!text) return false;
   return (
+    isFinalAnswer(row) ||
     Boolean(row.incoming) ||
     text.length > SHORT_NOTE_CHARS ||
     text.split("\n").length > TAKEAWAY_LINES ||
-    /\?|```|~~~|\n\s*\n|^\s*(?:[-*+]|\d+[.)])\s|\]\(|https?:\/\//m.test(text)
+    /\?|```|~~~|\n\s*\n|^\s*(?:[-*+]|\d+[.)])\s|\]\(|https?:\/\//m.test(text) ||
+    !isWorkNarration(text)
+  );
+}
+
+/// Only recognizable short progress narration belongs to the work. Unknown prose can be a brief
+/// answer: a later tool and "I sent it" do not replace it (Leo, 2026-11-13). Check every sentence
+/// so "Let me check. The cache is stale." keeps its finding; structural takeaways win above.
+function isWorkNarration(text: string): boolean {
+  const sentences = text
+    .replace(/\.{3,}|…/g, ".")
+    .split(/[.!?](?:\s+|$)/)
+    .filter((part) => part.trim());
+  return (
+    sentences.length > 0 &&
+    sentences.length <= 2 &&
+    sentences.every((part) => {
+      const note = part.trim();
+      if (/^(?:both|the|all) [^,;:|]+\b(?:still running|still pending|are running|are pending)$/i.test(note))
+        return true;
+      const action =
+        /^(?:(?:let me|i['’]ll|i will) (?:check|read|look|inspect|search|run|test|review|verify|wait)|(?:i['’]m |i am )?(?:checking|reading|looking|inspecting|searching|running|testing|reviewing|verifying|waiting))\b/i.exec(
+          note,
+        );
+      if (!action) return false;
+      // An action prefix alone does not make a progress note: "Running two tasks is faster"
+      // and "Let me check; the cache is stale" contain answers. Ambiguous clauses stay visible.
+      return !/[,;:|]|\b(?:am|is|are|was|were|has|have|had|can|could|should|would|will|because|but|however|therefore|means?|shows?|reveals?)\b/i.test(
+        note.slice(action[0].length),
+      );
+    })
   );
 }
 /// A personal steer closes the reply before it for the reader, even though the harness continues the

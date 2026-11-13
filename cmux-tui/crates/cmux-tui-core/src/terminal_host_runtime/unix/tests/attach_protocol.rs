@@ -18,7 +18,8 @@ fn termination_adoption_does_not_probe_legacy_protocols_for_receipt_hosts() {
             match listener.accept() {
                 Ok((mut stream, _)) => {
                     stream.set_nonblocking(false).unwrap();
-                    stream.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+                    cmux_tui_platform::read_timeout_or_ended(&stream, Duration::from_millis(100))
+                        .unwrap();
                     if let Ok(Some(frame)) = read_frame(&mut stream, MAX_FRAME_PAYLOAD) {
                         hellos.push((frame.version, frame.flags));
                     }

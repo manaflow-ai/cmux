@@ -102,7 +102,7 @@ ENABLED_VALUE = "1"
 SIGNING_JOBS = {
     "nightly.yml": ("build-sign-notarize-nightly", "recover-nightly-next-notarization",
                     "generate-nightly-deltas", "publish-nightly",
-                    "keep-published-dsyms", "republish-nightly-deltas"),
+                    "keep-published-dsyms", "republish-nightly-deltas", "nightly-next-one"),
     "release.yml": ("build-sign-notarize",),
     "repair-v0-64-25-helper-rpaths.yml": ("repair",),
     "cmux-next-dev-daily.yml": ("Sign cmux NEXT DEV",),

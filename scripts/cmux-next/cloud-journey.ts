@@ -121,10 +121,17 @@ type StackName = keyof typeof STACK;
 
 export type Backend = { name: string; api: string; stack: StackName };
 
+/** Preserve custom API names; canonicalize environment aliases only for the built-in routes. */
+function normalizeBackendName(name: string, apiOverride?: string): string {
+  if (apiOverride) return name || "custom";
+  return name === "production" ? "prod" : name === "development" ? "dev" : name;
+}
+
 /** The backend names this journey knows (CloudConfiguration.swift, backend/scripts/deploy-worker.sh). */
 export function resolveBackend(name: string, apiOverride?: string, stackOverride?: string, localPort = 8787): Backend {
+  name = normalizeBackendName(name, apiOverride);
   const stack = (s: StackName): StackName => (stackOverride === "dev" || stackOverride === "prod" ? stackOverride : s);
-  if (apiOverride) return { name: name || "custom", api: apiOverride.replace(/\/+$/, ""), stack: stack("dev") };
+  if (apiOverride) return { name, api: apiOverride.replace(/\/+$/, ""), stack: stack("dev") };
   // preview-<PR> (backend.yml) or preview-<tag> (a personal dev Worker, cloud-dev-loop.sh).
   const preview = /^preview-([a-z0-9][a-z0-9-]{0,40})$/.exec(name);
   if (preview) return { name, api: `https://cmux-api-preview-${preview[1]}.debussy.workers.dev`, stack: stack("dev") };
@@ -132,12 +139,10 @@ export function resolveBackend(name: string, apiOverride?: string, stackOverride
     case "local":
       return { name, api: `http://127.0.0.1:${localPort}`, stack: stack("dev") };
     case "dev":
-    case "development":
       return { name: "dev", api: "https://cmux-api-development.debussy.workers.dev", stack: stack("dev") };
     case "staging":
       return { name, api: "https://cloud-api-staging.cmux.dev", stack: stack("dev") };
     case "prod":
-    case "production":
       return { name: "prod", api: "https://cloud-api.cmux.dev", stack: stack("prod") };
     default:
       throw new Error(`--backend ${name}: one of local, dev, preview-N (or preview-TAG), staging, prod (or --api URL)`);
@@ -438,6 +443,12 @@ export async function observeFirstText(exec: Exec, session: string, budgetMs: nu
   } catch (error) {
     record({ step: "first text", status: "pass", ms: 0, detail: `measurement unavailable: ${String((error as Error)?.message ?? error)}`, fields: timing.fields() });
   }
+}
+
+/** All callers, including a signal during delete, wait for the same cleanup to finish. */
+export function sharedCleanup(action: () => Promise<void>): () => Promise<void> {
+  let completion: Promise<void> | undefined;
+  return () => completion ??= Promise.resolve().then(action);
 }
 
 /** Keep cancellation cleanup installed throughout the observer wait, and delete before waiting. */
@@ -1865,22 +1876,24 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     console.log(reds.length ? `${reds.length} step(s) red after the deploy that were green before it` : "no new reds");
     return reds.length ? 3 : 0;
   }
-  const backend = resolveBackend(argValue("--backend", argv) ?? (argValue("--api", argv) ? "custom" : "staging"), argValue("--api", argv), argValue("--stack", argv), Number(argValue("--local-port", argv) ?? 8787));
-  const outArg = argValue("--out", argv);
-  const outDir = outArg ? path.resolve(outArg) : null;
-  if (outDir) mkdirSync(outDir, { recursive: true });
+  const backendArg = argValue("--backend", argv) ?? (argValue("--api", argv) ? "custom" : "staging");
+  const backendName = normalizeBackendName(backendArg, argValue("--api", argv));
   // Publish a failure envelope before credential/config reads or network work. A hard timeout or
   // early exception still leaves an attributable real/stub row, replaced after a completed journey.
   const probeOut = argValue("--probe-out", argv);
-  const probeName = argValue("--probe", argv) ?? `cloud-chat-replies-${backend.name === "prod" ? "production" : backend.name}`;
+  const probeName = argValue("--probe", argv) ?? `cloud-chat-replies-${backendName === "prod" ? "production" : backendName}`;
   const probeModel: "stub" | "real" = argValue("--model", argv) === "stub" ||
     (Boolean(argValue("--gateway", argv)) && (argValue("--gateway-upstream", argv) ?? "stub") === "stub") ? "stub" : "real";
-  const probeContext = { backend: backend.name, model: probeModel, run_attempt: Number(process.env.GITHUB_RUN_ATTEMPT ?? 1) };
+  const probeContext = { backend: backendName, model: probeModel, run_attempt: Number(process.env.GITHUB_RUN_ATTEMPT ?? 1) };
   const probeRun = process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}` : undefined;
   if (probeOut) {
     mkdirSync(path.dirname(probeOut), { recursive: true });
     writeFileSync(probeOut, `${JSON.stringify(probeRow(probeName, [], probeRun, new Date(), probeContext))}\n`);
   }
+  const backend = resolveBackend(backendArg, argValue("--api", argv), argValue("--stack", argv), Number(argValue("--local-port", argv) ?? 8787));
+  const outArg = argValue("--out", argv);
+  const outDir = outArg ? path.resolve(outArg) : null;
+  if (outDir) mkdirSync(outDir, { recursive: true });
   const credFile = argValue("--credentials", argv);
   const creds: Record<string, string> = { ...(credFile ? readEnvFile(readFileSync(credFile, "utf8")) : {}) };
   const email = process.env.CMUX_DOGFOOD_STACK_EMAIL ?? creds.CMUX_DOGFOOD_STACK_EMAIL ?? creds.CMUX_UITEST_STACK_EMAIL;
@@ -1970,11 +1983,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   let localGateway: ReturnType<typeof spawn> | null = null;
   let localGatewayDir: string | null = null;
   let deleted = false;
-  let cleaned = false;
   let firstTextObserver: Promise<void> | undefined;
   // Delete what this run made, pass, fail or cancel. A create whose reply was lost leaves `machine`
   // null, so the run's own machine is also found by its name (`cloud journey <tag>`).
-  const cleanup = async () => {
+  const cleanup = sharedCleanup(async () => {
     if (localGateway?.pid) {
       // Only the process this run started, by its own pid.
       try { process.kill(localGateway.pid, "SIGTERM"); } catch {}
@@ -1997,8 +2009,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: before };
       }).catch(() => undefined);
     }
-    if (cleaned || keep || !api.bearer) return;
-    cleaned = true;
+    if (keep || !api.bearer) return;
     if (gatewayMachine) {
       const g: string = gatewayMachine;
       await J.step("delete gateway machine (cleanup)", async () => {
@@ -2019,7 +2030,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       await api.deleteMachine(target, `${tag}-cleanup-delete`);
       return { value: null, detail: target };
     }).catch(() => undefined);
-  };
+  });
   // The cmuxterm-hq probes.py row: ok with send-to-reply ms, or fail naming the first failed step (or none reached).
   const writeProbe = () => {
     if (probeOut) writeFileSync(probeOut, `${JSON.stringify(probeRow(probeName, J.steps, probeRun, new Date(), probeContext))}\n`);
