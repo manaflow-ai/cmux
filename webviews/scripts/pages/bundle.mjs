@@ -73,8 +73,8 @@ for (const page of pages) {
     plugins: [artifactRuntimePlugin(), tailwindPlugin, jsonParseSettingsPagePlugin, katexStylePlugin({ split: false })],
   });
   const css = styles.outputFiles.find((file) => file.path.endsWith(".css"));
-  // Apply the same focus-ring transform before factoring. The shared prefix must pass the gate too;
-  // build-pages-web.sh runs the gate again on each remainder as a cheap idempotence check.
+  // Apply the focus-ring transform before factoring so the shared prefix and every remainder
+  // receive exactly one pass.
   const gated = await postcss([focusRingGate()]).process(Buffer.from(css?.contents ?? "").toString("utf8"), {
     from: path.join(outdir, page, "app.css"),
     map: false,

@@ -89,8 +89,6 @@ if [ -n "${CMUX_PAGES_METAFILE:-}" ]; then cp "$WORK/metafile.json" "$CMUX_PAGES
 for page in $PAGES; do
   src="$ROOT/webviews/src/pages/$page"
   mkdir -p "$WORK/$page"
-  # FOCUS-RING: the focus-ring gate on esbuild's CSS, as the Vite build does (postcss.config.mjs).
-  if [ -f "$WORK/$page/app.css" ]; then bun scripts/postcss/gate-css.mjs "$WORK/$page/app.css"; fi
   loader=""
   case " $SPLIT_STRINGS " in
     *" $page "*) loader="$(bun scripts/pages/split-strings.mjs "$src/generated/strings.json" "$WORK/$page/locales")" ;;
