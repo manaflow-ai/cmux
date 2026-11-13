@@ -87,7 +87,10 @@ struct CloudMoveTests {
             let moved = try await move.read()
             let tab = try #require(moved.machineTab, "no chat tab on the machine")
             let cloud = try #require(move.machine.daemon.store.workspaces.first { $0.screens.flatMap(\.panes).contains { $0.tabs.contains { $0.id == tab.id } } }).id
-            try await Self.waitUntil { rows().contains(cloud) && PendingWorkspaceRows.shared.rows(in: controller.state.id).isEmpty }
+            // Placed once its pending placement resolved (it may wait for the selected row: `anchorWaitLimit`), not when its row first lists.
+            try await Self.waitUntil {
+                rows().contains(cloud) && PendingWorkspaceRows.shared.rows(in: controller.state.id).isEmpty && services.windows.pendingPlacements[cloud] == nil
+            }
             let shown = rows()
             #expect(shown.firstIndex(of: cloud) == shown.firstIndex(of: selected).map { $0 + 1 },
                     "the Cloud workspace is not right below the selected one: \(shown), selected \(selected), cloud \(cloud)")
