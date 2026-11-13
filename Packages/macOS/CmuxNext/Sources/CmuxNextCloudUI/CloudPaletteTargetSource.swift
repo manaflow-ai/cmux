@@ -80,7 +80,8 @@ public final class CloudPaletteTargetSource: PaletteTargetSource {
             guard let id = row["id"] as? String, let title = row["title"] as? String else { return nil }
             let state = row["state"] as? String, intent = row["intent"] as? String
             let recovery = intent == "startDesktop"
-                ? PaletteTargetRecovery(action: "cloudSetupDesktop", title: Words.setup, target: ActionTargetRef(kind: .machine, id: id))
+                ? PaletteTargetRecovery(action: "cloudSetupDesktop", title: state == "resume" ? Words.resume : Words.setup,
+                                         target: ActionTargetRef(kind: .machine, id: id))
                 : intent == "createDesktop" ? PaletteTargetRecovery(action: "newCloudMachine", title: Words.create) : nil
             return PaletteTargetOption(id: id, title: state == "empty" ? Words.create : title,
                                        subtitle: Words.state(state), symbol: state == "empty" ? "plus" : "desktopcomputer",

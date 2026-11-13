@@ -64,6 +64,15 @@ struct CloudPaletteTargetSourceTests {
         #expect(paused.isEnabled)
     }
 
+    @Test func pausedDesktoplessMachineOffersResumeAndOpenSetup() throws {
+        let row = try #require(options(machines: [machine("paused", desktop: false, status: "paused")], desktop: true).first)
+        #expect(row.subtitle == "Paused")
+        #expect(row.recovery?.action == "cloudSetupDesktop")
+        #expect(row.recovery?.title == "Resume and open")
+        #expect(row.recovery?.target == ActionTargetRef(kind: .machine, id: "paused"))
+        #expect(row.isEnabled)
+    }
+
     @Test func unnamedMachinesNeverShowTheirIDsOrCLIInstructions() throws {
         let rows = options(machines: try [machine("private-machine-id", desktop: false)], desktop: true)
         let row = try #require(rows.first)
