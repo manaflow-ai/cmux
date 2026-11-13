@@ -28,6 +28,7 @@ struct CmuxAppLinksTests {
         #expect(CmuxAppLinks.settingsAction(for: URL(string: "https://settings/background")!, linkScheme: scheme) == nil)
         #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/models/add")!, linkScheme: scheme) == "#/settings/models?focus=models.add")
         #expect(DeepLink.settingsRoute(for: URL(string: "\(scheme)://settings/models/add")!, linkScheme: scheme) == "#/settings/models?focus=models.add")
+        #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/models")!, linkScheme: scheme) == "#/settings/models")
         #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/background")!, linkScheme: scheme) == nil)
         #expect(DeepLink.settingsRoute(for: URL(string: "https://settings/models/add")!, linkScheme: scheme) == nil)
     }

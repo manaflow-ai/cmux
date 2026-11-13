@@ -253,5 +253,8 @@ opens a terminal tab in the person's window running `claude setup-token` (Settin
 terminal path); `{action:"addClaudeToken", token, label?}` refuses a value without the `sk-ant-oat`
 prefix or with whitespace inside, stores it like an API key (account `claude-token-<8 hex>`) and
 sends `_acpmux/connections/claude_token.add {secret: "keychain:...", label?}`; a refused add deletes
-the item. `cmux://settings/models/add` opens `#/settings/models?focus=models.add`
-(`DeepLink.settingsRoute`).
+the item. `cmux://settings/models` opens `#/settings/models` and `cmux://settings/models/add`
+`#/settings/models?focus=models.add` (`DeepLink.settingsRoute`). The card applies each
+`_acpmux/connections.changed` note's `ConnectionsState` directly (no second read). A `chatgpt.wait`
+that acpmux refuses ends the attempt at once with acpmux's code (`chatgpt.unknown_attempt`); three
+calls with no answer end it as `unreachable`; both send `chatgpt.cancel {attempt}`.

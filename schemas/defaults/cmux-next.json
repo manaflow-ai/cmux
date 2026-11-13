@@ -638,6 +638,7 @@
     "setting.mobile.allowIPhoneConnections": false,
     "setting.mobile.terminalSizing": "smallest",
     "setting.mobile.terminalSizingOrder": [],
+    "setting.models.spreadUsage": true,
     "setting.navigation.history.scope": "workspaces",
     "setting.navigation.historyScope": "workspace",
     "setting.newTerminal.opensWorkspace": false,

@@ -23,7 +23,11 @@ import Testing
         let refuseKeyAdd = OSAllocatedUnfairLock(initialState: false)
         let beginURL = OSAllocatedUnfairLock(initialState: "https://auth.openai.com/api/accounts/authorize?client_id=dynamic_agent_client")
         let signedInPlan = OSAllocatedUnfairLock(initialState: false)
+        /// `chatgpt.wait` fails: acpmux's error name, or "" for a daemon that does not answer.
+        let waitFailure = OSAllocatedUnfairLock<String?>(initialState: nil)
     }
+
+    struct NoAnswer: Error {}
 
     /// The Keychain stand-in: what was stored and removed, by reference.
     final class Keys: ModelKeyStoring {
@@ -94,6 +98,10 @@ import Testing
                 case .chatgptBegin:
                     return Data(#"{"attempt":"att-1","url":"\#(daemon.beginURL.withLock { $0 })"}"#.utf8)
                 case .chatgptWait:
+                    if let failure = daemon.waitFailure.withLock({ $0 }) {
+                        if failure.isEmpty { throw NoAnswer() }
+                        throw AcpmuxRPCError(code: -32602, name: failure, message: "refused")
+                    }
                     let status = daemon.waits.withLock { waits in waits.count > 1 ? waits.removeFirst() : waits.first ?? "pending" }
                     if status == "done" { daemon.signedInPlan.withLock { $0 = true } }
                     return Data(#"{"status":"\#(status)","connection":null,"error":\#(status == "failed" ? "\"no_plan_scope\"" : "null")}"#.utf8)
@@ -298,5 +306,45 @@ import Testing
     @Test func orgKeyNeedsAnExplicitKeyOrNull() async throws {
         let models = make(daemon: Daemon())
         await #expect(throws: PageError.self) { _ = try await models.run(["action": "orgKey", "agent": "claude"], context: click) }
+    }
+
+    @Test func chatGPTWaitRefusedEndsTheAttemptWithItsCode() async throws {
+        let daemon = Daemon()
+        daemon.waitFailure.withLock { $0 = "chatgpt.unknown_attempt" }
+        let models = make(daemon: daemon)
+        _ = try await models.run(["action": "connectChatGPT"], context: click)
+        await models.chatgptTask?.value
+        // acpmux's own refusal ends it at once, with its code, and the attempt is cancelled.
+        let methods = daemon.calls.withLock { $0 }.map(\.method)
+        #expect(methods.filter { $0 == "_acpmux/connections/chatgpt.wait" }.count == 1)
+        #expect(daemon.calls.withLock { $0 }.last == Call(method: "_acpmux/connections/chatgpt.cancel", params: ["attempt": "att-1"]))
+        #expect(models.state["chatgpt"] == ["attempt": .null, "error": "chatgpt.unknown_attempt"])
+    }
+
+    @Test func chatGPTWaitWithNoAnswerCancelsAfterItsFailures() async throws {
+        let daemon = Daemon()
+        daemon.waitFailure.withLock { $0 = "" }
+        let models = make(daemon: daemon)
+        _ = try await models.run(["action": "connectChatGPT"], context: click)
+        await models.chatgptTask?.value
+        let methods = daemon.calls.withLock { $0 }.map(\.method)
+        #expect(methods.filter { $0 == "_acpmux/connections/chatgpt.wait" }.count == SettingsModels.chatgptFailures)
+        #expect(methods.last == "_acpmux/connections/chatgpt.cancel")
+        #expect(models.state["chatgpt"] == ["attempt": .null, "error": "unreachable"])
+    }
+
+    @Test func aConnectionsChangedNoteShowsItsStateWithoutARead() async throws {
+        let daemon = Daemon()
+        let models = make(daemon: daemon)
+        _ = await models.loadedState()
+        let reads = daemon.calls.withLock { $0 }.count
+        let note = #"{"jsonrpc":"2.0","method":"_acpmux/connections.changed","params":"#
+            + String(decoding: Self.claudeToken, as: UTF8.self) + "}"
+        await models.changed(Data(note.utf8))
+        #expect(daemon.calls.withLock { $0 }.count == reads)
+        #expect(models.state["personal"]?["connections"]?.arrayValue?.map { $0["id"]?.stringValue } == ["claude-token-1"])
+        // A note without a state reads it again.
+        await models.changed(Data(#"{"jsonrpc":"2.0","method":"_acpmux/connections.changed"}"#.utf8))
+        #expect(daemon.calls.withLock { $0 }.last?.method == "_acpmux/connections")
     }
 }

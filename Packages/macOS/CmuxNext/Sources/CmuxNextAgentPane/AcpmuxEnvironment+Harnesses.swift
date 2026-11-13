@@ -171,20 +171,21 @@ extension AcpmuxEnvironment {
     /// written, removed or reloaded), until the task is cancelled or the daemon closes the
     /// connection. Event-driven: one `_acpmux/watch` connection, no polling.
     public nonisolated func watchHarnesses(_ onChange: @escaping @Sendable () -> Void) -> Task<Void, Never> {
-        watchNotifications(Self.harnessesChanged, onChange)
+        watchNotifications(Self.harnessesChanged) { _ in onChange() }
     }
 
     /// Calls `onChange` for each `_acpmux/connections.changed` (Settings > Models: an order, spread,
-    /// sign-in or key change by any client), on the same kind of watch connection.
-    public nonisolated func watchConnections(_ onChange: @escaping @Sendable () -> Void) -> Task<Void, Never> {
+    /// sign-in or key change by any client), on the same kind of watch connection, with the
+    /// notification's line (its `params` are the whole `ConnectionsState`).
+    public nonisolated func watchConnections(_ onChange: @escaping @Sendable (Data) -> Void) -> Task<Void, Never> {
         watchNotifications(Self.connectionsChanged, onChange)
     }
 
     nonisolated static let harnessesChanged = "_acpmux/harnesses_changed"
     nonisolated static let connectionsChanged = "_acpmux/connections.changed"
 
-    /// One `_acpmux/watch` connection calling `onChange` for each notification named `method`.
-    private nonisolated func watchNotifications(_ method: String, _ onChange: @escaping @Sendable () -> Void) -> Task<Void, Never> {
+    /// One `_acpmux/watch` connection calling `onChange` with each notification line named `method`.
+    private nonisolated func watchNotifications(_ method: String, _ onChange: @escaping @Sendable (Data) -> Void) -> Task<Void, Never> {
         let socketPath = socketPath
         return Task.detached {
             guard let endpoint = try? AcpmuxStatusClient.unixEndpoint(socketPath) else { return }
@@ -199,7 +200,7 @@ extension AcpmuxEnvironment {
     }
 
     private nonisolated static func readHarnessChanges(on connection: NWConnection, method: String,
-                                                      onChange: @escaping @Sendable () -> Void) async throws {
+                                                      onChange: @escaping @Sendable (Data) -> Void) async throws {
         try await AcpmuxStatusClient.start(connection)
         let initialize: [String: Any] = [
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -224,7 +225,7 @@ extension AcpmuxEnvironment {
             while let newline = buffer.firstIndex(of: 0x0A) {
                 let line = Data(buffer[buffer.startIndex..<newline])
                 buffer.removeSubrange(buffer.startIndex...newline)
-                if Self.isNotification(line, method) { onChange() }
+                if Self.isNotification(line, method) { onChange(line) }
             }
             // A session event larger than this is not one this reader needs whole.
             if buffer.count > 4 << 20 { buffer.removeAll(keepingCapacity: true) }

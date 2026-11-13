@@ -74,7 +74,10 @@ extension SettingsModels {
         return ["attempt": .string(attempt)]
     }
 
-    /// The wait loop: pending asks again; done reads the connections; failed shows its error.
+    /// The wait loop: pending asks again; done reads the connections; failed shows its error. acpmux's
+    /// own refusal (`chatgpt.unknown_attempt`, ...) ends it at once with that code; a daemon that does
+    /// not answer ends it after ``chatgptFailures`` calls in a row. Either way the attempt is cancelled,
+    /// so acpmux's loopback listener closes.
     func awaitChatGPT(_ attempt: String, _ environment: AcpmuxEnvironment) async {
         var failures = 0
         // wakeup-allow: each round awaits acpmux's long poll (up to 25 s); chatgptRounds bounds the attempt
@@ -85,9 +88,12 @@ extension SettingsModels {
                 reply = try JSONValue.parse(try await daemon(environment, .chatgptWait, ["attempt": attempt]))
                 failures = 0
             } catch {
+                let refusal = Self.daemonRefusal(error)
                 failures += 1
-                if failures >= Self.chatgptFailures { return finish(attempt, error: "unreachable") }
-                continue
+                guard refusal != nil || failures >= Self.chatgptFailures else { continue }
+                guard chatgptAttempt == attempt else { return }
+                await endAttempt(attempt, environment)
+                return finish(attempt, error: refusal ?? "unreachable")
             }
             guard chatgptAttempt == attempt else { return }
             switch reply["status"]?.stringValue {
@@ -112,6 +118,13 @@ extension SettingsModels {
         replaceChatGPTTask(nil)
         finish(attempt, error: nil)
         if let environment = environment() { await endAttempt(attempt, environment) }
+    }
+
+    /// acpmux's own error name (`chatgpt.unknown_attempt`) for a call it answered with an error; nil when
+    /// it did not answer (socket, timeout).
+    nonisolated static func daemonRefusal(_ error: any Error) -> String? {
+        guard let error = error as? PageError, error.code.hasPrefix("cmux.models.") else { return nil }
+        return String(error.code.dropFirst("cmux.models.".count))
     }
 
     private func endAttempt(_ attempt: String, _ environment: AcpmuxEnvironment) async {
