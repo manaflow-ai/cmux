@@ -131,15 +131,15 @@ concurrency:
 permissions: {}
 
 env:
-  # x86_64-apple-darwin builds only where an Intel build ships: main pushes and
+  # x86_64-apple-darwin builds only where an Intel build ships: main and rc/** pushes and
   # dispatches from main, whose commit-addressed objects and latest/ the
-  # universal classic app bundles. Pull requests and every other branch
+  # universal classic app and the RC nightly and release bundle. Pull requests and every other branch
   # (feat-cmux-next, lanes) build aarch64-apple-darwin only: the NEXT app is
   # arm64 only, and the Intel leg ran about 24 min (max 38) on every PR
   # (Leo, 2026-11-12: "WHY DO WE KEEP ... BUILDING INTEL MACS ALL THE ... TIME").
   # '1' or empty: steps read it as ${CMUX_TUI_DARWIN_X86_64:+...}. Job `with:`
   # and `if:` cannot read env, so they repeat the expression.
-  CMUX_TUI_DARWIN_X86_64: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && '1' || '' }}
+  CMUX_TUI_DARWIN_X86_64: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/rc/')) && github.event_name != 'pull_request' && '1' || '' }}
   # libghostty-vt always builds from the ghostty-next gitlink: an empty
   # value overrides any runner-level CMUX_GHOSTTY_SRC (build.rs treats it
   # as unset).
@@ -1227,8 +1227,8 @@ jobs:
       # this call every tree, and so every nightly-next promotion, waited
       # for it (2026-10-21: it ended last in 217 of 219 published trees).
       include_windows: false
-      # The Linux targets build in build-linux. Intel only on main (CMUX_TUI_DARWIN_X86_64).
-      target_set: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'macos' || 'macos-arm64' }}
+      # The Linux targets build in build-linux. Intel only on main and rc/** (CMUX_TUI_DARWIN_X86_64).
+      target_set: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/rc/')) && github.event_name != 'pull_request' && 'macos' || 'macos-arm64' }}
       # A pull request's cmux-tui-pin-<merge sha> push publishes the tree that
       # its same-tree checks wait for, so these macOS legs are on the PR critical
       # path and use the PR pool, never the background lane. See
