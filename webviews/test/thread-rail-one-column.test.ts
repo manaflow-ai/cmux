@@ -93,10 +93,10 @@ await requireBrowserLane("thread-rail-one-column.test.ts", async () => {
   });
 
   // VEHICLE, never merges: what the page shows after a hover on tick 7 and on tick 8, with the
-  // momentum hold (as on feat) and without it (`?nohold=1`), 3 tries each. It prints and asserts nothing.
+  // momentum hold (as on feat) and without it (`?nohold=1`), 6 tries each. It prints and asserts nothing.
   test("VEHICLE: the card after a hover, with and without the momentum hold, every read printed", async () => {
     for (const arm of ["", "?nohold=1"]) {
-      for (let attempt = 0; attempt < 3; attempt += 1) {
+      for (let attempt = 0; attempt < 6; attempt += 1) {
         const page = await open(arm);
         const errors: string[] = [];
         page.on("pageerror", (error) => errors.push(`pageerror ${String(error).slice(0, 300)}`));
@@ -114,7 +114,7 @@ await requireBrowserLane("thread-rail-one-column.test.ts", async () => {
           await page.mouse.move(box.x, box.y);
           // 12 reads, one each 10 frames (about 2 s at 60 Hz), in the page's own frame callbacks.
           const states = await page.evaluate(
-            ({ text, point }) =>
+            ({ text, point, at }) =>
               new Promise<Array<{ has: boolean; card: string; line: string; ticks: number }>>((resolve) => {
                 const out: Array<{ has: boolean; card: string; line: string; ticks: number }> = [];
                 let frame = 0;
@@ -133,10 +133,23 @@ await requireBrowserLane("thread-rail-one-column.test.ts", async () => {
                     const top = scroll
                       ? `${scroll.scrollTop.toFixed(1)}/${scroll.scrollHeight}/${scroll.clientHeight}`
                       : "NO SCROLLER";
+                    const boxOf = (query: string) => {
+                      const node = document.querySelector<HTMLElement>(query);
+                      if (!node) return "none";
+                      const rect = node.getBoundingClientRect();
+                      return `${rect.left.toFixed(1)},${rect.top.toFixed(1)},${rect.width.toFixed(1)}x${rect.height.toFixed(1)} pe=${getComputedStyle(node).pointerEvents}`;
+                    };
+                    const list = document.querySelector<HTMLElement>(".acpmux-minimap__list");
+                    const stack = document
+                      .elementsFromPoint(point.x, point.y)
+                      .slice(0, 5)
+                      .map((each) => `${each.tagName}.${String(each.className).slice(0, 30)}`)
+                      .join(">");
+                    const boxes = `at=${point.x.toFixed(1)},${point.y.toFixed(1)} tick=${boxOf(`[data-tick="${at}"]`)} bar=${boxOf(`[data-tick="${at}"] .acpmux-minimap__bar`)} rail=${boxOf(".acpmux-minimap__rail")} strip=${boxOf(".acpmux-minimap__strip")} list=${boxOf(".acpmux-minimap__list")} listTop=${list ? list.scrollTop.toFixed(1) : "-"} stack=${stack}`;
                     out.push({
                       has: prompt?.textContent?.includes(text) === true,
                       card: card ? card.outerHTML.slice(0, 500) : "NO CARD",
-                      line: `f${frame} active=${active} prompt=${prompt ? `[${(prompt.textContent ?? "").slice(0, 60)}]` : "NO PROMPT"} under=${below} top=${top}`,
+                      line: `f${frame} active=${active} prompt=${prompt ? `[${(prompt.textContent ?? "").slice(0, 60)}]` : "NO PROMPT"} under=${below} top=${top} ${boxes}`,
                       ticks: document.querySelectorAll("[data-tick]").length,
                     });
                   }
@@ -148,7 +161,7 @@ await requireBrowserLane("thread-rail-one-column.test.ts", async () => {
                 // raf-read: a vehicle that prints the DOM for about 2 s; it measures no frame.
                 requestAnimationFrame(step);
               }),
-            { text: words, point: box },
+            { text: words, point: box, at: index },
           );
           const found = states.findIndex((state) => state.has);
           const reads = states.map((state) => state.line);
