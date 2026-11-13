@@ -123,6 +123,18 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var hostGridNoteSpot = HostGridNoteSpot.none
     /// The Mac's rows the last layout used: a rows-only change lays out again (`syncHostGrid`).
     private var laidOutHostRows: Int?
+    /// The primary screen shows a shorter Mac grid whole, pinned to the top
+    /// (`pinsHostGrid`), as of the last layout: the document ends at its last
+    /// row and starts no lower than its first.
+    private var documentPinsHostGrid = false
+    /// The chip's size for its text (measured once per text).
+    private var hostGridChipSize: (text: String, size: CGSize)?
+    /// The phone's own grid as last sent to the Mac (`sendResize`), and the
+    /// one before it while that send may still be on its way. The Mac's grid
+    /// at either is the phone's own: no note and no pin, or the page would
+    /// jump and blame another device for the phone's own resize in flight.
+    private var sentGrid: TerminalResizeSettle.Size?
+    private var sentGridBefore: TerminalResizeSettle.Size?
     private lazy var tuiHorizontalPan: UIPanGestureRecognizer = {
         let pan = UIPanGestureRecognizer(target: self, action: #selector(tuiPanned(_:)))
         pan.maximumNumberOfTouches = 1
@@ -138,7 +150,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// The device that set the Mac's grid, when the size state names it
     /// (set by the size-state model; nil until then).
     var hostGridOwner: String? {
-        didSet { if hostGridOwner != oldValue { applyHostGridNote() } }
+        didSet {
+            guard hostGridOwner != oldValue else { return }
+            // The Mac answered the phone's last resize (the owner changed).
+            sentGridBefore = nil
+            applyHostGridNote()
+        }
     }
     /// The Mac's rows as of the bytes fed so far (`appliedHostRows`), else
     /// the session's: the row shift and the screen's top use the grid the
@@ -832,6 +849,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         sizingLog.notice("resize \(size.columns, privacy: .public)x\(size.rows, privacy: .public) cause=\(why, privacy: .public)\(self.model.isTUI ? "-tui" : "", privacy: .public) attached=\(self.model.connectionState.isAttached, privacy: .public) (TUI \(self.model.isTUI, privacy: .public))")
         model.session.resize(columns: size.columns, rows: size.rows)
         model.ptyResizesSent += 1
+        if size != sentGrid {
+            sentGridBefore = sentGrid
+            sentGrid = size
+        }
     }
 
     /// The stack's top with the keyboard down and the composer at its one-line
@@ -1226,6 +1247,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             case .hostGrid(let columns, let rows):
                 appliedHostColumns = columns
                 appliedHostRows = rows
+                // The Mac's grid changed: a resize the phone sent before is answered.
+                if TerminalResizeSettle.Size(columns: columns, rows: rows) != sentGridBefore { sentGridBefore = nil }
                 syncHostGrid()
             case .bytes(let data):
                 syncHostGrid()
@@ -1714,10 +1737,16 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // The last row rests 8 pt above the composer card (SPEC M3).
         var bottom = TerminalDocumentLayout.bottomInset(pageHeight: bounds.height, composerTop: bottomStack.frame.minY)
         // A grid shorter than the page pins to the top: its last row rests
-        // above the letterbox, not on the composer (unless the keyboard
-        // leaves less room than that).
-        if let pinned = hostLayout.pinnedBottomInset(pageHeight: bounds.height, top: top) {
+        // above the letterbox, not on the composer.
+        let pins = pinsHostGrid
+        if pins, let pinned = hostLayout.pinnedBottomInset(pageHeight: bounds.height, top: top) {
             bottom = max(bottom, pinned)
+        }
+        if pins != documentPinsHostGrid {
+            // The pin came or went (the Mac's rows, the keyboard): measure the document again now.
+            documentPinsHostGrid = pins
+            outputSinceProbe = true
+            updateDocument()
         }
         let insets = UIEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
         if scrollView.contentInset != insets {
@@ -1798,11 +1827,15 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             let last = min(scrollbar.total - 1, cursor ?? (scrollbar.total - 1))
             blank = rowReader.leadingBlankRows(through: TerminalAbsoluteRow(max(0, last))) ?? blank
         }
+        // The Mac's screen is the bottom `remoteRows` rows of the mirror.
+        let screenTop = max(0, scrollbar.total - (feedHostRows ?? surface.grid.rows))
         // Rows an inline TUI draws below the cursor (Codex CLI's hints).
         var lastContent: Int?
-        if hostLayout.letterbox != nil {
+        if documentPinsHostGrid {
             // A grid shorter than the page is shown whole, pinned to the top
-            // with the letterbox below it: the document ends at its last row.
+            // with the letterbox below it: the document holds all its rows,
+            // blank ones at its top too, and ends at its last row.
+            blank = min(blank ?? screenTop, screenTop)
             lastContent = scrollbar.total - 1
         } else if let cursor, cursor + 1 <= scrollbar.total - 1 {
             lastContent = rowReader.lastNonBlankRow(from: TerminalAbsoluteRow(cursor + 1), through: TerminalAbsoluteRow(scrollbar.total - 1))?.index
@@ -1810,8 +1843,6 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let measured = TerminalDocumentLayout.make(totalRows: scrollbar.total, cursorRow: cursor, leadingBlankRows: blank,
                                                    lastContentRow: lastContent)
         if document == nil { endHold.reset() }
-        // The Mac's screen is the bottom `remoteRows` rows of the mirror.
-        let screenTop = max(0, scrollbar.total - (feedHostRows ?? surface.grid.rows))
         let next = endHold.hold(measured, totalRows: scrollbar.total, cursorRow: cursor, screenTopRow: screenTop)
         guard next != document else {
             positionHostGridNote()
@@ -3262,11 +3293,28 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
         if finder.isActive { finder.redraw() }
     }
 
+    /// The Mac's grid is the phone's own, as sent or still on its way.
+    var hostGridIsPhonesOwn: Bool {
+        guard let columns = appliedHostColumns ?? model.session.remoteColumns, let rows = feedHostRows else { return true }
+        let grid = TerminalResizeSettle.Size(columns: columns, rows: rows)
+        return grid == sentGrid || grid == sentGridBefore
+    }
+
+    /// The primary screen shows the Mac's shorter grid whole at the top: it
+    /// has a letterbox, is not the phone's own, and fits above the dock now.
+    /// With the keyboard up and less room than the grid, the page follows
+    /// the cursor row instead, as without a letterbox
+    /// (docs/shared-terminal-sizing.md: it slides up only as far as the cursor needs).
+    var pinsHostGrid: Bool {
+        guard let box = hostLayout.letterbox, !hostGridIsPhonesOwn else { return false }
+        return box.top <= bottomStack.frame.minY - chromeTop + 0.5
+    }
+
     /// The note's text and spot for the Mac's grid and owner now. Runs when
     /// they or the page's layout change, never per frame (it builds text).
     func applyHostGridNote() {
         let layout = hostLayout
-        guard cell.height > 0, let note = layout.note(owner: hostGridOwner) else {
+        guard cell.height > 0, !hostGridIsPhonesOwn, let note = layout.note(owner: hostGridOwner) else {
             hostGridNoteSpot = .none
             positionHostGridNote()
             return
@@ -3285,8 +3333,11 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
         if let box = layout.letterbox {
             hostGridNoteSpot = .letterbox(gridHeight: box.top, offset: min(8, max(0, box.height - line) / 2))
         } else {
-            let width = ceil(hostGridNote.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: line)).width)
-            hostGridNoteSpot = .corner(CGSize(width: width + 12, height: line + 4))
+            if hostGridChipSize?.text != text {
+                let width = ceil(hostGridNote.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: line)).width)
+                hostGridChipSize = (text, CGSize(width: width + 12, height: line + 4))
+            }
+            hostGridNoteSpot = .corner(hostGridChipSize?.size ?? .zero)
         }
         positionHostGridNote()
     }

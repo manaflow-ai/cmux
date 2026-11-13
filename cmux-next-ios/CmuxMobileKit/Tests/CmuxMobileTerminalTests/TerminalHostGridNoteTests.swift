@@ -31,7 +31,9 @@ import UIKit
 
         func start(_ handler: @escaping @MainActor (TerminalSessionEvent) -> Void) { self.handler = handler }
         func send(_ bytes: Data) {}
-        func resize(columns: Int, rows: Int) {}
+        /// The phone's own grid, as the screen last sent it.
+        private(set) var sent: (columns: Int, rows: Int)?
+        func resize(columns: Int, rows: Int) { sent = (columns, rows) }
         func stop() {}
 
         func emit(_ event: TerminalSessionEvent) { handler?(event) }
@@ -129,6 +131,59 @@ import UIKit
             #expect(label.frame.minY >= top + 12 * cell - 0.5, "the note overlaps the grid (\(label.frame), rows end at \(top + 12 * cell))")
             #expect(label.accessibilityLabel == note)
         }
+    }
+
+    /// A fresh attach with no history and the Mac's first rows blank: the
+    /// grid still starts at its first row, not at its first row with text.
+    @Test func blankRowsAtTheGridsTopStayInIt() async throws {
+        await TerminalScreenTestLock.acquire()
+        defer { TerminalScreenTestLock.release() }
+        let rig = try await Self.makeScreen()
+        defer { rig.close() }
+        rig.session.emit(.hostGrid(columns: 30, rows: 12))
+        rig.session.emit(.hostGridOwner("Rig Mac"))
+        var paint = "\u{1B}c"
+        for row in 4...12 { paint += "\u{1B}[\(row);1Hrow \(row)" }
+        rig.session.write(paint + "\u{1B}[1;1H")
+        let top = try #require(rig.terminalTop)
+        func firstRowY() -> CGFloat? {
+            rig.screen.surface.visibleCursorCell.map { rig.screen.surface.convert($0, to: rig.screen.view).minY }
+        }
+        try await TerminalPredictionInputTests.waitUntil(5) {
+            rig.visibleLabel("30×12 · set by Rig Mac") != nil && firstRowY().map { abs($0 - top) < 1 } == true
+        }
+        let rowY = try #require(firstRowY(), "the cursor (the Mac's first row) is not on screen")
+        #expect(abs(rowY - top) < 1, "the Mac's blank first row is at \(rowY), the terminal area starts at \(top)")
+    }
+
+    /// The owner changes: the note names the new one. The grid goes back to
+    /// the phone's own: the note goes and the last row rests on the composer
+    /// again (the pin's bottom inset is dropped).
+    @Test func theNoteFollowsTheOwnerAndGoesWithThePhonesOwnGrid() async throws {
+        await TerminalScreenTestLock.acquire()
+        defer { TerminalScreenTestLock.release() }
+        let rig = try await Self.makeScreen()
+        defer { rig.close() }
+        rig.session.emit(.hostGrid(columns: 30, rows: 12))
+        rig.session.emit(.hostGridOwner("Rig Mac"))
+        rig.session.write(Self.primaryPaint(rows: 12))
+        try await TerminalPredictionInputTests.waitUntil(5) { rig.visibleLabel("30×12 · set by Rig Mac") != nil }
+        let scroll = try #require(rig.scrollView)
+        let pinnedInset = scroll.contentInset.bottom
+
+        rig.session.emit(.hostGridOwner("Other iPhone"))
+        #expect(rig.visibleLabel("30×12 · set by Other iPhone") != nil, "the note did not follow the owner")
+
+        let own = try #require(rig.session.sent, "the screen never sent its grid")
+        rig.session.remoteColumns = own.columns
+        rig.session.remoteRows = own.rows
+        rig.session.emit(.hostGridOwner(nil))
+        rig.session.emit(.hostGrid(columns: own.columns, rows: own.rows))
+        rig.session.write("\u{1B}[\(own.rows);1H$ ")
+        try await TerminalPredictionInputTests.waitUntil(3) { scroll.contentInset.bottom < pinnedInset - 1 }
+        #expect(scroll.contentInset.bottom < pinnedInset - 1, "the pin's inset stayed (\(scroll.contentInset.bottom) vs \(pinnedInset))")
+        #expect(rig.screen.view.subviews.compactMap { $0 as? UILabel }.allSatisfy { $0.isHidden || $0.accessibilityIdentifier != "terminal.hostGridNote" },
+                "the note stayed with the phone's own grid")
     }
 
     @Test func aRowsOnlyGridChangeInATUIShowsTheNote() async throws {
