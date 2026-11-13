@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43464919336",
+  "recorded_at": "2026-11-13T16:49:06Z",
+  "reason": "cmux-tui 25186f87caf9 changes the image's cmux-tui (pinned 7e7a65e78c75)",
+  "dry_run": false,
+  "cmux_tui": "25186f87caf916b55c2e96907d5eade673033c8d",
+  "fixes": [
+    {
+      "sha": "25186f87caf916b55c2e96907d5eade673033c8d",
+      "mergedAt": "2026-11-13T08:14:28-08:00",
+      "subject": "Toggle Terminal and Chat route: resume a chat's session in a terminal when none runs it (step A, Rust only) (#42017)"
+    },
+    {
+      "sha": "dd80948f8190514584f5827f7a05646e3791e182",
+      "mergedAt": "2026-11-13T08:12:57-08:00",
+      "subject": "base red: the guard group's three whole-tree reds and acpmux's new panic hit (#42147)"
+    },
+    {
+      "sha": "7c547d95e0c8ff38be26b6f988607859b1e0cf31",
+      "mergedAt": "2026-11-13T08:12:45-08:00",
+      "subject": "agent service v2: window subscription client core (#42589)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T16:49:06Z",
+    "snapshot_id": "sh-80411159a65544a6b62c825b35184b94",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43464919336): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "005e778ef9de618ba2de73401ce1ca84973dad22",
+    "image": "cloud-native-auto-25186f87-43464919336-1",
+    "revision": "ci-43464919336-1",
+    "at": "2026-11-13T16:49:06Z"
+  },
+  "rolled_back": false
+}
