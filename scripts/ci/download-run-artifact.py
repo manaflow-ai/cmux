@@ -299,8 +299,11 @@ def main() -> None:
             elapsed = time.monotonic() - started
             print(f"downloaded {artifact['name']} ({artifact['size_in_bytes']} bytes) in {elapsed:.1f}s")
             verify(archive, artifact)
+            # download-artifact puts an artifact-ids download (no name, no merge-multiple) in <path>/<name>/;
+            # match it, so the files land where the fallback would put them.
+            out = os.path.join(args.out, artifact["name"]) if args.artifact_id else args.out
             with zipfile.ZipFile(archive) as bundle:
-                bundle.extractall(args.out)
+                bundle.extractall(out)
                 for info in bundle.infolist():
                     print(f"extracted {info.filename}")
 

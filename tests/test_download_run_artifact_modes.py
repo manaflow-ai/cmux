@@ -93,6 +93,20 @@ class ModeTests(unittest.TestCase):
             self.assertEqual(sorted(p.name for p in Path(out).iterdir()), ["a.dmg", "u.dmg"])
         self.assertTrue(all("/runs/43300596948/" in path for path in listings), listings)
 
+    def test_an_artifact_id_lands_in_a_folder_named_after_the_artifact_as_download_artifact_puts_it(self) -> None:
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as bundle:
+            bundle.writestr("cmux.app.dSYM/Contents/Info.plist", "x")
+        with tempfile.TemporaryDirectory() as out, \
+                mock.patch.dict(os.environ, {"GH_TOKEN": "t", "GITHUB_REPOSITORY": "o/r", "GITHUB_RUN_ID": "1"}), \
+                mock.patch.object(download, "api_json", lambda path, token: artifact(5, "nightly-next-dsyms-abc", "1")), \
+                mock.patch.object(download, "download",
+                                  lambda found, token, dest, connections: Path(dest).write_bytes(buffer.getvalue())), \
+                mock.patch.object(download, "verify", lambda path, found: None), \
+                mock.patch.object(sys, "argv", ["x", "--artifact-id", "5", "--run-id", "77", "--out", out]):
+            download.main()
+            self.assertTrue((Path(out) / "nightly-next-dsyms-abc/cmux.app.dSYM/Contents/Info.plist").is_file())
+
 
 if __name__ == "__main__":
     unittest.main()
