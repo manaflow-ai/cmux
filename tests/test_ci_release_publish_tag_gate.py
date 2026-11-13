@@ -656,6 +656,10 @@ class TagGate(unittest.TestCase):
             'eval "$CMD"', 'xargs "$CMD"', 'xargs -n 1 "$CMD"', 'xargs -- "$CMD"',
             'ssh host "$CMD"', 'watch "$CMD"', 'flock /tmp/lock "$CMD"',
             'find "$ROOT" -exec "$CMD" \\;', 'find "$ROOT" -execdir sh -c "$CMD" \\;',
+            "xargs sh -c 'gh release create v1 dist/x'",
+            "find . -exec sh -c 'gh release create v1 dist/x' \\;",
+            "env -S'gh release create v1 dist/x'",
+            "su --command='gh release create v1 dist/x'",
         )
         for runner in runners:
             with self.subTest(runner=runner):
