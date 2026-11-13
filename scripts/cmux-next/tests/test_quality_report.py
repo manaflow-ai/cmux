@@ -3,7 +3,7 @@
 hang-watch's issues as the fallback, the perf cron's interaction p95, the god-vs-small and animation coverage
 slots, and the sticky issue's history. No network: Sentry and gh are fakes.
 Run: python3 -I scripts/cmux-next/tests/test_quality_report.py (also runs in cmux-next-quality-report.yml)."""
-import datetime, importlib.util, json, os, subprocess, tempfile, unittest
+import base64, datetime, importlib.util, json, os, subprocess, tempfile, unittest, zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 spec = importlib.util.spec_from_file_location("quality_report", os.path.join(HERE, "..", "quality-report.py"))
@@ -532,6 +532,21 @@ class NightlySpeed(unittest.TestCase):
             qr.gh_speed_history(run=fail)
         r = qr.build_report(24, T, None, None, None, None, hang_watch=lambda since: [])
         self.assertEqual(qr.headline(r)["Nightly merge to feed"], "n/a (no speed history source given)")
+
+    def test_reads_the_compressed_history_and_refuses_a_corrupt_one(self):
+        def reader(body):
+            issues = [{"number": 3, "title": qr.SPEED_TITLE, "body": body}]
+            listed = lambda cmd, **k: subprocess.CompletedProcess(cmd, 0, json.dumps(issues), "")
+            return lambda: qr.gh_speed_history(run=listed)
+        z = base64.b64encode(zlib.compress(json.dumps(self.DOC, separators=(",", ":")).encode(), 9)).decode()
+        r = qr.build_report(24, T, None, None, None, None, hang_watch=lambda since: [],
+                            speed_history=reader(f"{qr.SPEED_MARK}\nreport\n<!-- nightly-speed-history-z: {z} -->\n"))
+        self.assertEqual(r["nightly_speed"]["p50_min"], 104.0)
+        bomb = base64.b64encode(zlib.compress(b" " * (qr.SPEED_INFLATE_CAP + 10), 9)).decode()
+        for bad in ("not base64!", base64.b64encode(b"not zlib").decode(), bomb):
+            # The compressed form wins over a plain one beside it, and a corrupt one is no history.
+            with self.assertRaises(qr.SourceError):
+                reader(f"{qr.SPEED_MARK}\n<!-- nightly-speed-history-z: {bad} -->\n" + self.body(self.DOC))()
 
 
 if __name__ == "__main__":

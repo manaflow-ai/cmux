@@ -50,6 +50,7 @@ Tests: scripts/cmux-next/tests/test_quality_report.py (python3 -m unittest, no n
 from __future__ import annotations
 
 import argparse
+import base64
 import datetime as dt
 import json
 import os
@@ -59,6 +60,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+import zlib
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 SCHEMA = 1
@@ -77,10 +79,13 @@ STICKY_TITLE = "cmux NEXT nightly quality report"
 STICKY_MARK = "<!-- cmux-next-quality-report -->"
 HISTORY_RE = re.compile(r"<!-- quality-history: (\[.*?\]) -->", re.S)
 HISTORY_KEEP = 60
-# scripts/ci/nightly_speed.py's issue and its hidden history (ISSUE_TITLE, ISSUE_MARK, HISTORY_RE, BUDGET_MIN there).
+# scripts/ci/nightly_speed.py's issue and its hidden history (ISSUE_TITLE, ISSUE_MARK, HISTORY_Z_RE, HISTORY_RE,
+# INFLATE_CAP, BUDGET_MIN there): compressed and base64, or the plain JSON of the first form.
 SPEED_TITLE = "cmux NEXT nightly speed budget"
 SPEED_MARK = "<!-- cmux-next-nightly-speed -->"
 SPEED_HISTORY_RE = re.compile(r"<!-- nightly-speed-history: (\{.*?\}) -->", re.S)
+SPEED_HISTORY_Z_RE = re.compile(r"<!-- nightly-speed-history-z: (.*?) -->", re.S)
+SPEED_INFLATE_CAP = 4_000_000
 SPEED_BUDGET_MIN = 30.0
 GOD_SMALL_LIMIT = 1.2
 TOP_SIGNATURES = 15
@@ -609,10 +614,17 @@ def gh_speed_history(repo: str = HQ_REPO, run: Callable = subprocess.run) -> Dic
     own = [i for i in issues if i.get("title") == SPEED_TITLE and SPEED_MARK in (i.get("body") or "")]
     if not own:
         raise SourceError(f"no open {repo} issue \"{SPEED_TITLE}\" (nightly-speed.yml has not written it)")
-    m = SPEED_HISTORY_RE.search(min(own, key=lambda i: i["number"])["body"])
+    body = min(own, key=lambda i: i["number"])["body"]
     try:
-        doc = json.loads(m.group(1)) if m else None
-    except ValueError:
+        z = SPEED_HISTORY_Z_RE.search(body)
+        if z:
+            inflate = zlib.decompressobj()
+            raw = inflate.decompress(base64.b64decode(z.group(1), validate=True), SPEED_INFLATE_CAP)
+            doc = None if inflate.unconsumed_tail or not inflate.eof else json.loads(raw)
+        else:
+            m = SPEED_HISTORY_RE.search(body)
+            doc = json.loads(m.group(1)) if m else None
+    except (ValueError, zlib.error):
         doc = None
     if not isinstance(doc, dict):
         raise SourceError("the speed issue has no readable history")

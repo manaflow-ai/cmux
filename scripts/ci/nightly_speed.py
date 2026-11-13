@@ -63,8 +63,11 @@ compile stages the count of changed Swift and Rust files by top-level directory.
 
 `issue` opens or updates the one open cmuxterm-hq issue titled ISSUE_TITLE that carries ISSUE_MARK (the pattern of
 scripts/cmux-next/quality-report.py's sticky): the verdict, the diff, the bisect, a table of the newest TABLE_ROWS
-nightlies, the unpublished sign runs, and the history as a hidden JSON comment (HISTORY_RE, newest HISTORY_KEEP
-records and the body under BODY_LIMIT) that `record` and the quality report read. It re-reads the issue right
+nightlies, the unpublished sign runs, and the history as a hidden comment that `record` and the quality report read:
+its JSON document, zlib-compressed and base64 on one line (HISTORY_Z_RE; the plain JSON of HISTORY_RE, the first
+form, is still read). It holds the newest HISTORY_KEEP records with the body under BODY_LIMIT: when it is over, the
+oldest records go down to TRAILING + BISECT_AFTER, then every record's per-job detail, then older records below that
+floor, so the issue can always be written. It re-reads the issue right
 before writing and merges its history, so a failed read in `record` never drops history. In budget, the same issue
 says so. Nothing here gates a nightly: nightly-speed.yml is its own workflow and nothing needs it.
 
@@ -73,12 +76,14 @@ Tests: tests/test_nightly_speed.py (no network; gh and git are fakes or a tempor
 from __future__ import annotations
 
 import argparse
+import base64
 import datetime as dt
 import json
 import os
 import re
 import subprocess
 import sys
+import zlib
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 SCHEMA = 1
@@ -101,12 +106,16 @@ LIST_PAGE = 100
 ISSUE_TITLE = "cmux NEXT nightly speed budget"
 ISSUE_MARK = "<!-- cmux-next-nightly-speed -->"
 HISTORY_RE = re.compile(r"<!-- nightly-speed-history: (\{.*?\}) -->", re.S)
-# An issue body holds 65536 characters. Build 4318547490101's record is 3.8 KB with its 33 jobs and 2.1 KB without
-# (its job walls, the sign run's copies of the push run's job names included), so per-job detail stays on the newest
-# JOBS_KEEP records, the others keep their per-host sums, and 40 records (twice the trailing window) leave room for
-# the visible report (VISIBLE_RESERVE).
+HISTORY_Z_RE = re.compile(r"<!-- nightly-speed-history-z: (.*?) -->", re.S)
+# The most a compressed history may inflate to: the history inflates about 7 times, so a whole body of it stays
+# under 0.5 MB, and a hostile body costs no more memory than this.
+INFLATE_CAP = 4_000_000
+# An issue body holds 65536 characters. Build 4318547490101's record is 3.8 KB of JSON with its 33 jobs and 2.1 KB
+# without, so per-job detail stays on the newest JOBS_KEEP records and the others keep their per-host sums. 40 such
+# records (twice the trailing window), every wall and wait varied, are 93 KB of JSON and a 12.9 KB compressed comment,
+# a 17.9 KB body: room for the visible report (VISIBLE_RESERVE) and for records several times larger.
 HISTORY_KEEP = 40
-JOBS_KEEP = 4
+JOBS_KEEP = 6
 UNPUBLISHED_KEEP = 40
 BODY_LIMIT = 60000
 VISIBLE_RESERVE = 16000
@@ -361,12 +370,22 @@ def unpublished_line(sign: Dict[str, Any], why: Optional[str] = None) -> Dict[st
 
 # The history in the issue
 
-def parse_history(body: str) -> Dict[str, Any]:
-    m = HISTORY_RE.search(body or "")
+def history_json(body: str) -> Any:
+    """The hidden history's document: the compressed form, else the plain one; {} when absent or unreadable."""
     try:
-        doc = json.loads(m.group(1)) if m else {}
-    except ValueError:
-        doc = {}
+        z = HISTORY_Z_RE.search(body or "")
+        if z:
+            inflate = zlib.decompressobj()
+            raw = inflate.decompress(base64.b64decode(z.group(1), validate=True), INFLATE_CAP)
+            return {} if inflate.unconsumed_tail or not inflate.eof else json.loads(raw)
+        m = HISTORY_RE.search(body or "")
+        return json.loads(m.group(1)) if m else {}
+    except (ValueError, zlib.error):
+        return {}
+
+
+def parse_history(body: str) -> Dict[str, Any]:
+    doc = history_json(body)
     if not isinstance(doc, dict):
         doc = {}
     recs = [r for r in doc.get("records") or [] if isinstance(r, dict) and r.get("sign_run") and r.get("feed_at")]
@@ -708,21 +727,29 @@ def render_table(rows: List[Dict[str, Any]]) -> str:
     return "\n".join(out)
 
 
-def history_doc(records: List[Dict[str, Any]], unpublished: List[Dict[str, Any]]) -> str:
-    keep_jobs = {r["sign_run"] for r in records[-JOBS_KEEP:]}
+def history_doc(records: List[Dict[str, Any]], unpublished: List[Dict[str, Any]], jobs_keep: int = JOBS_KEEP) -> str:
+    keep_jobs = {r["sign_run"] for r in records[-jobs_keep:]} if jobs_keep else set()
     recs = [r if r["sign_run"] in keep_jobs else {k: v for k, v in r.items() if k != "jobs"} for r in records]
     doc = {"schema": SCHEMA, "budget_min": BUDGET_MIN, "top_stages": TOP_STAGES, "records": recs,
            "unpublished": unpublished}
-    # "-->" inside a string would end the comment; > reads back as ">".
-    return json.dumps(doc, separators=(",", ":")).replace("-->", "--\\u003e")
+    return json.dumps(doc, separators=(",", ":"))
+
+
+def history_comment(records: List[Dict[str, Any]], unpublished: List[Dict[str, Any]],
+                    jobs_keep: int = JOBS_KEEP) -> str:
+    """The hidden comment as written: base64 holds no "-->", so a job name cannot end it early."""
+    z = base64.b64encode(zlib.compress(history_doc(records, unpublished, jobs_keep).encode("utf-8"), 9)).decode("ascii")
+    return f"<!-- nightly-speed-history-z: {z} -->"
 
 
 def issue_body(records: List[Dict[str, Any]], unpublished: List[Dict[str, Any]], git_dir: str,
                run: Callable = subprocess.run) -> str:
-    """The issue body, the oldest records dropped until it fits BODY_LIMIT (never under TRAILING + BISECT_AFTER)."""
+    """The issue body, the oldest records dropped until it fits BODY_LIMIT, down to TRAILING + BISECT_AFTER; past that
+    floor every record's per-job detail goes, then the oldest records again, so it is never over the limit."""
     floor = TRAILING + BISECT_AFTER
-    while len(records) > floor and len(history_doc(records, unpublished)) > BODY_LIMIT - VISIBLE_RESERVE:
+    while len(records) > floor and len(history_comment(records, unpublished)) > BODY_LIMIT - VISIBLE_RESERVE:
         records, unpublished = records[1:], unpublished[1:]
+    jobs_keep = JOBS_KEEP
     while True:
         c = check(records, git_dir, run)
         unp = list(reversed(unpublished))[:10]
@@ -735,9 +762,12 @@ def issue_body(records: List[Dict[str, Any]], unpublished: List[Dict[str, Any]],
             lines += [f"| {(u.get('created_at') or '')[5:16].replace('T', ' ')} | {u['sign_run']} | {u.get('push_run')} | "
                       f"{u.get('conclusion')} | {num(u.get('held_min'))} |" for u in unp]
             lines.append("")
-        body = "\n".join(lines) + f"\n<!-- nightly-speed-history: {history_doc(records, unpublished)} -->\n"
-        if len(body) <= BODY_LIMIT or len(records) <= floor:
+        body = "\n".join(lines) + f"\n{history_comment(records, unpublished, jobs_keep)}\n"
+        if len(body) <= BODY_LIMIT or not records:
             return body
+        if len(records) <= floor and jobs_keep:
+            jobs_keep = 0
+            continue
         records = records[1:]
         unpublished = unpublished[1:]
 

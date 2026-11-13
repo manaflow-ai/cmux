@@ -7,13 +7,16 @@ sign run 43189297315, 2026-11-12): 85.97 min merge to feed, cmux15's "Set up run
 Run: python3 -I tests/test_nightly_speed.py (also runs in nightly-speed.yml)."""
 from __future__ import annotations
 
+import base64
 import copy
 import importlib.util
 import json
 import os
+import random
 import subprocess
 import tempfile
 import unittest
+import zlib
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 FIX = os.path.join(ROOT, "tests", "fixtures", "nightly-speed")
@@ -441,20 +444,62 @@ class Issue(unittest.TestCase):
         self.assertIn("nothing new", ns.write_issue({"records": [], "new": []}, "o/hq", "t", ".", run=gh))
         self.assertFalse(any(c[0][:3] == ["gh", "issue", "edit"] for c in gh.calls))
 
-    def test_body_stays_under_the_limit_and_the_comment_cannot_close_early(self):
-        rec = fixture_record()
-        recs = []
-        for i in range(ns.HISTORY_KEEP):
+    @staticmethod
+    def records(n, pad=0):
+        """n copies of the fixture record, each wall and wait varied as real nightlies are (and `pad` characters of
+        noise per record), so the compressed history is not n identical records."""
+        rnd, rec, out = random.Random(7), fixture_record(), []
+        for i in range(n):
             r = copy.deepcopy(rec)
-            r.update(sign_run=i, build=f"b{i}", feed_at=f"2026-11-{10 + i // 24:02d}T{i % 24:02d}:00:00Z")
+            r.update(sign_run=1 + i, build=f"b{i}", feed_at=f"2026-11-{10 + i // 24:02d}T{i % 24:02d}:00:00Z",
+                     sha="%040x" % rnd.getrandbits(160), merge_to_feed=round(rnd.uniform(20, 150), 2))
+            r["stages"] = {k: round(v * rnd.uniform(0.7, 1.4), 2) for k, v in r["stages"].items()}
+            r["jobs"] = [[name, host, round((q or 0) * rnd.uniform(0.5, 2), 2),
+                          round((h or 0) * rnd.uniform(0.5, 2), 2)] for name, host, q, h in r["jobs"]]
+            if pad:
+                r["noise"] = "%x" % rnd.getrandbits(4 * pad)
+            out.append(r)
+        return out
+
+    def test_body_keeps_every_record_and_the_comment_cannot_close_early(self):
+        recs = self.records(ns.HISTORY_KEEP)
+        for r in recs:
             r["jobs"][0][0] = "a --> b"
-            recs.append(r)
         body = ns.issue_body(recs, [], ".", run=FakeGh())
         self.assertLessEqual(len(body), ns.BODY_LIMIT)
         self.assertEqual(body.count("-->"), body.count("<!--"))
         back = ns.parse_history(body)["records"]
+        self.assertEqual(len(back), ns.HISTORY_KEEP, "the whole history fits")
+        self.assertEqual([("jobs" in r) for r in back], [False] * (ns.HISTORY_KEEP - 6) + [True] * 6)
         self.assertEqual(back[-1]["jobs"][0][0], "a --> b")
-        self.assertNotIn("jobs", back[0], "only the newest records keep per-job detail")
+        self.assertEqual(back, ns.parse_history(body)["records"])
+        self.assertEqual(back[-1]["stages"], recs[-1]["stages"])
+
+    def test_a_body_in_the_plain_form_still_parses(self):
+        recs = self.records(3)
+        body = ns.issue_body(recs, [], ".", run=FakeGh())
+        self.assertNotIn("<!-- nightly-speed-history: {", body, "written compressed")
+        plain = f"{ns.ISSUE_MARK}\nreport\n<!-- nightly-speed-history: {json.dumps({'records': recs})} -->\n"
+        self.assertEqual([r["build"] for r in ns.parse_history(plain)["records"]], ["b0", "b1", "b2"])
+
+    def test_a_corrupt_compressed_history_is_an_empty_history(self):
+        plain = f"<!-- nightly-speed-history: {json.dumps({'records': self.records(1)})} -->"
+        bomb = base64.b64encode(zlib.compress(b" " * (ns.INFLATE_CAP + 10), 9)).decode()
+        cut = ns.history_comment(self.records(2), [])[:-30] + " -->"
+        for z in ("not base64!", "AAAA", base64.b64encode(b"not zlib").decode(), bomb,
+                  base64.b64encode(zlib.compress(b"[1, 2]")).decode()):
+            body = f"{ns.ISSUE_MARK}\n<!-- nightly-speed-history-z: {z} -->\n{plain}\n"
+            self.assertEqual(ns.parse_history(body), {"records": [], "unpublished": []}, z[:20])
+        self.assertEqual(ns.parse_history(cut), {"records": [], "unpublished": []})
+
+    def test_records_too_large_for_the_floor_still_fit(self):
+        recs = self.records(ns.HISTORY_KEEP, pad=3000)
+        body = ns.issue_body(recs, [], ".", run=FakeGh())
+        self.assertLessEqual(len(body), ns.BODY_LIMIT)
+        back = ns.parse_history(body)["records"]
+        self.assertTrue(0 < len(back) < ns.TRAILING + ns.BISECT_AFTER, len(back))
+        self.assertFalse(any("jobs" in r for r in back), "per-job detail goes before records below the floor")
+        self.assertEqual(back[-1]["build"], recs[-1]["build"], "the newest are kept")
 
     def test_unreadable_issue_list_is_an_error(self):
         with self.assertRaises(ns.SourceError):
