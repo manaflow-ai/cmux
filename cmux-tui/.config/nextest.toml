@@ -152,6 +152,13 @@ success-output = "final"
 filter = 'binary_id(cmux-tui-core::git_status)'
 success-output = "final"
 
+# The git.fingerprint tests (cmux-tui-core tests/git_fingerprint.rs) print their
+# "git-fingerprint:" lines on stderr: the git children of one git.fingerprint beside the count
+# of a git.diff with each patch. A fleet step shows them only when a passing test's output is kept.
+[[profile.ci.overrides]]
+filter = 'binary_id(cmux-tui-core::git_fingerprint)'
+success-output = "final"
+
 # The idle tests (cmux-tui tests/idle_wakeups.rs) print one "idle daemon:" line for each
 # process on stderr: its CPU time, context switches and wakeups in each of the 3 quiet
 # windows. A fleet step shows them only when a passing test's output is kept; a pass with no

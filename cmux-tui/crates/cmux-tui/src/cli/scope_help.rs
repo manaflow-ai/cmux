@@ -195,6 +195,7 @@ USAGE
     [--patch] [--max-patch-bytes <n>]
     [--max-files <n>] [--context-lines <n>] [--after-path <path>]
     [--patch-offset <n> [--patch-revision <revision>]] [<path>...]
+  cmux git fingerprint [TARGET] [--scope uncommitted|unstaged|staged|branch]
   cmux git branches [TARGET] [--limit <n>]
   cmux git files [TARGET] [--limit <n>] <query>...
   cmux git list [TARGET] [--limit <n>]
@@ -251,6 +252,10 @@ With --patch and one file path, --patch-offset reads that file's whole patch
 in pages from a byte offset (start at 0); pass the first page's revision as
 --patch-revision to read the later pages. Paths are relative to the repository
 root and taken literally.
+
+fingerprint prints 64 hex digits that stay equal while the diff of --scope
+(uncommitted by default) stays equal. It makes no patch: it lists the changed
+and untracked files and hashes only those whose stat entry moved.
 
 branches lists local branches, then remote-tracking ones, newest commit first:
 each one's ref and commit, and for a local branch its upstream and how far it

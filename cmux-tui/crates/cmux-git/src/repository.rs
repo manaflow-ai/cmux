@@ -56,6 +56,18 @@ impl Repository {
         Self::open_unfiltered(directory, deadline)?.filtered().map_err(OpenError::Git)
     }
 
+    /// [`Repository::open`], and the `core`, `diff` and `filter` settings of
+    /// every config file as git prints them: the settings that can change a
+    /// diff of the same files. The run that finds the filter drivers reads
+    /// them, so they cost no run of their own. `None` when they are too many
+    /// to keep.
+    pub fn open_with_diff_settings(directory: &Path) -> Result<(Self, Option<Vec<u8>>), OpenError> {
+        let unfiltered = Self::open_unfiltered(directory, None)?;
+        let (overrides, settings) =
+            diff_settings_within(&unfiltered.root, remaining(None)).map_err(OpenError::Git)?;
+        Ok((Self { root: unfiltered.root, overrides, deadline: None }, settings))
+    }
+
     /// The repository `directory` is in, with no filter driver blanked: for
     /// the runs that read no file content (a ref, a config value, a path of
     /// the repository). Crate-private, so that only such a run gets one
@@ -337,8 +349,49 @@ fn filter_overrides_within(root: &Path, deadline: Duration) -> Result<Vec<Overri
         Err(GitFailure::Exit(stderr)) if stderr.is_empty() => return Ok(Vec::new()),
         Err(failure) => return Err(failure),
     };
+    blanked(output.stdout.split(|byte| *byte == 0).filter(|key| !key.is_empty()))
+}
+
+/// The most settings output [`Repository::open_with_diff_settings`] keeps.
+const MAX_DIFF_SETTINGS_BYTES: usize = 1024 * 1024;
+
+/// The overrides of [`filter_overrides_within`], and the output of the one
+/// run that gives them: every `core`, `diff` and `filter` setting, each as
+/// its name, a line feed, its value and a NUL.
+fn diff_settings_within(
+    root: &Path,
+    deadline: Duration,
+) -> Result<(Vec<Override>, Option<Vec<u8>>), GitFailure> {
+    let arguments = ["config", "--null", "--get-regexp", r"^(core|diff|filter)\."];
+    let output = match run_git_within(root, &[], &arguments, MAX_DIFF_SETTINGS_BYTES, deadline) {
+        // A cut list could lack a driver: take the drivers from their own run.
+        Ok(output) if output.truncated => {
+            return Ok((filter_overrides_within(root, deadline)?, None));
+        }
+        Ok(output) => output,
+        // `--get-regexp` exits 1 when nothing matches.
+        Err(GitFailure::Exit(stderr)) if stderr.is_empty() => {
+            return Ok((Vec::new(), Some(Vec::new())));
+        }
+        Err(failure) => return Err(failure),
+    };
+    let names = output.stdout.split(|byte| *byte == 0).filter_map(|setting| {
+        // A setting with no value has no line feed.
+        let name = setting.split(|byte| *byte == b'\n').next()?;
+        let driver_setting = name.starts_with(b"filter.")
+            && [b".clean".as_slice(), b".smudge", b".process", b".required"]
+                .iter()
+                .any(|suffix| name.ends_with(suffix));
+        driver_setting.then_some(name)
+    });
+    Ok((blanked(names)?, Some(output.stdout)))
+}
+
+/// The overrides that blank each filter driver the setting names `keys`
+/// (`filter.<driver>.<setting>`) name.
+fn blanked<'a>(keys: impl Iterator<Item = &'a [u8]>) -> Result<Vec<Override>, GitFailure> {
     let mut drivers = BTreeSet::new();
-    for key in output.stdout.split(|byte| *byte == 0).filter(|key| !key.is_empty()) {
+    for key in keys {
         // A lossy copy would blank some other driver and leave this one.
         let Ok(key) = std::str::from_utf8(key) else {
             return Err(GitFailure::Exit("a filter driver name is not UTF-8".to_string()));

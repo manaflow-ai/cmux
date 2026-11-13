@@ -101,6 +101,7 @@ const fn access(operation: Op) -> Access {
         | Op::GitBranches
         | Op::GitDiff
         | Op::GitFilesList
+        | Op::GitFingerprint
         | Op::GitFilesSearch
         | Op::GitCommit
         | Op::GitPush
