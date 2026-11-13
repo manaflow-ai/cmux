@@ -376,7 +376,6 @@ await requireBrowserLane("agent-pane-turn-end-motion.test.ts", async () => {
         const dock = document.querySelector<HTMLElement>(".acpmux-dock");
         const foot = Math.min(view.bottom, dock?.getBoundingClientRect().top ?? view.bottom);
         const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-thread > .acpmux-row")];
-        const now = new Set<Element>();
         let jumped = false;
         for (const row of rows) {
           const rect = row.getBoundingClientRect();
@@ -384,7 +383,6 @@ await requireBrowserLane("agent-pane-turn-end-motion.test.ts", async () => {
           if (!(row.textContent ?? "").trim()) continue;
           // A turn end's fold copies (turnEndFold.ts) are inert copies of rows already drawn.
           if (row.classList.contains("acpmux-row--fold-ghost")) continue;
-          now.add(row);
           const before = seen.get(row);
           if (!before) {
             // Appeared inside the view (not scrolled in at an edge), drawn whole at once: a pop.
@@ -416,7 +414,9 @@ await requireBrowserLane("agent-pane-turn-end-motion.test.ts", async () => {
             travel: dir === before.dir ? before.travel + Math.abs(dy) : Math.abs(dy),
           });
         }
-        for (const row of seen.keys()) if (!now.has(row)) seen.delete(row);
+        // Keep mounted rows in the baseline while they are outside the viewport. A turn-end reflow can
+        // move an already-mounted row out and back into view; that is not a pop. If virtualization
+        // remounts it, the new Element key is still observed as a real first appearance.
         // Stop: drawn from the turn's start until the next turn's answer.
         // Counted from the frame Stop first shows (the send's own Send-to-Stop swap is not a gap)
         // until the last turn's end is sent (`final`): a gap is Stop going and coming back mid-turn.
