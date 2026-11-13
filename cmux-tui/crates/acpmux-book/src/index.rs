@@ -11,15 +11,64 @@
 //! number of chats. Readers can retain a published snapshot while the writer
 //! builds the next one.
 
-use imbl::OrdMap;
+use imbl::{OrdMap, OrdSet};
+
+/// Persistent keys changed while a snapshot is being compacted.
+pub type ChangedRows = OrdSet<RowKey>;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::cmp::Ordering;
-use std::fs::{self, File, OpenOptions};
-use std::io::{self, BufRead, BufReader, BufWriter, Seek, SeekFrom, Write};
-use std::path::{Path, PathBuf};
+use std::ops::Bound::{Excluded, Unbounded};
+
+mod codec;
+mod compaction;
+mod edition;
+mod log;
+mod pages;
+pub use pages::{IndexPage, ListFilter, ReadSide};
+#[cfg(test)]
+mod compaction_tests;
+mod snapshot;
+#[cfg(test)]
+mod storage_tests;
+pub use compaction::{Compaction, CompactionResult};
+pub use edition::IndexEdition;
+pub use log::{IndexLog, replay_generation_logs, replay_log, replay_log_from};
+pub use snapshot::{DiskSnapshot, SnapshotRows, SortedSnapshot};
+
+use std::io;
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+
+/// The identity of a row is independent of its current sort position.
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RowKey {
+    pub origin: Arc<str>,
+    pub chat_id: Arc<str>,
+}
+
+impl RowKey {
+    pub fn new(origin: impl Into<Arc<str>>, chat_id: impl Into<Arc<str>>) -> Self {
+        Self { origin: origin.into(), chat_id: chat_id.into() }
+    }
+
+    pub fn validate(&self) -> io::Result<()> {
+        if self.origin.len() > MAX_FIELD_BYTES || self.chat_id.len() > MAX_FIELD_BYTES {
+            REJECTED_KEYS.fetch_add(1, AtomicOrdering::Relaxed);
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "row key exceeds 256 bytes"));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct ForkOf {
+    #[serde(flatten)]
+    pub key: RowKey,
+    pub seq: u64,
+}
 
 /// The on-wire summary of one chat. `extra` is opaque to the daemon.
 #[derive(Debug, Deserialize, Serialize)]
@@ -34,6 +83,12 @@ pub struct Summary {
     pub workspace: Option<String>,
     pub origin: String,
     pub pinned: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<RowKey>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fork_of: Option<ForkOf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder: Option<String>,
     #[serde(default = "empty_object")]
     pub extra: Box<RawValue>,
 }
@@ -45,6 +100,25 @@ pub type SummaryRecord = Summary;
 /// one harness supplied title or opaque extension.
 pub const MAX_TITLE_BYTES: usize = 256;
 pub const MAX_SUMMARY_BYTES: usize = 2 * 1024;
+/// Text JSON plus three raw row keys, a folder, fork seq, and fixed framing.
+pub const MAX_INDEX_RECORD_BYTES: usize = MAX_SUMMARY_BYTES + 3 * (4 + 512) + 1026 + 8 + 32;
+static REJECTED_KEYS: AtomicUsize = AtomicUsize::new(0);
+static OMITTED_FOLDERS: AtomicUsize = AtomicUsize::new(0);
+static CUT_FIELDS: AtomicUsize = AtomicUsize::new(0);
+static EMPTY_EXTRAS: AtomicUsize = AtomicUsize::new(0);
+
+pub fn rejected_keys() -> usize {
+    REJECTED_KEYS.load(AtomicOrdering::Relaxed)
+}
+pub fn omitted_folders() -> usize {
+    OMITTED_FOLDERS.load(AtomicOrdering::Relaxed)
+}
+pub fn cut_fields() -> usize {
+    CUT_FIELDS.load(AtomicOrdering::Relaxed)
+}
+pub fn empty_extras() -> usize {
+    EMPTY_EXTRAS.load(AtomicOrdering::Relaxed)
+}
 const MAX_FIELD_BYTES: usize = 256;
 
 fn empty_object() -> Box<RawValue> {
@@ -63,6 +137,9 @@ impl Clone for Summary {
             workspace: self.workspace.clone(),
             origin: self.origin.clone(),
             pinned: self.pinned,
+            parent: self.parent.clone(),
+            fork_of: self.fork_of.clone(),
+            folder: self.folder.clone(),
             extra: self.extra.to_owned(),
         }
     }
@@ -81,8 +158,83 @@ impl Summary {
             workspace: None,
             origin: "local".to_owned(),
             pinned: false,
+            parent: None,
+            fork_of: None,
+            folder: None,
             extra: empty_object(),
         }
+    }
+
+    pub fn key(&self) -> RowKey {
+        RowKey::new(self.origin.as_str(), self.chat_id.as_str())
+    }
+
+    /// Keys are refused, never shortened. Opaque data stays opaque.
+    pub fn validate(&self) -> io::Result<()> {
+        self.key().validate()?;
+        if let Some(parent) = &self.parent {
+            parent.validate()?;
+        }
+        if let Some(fork) = &self.fork_of {
+            fork.key.validate()?;
+        }
+        if self.folder.as_ref().is_some_and(|folder| folder.len() > 1024) {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "folder exceeds 1024 bytes"));
+        }
+        if codec::text_len(self) > MAX_SUMMARY_BYTES {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "summary texts exceed budget"));
+        }
+        Ok(())
+    }
+
+    pub fn prepare(mut self) -> io::Result<Self> {
+        if self.folder.as_ref().is_some_and(|folder| folder.len() > 1024) {
+            self.folder = None;
+            OMITTED_FOLDERS.fetch_add(1, AtomicOrdering::Relaxed);
+        }
+        let summary = self.bounded();
+        summary.validate()?;
+        Ok(summary)
+    }
+
+    pub fn is_live(&self) -> bool {
+        self.state != "closed"
+    }
+
+    pub fn is_hot_at(&self, now: u64) -> bool {
+        self.pinned || self.is_live() || self.last_activity >= now.saturating_sub(30 * 24 * 60 * 60)
+    }
+
+    /// Opaque extension bytes are compared without parsing or re-encoding.
+    pub fn same_content(&self, other: &Self) -> bool {
+        let Self {
+            chat_id,
+            title,
+            harness,
+            state,
+            last_activity,
+            unread,
+            workspace,
+            origin,
+            pinned,
+            parent,
+            fork_of,
+            folder,
+            extra,
+        } = self;
+        chat_id == &other.chat_id
+            && title == &other.title
+            && harness == &other.harness
+            && state == &other.state
+            && last_activity == &other.last_activity
+            && unread == &other.unread
+            && workspace == &other.workspace
+            && origin == &other.origin
+            && pinned == &other.pinned
+            && parent == &other.parent
+            && fork_of == &other.fork_of
+            && folder == &other.folder
+            && extra.get() == other.extra.get()
     }
 
     pub fn encoded_len(&self) -> usize {
@@ -93,22 +245,21 @@ impl Summary {
     /// an extension that cannot fit is represented by the empty object rather
     /// than parsed or allowed to expand the list frame.
     pub fn bounded(mut self) -> Self {
-        self.chat_id = truncate_utf8(&self.chat_id, MAX_FIELD_BYTES);
         self.title = truncate_utf8(&self.title, MAX_TITLE_BYTES);
         self.harness = truncate_utf8(&self.harness, MAX_FIELD_BYTES);
         self.state = truncate_utf8(&self.state, MAX_FIELD_BYTES);
         self.workspace = self.workspace.map(|value| truncate_utf8(&value, MAX_FIELD_BYTES));
-        self.origin = truncate_utf8(&self.origin, MAX_FIELD_BYTES);
-        if self.encoded_len() > MAX_SUMMARY_BYTES {
+        if codec::text_len(&self) > MAX_SUMMARY_BYTES {
             self.extra = empty_object();
+            EMPTY_EXTRAS.fetch_add(1, AtomicOrdering::Relaxed);
         }
-        if self.encoded_len() > MAX_SUMMARY_BYTES {
+        if codec::text_len(&self) > MAX_SUMMARY_BYTES {
             self.title = truncate_utf8(&self.title, MAX_TITLE_BYTES / 2);
         }
         // JSON escaping can make a 256-byte UTF-8 field larger than its text
         // length. Keep shrinking textual fields until the serialized record,
         // including opaque bytes, is inside the wire bound.
-        while self.encoded_len() > MAX_SUMMARY_BYTES {
+        while codec::text_len(&self) > MAX_SUMMARY_BYTES {
             let mut changed = false;
             macro_rules! shrink {
                 ($value:expr) => {
@@ -120,22 +271,16 @@ impl Summary {
                 };
             }
             shrink!(self.title);
-            if self.encoded_len() > MAX_SUMMARY_BYTES {
+            if codec::text_len(&self) > MAX_SUMMARY_BYTES {
                 shrink!(self.harness);
             }
-            if self.encoded_len() > MAX_SUMMARY_BYTES {
+            if codec::text_len(&self) > MAX_SUMMARY_BYTES {
                 shrink!(self.state);
             }
-            if self.encoded_len() > MAX_SUMMARY_BYTES
+            if codec::text_len(&self) > MAX_SUMMARY_BYTES
                 && let Some(value) = self.workspace.as_mut()
             {
                 shrink!(*value);
-            }
-            if self.encoded_len() > MAX_SUMMARY_BYTES {
-                shrink!(self.origin);
-            }
-            if self.encoded_len() > MAX_SUMMARY_BYTES {
-                shrink!(self.chat_id);
             }
             if !changed {
                 break;
@@ -149,6 +294,7 @@ fn truncate_utf8(value: &str, max: usize) -> String {
     if value.len() <= max {
         return value.to_owned();
     }
+    CUT_FIELDS.fetch_add(1, AtomicOrdering::Relaxed);
     let mut end = max;
     while end > 0 && !value.is_char_boundary(end) {
         end -= 1;
@@ -164,19 +310,32 @@ pub struct IndexRecord {
     pub seq: u64,
     pub chat_id: String,
     pub summary: Summary,
+    #[serde(default = "local_origin")]
+    pub origin: String,
     #[serde(default)]
     pub gone: bool,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct SortKey {
-    last_activity: u64,
-    chat_id: String,
+fn local_origin() -> String {
+    "local".to_owned()
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct SortKey {
+    pub last_activity: u64,
+    #[serde(flatten)]
+    pub row: RowKey,
+}
+
+impl SortKey {
+    pub fn of(summary: &Summary) -> Self {
+        Self { last_activity: summary.last_activity, row: summary.key() }
+    }
 }
 
 impl Ord for SortKey {
     fn cmp(&self, other: &Self) -> Ordering {
-        other.last_activity.cmp(&self.last_activity).then_with(|| self.chat_id.cmp(&other.chat_id))
+        other.last_activity.cmp(&self.last_activity).then_with(|| self.row.cmp(&other.row))
     }
 }
 
@@ -190,8 +349,11 @@ impl PartialOrd for SortKey {
 #[derive(Clone, Debug)]
 pub struct SummaryIndex {
     seq: u64,
-    by_id: OrdMap<String, Arc<Summary>>,
+    edition: u32,
+    by_id: OrdMap<RowKey, Arc<Summary>>,
     ordered: OrdMap<SortKey, Arc<Summary>>,
+    disk: Option<Arc<DiskSnapshot>>,
+    shadowed: OrdSet<RowKey>,
 }
 
 impl Default for SummaryIndex {
@@ -202,7 +364,109 @@ impl Default for SummaryIndex {
 
 impl SummaryIndex {
     pub fn new() -> Self {
-        Self { seq: 0, by_id: OrdMap::new(), ordered: OrdMap::new() }
+        Self {
+            seq: 0,
+            edition: 1,
+            by_id: OrdMap::new(),
+            ordered: OrdMap::new(),
+            disk: None,
+            shadowed: OrdSet::new(),
+        }
+    }
+
+    pub fn from_disk(disk: Option<Arc<DiskSnapshot>>, edition: u32) -> Self {
+        Self { seq: disk.as_ref().map_or(0, |disk| disk.seq()), edition, disk, ..Self::new() }
+    }
+
+    /// Merge the immutable disk generation with the current hot/tail overlay.
+    /// This iterator owns one bounded disk piece, never a materialized list.
+    pub fn merged_rows(&self) -> impl Iterator<Item = io::Result<Arc<Summary>>> + '_ {
+        let mut disk = self.disk.as_ref().map(|disk| disk.rows());
+        let mut hot = self.iter().peekable();
+        let mut next_disk = None;
+        let mut disk_done = disk.is_none();
+        std::iter::from_fn(move || {
+            loop {
+                if next_disk.is_none() && !disk_done {
+                    match disk.as_mut().and_then(Iterator::next) {
+                        Some(Ok(row)) => {
+                            if self.is_shadowed(&row.key()) || self.get_row(&row.key()).is_some() {
+                                continue;
+                            }
+                            next_disk = Some(row);
+                        }
+                        Some(Err(error)) => {
+                            disk_done = true;
+                            return Some(Err(error));
+                        }
+                        None => disk_done = true,
+                    }
+                }
+                return match (hot.peek(), next_disk.as_ref()) {
+                    (Some(row), Some(cold)) if SortKey::of(row) <= SortKey::of(cold) => {
+                        hot.next().cloned().map(Ok)
+                    }
+                    (_, Some(_)) => next_disk.take().map(Ok),
+                    (Some(_), None) => hot.next().cloned().map(Ok),
+                    (None, None) => None,
+                };
+            }
+        })
+    }
+
+    /// Swap disk generations without rebuilding the maps. The old shadow root
+    /// is returned so its potentially large last drop can run off the writer.
+    pub fn with_compacted_snapshot(
+        &self,
+        snapshot: Arc<DiskSnapshot>,
+        changed: ChangedRows,
+    ) -> (Self, ChangedRows) {
+        let mut next = self.clone();
+        next.disk = Some(snapshot);
+        let retired_shadow = std::mem::replace(&mut next.shadowed, changed);
+        (next, retired_shadow)
+    }
+
+    /// Only a cold-at-capture row still covered by this snapshot can leave.
+    /// This changes residency, not logical contents, sequence, or tombstones.
+    pub fn evict_compacted(&mut self, key: &RowKey) -> bool {
+        if !self.shadowed.contains(key)
+            && let Some(row) = self.by_id.remove(key)
+        {
+            self.ordered.remove(&SortKey::of(&row));
+            return true;
+        }
+        false
+    }
+
+    /// Complete unfinished startup hydration from the compactor's captured
+    /// stream, sharing the row and never overwriting a later update or removal.
+    pub fn hydrate_compacted(&mut self, row: Arc<Summary>) {
+        let key = row.key();
+        if !self.shadowed.contains(&key) && !self.by_id.contains_key(&key) {
+            self.by_id.insert(key, row.clone());
+            self.ordered.insert(SortKey::of(&row), row);
+        }
+    }
+
+    pub fn edition(&self) -> u32 {
+        self.edition
+    }
+    pub fn disk(&self) -> Option<&Arc<DiskSnapshot>> {
+        self.disk.as_ref()
+    }
+    pub fn is_shadowed(&self, key: &RowKey) -> bool {
+        self.shadowed.contains(key)
+    }
+
+    pub fn hydrate(&self, row: Arc<Summary>, now: u64) -> Self {
+        if self.shadowed.contains(&row.key()) || !row.is_hot_at(now) {
+            return self.clone();
+        }
+        let mut next = self.clone();
+        next.by_id.insert(row.key(), row.clone());
+        next.ordered.insert(SortKey::of(&row), row);
+        next
     }
 
     pub fn seq(&self) -> u64 {
@@ -218,7 +482,11 @@ impl SummaryIndex {
     }
 
     pub fn get(&self, chat_id: &str) -> Option<Arc<Summary>> {
-        self.by_id.get(chat_id).cloned()
+        self.get_row(&RowKey::new("local", chat_id))
+    }
+
+    pub fn get_row(&self, key: &RowKey) -> Option<Arc<Summary>> {
+        self.by_id.get(key).cloned()
     }
 
     /// Applies one summary without walking the rest of the index.
@@ -226,18 +494,17 @@ impl SummaryIndex {
         let summary = Arc::new(summary.bounded());
         let mut by_id = self.by_id.clone();
         let mut ordered = self.ordered.clone();
-        if let Some(old) = by_id.get(&summary.chat_id) {
-            ordered.remove(&SortKey {
-                last_activity: old.last_activity,
-                chat_id: old.chat_id.clone(),
-            });
+        let key = summary.key();
+        if let Some(old) = by_id.get(&key) {
+            ordered.remove(&SortKey::of(old));
         }
-        ordered.insert(
-            SortKey { last_activity: summary.last_activity, chat_id: summary.chat_id.clone() },
-            summary.clone(),
-        );
-        by_id.insert(summary.chat_id.clone(), summary);
-        Self { seq: self.seq.max(seq), by_id, ordered }
+        ordered.insert(SortKey::of(&summary), summary.clone());
+        by_id.insert(key.clone(), summary);
+        let mut shadowed = self.shadowed.clone();
+        if self.disk.is_some() {
+            shadowed.insert(key);
+        }
+        Self { seq: self.seq.max(seq), by_id, ordered, shadowed, ..self.clone() }
     }
 
     /// Test/telemetry hook: applying one summary records the number of
@@ -258,39 +525,38 @@ impl SummaryIndex {
         self.iter().skip(start).take(limit).cloned().collect()
     }
 
-    /// Returns a keyset page. The key is exclusive, so inserts before the
-    /// anchor do not shift the next page.
-    pub fn page_after_key(&self, key: Option<(&u64, &str)>, limit: usize) -> Vec<Arc<Summary>> {
+    /// Exclusive keyset seek: tree search plus only the requested rows.
+    pub fn after(&self, key: Option<&SortKey>, limit: usize) -> Vec<Arc<Summary>> {
+        let lower = key.map_or(Unbounded, Excluded);
         self.ordered
-            .iter()
-            .filter(|(sort, _)| {
-                key.is_none_or(|(activity, chat)| {
-                    sort.last_activity < *activity
-                        || (sort.last_activity == *activity && sort.chat_id.as_str() > chat)
-                })
-            })
+            .range::<_, SortKey>((lower, Unbounded))
             .take(limit)
-            .map(|(_, summary)| summary.clone())
+            .map(|(_, row)| row.clone())
             .collect()
     }
 
-    /// Returns the keyset page immediately before an exclusive anchor. The
-    /// ordered map is newest-first, so this collects the preceding range and
-    /// reverses it to preserve the list's display order.
-    pub fn page_before_key(&self, key: (&u64, &str), limit: usize) -> Vec<Arc<Summary>> {
+    pub fn before(&self, key: &SortKey, limit: usize) -> Vec<Arc<Summary>> {
         let mut rows: Vec<_> = self
             .ordered
-            .iter()
-            .filter(|(sort, _)| {
-                sort.last_activity > *key.0
-                    || (sort.last_activity == *key.0 && sort.chat_id.as_str() < key.1)
-            })
-            .map(|(_, summary)| summary.clone())
+            .range::<_, SortKey>((Unbounded, Excluded(key)))
+            .rev()
+            .take(limit)
+            .map(|(_, row)| row.clone())
             .collect();
         rows.reverse();
-        rows.truncate(limit);
-        rows.reverse();
         rows
+    }
+
+    pub fn page_after_key(&self, key: Option<(&u64, &str)>, limit: usize) -> Vec<Arc<Summary>> {
+        self.after(
+            key.map(|(at, id)| SortKey { last_activity: *at, row: RowKey::new("local", id) })
+                .as_ref(),
+            limit,
+        )
+    }
+
+    pub fn page_before_key(&self, key: (&u64, &str), limit: usize) -> Vec<Arc<Summary>> {
+        self.before(&SortKey { last_activity: *key.0, row: RowKey::new("local", key.1) }, limit)
     }
 
     pub fn summaries(&self) -> Vec<Summary> {
@@ -298,325 +564,33 @@ impl SummaryIndex {
     }
 
     pub fn remove(&self, seq: u64, chat_id: &str) -> Option<Self> {
-        let old = self.by_id.get(chat_id)?.clone();
+        self.remove_row(seq, &RowKey::new("local", chat_id))
+    }
+
+    pub fn remove_row(&self, seq: u64, key: &RowKey) -> Option<Self> {
+        let old = self.by_id.get(key);
+        if old.is_none() && self.disk.is_none() {
+            return None;
+        }
         let mut by_id = self.by_id.clone();
         let mut ordered = self.ordered.clone();
-        by_id.remove(chat_id);
-        ordered.remove(&SortKey { last_activity: old.last_activity, chat_id: old.chat_id.clone() });
-        Some(Self { seq: self.seq.max(seq), by_id, ordered })
-    }
-}
-
-/// The append-only `index.log` writer.
-pub struct IndexLog {
-    file: BufWriter<File>,
-    path: PathBuf,
-    next_seq: u64,
-    offset: u64,
-}
-
-impl IndexLog {
-    pub fn open(path: impl AsRef<Path>) -> io::Result<Self> {
-        let requested = path.as_ref().to_owned();
-        let snapshot_path = requested.with_extension("snap");
-        let (path, snapshot_seq) = match SortedSnapshot::metadata(&snapshot_path)? {
-            Some(snapshot) => {
-                let candidate = snapshot.log_name.as_deref().map(|name| {
-                    snapshot_path.parent().unwrap_or_else(|| Path::new(".")).join(name)
-                });
-                let active = candidate.filter(|candidate| candidate.exists()).unwrap_or(requested);
-                (active, snapshot.seq)
-            }
-            None => (requested, 0),
-        };
-        let bytes = match fs::read(&path) {
-            Ok(bytes) => bytes,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Vec::new(),
-            Err(error) => return Err(error),
-        };
-        let mut offset = 0usize;
-        let mut next_seq = 0;
-        for line in bytes.split_inclusive(|byte| *byte == b'\n') {
-            let end = offset + line.len();
-            let text = line.strip_suffix(b"\n").unwrap_or(line);
-            match serde_json::from_slice::<IndexRecord>(text) {
-                Ok(record) => {
-                    next_seq = next_seq.max(record.seq);
-                    offset = end;
-                }
-                Err(_) => break,
-            }
+        by_id.remove(key);
+        if let Some(old) = old {
+            ordered.remove(&SortKey::of(old));
         }
-        if offset < bytes.len() {
-            let file = OpenOptions::new().write(true).open(&path)?;
-            file.set_len(offset as u64)?;
-        } else if offset > 0 && bytes.get(..offset).is_some_and(|head| !head.ends_with(b"\n")) {
-            let mut file = OpenOptions::new().append(true).open(&path)?;
-            file.write_all(b"\n")?;
-            offset += 1;
+        let mut shadowed = self.shadowed.clone();
+        if self.disk.is_some() {
+            shadowed.insert(key.clone());
         }
-        let file = OpenOptions::new().create(true).append(true).open(&path)?;
-        Ok(Self {
-            file: BufWriter::new(file),
-            path,
-            next_seq: next_seq.max(snapshot_seq),
-            offset: offset as u64,
-        })
-    }
-
-    pub fn append(&mut self, summary: Summary) -> io::Result<IndexRecord> {
-        self.next_seq = self.next_seq.saturating_add(1);
-        let record = IndexRecord {
-            seq: self.next_seq,
-            chat_id: summary.chat_id.clone(),
-            summary,
-            gone: false,
-        };
-        let mut bytes = serde_json::to_vec(&record).map_err(io::Error::other)?;
-        bytes.push(b'\n');
-        self.file.write_all(&bytes)?;
-        self.offset = self.offset.saturating_add(bytes.len() as u64);
-        Ok(record)
-    }
-
-    pub fn append_remove(&mut self, chat_id: impl Into<String>) -> io::Result<IndexRecord> {
-        self.next_seq = self.next_seq.saturating_add(1);
-        let chat_id = chat_id.into();
-        let record = IndexRecord {
-            seq: self.next_seq,
-            chat_id: chat_id.clone(),
-            summary: Summary::new(chat_id),
-            gone: true,
-        };
-        let mut bytes = serde_json::to_vec(&record).map_err(io::Error::other)?;
-        bytes.push(b'\n');
-        self.file.write_all(&bytes)?;
-        self.offset = self.offset.saturating_add(bytes.len() as u64);
-        Ok(record)
-    }
-
-    pub fn flush(&mut self) -> io::Result<()> {
-        self.file.flush()
-    }
-
-    pub fn sync(&mut self) -> io::Result<()> {
-        self.file.flush()?;
-        self.file.get_ref().sync_data()
-    }
-
-    pub fn next_seq(&self) -> u64 {
-        self.next_seq
-    }
-
-    pub fn offset(&self) -> u64 {
-        self.offset
-    }
-
-    pub fn path(&self) -> &Path {
-        &self.path
-    }
-
-    /// Writes a sorted snapshot and starts a fresh log. The snapshot is
-    /// replaced atomically before the old log is truncated, so a crash can
-    /// replay duplicate records but cannot lose a committed summary.
-    pub fn compact(
-        &mut self,
-        snapshot_path: impl AsRef<Path>,
-        index: &SummaryIndex,
-    ) -> io::Result<()> {
-        self.sync()?;
-        let parent = self.path.parent().unwrap_or_else(|| Path::new(".")).to_owned();
-        let stem = self.path.file_name().and_then(|name| name.to_str()).unwrap_or("index.log");
-        let generation = parent.join(format!("{stem}.{}", index.seq()));
-        let generation_file =
-            OpenOptions::new().create(true).write(true).truncate(true).open(&generation)?;
-        generation_file.sync_all()?;
-        SortedSnapshot::write_with_offset_and_name(
-            &snapshot_path,
-            index,
-            0,
-            generation.file_name().and_then(|name| name.to_str()),
-        )?;
-        self.file.flush()?;
-        let old_path = self.path.clone();
-        self.file = BufWriter::new(OpenOptions::new().create(true).append(true).open(&generation)?);
-        self.path = generation;
-        self.offset = 0;
-        self.next_seq = index.seq();
-        if old_path != self.path {
-            let _ = fs::remove_file(old_path);
-        }
-        if let Ok(dir) = File::open(&parent) {
-            dir.sync_all()?;
-        }
-        Ok(())
-    }
-}
-
-/// Reads the log's tail into a persistent index. A malformed or partial final
-/// line is ignored so a torn append does not hide earlier summaries.
-pub fn replay_log(path: impl AsRef<Path>, index: SummaryIndex) -> io::Result<SummaryIndex> {
-    replay_log_from(path, 0, index)
-}
-
-/// Replays only the log tail not covered by a sorted snapshot.
-pub fn replay_log_from(
-    path: impl AsRef<Path>,
-    offset: u64,
-    mut index: SummaryIndex,
-) -> io::Result<SummaryIndex> {
-    let file = match File::open(path) {
-        Ok(file) => file,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(index),
-        Err(error) => return Err(error),
-    };
-    let mut reader = BufReader::new(file);
-    reader.seek(SeekFrom::Start(offset))?;
-    for line in reader.lines() {
-        let line = line?;
-        if line.trim().is_empty() {
-            continue;
-        }
-        let record: IndexRecord = match serde_json::from_str(&line) {
-            Ok(record) => record,
-            Err(_) => break,
-        };
-        index = if record.gone {
-            index.remove(record.seq, &record.chat_id).unwrap_or(index)
-        } else {
-            index.apply(record.seq, record.summary)
-        };
-    }
-    Ok(index)
-}
-
-/// A sorted `index.snap` file. Snapshot writes are atomic at the caller's
-/// boundary; this helper only emits the deterministic compact representation.
-pub struct SortedSnapshot;
-
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SnapshotFile {
-    version: u32,
-    seq: u64,
-    log_offset: u64,
-    #[serde(default)]
-    log_name: Option<String>,
-    summaries: Vec<Summary>,
-}
-
-impl SortedSnapshot {
-    pub const VERSION: u32 = 1;
-
-    pub fn write(path: impl AsRef<Path>, index: &SummaryIndex) -> io::Result<()> {
-        Self::write_with_offset(path, index, 0)
-    }
-
-    pub fn write_with_offset(
-        path: impl AsRef<Path>,
-        index: &SummaryIndex,
-        log_offset: u64,
-    ) -> io::Result<()> {
-        Self::write_with_offset_and_name(path, index, log_offset, None)
-    }
-
-    fn write_with_offset_and_name(
-        path: impl AsRef<Path>,
-        index: &SummaryIndex,
-        log_offset: u64,
-        log_name: Option<&str>,
-    ) -> io::Result<()> {
-        let path = path.as_ref();
-        let temp = path.with_extension("snap.tmp");
-        let file = File::create(&temp)?;
-        let mut writer = BufWriter::new(file);
-        serde_json::to_writer(
-            &mut writer,
-            &SnapshotFile {
-                version: Self::VERSION,
-                seq: index.seq,
-                log_offset,
-                log_name: log_name.map(str::to_owned),
-                summaries: index.summaries(),
-            },
-        )
-        .map_err(io::Error::other)?;
-        writer.flush()?;
-        writer.get_ref().sync_all()?;
-        fs::rename(&temp, path)?;
-        if let Some(parent) = path.parent()
-            && let Ok(dir) = File::open(parent)
-        {
-            dir.sync_all()?;
-        }
-        Ok(())
-    }
-
-    pub fn read(path: impl AsRef<Path>) -> io::Result<Option<SummaryIndex>> {
-        let file = match File::open(path) {
-            Ok(file) => file,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(error),
-        };
-        let snapshot: SnapshotFile =
-            serde_json::from_reader(BufReader::new(file)).map_err(io::Error::other)?;
-        if snapshot.version != Self::VERSION {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "unknown index snapshot version",
-            ));
-        }
-        let mut index = SummaryIndex::new();
-        for summary in snapshot.summaries {
-            index = index.apply(snapshot.seq, summary);
-        }
-        index.seq = snapshot.seq;
-        Ok(Some(index))
-    }
-
-    fn metadata(path: impl AsRef<Path>) -> io::Result<Option<SnapshotFile>> {
-        let file = match File::open(path) {
-            Ok(file) => file,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(error),
-        };
-        let snapshot: SnapshotFile =
-            serde_json::from_reader(BufReader::new(file)).map_err(io::Error::other)?;
-        if snapshot.version != Self::VERSION {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "unknown index snapshot version",
-            ));
-        }
-        Ok(Some(snapshot))
-    }
-
-    pub fn read_with_offset(path: impl AsRef<Path>) -> io::Result<Option<(SummaryIndex, u64)>> {
-        let file = match File::open(path) {
-            Ok(file) => file,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(error),
-        };
-        let snapshot: SnapshotFile =
-            serde_json::from_reader(BufReader::new(file)).map_err(io::Error::other)?;
-        if snapshot.version != Self::VERSION {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "unknown index snapshot version",
-            ));
-        }
-        let mut index = SummaryIndex::new();
-        for summary in snapshot.summaries {
-            index = index.apply(snapshot.seq, summary);
-        }
-        index.seq = snapshot.seq;
-        Ok(Some((index, snapshot.log_offset)))
+        Some(Self { seq: self.seq.max(seq), by_id, ordered, shadowed, ..self.clone() })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::OpenOptions;
+    use std::io::Write;
     use tempfile::tempdir;
 
     fn summary(id: &str, at: u64, extra: &str) -> Summary {
@@ -624,6 +598,54 @@ mod tests {
         summary.last_activity = at;
         summary.extra = RawValue::from_string(extra.to_owned()).unwrap();
         summary
+    }
+
+    #[test]
+    fn composite_identity_and_typed_edges_survive_log_snapshot_and_restart() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("index.log");
+        let mut local = summary("same", 3, "{\"future\": true}");
+        local.parent = Some(RowKey::new("local", "parent"));
+        local.fork_of = Some(ForkOf { key: RowKey::new("peer", "fork"), seq: 91 });
+        local.folder = Some("/work/project".to_owned());
+        let mut peer = local.clone();
+        peer.origin = "peer".to_owned();
+        let mut log = IndexLog::open(&path).unwrap();
+        log.append(local).unwrap();
+        log.append(peer).unwrap();
+        log.sync().unwrap();
+        let index = replay_log(&path, SummaryIndex::new()).unwrap();
+        assert_eq!(index.len(), 2);
+        log.compact(dir.path().join("index.snap"), &index).unwrap();
+        drop(log);
+        let mut log = IndexLog::open(&path).unwrap();
+        let restored = SortedSnapshot::read(dir.path().join("index.snap")).unwrap().unwrap();
+        for origin in ["local", "peer"] {
+            let row = restored.get_row(&RowKey::new(origin, "same")).unwrap();
+            assert_eq!(row.parent, Some(RowKey::new("local", "parent")));
+            assert_eq!(row.fork_of.as_ref().unwrap().seq, 91);
+            assert_eq!(row.folder.as_deref(), Some("/work/project"));
+        }
+        log.append_gone(&RowKey::new("peer", "same")).unwrap();
+        log.sync().unwrap();
+        let restored = replay_log(log.path(), restored).unwrap();
+        assert_eq!(restored.len(), 1);
+        assert!(restored.get("same").is_some());
+    }
+
+    #[test]
+    fn identities_are_never_cut_and_invalid_records_never_append() {
+        let dir = tempdir().unwrap();
+        let mut log = IndexLog::open(dir.path().join("index.log")).unwrap();
+        let id = "x".repeat(257);
+        let bounded = Summary::new(id.clone()).bounded();
+        assert_eq!(bounded.chat_id, id);
+        assert!(log.append(bounded).is_err());
+        assert_eq!(log.next_seq(), 0);
+        assert_eq!(log.offset(), 0);
+        let mut escaped = Summary::new("\u{0001}".repeat(256));
+        escaped.origin = "\u{0002}".repeat(256);
+        assert!(log.append(escaped).is_ok());
     }
 
     #[test]

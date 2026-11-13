@@ -9,26 +9,35 @@ installer consumes, but it should allow a short, bounded propagation window.
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
+import os
+import sys
 import time
 from typing import Callable
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import Request
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import deadline_http  # noqa: E402
 
 
 Fetch = Callable[[str], bytes]
 
 
 def fetch_url(url: str) -> bytes:
+    # deadline_http sends a User-Agent of its own: files.cmux.com answers urllib's default
+    # "Python-urllib/3.x" with 403, so with it every read of this check failed, for a
+    # published manifest too (4d01af5b, 2026-11-13).
     request = Request(url, headers={"Cache-Control": "no-cache"})
-    with urlopen(request, timeout=15) as response:  # noqa: S310 - fixed HTTPS CDN URLs
-        return response.read()
+    _, body, _ = deadline_http.request(request, 15, raise_errors=True)
+    return body
 
 
 def _fetch_json(url: str, fetch: Fetch) -> dict:
     try:
         value = json.loads(fetch(url))
-    except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError) as error:
+    except (HTTPError, URLError, TimeoutError, OSError, http.client.HTTPException, json.JSONDecodeError) as error:
         raise RuntimeError(f"could not read {url}: {error}") from error
     if not isinstance(value, dict):
         raise RuntimeError(f"{url} is not a JSON object")
