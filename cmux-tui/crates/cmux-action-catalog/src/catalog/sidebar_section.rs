@@ -54,7 +54,6 @@ pub static ACTIONS: &[Action] = &[
         symbol: "person.2",
         surfaces: KEYBOARD,
         surface_plan: SurfacePlan { palette: Decision::Exempt("focusMove"), cli: Some(Decision::Exempt("focusMove")), context_menu_exemption: Some("focusMove"), ..SurfacePlan::DEFAULT },
-        palette_target: Some("sidebar-item"),
         targets: &["sidebar-item"],
         cli_name: "action chief-open-subagent",
         focuses: true,
@@ -69,7 +68,6 @@ pub static ACTIONS: &[Action] = &[
         symbol: "pin",
         surfaces: KEYBOARD,
         surface_plan: SurfacePlan { palette: Decision::Exempt("liveInput"), cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("liveInput"), ..SurfacePlan::DEFAULT },
-        palette_target: Some("sidebar-item"),
         targets: &["sidebar-item"],
         cli_name: "action sidebar-chat-toggle-pin",
         ..Action::DEFAULT
@@ -125,6 +123,7 @@ pub static ACTIONS: &[Action] = &[
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarItem", "close", 120).label(t("Localizable", "menu.sidebar.hideApp", "Hide App")), Placement::at("sidebarSection", "close", 110).label(t("Localizable", "menu.sidebar.hideApp", "Hide App"))], ..SurfacePlan::DEFAULT },
         palette_target: Some("sidebar-item"),
+        palette_target_source: Some("sidebarApps"),
         targets: &["sidebar-item", "sidebar-section"],
         cli_name: "sidebar hide-app",
         ..Action::DEFAULT
@@ -503,7 +502,6 @@ pub static ACTIONS: &[Action] = &[
         symbol: "person.crop.circle.badge.xmark",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarItem", "view", 100)], ..SurfacePlan::DEFAULT },
-        palette_target: Some("sidebar-item"),
         targets: &["sidebar-item"],
         cli_name: "action sidebar-profile-control-hide",
         ..Action::DEFAULT
