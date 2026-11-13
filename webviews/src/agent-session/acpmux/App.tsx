@@ -302,6 +302,7 @@ import { backgroundGroups, type TaskCache } from "./backgroundTasks/backgroundTa
 import { backgroundTasksLook } from "./backgroundTasks/backgroundTasksLook.experiment";
 import { settleTrayExit } from "./subagents/trayMotionModel";
 import { runRetry, type RetryTarget } from "./subagents/retryState";
+import { runResume as runSubagentResume } from "./subagents/resumeState";
 import { configureWorkflowCardOpen, configureWorkflowCardSideTab } from "./summary/workflowCardModel";
 import {
   type DoneLineCache,
@@ -334,6 +335,7 @@ import {
   subagentTabTitle,
   useAutoOpenSubagents,
   useOpenNewSubagents,
+  subagentRowMark,
 } from "./subagents/subagentPanes";
 import { shownSubagentFacts, useShownSubagent } from "./subagents/subagentShown";
 import { turnCounts } from "./changes/turnCheckpoint";
@@ -649,9 +651,10 @@ import { ShellRuns, composerShell, shellContextAttachments, withShellRows } from
 import { type Subagent } from "./subagents/subagentFold";
 import { restartOwner, restartPrompt, restartReaches } from "./subagents/restart";
 import { type SubagentRows, runningGroups, subagentRowsFrom, subagentsIn } from "./subagents/subagentRows";
-import { foldOwnLog, subagentPaneView, useOwnLog } from "./subagents/subagentOwnLog";
+import { foldOwnLog, subagentPaneView, useOwnLog, needsOwnLog } from "./subagents/subagentOwnLog";
 import { lastReply as lastSubagentReply, SubagentReplyContext } from "./subagents/wholeReport";
 import { knownMark } from "../shared/AgentMark";
+import { useSenderIconLook } from "./subagents/senderIconLook";
 import {
   SubagentHarnessContext,
   SubagentNavContext,
@@ -1538,6 +1541,12 @@ export type InitialChat = {
   workflowLabs?: boolean;
 };
 
+/// The newest turn end of a settled view's fork points, if it named any.
+function newestSettledForkSeq(settled: AcpmuxSnapshot["settled"]): number | undefined {
+  if (!settled || settled.forkSeqs.length === 0) return undefined;
+  return Math.max(...settled.forkSeqs);
+}
+
 export function AcpmuxApp({ initialChat }: { initialChat?: InitialChat } = {}) {
   const [queryClient] = useState(createPaneQueryClient);
   return (
@@ -2120,7 +2129,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const revealRef = useRef(reveal);
   revealRef.current = reveal;
   const forkable = canFork(snapshot);
-  const forkSeq = latestForkSeq(snapshot.rows);
+  // A turn end of the settled view acpmux opened the chat from stands in until the rows hold one
+  // (cmuxterm-hq#9655): the fork is offered from the chat's first settled frame.
+  const forkSeq = latestForkSeq(snapshot.rows) ?? newestSettledForkSeq(snapshot.settled);
   const forkAny = forksAnyTurn(snapshot.summary?.family);
   const tryAnotherApproachInFlight = useRef<Promise<void> | undefined>(undefined);
   // One machine rewind at a time: a second while one runs is refused, so its button says so.
@@ -2693,9 +2704,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       freshAgents.find((agent) => agent.id === id),
       `${t("subagents.of")} ${chatName}`,
     );
-  // For callbacks that keep one identity (showSubagent names a pane's tab with it).
-  const subagentTitleRef = useRef(subagentTitle);
-  subagentTitleRef.current = subagentTitle;
+  // The mark its row draws, which its pane's tab draws too (subagentPanes.ts `subagentRowMark`).
+  const senderBadge = useSenderIconLook().badge;
+  const chatMark = knownMark(snapshot.summary?.harness, snapshot.summary?.family);
+  const subagentMark = (id: string) =>
+    subagentRowMark(
+      freshAgents.find((agent) => agent.id === id),
+      chatMark,
+      senderBadge,
+    );
+  // For callbacks that keep one identity (showSubagent names a pane's tab and its icon with them).
+  const subagentTitleRef = useRef({ title: subagentTitle, mark: subagentMark });
+  subagentTitleRef.current = { title: subagentTitle, mark: subagentMark };
   const workflowAdapter = useMemo(createWorkflowAdapter, []);
   const workflows = useMemo(
     () => (workflowLabsEnabled && shownSessionId ? workflowAdapter(freshAgents, shownSessionId) : []),
@@ -2730,11 +2750,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const subagentViewsRef = useRef(snapshot.subagentViews);
   subagentViewsRef.current = snapshot.subagentViews;
   const readSubagentView = useCallback((id: string) => subagentViewsRef.current?.[id], []);
-  // A subagent the chat's loaded rows no longer hold (an old one, finished pages ago): its pane reads
-  // that subagent's own records (subagents/subagentOwnLog.ts) and draws them, loading until they
-  // come and empty if there are none, never the chat's rows (Leo, 2026-11-07: "is this your
-  // sub-agent, or is this literally just a duplicate of you?").
-  const subagentInChat = !!subagentView && freshAgents.some((agent) => agent.id === subagentView);
+  // A subagent the chat's loaded rows do not hold whole (an old one, finished pages ago, or one whose
+  // stop the page kept but not its work): its pane reads that subagent's own records
+  // (subagents/subagentOwnLog.ts `needsOwnLog`) and draws them, loading until they come and empty if
+  // there are none, never the chat's rows (Leo, 2026-11-07: "is this your sub-agent, or is this
+  // literally just a duplicate of you?"; 2026-11-12: "NO MESSAGES DISPLAYED?").
+  const subagentReadsOwnLog = useMemo(
+    () => !!subagentView && needsOwnLog(subagentView, { rows: snapshot.rows, views: snapshot.subagentViews }),
+    [subagentView, snapshot.rows, snapshot.subagentViews],
+  );
   const readSubagentLog = useCallback(
     // l10n-allow: internal transport error; the subagent pane renders its own localized state.
     (id: string) => directClient.current?.readSubagentLog(id) ?? Promise.reject(new Error("Not connected")),
@@ -2750,8 +2774,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ),
     [readSubagentLog, shownSessionId, subagentHarness],
   );
+  // The background tasks panel's drill-in reads a subagent's own records by the same rule.
+  const backgroundOwnLogReads = useMemo(
+    () => ({ chat: { session: shownSessionId, harness: subagentHarness }, read: readSubagentLog, connected }),
+    [shownSessionId, subagentHarness, readSubagentLog, connected],
+  );
   const { log: ownLogged, loading: ownLoading } = useOwnLog(
-    subagentView && !workflowRequest && !subagentInChat ? subagentView : undefined,
+    subagentView && !workflowRequest && subagentReadsOwnLog ? subagentView : undefined,
     { session: shownSessionId, harness: snapshot.summary?.harness },
     readSubagentLog,
     connected,
@@ -4117,8 +4146,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           const text = restartPrompt(agent, translate);
           if (text) void callNative("chat.send", { text }).catch(() => undefined);
         })(restartChat),
-        // Retry asks acpmux, else the chat's agent, as Restart does (subagents/retryState.ts).
-        retryCapabilities: directClient.current?.capabilities,
+        // Retry asks acpmux, else the chat's agent, as Restart does (subagents/retryState.ts); it reads
+        // acpmux's capabilities, `retryCapabilities`, set with Resume below.
         // One it can't reach (a reconnect, a switch's hold) is refused with a note, never taken as sent.
         retryAgent: ((owner: string) => (agent: RetryTarget) => {
           const client = directClient.current;
@@ -4128,6 +4157,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           const send = (text: string) => callNative("chat.send", { text });
           return runRetry(agent, owner, { request, send, capabilities: client.capabilities, reaches }, translate);
         })(restartChat),
+      }),
+      // Resume asks acpmux to start a stopped subagent again from its transcript (resumeState.ts).
+      // It sends no prompt through the composer, so the helper's own read-only pane offers it too,
+      // on its tab (Leo, 2026-11-12: "A Resume button in cmux on a stopped helper's row and tab"):
+      // owned by the chat that pane's composer relays to.
+      ...(subagentRelayChat && {
+        retryCapabilities: directClient.current?.capabilities,
+        resumeAgent: ((owner: string) => (agent: Subagent) => {
+          const client = directClient.current;
+          const reaches = () => restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession);
+          if (!client) return Promise.resolve("retry.failed" as const);
+          const request = (method: string, params: Record<string, unknown>) => client.retry(method, params);
+          return runSubagentResume(agent, owner, { request, capabilities: client.capabilities, reaches });
+        })(subagentRelayChat),
       }),
       ...(connected &&
         retryModels.length > 1 && {
@@ -4245,6 +4288,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       retryTop,
       catalog,
       restartChat,
+      subagentRelayChat,
       snapshot.commands,
       queueRunsNext,
       nextStepKey,
@@ -5195,10 +5239,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         panes: autoOpenSubagents,
         inSubagentPane: subagentPane.current,
         here: setSubagentView,
-        title: subagentTitleRef.current(id),
+        title: subagentTitleRef.current.title(id),
         tone: workflowPaneRequest(id) ? undefined : agentTone(id),
         // Seed a new pane from this chat's kept tail before its own attach answers.
         beforeOpen: () => directClient.current?.handOverCurrentTail(),
+        mark: workflowPaneRequest(id) ? undefined : subagentTitleRef.current.mark(id),
       }),
     [autoOpenSubagents],
   );
@@ -5232,7 +5277,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [shownAgent, snapshot.clockOffsetMs],
   );
   // Its tab's hover card and spinner say the subagent's own state, not its chat's.
-  useShownSubagent(callNative, ownSubagentPane, subagentView, shownSubagentTitle, shownFacts);
+  useShownSubagent(
+    callNative,
+    ownSubagentPane,
+    subagentView,
+    shownSubagentTitle,
+    shownFacts,
+    subagentRowMark(shownAgent, chatMark, senderBadge),
+  );
   const showWorkflowAgent = useCallback(
     (agent: WorkflowAgent) => {
       const workflow = workflows.find((entry) => entry.agents.some((candidate) => candidate.id === agent.id));
@@ -5340,6 +5392,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const waitingKey = [...freshWaiting].sort().join(" ");
   // eslint-disable-next-line react-hooks/exhaustive-deps -- a new set only when its agents change
   const waitingAgents = useMemo(() => freshWaiting, [waitingKey]);
+  /// Resume for the surfaces outside the transcript's TurnActionsContext (the tray, the summary card,
+  /// Session Info): the same `resumeAgent` the end line calls (subagents/ResumeControl.tsx).
+  const resumeActions = useMemo(
+    () => ({ resumeAgent: turnActions.resumeAgent, retryCapabilities: turnActions.retryCapabilities }),
+    [turnActions.resumeAgent, turnActions.retryCapabilities],
+  );
   /// The summary card's subagents: the shown one, and a row's click shows its view.
   const cardSubagents = useMemo(
     () => ({
@@ -5348,6 +5406,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       asks: askedToolCalls,
       onOpen: showSubagent,
       autoOpen: quick ? undefined : { on: autoOpenSubagents, set: setAutoOpenSubagents },
+      // Resume on a stopped subagent's row in the card and Session Info (subagents/ResumeControl.tsx).
+      ...(turnActions.resumeAgent && { resume: resumeActions }),
     }),
     [
       snapshot.subagentViews,
@@ -5355,6 +5415,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       subagentView,
       askedToolCalls,
       showSubagent,
+      turnActions.resumeAgent,
+      resumeActions,
       quick,
       autoOpenSubagents,
       setAutoOpenSubagents,
@@ -5380,7 +5442,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         scopedAgent.agents ? `${scopedAgent.agents.done}/${scopedAgent.agents.started}` : "",
       ].join("\u0000")
     : "";
-  const scopedRows = shownSubagent === undefined ? undefined : snapshot.subagentViews?.[shownSubagent];
+  // Its own records when the pane read them (`needsOwnLog`) and they hold more than the chat's page.
+  const scopedRows = useMemo(() => {
+    if (shownSubagent === undefined) return undefined;
+    const fromChat = snapshot.subagentViews?.[shownSubagent];
+    const fromOwn = shownSubagent === subagentView ? ownLogged?.views[shownSubagent] : undefined;
+    return (fromOwn?.length ?? 0) > (fromChat?.length ?? 0) ? fromOwn : fromChat;
+  }, [shownSubagent, snapshot.subagentViews, subagentView, ownLogged]);
   // Session Info lists the subagent's rows as they stood when the reader started scrolling, until
   // the scroll settles, as the chat's card does with `cardRows` (summary/heldWhileScrolling.ts,
   // cmux#29639). Another subagent, or another chat, takes its rows at once.
@@ -6220,6 +6288,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             onOpenPanel={quick ? undefined : openBackgroundPanel}
             stop={stopSubagent}
             stopProcess={stopProcess}
+            resume={resumeActions}
             placement={trayPlacement}
             shown={trayChat}
             enters={trayEnters}
@@ -6714,6 +6783,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // may never come although the first one drew (cx-zjtn.6; PagePaintProbe in CmuxNextPages waits
   // the same way).
   const paintReported = useRef(false);
+  /// The chat whose settled frame the paint report named (`pane.painted` with `settled: true`).
+  const settledReported = useRef<string | undefined>(undefined);
   // The chat whose saved draft the composer read (Composer `onDraftSettled`), and the chat whose
   // wait for it ran out: until one names the chat, its draft is not in the prompt yet.
   const [draftSettled, setDraftSettled] = useState<string>();
@@ -6858,6 +6929,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       keepAdoptedTail(adoption);
       directClient.current?.bindToSession(adoption.sessionId);
       paintReported.current = false;
+      settledReported.current = undefined;
       setAdoptingSession(adoption.sessionId);
       setAwaitsChat(true);
       setNewTab(undefined);
@@ -6874,20 +6946,34 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // AgentPaneView+Loading.swift). A kept tail is drawn before the frame that shows what the pane
   // is, so it is known by the time this reports; the report happens once either way.
   const drewKeptTail = clientSnapshot.drewKeptTail === true;
+  // The chat on screen is acpmux's settled view of it (direct.ts `settled`, cmuxterm-hq#9655): the
+  // host is told in the paint report, `settled: true`, once that frame is drawn. A report made
+  // before it (the kept tail, the draw hold running out) said nothing of it, so the frame's own
+  // report follows, once per chat opened.
+  const settledSession =
+    clientSnapshot.settled !== undefined && clientSnapshot.chatRead === true ? clientSnapshot.sessionId : undefined;
   useEffect(() => {
-    if (!showsWhatItIs || paintReported.current) return;
+    if (!showsWhatItIs) return;
+    const settledNow = settledSession !== undefined && settledReported.current !== settledSession;
+    if (paintReported.current && !settledNow) return;
+    const first = !paintReported.current;
     paintReported.current = true;
+    if (settledNow) settledReported.current = settledSession;
     // The page drew what it is under the chat's snapshot (chatSnapshot/boot.ts): it takes over at
     // the next frame, in one step.
-    swapChatSnapshot();
+    if (first) swapChatSnapshot();
     requestAnimationFrame(() =>
       setTimeout(() => {
-        void callNative("pane.painted", { drewKeptTail }).catch(() => undefined);
+        if (settledNow) document.documentElement.dataset.acpmuxSettledDrawn = "true";
+        void callNative("pane.painted", { drewKeptTail, ...(settledNow ? { settled: true } : {}) }).catch(
+          () => undefined,
+        );
+        if (!first) return;
         void loadHighlightedCode();
         void loadEditDiffHunks();
       }, 0),
     );
-  }, [showsWhatItIs, drewKeptTail]);
+  }, [showsWhatItIs, drewKeptTail, settledSession]);
   // While the chat shows, the page keeps its drawn copy for the next launch (chatSnapshot/live.ts):
   // the visible window, written when it goes quiet and when the page hides. Only the shared page host
   // keeps copies (`chat.snapshot.put`); the legacy WebKit host has no such op and would count each
@@ -11173,9 +11259,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                       workflowTranscript.rows
                                                                         ? workflowTranscript.loadOlder
                                                                         : !childRows
-                                                                          ? () =>
-                                                                              directClient.current?.loadOlder() ??
-                                                                              Promise.resolve()
+                                                                          ? (fill: boolean) =>
+                                                                              directClient.current?.loadOlder(
+                                                                                undefined,
+                                                                                fill,
+                                                                              ) ?? Promise.resolve()
                                                                           : undefined
                                                                     }
                                                                     openAt={
@@ -13459,6 +13547,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 focus={backgroundFocus}
                 stopsAgents={stopSubagent !== undefined}
                 workflow={backgroundWorkflowReads}
+                ownLog={backgroundOwnLogReads}
                 onStop={(target) =>
                   target.kind === "agent"
                     ? (stopSubagent?.(target.id) ?? Promise.reject(new Error()))

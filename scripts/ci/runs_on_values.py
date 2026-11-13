@@ -64,6 +64,9 @@ import sys
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 
 # glaeda-cmux-runner's runner_label(): the static label only the runner registered under that name carries.
@@ -78,7 +81,7 @@ VARIABLE = re.compile(r"\bvars\.([A-Za-z0-9_]+)\b")
 # `needs.p.outputs.attempt == format('{0}', github.run_attempt)`). A negation (`!needs...`), an `||` group or an
 # output mentioned anywhere else is no pick.
 PICK = re.compile(r"needs\.[\w-]+\.outputs\.[\w-]+(?:\s*(?:==|!=)\s*(?:'[^']*'|format\([^|&]*\)))?")
-EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
+EXPRESSION = gh_expressions.EXPRESSION  # a tokenizer: a `}}` in a string literal does not end it
 
 
 def single_host(value: str | None) -> bool:

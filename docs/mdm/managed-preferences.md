@@ -193,7 +193,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.density` | string | `"cozy"` | `ultraCompact`, `compact`, `cozy`, `comfortable`, `spacious` | Density. Row height, padding, corners, icons and text size together. |
 | `appearance.customDensity` | string |  |  | Custom Density |
 | `appearance.customDensities` | string | `[]` |  | Custom Densities |
-| `app.uiScale` | real | `1` | 0.85 to 1.5 | App Zoom. Zoom for chat, Settings and other app pages. Density and Text Size set the rest of the app. |
+| `app.uiScale` | real | `1` | 0.25 to 5 | App Zoom. Zoom for chat, Settings and other app pages. Density and Text Size set the rest of the app. |
 | `appearance.metrics.chromeFontSize` | real |  | 10 to 16 | Text Size. Text size of tabs, the sidebar, chat and other controls, over the density's. Terminal text has its own size. |
 | `appearance.interfaceScale` | real |  | 0.9 to 1.25 | Interface Size. Text size of tabs, the sidebar and other controls. Terminal text has its own size. |
 | `appearance.metrics.sidebarWidth` | real |  | 160 to 420 | Sidebar Width |
@@ -207,6 +207,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `focus.inactiveTabStyle` | string | `"fade"` | `fade`, `tonal`, `quiet` | Unfocused Pane Tabs. How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet keeps only a faint selected pill. |
 | `ui.animationSpeed` | string | `"fast"` | `fast`, `normal`, `off` | Animations |
 | `appearance.chromeStyle` | string | `"flat"` | `default`, `card`, `card-outlined`, `flat`, `flat-sidebar-line`, `bare`, `panes`, `two-tone`, `floating`, `blocks` | Window Style. The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them. |
+| `appearance.titleAreaTone` | string | `"oneColor"` | `oneColor`, `subtleTone` | Title Area. One Color draws the title bar, the tab bar and the sidebar in the content's color, parted by thin dividers, with a highlighted selected tab. Subtle Tone shades them slightly apart from the content, and the selected tab opens into the content. |
+| `appearance.titleAreaContrast` | real | `1` | 0 to 2 | Title Area Contrast. How much darker the title bar, the tab bar and the sidebar are than the content, under Subtle Tone or a shaded window style. 1 is the default; lower is softer, higher is stronger. |
 | `ui.paneAnimations` | boolean | `true` |  | Animate Panes. Splits, closes, moves, zooms and column scrolls slide into place. Off: they change at once. |
 | `ui.animations.newTab` | boolean | `true` |  | Animate New Tabs. A new tab grows into its place in the tab bar. Off shows it there at once. |
 | `ui.animations.newWorkspace` | boolean | `true` |  | Animate New Workspaces. A new workspace row opens in the sidebar. Off shows it there at once. |
