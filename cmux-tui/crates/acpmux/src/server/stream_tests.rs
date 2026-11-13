@@ -1,6 +1,6 @@
 //! The socket reader's bounds and the writer's end (`stream.rs`, manaflow-ai/cmuxterm-hq#2888).
 
-use super::{Limits, is_v2_upgrade, read_lines, write_lines};
+use super::{Limits, read_lines, v2_upgrade, write_lines};
 use acpmux_book::index::SummaryIndex;
 use acpmux_core::life::V2;
 use serde_json::json;
@@ -24,7 +24,9 @@ fn reader(
     let (client, server) = tokio::io::duplex(4 * MAX);
     let (in_tx, in_rx) = mpsc::channel(lines);
     let (last_tx, last_rx) = oneshot::channel();
-    let task = tokio::spawn(read_lines(server, in_tx, last_tx, LIMITS));
+    let task = tokio::spawn(async move {
+        read_lines(server, in_tx, last_tx, LIMITS, None).await;
+    });
     (client, in_rx, last_rx, task)
 }
 
@@ -229,7 +231,7 @@ fn v2_upgrade_requires_every_requested_surface() {
         "params": {"protocol": 2, "surfaces": ["list"]}
     }))
     .unwrap();
-    assert!(is_v2_upgrade(&line, &v2));
+    assert!(v2_upgrade(&line, &v2).is_some());
     let line = serde_json::to_string(&json!({
         "jsonrpc": "2.0",
         "id": 1,
@@ -237,5 +239,123 @@ fn v2_upgrade_requires_every_requested_surface() {
         "params": {"protocol": 2, "surfaces": ["list", "chat"]}
     }))
     .unwrap();
-    assert!(!is_v2_upgrade(&line, &v2));
+    assert!(v2_upgrade(&line, &v2).is_none());
+}
+
+fn upgrade_line(surfaces: serde_json::Value) -> String {
+    crate::rpc::Message::request(1, "_acpmux/v2", json!({"protocol": 2, "surfaces": surfaces}))
+        .to_line()
+}
+
+#[test]
+fn upgrade_rejects_malformed_or_non_stream_surfaces() {
+    let (hub, writer) = acpmux_core::hub::Hub::new(SummaryIndex::new());
+    let v2 = V2::with_surfaces(hub, writer, ["list".into(), "books".into()].into_iter().collect());
+    for surfaces in [json!([]), json!(["list", 2]), json!(["books"]), json!("list")] {
+        assert!(v2_upgrade(&upgrade_line(surfaces), &v2).is_none());
+    }
+}
+
+#[tokio::test]
+async fn upgrade_is_only_the_first_line_and_preserves_v1_eof() {
+    let (hub, writer) = acpmux_core::hub::Hub::new(SummaryIndex::new());
+    let v2 = V2::new(hub, writer);
+    let (mut client, server) = tokio::io::duplex(4 * MAX);
+    let (tx, mut rx) = mpsc::channel(16);
+    let (last, _last_rx) = oneshot::channel();
+    let upgrade = upgrade_line(json!(["list"]));
+    client.write_all(format!("{{}}\n{upgrade}tail").as_bytes()).await.unwrap();
+    client.shutdown().await.unwrap();
+    assert!(read_lines(server, tx, last, LIMITS, Some(&v2)).await.is_none());
+    assert_eq!(rx.recv().await.as_deref(), Some("{}"));
+    assert_eq!(rx.recv().await.as_deref(), Some(upgrade.trim_end()));
+    assert_eq!(rx.recv().await.as_deref(), Some("tail"));
+}
+
+#[tokio::test]
+async fn enabled_upgrade_keeps_http_and_oversize_first_line_errors() {
+    for (line, reason) in [
+        ("GET / HTTP/1.1\r\n".into(), "carrier.wrong_socket"),
+        (format!("{}\n", "x".repeat(MAX + 1)), "message.too_large"),
+    ] {
+        let (hub, writer) = acpmux_core::hub::Hub::new(SummaryIndex::new());
+        let v2 = V2::new(hub, writer);
+        let (mut client, server) = tokio::io::duplex(4 * MAX);
+        let (tx, mut rx) = mpsc::channel(16);
+        let (last, last_rx) = oneshot::channel();
+        client.write_all(line.as_bytes()).await.unwrap();
+        assert!(read_lines(server, tx, last, LIMITS, Some(&v2)).await.is_none());
+        assert!(rx.recv().await.is_none());
+        let reply: serde_json::Value = serde_json::from_str(&last_rx.await.unwrap()).unwrap();
+        assert_eq!(
+            reply.pointer("/error/data/reason").and_then(serde_json::Value::as_str),
+            Some(reason)
+        );
+    }
+}
+
+async fn v2_frame(reader: &mut (impl tokio::io::AsyncRead + Unpin)) -> acpmux_core::wire::Frame {
+    let mut header = [0; 4];
+    reader.read_exact(&mut header).await.unwrap();
+    let mut bytes = vec![0; u32::from_be_bytes(header) as usize];
+    reader.read_exact(&mut bytes).await.unwrap();
+    let mut encoded = header.to_vec();
+    encoded.extend(bytes);
+    acpmux_core::wire::Frame::from_encoded(&encoded).unwrap()
+}
+
+#[tokio::test]
+async fn upgrade_read_ahead_reaches_hello_then_list_window() {
+    use acpmux_core::wire::{Frame, FrameKind};
+    tokio::time::timeout(WAIT, async {
+        let (hub, writer) = acpmux_core::hub::Hub::new(SummaryIndex::new());
+        let v2 = V2::new(hub, writer);
+        let (mut client, server) = tokio::io::duplex(8192);
+        let (rd, wr) = tokio::io::split(server);
+        let (tx, _rx) = mpsc::channel(16);
+        let (last, _last_rx) = oneshot::channel();
+        let task = tokio::spawn(async move {
+            let upgrade = read_lines(rd, tx, last, LIMITS, Some(&v2)).await.unwrap();
+            upgrade.serve(wr, &v2).await.unwrap();
+        });
+        let hello = Frame::json(
+            FrameKind::Request,
+            &json!({
+                "method":"hello", "params":{"clientKind":"test", "protocol":2}
+            }),
+        )
+        .unwrap();
+        let mut combined = upgrade_line(json!(["list"])).into_bytes();
+        combined.extend(hello.encode());
+        client.write_all(&combined).await.unwrap();
+        let mut reply = Vec::new();
+        loop {
+            let byte = client.read_u8().await.unwrap();
+            if byte == b'\n' {
+                break;
+            }
+            reply.push(byte);
+        }
+        let reply: serde_json::Value = serde_json::from_slice(&reply).unwrap();
+        assert_eq!(reply.pointer("/result/upgrade"), Some(&json!(true)));
+        assert_eq!(v2_frame(&mut client).await.kind, FrameKind::Hello);
+        let sub = Frame::json(
+            FrameKind::Request,
+            &json!({
+                "method":"sub", "params":{"sid":"s", "stream":"list"}
+            }),
+        )
+        .unwrap();
+        client.write_all(&sub.encode()).await.unwrap();
+        let window = v2_frame(&mut client).await;
+        assert_eq!(window.kind, FrameKind::Window);
+        assert_eq!(
+            window.decode_json::<serde_json::Value>().unwrap().get("sid"),
+            Some(&json!("s"))
+        );
+        drop(client);
+        task.await.unwrap();
+    })
+    .await
+    .unwrap();
 }

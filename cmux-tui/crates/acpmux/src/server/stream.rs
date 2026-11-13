@@ -45,83 +45,80 @@ pub(super) async fn serve_stream(
     socket_peer: crate::sender_harness::SocketPeer,
     v2: Option<std::sync::Arc<acpmux_core::life::V2>>,
 ) {
-    let (mut rd, mut wr) = crate::local_stream::split(stream);
-    let first = match read_first_line(&mut rd).await {
-        Ok(Some(line)) => line,
-        Ok(None) | Err(_) => return,
-    };
-    if let Some(v2) = v2.as_ref().filter(|v2| is_v2_upgrade(&first, v2)) {
-        let Ok(Message::Request { id, params: Some(params), .. }) = Message::parse(&first) else {
-            return;
-        };
-        let surfaces = params.get("surfaces").cloned().unwrap_or(Value::Array(Vec::new()));
-        let reply = Message::ok(id, json!({"protocol": 2, "surfaces": surfaces, "upgrade": true}));
-        if wr.write_all(reply.to_line().as_bytes()).await.is_err() {
-            return;
-        }
-        let source = std::sync::Arc::new(acpmux_core::conn::HubSource::new(v2.hub()));
-        let _ = acpmux_core::conn::run(rd, wr, source, "acpmux").await;
-        return;
-    }
+    let (rd, mut wr) = crate::local_stream::split(stream);
     let (in_tx, in_rx) = mpsc::channel::<String>(INBOUND_LINES);
     let (out_tx, out_rx) = mpsc::channel::<String>(4096);
     let (last_tx, last_rx) = oneshot::channel();
     let limits = Limits { line: MAX_LINE_BYTES, small: SMALL_LINE_BYTES };
-    if in_tx.send(first).await.is_err() {
-        return;
-    }
-    tokio::spawn(read_lines(rd, in_tx, last_tx, limits));
-    tokio::spawn(write_lines(wr, out_rx, last_rx));
-    serve_connection_from(
-        hub,
-        in_rx,
-        out_tx,
-        Origin::Local,
-        ConnAuth::LocalSocket,
-        peer,
-        provisioner,
-        socket_peer,
-        None,
-        None,
-        None,
-    )
-    .await;
-}
-
-async fn read_first_line<R: AsyncRead + Unpin>(reader: &mut R) -> std::io::Result<Option<String>> {
-    let mut bytes = Vec::new();
-    loop {
-        let mut byte = [0_u8; 1];
-        if reader.read_exact(&mut byte).await.is_err() {
-            return if bytes.is_empty() { Ok(None) } else { Ok(None) };
-        }
-        if byte[0] == b'\n' {
-            if bytes.last() == Some(&b'\r') {
-                bytes.pop();
-            }
-            return String::from_utf8(bytes)
-                .map(Some)
-                .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error));
-        }
-        bytes.push(byte[0]);
-        if bytes.len() > MAX_LINE_BYTES {
-            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "line too long"));
-        }
+    // The line codec is the only reader, even when v2 is disabled. On an
+    // upgrade it closes v1's input without handing v1 the upgrade or its read-ahead.
+    let (upgrade, (), ()) = tokio::join!(
+        read_lines(rd, in_tx, last_tx, limits, v2.as_deref()),
+        write_lines(&mut wr, out_rx, last_rx),
+        serve_connection_from(
+            hub,
+            in_rx,
+            out_tx,
+            Origin::Local,
+            ConnAuth::LocalSocket,
+            peer,
+            provisioner,
+            socket_peer,
+            None,
+            None,
+            None,
+        ),
+    );
+    if let (Some(upgrade), Some(v2)) = (upgrade, v2) {
+        let _ = upgrade.serve(wr, &v2).await;
     }
 }
 
-fn is_v2_upgrade(line: &str, v2: &acpmux_core::life::V2) -> bool {
-    let Ok(Message::Request { method, params: Some(params), .. }) = Message::parse(line) else {
-        return false;
+struct Upgrade<R> {
+    reader: tokio::io::Chain<std::io::Cursor<Vec<u8>>, R>,
+    id: Value,
+    surfaces: Vec<String>,
+}
+
+impl<R: AsyncRead + Unpin> Upgrade<R> {
+    async fn serve<W: AsyncWrite + Unpin>(
+        self,
+        mut writer: W,
+        v2: &acpmux_core::life::V2,
+    ) -> Result<(), acpmux_core::conn::ConnError> {
+        let reply = Message::ok(
+            self.id,
+            json!({
+                "protocol": 2, "surfaces": self.surfaces, "upgrade": true,
+            }),
+        );
+        writer.write_all(reply.to_line().as_bytes()).await?;
+        let source = Arc::new(acpmux_core::conn::HubSource::new(v2.hub()));
+        acpmux_core::conn::run(self.reader, writer, source, "acpmux", &self.surfaces).await
+    }
+}
+
+fn v2_upgrade(line: &str, v2: &acpmux_core::life::V2) -> Option<(Value, Vec<String>)> {
+    let Message::Request { id, method, params: Some(params) } = Message::parse(line).ok()? else {
+        return None;
     };
     if method != crate::rpc::method::MUX_V2
         || params.get("protocol").and_then(Value::as_u64) != Some(2)
     {
-        return false;
+        return None;
     }
-    let Some(surfaces) = params.get("surfaces").and_then(Value::as_array) else { return false };
-    let requested: Vec<&str> = surfaces.iter().filter_map(Value::as_str).collect();
-    v2.allows_surfaces(&requested)
+    let requested = params
+        .get("surfaces")?
+        .as_array()?
+        .iter()
+        .map(Value::as_str)
+        .collect::<Option<Vec<_>>>()?;
+    if !requested.iter().all(|surface| matches!(*surface, "list" | "chat"))
+        || !v2.allows_surfaces(&requested)
+    {
+        return None;
+    }
+    Some((id, requested.into_iter().map(str::to_owned).collect()))
 }
 
 /// Hands each line `rd` reads to `in_tx`, holding at most `limits.line` bytes of one (and the
@@ -135,7 +132,8 @@ async fn read_lines<R: AsyncRead + Unpin>(
     in_tx: mpsc::Sender<String>,
     last: oneshot::Sender<String>,
     limits: Limits,
-) {
+    v2: Option<&acpmux_core::life::V2>,
+) -> Option<Upgrade<R>> {
     let max = limits.line;
     // The codec counts a line's `\r` with it and strips it after, so it holds one byte more.
     let mut lines = FramedRead::new(rd, LinesCodec::new_with_max_length(max.saturating_add(1)));
@@ -143,7 +141,8 @@ async fn read_lines<R: AsyncRead + Unpin>(
     while let Some(line) = lines.next().await {
         // An HTTP request (a WebSocket upgrade, perhaps with the Cloud carrier's header) is for
         // the carrier socket, never this one (`carrier.rs`): no header here names anyone.
-        if std::mem::take(&mut first)
+        let is_first = std::mem::take(&mut first);
+        if is_first
             && let Ok(line) = &line
             && http_request_line(line)
         {
@@ -174,6 +173,17 @@ async fn read_lines<R: AsyncRead + Unpin>(
             // Not UTF-8, or the socket failed.
             Err(LinesCodecError::Io(_)) => break,
         };
+        // Only the first request of a fresh local socket can upgrade. Trigger
+        // admission is itself a v1 request, so an admitted trigger cannot reach
+        // this branch; later upgrades use the normal v1 method-not-found path.
+        if is_first && let Some((id, surfaces)) = v2.and_then(|v2| v2_upgrade(&line, v2)) {
+            let parts = lines.into_parts();
+            return Some(Upgrade {
+                reader: std::io::Cursor::new(parts.read_buf.to_vec()).chain(parts.io),
+                id,
+                surfaces,
+            });
+        }
         let sent = if line.len() > limits.small {
             // All the queue's room: every line before it was taken.
             match in_tx.reserve_many(in_tx.max_capacity()).await {
@@ -187,6 +197,7 @@ async fn read_lines<R: AsyncRead + Unpin>(
             break;
         }
     }
+    None
 }
 
 /// Whether `line` is an HTTP request line (`GET /path HTTP/1.1`), which no JSON-RPC line is.

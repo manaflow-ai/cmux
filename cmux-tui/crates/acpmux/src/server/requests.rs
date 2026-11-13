@@ -878,7 +878,7 @@ pub(super) async fn handle_request(
         ));
     }
     if m == method::MUX_V2 {
-        return v2_upgrade(hub, conn, &params).await;
+        return Err(RpcError::method_not_found(method::MUX_V2));
     }
     if matches!(
         m,
@@ -1051,28 +1051,6 @@ pub(super) async fn handle_request(
         crate::xhost_audit::record("refused", fields);
     }
     reply
-}
-
-/// Validate the one-socket v2 upgrade request and return its final v1 reply.
-/// The stream handoff is owned by the transport; keeping this check here means
-/// every listener applies the same setting and surface gate.
-async fn v2_upgrade(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
-    if conn.origin != Origin::Local {
-        return Err(RpcError::method_not_found(method::MUX_V2));
-    }
-    let protocol = params.get("protocol").and_then(Value::as_u64);
-    let requested = params
-        .get("surfaces")
-        .and_then(Value::as_array)
-        .map(|surfaces| surfaces.iter().filter_map(Value::as_str).collect::<Vec<_>>())
-        .unwrap_or_default();
-    let config = hub.config.read().await;
-    let enabled = config.acpmux_v2.enabled();
-    let allowed = requested.iter().all(|surface| enabled.contains(surface));
-    if protocol != Some(2) || requested.is_empty() || !allowed {
-        return Err(RpcError::method_not_found(method::MUX_V2));
-    }
-    Ok(json!({"protocol": 2, "surfaces": requested, "upgrade": true}))
 }
 
 /// The cross-host audit line's fields (`xhost_audit.rs`) for a message request that crossed

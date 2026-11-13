@@ -434,6 +434,7 @@ pub async fn run<R, W, S>(
     mut writer: W,
     source: Arc<S>,
     daemon_id: impl Into<String>,
+    surfaces: &[String],
 ) -> Result<(), ConnError>
 where
     R: AsyncRead + Unpin,
@@ -475,6 +476,7 @@ where
                     sink.clone(),
                     &mut hello_seen,
                     &mut source_tasks,
+                    surfaces,
                 )
                 .await
                 {
@@ -513,6 +515,7 @@ async fn process_frame<S: Source>(
     sink: Arc<dyn OfferSink>,
     hello_seen: &mut bool,
     source_tasks: &mut tokio::task::JoinSet<()>,
+    surfaces: &[String],
 ) -> Result<(), ConnError> {
     if frame.kind != FrameKind::Request {
         return Err(ConnError::InvalidRequest("expected request frame".into()));
@@ -541,6 +544,7 @@ async fn process_frame<S: Source>(
             if !*hello_seen {
                 return Err(ConnError::InvalidRequest("hello must be first".into()));
             }
+            require_surface(&sub.stream, surfaces)?;
             let sid = sub.sid.clone();
             let identity =
                 state.lock().ok().and_then(|state| state.identity().map(ToOwned::to_owned));
@@ -557,9 +561,14 @@ async fn process_frame<S: Source>(
                     return Err(error);
                 }
             };
-            let mut prefix = subscription.replay;
-            if let Some(initial) = subscription.initial {
-                prefix.insert(0, initial);
+            let prefix = subscription.replay;
+            let initial_cursor = subscription.initial.as_ref().map(|(_, cursor)| *cursor);
+            if let Some((frame, cursor)) = subscription.initial {
+                let outcome = sink.offer(&sid, frame, cursor);
+                if !matches!(outcome, Offer::Taken) {
+                    source.end(&sid);
+                    return Ok(());
+                }
             }
             let events = subscription.events;
             let task_sid = sid;
@@ -567,7 +576,7 @@ async fn process_frame<S: Source>(
             let control = sink.control(&task_sid);
             if let Some(control) = control {
                 source_tasks.spawn(async move {
-                    let replay_cursor = prefix.last().map(|(_, cursor)| *cursor);
+                    let replay_cursor = prefix.last().map(|(_, cursor)| *cursor).or(initial_cursor);
                     for (frame, cursor) in prefix {
                         let outcome = drive_offer(
                             source.as_ref(),
@@ -643,6 +652,7 @@ async fn process_frame<S: Source>(
             Ok(())
         }
         Request::Page(page) => {
+            require_surface(&page.stream, surfaces)?;
             if page.before.is_some() || page.after.is_some() {
                 return Err(ConnError::InvalidRequest("page anchors are not available yet".into()));
             }
@@ -654,6 +664,15 @@ async fn process_frame<S: Source>(
                 .map_err(|_| ConnError::InvalidRequest("connection state poisoned".into()))?
                 .offer_reply(frame)
         }
+    }
+}
+
+fn require_surface(stream: &crate::wire::Stream, surfaces: &[String]) -> Result<(), ConnError> {
+    let surface = if stream.as_str().starts_with("chat:") { "chat" } else { stream.as_str() };
+    if surfaces.iter().any(|enabled| enabled == surface) {
+        Ok(())
+    } else {
+        Err(ConnError::InvalidRequest("surface was not negotiated".into()))
     }
 }
 
