@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43468096973",
+  "recorded_at": "2026-11-13T17:15:36Z",
+  "reason": "cmux-tui 3bb33ba1cf86 changes the image's cmux-tui (pinned 47c79630e230)",
+  "dry_run": false,
+  "cmux_tui": "3bb33ba1cf86b56ccafd180ec1be0da60a703fa4",
+  "fixes": [
+    {
+      "sha": "3bb33ba1cf86b56ccafd180ec1be0da60a703fa4",
+      "mergedAt": "2026-11-13T08:31:57-08:00",
+      "subject": "acpmux: a session moved to a fresh machine from an older disk loses no prompt and no turn (#37284)"
+    },
+    {
+      "sha": "0997b85357ffff12f11012bd9a0a886a290f13bf",
+      "mergedAt": "2026-11-13T08:27:54-08:00",
+      "subject": "cmux-host updater: conditional GET of the machine channel (304 when unchanged) (#42623)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T17:15:36Z",
+    "snapshot_id": "sh-9d345663248d439786c94a2e4e8e43f4",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43468096973): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "7ae262f70bbbf9b550655ae912d5ffbcc594045f",
+    "image": "cloud-native-auto-3bb33ba1-43468096973-1",
+    "revision": "ci-43468096973-1",
+    "at": "2026-11-13T17:15:36Z"
+  },
+  "rolled_back": false
+}
