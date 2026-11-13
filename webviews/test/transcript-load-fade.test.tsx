@@ -55,6 +55,7 @@ const { act } = await import("react");
 
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
+const { releaseReaderScroll } = await import("../src/agent-session/acpmux/summary/heldWhileScrolling");
 
 afterAll(async () => {
   performance.now = realNow;
@@ -101,6 +102,7 @@ function mount(sessionId: string) {
   const node = (id: string) => host.querySelector<HTMLElement>(`[data-row-id="${id}"]`);
   const unmount = async () => {
     await act(async () => root.unmount());
+    releaseReaderScroll();
     host.remove();
   };
   return { render, fading, node, unmount };
@@ -194,6 +196,7 @@ for (const loading of [true, false]) {
 
       // Once the gesture is quiet, a new live reply uses its normal entrance again.
       await view.render([...existing, arriving], false);
+      releaseReaderScroll();
       clockSkew += 2_000;
       const later = row("after-wheel", "assistant", "The next reply after the gesture");
       await view.render([...existing, arriving, later], false);

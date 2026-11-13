@@ -92,7 +92,7 @@ import { noteTranscriptMount } from "./flickerLog";
 import { authoritativeScrollIntent, createScrollPacer, type ScrollFrame } from "./scrollPacer";
 import { type Translate, useT } from "./i18n";
 import { TRAY_GHOST } from "./subagents/trayMotionModel";
-import { noteReaderScroll } from "./summary/heldWhileScrolling";
+import { noteReaderScroll, readerScroll } from "./summary/heldWhileScrolling";
 import { FisheyeFilters } from "../../ui/glass/Fisheye";
 import { keepTabOnScreen, leaveOnScreenRef } from "../../ui/tabReach";
 import {
@@ -2144,10 +2144,6 @@ function TranscriptView({
   /// offset the last scroll event read.
   const [roomRose, setRoomRose] = useState(0);
   const roomPaidFrom = useRef<number | undefined>(undefined);
-  /// When the reader last moved the transcript themselves (wheel, pointer, touch or key). Rows
-  /// arriving during that gesture must draw settled, without an entrance fade or transform that can
-  /// expose a transient blank band under the wheel.
-  const readerAt = useRef(Number.NEGATIVE_INFINITY);
   /// Rows that arrived while the chat loaded (blank or partly blank, then text): their first mount
   /// fades in once (Leo, 2026-11-07, ask-69299b9711: "blank to fast fade in to text").
   const loadFade = useRef<LoadFadeWindow | undefined>(undefined);
@@ -2191,7 +2187,8 @@ function TranscriptView({
     // view, so it fades in rather than popping. A cold open's first rows fade with the whole
     // transcript instead (fadeInOpenedChat), so they take no row fade on top of it. During a reader
     // gesture, history is part of that motion and must draw settled so its first frame is complete.
-    const readerIsMoving = performance.now() - readerAt.current <= READER_SCROLL_MS;
+    // Only new arrivals need this snapshot; a gesture ending must not reanimate an existing row.
+    const readerIsMoving = readerScroll.read();
     const loadArrival = loadFade.current.open && coldOpen === undefined && !readerIsMoving;
     // The running turn's live line keeps one id from turn to turn (turns.ts LIVE_THINKING): a line
     // the last rows did not end with came now, with the prompt that opened it, so it enters on the
@@ -2935,6 +2932,8 @@ function TranscriptView({
   }, []);
   /// Where the reader last saw it rest, measured in view; undefined until it is.
   const seenAnchor = useRef<ScrollAnchor | null | undefined>(undefined);
+  /// When the reader last moved the transcript themselves (wheel, pointer, touch or key).
+  const readerAt = useRef(Number.NEGATIVE_INFINITY);
   /// The last upward input has not yet been acknowledged by the native scroll event. A tiny real
   /// wheel at the old end must not be mistaken for the browser's clamp window during a layout correction.
   const readerUpPending = useRef(false);
