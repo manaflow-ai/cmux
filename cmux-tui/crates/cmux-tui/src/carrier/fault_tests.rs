@@ -6,33 +6,37 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 use tokio::time::Instant;
 
-use super::super::drill::{EventRoutes, EventStream, TurnEvent, run_drill};
+use super::super::drill::{EventRoutes, EventStream, Opened, TurnEvent, run_drill};
 use super::super::ssh::Absent;
 use super::{
     FaultPlan, FaultSpec, GateRefusal, Route, capabilities, parse_spec, probe_account, probe_gate,
     routes, this_build,
 };
 
-fn turn(last: u64) -> Vec<TurnEvent> {
+pub(crate) fn turn(last: u64) -> Vec<TurnEvent> {
     (1..=last).map(|seq| TurnEvent { seq, last: seq == last }).collect()
 }
 
 /// One fake carrier: the whole turn, and how it misbehaves.
 #[derive(Clone, Default)]
-struct Carrier {
-    events: Vec<TurnEvent>,
+pub(crate) struct Carrier {
+    pub(crate) events: Vec<TurnEvent>,
     /// A resume replays this many events the client already has.
-    overlap: u64,
-    refuse: bool,
+    pub(crate) overlap: u64,
+    /// A resume skips this many events the client never had.
+    pub(crate) skip: u64,
+    /// Its answer says the seq its stream starts at (else only its first event tells).
+    pub(crate) states_from: bool,
+    pub(crate) refuse: bool,
     /// The stream never yields after this many events.
-    stall_after: Option<usize>,
-    killed: Arc<AtomicBool>,
+    pub(crate) stall_after: Option<usize>,
+    pub(crate) killed: Arc<AtomicBool>,
 }
 
 /// Every open the drill asked for: the carrier's index, its route and `afterSeq`.
-type Opens = Arc<Mutex<Vec<(usize, Route, Option<u64>)>>>;
+pub(crate) type Opens = Arc<Mutex<Vec<(usize, Route, Option<u64>)>>>;
 
-struct Routes {
+pub(crate) struct Routes {
     carriers: Vec<Carrier>,
     opens: Opens,
 }
@@ -67,24 +71,27 @@ impl EventRoutes for Routes {
         index: usize,
         route: Route,
         after_seq: Option<u64>,
-    ) -> Result<Box<dyn EventStream>, String> {
+    ) -> Result<Opened, String> {
         self.opens.lock().unwrap().push((index, route, after_seq));
         let carrier = self.carriers.get(index).cloned().ok_or("no such carrier")?;
         if carrier.refuse {
             return Err("refused".into());
         }
-        let from = after_seq.map_or(0, |after| after.saturating_sub(carrier.overlap));
+        let from = after_seq
+            .map_or(0, |after| after.saturating_sub(carrier.overlap).saturating_add(carrier.skip));
         let events: Vec<_> = carrier.events.into_iter().filter(|e| e.seq > from).collect();
-        Ok(Box::new(Stream {
+        let stated = events.first().map(|e| e.seq).filter(|_| carrier.states_from);
+        let stream = Box::new(Stream {
             events: events.into_iter(),
             stall_after: carrier.stall_after,
             sent: 0,
             killed: carrier.killed,
-        }))
+        });
+        Ok(Opened { stream, from_seq: stated })
     }
 }
 
-fn routes_of(carriers: Vec<Carrier>) -> (Routes, Opens) {
+pub(crate) fn routes_of(carriers: Vec<Carrier>) -> (Routes, Opens) {
     let opens = Arc::new(Mutex::new(Vec::new()));
     (Routes { carriers, opens: opens.clone() }, opens)
 }
@@ -252,8 +259,7 @@ fn killing_the_relay_with_no_other_route_is_a_typed_refusal_before_the_turn() {
 #[tokio::test]
 async fn a_relay_to_relay_drill_loses_and_repeats_nothing() {
     let first = Carrier { events: turn(10), ..Carrier::default() };
-    // The second relay replays two events the client already has: they are not delivered again.
-    let second = Carrier { events: turn(10), overlap: 2, ..Carrier::default() };
+    let second = Carrier { events: turn(10), ..Carrier::default() };
     let killed = first.killed.clone();
     let (mut fake, opens) = routes_of(vec![first, second]);
     let plan = FaultPlan::new(spec(4), vec![Route::Relay, Route::Relay], &caps_with_ssh()).unwrap();
@@ -272,6 +278,43 @@ async fn a_relay_to_relay_drill_loses_and_repeats_nothing() {
     assert!(judged_after_kill(&record).iter().all(|route| route == "relay"));
 }
 
+/// A server that replays events the client already had across the switch: the record has
+/// them twice, as they arrived (the judge's failover.repeated), and the resume's from_seq is
+/// where the server started, not the last seq plus one.
+#[tokio::test]
+async fn a_duplicate_delivered_across_the_switch_is_in_the_record() {
+    let relay = Carrier { events: turn(9), ..Carrier::default() };
+    let ssh = Carrier { events: turn(9), overlap: 2, ..Carrier::default() };
+    let (mut fake, opens) = routes_of(vec![relay, ssh]);
+    let plan = FaultPlan::new(spec(5), vec![Route::Relay, Route::Ssh], &caps_with_ssh()).unwrap();
+    let record = run_drill(&plan, &mut fake, caps_with_ssh(), deadline()).await.unwrap();
+    assert_eq!(opens.lock().unwrap()[1], (1, Route::Ssh, Some(5)), "the client asked after 5");
+    assert_eq!(seqs(&record), vec![1, 2, 3, 4, 5, 4, 5, 6, 7, 8, 9]);
+    let routes: Vec<&str> =
+        record["events"].as_array().unwrap().iter().map(|e| e["route"].as_str().unwrap()).collect();
+    assert_eq!(routes, [vec!["relay"; 5], vec!["ssh"; 6]].concat());
+    assert_eq!(record["resumes"][1]["after_seq"], 5);
+    assert_eq!(record["resumes"][1]["from_seq"], 4, "the seq the server resumed from");
+    assert_eq!(record["events"].as_array().unwrap().last().unwrap()["final"], true);
+}
+
+/// A server that resumes past the seq the client asked from: the record's from_seq is the
+/// server's, whether its answer states it or only its first event tells, and the gap shows.
+#[tokio::test]
+async fn a_server_resuming_from_the_wrong_seq_is_in_the_record() {
+    for states_from in [false, true] {
+        let relay = Carrier { events: turn(9), ..Carrier::default() };
+        let ssh = Carrier { events: turn(9), skip: 2, states_from, ..Carrier::default() };
+        let (mut fake, _) = routes_of(vec![relay, ssh]);
+        let plan =
+            FaultPlan::new(spec(5), vec![Route::Relay, Route::Ssh], &caps_with_ssh()).unwrap();
+        let record = run_drill(&plan, &mut fake, caps_with_ssh(), deadline()).await.unwrap();
+        assert_eq!(seqs(&record), vec![1, 2, 3, 4, 5, 8, 9], "states_from={states_from}");
+        let resume = &record["resumes"][1];
+        assert_eq!((resume["after_seq"].as_u64(), resume["from_seq"].as_u64()), (Some(5), Some(8)));
+    }
+}
+
 #[tokio::test]
 async fn a_relay_to_ssh_drill_is_the_record_the_judge_passes() {
     let relay = Carrier { events: turn(9), ..Carrier::default() };
@@ -284,7 +327,7 @@ async fn a_relay_to_ssh_drill_is_the_record_the_judge_passes() {
     assert_eq!(
         record["resumes"][1],
         json!({
-            "route": "ssh", "phase": "resume", "outcome": "ok", "from_seq": 6,
+            "route": "ssh", "phase": "resume", "outcome": "ok", "after_seq": 5, "from_seq": 6,
             "ms": record["resumes"][1]["ms"],
         })
     );
@@ -301,7 +344,9 @@ async fn a_refused_resume_is_a_typed_error_with_the_record() {
     assert_eq!(seqs(&error.record), vec![1, 2]);
     assert_eq!(error.record["kill"]["route"], "relay");
     assert_eq!(error.record["resumes"][1]["outcome"], "error");
-    assert_eq!(error.record["resumes"][1]["from_seq"], 3);
+    // The server never resumed: the record says what the client asked, and no from_seq.
+    assert_eq!(error.record["resumes"][1]["after_seq"], 2);
+    assert_eq!(error.record["resumes"][1].get("from_seq"), None);
 }
 
 #[tokio::test(start_paused = true)]
@@ -345,27 +390,63 @@ fn capabilities_takes_its_json_flag_and_the_dial_s_hub_flag() {
     assert_eq!(parse("capability"), None);
 }
 
-/// The accepted test accounts are exactly the ones the provisioner makes
-/// (`Target("…@manaflow.dev"` in scripts/ci/cloud_capture_provision.py), so a
-/// renamed or added account fails here rather than refusing its probe.
-#[test]
-fn the_probe_accounts_are_the_provisioners_accounts() {
+/// The provisioner's `Target(...)` calls in scripts/ci/cloud_capture_provision.py: each one's
+/// email and whether it names a `team_id` (the account is made a member of a shared team).
+fn provisioned_targets() -> Vec<(String, bool)> {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../../scripts/ci/cloud_capture_provision.py");
     let text = std::fs::read_to_string(&path)
         .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
-    let mut provisioned: Vec<&str> = text
-        .split("Target(\"")
+    text.split("Target(\"")
         .skip(1)
-        .filter_map(|rest| rest.split('"').next())
-        .filter(|email| email.ends_with("@manaflow.dev"))
-        .collect();
-    provisioned.sort_unstable();
+        .filter_map(|rest| {
+            let email = rest.split('"').next()?;
+            // The call's arguments run to its closing `)` outside a string: display names
+            // such as "cmux cloud probe (production, team)" hold parentheses of their own.
+            // `rest` starts inside the email's string.
+            let mut in_string = true;
+            let close = rest.char_indices().find_map(|(at, c)| match c {
+                '"' => {
+                    in_string = !in_string;
+                    None
+                }
+                ')' if !in_string => Some(at),
+                _ => None,
+            })?;
+            let args = &rest[..close];
+            let team = args.contains("team_id=") && !args.contains("team_id=None");
+            email.ends_with("@manaflow.dev").then(|| (email.to_owned(), team))
+        })
+        .collect()
+}
+
+/// The accepted test accounts are exactly the ones the provisioner makes in no shared team
+/// (`Target("…@manaflow.dev"` without `team_id=` in scripts/ci/cloud_capture_provision.py), so a
+/// renamed or added account fails here rather than refusing its probe. An account the
+/// provisioner puts in a team (`team_id=`, such as cmux-cloud-capture-prod-team in the production
+/// company team) shares that team's machines with its people, and `cloud start-chat --target`
+/// can reach them, so it never takes a carrier fault. The probe teams `--probe-teams` makes are
+/// not a `team_id`: they hold only the capture account, which the provisioner checks on every run.
+#[test]
+fn the_probe_accounts_are_the_provisioners_accounts() {
+    let targets = provisioned_targets();
+    assert!(targets.len() >= 5, "the provisioner lost its targets: {targets:?}");
+    let mut solo: Vec<&str> =
+        targets.iter().filter(|(_, team)| !team).map(|(email, _)| email.as_str()).collect();
+    solo.sort_unstable();
     let mut accepted = super::PROBE_ACCOUNTS.to_vec();
     accepted.sort_unstable();
-    assert!(provisioned.len() >= 5, "the provisioner lost its targets: {provisioned:?}");
-    assert_eq!(accepted, provisioned);
-    assert!(provisioned.iter().all(|email| probe_account(email)));
+    assert_eq!(accepted, solo);
+    assert!(solo.iter().all(|email| probe_account(email)));
+    let teamed: Vec<&str> =
+        targets.iter().filter(|(_, team)| *team).map(|(email, _)| email.as_str()).collect();
+    assert!(
+        teamed.contains(&"cmux-cloud-capture-prod-team@manaflow.dev"),
+        "the provisioner's team account lost its team_id: {targets:?}"
+    );
+    for email in teamed {
+        assert!(!probe_account(email), "{email} is in a shared team and must not take faults");
+    }
 }
 
 /// The canary rule is web's `isSyntheticAccountEmail` (web/services/analytics/syntheticAccounts.ts,

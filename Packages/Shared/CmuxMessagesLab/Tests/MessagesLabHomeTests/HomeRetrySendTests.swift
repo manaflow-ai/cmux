@@ -70,6 +70,45 @@ import Testing
         #expect(!store.transcript(for: Self.dm).contains { $0.parts == [.text("never mind")] })
     }
 
+    /// The red "!" beside the bubble is a button (Lawrence 2026-11-12: it took no click, so a
+    /// failed send could be neither retried nor deleted): its menu's Try Again sends it again.
+    @Test func theRedMarksTryAgainSendsIt() async throws {
+        let (store, view, _) = await failedSend("mark retry")
+        defer { view.stop() }
+        let window = host(view)
+        defer { window.close() }
+        // A plain Bool: #expect would print the view, which crashes on a nil pasteboard.
+        let chosen = view.debugChooseFailedMarkItem(MessagesLabHomeView.tryAgainMenuTitle, onBubble: "mark retry")
+        #expect(chosen, "the red mark of a Not Delivered bubble opens a menu with this item")
+        await until {
+            store.transcript(for: Self.dm).contains { $0.parts == [.text("mark retry")] && $0.delivery == .committed }
+        }
+    }
+
+    /// The mark's Delete drops the send.
+    @Test func theRedMarksDeleteDropsIt() async throws {
+        let (store, view, key) = await failedSend("mark delete")
+        defer { view.stop() }
+        let window = host(view)
+        defer { window.close() }
+        // A plain Bool: #expect would print the view, which crashes on a nil pasteboard.
+        let chosen = view.debugChooseFailedMarkItem(MessagesLabHomeView.deleteFailedMenuTitle, onBubble: "mark delete")
+        #expect(chosen, "the red mark of a Not Delivered bubble opens a menu with this item")
+        await until { !store.transcript(for: Self.dm).contains { $0.key == key } }
+    }
+
+    /// The view in a window, laid out, so its rows have frames to click.
+    func host(_ view: MessagesLabHomeView) -> NSWindow {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 600), styleMask: [.titled], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 700, height: 600))
+        window.contentView = container
+        view.frame = container.bounds
+        container.addSubview(view)
+        container.layoutSubtreeIfNeeded()
+        return window
+    }
+
     /// A delivered message, and anyone else's, offers neither.
     @Test func onlyMyFailedSendsOfferIt() async throws {
         let (store, view, _) = await failedSend("one")

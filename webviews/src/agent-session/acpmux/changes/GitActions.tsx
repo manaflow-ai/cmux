@@ -16,10 +16,12 @@ export function GitToolbarButtons({
   git,
   formOpen,
   onToggleForm,
+  disabled = false,
 }: {
   git: GitWrite;
   formOpen: boolean;
   onToggleForm: () => void;
+  disabled?: boolean;
 }) {
   const t = useT();
   if (!git.available) return null;
@@ -45,7 +47,7 @@ export function GitToolbarButtons({
         className="acpmux-git-tool"
         data-tool="commit"
         aria-expanded={formOpen}
-        disabled={busy}
+        disabled={busy || disabled}
         onClick={onToggleForm}
       >
         {t("git.commit.label")}
@@ -57,7 +59,7 @@ export function GitToolbarButtons({
         // tooltip-allow: why there is nothing to push
         title={pushTitle === pushLabel ? undefined : pushTitle}
         aria-label={pushTitle}
-        disabled={busy || !pushable}
+        disabled={busy || disabled || !pushable}
         onClick={() => void git.push()}
       >
         {t("git.push.label")}
@@ -78,6 +80,7 @@ export function GitWriteBar({
   onCloseForm,
   messageRef,
   reloadKey,
+  disabled = false,
 }: {
   git: GitWrite;
   formOpen: boolean;
@@ -85,12 +88,14 @@ export function GitWriteBar({
   messageRef?: React.Ref<HTMLTextAreaElement>;
   /// Changes when the view reloads its scope; the commit form then lists new files again.
   reloadKey?: unknown;
+  /// Create PR owns the repository write while it is busy.
+  disabled?: boolean;
 }) {
   if (!git.available) return null;
   return (
     <>
       {formOpen && <CommitForm git={git} onClose={onCloseForm} messageRef={messageRef} reloadKey={reloadKey} />}
-      <WriteStatusLine git={git} />
+      <WriteStatusLine git={git} disabled={disabled} />
     </>
   );
 }
@@ -299,7 +304,7 @@ function NewFileList({ files }: { files?: NewFilesLoad }) {
 /// A status read that failed shows here too, with Refresh. The `role=status` region stays
 /// mounted and only its text changes, so screen readers announce busy and done; a failure is
 /// its own alert.
-function WriteStatusLine({ git }: { git: GitWrite }) {
+function WriteStatusLine({ git, disabled = false }: { git: GitWrite; disabled?: boolean }) {
   const t = useT();
   const state = git.state;
   const failed = state?.phase === "failed" ? state : undefined;
@@ -328,7 +333,7 @@ function WriteStatusLine({ git }: { git: GitWrite }) {
         </button>
       )}
       {failed?.canRetry && (
-        <button type="button" className="acpmux-git-secondary" onClick={git.retry}>
+        <button type="button" className="acpmux-git-secondary" disabled={disabled} onClick={git.retry}>
           {t("git.retry")}
         </button>
       )}

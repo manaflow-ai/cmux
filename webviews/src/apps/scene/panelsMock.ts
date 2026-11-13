@@ -49,6 +49,8 @@ export function mockPanelScene(panel: AppPanel, context?: MountContext): SceneOp
 export class MockAppPanelsClient implements PageClient {
   panels: readonly AppPanel[] = MOCK_APP_PANELS;
   readonly dispatches: unknown[] = [];
+  readonly reloads: string[] = [];
+  readonly layouts: { mount_id: string; height: number }[] = [];
   private nextMount = 0;
   private seq = 0;
   private readonly mounts = new Map<string, { panel: AppPanel; context: MountContext }>();
@@ -75,6 +77,12 @@ export class MockAppPanelsClient implements PageClient {
         break;
       case "cmux.apps.panels.dispatch":
         this.dispatches.push(params);
+        break;
+      case "cmux.apps.panels.reload":
+        this.reloads.push(String(params.mount_id));
+        break;
+      case "cmux.apps.panels.layout":
+        this.layouts.push({ mount_id: String(params.mount_id), height: Number(params.height) });
         break;
       default:
         throw pageError("cmux.protocol.unknown_op", op);
@@ -121,6 +129,12 @@ export class MockAppPanelsClient implements PageClient {
   setPanels(panels: readonly AppPanel[]): void {
     this.panels = panels;
     for (const listener of this.changed) listener(undefined, ++this.seq);
+  }
+
+  /** Sends a mount's status on its scene stream, as the host forwards its model's status. */
+  status(mountId: string, status: "loading" | "ready" | "failed" | "disconnected", reason?: string): void {
+    for (const listener of this.scenes.get(mountId) ?? [])
+      listener({ mount_id: mountId, status, ...(reason !== undefined && { reason }) } satisfies SceneEvent, ++this.seq);
   }
 
   /** A mock local edit sends a replacement scene to every mount of the same contribution. */

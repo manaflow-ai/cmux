@@ -113,6 +113,11 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final CancelCreatingInputResult cancelCreatingInput(CancelCreatingInputRequest request) throws CmuxException {
+        Object result = execute(Commands.CANCEL_CREATING_INPUT, request.toWire());
+        return CancelCreatingInputResult.fromWire(result);
+    }
+
     public final ChiefInspectResult chiefInspect(ChiefInspectRequest request) throws CmuxException {
         Object result = execute(Commands.CHIEF_INSPECT, request.toWire());
         return ChiefInspectResult.fromWire(result);
@@ -1184,6 +1189,11 @@ public abstract class GeneratedCmuxClient {
 
     public final EmptyResult setDefaultColors(SetDefaultColorsRequest request) throws CmuxException {
         Object result = execute(Commands.SET_DEFAULT_COLORS, request.toWire());
+        return EmptyResult.fromWire(result);
+    }
+
+    public final EmptyResult setDividerVisible(SetDividerVisibleRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_DIVIDER_VISIBLE, request.toWire());
         return EmptyResult.fromWire(result);
     }
 

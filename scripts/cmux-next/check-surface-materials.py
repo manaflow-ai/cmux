@@ -108,8 +108,6 @@ def opening_tags(text: str):
 CONST = re.compile(r"\bconst\s+(\w+)\s*=([^;]*);", re.S)
 # `className=`, with the whitespace JSX allows around the `=`.
 CLASS_NAME = re.compile(r"className\s*=\s*")
-# A string literal, so a const's name inside one is not a reference to it.
-STRING = re.compile(r"\"(?:[^\"\\]|\\.)*\"|'(?:[^'\\]|\\.)*'")
 
 
 def class_attribute(tag: str) -> str:
@@ -176,6 +174,44 @@ def balanced_value(tag: str, start: int) -> str:
     return tag[start:]
 
 
+def strings_and_code(value: str) -> tuple[str, str]:
+    """A className value split into the text of its string literals (the classes) and the code around them (where a
+    const is named), with comments in neither. A template literal's text is a string; its `${...}` is code."""
+    strings: list[str] = []
+    code: list[str] = []
+    index = 0
+    while index < len(value):
+        char = value[index]
+        if value.startswith(("//", "/*"), index):
+            block = value.startswith("/*", index)
+            end = value.find("*/" if block else "\n", index + 2)
+            index = len(value) if end < 0 else end + (2 if block else 0)
+            code.append(" ")
+            continue
+        if char in "\"'`":
+            index += 1
+            while index < len(value) and value[index] != char:
+                if value[index] == "\\":
+                    index += 1
+                elif char == "`" and value.startswith("${", index):
+                    inner = balanced_value(value, index + 1)
+                    inner_strings, inner_code = strings_and_code(inner[1:-1])
+                    strings.append(" " + inner_strings + " ")
+                    code.append(" " + inner_code + " ")
+                    index += 1 + len(inner)
+                    continue
+                else:
+                    strings.append(value[index])
+                index += 1
+            strings.append(" ")
+            code.append(' "" ')
+            index += 1
+            continue
+        code.append(char)
+        index += 1
+    return "".join(strings), "".join(code)
+
+
 def unmarked_surfaces(text: str) -> list[int]:
     """The 1-based lines of the floating glass elements with no host glass of their own and no allowance. A class
     held in a const of the same file (`const popupClassName = cx("ui-popup ui-glass ...")`) counts as the tag's when
@@ -189,10 +225,11 @@ def unmarked_surfaces(text: str) -> list[int]:
     for offset, tag, own, notes in opening_tags(text):
         # The element's own className, whole: a string, or a braced expression to its balancing brace.
         classes = class_attribute(tag)
-        # A const is named only in a braced expression, outside its string literals.
-        code = STRING.sub('""', classes) if classes.startswith("{") else ""
+        # Its classes are the text of its string literals; a const is named only in its code, a braced expression.
+        strings, code = strings_and_code(classes)
+        code = code if classes.startswith("{") else ""
         named = any(re.search(r"\b" + name + r"\b", code) for name in floating_names)
-        floating = (POPUP.search(classes) and GLASS.search(classes)) or named
+        floating = (POPUP.search(strings) and GLASS.search(strings)) or named
         if floating and not HOST_GLASS.search(own) and "host-glass-allow:" not in notes:
             lines.append(text.count("\n", 0, offset) + 1)
     return lines

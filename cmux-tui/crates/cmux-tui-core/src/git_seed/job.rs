@@ -211,9 +211,15 @@ pub struct GitSeedService {
     roots: Roots,
     config: Config,
     jobs: Mutex<Jobs>,
-    /// The running holds' owner threads, by job ([`super::hold`]).
-    holds: Arc<Mutex<HashMap<String, mpsc::Sender<hold::Op>>>>,
+    /// The running holds' owner threads, and whether each still runs, by job ([`super::hold`]).
+    holds: Arc<Mutex<HashMap<String, Holder>>>,
+    /// Holds taken while set run on [`hold::Lease::Ticks`] (tests; see [`Self::lease_tick`]).
+    #[cfg(test)]
+    pub(super) ticked_leases: std::sync::atomic::AtomicBool,
 }
+
+/// A running hold's owner thread, and whether the hold still runs.
+type Holder = (mpsc::Sender<hold::Op>, hold::Alive);
 
 #[derive(Deserialize)]
 struct StatusParams {
@@ -227,7 +233,14 @@ impl GitSeedService {
     }
 
     pub(crate) fn with_config(roots: Roots, config: Config) -> Self {
-        Self { roots, config, jobs: Mutex::new(Jobs::default()), holds: Arc::default() }
+        Self {
+            roots,
+            config,
+            jobs: Mutex::new(Jobs::default()),
+            holds: Arc::default(),
+            #[cfg(test)]
+            ticked_leases: std::sync::atomic::AtomicBool::new(false),
+        }
     }
 
     /// For tests (and the debug-only daemon seam in [`super::installed`]):
@@ -438,11 +451,20 @@ impl GitSeedService {
         })?;
         let holds = self.holds.clone();
         let id = job.id.clone();
+        let alive = hold::Alive::new(std::sync::RwLock::new(true));
         let mut owners = self.holds.lock().unwrap_or_else(PoisonError::into_inner);
-        let owner = hold::spawn(job.clone(), folder, head, params.lease(), barrier, move || {
-            holds.lock().unwrap_or_else(PoisonError::into_inner).remove(&id);
-        })?;
-        owners.insert(job.id.clone(), owner);
+        let lease = hold::Lease::Wall(params.lease());
+        #[cfg(test)]
+        let lease = if self.ticked_leases.load(std::sync::atomic::Ordering::Relaxed) {
+            hold::Lease::Ticks
+        } else {
+            lease
+        };
+        let owner =
+            hold::spawn(job.clone(), folder, head, lease, barrier, alive.clone(), move || {
+                holds.lock().unwrap_or_else(PoisonError::into_inner).remove(&id);
+            })?;
+        owners.insert(job.id.clone(), (owner, alive));
         drop(owners);
         jobs.order.push_back(job.id.clone());
         jobs.by_id.insert(job.id.clone(), job.clone());
@@ -474,8 +496,39 @@ impl GitSeedService {
         Ok(job.answer())
     }
 
+    /// Ends one lease window of the ticked hold `job` (tests): the hold ends unless an op came
+    /// since the window before.
+    #[cfg(test)]
+    pub(super) fn lease_tick(&self, job: &str) {
+        if let Some(owner) = self.holder(job) {
+            let _ = owner.send(hold::Op::LeaseTick);
+        }
+    }
+
     fn holder(&self, job: &str) -> Option<mpsc::Sender<hold::Op>> {
-        self.holds.lock().unwrap_or_else(PoisonError::into_inner).get(job).cloned()
+        let holds = self.holds.lock().unwrap_or_else(PoisonError::into_inner);
+        holds.get(job).map(|(ops, _)| ops.clone())
+    }
+
+    /// Runs `write`, a copy's `fs.*` op that names the hold `job`, only while that hold runs:
+    /// its owner cannot end it or let its lease run out until `write` returns, and once it
+    /// has, `write` never runs (`seed.unknown_job`). A write renews the lease.
+    pub fn under_hold<T>(&self, job: &str, write: impl FnOnce() -> T) -> Result<T, SeedRefusal> {
+        let (owner, alive) = self
+            .holds
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(job)
+            .cloned()
+            .ok_or_else(hold_ended)?;
+        let running = alive.read().unwrap_or_else(PoisonError::into_inner);
+        if !*running {
+            return Err(hold_ended());
+        }
+        let wrote = write();
+        drop(running);
+        let _ = owner.send(hold::Op::Renew);
+        Ok(wrote)
     }
 
     fn running_hold(

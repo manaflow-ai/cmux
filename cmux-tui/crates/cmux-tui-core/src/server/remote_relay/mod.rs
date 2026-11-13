@@ -386,7 +386,12 @@ pub(super) fn handle_frame(
         return keep_open;
     }
     #[cfg(unix)]
-    if let Some(keep_open) = super::cloud_repos::try_handle(mux, client, message, writer) {
+    if let Some(keep_open) = super::cloud_repos::try_handle(
+        mux,
+        client,
+        &super::line_value::LineValue::new(message),
+        writer,
+    ) {
         return keep_open;
     }
     if gate::check_frame(message).is_err() {
