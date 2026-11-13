@@ -2,7 +2,7 @@
 // display showing a 5000-line code file at 13 pt Menlo, black on white, that runs the same
 // timeline for every target once the harness creates GO_FILE:
 //
-//   settle 3 s  ->  idle 30 s  ->  typing 20 s  ->  scroll 20 s  ->  ocr 8 s  ->  hold
+//   settle 3 s -> idle 30 s -> typing 20 s -> scroll 20 s -> [pinned video 20 s] -> ocr 8 s -> hold
 //
 // hold: the ocr screen stays, still, until the harness creates STOP_FILE (the viewer saves its
 // last frame after the timeline), then the scene exits; at most 120 s.
@@ -19,6 +19,9 @@
 // Test hosts only: it covers the menu bar and the Dock while it runs.
 
 import AppKit
+import AVFoundation
+import CoreImage
+import CryptoKit
 
 let args = CommandLine.arguments
 guard args.count == 6 else {
@@ -26,6 +29,8 @@ guard args.count == 6 else {
     exit(2)
 }
 let (goFile, stopFile, phasesFile, shotFile, truthFile) = (args[1], args[2], args[3], args[4], args[5])
+let videoPath = ProcessInfo.processInfo.environment["EVAL_VIDEO_PATH"] ?? ""
+let videoSHA = ProcessInfo.processInfo.environment["EVAL_VIDEO_SHA256"] ?? ""
 
 // The host chooses a fresh nonce per repeat. Byte pairs form little-endian
 // words: 001122...eeff paints 0x1100, 0x3322, ..., 0xffee, LSB first.
@@ -45,29 +50,53 @@ if !sceneNonce.isEmpty {
 /// A workload change requests a frame; only drawing it advances the counter.
 final class SourceMarkerView: NSView {
     var cell: CGFloat = 16
+    var topInset: CGFloat = 0
     var counter: UInt16 = 0
     var pendingFrame = false
+    var videoRect: NSRect = .zero
+    var videoImage: CGImage?
+    var pendingVideo = false
+    var presentedVideoFrames = 0
     override var isFlipped: Bool { true }
 
     func requestFrame() {
+        pendingFrame = true
+        setNeedsDisplay(NSRect(x: 0, y: topInset, width: 20 * cell, height: cell))
+    }
+
+    func presentVideo(_ image: CGImage) {
+        videoImage = image
+        pendingVideo = true
         pendingFrame = true
         needsDisplay = true
     }
 
     override func draw(_ dirtyRect: NSRect) {
         if pendingFrame { counter &+= 1; pendingFrame = false }
+        if pendingVideo { presentedVideoFrames += 1; pendingVideo = false }
+        NSColor.white.setFill()
+        dirtyRect.fill()
+        if let videoImage {
+            NSColor.black.setFill()
+            videoRect.fill()
+            let scale = min(videoRect.width / CGFloat(videoImage.width), videoRect.height / CGFloat(videoImage.height))
+            let size = NSSize(width: CGFloat(videoImage.width) * scale, height: CGFloat(videoImage.height) * scale)
+            let rect = NSRect(x: videoRect.midX - size.width / 2, y: videoRect.midY - size.height / 2, width: size.width, height: size.height)
+            NSImage(cgImage: videoImage, size: size).draw(in: rect, from: .zero, operation: .copy, fraction: 1, respectFlipped: true, hints: nil)
+        }
         for (row, word) in ([counter] + nonceWords).enumerated() {
             for column in 0 ..< 20 {
                 let white = column < 16 ? (word >> UInt16(column)) & 1 == 1 : [true, false, true, false][column - 16]
                 (white ? NSColor.white : NSColor.black).setFill()
-                NSRect(x: CGFloat(column) * cell, y: CGFloat(row) * cell, width: cell, height: cell).fill()
+                NSRect(x: CGFloat(column) * cell, y: topInset + CGFloat(row) * cell, width: cell, height: cell).fill()
             }
         }
     }
 }
 
 /// The phases in order, in seconds; the harness reads the same names from PHASES_JSONL.
-let timeline: [(String, Double)] = [("settle", 3), ("idle", 30), ("typing", 20), ("scroll", 20), ("ocr", 8)]
+let timeline: [(String, Double)] = [("settle", 3), ("idle", 30), ("typing", 20), ("scroll", 20)]
+    + (videoPath.isEmpty ? [] : [("video", 20)]) + [("ocr", 8)]
 
 /// A deterministic 5000-line Swift-like file, so every run and every target sees the same text.
 func codeFile() -> String {
@@ -103,16 +132,92 @@ func record(_ phase: String, _ start: UInt64, _ end: UInt64) {
 
 func unixMs() -> UInt64 { UInt64(Date().timeIntervalSince1970 * 1000) }
 
+@MainActor
 final class Scene: NSObject, NSApplicationDelegate {
     var window: NSWindow!
     var scroll: NSScrollView!
     var text: NSTextView!
     var marker: SourceMarkerView?
+    var videoPlayer: AVPlayer?
+    var videoOutput: AVPlayerItemVideoOutput?
+    var videoInfo: [String: Any] = [:]
+    var videoContext: CIContext?
     let burst = Array("    let typed = stream.encode(frame, at: latency) // a scripted typing burst ")
     var typedCount = 0
     var timer: Timer?
 
+    func prepareVideo() async throws {
+        guard !videoPath.isEmpty else {
+            if !videoSHA.isEmpty { FileHandle.standardError.write(Data("scene: video path and checksum must be paired\n".utf8)); exit(2) }
+            return
+        }
+        guard videoPath.hasPrefix("/"), videoSHA.count == 64,
+              videoSHA.allSatisfy({ "0123456789abcdef".contains($0) }), !nonceWords.isEmpty,
+              ProcessInfo.processInfo.environment["EVAL_VIDEO_METADATA"] != nil else {
+            FileHandle.standardError.write(Data("scene: video needs an absolute prebuilt path, SHA256, source marker, and metadata path\n".utf8))
+            exit(2)
+        }
+        do {
+            let path = videoPath, stop = stopFile
+            let actual = try await Task.detached(priority: .utility) {
+                let file = try FileHandle(forReadingFrom: URL(fileURLWithPath: path))
+                defer { try? file.close() }
+                var hasher = SHA256()
+                while let block = try file.read(upToCount: 1_048_576), !block.isEmpty {
+                    if FileManager.default.fileExists(atPath: stop) { exit(3) }
+                    hasher.update(data: block)
+                }
+                return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+            }.value
+            guard actual == videoSHA else {
+                FileHandle.standardError.write(Data("scene: video checksum mismatch; no workload started\n".utf8))
+                exit(2)
+            }
+        } catch {
+            FileHandle.standardError.write(Data("scene: cannot verify prebuilt video: \(error)\n".utf8))
+            exit(2)
+        }
+        // This preparation runs before showing the source scene or starting a phase.
+        // No network URL, generated substitute, or video download is accepted.
+        let asset = AVURLAsset(url: URL(fileURLWithPath: videoPath))
+        guard let track = try await asset.loadTracks(withMediaType: .video).first else {
+            FileHandle.standardError.write(Data("scene: pinned asset has no video track\n".utf8)); exit(2)
+        }
+        let duration = CMTimeGetSeconds(try await asset.load(.duration))
+        let size = try await track.load(.naturalSize)
+        let fps = Double(try await track.load(.nominalFrameRate))
+        guard duration.isFinite, duration >= 20, size.width.isFinite, size.height.isFinite,
+              size.width > 0, size.height > 0, fps.isFinite, fps > 0 else {
+            FileHandle.standardError.write(Data("scene: pinned video must have valid dimensions/fps and at least 20 seconds\n".utf8)); exit(2)
+        }
+        let item = AVPlayerItem(asset: asset)
+        let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA])
+        output.suppressesPlayerRendering = true
+        item.add(output)
+        let player = AVPlayer(playerItem: item)
+        player.isMuted = true
+        player.automaticallyWaitsToMinimizeStalling = false
+        videoPlayer = player
+        videoOutput = output
+        videoContext = CIContext()
+        videoInfo = ["sha256": videoSHA, "width": Int(size.width), "height": Int(size.height),
+                     "nominal_fps": fps, "duration_s": duration, "selected_start_s": 0,
+                     "selected_duration_s": 20, "muted": true]
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Task {
+            do {
+                try await prepareVideo()
+                showScene()
+            } catch {
+                FileHandle.standardError.write(Data("scene: cannot prepare pinned video: \(error)\n".utf8))
+                exit(2)
+            }
+        }
+    }
+
+    func showScene() {
         let screen = NSScreen.main!
         window = NSWindow(contentRect: screen.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.level = .screenSaver
@@ -133,8 +238,10 @@ final class Scene: NSObject, NSApplicationDelegate {
                 FileHandle.standardError.write(Data("scene: display is too small for the source marker and text\n".utf8))
                 exit(2)
             }
-            let marker = SourceMarkerView(frame: NSRect(x: 0, y: screen.frame.height - reserved, width: 20 * cell, height: 9 * cell))
+            let marker = SourceMarkerView(frame: content.bounds)
             marker.cell = cell
+            marker.topInset = topInset
+            marker.videoRect = NSRect(x: 0, y: reserved, width: screen.frame.width, height: screen.frame.height - reserved)
             self.marker = marker
             scroll.frame.size.height -= reserved
             content.addSubview(marker)
@@ -179,6 +286,10 @@ final class Scene: NSObject, NSApplicationDelegate {
         try? FileManager.default.removeItem(atPath: phasesFile)
         FileManager.default.createFile(atPath: phasesFile, contents: nil)
         writeTruth()
+        if let path = ProcessInfo.processInfo.environment["EVAL_SCENE_READY_FILE"] {
+            do { try Data().write(to: URL(fileURLWithPath: path), options: [.atomic]) }
+            catch { FileHandle.standardError.write(Data("scene: cannot record source readiness: \(error)\n".utf8)); exit(2) }
+        }
         // Bounded wait for the harness's GO_FILE (its viewer has its first frame): 120 s.
         let started = Date()
         Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { timer in
@@ -248,6 +359,10 @@ final class Scene: NSObject, NSApplicationDelegate {
                 self.scrollTo(y)
             }
         case "ocr":
+            videoPlayer?.pause()
+            marker?.videoImage = nil
+            marker?.needsDisplay = true
+            scroll.isHidden = false
             // Undo the typing and scroll back to the top: the screen TRUTH_TXT describes.
             if typedCount > 0 {
                 let at = (text.string as NSString).range(of: "\n").location + 1
@@ -261,11 +376,42 @@ final class Scene: NSObject, NSApplicationDelegate {
                 shot.arguments = ["-x", "-D", "1", shotFile]
                 try? shot.run()
             }
+        case "video":
+            guard let output = videoOutput, let player = videoPlayer, let context = videoContext, let marker else {
+                FileHandle.standardError.write(Data("scene: requested video was not prepared\n".utf8)); exit(2)
+            }
+            scroll.isHidden = true
+            marker.presentedVideoFrames = 0
+            player.play()
+            timer = Timer.scheduledTimer(withTimeInterval: 1.0 / Double(NSScreen.main?.maximumFramesPerSecond ?? 60), repeats: true) { _ in
+                let itemTime = output.itemTime(forHostTime: CACurrentMediaTime())
+                guard output.hasNewPixelBuffer(forItemTime: itemTime),
+                      let pixels = output.copyPixelBuffer(forItemTime: itemTime, itemTimeForDisplay: nil) else { return }
+                let frame = CIImage(cvPixelBuffer: pixels)
+                guard let image = context.createCGImage(frame, from: frame.extent) else { return }
+                // The same draw commits this newly decoded image and its counter.
+                // Repeated display ticks without a new image add no source frame.
+                marker.presentVideo(image)
+            }
         default:
             break
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
-            record(phase, start, unixMs())
+            let end = unixMs()
+            record(phase, start, end)
+            if phase == "video" {
+                self.videoInfo["presented_frames"] = self.marker?.presentedVideoFrames ?? 0
+                self.videoInfo["start_unix_ms"] = start
+                self.videoInfo["end_unix_ms"] = end
+                do {
+                    let data = try JSONSerialization.data(withJSONObject: self.videoInfo, options: [.sortedKeys])
+                    guard let path = ProcessInfo.processInfo.environment["EVAL_VIDEO_METADATA"] else { exit(2) }
+                    try data.write(to: URL(fileURLWithPath: path), options: [.atomic])
+                } catch { FileHandle.standardError.write(Data("scene: cannot record video receipt: \(error)\n".utf8)); exit(2) }
+                if self.marker?.presentedVideoFrames == 0 {
+                    FileHandle.standardError.write(Data("scene: no decoded video frame was presented\n".utf8)); exit(3)
+                }
+            }
             self.run(index + 1)
         }
     }

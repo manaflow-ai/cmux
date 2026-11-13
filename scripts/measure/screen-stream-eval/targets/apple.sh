@@ -28,55 +28,63 @@ connect() {
     echo "apple-$mode: Screen Sharing.app could not open the connection" >&2
     return 1
   fi
+  [[ "${EVAL_PRESENTED_OBSERVER_PID:-}" =~ ^[1-9][0-9]*$ && "${EVAL_PRESENTED_OBSERVER_WINDOW:-}" =~ ^[1-9][0-9]*$ ]] || {
+    echo "apple-$mode: explicit presented-pid/window required before quality selection" >&2
+    return 1
+  }
+  viewer_pid=$EVAL_PRESENTED_OBSERVER_PID
+  window_id=""
+  for _ in $(seq 1 100); do
+    window_id=$("$EVAL_BIN/screen-eval-window-id" "Screen Sharing" "$viewer_pid" "$EVAL_PRESENTED_OBSERVER_WINDOW" 2>/dev/null || true)
+    [[ "$window_id" == "$EVAL_PRESENTED_OBSERVER_WINDOW" ]] && break
+    sleep 0.1
+  done
+  [[ "$window_id" == "$EVAL_PRESENTED_OBSERVER_WINDOW" ]] || {
+    echo "apple-$mode: selected window is missing or ambiguous; next: leave one connection window in the selected process" >&2
+    return 1
+  }
   # These are the two quality settings of an Apple Standard connection,
   # not the separate High Performance connection type. Apple's documented
   # View menu contains the quality items directly (no Quality submenu).
   quality_item="Adaptive Quality"
   [[ "$mode" == high ]] && quality_item="Full Quality"
-  osascript - "$quality_item" <<'OSA' || return 1
+  osascript - "$quality_item" "$viewer_pid" <<'OSA' || return 1
 on run argv
   tell application "System Events"
-    tell process "Screen Sharing"
+    set selected_pid to (item 2 of argv) as integer
+    tell (first application process whose unix id is selected_pid)
       repeat 50 times
         try
+          if (count of windows) is not 1 then error "ambiguous Screen Sharing windows"
+          set selected_window to window 1
+          set frontmost to true
+          perform action "AXRaise" of selected_window
+          if (value of attribute "AXMain" of selected_window) is not true then error "selected window is not main"
           click menu bar item "View" of menu bar 1
           set item_name to item 1 of argv
           click menu item item_name of menu 1 of menu bar item "View" of menu bar 1
           delay 0.1
           click menu bar item "View" of menu bar 1
           set mark to value of attribute "AXMenuItemMarkChar" of menu item item_name of menu 1 of menu bar item "View" of menu bar 1
-          if mark is "✓" or mark is "checkmark" then
+          if (mark is "✓" or mark is "checkmark") and (count of windows) is 1 and (value of attribute "AXMain" of selected_window) is true then
             key code 53
             return
           end if
         end try
+        delay 0.1
       end repeat
     end tell
   end tell
   error "Screen Sharing quality menu is unavailable or the requested item is not selected"
 end run
 OSA
-  window_id=""
-  for _ in $(seq 1 100); do
-    window_id=$("$EVAL_BIN/screen-eval-window-id" "Screen Sharing" 2>/dev/null || true)
-    [[ "$window_id" =~ ^[0-9]+$ ]] && break
-    sleep 0.1
-  done
-  [[ "$window_id" =~ ^[0-9]+$ ]] || { echo "apple-$mode: Screen Sharing window id unavailable" >&2; return 1; }
-  viewer_pid=$(ps -axo pid=,comm= | awk '$0 ~ /Screen Sharing/ {print $1; exit}')
-  [[ "$viewer_pid" =~ ^[0-9]+$ ]] || { echo "apple-$mode: Screen Sharing process unavailable" >&2; return 1; }
-  if [[ -n "${EVAL_PRESENTED_OBSERVER_WINDOW:-}" && "$window_id" != "$EVAL_PRESENTED_OBSERVER_WINDOW" ]]; then
-    echo "apple-$mode: selected Screen Sharing window id $window_id differs from presented-window=$EVAL_PRESENTED_OBSERVER_WINDOW" >&2
-    return 1
-  fi
-  if [[ -n "${EVAL_PRESENTED_OBSERVER_PID:-}" && "$viewer_pid" != "$EVAL_PRESENTED_OBSERVER_PID" ]]; then
-    echo "apple-$mode: selected Screen Sharing pid $viewer_pid differs from presented-pid=$EVAL_PRESENTED_OBSERVER_PID" >&2
-    return 1
-  fi
+  # Recheck the native window identity after the app-wide menu action.
+  [[ "$("$EVAL_BIN/screen-eval-window-id" "Screen Sharing" "$viewer_pid" "$window_id")" == "$window_id" ]] || return 1
   python3 -I - "$EVAL_STATE/apple-connection.json" "$host" "$mode" "$quality_item" "$window_id" "$viewer_pid" <<'PY'
 import json, sys
 json.dump({"host": sys.argv[2], "mode": sys.argv[3], "quality": sys.argv[4],
-           "window": int(sys.argv[5]), "pid": int(sys.argv[6])}, open(sys.argv[1], "w"))
+           "window": int(sys.argv[5]), "pid": int(sys.argv[6]),
+           "quality_binding": "unique CG/AX window, raised and main before menu selection"}, open(sys.argv[1], "w"))
 PY
 }
 

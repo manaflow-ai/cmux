@@ -155,6 +155,20 @@ pixel crops are calibrated. The source and viewer PNGs are retained; absent cali
 `comparison_ready:false` and null CER, never a full-window comparison. Legacy decode targets keep
 their previous source layout unless `scene-marker=1` is supplied.
 
+### Optional pinned video workload
+
+Pass `video=/absolute/path/to/clip.mp4 video-sha256=HEX64` to add one 20-second video phase after
+scroll. The path is operator-supplied and must already exist on the measurement Mac; the scene
+verifies the SHA-256 before it opens the source window and refuses a missing, changed, generated or
+downloaded clip. The current fixture provenance is Blender Big Buck Bunny `bbb_sunflower_1080p_60fps_normal.mp4`:
+archive URL `https://download.blender.org/demo/movies/BBB/bbb_sunflower_1080p_60fps_normal.mp4.zip`,
+archive SHA-256 `68c456673409f8df09b80d0afe29ecb38ef110551fa8a93c83e54a96ebdaec78`, extracted
+SHA-256 `3aa2d8946ec7cf3b50b7148fb3338ca421e6ec34987b20a4044845d674794e3e`, 355856562 bytes,
+1920x1080 AVC1 at 60 fps, duration 634.5333333333 seconds. The harness uses only the first
+20 seconds and records `video-requested.json` plus one `video-media-N.json` receipt containing the
+same checksum, dimensions, nominal FPS, selected interval and actually presented decoded frames.
+The video phase does not replace the fixed idle, typing, scroll or OCR phases.
+
 Prebuilt runs need the updated `screen-eval-scene` and a `cmux-rd` that supports nonce observation;
 `tools-only=1` packages both plus the window-ID helper. An older observer fails closed. Readiness
 uses a precreated start signal and does not start its clock before connecting, so session time to

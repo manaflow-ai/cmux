@@ -78,10 +78,14 @@ with tempfile.TemporaryDirectory(prefix="screen-eval-regression-") as directory:
     prebuilt.mkdir()
     binary.mkdir()
     helper = prebuilt / "screen-eval-window-id"
-    helper.write_text("#!/bin/sh\necho 42\n")
+    helper.write_text("#!/bin/sh\n"
+                      "if [ -n \"${WINDOW_HELPER_CALLS:-}\" ]; then printf '%s|%s|%s\\n' \"$1\" \"${2-}\" \"${3-}\" >>\"$WINDOW_HELPER_CALLS\"; fi\n"
+                      "if [ \"${WINDOW_CHANGED:-0}\" = 1 ] && [ -e \"$EVAL_STATE/menu-selected\" ]; then echo 43; else echo 42; fi\n")
     helper.chmod(0o755)
     env = {**os.environ, "EVAL_PREBUILT": str(prebuilt), "EVAL_BIN": str(binary),
-           "EVAL_ROOT": str(root), "EVAL_STATE": str(root), "EVAL_PEER": "192.0.2.1"}
+           "EVAL_ROOT": str(root), "EVAL_STATE": str(root), "EVAL_PEER": "192.0.2.1",
+           "EVAL_PRESENTED_OBSERVER_PID": "7", "EVAL_PRESENTED_OBSERVER_WINDOW": "42",
+           "WINDOW_HELPER_CALLS": str(root / "helper-calls")}
     stubs = '''
 screen_sharing_app() { echo /fixture/ScreenSharing.app; }
 screencapture() { return 0; }
@@ -107,7 +111,12 @@ swiftc() { echo unexpected-compiler >&2; return 99; }
     # Run the actual connect function in the same || context as production.
     connection = prefix + stubs + '''
 open() { return 0; }
-osascript() { cat >/dev/null; return "$PROFILE_STATUS"; }
+osascript() {
+  printf '%s|%s|%s\\n' "$1" "$2" "$3" >>"$EVAL_STATE/menu-calls"
+  cat >/dev/null
+  [[ "$PROFILE_STATUS" == 0 ]] && touch "$EVAL_STATE/menu-selected"
+  return "$PROFILE_STATUS"
+}
 ps() { echo '7 Screen Sharing'; }
 connect || exit 1
 '''
@@ -116,6 +125,12 @@ connect || exit 1
     assert result.returncode != 0 and not receipt.exists(), result.stderr
     result = run(connection, "host-stop", PROFILE_STATUS="0")
     assert result.returncode == 0 and receipt.is_file(), result.stderr
+    assert all(line == "Screen Sharing|7|42" for line in (root / "helper-calls").read_text().splitlines())
+    assert all(line == "-|Full Quality|7" for line in (root / "menu-calls").read_text().splitlines())
+    receipt.unlink()
+    (root / "menu-selected").unlink()
+    result = run(connection, "host-stop", PROFILE_STATUS="0", WINDOW_CHANGED="1")
+    assert result.returncode != 0 and not receipt.exists(), "changed window after menu selection must refuse"
 
     # Execute the real tools-only branch and inspect the actual tar archive.
     block = harness.split('if [[ "$tools_only" == 1 ]]; then', 1)[1].split('\nfi', 1)[0]

@@ -17,6 +17,8 @@
 set -uo pipefail
 targets="rd,webrtc" samples=200 repeats=3 lan="" viewer_of="" peer_token="" input_frame_now=0 prebuilt="" tools_only=0 scene_marker=0
 presented_observer=0 presented_pid="" presented_window="" presented_marker_origin="" presented_cell_size="" presented_input_point="" presented_display=main presented_timeout_ms=1000 presented_seed=1
+ocr_host_crop="" ocr_viewer_crop="" ocr_calibration=""
+video_path="" video_sha=""
 for arg in "$@"; do
   case "$arg" in
     targets=*) targets="${arg#targets=}" ;;
@@ -37,6 +39,11 @@ for arg in "$@"; do
     # Apple always requires a fresh source marker. Other displayed viewers may
     # opt into the same source layout; legacy decode probes keep their layout.
     scene-marker=*) scene_marker="${arg#scene-marker=}" ;;
+    ocr-host-crop=*) ocr_host_crop="${arg#ocr-host-crop=}" ;;
+    ocr-viewer-crop=*) ocr_viewer_crop="${arg#ocr-viewer-crop=}" ;;
+    ocr-calibration=*) ocr_calibration="${arg#ocr-calibration=}" ;;
+    video=*) video_path="${arg#video=}" ;;
+    video-sha256=*) video_sha="${arg#video-sha256=}" ;;
     # presented-observer=1: run cmux-rd observe on the viewer's visible window; the
     # remaining values are capture-pixel geometry owned by that viewer step.
     presented-observer=*) presented_observer="${arg#presented-observer=}" ;;
@@ -58,10 +65,32 @@ if [[ -n "$prebuilt" ]]; then
   prebuilt="$(cd "$prebuilt" 2>/dev/null && pwd)" || { echo "screen-stream-eval.sh: prebuilt= is not a directory" >&2; exit 2; }
 fi
 export EVAL_PREBUILT="$prebuilt"
+if [[ -n "$video_path$video_sha" ]]; then
+  [[ "$video_path" == /* && -f "$video_path" && "$video_sha" =~ ^[0-9a-f]{64}$ ]] || {
+    echo "screen-stream-eval.sh: video=ABSOLUTE_PREBUILT_PATH and video-sha256=HEX64 are required together" >&2
+    exit 2
+  }
+fi
+export EVAL_VIDEO_PATH="$video_path" EVAL_VIDEO_SHA256="$video_sha"
+if [[ -n "$ocr_host_crop$ocr_viewer_crop$ocr_calibration" ]]; then
+  rect='^[0-9]+,[0-9]+,[1-9][0-9]*,[1-9][0-9]*$'
+  [[ "$ocr_host_crop" =~ $rect && "$ocr_viewer_crop" =~ $rect ]] || {
+    echo "screen-stream-eval.sh: explicit ocr-host-crop= and ocr-viewer-crop= X,Y,W,H are required together" >&2
+    exit 2
+  }
+  if [[ -n "$ocr_calibration" ]]; then
+    [[ -f "$ocr_calibration" ]] || { echo "screen-stream-eval.sh: OCR calibration file not found" >&2; exit 2; }
+    ocr_calibration="$(cd "$(dirname "$ocr_calibration")" && pwd)/$(basename "$ocr_calibration")"
+  fi
+fi
 # The arguments a run inside the launcher app gets: prebuilt= as the absolute path, since the app's cwd is /.
 forward=()
 for arg in "$@"; do
-  case "$arg" in prebuilt=*) forward+=("prebuilt=$prebuilt") ;; *) forward+=("$arg") ;; esac
+  case "$arg" in
+    prebuilt=*) forward+=("prebuilt=$prebuilt") ;;
+    ocr-calibration=*) forward+=("ocr-calibration=$ocr_calibration") ;;
+    *) forward+=("$arg") ;;
+  esac
 done
 [[ "$tools_only" =~ ^[01]$ ]] || { echo "screen-stream-eval.sh: tools-only= is 0 or 1" >&2; exit 2; }
 [[ "$scene_marker" =~ ^[01]$ ]] || { echo "screen-stream-eval.sh: scene-marker= is 0 or 1" >&2; exit 2; }
@@ -144,6 +173,7 @@ fi
 # The scene's timeline is 81 s from GO (scene.swift), then it holds the ocr screen until STOP; the
 # passive window starts at the viewer's first frame, GO follows it, so the window ends inside the hold.
 window_s=84
+[[ -n "$video_path" ]] && window_s=104
 display=$(system_profiler SPDisplaysDataType 2>/dev/null | sed -n 's/^ *Resolution: //p' | head -1)
 run_json() {
   python3 -I - "$@" <<'EOF'
@@ -183,19 +213,20 @@ trap cleanup EXIT
 # results.json from whatever the targets wrote; blocked=REASON marks a run that measured nothing.
 finish() {
   local blocked="${1:-}"
-  python3 -I - "$out" "$run" "$blocked" "$targets" "$here" <<'EOF'
+  python3 -I - "$out" "$run" "$blocked" "$targets" "$here" "$video_path" <<'EOF'
 import json, sys
 from pathlib import Path
 out, run, blocked, names = Path(sys.argv[1]), json.loads(sys.argv[2]), sys.argv[3], sys.argv[4].split(",")
 sys.path.insert(0, sys.argv[5])
-from eval import empty_target
+from eval import SCHEMA, empty_target
 if blocked:
     run["blocked"] = blocked
 targets = {}
 for name in names:
     path = out / name / "target.json"
     targets[name] = json.loads(path.read_text()) if path.exists() else empty_target([blocked or "did not run"])
-results = {"schema": "cmux.screen-stream-eval/2", "run": run, "scenarios": ["idle", "typing", "scroll", "ocr"], "targets": targets}
+scenarios = ["idle", "typing", "scroll"] + (["video"] if sys.argv[6] else []) + ["ocr"]
+results = {"schema": SCHEMA, "run": run, "scenarios": scenarios, "targets": targets}
 (out / "results.json").write_text(json.dumps(results, indent=2, sort_keys=True) + "\n")
 EOF
   python3 -I "$here/eval.py" summary "$out/results.json" "$out/summary.md"
@@ -368,6 +399,19 @@ for name in "${names[@]}"; do
   script="$here/targets/$name.sh"
   dir="$out/$name"
   mkdir -p "$dir"
+  # Keep the requested repeat count even when build or host setup fails before a
+  # window-N/ocr-N artifact exists; eval.py must not infer completeness from the
+  # subset of repeats that happened to start.
+  python3 -I - "$dir/repeats-requested.json" "$repeats" <<'PY'
+import json, sys
+json.dump({"count": int(sys.argv[2])}, open(sys.argv[1], "w"))
+PY
+  if [[ -n "$video_path" ]]; then
+    python3 -I - "$dir/video-requested.json" "$video_sha" <<'PY'
+import json, sys
+json.dump({"sha256": sys.argv[2], "duration_s": 20}, open(sys.argv[1], "w"))
+PY
+  fi
   export EVAL_STATE="$work/$name"
   mkdir -p "$EVAL_STATE"
   chmod 700 "$EVAL_STATE"
@@ -426,18 +470,36 @@ for name in "${names[@]}"; do
     echo "SCREEN-STREAM-EVAL-STAGE $name window $rep/$repeats"
     go="$EVAL_STATE/go" stop="$EVAL_STATE/stop"
     rm -f "$go" "$stop" "$dir/host-$rep.png"
-    unset EVAL_SCENE_NONCE EVAL_SCENE_GEOMETRY
-    if [[ "$scene_marker" == 1 || "$name" == apple-high || "$name" == apple-standard ]]; then
+    unset EVAL_SCENE_NONCE EVAL_SCENE_GEOMETRY EVAL_SCENE_READY_FILE EVAL_VIDEO_METADATA
+    if [[ "$scene_marker" == 1 || "$name" == apple-high || "$name" == apple-standard || -n "$video_path" ]]; then
       nonce=$(python3 -I -c 'import secrets; print(secrets.token_hex(16))') || {
         err "window $rep: could not create fresh source nonce"
         continue
       }
       export EVAL_SCENE_NONCE="$nonce" EVAL_SCENE_GEOMETRY="$dir/source-scene-$rep.json"
+      export EVAL_SCENE_READY_FILE="$EVAL_STATE/source-ready-$rep"
+      rm -f "$EVAL_SCENE_READY_FILE"
     fi
+    [[ -n "$video_path" ]] && export EVAL_VIDEO_METADATA="$dir/video-media-$rep.json"
     "$EVAL_BIN/screen-eval-scene" "$go" "$stop" "$dir/phases-$rep.jsonl" "$dir/host-$rep.png" "$dir/truth.txt" >"$EVAL_STATE/scene.log" 2>&1 &
     scene=$!
     pids+=("$scene")
-    sleep 2 # the scene's window is up before the host captures its first frame
+    if [[ -n "${EVAL_SCENE_READY_FILE:-}" ]]; then
+      for _ in $(seq 1 300); do
+        [[ -e "$EVAL_SCENE_READY_FILE" ]] && break
+        kill -0 "$scene" 2>/dev/null || break
+        sleep 0.1 # bounded source preparation (including pinned-asset validation)
+      done
+      if [[ ! -e "$EVAL_SCENE_READY_FILE" ]]; then
+        err "window $rep: source did not prepare within 30 s ($(tail -1 "$EVAL_STATE/scene.log"))"
+        touch "$stop"
+        kill "$scene" 2>/dev/null || true
+        wait "$scene" 2>/dev/null || true
+        continue
+      fi
+    else
+      sleep 2 # legacy scene binary; unchanged source layout
+    fi
     if why=$(host_start); then
       raw="$EVAL_STATE/window-$rep.raw"
       rm -f "$raw" "$raw.clock" "$raw.span"
@@ -453,7 +515,13 @@ for name in "${names[@]}"; do
     bash "$script" host-stop
 
     echo "SCREEN-STREAM-EVAL-STAGE $name ocr $rep/$repeats"
-    if [[ -n "${EVAL_SCENE_NONCE:-}" ]]; then
+    if [[ -n "$ocr_host_crop" && -s "$dir/host-$rep.png" && -s "$dir/viewer-frame-$rep" ]]; then
+      crop_args=(--host-crop "$ocr_host_crop" --viewer-crop "$ocr_viewer_crop")
+      [[ -n "$ocr_calibration" ]] && crop_args+=(--calibration "$ocr_calibration")
+      [[ -s "$dir/source-scene-$rep.json" ]] && crop_args+=(--source-geometry "$dir/source-scene-$rep.json")
+      [[ -s "$raw.readiness.json" ]] && crop_args+=(--readiness "$raw.readiness.json")
+      "$EVAL_BIN/screen-eval-ocr" "$dir/host-$rep.png" "$dir/viewer-frame-$rep" "$dir/truth.txt" "${crop_args[@]}" >"$dir/ocr-$rep.json" || err "ocr $rep: invalid calibrated crop"
+    elif [[ -n "${EVAL_SCENE_NONCE:-}" ]]; then
       # The common marker reserves a region above the text. Full-window OCR
       # would include it and Apple chrome; calibrated pixel crops are required.
       printf '{"cer":null,"comparison_ready":false,"reason":"common source marker requires calibrated host/viewer OCR crops"}\n' >"$dir/ocr-$rep.json"
