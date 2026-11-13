@@ -257,8 +257,8 @@ def unapproved(found, allowlist=ALLOWED) -> list[str]:
     return [f"{h[0]}:{h[1]}: {h[3]} in {h[2].strip()[:160]}" for h in found if id(h) not in ok and not app_name(h)]
 
 
-def scratch_hits(files) -> set[str]:
-    """The paths hits() flags in a scratch repository holding FILES ((path, text, is unsafe))."""
+def scratch_found(files) -> list[tuple[str, int, str, str, int]]:
+    """hits() in a scratch repository holding FILES ((path, text, is unsafe))."""
     env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
     with tempfile.TemporaryDirectory() as tmp:
         subprocess.run(["git", "init", "-q", tmp], check=True, env=env)
@@ -266,7 +266,44 @@ def scratch_hits(files) -> set[str]:
             (Path(tmp) / path).parent.mkdir(parents=True, exist_ok=True)
             (Path(tmp) / path).write_text(text)
         subprocess.run(["git", "-C", tmp, "add", "-A"], check=True, env=env)
-        return {h[0] for h in hits(Path(tmp))}
+        return hits(Path(tmp))
+
+
+# The FILES rows hits() reports as unresolved on purpose, each with the lines of those hits: a #! line shell_tree
+# cannot resolve (line 1), or a shell block it cannot parse (its first line). Any other unresolved hit is a
+# regression, never a flag (a Codex review of manaflow-ai/cmux#41371 at 3a40c2ee, P2: counted file-wide, an
+# unresolved hit at line 1 passed a file whose body was never read).
+UNRESOLVED_ROWS = {"scripts/shebang-unresolved": [1], "scripts/env-split-open-quote": [1],
+                   "scripts/env-split-expands": [1], "scripts/extglob-heredoc.sh": [1],
+                   "scripts/extglob-only.sh": [1], "scripts/extglob.yml": [5]}
+
+
+def unresolved(files, hit) -> bool:
+    """Whether HIT is an unresolved hit of hits() (the #! line or an unparsed block's first line, the whole line as
+    what was found), never a write the scan found."""
+    path, n, line, what, _ = hit
+    text = next(t for p, t, _ in files if p == path)
+    marks = ([1] if shell_tree.shebang(text) == "unresolved" else []) + shell_tree.unparsed(path, text)
+    return n in marks and what == line.strip()
+
+
+def unresolved_lines(files, found) -> dict[str, list[int]]:
+    """Per path of FILES, the lines of FOUND's unresolved hits."""
+    out: dict[str, list[int]] = {}
+    for h in found:
+        if unresolved(files, h):
+            out.setdefault(h[0], []).append(h[1])
+    return out
+
+
+def scratch_hits(files) -> set[str]:
+    """The paths of FILES flagged in a scratch repository: by a write the scan found, or by unresolved hits only
+    where UNRESOLVED_ROWS names that path with exactly those lines. An unresolved hit anywhere else flags nothing, so
+    a file read as unresolved by mistake is a miss (its row fails), never a pass."""
+    found = scratch_found(files)
+    marks = unresolved_lines(files, found)
+    return ({h[0] for h in found if not unresolved(files, h)}
+            | {p for p, lines in marks.items() if lines == UNRESOLVED_ROWS.get(p)})
 
 
 def mktemp_names() -> set[str]:
@@ -372,6 +409,8 @@ class NoclobberSweep(unittest.TestCase):
         `# $(...)` was a comment, though bash runs the substitution. hits() runs on each of shell_tree.FILES (here-
         documents, continued lines, quotes across lines, case, arrays, a workflow's run block) in a scratch repo."""
         files = shell_tree.FILES
+        # Which rows are unresolved, and at which line, is pinned: a row read as unresolved by mistake fails here.
+        self.assertEqual(unresolved_lines(files, scratch_found(files)), UNRESOLVED_ROWS)
         found = scratch_hits(files)
         self.assertEqual([p for p, _, unsafe in files if (p in found) != unsafe], [], "files the sweep got wrong")
 
@@ -454,6 +493,11 @@ class NoclobberSweep(unittest.TestCase):
         # manaflow-ai/cmux#41336 review at 911fed64, F2: line 2's copy of the piece is another occurrence, which the
         # one entry (occurrence 1) does not approve.
         self.assertEqual([h.split(":")[1] for h in left], ["1", "2", "2"], found)
+        # Each hit by its line, text and offset, and the one the entry approves by name, never only a count.
+        self.assertEqual([(h[1], h[3], h[4]) for h in found],
+                         [(1, "/tmp/$NAME", 20), (1, "/tmp/out.$$", 53), (2, "/tmp/$NAME", 20), (2, "/tmp/$NAME", 58)])
+        [entry] = allowlist
+        self.assertIs(approves(entry, found), found[0])
         self.assertEqual(len(unapproved(found, {})), 4, found)
 
     def test_a_quoted_env_split_shebang_is_shell(self):
@@ -462,7 +506,12 @@ class NoclobberSweep(unittest.TestCase):
         body = "\ncat <<EOF\n# $(printf s > /tmp/out.$$)\nEOF\n"
         files = [("scripts/q", "#!/usr/bin/env -S 'bash' -e" + body, True),
                  ("scripts/qq", '#!/usr/bin/env -S "bash" -e' + body, True)]
-        self.assertEqual(scratch_hits(files), {"scripts/q", "scripts/qq"})
+        # A Codex review of manaflow-ai/cmux#41371 at 3a40c2ee, P2: a path set passed on the unresolved hit at line 1
+        # alone. The #! line is shell, and the one hit is the here-document's write, on its own line (3).
+        self.assertEqual([shell_tree.shebang(text) for _, text, _ in files], ["shell", "shell"])
+        found = scratch_found(files)
+        self.assertEqual(sorted((h[0], h[1], h[3]) for h in found),
+                         [("scripts/q", 3, "/tmp/out.$$"), ("scripts/qq", 3, "/tmp/out.$$")], found)
 
     def test_an_allowance_approves_one_occurrence(self):
         """manaflow-ai/cmux#41336 review at 911fed64, F2: an allowance matched by text approved every hit with the same
@@ -477,11 +526,15 @@ class NoclobberSweep(unittest.TestCase):
             (Path(tmp) / "scripts/a.sh").write_text(text)
             subprocess.run(["git", "-C", tmp, "add", "-A"], check=True, env=env)
             found = hits(Path(tmp))
-        self.assertEqual([h[1] for h in found], [1, 1, 2], found)
+        self.assertEqual([(h[1], h[3], h[4]) for h in found],
+                         [(1, "/tmp/x-$tag", 7), (1, "/tmp/x-$tag", 33), (2, "/tmp/x-$tag", 17)], found)
         one = {("scripts/a.sh", '"/tmp/x-$tag"'): "the -L test reads the link"}
         self.assertEqual(len(unapproved(found, one)), 2, found)
+        [entry] = one
+        self.assertIs(approves(entry, found), found[0], "the first occurrence, never another hit with its text")
         both = {("scripts/a.sh", '[[ -L "/tmp/x-$tag" ]] && rm -f "/tmp/x-$tag"', 1): "the -L test reads the link",
                 ("scripts/a.sh", '[[ -L "/tmp/x-$tag" ]] && rm -f "/tmp/x-$tag"', 2): "rm removes the link"}
+        self.assertEqual([approves(e, found) for e in both], found[:2])
         self.assertEqual([u.split(":")[1] for u in unapproved(found, both)], ["2"], found)
         self.assertIsNone(approves(("scripts/a.sh", '"/tmp/x-$tag"', 4), found))
 
@@ -569,8 +622,9 @@ class NoclobberSweep(unittest.TestCase):
                     (root / path).parent.mkdir(parents=True, exist_ok=True)
                     (root / path).write_text(text)
                 with self.subTest(row=n, lib=lib):
-                    scan = "\n".join(shell_tree.scan_file("s.sh", files["s.sh"], root=str(root)))
-                    self.assertEqual(bool(SHARED_TMP.search(scan)), hit, scan)
+                    # The hit is the template's own line (3), never anywhere in the file.
+                    scan = shell_tree.scan_file("s.sh", files["s.sh"], root=str(root))
+                    self.assertEqual([bool(SHARED_TMP.search(s)) for s in scan], [False, False, hit, False], scan)
 
     def test_shell_tree_is_the_shared_copy(self):
         """shell_tree.py is vendored byte for byte from a pinned upstream blob (its docstring); this pin is its
