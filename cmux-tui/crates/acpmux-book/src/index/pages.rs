@@ -83,21 +83,23 @@ impl SummaryIndex {
             cold_before = piece.has_before;
             cold_after = piece.has_after;
             let snapshot_rows = piece.rows;
-            let family_row = |row: &Summary| {
+            let family_depth = |row: &Summary| {
                 if self.get_row(&row.key()).is_some() || self.is_shadowed(&row.key()) {
-                    return false;
+                    return None;
                 }
                 if row.fork_of.as_ref().is_some_and(|fork| fork.key == *root) {
-                    return true;
+                    return Some(1);
                 }
+                let mut depth = 0u16;
                 let mut parent = row.parent.clone();
                 let mut seen = Vec::new();
                 while let Some(key) = parent {
+                    depth = depth.saturating_add(1);
                     if key == *root {
-                        return true;
+                        return Some(depth);
                     }
                     if seen.contains(&key) {
-                        return false;
+                        return None;
                     }
                     seen.push(key.clone());
                     parent = snapshot_rows
@@ -105,29 +107,40 @@ impl SummaryIndex {
                         .find(|candidate| candidate.key() == key)
                         .and_then(|candidate| candidate.parent.clone());
                 }
-                false
+                None
             };
             for row in &snapshot_rows {
-                if family_row(row) && filter.matches(row) {
+                if let Some(depth) = family_depth(row)
+                    && filter.matches(row)
+                {
                     let mut row = row.as_ref().clone();
-                    row.depth = Some(1);
+                    row.depth = Some(depth);
                     cold_rows.push(Arc::new(row));
                 }
             }
         }
         let mut start = 0;
         let mut end = items.len();
-        if let Some(anchor) = anchor
-            && let Some(position) = items.iter().position(|item| {
+        if let Some(anchor) = anchor {
+            if let Some(position) = items.iter().position(|item| {
                 self.get_row(&item.key).is_some_and(|row| SortKey::of(&row) == *anchor)
-            })
-        {
-            match side {
-                ReadSide::After => start = position + usize::from(!inclusive),
-                ReadSide::Before => end = position + usize::from(inclusive),
-                ReadSide::Around => {
-                    start = position;
-                    end = items.len();
+            }) {
+                match side {
+                    ReadSide::After => start = position + usize::from(!inclusive),
+                    ReadSide::Before => end = position + usize::from(inclusive),
+                    ReadSide::Around => {
+                        start = position;
+                        end = items.len();
+                    }
+                }
+            } else {
+                // A cold row is not present in the hot kin table.  Fence the
+                // hot walk so a continuation anchored on that row cannot
+                // restart from the beginning and duplicate rows.
+                match side {
+                    ReadSide::After => start = items.len(),
+                    ReadSide::Before => end = 0,
+                    ReadSide::Around => start = items.len(),
                 }
             }
         }
