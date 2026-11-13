@@ -5,8 +5,11 @@ import { Button } from "../../../ui/Button";
 import { t } from "../strings";
 
 type Example = { id: string; file: string; manifest: string };
-const RAW_BASE = "https://raw.githubusercontent.com/manaflow-ai/cmux/feat-cmux-next/";
-const SOURCE_BASE = "https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/";
+// Pin installs and source links to the reviewed tree. A moving branch would let
+// the Settings card silently install code that was never reviewed with the app.
+const SHOWCASE_REF = "9c066b3251ac60991d8cf442f352c990635a59a7";
+const RAW_BASE = `https://raw.githubusercontent.com/manaflow-ai/cmux/${SHOWCASE_REF}/`;
+const SOURCE_BASE = `https://github.com/manaflow-ai/cmux/blob/${SHOWCASE_REF}/`;
 const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 const HELP_LIMIT = 60;
 

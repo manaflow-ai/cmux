@@ -87393,7 +87393,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "See the branch and ahead/behind counts for your current folder.\nIn Session Info, the same view follows that chat’s repository."
+            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
           }
         },
         "ar": {

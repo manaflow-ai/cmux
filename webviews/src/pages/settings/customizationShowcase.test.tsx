@@ -119,11 +119,11 @@ test("template install command writes both files in an exclusive folder and runs
     const curlCalls = readFileSync(fixture.curlLog, "utf8").trim().split("\n");
     expect(curlCalls).toHaveLength(4);
     expect(curlCalls[0]).toContain(
-      `https://raw.githubusercontent.com/manaflow-ai/cmux/feat-cmux-next/${template.file}`,
+      `https://raw.githubusercontent.com/manaflow-ai/cmux/9c066b3251ac60991d8cf442f352c990635a59a7/${template.file}`,
     );
     expect(curlCalls[0]).toContain(`-o ./${orderedFolders[0]}/main.js`);
     expect(curlCalls[1]).toContain(
-      `https://raw.githubusercontent.com/manaflow-ai/cmux/feat-cmux-next/${template.manifest}`,
+      `https://raw.githubusercontent.com/manaflow-ai/cmux/9c066b3251ac60991d8cf442f352c990635a59a7/${template.manifest}`,
     );
     expect(curlCalls[1]).toContain(`-o ./${orderedFolders[0]}/cmux-app.json`);
     expect(curlCalls[2]).toContain(`-o ./${orderedFolders[1]}/main.js`);

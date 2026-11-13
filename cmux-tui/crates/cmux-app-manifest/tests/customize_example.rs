@@ -174,7 +174,18 @@ mod apps {
             );
             let exported = exported_names(&script);
             let implements = manifest["implements"].as_object().expect("implements");
-            assert!(implements.contains_key("cmux.section/1"), "{name} has a sidebar section");
+            if name == "branch-status" {
+                assert!(
+                    implements.contains_key("cmux.session.info.section/1"),
+                    "{name} has a Session Info section"
+                );
+                assert!(
+                    !implements.contains_key("cmux.section/1"),
+                    "{name} has no sidebar section"
+                );
+            } else {
+                assert!(implements.contains_key("cmux.section/1"), "{name} has a sidebar section");
+            }
             for (interface, entry) in implements {
                 let export =
                     entry["export"].as_str().unwrap_or_else(|| panic!("{name}: {interface}"));
