@@ -74,9 +74,9 @@ impl crate::mux::Mux {
         self.acp_prompt_with_scope(session, prompt_id, text, meta, false)
     }
 
-    /// Hands a diff-comments review to a session that may be mirrored from a
-    /// peer. The session host's acpmux forwards it to that peer; agent.message
-    /// sends use [`acp_prompt`] and keep their existing routing behavior.
+    /// Hands a diff-comments review only to a session owned by this daemon.
+    /// The diff page routes the operation to the session host; agent.message
+    /// sends use [`acp_prompt`] and keep their peer-forwarding behavior.
     pub(crate) fn acp_prompt_diff_comments(
         &self,
         session: &str,
