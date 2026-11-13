@@ -147,7 +147,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     /// What a failed first send means for the person: never sent (no connection: it can go again
     /// from the chat's composer), refused by the agent (its own answer, acpmux's RPC error), else
     /// unknown (a dropped link, a failed write, a cancel: the Mac may have it).
-    nonisolated static func deliveryFailure(_ error: any Error) -> TaskDeliveryFailure {
+    static func deliveryFailure(_ error: any Error) -> TaskDeliveryFailure {
         let reason = AcpmuxSessionSource.message(error)
         if let link = error as? LinkError, link.code == "offline" { return .notSent(reason) }
         if error is AcpmuxConnection.RPCError { return .refused(reason) }

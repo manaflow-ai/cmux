@@ -277,7 +277,7 @@ import Testing
 
 /// What a failed first send means (fourth verifier: a write failure or a cancel read as the
 /// agent's refusal): only acpmux's RPC error is the agent's answer.
-@Suite struct TaskDeliveryFailureTests {
+@MainActor @Suite struct TaskDeliveryFailureTests {
     @Test func onlyTheAgentsAnswerIsARefusal() {
         if case .notSent = LiveWorkspaceCreationBackend.deliveryFailure(LinkError(code: "offline", message: "x")) {} else { Issue.record("offline") }
         if case .uncertain = LiveWorkspaceCreationBackend.deliveryFailure(LinkError(code: "timeout", message: "x")) {} else { Issue.record("timeout") }
