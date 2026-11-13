@@ -1,6 +1,6 @@
 //! CRC-framed bounded log records and recoverable generation changes.
 use super::compaction::{Compaction, cleanup_stages};
-use super::{DiskSnapshot, IndexRecord, RowKey, Summary, SummaryIndex, codec};
+use super::{DiskSnapshot, IndexRecord, OriginRecord, RowKey, Summary, SummaryIndex, codec};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufReader, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -102,14 +102,14 @@ impl IndexLog {
         let mut previous_seq = 0;
         let mut oldest_seq = seq.saturating_add(1);
         loop {
-            match codec::read(&mut reader) {
-                Ok(Some((record, len))) if record.seq > previous_seq => {
+            match codec::read_any(&mut reader) {
+                Ok(Some((record, len))) if record_seq(&record) > previous_seq => {
                     if offset == covered {
-                        oldest_seq = record.seq;
+                        oldest_seq = record_seq(&record);
                     }
                     offset += len as u64;
-                    previous_seq = record.seq;
-                    next_seq = next_seq.max(record.seq);
+                    previous_seq = record_seq(&record);
+                    next_seq = next_seq.max(record_seq(&record));
                 }
                 Ok(None) => break,
                 Ok(Some(_)) => break,
@@ -174,6 +174,17 @@ impl IndexLog {
         self.offset += bytes.len() as u64;
         self.next_seq = record.seq;
         Ok(())
+    }
+
+    pub fn append_origin(&mut self, record: &OriginRecord) -> io::Result<u64> {
+        let seq = self.next_seq.saturating_add(1);
+        let bytes = codec::encode_origin(seq, record)?;
+        self.file.set_len(self.offset)?;
+        self.file.seek(SeekFrom::Start(self.offset))?;
+        self.file.write_all(&bytes)?;
+        self.offset += bytes.len() as u64;
+        self.next_seq = seq;
+        Ok(seq)
     }
 
     pub fn flush(&mut self) -> io::Result<()> {
@@ -289,20 +300,38 @@ pub fn replay_log_from(
     };
     let mut reader = BufReader::new(file);
     reader.seek(SeekFrom::Start(offset))?;
-    while let Some((record, _)) = codec::read(&mut reader)? {
-        if record.seq <= index.seq() {
+    while let Some((record, _)) = codec::read_any(&mut reader)? {
+        let seq = record_seq(&record);
+        if seq <= index.seq() {
             continue;
         }
-        if record.gone {
-            index = index
-                .remove_row(record.seq, &RowKey::new(record.origin, record.chat_id))
-                .unwrap_or(index);
-            index.seq = record.seq;
-        } else {
-            index = index.apply(record.seq, record.summary);
+        match record {
+            codec::LogRecord::Origin(origin) => index = index.apply_origin(seq, origin),
+            codec::LogRecord::Row(record) if record.gone => {
+                index = index
+                    .remove_row(seq, &RowKey::new(record.origin, record.chat_id))
+                    .unwrap_or(index)
+                    .advance_seq(seq);
+            }
+            codec::LogRecord::Row(record)
+                if record.summary.origin != "local" && !record.summary.is_live() =>
+            {
+                index = index.advance_seq(seq);
+            }
+            codec::LogRecord::Row(record) => index = index.apply(seq, record.summary),
         }
     }
     Ok(index)
+}
+
+fn record_seq(record: &codec::LogRecord) -> u64 {
+    match record {
+        codec::LogRecord::Row(record) => record.seq,
+        // Origin records carry their sequence in the framing body; the
+        // decoder stores it in `since` only for state, so this is filled by
+        // the reader below.
+        codec::LogRecord::Origin(record) => record.seq,
+    }
 }
 
 /// Replays every complete generation newer than the snapshot's covered

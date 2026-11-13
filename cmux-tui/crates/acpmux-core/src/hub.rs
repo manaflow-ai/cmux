@@ -6,8 +6,8 @@
 //! lock and a list window copies only the rows it will send.
 
 use acpmux_book::index::{
-    DiskSnapshot, IndexEdition, IndexLog, ReadSide, RowKey, SortKey, Summary, SummaryIndex,
-    replay_generation_logs,
+    DiskSnapshot, IndexEdition, IndexLog, OriginRecord, OriginState, ReadSide, RowKey, SortKey,
+    Summary, SummaryIndex, replay_generation_logs,
 };
 use arc_swap::ArcSwap;
 use std::collections::HashMap;
@@ -17,7 +17,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use thiserror::Error;
 use tokio::sync::Notify;
 
-use crate::wire::{Frame, FrameError, FrameKind, Sub};
+use crate::wire::{Frame, FrameError, FrameKind, Origin, Sub};
 mod compaction;
 mod disk;
 mod history;
@@ -30,6 +30,15 @@ pub use crate::wire::{DeltaFrame, Window};
 pub const DEFAULT_WINDOW_ROWS: usize = 100;
 pub const MAX_WINDOW_ROWS: usize = 400;
 const EVENT_CAPACITY: usize = 1024;
+static REFUSED_SOURCE_SUBMITS: AtomicU64 = AtomicU64::new(0);
+
+pub fn refused_source_submits() -> u64 {
+    REFUSED_SOURCE_SUBMITS.load(Ordering::Relaxed)
+}
+
+fn record_id_validate(record: &OriginRecord) -> Result<(), HubError> {
+    RowKey::new(record.id.as_str(), "origin").validate().map_err(HubError::Log)
+}
 
 /// A summary change in index sequence order. The summary is shared with the
 /// published snapshot, so sending it to subscribers is O(1) in chat count.
@@ -43,12 +52,15 @@ pub struct SummaryEvent {
 pub enum ListItem {
     Summary(SummaryEvent),
     Gone { seq: u64, chat_id: String, origin: String },
+    Origin { seq: u64, origin: Origin },
     Lagged { cursor: u64 },
 }
 
 enum PendingUpdate {
-    Summary(Box<Summary>),
-    Gone,
+    Summary { source: String, summary: Box<Summary> },
+    Gone { source: String },
+    Origin { record: OriginRecord },
+    Takeover { origin: String, source: String },
 }
 
 struct UpdateQueue {
@@ -66,12 +78,15 @@ impl UpdateQueue {
         }
     }
 
-    fn submit(&self, summary: Summary) -> Result<(), HubError> {
-        self.enqueue(summary.key(), PendingUpdate::Summary(Box::new(summary)))
+    fn submit(&self, source: impl Into<String>, summary: Summary) -> Result<(), HubError> {
+        self.enqueue(
+            summary.key(),
+            PendingUpdate::Summary { source: source.into(), summary: Box::new(summary) },
+        )
     }
 
-    fn submit_remove(&self, key: RowKey) -> Result<(), HubError> {
-        self.enqueue(key, PendingUpdate::Gone)
+    fn submit_remove(&self, source: impl Into<String>, key: RowKey) -> Result<(), HubError> {
+        self.enqueue(key, PendingUpdate::Gone { source: source.into() })
     }
 
     fn enqueue(&self, key: RowKey, update: PendingUpdate) -> Result<(), HubError> {
@@ -171,6 +186,7 @@ impl ListReceiver {
         let seq = match &item {
             ListItem::Summary(event) => event.seq,
             ListItem::Gone { seq, .. } => *seq,
+            ListItem::Origin { seq, .. } => *seq,
             ListItem::Lagged { cursor } => *cursor,
         };
         if let Ok(mut state) = self.subscriber.state.lock() {
@@ -233,6 +249,8 @@ pub struct HubWriter {
     log_errors: Arc<AtomicU64>,
     retry_log: HashMap<RowKey, acpmux_book::index::IndexRecord>,
     hydration: Option<disk::Hydration>,
+    sources: HashMap<String, String>,
+    pending_origin_removals: Vec<String>,
 }
 
 #[derive(Debug, Error)]
@@ -251,6 +269,10 @@ pub enum HubError {
     Log(#[from] std::io::Error),
     #[error("published summary {0:?} is missing after apply")]
     MissingSummary(String),
+    #[error("source {source:?} does not own origin {origin:?} (owner {owner:?})")]
+    SourceRefused { origin: String, source: String, owner: String },
+    #[error("origin limit exceeded")]
+    OriginLimit,
 }
 
 impl Hub {
@@ -326,6 +348,8 @@ impl Hub {
             log_errors,
             retry_log: HashMap::new(),
             hydration: None,
+            sources: HashMap::new(),
+            pending_origin_removals: Vec::new(),
         };
         (hub, writer)
     }
@@ -333,16 +357,40 @@ impl Hub {
     /// A non-blocking enqueue: actor work never waits on list size. The
     /// bounded queue is the writer's backpressure boundary.
     pub fn submit(&self, summary: Summary) -> Result<(), HubError> {
-        self.updates.submit(summary.prepare()?)
+        self.submit_from("local", summary)
+    }
+
+    pub fn submit_from(&self, source: &str, summary: Summary) -> Result<(), HubError> {
+        self.updates.submit(source.to_owned(), summary.prepare()?)
     }
 
     /// Enqueues a removal in the same keyed slot as summary updates. A later
     /// summary for this chat replaces the removal before the writer takes its
     /// batch, so a burst cannot grow with the number of events.
     pub fn remove(&self, origin: &str, chat_id: &str) -> Result<(), HubError> {
+        self.remove_from(origin, origin, chat_id)
+    }
+
+    pub fn remove_from(&self, source: &str, origin: &str, chat_id: &str) -> Result<(), HubError> {
         let key = RowKey::new(origin, chat_id);
         key.validate()?;
-        self.updates.submit_remove(key)
+        self.updates.submit_remove(source.to_owned(), key)
+    }
+
+    pub fn origin(&self, id: &str, state: OriginState, since: u64) -> Result<(), HubError> {
+        if id == "local" {
+            return Ok(());
+        }
+        let record = OriginRecord { seq: 0, id: id.to_owned(), state, since, extra: None };
+        record_id_validate(&record)?;
+        self.updates.enqueue(RowKey::new("origin", id), PendingUpdate::Origin { record })
+    }
+
+    pub fn takeover(&self, origin: &str, source: &str) -> Result<(), HubError> {
+        self.updates.enqueue(
+            RowKey::new("origin", origin),
+            PendingUpdate::Takeover { origin: origin.to_owned(), source: source.to_owned() },
+        )
     }
 
     pub fn snapshot(&self) -> Arc<SummaryIndex> {
@@ -444,7 +492,18 @@ impl Hub {
             has_before: page.has_before,
             has_after: page.has_after,
             edition: index.edition(),
-            origins: Vec::new(),
+            origins: index
+                .origins()
+                .map(|origin| Origin {
+                    id: origin.id.clone(),
+                    state: origin.state,
+                    since: origin.since,
+                    extra: origin
+                        .extra
+                        .as_ref()
+                        .and_then(|extra| serde_json::from_str(extra.get()).ok()),
+                })
+                .collect(),
             before_key: page.before_key.map(wire_key),
             after_key: page.after_key.map(wire_key),
         };
@@ -521,7 +580,12 @@ fn validate_window(sub: &Sub) -> Result<usize, HubError> {
 impl HubWriter {
     /// Applies one summary and publishes the resulting immutable snapshot.
     pub fn apply(&mut self, summary: Summary) -> Result<SummaryEvent, HubError> {
+        self.apply_from("local", summary)
+    }
+
+    pub fn apply_from(&mut self, source: &str, summary: Summary) -> Result<SummaryEvent, HubError> {
         let summary = summary.prepare()?;
+        self.check_source(source, &summary.origin)?;
         let current = self.published.load_full();
         let key = summary.key();
         // Latest wins even if an earlier version never reached the log.
@@ -565,9 +629,12 @@ impl HubWriter {
             return Ok(SummaryEvent { seq: current.seq(), summary: existing });
         }
         self.persist(&record, &key)?;
-        let next = self.published.load_full().apply(record.seq, record.summary);
-        let summary =
-            next.get_row(&key).ok_or_else(|| HubError::MissingSummary(record.chat_id.clone()))?;
+        let mut next = self.published.load_full().apply(record.seq, record.summary.clone());
+        let summary = Arc::new(record.summary.clone());
+        let remote_closed = record.summary.origin != "local" && !record.summary.is_live();
+        if remote_closed {
+            next = next.remove_ephemeral(&key);
+        }
         let event = SummaryEvent { seq: record.seq, summary };
         self.published.store(Arc::new(next));
         self.record_history(ListItem::Summary(event.clone()));
@@ -586,7 +653,71 @@ impl HubWriter {
     }
 
     pub fn remove(&mut self, origin: &str, chat_id: &str) -> Result<bool, HubError> {
+        self.remove_from(origin, origin, chat_id)
+    }
+
+    pub fn remove_from(
+        &mut self,
+        source: &str,
+        origin: &str,
+        chat_id: &str,
+    ) -> Result<bool, HubError> {
+        self.check_source(source, origin)?;
         self.apply_remove(&RowKey::new(origin, chat_id))
+    }
+
+    pub fn origin(&mut self, id: &str, state: OriginState, since: u64) -> Result<bool, HubError> {
+        if id == "local" {
+            return Ok(false);
+        }
+        if self.published.load().origin(id).is_none()
+            && self.published.load().origins().count() >= 256
+        {
+            return Err(HubError::OriginLimit);
+        }
+        let current = self.published.load_full();
+        let record = OriginRecord { seq: 0, id: id.to_owned(), state, since, extra: None };
+        if current.origin(id).is_some_and(|old| old.state == state && old.since == since) {
+            return Ok(false);
+        }
+        let seq = current.seq().saturating_add(1);
+        let mut persisted = record.clone();
+        persisted.seq = seq;
+        self.persist_origin(&persisted)?;
+        let next = current.apply_origin(seq, persisted.clone());
+        self.published.store(Arc::new(next));
+        let wire = Origin { id: id.to_owned(), state, since, extra: None };
+        self.record_history(ListItem::Origin { seq, origin: wire.clone() });
+        self.publish_origin(seq, wire);
+        if state == OriginState::Removed {
+            self.pending_origin_removals.push(id.to_owned());
+        }
+        Ok(true)
+    }
+
+    pub fn takeover(&mut self, origin: &str, source: &str) -> Result<(), HubError> {
+        if origin.is_empty() || source.is_empty() {
+            return Err(HubError::SourceRefused {
+                origin: origin.to_owned(),
+                source: source.to_owned(),
+                owner: String::new(),
+            });
+        }
+        self.sources.insert(origin.to_owned(), source.to_owned());
+        Ok(())
+    }
+
+    fn check_source(&mut self, source: &str, origin: &str) -> Result<(), HubError> {
+        let owner = self.sources.entry(origin.to_owned()).or_insert_with(|| source.to_owned());
+        if owner == source {
+            return Ok(());
+        }
+        REFUSED_SOURCE_SUBMITS.fetch_add(1, Ordering::Relaxed);
+        Err(HubError::SourceRefused {
+            origin: origin.to_owned(),
+            source: source.to_owned(),
+            owner: owner.clone(),
+        })
     }
 
     fn apply_remove(&mut self, key: &RowKey) -> Result<bool, HubError> {
@@ -622,6 +753,16 @@ impl HubWriter {
     }
 
     fn publish_gone(&self, seq: u64, _key: &RowKey) {
+        let Ok(subscribers) = self.subscribers.lock() else { return };
+        for subscriber in subscribers.iter() {
+            let Ok(state) = subscriber.state.lock() else { continue };
+            if seq > state.cursor && !state.ended {
+                subscriber.notify.notify_one();
+            }
+        }
+    }
+
+    fn publish_origin(&self, seq: u64, origin: Origin) {
         let Ok(subscribers) = self.subscribers.lock() else { return };
         for subscriber in subscribers.iter() {
             let Ok(state) = subscriber.state.lock() else { continue };
@@ -984,8 +1125,8 @@ mod tests {
         let batch = hub.updates.take_batch();
         assert_eq!(batch.len(), 1);
         match &batch[0].1 {
-            PendingUpdate::Summary(summary) => assert_eq!(summary.last_activity, 10_999),
-            PendingUpdate::Gone => panic!("summary slot was replaced by a removal"),
+            PendingUpdate::Summary { summary, .. } => assert_eq!(summary.last_activity, 10_999),
+            PendingUpdate::Gone { .. } => panic!("summary slot was replaced by a removal"),
         }
     }
 

@@ -1,5 +1,7 @@
 //! Raw length-prefixed keys and bounded, extensible text JSON. No opaque parse.
-use super::{ForkOf, IndexRecord, MAX_INDEX_RECORD_BYTES, RowKey, Summary};
+use super::{
+    ForkOf, IndexRecord, MAX_INDEX_RECORD_BYTES, OriginRecord, OriginState, RowKey, Summary,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::io::{self, Read};
@@ -114,12 +116,64 @@ fn take_key(input: &mut &[u8]) -> io::Result<RowKey> {
     Ok(RowKey::new(take_string(input, 256)?, take_string(input, 256)?))
 }
 
-pub(super) fn decode(mut input: &[u8]) -> io::Result<IndexRecord> {
+pub(super) enum LogRecord {
+    Row(IndexRecord),
+    Origin(OriginRecord),
+}
+
+pub(super) fn decode(mut input: &[u8]) -> io::Result<LogRecord> {
     let mut seq = [0; 8];
     input.read_exact(&mut seq)?;
     let seq = u64::from_le_bytes(seq);
     let mut tag = [0];
     input.read_exact(&mut tag)?;
+    if tag == [2] {
+        let id = take_string(&mut input, 256)?;
+        let mut state = [0];
+        input.read_exact(&mut state)?;
+        let state = match state[0] {
+            0 => OriginState::Connected,
+            1 => OriginState::Down,
+            2 => OriginState::Stale,
+            3 => OriginState::Removed,
+            _ => return Err(invalid("origin state")),
+        };
+        let mut since = [0; 8];
+        input.read_exact(&mut since)?;
+        let mut extra = None;
+        let mut has_extra = [0];
+        input.read_exact(&mut has_extra)?;
+        if has_extra[0] == 1 {
+            let mut len = [0; 2];
+            input.read_exact(&mut len)?;
+            let len = usize::from(u16::from_le_bytes(len));
+            if len > 512 {
+                return Err(invalid("origin extra"));
+            }
+            let bytes = input.get(..len).ok_or_else(|| invalid("origin extra"))?;
+            extra = Some(
+                RawValue::from_string(
+                    std::str::from_utf8(bytes)
+                        .map_err(|_| invalid("origin extra utf8"))?
+                        .to_owned(),
+                )
+                .map_err(|_| invalid("origin extra json"))?,
+            );
+            input = input.get(len..).ok_or_else(|| invalid("origin extra"))?;
+        } else if has_extra[0] != 0 {
+            return Err(invalid("origin extra flag"));
+        }
+        if !input.is_empty() {
+            return Err(invalid("origin trailing bytes"));
+        }
+        return Ok(LogRecord::Origin(OriginRecord {
+            seq,
+            id,
+            state,
+            since: u64::from_le_bytes(since),
+            extra,
+        }));
+    }
     let gone = match tag {
         [0] => false,
         [1] => true,
@@ -163,16 +217,16 @@ pub(super) fn decode(mut input: &[u8]) -> io::Result<IndexRecord> {
     } else if !input.is_empty() {
         return Err(invalid("gone trailing bytes"));
     }
-    Ok(IndexRecord {
+    Ok(LogRecord::Row(IndexRecord {
         seq,
         chat_id: row.chat_id.to_string(),
         origin: row.origin.to_string(),
         summary,
         gone,
-    })
+    }))
 }
 
-pub(super) fn read(reader: &mut impl Read) -> io::Result<Option<(IndexRecord, usize)>> {
+pub(super) fn read_any(reader: &mut impl Read) -> io::Result<Option<(LogRecord, usize)>> {
     let mut header = [0; 8];
     let read = reader.read(&mut header)?;
     if read == 0 {
@@ -194,6 +248,50 @@ pub(super) fn read(reader: &mut impl Read) -> io::Result<Option<(IndexRecord, us
         return Err(invalid("record crc"));
     }
     Ok(Some((decode(&body)?, len + 8)))
+}
+
+pub(super) fn read(reader: &mut impl Read) -> io::Result<Option<(IndexRecord, usize)>> {
+    match read_any(reader)? {
+        Some((LogRecord::Row(record), len)) => Ok(Some((record, len))),
+        Some((LogRecord::Origin(_), _)) => Err(invalid("origin record in snapshot")),
+        None => Ok(None),
+    }
+}
+
+pub(super) fn encode_origin(seq: u64, record: &OriginRecord) -> io::Result<Vec<u8>> {
+    if record.id.len() > 256 {
+        return Err(invalid("origin id"));
+    }
+    let mut body = Vec::new();
+    body.extend_from_slice(&seq.to_le_bytes());
+    body.push(2);
+    string(&mut body, &record.id)?;
+    body.push(match record.state {
+        OriginState::Connected => 0,
+        OriginState::Down => 1,
+        OriginState::Stale => 2,
+        OriginState::Removed => 3,
+    });
+    body.extend_from_slice(&record.since.to_le_bytes());
+    if let Some(extra) = &record.extra {
+        let bytes = extra.get().as_bytes();
+        if bytes.len() > 512 || std::str::from_utf8(bytes).is_err() {
+            return Err(invalid("origin extra"));
+        }
+        body.push(1);
+        body.extend_from_slice(&(bytes.len() as u16).to_le_bytes());
+        body.extend_from_slice(bytes);
+    } else {
+        body.push(0);
+    }
+    if body.len() + 8 > MAX_INDEX_RECORD_BYTES {
+        return Err(invalid("oversize origin record"));
+    }
+    let mut bytes = Vec::with_capacity(body.len() + 8);
+    bytes.extend_from_slice(&(body.len() as u32).to_le_bytes());
+    bytes.extend_from_slice(&crc32fast::hash(&body).to_le_bytes());
+    bytes.extend(body);
+    Ok(bytes)
 }
 
 pub(super) fn invalid(message: &str) -> io::Error {

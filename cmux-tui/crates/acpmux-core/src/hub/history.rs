@@ -31,6 +31,7 @@ pub(super) struct History {
 enum Op<T, S> {
     Summary { seq: u64, summary: T },
     Gone { seq: u64, origin: S, chat_id: S },
+    Origin { seq: u64, origin: crate::wire::Origin },
 }
 
 impl History {
@@ -95,10 +96,11 @@ impl History {
             ListItem::Gone { seq, origin, chat_id } => {
                 Op::Gone { seq: *seq, origin: origin.as_str(), chat_id: chat_id.as_str() }
             }
+            ListItem::Origin { seq, origin } => Op::Origin { seq: *seq, origin: origin.clone() },
             ListItem::Lagged { .. } => return Ok(()),
         };
         let seq = match &op {
-            Op::Summary { seq, .. } | Op::Gone { seq, .. } => *seq,
+            Op::Summary { seq, .. } | Op::Gone { seq, .. } | Op::Origin { seq, .. } => *seq,
         };
         if self.len != 0 && self.first.checked_add(self.len as u64) != Some(seq) {
             self.clear();
@@ -201,6 +203,10 @@ struct ReadOp {
     summary: Option<Summary>,
     origin: Option<String>,
     chat_id: Option<String>,
+    id: Option<String>,
+    state: Option<crate::wire::OriginState>,
+    since: Option<u64>,
+    extra: Option<serde_json::Value>,
 }
 
 pub(super) fn decode(bytes: Vec<u8>) -> serde_json::Result<Vec<ListItem>> {
@@ -215,6 +221,15 @@ pub(super) fn decode(bytes: Vec<u8>) -> serde_json::Result<Vec<ListItem>> {
                 ("gone", None, Some(origin), Some(chat_id)) => {
                     Ok(ListItem::Gone { seq: op.seq, origin, chat_id })
                 }
+                ("origin", None, _, _) => Ok(ListItem::Origin {
+                    seq: op.seq,
+                    origin: crate::wire::Origin {
+                        id: op.id.ok_or_else(|| serde_json::Error::io(invalid_entry()))?,
+                        state: op.state.ok_or_else(|| serde_json::Error::io(invalid_entry()))?,
+                        since: op.since.ok_or_else(|| serde_json::Error::io(invalid_entry()))?,
+                        extra: op.extra,
+                    },
+                }),
                 _ => Err(serde_json::Error::io(invalid_entry())),
             }
         })

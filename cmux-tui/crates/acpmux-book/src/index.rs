@@ -316,6 +316,29 @@ pub struct IndexRecord {
     pub gone: bool,
 }
 
+/// The durable state of one remote origin. `local` is implicit and never has
+/// an origin record in the index log.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OriginState {
+    Connected,
+    Down,
+    Stale,
+    Removed,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OriginRecord {
+    #[serde(skip)]
+    pub seq: u64,
+    pub id: String,
+    pub state: OriginState,
+    pub since: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra: Option<Box<RawValue>>,
+}
+
 fn local_origin() -> String {
     "local".to_owned()
 }
@@ -354,6 +377,8 @@ pub struct SummaryIndex {
     ordered: OrdMap<SortKey, Arc<Summary>>,
     disk: Option<Arc<DiskSnapshot>>,
     shadowed: OrdSet<RowKey>,
+    origins: OrdMap<Arc<str>, OriginRecord>,
+    removed_origins: OrdSet<Arc<str>>,
 }
 
 impl Default for SummaryIndex {
@@ -371,6 +396,8 @@ impl SummaryIndex {
             ordered: OrdMap::new(),
             disk: None,
             shadowed: OrdSet::new(),
+            origins: OrdMap::new(),
+            removed_origins: OrdSet::new(),
         }
     }
 
@@ -390,7 +417,10 @@ impl SummaryIndex {
                 if next_disk.is_none() && !disk_done {
                     match disk.as_mut().and_then(Iterator::next) {
                         Some(Ok(row)) => {
-                            if self.is_shadowed(&row.key()) || self.get_row(&row.key()).is_some() {
+                            if self.is_shadowed(&row.key())
+                                || self.is_origin_removed(row.origin.as_str())
+                                || self.get_row(&row.key()).is_some()
+                            {
                                 continue;
                             }
                             next_disk = Some(row);
@@ -459,6 +489,76 @@ impl SummaryIndex {
         self.shadowed.contains(key)
     }
 
+    pub fn is_origin_removed(&self, origin: &str) -> bool {
+        self.removed_origins.contains(origin)
+    }
+
+    pub fn origins(&self) -> impl Iterator<Item = &OriginRecord> {
+        self.origins.values()
+    }
+
+    pub fn origin(&self, id: &str) -> Option<&OriginRecord> {
+        self.origins.get(id)
+    }
+
+    pub fn apply_origin(&self, seq: u64, record: OriginRecord) -> Self {
+        if record.id == "local" {
+            return self.clone();
+        }
+        let id: Arc<str> = record.id.clone().into();
+        if self.origin(&record.id).is_some_and(|old| old == &record) {
+            return self.clone();
+        }
+        let mut next = self.clone();
+        next.seq = next.seq.max(seq);
+        next.origins.insert(id.clone(), record);
+        if next.origin(id.as_ref()).is_some_and(|record| record.state == OriginState::Removed) {
+            next.removed_origins.insert(id);
+        } else {
+            next.removed_origins.remove(id.as_ref());
+        }
+        next
+    }
+
+    /// Remove up to `limit` hot rows for an origin. The origin is already
+    /// hidden by `apply_origin`, so readers never observe the intermediate
+    /// physical batches.
+    pub fn remove_origin_batch(&self, seq: u64, origin: &str, limit: usize) -> (Self, usize) {
+        let keys: Vec<_> = self
+            .by_id
+            .keys()
+            .filter(|key| key.origin.as_ref() == origin)
+            .take(limit)
+            .cloned()
+            .collect();
+        if keys.is_empty() {
+            return (self.clone(), 0);
+        }
+        let mut next = self.clone();
+        for key in &keys {
+            if let Some(old) = next.by_id.remove(key) {
+                next.ordered.remove(&SortKey::of(&old));
+            }
+            next.shadowed.insert(key.clone());
+        }
+        next.seq = next.seq.max(seq);
+        (next, keys.len())
+    }
+
+    pub fn advance_seq(&self, seq: u64) -> Self {
+        let mut next = self.clone();
+        next.seq = next.seq.max(seq);
+        next
+    }
+
+    pub(crate) fn remove_ephemeral(&self, key: &RowKey) -> Self {
+        let mut next = self.clone();
+        if let Some(old) = next.by_id.remove(key) {
+            next.ordered.remove(&SortKey::of(&old));
+        }
+        next
+    }
+
     pub fn hydrate(&self, row: Arc<Summary>, now: u64) -> Self {
         if self.shadowed.contains(&row.key()) || !row.is_hot_at(now) {
             return self.clone();
@@ -486,6 +586,9 @@ impl SummaryIndex {
     }
 
     pub fn get_row(&self, key: &RowKey) -> Option<Arc<Summary>> {
+        if self.is_origin_removed(key.origin.as_ref()) {
+            return None;
+        }
         self.by_id.get(key).cloned()
     }
 
@@ -518,7 +621,7 @@ impl SummaryIndex {
     /// Returns summaries newest first. The iterator borrows the persistent
     /// snapshot; collecting it is a caller-owned page operation.
     pub fn iter(&self) -> impl Iterator<Item = &Arc<Summary>> {
-        self.ordered.values()
+        self.ordered.values().filter(|summary| !self.is_origin_removed(&summary.origin))
     }
 
     pub fn page(&self, start: usize, limit: usize) -> Vec<Arc<Summary>> {
@@ -531,6 +634,7 @@ impl SummaryIndex {
         self.ordered
             .range::<_, SortKey>((lower, Unbounded))
             .take(limit)
+            .filter(|(_, row)| !self.is_origin_removed(&row.origin))
             .map(|(_, row)| row.clone())
             .collect()
     }
@@ -541,6 +645,7 @@ impl SummaryIndex {
             .range::<_, SortKey>((Unbounded, Excluded(key)))
             .rev()
             .take(limit)
+            .filter(|(_, row)| !self.is_origin_removed(&row.origin))
             .map(|(_, row)| row.clone())
             .collect();
         rows.reverse();

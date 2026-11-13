@@ -22,6 +22,14 @@ pub(super) struct Hydration {
 }
 
 impl HubWriter {
+    pub(super) fn persist_origin(&mut self, record: &OriginRecord) -> Result<(), HubError> {
+        if let Some(log) = self.log.as_mut() {
+            log.append_origin(record)?;
+            self.log_dirty = true;
+        }
+        Ok(())
+    }
+
     pub(super) fn start_hydration(&mut self) {
         let Some(snapshot) = self.published.load().disk().cloned() else { return };
         self.hydration = Some(Hydration { rows: snapshot.rows(), snapshot });
@@ -121,10 +129,26 @@ impl HubWriter {
         self.install_compaction();
         self.maintain_compaction();
         self.hydrate_batch();
+        if let Some(origin) = self.pending_origin_removals.first().cloned() {
+            let current = self.published.load_full();
+            let (next, removed) = current.remove_origin_batch(current.seq(), &origin, 256);
+            self.published.store(Arc::new(next));
+            if removed == 0 {
+                self.pending_origin_removals.remove(0);
+            }
+        }
         for (key, update) in self.updates.take_batch() {
             let result = match update {
-                PendingUpdate::Summary(summary) => self.apply(*summary).map(|_| ()),
-                PendingUpdate::Gone => self.apply_remove(&key).map(|_| ()),
+                PendingUpdate::Summary { source, summary } => {
+                    self.apply_from(&source, *summary).map(|_| ())
+                }
+                PendingUpdate::Gone { source } => {
+                    self.remove_from(&source, key.origin.as_ref(), key.chat_id.as_ref()).map(|_| ())
+                }
+                PendingUpdate::Origin { record } => {
+                    self.origin(&record.id, record.state, record.since).map(|_| ())
+                }
+                PendingUpdate::Takeover { origin, source } => self.takeover(&origin, &source),
             };
             if result.is_err() {
                 self.log_errors.fetch_add(1, Ordering::Relaxed);
