@@ -1,5 +1,5 @@
 // The card that closes a turn which edited files: a small diff glyph, "Edited 2 files" with the
-// totals, then Undo and View changes; under it one row per file in monospace (the dimmed folder,
+// totals, then Undo and View changes; under it one row per file in the chat's font (the dimmed folder,
 // the name, its counts). A card for one file has no rows: its title or chevron opens that file's
 // diff in the card (EditDiff, the transcript's edit view), built from the tool calls, so a new file
 // or one outside any repository shows too. The data is turnChanges/model.ts; this file is only its view.
@@ -27,11 +27,12 @@ import { setCardOpen, useCardOpen } from "../turnChanges/openStore";
 import { FindReveal, isRevealRow } from "./chatFind";
 import { HEADER_TOGGLE_ATTRIBUTE, headerToggleClick } from "./headerToggle";
 import { EditDiff } from "./EditDiff";
-import { Undo } from "./icons";
+import { DiffFile, Undo } from "./icons";
+import { Icon } from "../icons/Icon";
 import { ToolRows } from "./TurnRows";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { useTranscriptReadOnly } from "./readOnly";
-import { SecondOpinionContext } from "./secondOpinion";
+import "./EditedFilesCard.css";
 
 /// `onOpenDiff` opens the turn's changes, at `path` when given; focus returns to `opener`.
 /// Find in Chat's reveal for `row` only: the card draws outside ToolRows (which passes the reveal to
@@ -81,7 +82,6 @@ function Card({
   onOpenDiff?: (rowId: string, path?: string, opener?: HTMLElement) => void;
 }) {
   const t = useT();
-  const secondOpinion = useContext(SecondOpinionContext);
   const settings = useEditedFilesSettings();
   const [showAll, setShowAll] = useState(false);
   // Derived on every render: the host's setting can arrive after the card mounts.
@@ -190,38 +190,46 @@ function Card({
         onClick={headToggle ? headerToggleClick(headToggle) : undefined}
       >
         <span className="acpmux-edited-icon">
-          <PlusMinus />
+          <DiffFile size={20} />
         </span>
         <div className="acpmux-edited-title">
           <div>{title}</div>
           <div className="acpmux-edited-sub">
-            {files.length > 0 && <Counts additions={counts.additions} deletions={counts.deletions} />}
+            {files.length > 0 &&
+              (reviewable ? (
+                <button
+                  type="button"
+                  className="acpmux-edited-summary"
+                  aria-label={`${t("edited.view")} +${counts.additions} -${counts.deletions}`}
+                  onClick={(event) => onOpenDiff(row.id, single?.path, event.currentTarget)}
+                >
+                  <span className="acpmux-edited-summary-counts">
+                    <Counts additions={counts.additions} deletions={counts.deletions} />
+                  </span>
+                  <span className="acpmux-edited-summary-link" aria-hidden="true">
+                    {t("edited.view")}
+                    <Icon name="link.external" size={14} />
+                  </span>
+                </button>
+              ) : (
+                <Counts additions={counts.additions} deletions={counts.deletions} />
+              ))}
             {counts.outside && <span className="acpmux-edited-outside">{t("turn.outside.card")}</span>}
           </div>
         </div>
-        {undoable && <UndoButton state={undoState} rowId={row.id} files={changes.files} t={t} />}
-        {reviewable && (
-          <button
-            type="button"
-            className="acpmux-review-changes"
-            onClick={(event) => onOpenDiff(row.id, single?.path, event.currentTarget)}
-          >
-            {t("edited.view")}
-          </button>
-        )}
-        {secondOpinion && files.length > 0 && (
-          <button
-            type="button"
-            className="acpmux-review-changes acpmux-second-opinion"
-            onClick={() =>
-              secondOpinion(
-                row.id,
-                files.map((file) => file.path),
-              )
-            }
-          >
-            {t("edited.secondOpinion")}
-          </button>
+        {(undoable || reviewable) && (
+          <div className="acpmux-edited-actions">
+            {undoable && <UndoButton state={undoState} rowId={row.id} files={changes.files} t={t} />}
+            {reviewable && (
+              <button
+                type="button"
+                className="acpmux-review-changes"
+                onClick={(event) => onOpenDiff(row.id, single?.path, event.currentTarget)}
+              >
+                {t("edited.view")}
+              </button>
+            )}
+          </div>
         )}
         {single && (
           <button
@@ -287,12 +295,14 @@ function Card({
           );
         }
         const file = entry.file;
-        const slash = file.displayPath.lastIndexOf("/");
+        const root = counts.root?.replace(/\/+$/, "");
+        const displayPath = root && file.path.startsWith(`${root}/`) ? file.path.slice(root.length + 1) : file.path;
+        const slash = displayPath.lastIndexOf("/");
         const label = (
           <>
             <span className="acpmux-edited-path" data-path={file.path}>
-              <DirPart dir={file.displayPath.slice(0, slash + 1)} />
-              <span className="acpmux-edited-base">{file.displayPath.slice(slash + 1)}</span>
+              <DirPart dir={displayPath.slice(0, slash + 1)} />
+              <span className="acpmux-edited-base">{displayPath.slice(slash + 1)}</span>
             </span>
             <Counts additions={file.additions} deletions={file.deletions} />
           </>
@@ -489,18 +499,3 @@ function DirPart({ dir }: { dir: string }) {
     </span>
   );
 }
-
-const PlusMinus = () => (
-  <svg
-    width={14}
-    height={14}
-    viewBox="0 0 16 16"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={1.4}
-    strokeLinecap="round"
-    aria-hidden="true"
-  >
-    <path d="M8 2.5v6M5 5.5h6M5 12.5h6" />
-  </svg>
-);
