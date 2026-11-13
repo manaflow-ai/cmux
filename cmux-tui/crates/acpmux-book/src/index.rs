@@ -699,6 +699,7 @@ impl SummaryIndex {
         for key in &keys {
             if let Some(old) = next.by_id.remove(key) {
                 next.ordered.remove(&SortKey::of(&old));
+                next.live_ordered.remove(&SortKey::of(&old));
                 next.kin.remove(&old);
             }
             next.shadowed.insert(key.clone());
@@ -720,6 +721,7 @@ impl SummaryIndex {
         let mut next = self.clone();
         if let Some(old) = next.by_id.remove(key) {
             next.ordered.remove(&SortKey::of(&old));
+            next.live_ordered.remove(&SortKey::of(&old));
             next.kin.remove(&old);
         }
         next
