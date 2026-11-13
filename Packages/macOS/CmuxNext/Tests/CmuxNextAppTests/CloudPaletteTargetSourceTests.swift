@@ -4,11 +4,38 @@ import CmuxNextCloudUI
 import CmuxNextDaemonService
 import CmuxNextDaemon
 import Foundation
+import Observation
+import CmuxNextActions
 import CmuxNextPalette
 import Testing
 
 @MainActor
 struct CloudPaletteTargetSourceTests {
+    @Observable private final class Inventory {
+        var machines: [CloudMachine] = []
+    }
+
+    private final class EmptyTargets: PaletteTargetSource {
+        func targets(of kind: ActionTargetKind) -> [PaletteTargetOption] { [] }
+    }
+
+    @Test func openPickerTracksStartingMachineUntilDesktopIsReady() async throws {
+        let inventory = Inventory()
+        inventory.machines = try [machine("new", desktop: false, status: "provisioning")]
+        let source = CloudPaletteTargetSource(actions: ["cloudOpenDesktop"], next: EmptyTargets(),
+            machines: { inventory.machines }, refresh: {},
+            ask: { CloudHandlerRules().ask("cloud_handler_palette_targets", $0) })
+        let updates = try #require(source.targetUpdates(of: .machine, for: "cloudOpenDesktop"))
+        var iterator = updates().makeAsyncIterator()
+        let starting = try #require(await iterator.next()?.first)
+        #expect(!starting.isEnabled)
+        inventory.machines = try [machine("new", desktop: true)]
+        let ready = try #require(await iterator.next()?.first)
+        #expect(ready.id == starting.id)
+        #expect(ready.isEnabled)
+        #expect(ready.recovery == nil)
+    }
+
     private func machine(_ id: String, name: String? = nil, desktop: Bool, status: String = "running") throws -> CloudMachine {
         var record: [String: JSONValue] = ["id": .string(id), "desktop": .bool(desktop), "status": .string(status)]
         if let name { record["name"] = .string(name) }

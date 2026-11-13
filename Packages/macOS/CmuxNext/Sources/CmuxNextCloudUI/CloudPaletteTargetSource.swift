@@ -1,5 +1,6 @@
 public import CmuxNextActions
 public import CmuxNextCloud
+import CmuxNextCompat
 public import CmuxNextPalette
 import Foundation
 
@@ -41,7 +42,22 @@ public final class CloudPaletteTargetSource: PaletteTargetSource {
     }
 
     public func targetUpdates(of kind: ActionTargetKind, for action: ActionID) -> (@MainActor () -> AsyncStream<[PaletteTargetOption]>)? {
-        owns(kind, action) ? nil : next.targetUpdates(of: kind, for: action)
+        guard owns(kind, action) else { return next.targetUpdates(of: kind, for: action) }
+        return { [weak self] in
+            let (stream, continuation) = AsyncStream.makeStream(of: [PaletteTargetOption].self, bufferingPolicy: .bufferingNewest(1))
+            // task-owner: this open picker observes machine changes until its page closes.
+            let task = Task { @MainActor [weak self] in
+                guard let self else { continuation.finish(); return }
+                await refresh()
+                for await records in ObservationStream({ self.machines() }) {
+                    guard !Task.isCancelled else { break }
+                    continuation.yield(Self.options(machines: records, desktop: action == "cloudOpenDesktop", ask: ask))
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+            return stream
+        }
     }
 
     public func title(of target: ActionTargetRef) -> String? {
