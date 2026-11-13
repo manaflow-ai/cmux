@@ -1643,7 +1643,7 @@ tail"#;
         });
         let delta = Frame::json(
             FrameKind::Delta,
-            &serde_json::json!({"sid":"s","ops":[{"op":"folder","seq":2,"row":folder.clone()}]}),
+            &serde_json::json!({"sid":"s","ops":[{"op":"folder","seq":2,"row":folder}]}),
         )
         .unwrap()
         .encode();

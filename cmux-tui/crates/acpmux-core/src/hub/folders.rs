@@ -220,10 +220,10 @@ pub(super) fn decode_item(bytes: Vec<u8>, seq: u64) -> Option<ListItem> {
     for op in ops {
         match op {
             crate::wire::DeltaOp::Folder { row, .. } => {
-                changes.push(FolderOp::Folder(Arc::new(row)))
+                changes.push(FolderOp::Folder(Arc::new(row)));
             }
             crate::wire::DeltaOp::FolderGone { origin, folder, .. } => {
-                changes.push(FolderOp::Gone(FolderKey::new(origin, folder)))
+                changes.push(FolderOp::Gone(FolderKey::new(origin, folder)));
             }
             crate::wire::DeltaOp::Origin { origin, seq } => {
                 return Some(ListItem::Origin { seq, origin });
