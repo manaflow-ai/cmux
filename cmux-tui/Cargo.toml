@@ -508,6 +508,23 @@ codegen-units = 1
 [profile.release.package.acpmux]
 codegen-units = 1
 
+# The agent service v2 gates (god against small, 1.2x) in `acpmux`'s own tests
+# build here: `cargo test --profile gate -p acpmux --lib NAME`. It is release's
+# code generation without its link-time cost. A release test build of `acpmux`
+# does not end on an 8-vCPU CI runner: with one codegen unit rustc for the test
+# library was killed (signal 9) after 16 minutes under fat LTO, and with LTO off
+# by environment it still ran past 40 minutes, because the package override
+# above keeps `acpmux` at one unit. A gate is a ratio of two sides measured in
+# one build, so it does not need the shipped binary's size settings. Nothing
+# ships from this profile.
+[profile.gate]
+inherits = "release"
+lto = "off"
+codegen-units = 16
+
+[profile.gate.package.acpmux]
+codegen-units = 16
+
 # Debug builds are what mux-dev dogfood runs; opt-level 0 makes the
 # per-frame render/diff path visibly laggy. Light optimization for our
 # code, full for dependencies (ratatui/crossterm do the heavy lifting).

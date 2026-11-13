@@ -21,3 +21,11 @@ tests in the same file read the gate names from the sources of the `acpmux*` cra
 `every_gate_name_in_a_source_has_a_registry_row`, `a_pr_that_writes_a_row_has_no_placeholder_left`
 and `a_format_built_name_fits_only_its_own_rows`. A name with no row, or a placeholder left in a
 PR whose other rows are written, fails CI in the PR that adds it.
+
+A gate that lives in `acpmux`'s own tests is run with the `gate` cargo profile
+(`cmux-tui/Cargo.toml`): `cargo test --profile gate -p acpmux --lib NAME`, from `cmux-tui/`.
+It is the release profile with link-time optimization off and 16 codegen units. A plain
+`--release` test build of `acpmux` does not end on the CI runner, so no lane starts one. The
+gates of the other three v2 crates (`acpmux-book`, `acpmux-client`, `acpmux-core`) build in
+`--release` as before. A row stays `measured: false` until its run with one of these two
+commands is in the PR that sets it.
