@@ -348,4 +348,27 @@ mod tests {
         assert_eq!(peer.chat_id, row.chat_id);
         assert!(peer.peer_form.is_none());
     }
+
+    #[tokio::test]
+    async fn display_lists_shrink_without_losing_required_keys_or_the_peer_form() {
+        let (hub, session) = fixture(true).await;
+        hub.edit_test_meta(&session, |meta| {
+            meta.pull_requests = (0..LIST_ITEMS)
+                .map(|n| format!("https://example.test/{n}/{}", "p".repeat(200)))
+                .collect();
+        });
+        let row = summary_from_session(&hub, &session).unwrap();
+        row.validate().unwrap();
+        let peer: Summary = serde_json::from_str(row.peer_form.as_ref().unwrap().get()).unwrap();
+        for form in [&row, &peer] {
+            let extra: Value = serde_json::from_str(form.extra.get()).unwrap();
+            let urls = extra["pullRequests"].as_array().unwrap();
+            assert_eq!(urls.len(), LIST_ITEMS);
+            assert!(urls.iter().all(|url| url.as_str().unwrap().chars().count() <= TEXT_CHARS));
+            assert!(urls.iter().any(|url| url.as_str().unwrap().chars().count() < TEXT_CHARS));
+            assert!(extra.get("lastPrompt").is_some());
+            assert!(extra.get("preview").is_some());
+            assert!(extra.get("cwd").is_some());
+        }
+    }
 }
