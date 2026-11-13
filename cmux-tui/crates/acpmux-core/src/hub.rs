@@ -1138,4 +1138,57 @@ mod tests {
         assert!(hub.snapshot().get("gone").is_none());
         assert!(!writer.remove("local", "gone").unwrap());
     }
+
+    #[test]
+    fn source_ownership_refuses_cross_source_updates_until_takeover() {
+        let (hub, mut writer) = Hub::new(SummaryIndex::new());
+        let mut row = summary("remote", 1);
+        row.origin = "peer".into();
+        writer.apply_from("list-stream", row.clone()).unwrap();
+        assert!(matches!(
+            writer.apply_from("v1-remote-table", row.clone()),
+            Err(HubError::SourceRefused { .. })
+        ));
+        writer.takeover("peer", "v1-remote-table").unwrap();
+        writer.apply_from("v1-remote-table", row).unwrap();
+        assert!(hub.snapshot().get_row(&RowKey::new("peer", "remote")).is_some());
+        assert!(refused_source_submits() > 0);
+    }
+
+    #[test]
+    fn remote_close_emits_summary_but_is_absent_from_index_and_replay() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("index.log");
+        let log = IndexLog::open(&path).unwrap();
+        let (hub, mut writer) = Hub::with_log(SummaryIndex::new(), Some(log));
+        let mut row = summary("remote", 1);
+        row.origin = "peer".into();
+        writer.apply_from("peer", row).unwrap();
+        let mut closed = summary("remote", 2);
+        closed.origin = "peer".into();
+        closed.state = "closed".into();
+        let event = writer.apply_from("peer", closed).unwrap();
+        assert_eq!(event.summary.state, "closed");
+        assert!(hub.snapshot().get_row(&RowKey::new("peer", "remote")).is_none());
+        let restored = replay_log(&path, SummaryIndex::new()).unwrap();
+        assert!(restored.get_row(&RowKey::new("peer", "remote")).is_none());
+    }
+
+    #[test]
+    fn origin_state_is_one_record_and_removed_origin_hides_rows() {
+        let (hub, mut writer) = Hub::new(SummaryIndex::new());
+        assert!(writer.origin("peer", OriginState::Down, 10).unwrap());
+        assert!(!writer.origin("peer", OriginState::Down, 10).unwrap());
+        assert!(writer.origin("peer", OriginState::Stale, 20).unwrap());
+        let mut row = summary("remote", 1);
+        row.origin = "peer".into();
+        writer.apply_from("peer", row).unwrap();
+        writer.origin("peer", OriginState::Removed, 30).unwrap();
+        assert!(hub.snapshot().iter().next().is_none());
+        let window: Window<Summary> =
+            hub.list_window(&Sub::new("origin", "list")).unwrap().decode_json().unwrap();
+        assert!(window.rows.is_empty());
+        assert_eq!(window.origins.len(), 1);
+        assert_eq!(window.origins[0].state, OriginState::Removed);
+    }
 }
