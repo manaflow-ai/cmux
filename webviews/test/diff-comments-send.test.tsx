@@ -180,7 +180,7 @@ test("a retry of the same comments sends the same prompt id, so the chat gets th
   }
 });
 
-test("an edit during an unsettled retry does not resend unchanged comments", async () => {
+test("an edit during an unsettled retry reuses the original request", async () => {
   const { installPageDiffComments } = await import("../src/comments/bridge");
   const { createRoot } = await import("react-dom/client");
   const { useDiffComments } = await import("../src/diff-viewer/useDiffComments");
@@ -225,7 +225,7 @@ test("an edit during an unsettled retry does not resend unchanged comments", asy
       comment("c2", "a.ts", 2),
     ];
     await act(async () => hook.send());
-    expect(sends[1]).toEqual({ ids: ["c2"], opid: originalOpid });
+    expect(sends[1]).toEqual({ ids: ["c1", "c2"], opid: originalOpid });
     act(() => probe.unmount());
   } finally {
     installPageDiffComments(null);

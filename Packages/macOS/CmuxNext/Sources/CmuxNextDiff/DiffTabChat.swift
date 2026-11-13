@@ -34,7 +34,13 @@ public struct DiffTabChat: Sendable {
     public static func of(session: String?, hostSends: Bool, isLocal: Bool, replies: AcpmuxReplySender,
                           environment: AcpmuxEnvironment?) -> DiffTabChat? {
         guard let session, !session.isEmpty else { return nil }
-        if hostSends { return DiffTabChat(session: session) }
+        if hostSends {
+            guard isLocal else { return DiffTabChat(session: session) }
+            let reader = environment.map { AcpmuxReviewBrief(socketPath: $0.socketPath) }
+            return DiffTabChat(session: session, brief: { root in
+                try await reader?.read(session: session, root: root)
+            })
+        }
         guard isLocal else { return nil }
         let reader = environment.map { AcpmuxReviewBrief(socketPath: $0.socketPath) }
         return DiffTabChat(session: session, deliver: { text, promptID in

@@ -43,7 +43,9 @@ export function useDiffComments({
   // Each repository's last send that did not finish, as sent: the chat may have taken it before
   // the host failed to clear its comments, so the next Send there sends that same batch under the
   // same prompt id (acpmux answers a repeated id with its first delivery) while its comments are
-  // listed unchanged; one added or edited since waits for the press after.
+  // listed unchanged; one added or edited since waits for the press after. The original request
+  // payload is retained because the daemon binds the full request fingerprint to the idempotency
+  // key; its versioned clear still leaves edits and deletions in the store.
   const pendingSends = useRef(new Map<string, SendBatch[]>());
   // The draft save on its way, by draft and message: pressing Comment again on the same text reuses
   // its opid, so the host stores the comment once.
@@ -144,19 +146,14 @@ export function useDiffComments({
     let batch: SendBatch | undefined;
     while (pending.length > 0 && batch == null) {
       const original = pending[0]!;
-      const retry = comments.filter(
+      const unchanged = comments.some(
         (comment) => original.ids.includes(comment.id) && listed.get(comment.id) === original.versions[comment.id],
       );
-      if (retry.length === 0) {
+      if (!unchanged) {
         pending.shift();
         continue;
       }
-      batch = {
-        ids: retry.map((comment) => comment.id),
-        versions: Object.fromEntries(retry.map((comment) => [comment.id, comment.updatedAt])),
-        text: commentsPromptText(retry),
-        opid: original.opid,
-      };
+      batch = original;
     }
     if (batch == null) {
       batch = {
