@@ -186,7 +186,7 @@ impl Hub {
                 listing.agent_session_id,
             )
             .is_some();
-            let taken = |n: &str| sessions.values().any(|s| s.meta().name == n);
+            let taken = |n: &str| sessions.values().any(|s| s.read_meta(|m| m.name == n));
             (shown, unique_name(listing.base, listing.suffix, taken))
         };
         if shown {
@@ -274,14 +274,18 @@ impl Hub {
         let mut registered: Vec<String> = Vec::new();
         let (claude, codex): (Vec<(String, String)>, Vec<(String, String)>) = {
             let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+            // Read each chat's three fields in place: copying every meta made a prompt cost
+            // grow with the number of chats, under the lock every `resolve` waits on.
             let chats = sessions.values().filter_map(|s| {
-                let meta = s.meta();
-                let family = meta.watching.as_ref()?.family.clone();
-                meta.tags.get("bridge").filter(|t| t.value == family)?;
+                let (family, native) = s.read_meta(|meta| {
+                    let family = &meta.watching.as_ref()?.family;
+                    meta.tags.get("bridge").filter(|t| &t.value == family)?;
+                    Some((family.clone(), meta.agent_session_id.clone()))
+                })?;
                 if super::register::is_registered(s) {
                     registered.push(s.id.clone());
                 }
-                Some((family, (s.id.clone(), meta.agent_session_id?)))
+                Some((family, (s.id.clone(), native?)))
             });
             let (claude, codex): (Vec<_>, Vec<_>) = chats
                 .filter(|(family, _)| family == "claude" || family == "codex")
