@@ -326,9 +326,12 @@ fn add_count(path: &Path, events: u64) -> io::Result<()> {
 }
 
 /// [`add_count`] on the count file opened as `file`.
-fn add_count_in(mut file: File, events: u64) -> io::Result<()> {
-    file.lock()?;
-    let total = read_count(&file).unwrap_or(0).saturating_add(events);
+fn add_count_in(file: File, events: u64) -> io::Result<()> {
+    use cmux_file_lock::{FileLock, Kind};
+    // Unlocked when it drops, not only closed: a child the server forked meanwhile keeps no lock.
+    let mut lock = FileLock::take(file, Kind::Exclusive)?;
+    let file = lock.file_mut();
+    let total = read_count(file).unwrap_or(0).saturating_add(events);
     file.set_len(0)?;
     file.seek(SeekFrom::Start(0))?;
     writeln!(file, "{total}")

@@ -2266,6 +2266,7 @@ dependencies = [
  "cmux-config",
  "cmux-conversation",
  "cmux-feed-core",
+ "cmux-file-lock",
  "cmux-flow-trace",
  "cmux-focus-core",
  "cmux-git",

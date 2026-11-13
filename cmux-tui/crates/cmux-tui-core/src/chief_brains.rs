@@ -1245,12 +1245,13 @@ fn lock_held(lock: &Path) -> bool {
 }
 
 /// [`lock_held`] on the lock file opened as `file`.
+/// The look never leaves a lock behind (a brain that starts meanwhile must find its lock free,
+/// also while a child the server forked meanwhile has this descriptor). A look that fails reads
+/// as held, as before.
 #[cfg(unix)]
 fn lock_held_on(file: std::fs::File) -> bool {
-    use std::os::fd::AsRawFd;
-    // SAFETY: flock on a descriptor this function owns; it is released
-    // when `file` drops.
-    unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) != 0 }
+    use cmux_file_lock::{FileLock, Kind};
+    FileLock::held_elsewhere(&file, Kind::Exclusive).unwrap_or(true)
 }
 
 /// Removes deleted Chief `chief`'s brain folder: a real folder only (never a link out of the

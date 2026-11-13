@@ -177,17 +177,18 @@ pub(crate) fn lease_was_free(file: &File) -> bool {
     false
 }
 
-/// Block until the exclusive lease on `file` is ours (retrying EINTR). It is
-/// held until `file` closes.
+/// Block until the exclusive lease on `file` is ours (retrying EINTR): its
+/// host has exited. The lease is let go before this returns (unlocked, not
+/// only closed later), so a child the server forked meanwhile keeps no lease
+/// and the next liveness probe reads the host as dead.
 pub(crate) fn wait_lease_exclusive(file: &File) -> std::io::Result<()> {
+    use cmux_file_lock::{FileLock, Kind};
     loop {
-        // SAFETY: a blocking exclusive lock on an owned descriptor.
-        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0 {
-            return Ok(());
-        }
-        let error = std::io::Error::last_os_error();
-        if error.kind() != std::io::ErrorKind::Interrupted {
-            return Err(error);
+        // The same blocking exclusive flock, on the same open file description.
+        match FileLock::take(file.try_clone()?, Kind::Exclusive) {
+            Ok(_taken) => return Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error),
         }
     }
 }

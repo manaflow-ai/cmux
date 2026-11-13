@@ -617,11 +617,13 @@ fn held(git_dir: &Path) -> bool {
 }
 
 /// [`held`] on the lock file opened as `file`.
+/// The look never leaves a lock behind (the next `start` must take the run's lock, also while a
+/// child the server forked meanwhile has this descriptor). A look that fails reads as held, as
+/// before.
 #[cfg(unix)]
 fn held_on(file: File) -> bool {
-    use std::os::fd::AsRawFd as _;
-    // SAFETY: a live descriptor; a lock taken here goes with the file.
-    unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) != 0 }
+    use cmux_file_lock::{FileLock, Kind};
+    FileLock::held_elsewhere(&file, Kind::Shared).unwrap_or(true)
 }
 
 #[cfg(not(unix))]

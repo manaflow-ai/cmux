@@ -115,7 +115,13 @@ fn remove_released_path(path: &Path) {
 
 /// [`remove_released_path`] on the fence file opened as `file`.
 fn remove_released_file(file: File, path: &Path) {
-    if matches!(try_lock(&file), Ok(true)) && still_named(&file, path) {
+    use cmux_file_lock::{FileLock, Kind};
+    // Held only to remove the file; the drop unlocks before it closes, so a
+    // replacement host that opened this inode first takes it and retries on
+    // a new file, also while a child the server forked meanwhile has this
+    // descriptor.
+    let Ok(lock) = FileLock::try_take(file, Kind::Exclusive) else { return };
+    if still_named(lock.file(), path) {
         let _ = fs::remove_file(path);
     }
 }
