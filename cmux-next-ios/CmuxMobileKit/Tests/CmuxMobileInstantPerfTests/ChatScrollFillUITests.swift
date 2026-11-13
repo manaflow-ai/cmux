@@ -58,7 +58,9 @@ extension InstantPerfTests {
         view.layoutIfNeeded()
 
         let viewport = FlingReader.viewport
-        var oldest = list.layout.items.first?.id
+        /// The oldest row shown: not `session-start`, which moves to each new first turn.
+        func oldestRow() -> String? { list.layout.items.first { $0.id != "session-start" }?.id }
+        var oldest = oldestRow()
         var pages = 0
         var applied = store.earlierApplyTime
         var reloaded = list.reloadTime
@@ -67,7 +69,7 @@ extension InstantPerfTests {
         func absorb() -> Double {
             let nowApplied = store.earlierApplyTime, nowReloaded = list.reloadTime
             defer { applied = nowApplied; reloaded = nowReloaded }
-            if let first = list.layout.items.first?.id, first != oldest {
+            if let first = oldestRow(), first != oldest {
                 oldest = first
                 pages += 1
             }
@@ -122,8 +124,8 @@ extension InstantPerfTests {
             }
             // The viewport reached the list's top with older history still on the Mac: the
             // loading row, nothing to read, until the page's rows go in above.
-            let first = list.layout.items.first?.id
-            let came = await waitUntil(.seconds(30)) { list.layout.items.first?.id != first || !store.hasEarlierHistory }
+            let first = oldestRow()
+            let came = await waitUntil(.seconds(30)) { oldestRow() != first || !store.hasEarlierHistory }
             #expect(came, "the older page never came")
             view.layoutIfNeeded()
             let filled = ContinuousClock.now
