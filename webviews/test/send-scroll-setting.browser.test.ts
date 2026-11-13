@@ -58,12 +58,9 @@ await requireBrowserLane("send-scroll-setting.browser.test.ts", async () => {
     page.evaluate(async (n) => {
       for (let left = n; left > 0; left -= 1) await window.cmuxPaintFrame();
     }, count);
-  /// `arm`: the follow-motion arm (followMotion.experiment.ts); the product's `send` by default.
-  const open = async (arm?: "send" | "blocks") => {
+  const open = async () => {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await browser!.newPage({ viewport: { width: 900, height: 560 } });
-    if (arm)
-      await page.addInitScript((arm) => Object.assign(window, { cmuxExperiments: { "follow-motion": arm } }), arm);
     await installPaintedFrames(page);
     await page.goto(`http://127.0.0.1:${port}/test/browser/send-scroll-setting.html`);
     await page.waitForFunction(() => "__showRows" in window);
@@ -212,31 +209,8 @@ await requireBrowserLane("send-scroll-setting.browser.test.ts", async () => {
       [count, read] as const,
     );
 
-  // The slim arm (the product's): the sent prompt is in place in the frame after the send and nothing
-  // settles after it (Leo, 2026-11-09: "the scroll up is extremely sluggish, and it doesn't look great
-  // when it's so slow and it lags so much. The whole point is to have, like, fast stuff, like so it
-  // feels responsive, right?").
-  test("a send from the latest row puts the prompt in place at once, and nothing moves after", async () => {
+  test("a send from the latest row lifts the thread on one glide: the prompt rises into place", async () => {
     const page = await open();
-    const rows = history();
-    await show(page, rows);
-    await frames(page, 6);
-    expect((await scrollMetrics(page)).fromEnd).toBeLessThanOrEqual(2);
-    await sendWith(page, addReply(rows, true));
-    const tops = await sampleFrames(page, 24, "prompt");
-    const drawn = tops.filter((top) => Number.isFinite(top));
-    const rest = drawn.at(-1)!;
-    // Drawn where it rests within two painted frames of the send, and still there in every frame after.
-    expect(tops.slice(0, 2).some((top) => Number.isFinite(top) && Math.abs(top - rest) <= 1)).toBe(true);
-    const placed = tops.findIndex((top) => Number.isFinite(top) && Math.abs(top - rest) <= 1);
-    for (const top of tops.slice(placed)) expect(Math.abs(top - rest)).toBeLessThanOrEqual(1);
-    await frames(page, 4);
-    expect((await scrollMetrics(page)).fromEnd).toBeLessThanOrEqual(2);
-    await page.close();
-  });
-
-  test("a send from the latest row lifts the thread on one glide (blocks arm): the prompt rises into place", async () => {
-    const page = await open("blocks");
     const rows = history();
     await show(page, rows);
     await frames(page, 6);
@@ -260,7 +234,7 @@ await requireBrowserLane("send-scroll-setting.browser.test.ts", async () => {
     await page.close();
   });
 
-  test("a send that makes a short chat overflow lifts the thread on one glide (blocks arm)", async () => {
+  test("a send that makes a short chat overflow lifts the thread on one glide", async () => {
     // The longest tail that still fits the view, found on a page of its own: once a tail overflows,
     // the chat has opened, and the send below must come into one that has not.
     let rows = history().slice(0, 2);
@@ -277,7 +251,7 @@ await requireBrowserLane("send-scroll-setting.browser.test.ts", async () => {
       rows = next;
     }
     await probe.close();
-    const page = await open("blocks");
+    const page = await open();
     await show(page, rows);
     await frames(page, 4);
     expect((await scrollMetrics(page)).top).toBe(0);
@@ -301,42 +275,8 @@ await requireBrowserLane("send-scroll-setting.browser.test.ts", async () => {
     await page.close();
   });
 
-  // The slim arm (the product's): the ride to the latest message is the capped send step, 120 ms at
-  // most, and still never backs up (Leo, 2026-11-09: "the scroll up is extremely sluggish ... if I
-  // send in a prompt like this and it just lags, it's not a good look").
-  test("a send while scrolled up rides down to the latest message within 150 ms, never backing up", async () => {
+  test("a send while scrolled up glides down to the latest message instead of cutting there", async () => {
     const page = await open();
-    const rows = history();
-    await show(page, rows);
-    await frames(page, 5);
-    await scrollUp(page);
-    const start = (await scrollMetrics(page)).top;
-    const sent = await page.evaluate(() => performance.now());
-    await sendWith(page, addReply(rows, true));
-    // Each painted frame's offset and time, until the view is at the latest message (60 frames at most).
-    const ride = await page.evaluate(async () => {
-      const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-      const out: { at: number; top: number; end: boolean }[] = [];
-      while (out.length < 60) {
-        await window.cmuxPaintFrame();
-        const end = node.scrollHeight - node.clientHeight - node.scrollTop <= 2;
-        out.push({ at: performance.now(), top: node.scrollTop, end });
-        if (end) break;
-      }
-      return out;
-    });
-    for (let index = 1; index < ride.length; index += 1)
-      expect(ride[index]!.top).toBeGreaterThanOrEqual(ride[index - 1]!.top - 0.5);
-    expect(ride.at(-1)!.end).toBe(true);
-    expect(ride.at(-1)!.top).toBeGreaterThan(start);
-    // At the latest message on the send's clock: 150 ms, and two frames of a busy runner.
-    expect(ride.at(-1)!.at - sent).toBeLessThan(150 + 2 * 50);
-    await page.locator('[data-row-id="sent-reply"]').waitFor({ state: "visible" });
-    await page.close();
-  });
-
-  test("a send while scrolled up glides down to the latest message instead of cutting there (blocks arm)", async () => {
-    const page = await open("blocks");
     const rows = history();
     await show(page, rows);
     await frames(page, 5);

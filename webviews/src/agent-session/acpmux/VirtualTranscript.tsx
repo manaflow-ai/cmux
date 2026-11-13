@@ -85,7 +85,6 @@ import {
   type FollowChase,
   sendMotionMs,
 } from "./conversation/followChase";
-import { shareFrameBudget, type FrameBudget } from "./conversation/frameBudget";
 import { followMotion } from "./conversation/followMotion.experiment";
 import { composerDockMotion } from "./composer/dockMotion.experiment";
 import { acpmuxPerf, type MountedSpan } from "./perf";
@@ -163,7 +162,6 @@ import {
   foldFind,
   findRowIndex,
   findMemberRowId,
-  rowHolds,
   paintFindHighlights,
   type ChatFind,
 } from "./conversation/chatFind";
@@ -1566,13 +1564,8 @@ function TranscriptView({
   /// Jump up and keeps no place for it on a scroll.
   const [jumpUpOn] = useState(() => experimentArm(jumpUpButton) === "on");
   const chasing = followArm !== "eased";
-  /// The `send` arm (the product's): only a send's rise chases; a reply streaming, a row arriving
-  /// and the turn's end move the rows at once, in the pass that moved them, as Claude Code's
-  /// transcript only appends (Leo, 2026-11-09: "these animations all slosh around and it's not
-  /// cohesive / i previously sent the claude code one, just look at how they do it").
-  const slimFollow = followArm === "send";
   const followChase = useRef<FollowChase>(undefined);
-  followChase.current ??= createFollowChase(slimFollow ? "blocks" : followArm);
+  followChase.current ??= createFollowChase(followArm);
   /// Freezes the composer growth's rise of the rows where it is painted (the dock's effect sets it).
   const freezeGrowthRise = useRef<() => void>(() => {});
   // `scroll` events also fire for layout-driven writes to scrollTop. Keep the user's intent in a
@@ -1672,25 +1665,6 @@ function TranscriptView({
     if (immediate) scrollPacer.current!.flush({ top, atLatest });
     else scrollPacer.current!.enqueue({ top, atLatest });
   };
-  /// The chat's frame budget (frameBudget.ts): while it is busy its frames are read, and past the
-  /// budget every chat motion goes minimal until they are healthy again.
-  const frameBudget = useRef<FrameBudget>(undefined);
-  useEffect(() => {
-    // The chat's own pane is marked, never the page: the rest of the app keeps its motion.
-    const node = ref.current;
-    if (!node) return;
-    const budget = shareFrameBudget(node.closest(".acpmux-shell") ?? node);
-    frameBudget.current = budget;
-    budget.poke();
-    return () => {
-      budget.dispose();
-      if (frameBudget.current === budget) frameBudget.current = undefined;
-    };
-  }, []);
-  // Every commit of the rows is the chat doing work: its frames are read for a moment after.
-  useEffect(() => {
-    frameBudget.current?.poke();
-  }, [rows]);
   useEffect(() => {
     transcriptMounted.current = true;
     // The flicker detector's remount count (flickerLog.ts): a second mount on one page is a remount.
@@ -4034,8 +4008,6 @@ function TranscriptView({
           const foldRiding =
             turnEnding && turnEndCapture.current === undefined && !jumping && !bottomStacking && !heightFoldPlaying();
           const folding = Boolean(thread.current?.hasAttribute(TURN_END_ATTR));
-          // The slim arm is the send's (Leo, 2026-11-09: "the scroll up is extremely sluggish"): the
-          // turn's end still drains here on every arm, so its reply never steps at the end.
           if (folding && draining && !jumping && !bottomStacking && !heightFoldPlaying() && !resizing) {
             // The fold plays and the reply's last lines still reveal: the fold takes every move but
             // theirs (it takes a late one only from its curve's remaining share, which moved the rest
@@ -4088,7 +4060,7 @@ function TranscriptView({
             // What the pass also brought (the reply's next revealed line) joins the trail first, and
             // the landing takes it home with the rest at no more than a line a frame.
             chaseDrainUntil.current = now + StreamReveal.finishMs;
-            chaseFollow(node, layout, rows, Number.POSITIVE_INFINITY, slimFollow);
+            chaseFollow(node, layout, rows, Number.POSITIVE_INFINITY, false);
             followChase.current?.land();
           } else {
             // New text lands in the room the quiet live line keeps under the reply, and at most a line
@@ -4118,10 +4090,7 @@ function TranscriptView({
               rows.at(-2)?.id === oldRows.at(-2)?.id &&
               (tailNew?.id !== tailOld?.id || tailNew?.version !== tailOld?.version);
             const stepped = grewOnly && !(room > 0) && !held && !cardCleared;
-            // The slim arm moves every pass's rows at once, the send's own among them: the sent prompt is
-            // in place in the frame after Return, and nothing settles after it (Leo, 2026-11-09: "the
-            // scroll up is extremely sluggish").
-            const atOnce = dockMoved || !live || stepped || slimFollow;
+            const atOnce = dockMoved || !live || stepped;
             // A row that came above the live line (not the reply's own growth) holds back up to the
             // trail bound, while the live line glides under it (followChase CHASE_ARRIVAL_HOLD_LINES).
             // The arrived row's room often lands a pass later (its measured height), so the passes
@@ -4133,7 +4102,7 @@ function TranscriptView({
             // that motion plays; rows landing after it arrive on the arrival step.
             const sentClock = sentRows && (sends !== seenSends.current || now < sendClockUntil.current);
             chaseFollow(node, layout, rows, below, atOnce, held, arrived, sentClock && !steered);
-            tailGlides = !atOnce && !slimFollow && followChase.current?.arm !== "instant";
+            tailGlides = !atOnce && followChase.current?.arm !== "instant";
           }
         }
         // A glide holding the rows back further than the room now under the last row (the live line
@@ -4537,8 +4506,7 @@ function TranscriptView({
   const findTargetOccurrence = findTarget?.occurrence;
   // Find matches the chat's rows; the transcript draws a match's row (or its copy in an open fold)
   // once its fold is open.
-  const findIndex =
-    findTargetRowId !== undefined ? findRowIndex(rows, findTargetRowId, rowHolds({ needle: findQuery })) : -1;
+  const findIndex = findTargetRowId !== undefined ? findRowIndex(rows, findTargetRowId) : -1;
   const drawnId = rows[findIndex]?.id;
   const drawnCard = Boolean(rows[findIndex]?.ended);
   // Pending and delivered notice batches retain the matched member for disclosure and highlighting.
@@ -4638,7 +4606,7 @@ function TranscriptView({
   }, [targetKey]);
   // A row the running line's count names scrolls in once the transcript draws it (its fold may
   // open first), as a Find match does.
-  const revealIndex = reveal ? findRowIndex(rows, reveal.rowId, rowHolds({ toolId: reveal.toolId })) : -1;
+  const revealIndex = reveal ? findRowIndex(rows, reveal.rowId) : -1;
   const countReveal = useMemo(
     () =>
       reveal && revealIndex >= 0
@@ -4897,8 +4865,6 @@ function TranscriptView({
     // Sent while scrolled up: the view glides down to the latest message on Jump to latest's ride
     // (one viewport at most, its curve and duration) instead of cutting there in one frame, and the
     // prompt's row and reply land on the moving end. Reduce Motion and motion off still cut.
-    // Under the slim arm the ride runs the capped send step (composerStates.css SEND-SLIM, 120 ms at
-    // most), and the prompt still tucks under the composer as it goes (sendTuck.ts).
     if (!fromLatest && !reduce) {
       rideToLatest(node, latest, false, false, true);
       followRequest.current = userScrollIntent(node).request();
@@ -4920,7 +4886,7 @@ function TranscriptView({
       // Rows this commit added that the placement pass left unfollowed (a held follow): they rise on
       // the send's glide too.
       if (chasing) {
-        if (fromLatest) chaseFollow(node, layout, rows, Number.POSITIVE_INFINITY, slimFollow, false, false, !steered);
+        if (fromLatest) chaseFollow(node, layout, rows, Number.POSITIVE_INFINITY, false, false, false, !steered);
       } else if (fromLatest && top - before > 0.5) followGlide.current?.sent(thread.current, top - before);
     }
     // The kept place is the latest message again: a relaunch opens there.
@@ -5381,7 +5347,6 @@ function TranscriptView({
       if (event?.type === "touchstart") touchY = (event as TouchEvent).touches[0]?.clientY;
       else if (touch) touchY = touch.clientY;
       readerAt.current = performance.now();
-      frameBudget.current?.poke();
       // The reader moved: where they are now is their place, not the one a reconnect held.
       heldPlace.current = undefined;
       // Wheeling on at the top of the loaded rows scrolls nothing while older history pages in: the
@@ -5389,36 +5354,22 @@ function TranscriptView({
       // (summary/heldWhileScrolling.ts).
       noteReaderScroll();
       followTrace.input();
-      if (slimFollow) {
-        // The slim arm (the product's): what still glides holds where it is drawn, so nothing jumps
-        // under the reader's input (the composer growth's rise freezes into the chase there,
-        // followChase.carry), and once the input goes quiet the whole offset goes to the scroll
-        // position (`settleHeldFollowMotion`), followed or not, so nothing settles on after it either
-        // (Leo, 2026-11-09: "when i scroll down now there's a little readjustment sometimes that shold
-        // never happen").
-        followGlide.current?.stop();
-        tailGlide.current?.hold();
-        freezeGrowthRise.current();
-        followChase.current?.hold();
-        chaseAnchor.current = undefined;
-      } else {
-        // The other arms: a glide still easing lands where it lays out, and the chase holds where it
-        // is drawn, so nothing moves but the reader's own scroll (a snap home moved the rows a frame
-        // before the scroll, streaming-parked-still.test.ts). Followed again, it goes on home.
-        followGlide.current?.stop();
-        // Input that leaves the view followed (a wheel or key at the bottom scrolls nothing, and no
-        // layout pass may come after) goes on home on the next frame instead of staying drawn away.
-        // The rows under a change gliding to their place hold where they are drawn too (tailGlide.ts),
-        // and play on with the chase.
-        tailGlide.current?.hold();
-        freezeGrowthRise.current();
-        followChase.current?.hold(() => {
-          const followed = followingRef.current && jumpTarget.current === undefined;
-          if (followed) tailGlide.current?.resume();
-          return followed;
-        });
-        chaseAnchor.current = undefined;
-      }
+      // The reader takes the view: a glide still easing lands where it lays out, and the chase holds
+      // where it is drawn, so nothing moves but the reader's own scroll (a snap home moved the rows
+      // a frame before the scroll, streaming-parked-still.test.ts). Followed again, it goes on home.
+      followGlide.current?.stop();
+      // Input that leaves the view followed (a wheel or key at the bottom scrolls nothing, and no
+      // layout pass may come after) goes on home on the next frame instead of staying drawn away.
+      // The rows under a change gliding to their place hold where they are drawn too (tailGlide.ts),
+      // and play on with the chase.
+      tailGlide.current?.hold();
+      freezeGrowthRise.current();
+      followChase.current?.hold(() => {
+        const followed = followingRef.current && jumpTarget.current === undefined;
+        if (followed) tailGlide.current?.resume();
+        return followed;
+      });
+      chaseAnchor.current = undefined;
       // Release the follow intent synchronously when a reader starts moving up. The browser can
       // deliver the input before its scroll event; a streamed snapshot in that gap must not pin
       // the view back to the bottom. Capture the event so nested rows cannot commit first.
@@ -5453,9 +5404,7 @@ function TranscriptView({
     // is out of view ends here and as the reader scrolls (`dropUnseen`), unseen; one still in view stays
     // paused where it is drawn (cutting it short snapped the row). O(1); runs once per quiet input.
     const settleHeldFollowMotion = () => {
-      // The slim arm hands a held chase to the scroll offset in a followed view too: played on from
-      // where it was held, it was the "little readjustment" after the reader's own scroll.
-      if ((followingRef.current && !slimFollow) || jumpTarget.current !== undefined) return;
+      if (followingRef.current || jumpTarget.current !== undefined) return;
       tailGlide.current?.dropUnseen(() => node.getBoundingClientRect());
       const chase = followChase.current;
       // Whole pixels only: the offset moves by an exact number of its own ticks, so the browser never
@@ -5722,7 +5671,7 @@ function TranscriptView({
       gutterRelease.current = undefined;
       gutter?.remove();
     };
-  }, [dropFoldRoom, landForReader, startBottomStack, stopBottomStackFold, slimFollow, stopFollowMotion, stopJump]);
+  }, [dropFoldRoom, landForReader, startBottomStack, stopBottomStackFold, stopFollowMotion, stopJump]);
   // A turn's footer (TurnFooter) shows for the turn the reader points at: anywhere after its prompt
   // to its footer. Marked on the mounted rows, so a hover renders nothing.
   // The chat's one Retry (turns.ts retryTargetIn, retryPlacement): the reply footer of the person's
@@ -5937,11 +5886,6 @@ function TranscriptView({
           ref={ref}
           className="acpmux-scroll"
           role="feed"
-          // The slim arm's send: the bubble only fades in where it lands, on a send step of at most
-          // 120 ms (conversation.css SEND-SLIM), never opening from the right on a clip the main thread
-          // paints (Leo, 2026-11-09: "the scroll up is extremely sluggish ... if I send in a prompt like
-          // this and it just lags, it's not a good look").
-          data-send-entrance={slimFollow ? "fade" : undefined}
           // A read-only transcript's right-clicks are reported to no host (conversation/messageMenu.ts).
           data-read-only-transcript={readOnly ? "" : undefined}
           // Its place comes back after a web update's reload (reportAnchor, pages/shared/webSwap.ts).
