@@ -9,7 +9,7 @@ import Testing
 @MainActor
 @Suite
 struct CloudAgentCredentialRefresherTests {
-    static let base = Date(timeIntervalSince1970: 1_800_000_000)
+    nonisolated static let base = Date(timeIntervalSince1970: 1_800_000_000)
 
     /// This Mac's acpmux as the test drives it: each read answers the next token, expiring an hour later.
     @MainActor
