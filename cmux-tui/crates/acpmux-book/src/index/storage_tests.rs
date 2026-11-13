@@ -81,6 +81,14 @@ fn snapshot_head_does_not_materialize_rows_and_sparse_seek_is_bounded() {
         assert_eq!(page.has_before, n != 0);
         assert_eq!(page.has_after, n != 10_999);
     }
+    // A terminal seek must not deserialize the final 256-row block merely
+    // to prove there is no next row. Include metadata in the physical count.
+    let last = SortKey::of(&index.get("row-10999").unwrap());
+    let end = disk.read_piece(Some(&last), ReadSide::After, false, 20, 8192).unwrap();
+    assert!(end.rows.is_empty());
+    assert!(end.has_before);
+    assert!(!end.has_after);
+    assert!(end.bytes_read < 1024, "terminal seek read {} bytes", end.bytes_read);
 }
 
 #[test]
