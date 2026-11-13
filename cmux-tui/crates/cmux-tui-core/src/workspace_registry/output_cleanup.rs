@@ -503,6 +503,25 @@ fn is_temporary(error: &anyhow::Error) -> bool {
 const STAGED_WORK_CHANGED: &str = "the registry's sealed segments changed after staging";
 
 /// The registry meta key that marks the cleanup of `mode` done.
+/// [`WorkspaceRegistry::journal_rebuild_owed`] on `source`, a connection to
+/// the registry file that the registry lock does not guard. The read is a
+/// row of each sealed segment at or below `floor` (2,383 of them took 22 s
+/// under the lock on a generated registry of 13 GB, 2026-11-13), so the
+/// retention pass makes it there.
+pub(crate) fn journal_rebuild_owed_on(source: &Connection, floor: u64) -> anyhow::Result<bool> {
+    stage::rebuild_owed(source, floor)
+}
+
+/// [`WorkspaceRegistry::journal_in_place_room`] on `source`, as
+/// [`journal_rebuild_owed_on`].
+pub(crate) fn journal_in_place_room_on(
+    source: &Connection,
+    floor: u64,
+    deleted: u64,
+) -> anyhow::Result<Option<u64>> {
+    stage::in_place_room(source, floor, deleted)
+}
+
 fn done_meta_key(mode: CleanupMode) -> &'static str {
     match mode {
         CleanupMode::Output => DONE_META_KEY,
