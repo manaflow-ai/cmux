@@ -574,7 +574,7 @@ impl SummaryIndex {
                 self.live_ordered.insert(SortKey::of(&row), row);
             }
             if let Some(row) = self.by_id.get(&key) {
-                self.kin.insert_arc(&row);
+                self.kin.insert_arc(row);
             }
         }
     }
