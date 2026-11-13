@@ -3,7 +3,7 @@
   "version": 1,
   "title": "cmux NEXT customization samples",
   "description": "Small, live examples that connect cmux to the work already in your sessions.",
-  "install": "Copy an example into its own folder, then run cmux ext dev. Accept its install card once.",
+  "install": "Copy an example into its own folder, run cmux ext dev, then use the printed `cmux action run app.install --app <id>` hint and accept its install card once.",
   "reload": "Keep cmux ext dev running; each save reloads that example. Your existing customize app stays intact.",
   "samples": [
     {
