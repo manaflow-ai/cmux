@@ -239,11 +239,14 @@ impl ChatActor {
         let join = thread::Builder::new()
             .name(format!("acpmux-chat-{}", config.id))
             .spawn(move || {
-                let Ok(runtime) =
-                    tokio::runtime::Builder::new_current_thread().enable_time().build()
-                else {
-                    return;
-                };
+                let runtime =
+                    match tokio::runtime::Builder::new_current_thread().enable_time().build() {
+                        Ok(runtime) => runtime,
+                        Err(_) => {
+                            health.send_replace(crate::life::Health::Failed);
+                            return;
+                        }
+                    };
                 let scope = cmux_scope::Scope::new("acpmux-chat");
                 let receiver = Arc::new(Mutex::new(rx));
                 let _ = runtime.block_on(crate::life::supervise(
@@ -258,8 +261,7 @@ impl ChatActor {
                             })
                             .await
                             {
-                                Ok(Ok(result)) => Ok(result),
-                                Ok(Err(error)) => std::panic::panic_any(error),
+                                Ok(result) => result,
                                 Err(error) if error.is_panic() => {
                                     std::panic::resume_unwind(error.into_panic())
                                 }
@@ -313,11 +315,22 @@ fn run_supervised(
     receiver: Arc<Mutex<Receiver<Request>>>,
     queued: Arc<Mutex<usize>>,
 ) -> Result<(), ChatError> {
+    let mut busy_started = Instant::now();
     loop {
         let mut state = match open_state(config.clone()) {
-            Ok(state) => state,
-            Err(ChatError::Book(BookError::Rebuild(_))) => rebuild_from_raw(config.clone())?,
+            Ok(state) => {
+                busy_started = Instant::now();
+                state
+            }
+            Err(ChatError::Book(BookError::Rebuild(_))) => {
+                let state = rebuild_from_raw(config.clone())?;
+                busy_started = Instant::now();
+                state
+            }
             Err(ChatError::Book(BookError::Busy)) => {
+                if busy_started.elapsed() >= Duration::from_secs(1) {
+                    return Err(ChatError::Book(BookError::Busy));
+                }
                 thread::sleep(Duration::from_millis(10));
                 continue;
             }
@@ -830,5 +843,15 @@ mod tests {
         let (_log, recovered) = Log::open(dir.path(), Options::default()).unwrap();
         assert!(recovered.checkpoint);
         let _ = Checkpoint::from_recovered(&recovered).unwrap();
+    }
+
+    #[test]
+    fn failed_health_rejects_new_mailbox_requests() {
+        let (tx, _rx) = sync_channel(1);
+        let queued = Arc::new(Mutex::new(0));
+        let (health, health_receiver) = tokio::sync::watch::channel(crate::life::Health::Starting);
+        health.send_replace(crate::life::Health::Failed);
+        let handle = ChatHandle { tx, queued, health: health_receiver };
+        assert!(matches!(handle.wake(), Err(ChatError::Failed)));
     }
 }
