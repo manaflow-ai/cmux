@@ -455,6 +455,31 @@ fn a_returning_origin_keeps_all_new_rows_including_identical_old_keys() {
 }
 
 #[test]
+fn a_second_removed_while_leaving_discards_the_intermediate_life() {
+    let (hub, mut writer) = Hub::new(SummaryIndex::new());
+    seed(&mut writer, 500);
+
+    // The first removal is published, but its bounded cleanup still has work left.
+    hub.origin("peer", OriginState::Removed, 2).unwrap();
+    writer.process_batch();
+    assert!(hub.snapshot().is_origin_leaving("peer"));
+
+    // A reconnect and rows accepted during that cleanup belong to a short-lived life.
+    hub.origin("peer", OriginState::Connected, 3).unwrap();
+    for n in 0..50 {
+        hub.submit(returned(n)).unwrap();
+    }
+
+    // A second removal is a lifecycle cut: it must clear the held reconnect and rows,
+    // rather than releasing them after the first life finishes.
+    hub.origin("peer", OriginState::Removed, 4).unwrap();
+    drive(&mut writer, 12);
+
+    assert!(ids(&hub).is_empty(), "rows from the intermediate life were resurrected");
+    assert_eq!(hub.snapshot().origin("peer").unwrap().state, OriginState::Removed);
+}
+
+#[test]
 fn held_updates_beyond_one_batch_are_not_discarded_or_starved() {
     let (hub, mut writer) = Hub::new(SummaryIndex::new());
     seed(&mut writer, 3000);
