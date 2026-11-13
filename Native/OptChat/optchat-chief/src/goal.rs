@@ -52,6 +52,27 @@ pub fn command() -> String {
     format!("/goal {CONDITION}")
 }
 
+/// The marker in a hold prompt's id (`optchat-sub:<id>:task:<ms>`).
+const HOLD_MARK: &str = ":task:";
+
+/// The id of subagent `id`'s hold prompt (its view and task with "reply
+/// `ready`"), made at `ms`.
+pub fn hold_prompt_id(id: &str, ms: u64) -> String {
+    format!("{}sub:{id}{HOLD_MARK}{ms}", crate::subagents::PROMPT_PREFIX)
+}
+
+/// Whether `prompt_id` is a subagent's hold prompt: its turn only answers
+/// `ready`, so it is never the subagent's report (user 2026-11-12, msg
+/// 30563: that `ready` reached the Chief as "[a1145] ready" and moved the
+/// agent's Home pill off the Chief's reply, marked done).
+pub fn is_hold_prompt(prompt_id: Option<&str>) -> bool {
+    prompt_id.is_some_and(|p| {
+        p.strip_prefix(crate::subagents::PROMPT_PREFIX)
+            .and_then(|p| p.strip_prefix("sub:"))
+            .is_some_and(|p| p.contains(HOLD_MARK))
+    })
+}
+
 /// The block after the task in the first prompt: wait for the goal.
 pub fn hold_block() -> Value {
     json!({

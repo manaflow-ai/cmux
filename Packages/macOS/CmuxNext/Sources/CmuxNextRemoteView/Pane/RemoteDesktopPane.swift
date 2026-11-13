@@ -136,6 +136,9 @@ public final class RemoteDesktopPane {
         stopAllUpstreams()
         for task in tasks { task.cancel() }
         tasks.removeAll()
+        latencyCheck?.cancel()
+        latencyCheck = nil
+        latencyCheckDue = nil
         pipeline = nil
         view.capture.controller.releaseAll()
     }
@@ -158,7 +161,28 @@ public final class RemoteDesktopPane {
         if !next.hasFrame { firstFrame.arm() }
         guard next != state else { return }
         state = next
+        armLatencyCheck()
         view.render(state: state, settings: settings)
+    }
+
+    /// The latency hold's flip, re-checked when it comes due if no sample comes first.
+    private var latencyCheck: Task<Void, Never>?
+    private var latencyCheckDue: ContinuousClock.Instant?
+
+    private func armLatencyCheck() {
+        let due = state.latency.due
+        guard due != latencyCheckDue else { return }
+        latencyCheck?.cancel()
+        latencyCheckDue = due
+        guard let due else { return latencyCheck = nil }
+        // A bounded, cancellable one-shot: the next sample or a settled hold cancels it.
+        latencyCheck = Task { [weak self] in
+            // wakeup-allow: one-shot latency hold deadline; the next sample cancels it.
+            do { try await ContinuousClock().sleep(until: due, tolerance: .milliseconds(100)) } catch { return }
+            guard let self, !Task.isCancelled else { return }
+            latencyCheckDue = nil
+            apply(.latencyCheck)
+        }
     }
 
     private func wireChrome() {
