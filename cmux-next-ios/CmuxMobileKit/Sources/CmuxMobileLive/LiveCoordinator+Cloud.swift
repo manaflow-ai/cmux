@@ -178,7 +178,11 @@ extension LiveCoordinator {
     }
 
     /// The account's Cloud carrier dialer for this build: nil when it has no Cloud service.
+    /// `signedOut` says whether a token error means there is no sign-in (the app's auth layer's own
+    /// error type); such an error, or a refused token (401), is `unauthorized` to the carrier, which
+    /// then stops asking at once instead of retrying a transport failure until its deadline.
     public static func standardCloudDialer(userID: String, deviceName: String, api: LiveAPI,
+                                           signedOut: @escaping @Sendable (any Error) -> Bool = { _ in false },
                                            secrets: any DeviceSecretStore = KeychainSecretStore()) -> (any MacLinkDialer)? {
         guard let config = ChiefCloudConfig.current() else { return nil }
         // Account-default scope, as the machine list reads it (no `x-cmux-team`): the phone's
@@ -186,7 +190,13 @@ extension LiveCoordinator {
         // This sign-in's epoch: a dial still running after sign-out can't write a key back.
         let epoch = CloudCarrierKey.epoch(userID: userID)
         return CloudCarrierDialer.ffi(apiBase: config.baseURL, teamID: nil, deviceName: deviceName,
-                                      accessToken: { try await api.accessToken($0) },
+                                      accessToken: { forceRefresh in
+                                          do {
+                                              return try await api.accessToken(forceRefresh)
+                                          } catch where signedOut(error) || LinkController.authRefused(error) {
+                                              throw LinkError(code: LinkError.unauthorized, message: "signed out")
+                                          }
+                                      },
                                       noiseKey: {
                                           try CloudCarrierKey.load(userID: userID, epoch: epoch, store: secrets,
                                                                    newKey: CloudCarrierDialer.newNoiseKey)

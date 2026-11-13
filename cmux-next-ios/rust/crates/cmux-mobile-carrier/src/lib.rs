@@ -364,9 +364,8 @@ pub struct CarrierSession {
 }
 
 /// How long past [`RESUME_DEADLINE`] a session may stay `Disconnected` before the watcher
-/// ends it. A recovery publishes `Disconnected` while one of its bursts waits to redial, and
-/// again when it gives up; it never runs past `RESUME_DEADLINE`, so `Disconnected` held this
-/// long is a recovery that ended.
+/// ends it: a backstop. A dead session is normally caught sooner by its multiplexer's reader,
+/// whose own recovery gives up and sets `fatal` (about two resume windows after the drop).
 const GAVE_UP_MARGIN: Duration = Duration::from_secs(2);
 
 /// Whether a session can still carry streams: not closed, the daemon still has it, and its
@@ -384,26 +383,24 @@ fn session_alive(connection: &ClientConnection, multiplexer: &ServiceMultiplexer
 }
 
 /// Ends `connection` once it dies, so [`CarrierSession::closed`] resolves at once and every
-/// stream on it ends: a [`session_alive`] signal, or `Disconnected` held for longer than any
-/// recovery runs ([`RESUME_DEADLINE`] and [`GAVE_UP_MARGIN`]). A burst that parks and then
-/// reconnects inside that window keeps the session (a network handoff resumes, no new grant).
+/// stream on it ends: a [`session_alive`] signal (in practice the daemon dropping the session,
+/// or the multiplexer's reader giving up its own recovery and setting `fatal`, about two resume
+/// windows after a drop that never comes back), or as a backstop `Disconnected` held past
+/// [`RESUME_DEADLINE`] and [`GAVE_UP_MARGIN`]. A recovery that parks and reconnects keeps the
+/// session (a network handoff resumes, no new grant).
 fn watch_session(
     connection: Arc<ClientConnection>,
     multiplexer: Arc<ServiceMultiplexer>,
     ended: tokio::sync::watch::Sender<bool>,
 ) {
-    use cmux_remote::observability::ConnectionState;
     tokio::spawn(async move {
         let mut state = connection.subscribe_state();
         let mut fatal = multiplexer.subscribe_fatal();
         let mut disconnected_since: Option<Instant> = None;
         while session_alive(&connection, &multiplexer) {
             let now = Instant::now();
-            disconnected_since = match *state.borrow_and_update() {
-                ConnectionState::Disconnected => Some(disconnected_since.unwrap_or(now)),
-                _ => None,
-            };
-            let gave_up_at = disconnected_since.map(|since| since + RESUME_DEADLINE + GAVE_UP_MARGIN);
+            let (since, gave_up_at) = backstop(*state.borrow_and_update(), disconnected_since, now);
+            disconnected_since = since;
             if gave_up_at.is_some_and(|at| now >= at) {
                 break;
             }
@@ -422,6 +419,20 @@ fn watch_session(
         multiplexer.shutdown().await;
         let _ = connection.close().await;
     });
+}
+
+/// The watcher's backstop: when the session has been `Disconnected` since (kept across
+/// updates while it stays so, cleared by any other state) and when that ends it.
+pub(crate) fn backstop(
+    state: cmux_remote::observability::ConnectionState,
+    disconnected_since: Option<Instant>,
+    now: Instant,
+) -> (Option<Instant>, Option<Instant>) {
+    let since = match state {
+        cmux_remote::observability::ConnectionState::Disconnected => Some(disconnected_since.unwrap_or(now)),
+        _ => None,
+    };
+    (since, since.map(|since| since + RESUME_DEADLINE + GAVE_UP_MARGIN))
 }
 
 /// Closes what a dial attempt built when the attempt does not finish
@@ -474,9 +485,31 @@ impl CarrierSession {
         deadline: Instant,
     ) -> Result<Self, CarrierError> {
         let mut wait = Duration::from_millis(250);
+        // After an attempt found no daemon key, the next ones ask ticket-only (no grant is
+        // minted) until the key is stored, then ask for the grant: a machine still binding
+        // costs no grant per retry.
+        let mut awaiting_key = false;
         loop {
+            if awaiting_key {
+                match platform.fetch(None).await {
+                    Ok(answer) if answer.daemon_key.is_some() => awaiting_key = false,
+                    Ok(_) => {}
+                    Err(error) if !error.retryable() => return Err(error),
+                    Err(_) => {}
+                }
+                if awaiting_key {
+                    if Instant::now() + wait >= deadline {
+                        return Err(no_daemon_key());
+                    }
+                    // An intentional, bounded retry delay inside the dial's deadline.
+                    tokio::time::sleep(wait).await;
+                    wait = (wait * 2).min(Duration::from_secs(4));
+                    continue;
+                }
+            }
             match attempt(&platform, &identity, &device_name, deadline).await {
                 Ok(session) => return Ok(session),
+                Err(CarrierError::Refused { ref code, .. }) if code == NO_DAEMON_KEY => awaiting_key = true,
                 Err(error) if error.retryable() && Instant::now() + wait < deadline => {
                     tracing::debug!(%error, "carrier attempt failed; retrying");
                     // An intentional, bounded retry delay inside the dial's deadline.
@@ -546,6 +579,15 @@ impl CarrierSession {
     }
 }
 
+/// The platform names no daemon key for the machine yet.
+fn no_daemon_key() -> CarrierError {
+    CarrierError::Refused {
+        code: NO_DAEMON_KEY.into(),
+        message: "the machine has no daemon key yet".into(),
+        retryable: true,
+    }
+}
+
 async fn attempt(
     platform: &Arc<Platform>,
     identity: &StaticIdentity,
@@ -559,11 +601,7 @@ async fn attempt(
         .ok_or_else(|| CarrierError::Answer("cmux-platform sent no carrier grant".into()))?;
     // A machine that has not bound yet has no stored key; it binds within
     // seconds of its start, so the next attempt has it. Never unpinned.
-    let daemon = answer.daemon_key.ok_or_else(|| CarrierError::Refused {
-        code: NO_DAEMON_KEY.into(),
-        message: "the machine has no daemon key yet".into(),
-        retryable: true,
-    })?;
+    let daemon = answer.daemon_key.ok_or_else(no_daemon_key)?;
     let tickets = Tickets::new(platform.clone(), &answer);
     let credentials = RelayCredentialSource::callback(move || {
         let tickets = tickets.clone();

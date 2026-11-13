@@ -188,7 +188,9 @@ through `CmuxMobileLinkFFI` as `CloudCarrier`).
   and never handshakes unpinned. A daemon that is not the pinned one, or that
   refuses the grant or the grant's mux stream, ends the dial
   (`carrier.handshake`), with no retry. A session the daemon lost, or whose
-  resume gave up, ends; the phone dials a new one with a new grant.
+  recovery gave up (about two resume windows, 20 s, after a drop that never
+  comes back), ends; the phone dials a new one with a new grant. A network
+  handoff that comes back inside that window resumes, with no new grant.
 - **Which role.** The grant carries the platform's `vmk` claim; the machine's
   session host stamps it on every stream (`carrier-role`) before the phone's
   bytes, so the daemon sees the person's own role, never one the phone names.

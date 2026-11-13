@@ -474,6 +474,12 @@ public final class CmuxMobileAuthModel {
         return BillingModel(api: api, store: LiveStoreKitClient(), analytics: nil)
     }
 
+    /// Whether `error`, from ``accessToken(forceRefresh:)`` or ``serviceAccessToken(forceRefresh:)``,
+    /// means there is no sign-in to mint a token from (not a network failure).
+    public nonisolated static func isSignedOutError(_ error: any Error) -> Bool {
+        (error as? AuthError) == .unauthorized
+    }
+
     /// A current Stack access token (refreshed by the runtime when needed).
     /// `forceRefresh` mints a new one after the service rejected the last (401).
     public func accessToken(forceRefresh: Bool = false) async throws -> String {

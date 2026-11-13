@@ -62,6 +62,7 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
     /// Signed in: reads the list now and keeps it current.
     public func start() {
         guard pollTask == nil else { return }
+        stopped = false
         let clock = clock
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -74,14 +75,23 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
 
     /// Signed out: nothing more is read, and no Cloud machine is listed.
     public func stop() {
+        stopped = true
         pollTask?.cancel()
         pollTask = nil
         for task in creationTasks.values { task.cancel() }
         creationTasks = [:]
+        for task in startTasks.values { task.cancel() }
+        startTasks = [:]
         creations = []
+        starting = []
         lastListed = nil
         coordinator?.applyCloudMachines([])
     }
+
+    /// Stopped (signed out, or Cloud turned off): an action still in flight lists nothing again.
+    @ObservationIgnored private var stopped = false
+    /// Starts in flight, by machine, so `stop` cancels them.
+    @ObservationIgnored private var startTasks: [String: Task<Void, Never>] = [:]
 
     /// Back in the foreground, or after a refusal: read the list again now.
     public func refreshSoon() {
@@ -133,7 +143,7 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
 
     /// The list as machines on the Workspaces list, with this phone's pending creations.
     func publish() {
-        guard let coordinator else { return }
+        guard !stopped, let coordinator else { return }
         var machines: [MacDevice] = []
         if case .failed = model.phase {} else { lastListed = model.machines }
         for var machine in lastListed ?? [] {
@@ -179,9 +189,11 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
         // Waking at once on the list, before the op answers.
         starting.insert(machineID)
         publish()
-        Task { [weak self] in
+        startTasks[machineID] = Task { [weak self] in
             guard let self else { return }
             let outcome = await self.model.start(machine)
+            self.startTasks[machineID] = nil
+            guard !self.stopped else { return }
             self.starting.remove(machineID)
             self.publish()
             self.report(outcome)

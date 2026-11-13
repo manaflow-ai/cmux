@@ -169,7 +169,9 @@ async fn no_daemon_key_is_asked_again_then_refused_with_its_code() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
     let asks = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let grants = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let counted = asks.clone();
+    let granted = grants.clone();
     let server = tokio::spawn(async move {
         loop {
             let Ok((stream, _)) = listener.accept().await else { return };
@@ -191,6 +193,9 @@ async fn no_daemon_key_is_asked_again_then_refused_with_its_code() {
             }
             let mut body = vec![0; length];
             let _ = reader.read_exact(&mut body).await;
+            if String::from_utf8_lossy(&body).contains("noise_key") {
+                granted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
             let mut value = answer();
             value.as_object_mut().unwrap().remove("daemon_key");
             let reply = json!({"ok": true, "value": value}).to_string();
@@ -211,6 +216,8 @@ async fn no_daemon_key_is_asked_again_then_refused_with_its_code() {
         other => panic!("{other:?}"),
     }
     assert!(asks.load(std::sync::atomic::Ordering::SeqCst) >= 2, "asked again inside the dial");
+    // Only the first ask names the phone's key (mints a grant); the waits after it are ticket-only.
+    assert_eq!(grants.load(std::sync::atomic::Ordering::SeqCst), 1, "one grant while the key is missing");
     server.abort();
 }
 
@@ -316,4 +323,26 @@ fn a_wrong_daemon_or_a_refused_grant_is_a_handshake_failure_never_retried() {
     assert!(!refused.retryable());
     // A session the daemon lost is asked again with a fresh session.
     assert!(connection_error(&ConnectionError::SessionUnavailable).retryable());
+}
+
+#[test]
+fn the_watchers_backstop_spares_a_recovery_and_ends_one_that_gave_up() {
+    use cmux_remote::observability::ConnectionState::{Connected, Disconnected, Reconnecting};
+    let t0 = Instant::now();
+    // A burst parks (Disconnected) for 5 s, redials (Reconnecting), and comes back: never ended.
+    let (since, end) = backstop(Disconnected, None, t0);
+    assert_eq!(since, Some(t0));
+    assert!(end.unwrap() > t0 + Duration::from_secs(5), "a 5 s park is spared");
+    let (since, end) = backstop(Disconnected, since, t0 + Duration::from_secs(5));
+    assert_eq!(since, Some(t0), "the same Disconnected run keeps its start");
+    assert!(end.unwrap() > t0 + Duration::from_secs(5));
+    assert_eq!(
+        backstop(Reconnecting, since, t0 + Duration::from_secs(5)),
+        (None, None),
+        "a redial resets it"
+    );
+    assert_eq!(backstop(Connected, since, t0 + Duration::from_secs(6)), (None, None));
+    // Disconnected and nothing more for longer than any recovery runs: ended at that point.
+    let (_, end) = backstop(Disconnected, None, t0);
+    assert_eq!(end, Some(t0 + RESUME_DEADLINE + GAVE_UP_MARGIN));
 }

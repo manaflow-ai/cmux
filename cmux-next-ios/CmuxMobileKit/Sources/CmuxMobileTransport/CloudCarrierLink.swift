@@ -262,8 +262,23 @@ final class FFICloudCarrierSession: CloudCarrierSession, @unchecked Sendable { /
 
     init(carrier: CloudCarrier) { self.carrier = carrier }
 
+    /// A dial its caller stops waiting for (the controller cancels it: the link is no longer
+    /// wanted, the app went to the background) is stopped in Rust too: the generated async glue
+    /// does not pass Swift's cancellation on, so this closes the carrier, which is final and cuts
+    /// a dial in flight short. A carrier is made per dial, so nothing else uses it.
     func connect(deadlineMs: UInt32) async throws {
-        do { try await carrier.connect(deadlineMs: deadlineMs) } catch let error as CmuxMobileError { throw error.linkError }
+        let carrier = carrier
+        do {
+            try await withTaskCancellationHandler {
+                try await carrier.connect(deadlineMs: deadlineMs)
+            } onCancel: {
+                // task-owner: one bounded close of this dial's own carrier
+                Task.detached { await carrier.close() }
+            }
+        } catch let error as CmuxMobileError {
+            throw error.linkError
+        }
+        try Task.checkCancellation()
     }
 
     func openStream() async throws -> any CloudCarrierByteStream {

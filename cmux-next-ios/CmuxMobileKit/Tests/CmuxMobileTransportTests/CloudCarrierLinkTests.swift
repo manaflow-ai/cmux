@@ -169,6 +169,20 @@ final class EchoLineStream: CloudCarrierByteStream, @unchecked Sendable {
         _ = try await link.openChannel(service: "daemon", args: [:])
     }
 
+    /// A dial whose caller gives up (the controller cancels it) closes its carrier session, so the
+    /// carrier stops asking the platform for grants for a link nobody wants.
+    @Test func aCancelledDialClosesItsSession() async throws {
+        let session = HangingCarrierSession()
+        let dialer = CloudCarrierDialer(makeSession: { _, _ in session })
+        let endpoint = LinkEndpoint(baseURL: URL(fileURLWithPath: "/"), teamID: "t", deviceID: "d",
+                                    macDeviceID: "vm_0123456789abcdefghij")
+        let dial = Task { try await dialer.dial(endpoint, transport: .cloudCarrier, accessToken: "") }
+        await session.started.wait()
+        dial.cancel()
+        _ = await dial.result
+        #expect(await session.closed.isSet, "the cancelled dial closed its carrier")
+    }
+
     /// The dialer: `vm_…` ids only; the first dial's refusals come back as the carrier said.
     @Test func dialerMapsRefusals() async throws {
         let session = FakeCarrierSession()
@@ -215,4 +229,39 @@ final class EchoLineStream: CloudCarrierByteStream, @unchecked Sendable {
         #expect(CloudCarrierDialer.isRetryable(LinkError(code: CloudCarrierDialer.keychainLocked, message: "")))
         #expect(CloudCarrierDialer.isPermanent(LinkError(code: CloudCarrierDialer.keychainUnavailable, message: "")))
     }
+}
+
+/// A one-shot flag an async test can wait on.
+actor TestLatch {
+    private(set) var isSet = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func set() {
+        isSet = true
+        for waiter in waiters { waiter.resume() }
+        waiters = []
+    }
+
+    func wait() async {
+        if isSet { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+}
+
+/// A carrier whose dial never answers on its own (a silent platform): it ends only when its
+/// caller cancels it or it is closed, the way the Rust carrier's close cuts a dial short.
+final class HangingCarrierSession: CloudCarrierSession, @unchecked Sendable {
+    let started = TestLatch()
+    let closed = TestLatch()
+
+    func connect(deadlineMs: UInt32) async throws {
+        await started.set()
+        await closed.wait()
+        throw LinkError(code: "closed", message: "closed while dialing")
+    }
+
+    func openStream() async throws -> any CloudCarrierByteStream { throw LinkError(code: "closed", message: "") }
+    func isConnected() async -> Bool { false }
+    func waitClosed() async {}
+    func close() async { await closed.set() }
 }
