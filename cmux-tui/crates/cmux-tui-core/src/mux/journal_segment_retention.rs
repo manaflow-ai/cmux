@@ -347,7 +347,9 @@ impl Mux {
                 if self.journal_maintenance_paused() {
                     return Ok(SegmentPass::Paused);
                 }
-                if let Some(reader) = reader {
+                // MEASURE ONLY, NEVER MERGED: the cold arm of the proof row.
+                // No read before the hold: the hold reads its pages itself.
+                if let Some(reader) = reader.filter(|_| false) {
                     reader.read_hold_rows(&segment)?;
                 }
                 let more = self
