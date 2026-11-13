@@ -260,6 +260,10 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
     await page.getByText("Opening paragraph 19.").waitFor();
+    // Do not begin motion sampling while the fallback font can still be replaced: a late font
+    // reflow changes every row's height and looks like a follow jump even though no stream event ran.
+    await page.evaluate(() => document.fonts.ready);
+    await painted(page, 2);
     await rest(page);
     return page;
   }
@@ -456,6 +460,8 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
       const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
       await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${RICH}`);
       await page.getByText("Rich ending marker.").waitFor();
+      await page.evaluate(() => document.fonts.ready);
+      await painted(page, 2);
       // Observe a fixed number of painted frames. A wall-clock window changes its sample count with
       // runner load and can stop between the layout and the paint that settles it.
       await painted(page, 180);
