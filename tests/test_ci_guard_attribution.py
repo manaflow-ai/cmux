@@ -564,6 +564,15 @@ class StepSelection(unittest.TestCase):
         self.assertEqual([[s.name for s in u.steps] for u in selected], [["a", "b"], ["b"]])
         self.assertEqual(run_ci_guards.select_steps(units, {"zzz"}), [])
 
+    def test_a_stateful_group_drops_earlier_steps_that_hand_no_state(self) -> None:
+        # release-notary: one submodule step, then ~95 plain checks before its red one. Re-running all of them on
+        # the base outran the 25-minute job and left the guard group cancelled (run 43380647537).
+        steps = [run_ci_guards.Step("init", "git submodule update --init x", {}, None)]
+        steps += [run_ci_guards.Step(f"plain{i}", "true", {}, None) for i in range(95)]
+        steps += [run_ci_guards.Step("red", "false", {}, None), run_ci_guards.Step("after", "true", {}, None)]
+        selected = run_ci_guards.select_steps([run_ci_guards.Unit("j", "release-notary", steps)], {"red"})
+        self.assertEqual([s.name for s in selected[0].steps], ["init", "red"])
+
 
 class WorkflowTrust(unittest.TestCase):
     @classmethod
