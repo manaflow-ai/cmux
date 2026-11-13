@@ -21,7 +21,7 @@ struct PersonalizationPage: View {
     @State var model: PersonalizationModel
 
     var body: some View {
-        List {
+        List { Group {
             PersonalizationSourcePicker(model: model)
             if model.choice.mode == .matchMac {
                 PersonalizationMacSection(model: model)
@@ -31,6 +31,9 @@ struct PersonalizationPage: View {
                 PersonalizationWindowSection(model: model)
                 PersonalizationBackgroundSection(model: model)
             }
+        }
+        // With a theme, rows on its surface; the neutral look keeps the system's grouped cells.
+        .listRowBackground(CmuxMobileAppearance.shared.isThemed ? CmuxMobileTheme.standard.colors.surface.color : nil)
         }
         .settingsPage("Personalization")
         .animation(theme.motion.snap.animation.unlessReduceMotion, value: model.choice.mode)
