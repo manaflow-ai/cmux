@@ -122,7 +122,9 @@ def run_bench(name, argv, log_dir, timeout):
     lines = open(log, errors="replace").read().splitlines()
     tail = lines[-6:]
     if code != 0:
-        tail = [t[:2000] for t in lines[:-6] if t.startswith(("BENCH-LAUNCH ", "bench-launch: "))][:4] + tail
+        said = [t for t in lines[:-6] if t.startswith("bench-launch: ")][-2:]
+        said += [t[:3500] for t in lines[:-6] if t.startswith("BENCH-LAUNCH ")][-1:]  # the report: exit, crash summary
+        tail = said + tail
     print(f"--- {name}: exit {code} in {took}s", *("    " + t for t in tail), sep="\n", flush=True)
     return {"exit": code, "seconds": took, "log": log}
 
