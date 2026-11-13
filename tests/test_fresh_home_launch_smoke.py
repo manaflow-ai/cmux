@@ -37,6 +37,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 import urllib.parse
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -566,6 +567,26 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertFalse(smoke.alive(arm["pid"]), "the seeded launch outlived the run")
         self.assertFalse(smoke.alive(int(self.host_pid_path.read_text())), "the seeded launch's terminal host outlived the run")
         self.assert_cleaned_up(report)
+
+    def test_the_report_keeps_the_hosts_load_for_each_arm_and_the_seeded_launchs_marks(self):
+        # One build was slow on one fleet Mac (daemon.ensure 24.5 s in the seeded launch) and not on another (Home
+        # at 5.5 s). The report could not tell a loaded host from a slow app: it had no load of the host, and a
+        # seeded launch that passed kept none of its launch marks.
+        status, output, report, _out = self.seeded("healthy")
+        self.assertEqual(status, smoke.PASS, output)
+        empty, seeded = report["arms"]["empty"], report["arms"]["seeded"]
+        for host in (report["host"], empty["host"], seeded["host"]):
+            self.assertEqual(host["cpus"], os.cpu_count())
+            self.assertIsInstance(host["load_at_launch"], float)
+            self.assertIsInstance(host["load_at_home"], float)
+        self.assertEqual(empty["host"], report["host"])
+        self.assertIn(smoke.RENDER_MARK, report["marks"])
+        self.assertIn(smoke.RENDER_MARK, seeded["marks"])
+        self.assertEqual(seeded["verdict"], "pass", output)
+
+    def test_a_host_that_cannot_say_its_load_leaves_it_empty(self):
+        with mock.patch.object(os, "getloadavg", side_effect=OSError("no load here")):
+            self.assertIsNone(smoke.host_load())
 
     def test_a_crash_from_the_seeded_home_fails_the_run_as_that_arms_crash(self):
         status, output, report, out = self.seeded("sync-crash")
@@ -1576,6 +1597,9 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         status, output, report = self.run_smoke("no-home", "--seconds", "0", "--startup-timeout", "3")
         self.assertEqual(status, smoke.FAIL, output)
         self.assertIn("Home did not render", report["failures"][0])
+        # The load at Home is of a Home that rendered: none here.
+        self.assertIsInstance(report["host"]["load_at_launch"], float)
+        self.assertIsNone(report["host"]["load_at_home"])
         self.assert_cleaned_up(report)
 
     def test_a_caller_ready_check_replaces_only_the_home_check(self):
