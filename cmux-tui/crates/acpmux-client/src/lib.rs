@@ -202,7 +202,7 @@ pub struct Client<T = Summary> {
     subscriptions: HashMap<String, SubState>,
     retired_sids: HashSet<String>,
     pages: HashMap<String, PageState>,
-    stale_folder_pages: std::collections::HashSet<String>,
+    stale_folder_pages: HashSet<String>,
     deferred_folder_pages: HashMap<String, Page>,
     limits: Limits,
     line: Vec<u8>,
@@ -235,7 +235,7 @@ where
     T: Serialize + DeserializeOwned + Clone,
 {
     fn sub_view_is_live(sub: &SubState) -> bool {
-        matches!(sub.request.view, Some(wire::ListView::Live))
+        matches!(sub.request.view, Some(ListView::Live))
     }
 
     pub fn new(surfaces: impl IntoIterator<Item = impl Into<String>>) -> Self {
@@ -249,7 +249,7 @@ where
             subscriptions: HashMap::new(),
             retired_sids: HashSet::new(),
             pages: HashMap::new(),
-            stale_folder_pages: std::collections::HashSet::new(),
+            stale_folder_pages: HashSet::new(),
             deferred_folder_pages: HashMap::new(),
             limits: Limits::default(),
             line: Vec::new(),
