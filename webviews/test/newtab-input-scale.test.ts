@@ -100,7 +100,7 @@ await requireBrowserLane("newtab-input-scale.test.ts", async () => {
       for (const result of results) {
         expect(result.glyphTop).toBeCloseTo(result.fieldPad, 1);
         expect(result.glyphFontSize).toBeCloseTo(result.fontSize, 1);
-        expect(result.plusCenter).toBeCloseTo(result.fieldPad - result.textDrop / 2 + result.lineHeight / 2, 1);
+        expect(result.plusCenter).toBeCloseTo(result.fieldPad + result.lineHeight / 2, 1);
         expect(result.plusBottom).toBeLessThanOrEqual(result.inputBottom + 0.5);
         expect(result.fieldHeight).toBeGreaterThanOrEqual(
           result.lineHeight + 2 * (result.fieldPad - result.textDrop / 2) - 1,

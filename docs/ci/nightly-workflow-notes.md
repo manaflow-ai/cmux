@@ -32,3 +32,15 @@ Start the standalone Computer Use helper submission before Codesign apps so Appl
 republish-nightly-deltas, why it is its own job:
 
 This job is separate from publish-nightly so the feed can advance first. On nightly-next its delta uploads are serialized in their own group, never publish-nightly's: GitHub replaces a group's pending job with a newly queued one, so a shared group let one run's deltas cancel another run's waiting publish. Its only feed write is a compare-and-swap on the bytes read (write-feed --same-build: only while the live feed serves this build), so a newer publish in between makes it a no-op. The classic and RC tracks replace release feeds with no compare-and-swap, so they keep publish-nightly's lock.
+
+## note-6
+
+build-nightly-app, the unsigned app upload's timeout and chunking:
+
+A stalled upload once held the Mac 39 min (run 40460194731): 10 min, then one retry that replaces a partial upload. upload-artifact sends 8 MB blocks 5 at a time by default: the 413 MB app took 92-211 s (2-4.5 MB/s, a block every 3-17 s; runs 41430382728-41444184160) and the signers wait on this job's end. 32 at a time, as ci-macos.yml's product upload; same bytes.
+
+## note-7
+
+the signing jobs' Set up Node step:
+
+Provide node/npm explicitly. The build/sign/notarize job can land on a self-hosted macOS runner (the iOS-CI minis match the same label) that has no npm on PATH, so `npm install --global create-dmg` failed with "npm: command not found" and turned nightly red. setup-node makes the job self-sufficient on any runner instead of assuming a preinstalled npm.
