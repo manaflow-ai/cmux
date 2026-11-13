@@ -36,7 +36,7 @@ nonisolated final class MacScreenRdHost: Sendable {
     }
 
     private let session: Session
-    private let process = MacScreenRdProcess()
+    private let process: any MacScreenRdWorker
     /// The WebRTC host when the viewer offered WebRTC (nil until then, and for a cmux.rd/1 viewer).
     private let webRTC = Mutex<ScreenStreamHost?>(nil)
     /// Reads the process's lines until it ends; outlives `serve` (a connected session outlives its
@@ -48,8 +48,9 @@ nonisolated final class MacScreenRdHost: Sendable {
     /// Serves a WebRTC viewer; nil is `ScreenStreamHost` (tests replace it: no WebRTC or capture there).
     private let webRTCServer: (@Sendable (MacScreenForwardedSignaling) async throws -> Void)?
 
-    init(session: Session, webRTCServer: (@Sendable (MacScreenForwardedSignaling) async throws -> Void)? = nil) {
+    init(session: Session, process: any MacScreenRdWorker = MacScreenRdProcess(), webRTCServer: (@Sendable (MacScreenForwardedSignaling) async throws -> Void)? = nil) {
         self.session = session
+        self.process = process
         self.webRTCServer = webRTCServer
     }
 
