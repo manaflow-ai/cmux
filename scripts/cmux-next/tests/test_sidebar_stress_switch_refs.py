@@ -11,7 +11,7 @@ Mac, 2026-11-13: 9 of 9 such calls `not_found`, the key cells' selection check w
 The fake below answers as the app does: the record for a create, `{"code": "not_found", "data": {"id": ...}}` for
 an id that names no workspace, and it counts what it refused. The tests assert counts, never a time.
 Run: python3 -I scripts/cmux-next/tests/test_sidebar_stress_switch_refs.py"""
-import importlib.util, io, os, subprocess, sys, tempfile, types, unittest
+import importlib.util, io, json, os, subprocess, sys, tempfile, types, unittest
 from contextlib import redirect_stdout
 from unittest import mock
 
@@ -47,11 +47,13 @@ class FakeApp:
     """The app's socket and its CLI, as far as the switch matrix uses them. A workspace is a sidebar row with a
     name, an id and a page count; a new one goes below the others, so only a move that works puts it at the top."""
 
-    def __init__(self, refuse=(), record=True):
+    def __init__(self, refuse=(), record=True, lists=True):
         self.rows = []
         self.selected = None
         self.refuse = set(refuse)   # actions that this app refuses whatever they name
         self.record = record        # False: `workspace create` answers a text with no id
+        self.lists = lists          # False: the app's snapshot never lists a workspace that the CLI made
+        self.snapshots = 0          # snapshot.get calls
         self.refused = []           # (action, the id it named) of each error answer
         self.inputs = 0             # clicks and keys
         self.recording, self.samples = False, []
@@ -124,7 +126,8 @@ class FakeApp:
                                            "window_frame": {"x": 10, "y": 100 + 30 * i, "width": 200, "height": 28}}
                                           for i, r in enumerate(self.rows)]}]}
         if method == "snapshot.get":
-            return {"topology": {"workspaces": [{"id": r["id"], "name": r["name"]} for r in self.rows]}}
+            self.snapshots += 1
+            return {"topology": {"workspaces": [{"id": r["id"], "name": r["name"]} for r in self.rows[: None if self.lists else 1]]}}
         if method == "debug.mouse":
             if p.get("action") == "click":
                 self.inputs += 1
@@ -147,7 +150,7 @@ class FakeApp:
             return {"recording": False, "switches": samples}
         if method == "debug.frames":
             return {"max_ms": 8.33, "intervals_ms": [8.33] * 30, "refresh_ms": 8.33, "running": True, "frames": 30}
-        return {}
+        return {}  # scroll and drag events, hover, hangs: the fake has no scroll position and no drag
 
 
 class SwitchMatrixRefTests(unittest.TestCase):
@@ -209,6 +212,79 @@ class SwitchMatrixRefTests(unittest.TestCase):
             self.run_with(app)
         self.assertIn("value.workspace_id", stop.exception.code)
         self.assertEqual(app.inputs, 0)
+
+    def test_a_made_workspace_that_the_app_never_lists_stops_the_run_with_its_id(self):
+        app = FakeApp(lists=False)
+        with self.assertRaises(SystemExit) as stop:
+            self.run_with(app)
+        made = app.rows[1]  # the first target; the run made no second one
+        self.assertEqual(len(app.rows), 2, "the run went on after a workspace the app did not list")
+        self.assertIn(made["id"], stop.exception.code)
+        self.assertIn(made["name"], stop.exception.code)
+        self.assertEqual((app.snapshots, len(app.refused), app.inputs), (1, 0, 0))
+
+
+class StoppedRunKeepsItsRowsTests(unittest.TestCase):
+    """A stop of the switch matrix is the end of the run (exit 1), not the loss of the rows the run measured: the
+    size's entry holds the scenarios before the matrix and after it, and no switch row."""
+
+    def run_main(self, app, scenarios):
+        bench.results["sizes"], bench.results["log"] = {}, []
+        bench.made.clear()
+        bench.made.update({"workspaces": [], "tickers": [], "groups": [], "pinned": []})
+        bench.rpc, bench.cli = app.rpc, app.cli
+        bench.wait = lambda predicate, seconds, step=0.25: predicate()
+        bench.launch_app = lambda *a, **k: (types.SimpleNamespace(pid=1), "/nonexistent/app.sock")
+        bench.opts.sizes, bench.opts.scenarios, bench.opts.stop = "0", scenarios, False
+        stop = None
+        with mock.patch.object(bench.time, "sleep", lambda seconds: None), redirect_stdout(io.StringIO()):
+            try:
+                bench.main()
+            except SystemExit as error:
+                stop = error
+        return stop, json.load(open(os.path.join(OUT, "results.json")))
+
+    def test_a_refused_move_after_the_scroll_keeps_the_scroll_and_drag_rows_and_exits_1(self):
+        app = FakeApp(refuse={"palette.moveWorkspaceToTop"})
+        stop, results = self.run_main(app, "scroll,switch_matrix,drag")
+        self.assertEqual(len(results["sizes"]), 1, "the stop of the switch matrix lost the size's entry (the scroll rows of this run)")
+        entry = results["sizes"]["0"]
+        self.assertEqual(entry["scroll"]["events"], 600)
+        self.assertEqual(entry["drag"]["moves"], 180, "the scenario after the switch matrix did not run")
+        self.assertEqual([k for k, v in entry["switch_matrix"].items() if isinstance(v, dict)], [], "a stopped matrix gave switch rows")
+        self.assertIn("palette.moveWorkspaceToTop", entry["switch_matrix"]["error"])
+        self.assertIsNotNone(stop, "the run did not exit after a refused move")
+        self.assertIsInstance(stop.code, str)  # exit status 1, the text on stderr
+        self.assertIn("not_found", stop.code)
+        self.assertIs(results["measurement_complete"], False)
+        self.assertEqual(app.inputs, 0)
+
+    def test_a_stop_at_a_later_cell_keeps_the_cells_that_ended(self):
+        app = FakeApp()
+        real = app.rpc
+
+        def rpc(method, params=None, timeout=60):
+            # The terminal pair's first workspace leaves when the page pair's 3 cells have ended.
+            if app.inputs == 3 * SWITCHES and any(r["name"] == "sw term a" for r in app.rows):
+                app.rows.remove(app.named("sw term a"))
+            return real(method, params, timeout)
+
+        app.rpc = rpc
+        stop, results = self.run_main(app, "switch_matrix")
+        matrix = results["sizes"]["0"]["switch_matrix"]
+        self.assertEqual(sorted(k for k, v in matrix.items() if isinstance(v, dict)),
+                         ["chromium.click", "chromium.cmd_digit", "chromium.next_prev"])
+        self.assertIn("goToWorkspace sw term a", matrix["error"])
+        self.assertIsNotNone(stop)
+        self.assertEqual(app.inputs, 3 * SWITCHES)
+
+    def test_a_run_with_no_stop_ends_as_before(self):
+        stop, results = self.run_main(FakeApp(), "scroll,switch_matrix,drag")
+        self.assertIsNone(stop)
+        entry = results["sizes"]["0"]
+        self.assertEqual(sorted(k for k, v in entry["switch_matrix"].items() if isinstance(v, dict) and "input_to_idle_ms" in v), sorted(CELLS))
+        self.assertNotIn("error", entry["switch_matrix"])
+        self.assertIs(results["measurement_complete"], True)
 
 
 if __name__ == "__main__":
