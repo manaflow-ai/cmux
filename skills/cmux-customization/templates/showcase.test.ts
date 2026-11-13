@@ -56,16 +56,16 @@ test("workspace tabs coalesce change bursts and ignore a late response after unm
   expect(host.batches("m")).toHaveLength(batchCount)
 })
 
-test("needs-you changes with agent events and opens the chosen chat", async () => {
+test("needs-you changes with agent events and opens the chosen chat on its machine", async () => {
   const host = new FakeHost(source("needs-you"))
   let state = "input"
-  host.handlers["agent_chat.list"] = () => ok({ chats: [{ id: "session_a", title: "A question", state }] })
+  host.handlers["agent_chat.list"] = () => ok({ chats: [{ id: "session_a", title: "A question", state, machine: "air-blue" }] })
   host.handlers["action.run"] = () => ok()
   expect(host.mount("m", "renderNeedsYou")).toBe("")
   await host.settle()
   tap(host, "Row", "A question")
   await host.settle()
-  expect(host.calls.find((call) => call.name === "action.run")).toMatchObject({ params: { id: "agent.openSessionTab", args: { session: "session_a" } }, options: { gesture: "showcase-click" } })
+  expect(host.calls.find((call) => call.name === "action.run")).toMatchObject({ params: { id: "agent.openSessionTab", args: { session: "session_a", host: "air-blue" } }, options: { gesture: "showcase-click" } })
   state = "working"
   host.emit("agent_chat.changed")
   await host.settle()

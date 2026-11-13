@@ -86343,121 +86343,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اربط هذا المثال بسير عملك في cmux.\nانقر لتجربة الإجراء الحقيقي وإعادة التحميل السريع."
+            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Povežite ovaj primjer sa svojim cmux tokom rada.\nKliknite da isprobate stvarnu radnju i brzo ponovno učitavanje."
+            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Forbind dette eksempel med din cmux-arbejdsgang.\nKlik for at prøve den rigtige handling og hurtig genindlæsning."
+            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verbinde dieses Beispiel mit deinem cmux-Arbeitsablauf.\nKlicke, um die echte Aktion und das schnelle Neuladen auszuprobieren."
+            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conecta este ejemplo con tu flujo de trabajo de cmux.\nHaz clic para probar la acción real y la recarga rápida."
+            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reliez cet exemple à votre flux de travail cmux.\nCliquez pour tester la vraie action et le rechargement rapide."
+            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Collega questo esempio al tuo flusso di lavoro cmux.\nFai clic per provare l’azione reale e il ricaricamento rapido."
+            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この例を cmux のワークフローにつなぎます。\nクリックして実際の操作と高速な再読み込みを試します。"
+            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ភ្ជាប់ឧទាហរណ៍នេះទៅលំហូរការងារ cmux របស់អ្នក។\nចុចដើម្បីសាកល្បងសកម្មភាពពិត និងការផ្ទុកឡើងវិញលឿន។"
+            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 예제를 cmux 작업 흐름에 연결합니다.\n클릭해 실제 작업과 빠른 다시 로드를 사용해 보세요."
+            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Koble dette eksempelet til cmux-arbeidsflyten din.\nKlikk for å prøve den virkelige handlingen og rask innlasting."
+            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Połącz ten przykład ze swoim przepływem pracy cmux.\nKliknij, aby wypróbować prawdziwe działanie i szybkie przeładowanie."
+            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conecte este exemplo ao seu fluxo de trabalho do cmux.\nClique para testar a ação real e o recarregamento rápido."
+            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Подключите этот пример к рабочему процессу cmux.\nНажмите, чтобы опробовать настоящее действие и быструю перезагрузку."
+            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เชื่อมต่อตัวอย่างนี้กับเวิร์กโฟลว์ cmux ของคุณ\nคลิกเพื่อทดลองการทำงานจริงและการโหลดใหม่อย่างรวดเร็ว"
+            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu örneği cmux iş akışınıza bağlayın.\nGerçek işlemi ve hızlı yeniden yüklemeyi denemek için tıklayın."
+            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Підключіть цей приклад до робочого процесу cmux.\nНатисніть, щоб випробувати справжню дію та швидке перезавантаження."
+            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kết nối ví dụ này với quy trình cmux của bạn.\nNhấp để thử hành động thật và tải lại nhanh."
+            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "将此示例连接到你的 cmux 工作流。\n点击即可试用真实操作和快速重新加载。"
+            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "將此範例連接到你的 cmux 工作流程。\n點擊即可試用真實動作和快速重新載入。"
+            "value": "Keep your open pull requests beside your work.\nClick a row to open it in a cmux browser tab."
           }
         }
       }
@@ -86607,121 +86607,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اربط هذا المثال بسير عملك في cmux.\nانقر لتجربة الإجراء الحقيقي وإعادة التحميل السريع."
+            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Povežite ovaj primjer sa svojim cmux tokom rada.\nKliknite da isprobate stvarnu radnju i brzo ponovno učitavanje."
+            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Forbind dette eksempel med din cmux-arbejdsgang.\nKlik for at prøve den rigtige handling og hurtig genindlæsning."
+            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verbinde dieses Beispiel mit deinem cmux-Arbeitsablauf.\nKlicke, um die echte Aktion und das schnelle Neuladen auszuprobieren."
+            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conecta este ejemplo con tu flujo de trabajo de cmux.\nHaz clic para probar la acción real y la recarga rápida."
+            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reliez cet exemple à votre flux de travail cmux.\nCliquez pour tester la vraie action et le rechargement rapide."
+            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Collega questo esempio al tuo flusso di lavoro cmux.\nFai clic per provare l’azione reale e il ricaricamento rapido."
+            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この例を cmux のワークフローにつなぎます。\nクリックして実際の操作と高速な再読み込みを試します。"
+            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ភ្ជាប់ឧទាហរណ៍នេះទៅលំហូរការងារ cmux របស់អ្នក។\nចុចដើម្បីសាកល្បងសកម្មភាពពិត និងការផ្ទុកឡើងវិញលឿន។"
+            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 예제를 cmux 작업 흐름에 연결합니다.\n클릭해 실제 작업과 빠른 다시 로드를 사용해 보세요."
+            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Koble dette eksempelet til cmux-arbeidsflyten din.\nKlikk for å prøve den virkelige handlingen og rask innlasting."
+            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Połącz ten przykład ze swoim przepływem pracy cmux.\nKliknij, aby wypróbować prawdziwe działanie i szybkie przeładowanie."
+            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conecte este exemplo ao seu fluxo de trabalho do cmux.\nClique para testar a ação real e o recarregamento rápido."
+            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Подключите этот пример к рабочему процессу cmux.\nНажмите, чтобы опробовать настоящее действие и быструю перезагрузку."
+            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เชื่อมต่อตัวอย่างนี้กับเวิร์กโฟลว์ cmux ของคุณ\nคลิกเพื่อทดลองการทำงานจริงและการโหลดใหม่อย่างรวดเร็ว"
+            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu örneği cmux iş akışınıza bağlayın.\nGerçek işlemi ve hızlı yeniden yüklemeyi denemek için tıklayın."
+            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Підключіть цей приклад до робочого процесу cmux.\nНатисніть, щоб випробувати справжню дію та швидке перезавантаження."
+            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kết nối ví dụ này với quy trình cmux của bạn.\nNhấp để thử hành động thật và tải lại nhanh."
+            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "将此示例连接到你的 cmux 工作流。\n点击即可试用真实操作和快速重新加载。"
+            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "將此範例連接到你的 cmux 工作流程。\n點擊即可試用真實動作和快速重新載入。"
+            "value": "See which agent chats are waiting for your answer.\nOpen the question directly from the sidebar."
           }
         }
       }
@@ -86871,121 +86871,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اربط هذا المثال بسير عملك في cmux.\nانقر لتجربة الإجراء الحقيقي وإعادة التحميل السريع."
+            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Povežite ovaj primjer sa svojim cmux tokom rada.\nKliknite da isprobate stvarnu radnju i brzo ponovno učitavanje."
+            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Forbind dette eksempel med din cmux-arbejdsgang.\nKlik for at prøve den rigtige handling og hurtig genindlæsning."
+            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verbinde dieses Beispiel mit deinem cmux-Arbeitsablauf.\nKlicke, um die echte Aktion und das schnelle Neuladen auszuprobieren."
+            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conecta este ejemplo con tu flujo de trabajo de cmux.\nHaz clic para probar la acción real y la recarga rápida."
+            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reliez cet exemple à votre flux de travail cmux.\nCliquez pour tester la vraie action et le rechargement rapide."
+            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Collega questo esempio al tuo flusso di lavoro cmux.\nFai clic per provare l’azione reale e il ricaricamento rapido."
+            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この例を cmux のワークフローにつなぎます。\nクリックして実際の操作と高速な再読み込みを試します。"
+            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ភ្ជាប់ឧទាហរណ៍នេះទៅលំហូរការងារ cmux របស់អ្នក។\nចុចដើម្បីសាកល្បងសកម្មភាពពិត និងការផ្ទុកឡើងវិញលឿន។"
+            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 예제를 cmux 작업 흐름에 연결합니다.\n클릭해 실제 작업과 빠른 다시 로드를 사용해 보세요."
+            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Koble dette eksempelet til cmux-arbeidsflyten din.\nKlikk for å prøve den virkelige handlingen og rask innlasting."
+            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Połącz ten przykład ze swoim przepływem pracy cmux.\nKliknij, aby wypróbować prawdziwe działanie i szybkie przeładowanie."
+            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conecte este exemplo ao seu fluxo de trabalho do cmux.\nClique para testar a ação real e o recarregamento rápido."
+            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Подключите этот пример к рабочему процессу cmux.\nНажмите, чтобы опробовать настоящее действие и быструю перезагрузку."
+            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เชื่อมต่อตัวอย่างนี้กับเวิร์กโฟลว์ cmux ของคุณ\nคลิกเพื่อทดลองการทำงานจริงและการโหลดใหม่อย่างรวดเร็ว"
+            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu örneği cmux iş akışınıza bağlayın.\nGerçek işlemi ve hızlı yeniden yüklemeyi denemek için tıklayın."
+            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Підключіть цей приклад до робочого процесу cmux.\nНатисніть, щоб випробувати справжню дію та швидке перезавантаження."
+            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kết nối ví dụ này với quy trình cmux của bạn.\nNhấp để thử hành động thật và tải lại nhanh."
+            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "将此示例连接到你的 cmux 工作流。\n点击即可试用真实操作和快速重新加载。"
+            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "將此範例連接到你的 cmux 工作流程。\n點擊即可試用真實動作和快速重新載入。"
+            "value": "Follow the tabs in your focused workspace.\nJump to its terminal, chat, or browser with one click."
           }
         }
       }
@@ -87135,121 +87135,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اربط هذا المثال بسير عملك في cmux.\nانقر لتجربة الإجراء الحقيقي وإعادة التحميل السريع."
+            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Povežite ovaj primjer sa svojim cmux tokom rada.\nKliknite da isprobate stvarnu radnju i brzo ponovno učitavanje."
+            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Forbind dette eksempel med din cmux-arbejdsgang.\nKlik for at prøve den rigtige handling og hurtig genindlæsning."
+            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verbinde dieses Beispiel mit deinem cmux-Arbeitsablauf.\nKlicke, um die echte Aktion und das schnelle Neuladen auszuprobieren."
+            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conecta este ejemplo con tu flujo de trabajo de cmux.\nHaz clic para probar la acción real y la recarga rápida."
+            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reliez cet exemple à votre flux de travail cmux.\nCliquez pour tester la vraie action et le rechargement rapide."
+            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Collega questo esempio al tuo flusso di lavoro cmux.\nFai clic per provare l’azione reale e il ricaricamento rapido."
+            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この例を cmux のワークフローにつなぎます。\nクリックして実際の操作と高速な再読み込みを試します。"
+            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ភ្ជាប់ឧទាហរណ៍នេះទៅលំហូរការងារ cmux របស់អ្នក។\nចុចដើម្បីសាកល្បងសកម្មភាពពិត និងការផ្ទុកឡើងវិញលឿន។"
+            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 예제를 cmux 작업 흐름에 연결합니다.\n클릭해 실제 작업과 빠른 다시 로드를 사용해 보세요."
+            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Koble dette eksempelet til cmux-arbeidsflyten din.\nKlikk for å prøve den virkelige handlingen og rask innlasting."
+            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Połącz ten przykład ze swoim przepływem pracy cmux.\nKliknij, aby wypróbować prawdziwe działanie i szybkie przeładowanie."
+            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conecte este exemplo ao seu fluxo de trabalho do cmux.\nClique para testar a ação real e o recarregamento rápido."
+            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Подключите этот пример к рабочему процессу cmux.\nНажмите, чтобы опробовать настоящее действие и быструю перезагрузку."
+            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เชื่อมต่อตัวอย่างนี้กับเวิร์กโฟลว์ cmux ของคุณ\nคลิกเพื่อทดลองการทำงานจริงและการโหลดใหม่อย่างรวดเร็ว"
+            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu örneği cmux iş akışınıza bağlayın.\nGerçek işlemi ve hızlı yeniden yüklemeyi denemek için tıklayın."
+            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Підключіть цей приклад до робочого процесу cmux.\nНатисніть, щоб випробувати справжню дію та швидке перезавантаження."
+            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kết nối ví dụ này với quy trình cmux của bạn.\nNhấp để thử hành động thật và tải lại nhanh."
+            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "将此示例连接到你的 cmux 工作流。\n点击即可试用真实操作和快速重新加载。"
+            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "將此範例連接到你的 cmux 工作流程。\n點擊即可試用真實動作和快速重新載入。"
+            "value": "Paste and keep the links your team uses every day.\nOpen a dashboard beside your code in a cmux browser tab."
           }
         }
       }
@@ -87399,121 +87399,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اربط هذا المثال بسير عملك في cmux.\nانقر لتجربة الإجراء الحقيقي وإعادة التحميل السريع."
+            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Povežite ovaj primjer sa svojim cmux tokom rada.\nKliknite da isprobate stvarnu radnju i brzo ponovno učitavanje."
+            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Forbind dette eksempel med din cmux-arbejdsgang.\nKlik for at prøve den rigtige handling og hurtig genindlæsning."
+            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verbinde dieses Beispiel mit deinem cmux-Arbeitsablauf.\nKlicke, um die echte Aktion und das schnelle Neuladen auszuprobieren."
+            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conecta este ejemplo con tu flujo de trabajo de cmux.\nHaz clic para probar la acción real y la recarga rápida."
+            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reliez cet exemple à votre flux de travail cmux.\nCliquez pour tester la vraie action et le rechargement rapide."
+            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Collega questo esempio al tuo flusso di lavoro cmux.\nFai clic per provare l’azione reale e il ricaricamento rapido."
+            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この例を cmux のワークフローにつなぎます。\nクリックして実際の操作と高速な再読み込みを試します。"
+            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ភ្ជាប់ឧទាហរណ៍នេះទៅលំហូរការងារ cmux របស់អ្នក។\nចុចដើម្បីសាកល្បងសកម្មភាពពិត និងការផ្ទុកឡើងវិញលឿន។"
+            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 예제를 cmux 작업 흐름에 연결합니다.\n클릭해 실제 작업과 빠른 다시 로드를 사용해 보세요."
+            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Koble dette eksempelet til cmux-arbeidsflyten din.\nKlikk for å prøve den virkelige handlingen og rask innlasting."
+            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Połącz ten przykład ze swoim przepływem pracy cmux.\nKliknij, aby wypróbować prawdziwe działanie i szybkie przeładowanie."
+            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conecte este exemplo ao seu fluxo de trabalho do cmux.\nClique para testar a ação real e o recarregamento rápido."
+            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Подключите этот пример к рабочему процессу cmux.\nНажмите, чтобы опробовать настоящее действие и быструю перезагрузку."
+            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เชื่อมต่อตัวอย่างนี้กับเวิร์กโฟลว์ cmux ของคุณ\nคลิกเพื่อทดลองการทำงานจริงและการโหลดใหม่อย่างรวดเร็ว"
+            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu örneği cmux iş akışınıza bağlayın.\nGerçek işlemi ve hızlı yeniden yüklemeyi denemek için tıklayın."
+            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Підключіть цей приклад до робочого процесу cmux.\nНатисніть, щоб випробувати справжню дію та швидке перезавантаження."
+            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kết nối ví dụ này với quy trình cmux của bạn.\nNhấp để thử hành động thật và tải lại nhanh."
+            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "将此示例连接到你的 cmux 工作流。\n点击即可试用真实操作和快速重新加载。"
+            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "將此範例連接到你的 cmux 工作流程。\n點擊即可試用真實動作和快速重新載入。"
+            "value": "See the branch and ahead/behind counts for the current chat.\nSession Info follows that chat’s repository folder."
           }
         }
       }
@@ -87663,121 +87663,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اربط هذا المثال بسير عملك في cmux.\nانقر لتجربة الإجراء الحقيقي وإعادة التحميل السريع."
+            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Povežite ovaj primjer sa svojim cmux tokom rada.\nKliknite da isprobate stvarnu radnju i brzo ponovno učitavanje."
+            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Forbind dette eksempel med din cmux-arbejdsgang.\nKlik for at prøve den rigtige handling og hurtig genindlæsning."
+            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verbinde dieses Beispiel mit deinem cmux-Arbeitsablauf.\nKlicke, um die echte Aktion und das schnelle Neuladen auszuprobieren."
+            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conecta este ejemplo con tu flujo de trabajo de cmux.\nHaz clic para probar la acción real y la recarga rápida."
+            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reliez cet exemple à votre flux de travail cmux.\nCliquez pour tester la vraie action et le rechargement rapide."
+            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Collega questo esempio al tuo flusso di lavoro cmux.\nFai clic per provare l’azione reale e il ricaricamento rapido."
+            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この例を cmux のワークフローにつなぎます。\nクリックして実際の操作と高速な再読み込みを試します。"
+            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ភ្ជាប់ឧទាហរណ៍នេះទៅលំហូរការងារ cmux របស់អ្នក។\nចុចដើម្បីសាកល្បងសកម្មភាពពិត និងការផ្ទុកឡើងវិញលឿន។"
+            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 예제를 cmux 작업 흐름에 연결합니다.\n클릭해 실제 작업과 빠른 다시 로드를 사용해 보세요."
+            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Koble dette eksempelet til cmux-arbeidsflyten din.\nKlikk for å prøve den virkelige handlingen og rask innlasting."
+            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Połącz ten przykład ze swoim przepływem pracy cmux.\nKliknij, aby wypróbować prawdziwe działanie i szybkie przeładowanie."
+            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conecte este exemplo ao seu fluxo de trabalho do cmux.\nClique para testar a ação real e o recarregamento rápido."
+            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Подключите этот пример к рабочему процессу cmux.\nНажмите, чтобы опробовать настоящее действие и быструю перезагрузку."
+            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เชื่อมต่อตัวอย่างนี้กับเวิร์กโฟลว์ cmux ของคุณ\nคลิกเพื่อทดลองการทำงานจริงและการโหลดใหม่อย่างรวดเร็ว"
+            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu örneği cmux iş akışınıza bağlayın.\nGerçek işlemi ve hızlı yeniden yüklemeyi denemek için tıklayın."
+            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Підключіть цей приклад до робочого процесу cmux.\nНатисніть, щоб випробувати справжню дію та швидке перезавантаження."
+            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kết nối ví dụ này với quy trình cmux của bạn.\nNhấp để thử hành động thật và tải lại nhanh."
+            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "将此示例连接到你的 cmux 工作流。\n点击即可试用真实操作和快速重新加载。"
+            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "將此範例連接到你的 cmux 工作流程。\n點擊即可試用真實動作和快速重新載入。"
+            "value": "Keep the pull requests waiting for your review in the sidebar.\nOpen a review in a cmux browser tab."
           }
         }
       }
@@ -87927,121 +87927,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اربط هذا المثال بسير عملك في cmux.\nانقر لتجربة الإجراء الحقيقي وإعادة التحميل السريع."
+            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Povežite ovaj primjer sa svojim cmux tokom rada.\nKliknite da isprobate stvarnu radnju i brzo ponovno učitavanje."
+            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Forbind dette eksempel med din cmux-arbejdsgang.\nKlik for at prøve den rigtige handling og hurtig genindlæsning."
+            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verbinde dieses Beispiel mit deinem cmux-Arbeitsablauf.\nKlicke, um die echte Aktion und das schnelle Neuladen auszuprobieren."
+            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conecta este ejemplo con tu flujo de trabajo de cmux.\nHaz clic para probar la acción real y la recarga rápida."
+            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reliez cet exemple à votre flux de travail cmux.\nCliquez pour tester la vraie action et le rechargement rapide."
+            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Collega questo esempio al tuo flusso di lavoro cmux.\nFai clic per provare l’azione reale e il ricaricamento rapido."
+            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この例を cmux のワークフローにつなぎます。\nクリックして実際の操作と高速な再読み込みを試します。"
+            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ភ្ជាប់ឧទាហរណ៍នេះទៅលំហូរការងារ cmux របស់អ្នក។\nចុចដើម្បីសាកល្បងសកម្មភាពពិត និងការផ្ទុកឡើងវិញលឿន។"
+            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 예제를 cmux 작업 흐름에 연결합니다.\n클릭해 실제 작업과 빠른 다시 로드를 사용해 보세요."
+            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Koble dette eksempelet til cmux-arbeidsflyten din.\nKlikk for å prøve den virkelige handlingen og rask innlasting."
+            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Połącz ten przykład ze swoim przepływem pracy cmux.\nKliknij, aby wypróbować prawdziwe działanie i szybkie przeładowanie."
+            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conecte este exemplo ao seu fluxo de trabalho do cmux.\nClique para testar a ação real e o recarregamento rápido."
+            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Подключите этот пример к рабочему процессу cmux.\nНажмите, чтобы опробовать настоящее действие и быструю перезагрузку."
+            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เชื่อมต่อตัวอย่างนี้กับเวิร์กโฟลว์ cmux ของคุณ\nคลิกเพื่อทดลองการทำงานจริงและการโหลดใหม่อย่างรวดเร็ว"
+            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu örneği cmux iş akışınıza bağlayın.\nGerçek işlemi ve hızlı yeniden yüklemeyi denemek için tıklayın."
+            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Підключіть цей приклад до робочого процесу cmux.\nНатисніть, щоб випробувати справжню дію та швидке перезавантаження."
+            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kết nối ví dụ này với quy trình cmux của bạn.\nNhấp để thử hành động thật và tải lại nhanh."
+            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "将此示例连接到你的 cmux 工作流。\n点击即可试用真实操作和快速重新加载。"
+            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "將此範例連接到你的 cmux 工作流程。\n點擊即可試用真實動作和快速重新載入。"
+            "value": "See your working and blocked terminal agents together.\nClick an agent to focus its terminal."
           }
         }
       }
@@ -88191,121 +88191,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اربط هذا المثال بسير عملك في cmux.\nانقر لتجربة الإجراء الحقيقي وإعادة التحميل السريع."
+            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Povežite ovaj primjer sa svojim cmux tokom rada.\nKliknite da isprobate stvarnu radnju i brzo ponovno učitavanje."
+            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Forbind dette eksempel med din cmux-arbejdsgang.\nKlik for at prøve den rigtige handling og hurtig genindlæsning."
+            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verbinde dieses Beispiel mit deinem cmux-Arbeitsablauf.\nKlicke, um die echte Aktion und das schnelle Neuladen auszuprobieren."
+            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conecta este ejemplo con tu flujo de trabajo de cmux.\nHaz clic para probar la acción real y la recarga rápida."
+            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reliez cet exemple à votre flux de travail cmux.\nCliquez pour tester la vraie action et le rechargement rapide."
+            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Collega questo esempio al tuo flusso di lavoro cmux.\nFai clic per provare l’azione reale e il ricaricamento rapido."
+            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この例を cmux のワークフローにつなぎます。\nクリックして実際の操作と高速な再読み込みを試します。"
+            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ភ្ជាប់ឧទាហរណ៍នេះទៅលំហូរការងារ cmux របស់អ្នក។\nចុចដើម្បីសាកល្បងសកម្មភាពពិត និងការផ្ទុកឡើងវិញលឿន។"
+            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 예제를 cmux 작업 흐름에 연결합니다.\n클릭해 실제 작업과 빠른 다시 로드를 사용해 보세요."
+            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Koble dette eksempelet til cmux-arbeidsflyten din.\nKlikk for å prøve den virkelige handlingen og rask innlasting."
+            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Połącz ten przykład ze swoim przepływem pracy cmux.\nKliknij, aby wypróbować prawdziwe działanie i szybkie przeładowanie."
+            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conecte este exemplo ao seu fluxo de trabalho do cmux.\nClique para testar a ação real e o recarregamento rápido."
+            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Подключите этот пример к рабочему процессу cmux.\nНажмите, чтобы опробовать настоящее действие и быструю перезагрузку."
+            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เชื่อมต่อตัวอย่างนี้กับเวิร์กโฟลว์ cmux ของคุณ\nคลิกเพื่อทดลองการทำงานจริงและการโหลดใหม่อย่างรวดเร็ว"
+            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu örneği cmux iş akışınıza bağlayın.\nGerçek işlemi ve hızlı yeniden yüklemeyi denemek için tıklayın."
+            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Підключіть цей приклад до робочого процесу cmux.\nНатисніть, щоб випробувати справжню дію та швидке перезавантаження."
+            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kết nối ví dụ này với quy trình cmux của bạn.\nNhấp để thử hành động thật và tải lại nhanh."
+            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "将此示例连接到你的 cmux 工作流。\n点击即可试用真实操作和快速重新加载。"
+            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "將此範例連接到你的 cmux 工作流程。\n點擊即可試用真實動作和快速重新載入。"
+            "value": "Put useful cmux actions in your sidebar.\nEach button runs a real app action from your click."
           }
         }
       }
@@ -88455,121 +88455,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اربط هذا المثال بسير عملك في cmux.\nانقر لتجربة الإجراء الحقيقي وإعادة التحميل السريع."
+            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Povežite ovaj primjer sa svojim cmux tokom rada.\nKliknite da isprobate stvarnu radnju i brzo ponovno učitavanje."
+            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Forbind dette eksempel med din cmux-arbejdsgang.\nKlik for at prøve den rigtige handling og hurtig genindlæsning."
+            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verbinde dieses Beispiel mit deinem cmux-Arbeitsablauf.\nKlicke, um die echte Aktion und das schnelle Neuladen auszuprobieren."
+            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conecta este ejemplo con tu flujo de trabajo de cmux.\nHaz clic para probar la acción real y la recarga rápida."
+            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reliez cet exemple à votre flux de travail cmux.\nCliquez pour tester la vraie action et le rechargement rapide."
+            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Collega questo esempio al tuo flusso di lavoro cmux.\nFai clic per provare l’azione reale e il ricaricamento rapido."
+            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この例を cmux のワークフローにつなぎます。\nクリックして実際の操作と高速な再読み込みを試します。"
+            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ភ្ជាប់ឧទាហរណ៍នេះទៅលំហូរការងារ cmux របស់អ្នក។\nចុចដើម្បីសាកល្បងសកម្មភាពពិត និងការផ្ទុកឡើងវិញលឿន។"
+            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 예제를 cmux 작업 흐름에 연결합니다.\n클릭해 실제 작업과 빠른 다시 로드를 사용해 보세요."
+            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Koble dette eksempelet til cmux-arbeidsflyten din.\nKlikk for å prøve den virkelige handlingen og rask innlasting."
+            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Połącz ten przykład ze swoim przepływem pracy cmux.\nKliknij, aby wypróbować prawdziwe działanie i szybkie przeładowanie."
+            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conecte este exemplo ao seu fluxo de trabalho do cmux.\nClique para testar a ação real e o recarregamento rápido."
+            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Подключите этот пример к рабочему процессу cmux.\nНажмите, чтобы опробовать настоящее действие и быструю перезагрузку."
+            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เชื่อมต่อตัวอย่างนี้กับเวิร์กโฟลว์ cmux ของคุณ\nคลิกเพื่อทดลองการทำงานจริงและการโหลดใหม่อย่างรวดเร็ว"
+            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu örneği cmux iş akışınıza bağlayın.\nGerçek işlemi ve hızlı yeniden yüklemeyi denemek için tıklayın."
+            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Підключіть цей приклад до робочого процесу cmux.\nНатисніть, щоб випробувати справжню дію та швидке перезавантаження."
+            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kết nối ví dụ này với quy trình cmux của bạn.\nNhấp để thử hành động thật và tải lại nhanh."
+            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "将此示例连接到你的 cmux 工作流。\n点击即可试用真实操作和快速重新加载。"
+            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "將此範例連接到你的 cmux 工作流程。\n點擊即可試用真實動作和快速重新載入。"
+            "value": "Start or pause a short focus session beside your work.\nNative controls count down and cmux tells you when time is up."
           }
         }
       }
@@ -88719,121 +88719,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اربط هذا المثال بسير عملك في cmux.\nانقر لتجربة الإجراء الحقيقي وإعادة التحميل السريع."
+            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Povežite ovaj primjer sa svojim cmux tokom rada.\nKliknite da isprobate stvarnu radnju i brzo ponovno učitavanje."
+            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Forbind dette eksempel med din cmux-arbejdsgang.\nKlik for at prøve den rigtige handling og hurtig genindlæsning."
+            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verbinde dieses Beispiel mit deinem cmux-Arbeitsablauf.\nKlicke, um die echte Aktion und das schnelle Neuladen auszuprobieren."
+            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conecta este ejemplo con tu flujo de trabajo de cmux.\nHaz clic para probar la acción real y la recarga rápida."
+            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reliez cet exemple à votre flux de travail cmux.\nCliquez pour tester la vraie action et le rechargement rapide."
+            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Collega questo esempio al tuo flusso di lavoro cmux.\nFai clic per provare l’azione reale e il ricaricamento rapido."
+            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この例を cmux のワークフローにつなぎます。\nクリックして実際の操作と高速な再読み込みを試します。"
+            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ភ្ជាប់ឧទាហរណ៍នេះទៅលំហូរការងារ cmux របស់អ្នក។\nចុចដើម្បីសាកល្បងសកម្មភាពពិត និងការផ្ទុកឡើងវិញលឿន។"
+            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 예제를 cmux 작업 흐름에 연결합니다.\n클릭해 실제 작업과 빠른 다시 로드를 사용해 보세요."
+            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Koble dette eksempelet til cmux-arbeidsflyten din.\nKlikk for å prøve den virkelige handlingen og rask innlasting."
+            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Połącz ten przykład ze swoim przepływem pracy cmux.\nKliknij, aby wypróbować prawdziwe działanie i szybkie przeładowanie."
+            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conecte este exemplo ao seu fluxo de trabalho do cmux.\nClique para testar a ação real e o recarregamento rápido."
+            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Подключите этот пример к рабочему процессу cmux.\nНажмите, чтобы опробовать настоящее действие и быструю перезагрузку."
+            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เชื่อมต่อตัวอย่างนี้กับเวิร์กโฟลว์ cmux ของคุณ\nคลิกเพื่อทดลองการทำงานจริงและการโหลดใหม่อย่างรวดเร็ว"
+            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu örneği cmux iş akışınıza bağlayın.\nGerçek işlemi ve hızlı yeniden yüklemeyi denemek için tıklayın."
+            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Підключіть цей приклад до робочого процесу cmux.\nНатисніть, щоб випробувати справжню дію та швидке перезавантаження."
+            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kết nối ví dụ này với quy trình cmux của bạn.\nNhấp để thử hành động thật và tải lại nhanh."
+            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "将此示例连接到你的 cmux 工作流。\n点击即可试用真实操作和快速重新加载。"
+            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "將此範例連接到你的 cmux 工作流程。\n點擊即可試用真實動作和快速重新載入。"
+            "value": "Keep a small Today list beside your workspace.\nAdd a note and keep it across reloads using local app storage."
           }
         }
       }

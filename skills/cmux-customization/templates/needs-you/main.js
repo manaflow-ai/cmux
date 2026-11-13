@@ -2,7 +2,10 @@
 function renderNeedsYou() {
   const chats = cmux.live("agent_chat.list")
   const waiting = computed(() => (chats()?.chats || []).filter((chat) => chat.state === "input"))
-  const open = (chat) => cmux.actions.run("agent.openSessionTab", { session: chat.id }).catch((error) =>
+  const open = (chat) => cmux.actions.run("agent.openSessionTab", {
+    session: chat.id,
+    ...(chat.machine ? { host: chat.machine } : {})
+  }).catch((error) =>
     cmux.toast({ title: "Cannot open chat", message: String(error), tone: "warning" })
   )
   return VStack([
