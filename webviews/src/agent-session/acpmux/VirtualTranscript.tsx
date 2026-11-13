@@ -94,7 +94,7 @@ import { finalReplyId, REPLY_SETTLE_MS, replyUnpainted } from "./conversation/re
 import { authoritativeScrollIntent, createScrollPacer, type ScrollFrame } from "./scrollPacer";
 import { type Translate, useT } from "./i18n";
 import { TRAY_GHOST } from "./subagents/trayMotionModel";
-import { noteReaderScroll } from "./summary/heldWhileScrolling";
+import { noteReaderScroll, readerScroll } from "./summary/heldWhileScrolling";
 import { FisheyeFilters } from "../../ui/glass/Fisheye";
 import { keepTabOnScreen, leaveOnScreenRef } from "../../ui/tabReach";
 import {
@@ -2204,8 +2204,11 @@ function TranscriptView({
     let olderLate: boolean | undefined;
     // The chat still loads (or its read just landed): what arrives fills a blank or partly blank
     // view, so it fades in rather than popping. A cold open's first rows fade with the whole
-    // transcript instead (fadeInOpenedChat), so they take no row fade on top of it.
-    const loadArrival = loadFade.current.open && coldOpen === undefined;
+    // transcript instead (fadeInOpenedChat), so they take no row fade on top of it. During a reader
+    // gesture, history is part of that motion and must draw settled so its first frame is complete.
+    // Only new arrivals need this snapshot; a gesture ending must not reanimate an existing row.
+    const readerIsMoving = readerScroll.read();
+    const loadArrival = loadFade.current.open && coldOpen === undefined && !readerIsMoving;
     // The running turn's live line keeps one id from turn to turn (turns.ts LIVE_THINKING): a line
     // the last rows did not end with came now, with the prompt that opened it, so it enters on the
     // send's clock with the prompt (conversation.css SEND-ENTRANCE). O(1): the last rows' tail only.
@@ -2219,7 +2222,7 @@ function TranscriptView({
         if (olderLate) olderRows.current.add(row.id);
         else if (loadArrival) loadFade.current.arrive(row.id);
       } else if (loadArrival) loadFade.current.arrive(row.id);
-      else arrived.push(row);
+      else if (!readerIsMoving) arrived.push(row);
       knownRows.current.add(key);
     }
     // A row that arrived while the chat is hidden (another tab or workspace shows), or that lands
