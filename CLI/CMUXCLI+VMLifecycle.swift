@@ -48,9 +48,17 @@ extension CMUXCLI {
         }
         let status = (response["status"] as? String) ?? "?"
         if action == "pause" {
-            print("OK (selector) paused (status=(status)); cmux vm resume (selector) wakes it")
+            let format = String(
+                localized: "cli.vm.lifecycle.pause.result",
+                defaultValue: "%1$@ paused (status=%2$@); cmux vm resume %1$@ wakes it"
+            )
+            print(String(format: format, selector, status))
         } else if action == "resume" {
-            print("OK (selector) resumed (status=(status))")
+            let format = String(
+                localized: "cli.vm.lifecycle.resume.result",
+                defaultValue: "%1$@ resumed (status=%2$@)"
+            )
+            print(String(format: format, selector, status))
         } else {
             let format = String(localized: "cli.vm.restart.result", defaultValue: "%1$@ restarted (status=%2$@)")
             print(String(format: format, selector, status))

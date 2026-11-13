@@ -57,7 +57,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 return self.v2Response(
                     id: id,
                     ok: false,
-                    error: ["code": "unexpected", "message": "Unexpected method (method)"]
+                    error: ["code": "unexpected", "message": "Unexpected method \(method)"]
                 )
             }
         }
@@ -77,7 +77,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stdout + result.stderr)
         XCTAssertEqual(result.status, 0, result.stdout + result.stderr)
-        XCTAssertTrue(result.stdout.contains("OK (displayName) resumed (status=running)"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("probe-a resumed (status=running)"), result.stdout)
         XCTAssertEqual(
             state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
             ["vm.resume", "vm.list", "vm.resume"]

@@ -33,7 +33,11 @@ extension CMUXCLI {
             return machineID
         }
         if labelMatches.count > 1 {
-            throw CLIError(message: "vm: '(selector)' matches multiple machines; use a machine id from cmux vm ls.")
+            let format = String(
+                localized: "cli.vm.target.ambiguous",
+                defaultValue: "vm: “%1$@” matches multiple machines; use a machine id from cmux vm ls."
+            )
+            throw CLIError(message: String(format: format, selector))
         }
         return selector
     }
