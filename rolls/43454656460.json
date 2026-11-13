@@ -1,0 +1,67 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43454656460",
+  "recorded_at": "2026-11-13T15:48:39Z",
+  "reason": "cmux-tui 48fb8e4d4cde changes the image's cmux-tui (pinned 5e1f7278b3d8)",
+  "dry_run": false,
+  "cmux_tui": "48fb8e4d4cde271e668ad15bcc9cf4a90d5ec69f",
+  "fixes": [
+    {
+      "sha": "48fb8e4d4cde271e668ad15bcc9cf4a90d5ec69f",
+      "mergedAt": "2026-11-13T07:13:13-08:00",
+      "subject": "acpmux: a followed folder gone between sync's look and its watch falls back to its ancestor (#42614)"
+    },
+    {
+      "sha": "d10747d0d6b41d6d0474f2da77f5d5882a23d038",
+      "mergedAt": "2026-11-13T07:07:23-08:00",
+      "subject": "cmux-host updater: look at the machine channel every 15 s, idle or busy (#42601)"
+    },
+    {
+      "sha": "0025343df23630634312a179cd956128e606c193",
+      "mergedAt": "2026-11-13T09:04:06-06:00",
+      "subject": "cmux-tui-core: a pepper or machine-id load unlocks its lock on every return"
+    },
+    {
+      "sha": "8cd509d5eaae98de0f1d2a8265faf9b708bc421e",
+      "mergedAt": "2026-11-13T09:04:06-06:00",
+      "subject": "cmux-tui-core tests: a failed pepper or machine-id load leaves its lock free while a forked child keeps its descriptor (red)"
+    },
+    {
+      "sha": "d42351fa3447369457bc705cd7b4ca3c53b3a9a5",
+      "mergedAt": "2026-11-13T09:04:06-06:00",
+      "subject": "cmux-tui-core: the pepper and machine-id loaders move to workspace_registry/identity_load.rs"
+    },
+    {
+      "sha": "545087300550516af89cda34541f814f969bc0fe",
+      "mergedAt": "2026-11-13T06:53:43-08:00",
+      "subject": "acpmux tests: a drop's std root must be the crate, and method-local imports count (#42111 review) (#42125)"
+    },
+    {
+      "sha": "53a7cedcc3a4b30e04e41ea2188a11d76eee0117",
+      "mergedAt": "2026-11-13T08:44:50-06:00",
+      "subject": "acpmux-core: History::is_empty has the cfg of its one user, so macOS clippy is clean"
+    },
+    {
+      "sha": "bb5f90e873b82eb8d0256e5ecb867f1806204aaf",
+      "mergedAt": "2026-11-13T06:42:34-08:00",
+      "subject": "Runs: cmux run --sandboxed checks its task with the daemon's own task_fits (#42585)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T15:48:39Z",
+    "snapshot_id": "sh-e65b4fc80e9c48c5add8a93a271ba83a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43454656460): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "f5419de38cd35f1f03d52cdd7eddd8d4393c7edd",
+    "image": "cloud-native-auto-48fb8e4d-43454656460-1",
+    "revision": "ci-43454656460-1",
+    "at": "2026-11-13T15:48:39Z"
+  },
+  "rolled_back": false
+}
