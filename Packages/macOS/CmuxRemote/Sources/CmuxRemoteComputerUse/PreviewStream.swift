@@ -213,6 +213,8 @@ final class PreviewStreamSession: NSObject, SCStreamOutput, SCStreamDelegate, @u
     /// app clears another window's last frame before this one's first arrives.
     private var generation = 0
     private var generationWindow: UInt32?
+    /// The generation the last `still` status named.
+    private var lastStillGeneration: Int?
     /// A size change of the running stream is in flight.
     private var reconfiguring = false
 
@@ -532,7 +534,13 @@ final class PreviewStreamSession: NSObject, SCStreamOutput, SCStreamDelegate, @u
                     self.stillInFlight = false
                     return
                 }
-                self.send(state: "still", extra: [:])
+                // The status names the window's generation (as `streaming` does) once per window,
+                // so the app drops another window's picture before this one's still shows.
+                let generation = self.streamGeneration(id)
+                if self.lastState != "still" || self.lastStillGeneration != generation {
+                    self.lastStillGeneration = generation
+                    self.send(state: "still", extra: ["window": generation])
+                }
                 self.write(PreviewStreamWire.message(PreviewStreamWire.still, frame.jpeg))
                 // The next still waits until this one is written: a slow app never queues stills.
                 self.writes.async { [weak self] in self?.queue.async { self?.stillInFlight = false } }

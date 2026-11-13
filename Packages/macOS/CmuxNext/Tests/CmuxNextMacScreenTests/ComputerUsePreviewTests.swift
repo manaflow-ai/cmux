@@ -117,13 +117,44 @@ import VideoToolbox
 
     /// No empty card: a card or the expanded view shows only once a picture came, and never while
     /// the window is private; the chip a person hid it to shows without one.
-    @Test func nothingShowsBeforeAPicture() {
-        #expect(ComputerUsePreviewPresenter.overlayHidden(blocked: false, pictured: false, presentation: .card))
-        #expect(ComputerUsePreviewPresenter.overlayHidden(blocked: false, pictured: false, presentation: .expanded))
-        #expect(!ComputerUsePreviewPresenter.overlayHidden(blocked: false, pictured: true, presentation: .card))
-        #expect(ComputerUsePreviewPresenter.overlayHidden(blocked: true, pictured: true, presentation: .card))
-        #expect(!ComputerUsePreviewPresenter.overlayHidden(blocked: false, pictured: false, presentation: .hidden))
-        #expect(ComputerUsePreviewPresenter.overlayHidden(blocked: true, pictured: false, presentation: .hidden))
+    @Test func nothingShowsBeforeAPicture() throws {
+        var picture = ComputerUsePreviewPicture()
+        #expect(picture.hidesOverlay(presentation: .card) && picture.hidesOverlay(presentation: .expanded))
+        #expect(!picture.hidesOverlay(presentation: .hidden), "the chip shows without a picture")
+        picture.apply(.status(ComputerUsePreviewStatus(state: .noWindow)))
+        #expect(picture.hidesOverlay(presentation: .card), "no_window before a picture stays hidden")
+        picture.apply(.pictured)
+        #expect(!picture.hidesOverlay(presentation: .card))
+        picture.apply(.status(ComputerUsePreviewStatus(state: .blocked)))
+        #expect(picture.hidesOverlay(presentation: .card) && picture.hidesOverlay(presentation: .hidden))
+        picture.apply(.status(ComputerUsePreviewStatus(state: .streaming)))
+        #expect(picture.hidesOverlay(presentation: .card), "allowed again, but no new picture yet")
+    }
+
+    /// Stills of window A, then cmux Remote streams window B and no frame comes (minimized, an
+    /// encoder stall): A's still must not stay up under B, and the overlay hides (round-5 follow-up
+    /// review of ae25158: A's still survived the switch and nothing cleared it if A was denied).
+    @Test func anotherWindowTakesTheOldStillAway() throws {
+        var picture = ComputerUsePreviewPicture()
+        let stream = ComputerUsePreviewStream(session: "chat-1", longSide: 800) { picture.apply($0) }
+        stream.receive(.status(ComputerUsePreviewStatus(state: .still, window: 1)))
+        let sequence = try #require(stream.stills.put(jpeg: try jpeg(width: 40, height: 20)))
+        stream.receive(.stillReady(sequence: sequence))
+        #expect(picture.still != nil && !picture.hidesOverlay(presentation: .card), "A's still shows")
+        // A still of A waiting in the slot when B starts is dropped too.
+        let stale = try #require(stream.stills.put(jpeg: try jpeg(width: 40, height: 20)))
+        stream.receive(.status(ComputerUsePreviewStatus(state: .streaming, window: 2)))
+        stream.receive(.stillReady(sequence: stale))
+        #expect(picture.still == nil, "no still of A under B")
+        #expect(picture.hidesOverlay(presentation: .card) && picture.hidesOverlay(presentation: .expanded))
+        // The same for video: A's frame, then B streams with no frame yet.
+        let encoded = try encodeOneFrame(width: 320, height: 200)
+        let format = try #require(ComputerUsePreviewStream.format(sps: encoded.sps, pps: encoded.pps))
+        let sample = try #require(ComputerUsePreviewStream.sample(encoded.avcc, format: format, microseconds: 1))
+        stream.receive(.sample(sample))
+        #expect(!picture.hidesOverlay(presentation: .card), "B's first frame shows")
+        stream.receive(.status(ComputerUsePreviewStatus(state: .still, window: 3)))
+        #expect(picture.hidesOverlay(presentation: .card), "window C before its first still: nothing shows")
     }
 
     /// Only plain Escape closes the expanded view; a chord with Command, Option, Control or Shift
@@ -306,8 +337,12 @@ import VideoToolbox
         slot.clear()
         let third = try #require(slot.put(jpeg: try jpeg(width: 30, height: 10)))
         #expect(third > first)
-        #expect(slot.take(sequence: third)?.width == 30)
-        #expect(slot.take(sequence: first) == nil)
+        #expect(slot.take(sequence: first) == nil, "a word from before the slot was emptied takes nothing")
+        #expect(slot.take(sequence: third)?.width == 30, "the word about the newest still takes it")
+        // Without an emptying, the one word takes the newest still.
+        let fourth = try #require(slot.put(jpeg: try jpeg(width: 40, height: 10)))
+        #expect(slot.put(jpeg: try jpeg(width: 50, height: 10)) == nil)
+        #expect(slot.take(sequence: fourth)?.width == 50)
     }
 
     /// Another window streaming (a new `window` generation) clears the old window's last frame, so
