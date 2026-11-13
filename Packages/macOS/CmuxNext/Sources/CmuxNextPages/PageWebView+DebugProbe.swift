@@ -30,7 +30,7 @@ public enum PageDebugQuery {
 
     /// Runs the query for `selector` (default every element) through `call` (a page's own script call),
     /// with `extra` members added to the answer (`debug.agent_pane` names its pane).
-    public static func read(_ selector: String?, extra: [String: JSONValue] = [:],
+    @MainActor public static func read(_ selector: String?, extra: [String: JSONValue] = [:],
                             call: (String, [String: Any]) async throws -> Any?) async -> JSONValue {
         guard case .object(var members) = answer(try? await call(script, ["selector": selector ?? "*"])) else { return ["error": "query failed"] }
         members.merge(extra) { _, new in new }
