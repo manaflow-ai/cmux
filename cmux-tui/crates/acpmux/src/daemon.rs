@@ -868,6 +868,15 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             {
                 tokio::time::sleep(Duration::from_millis(ms.min(10_000))).await;
             }
+            // Debug builds only: hold the live-log/adoption boundary for tests that prove a
+            // request does not wait on global startup. Release builds have no seam.
+            #[cfg(debug_assertions)]
+            if std::env::var_os("ACPMUX_TEST_HOLD_STARTUP").is_some() {
+                let held = tokio::task::spawn_blocking(|| {
+                    crate::hub::test_hold("ACPMUX_TEST_HOLD_STARTUP")
+                });
+                let _ = held.await;
+            }
             // What an agent start needs (login environment, catalog, launcher checks, vault)
             // runs beside the chats: a new chat waits for it alone, and a chat's own start for it
             // and its own adoption, never for every host's adoption (`hub/startup.rs`).
@@ -905,7 +914,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 hub.hold_policies_again().await;
             };
             let (reloaded, ()) = tokio::join!(hub.prepare_spawns(), chats);
-            hub.finish_startup(reloaded).await;
+            hub.finish_startup_after_prepare(reloaded).await;
             // An agent the previous daemon left, started from a profile changed since or running
             // from a binary that an update moved, restarts on the profile and binary installed now,
             // between turns (`hub/profile_respawn.rs`, `hub/stale_host_respawn.rs`).
@@ -1133,9 +1142,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         // detaching or ending hosts. A timeout conservatively keeps their router below.
         let _ = metadata.await;
         if restarting {
-            hub.shutdown_for_handoff(true).await
+            hub.shutdown_for_handoff(true, shutdown_deadline).await
         } else {
-            hub.shutdown_for_handoff(false).await
+            hub.shutdown_for_handoff(false, shutdown_deadline).await
         }
     })
     .await

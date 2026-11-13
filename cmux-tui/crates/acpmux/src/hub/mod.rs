@@ -148,6 +148,8 @@ mod hosts;
 mod lifecycle;
 mod log_deferral;
 mod log_load;
+#[cfg(debug_assertions)]
+pub(crate) use log_load::test_hold;
 #[cfg(test)]
 pub(crate) use log_load::{NOTE_BEFORE_CATCH_UP_LOCK, NOTE_BEFORE_REPLAY_SCAN, NOTE_IN_CATCH_UP};
 mod cold_archive;

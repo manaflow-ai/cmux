@@ -123,7 +123,14 @@ impl Hub {
     /// The rest of startup, once the chats' logs, adoption and policy holds are done and
     /// [`Self::prepare_spawns`] returned `reloaded`: queues resume, startup is marked done, the
     /// warm pool and model probes start.
-    pub async fn finish_startup(self: &Arc<Self>, reloaded: bool) {
+    pub async fn finish_startup(self: &Arc<Self>) {
+        let reloaded = self.prepare_spawns().await;
+        self.finish_startup_after_prepare(reloaded).await;
+    }
+
+    /// Completes startup after the independent spawn preparation has finished. The daemon uses
+    /// this form so agent starts can proceed while chat logs and remote adoption continue.
+    pub async fn finish_startup_after_prepare(self: &Arc<Self>, reloaded: bool) {
         // deny-all or review as the default policy in config.json, a lockdown (`policy_mode.rs`):
         // every chat without a policy of its own follows it. A stopped chat's saved mode is
         // written now; an adopted agent is reached once startup is done (`child_for` waits for it).

@@ -148,12 +148,19 @@ impl Hub {
     }
 
     /// The daemon handoff path has an absolute one-second deadline. Its journal already contains
-    /// every acknowledged append, so it seals the store without checkpointing every chat or
-    /// draining the ledger; the next daemon replays those records while it serves local chats.
-    pub(crate) async fn shutdown_for_handoff(&self, preserve_auto_resume: bool) -> usize {
+    /// every acknowledged append, so it does not synchronously checkpoint every chat; the next
+    /// daemon replays those records while it serves local chats. The non-journal writers still
+    /// get whatever part of the same deadline remains to drain.
+    pub(crate) async fn shutdown_for_handoff(
+        &self,
+        preserve_auto_resume: bool,
+        deadline: tokio::time::Instant,
+    ) -> usize {
         let ((), kept) =
             tokio::join!(self.stop_pool(), self.shutdown_sessions(preserve_auto_resume, false),);
-        self.store.seal();
+        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+        self.ledger.close(left.min(LEDGER_DRAIN));
+        self.audit.close(left.min(AUDIT_DRAIN));
         kept
     }
 
