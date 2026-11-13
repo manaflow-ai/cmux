@@ -229,8 +229,8 @@ extension NotificationCenterService {
     /// The bit an agent's attention ring carries, apart from manual marks.
     static let attentionRingBase: UInt64 = 1 << 62
 
-    /// A viewed tab reads its notifications at once, so it draws no ring (a mark or needs-you stays).
-    func readsOnSight(_ t: TabModel) -> Bool { t.hasUnread && !t.markedUnread && t.attention == nil && NotificationPolicy(prefs: preferences).clears(.focus, for: source(of: t)) && isViewed(t.id) }
+    /// A viewed tab reads its notifications and needs-you requests at once (cmux#42210), so it draws no ring (a mark stays).
+    func readsOnSight(_ t: TabModel) -> Bool { (t.hasUnread || t.attention != nil) && !t.markedUnread && NotificationPolicy(prefs: preferences).clears(.focus, for: t.hasUnread ? source(of: t) : .agent) && isViewed(t.id) }
     /// Of the panes in `removed` (their mark just went away), those the person went into, focus included (cmux#42210: its
     /// ring is read on sight, maybe before `interacted(.focus)`): their ring blinks out. Forgets `workspace`'s entry reads.
     func takeEntryReads(removed: Set<LayoutPaneID>, in workspace: WorkspaceModel) -> Set<LayoutPaneID> {
