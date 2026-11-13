@@ -69,6 +69,10 @@ struct HostState {
     saved_cursor: u64,
     /// Agent records folded since the last save.
     unsaved_agents: bool,
+    /// A test's fold budget of a list in place of `LIST_FOLD_BUDGET` (zero:
+    /// the list answers before its fold reaches the journal head).
+    #[cfg(test)]
+    list_fold_budget: Option<std::time::Duration>,
 }
 
 impl Default for HistoryHost {
@@ -81,6 +85,8 @@ impl Default for HistoryHost {
                 restored: false,
                 saved_cursor: 0,
                 unsaved_agents: false,
+                #[cfg(test)]
+                list_fold_budget: None,
             }),
             turn: Mutex::new(()),
             feed_claimed: AtomicBool::new(false),
@@ -95,6 +101,21 @@ impl HistoryHost {
 
     pub(super) fn cursor(&self) -> u64 {
         self.lock().cursor
+    }
+
+    /// How long a list folds new journal records before it answers.
+    fn list_fold_budget(&self) -> std::time::Duration {
+        #[cfg(test)]
+        if let Some(budget) = self.lock().list_fold_budget {
+            return budget;
+        }
+        LIST_FOLD_BUDGET
+    }
+
+    /// Sets a list's fold budget (`None`: `LIST_FOLD_BUDGET` again).
+    #[cfg(test)]
+    pub(super) fn set_list_fold_budget_for_test(&self, budget: Option<std::time::Duration>) {
+        self.lock().list_fold_budget = budget;
     }
 
     /// The turn of one page read and fold (see `turn`).
@@ -220,10 +241,16 @@ impl HistoryHost {
         changed
     }
 
-    /// Agent entries the hides leave visible.
-    fn agent_entries(&self, hidden: &HiddenHistory) -> Vec<HistoryEntry> {
+    /// Agent entries the hides leave visible, each with the newer of the
+    /// journal's time and `live` (the daemon's own report times, keyed
+    /// `<provider>/<session id>`).
+    fn agent_entries(
+        &self,
+        hidden: &HiddenHistory,
+        live: &std::collections::HashMap<String, i64>,
+    ) -> Vec<HistoryEntry> {
         let context = EntryContext { local_machine: LOCAL_MACHINE, available: true };
-        self.lock().agents.entries(&context, hidden)
+        self.lock().agents.entries_with_live(&context, hidden, live)
     }
 
     fn revision(&self) -> u64 {
@@ -283,7 +310,7 @@ pub(super) fn list(
         // A first fold over a large journal can take minutes: answer what is
         // folded by then and name the kind pending. The feed thread goes on
         // and emits `history-changed` (agent) when it has caught up.
-        let deadline = std::time::Instant::now() + LIST_FOLD_BUDGET;
+        let deadline = std::time::Instant::now() + mux.history.list_fold_budget();
         let caught = journal_feed::catch_up(mux, Some(deadline))
             .map_err(|error| failed(OPERATION, &error))?;
         if !caught.changed.is_empty() {
@@ -293,7 +320,7 @@ pub(super) fn list(
             pending.push(HistoryKind::Agent.as_str());
         }
         let (hidden, _) = hidden_doc::load(mux).map_err(|error| failed(OPERATION, &error))?;
-        entries.extend(mux.history.agent_entries(&hidden));
+        entries.extend(mux.history.agent_entries(&hidden, &mux.live_agent_activity()));
     }
     if wants(HistoryKind::Command) {
         // Every unexpired row up to the store's page (1000): the search and

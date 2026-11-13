@@ -57,8 +57,9 @@ extension HoverCardPanel {
     func morph(from previous: CGRect, spring: MotionSpring = .panel) -> Bool {
         let rest = cardFrame
         guard abs(previous.width - rest.width) > 0.5 || abs(previous.height - rest.height) > 0.5 else { return false }
-        // The same gate as the slide it runs with (`Motion.set`): Reduce Motion or speed off resize at once.
-        guard Motion.hoverCards.animatesMovement, let host, let body, let glassLayer = glass.layer else { return false }
+        // The same gate as the slide it runs with (`Motion.set`): Reduce Motion, speed off, or a live resize of the
+        // window this card is a child of, resize at once.
+        guard Motion.hoverCards.animatesMovement(in: self), let host, let body, let glassLayer = glass.layer else { return false }
         let corner = fixedCorner
         // The larger card the mask shows a part of, about the fixed corner.
         let big = CGSize(width: max(previous.width, rest.width), height: max(previous.height, rest.height))

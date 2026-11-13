@@ -16,7 +16,8 @@ base64.workspace = true
 notify.workspace = true
 plist = "1"
 serde.workspace = true
-serde_json.workspace = true
+# raw_value: the embedded settings schema keeps each row as a slice of its text.
+serde_json = { workspace = true, features = ["raw_value"] }
 sha2.workspace = true
 uuid.workspace = true
 

@@ -46,13 +46,14 @@
   min-width: 0;
   gap: 0;
   padding: var(--grid-half-step);
-  border-radius: var(--ds-radius-lg);
+  /* Concentric with its buttons, which round as tabs: the button corner plus the track's padding. */
+  border-radius: calc(var(--ds-radius-control) + var(--grid-half-step));
   background: var(--page-hover);
 }
 
 .cu-segment-button {
   border: 0;
-  border-radius: var(--ds-radius-md);
+  border-radius: var(--ds-radius-control);
   height: var(--ds-control-compact);
   padding: 0 var(--ds-space-3);
   background: transparent;

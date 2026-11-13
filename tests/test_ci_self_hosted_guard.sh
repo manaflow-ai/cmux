@@ -228,7 +228,7 @@ check_release_build_disk_cleanup() {
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
 
     in_job && /- name: Reclaim release runner disk/ { in_step=1; saw_step=1; next }
-    in_step && /^[[:space:]]*- name:/ { in_step=0 }
+    in_step && /^[[:space:]]*- (name:|&)/ { in_step=0 }
     in_step && /df -h \// { saw_df=1 }
     in_step && /rm -rf build-universal \.spm-cache/ { saw_workspace=1 }
     in_step && /Library\/Developer\/Xcode\/DerivedData/ { saw_direct_derived_data=1 }
@@ -356,8 +356,8 @@ check_signing_intermediate_imports() {
 
   for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release.yml"; do
     if ! awk '
-      /- name: Import signing cert$/ { in_step=1; next }
-      in_step && /^[[:space:]]*- name:/ { in_step=0 }
+      /^[[:space:]]*(- )?name: Import signing cert$/ { in_step=1; next }
+      in_step && /^[[:space:]]*- (name:|&)/ { in_step=0 }
       in_step && /\.\/scripts\/ci\/signing-keychain\.sh create/ { saw_create=1 }
       END { exit !saw_create }
     ' "$file"; then
@@ -537,8 +537,8 @@ check_sentry_cli_install_portability() {
     # keep nightly.yml under its size budget); the step script is read too.
     local step_text
     step_text="$(awk '
-      /- name: Upload dSYMs to Sentry/ { in_step=1; next }
-      in_step && /^[[:space:]]*- name:/ { in_step=0 }
+      /^[[:space:]]*(- )?name: Upload dSYMs to Sentry/ { in_step=1; next }
+      in_step && /^[[:space:]]*- (name:|&)/ { in_step=0 }
       in_step { print }
     ' "$file")"
     local step_script
@@ -556,8 +556,8 @@ check_sentry_cli_install_portability() {
       continue
     fi
     if ! awk '
-      /- name: Upload dSYMs to Sentry/ { in_step=1; next }
-      in_step && /^[[:space:]]*- name:/ { in_step=0 }
+      /^[[:space:]]*(- )?name: Upload dSYMs to Sentry/ { in_step=1; next }
+      in_step && /^[[:space:]]*- (name:|&)/ { in_step=0 }
       in_step && /SENTRY_CLI="\$\(\.\/scripts\/ensure-sentry-cli\.sh\)"/ { saw_helper=1 }
       in_step && /"\$SENTRY_CLI" debug-files upload --include-sources/ { saw_upload=1 }
       END { exit !(saw_helper && saw_upload) }
@@ -703,8 +703,8 @@ check_dmg_signing_uses_build_keychain() {
 check_create_dmg_uses_run_local_npm_prefix() {
   for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release.yml"; do
     if ! awk '
-      /- name: Install build deps/ { in_step=1; next }
-      in_step && /^[[:space:]]*- name:/ { in_step=0 }
+      /^[[:space:]]*(- )?name: Install build deps/ { in_step=1; next }
+      in_step && /^[[:space:]]*- (name:|&)/ { in_step=0 }
       in_step && /CMUX_NODE_BIN="\$\(command -v node\)"/ { saw_node=1 }
       in_step && /export npm_config_prefix="\$RUNNER_TEMP\/npm-global"/ { saw_prefix=1 }
       in_step && /mkdir -p "\$npm_config_prefix"/ { saw_mkdir=1 }
@@ -791,8 +791,8 @@ check_web_db_behavior_tests() {
   fi
 
   if ! awk '
-    /- name: Database behavior tests/ { in_step=1; next }
-    in_step && /^[[:space:]]*- name:/ { in_step=0 }
+    /^[[:space:]]*(- )?name: Database behavior tests/ { in_step=1; next }
+    in_step && /^[[:space:]]*- (name:|&)/ { in_step=0 }
     in_step && /CMUX_DB_TEST:[[:space:]]*"1"/ { saw_env=1 }
     in_step && /bun run test:db:behavior/ { saw_runner=1 }
     END { exit !(saw_env && saw_runner) }
