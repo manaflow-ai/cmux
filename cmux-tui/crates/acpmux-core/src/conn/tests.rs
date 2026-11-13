@@ -1084,6 +1084,14 @@ async fn keyed_pages_reach_the_hub_through_the_connection() {
     hello(&mut client).await;
     send(
         &mut client,
+        json!({"method":"sub","params":{
+            "sid":"keys","stream":"list","view":"live"
+        }}),
+    )
+    .await;
+    assert_eq!(receive(&mut client).await.kind, FrameKind::Window);
+    send(
+        &mut client,
         json!({"method":"page","params":{
             "sid":"keys","stream":"list","view":"live","keys":[
                 {"origin":"local","chatId":"chat","lastActivity":0},
@@ -1124,6 +1132,14 @@ async fn a_key_provider_read_error_is_not_a_missing_chat() {
     let (mut client, task, hub, _writer, _) = list_pair();
     hub.set_page_provider(Arc::new(Unreadable));
     hello(&mut client).await;
+    send(
+        &mut client,
+        json!({"method":"sub","params":{
+            "sid":"keys","stream":"list","view":"all"
+        }}),
+    )
+    .await;
+    assert_eq!(receive(&mut client).await.kind, FrameKind::Window);
     send(
         &mut client,
         json!({"method":"page","params":{
