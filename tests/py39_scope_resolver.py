@@ -28,7 +28,8 @@ compile) is unresolved: owners() is None and a caller must not pass it (fail clo
 
 Vendored from teamleaderleo/leo-workspace tools/scope_resolver.py at 07b4c9bf9
 (LW #4755, #4769, #4775); keep the compiler scope and binding rules together.
-Local follow-up: record defaults in the shared argument walker, including lambda parameters.
+Local follow-ups: retain callable defaults, propagate uncertainty through assignments and calls,
+and refuse scope-construction failures instead of returning an empty binding map.
 Source of truth: leo-workspace tools/scope_resolver.py. Standard library only; runs on Python 3.9 (macOS's
 /usr/bin/python3) and later.
 """
@@ -53,6 +54,10 @@ FUNCTION_LIKE = ("function", "lambda", "comprehension", "typeparams", "bound", "
 _TABLE_KIND = {"module": "module", "class": "class", "function": "function", "type parameter": "typeparams",
                "type parameters": "typeparams", "TypeVar bound": "bound", "type variable": "bound",
                "type alias": "alias"}
+
+
+class ScopeResolutionError(RuntimeError):
+    """The compiler-backed scope map could not be built, so callers must refuse the file."""
 
 
 def mangle(scope, name):
@@ -103,6 +108,12 @@ class Resolver:
         self._walrus = set()  # id() of a walrus target
         self.root = Scope("module", tree, None, "top", 0)
         self.scope[id(tree)] = self.root
+        try:
+            self._build(tree, source)
+        except (RecursionError, MemoryError) as exc:
+            raise ScopeResolutionError("could not build scopes: %s" % exc) from exc
+
+    def _build(self, tree, source):
         self._walk(tree, self.root)
         self._match(tree, source)
         self.landing = {}  # id(site) -> [(name, Scope it lands in)]
@@ -244,21 +255,23 @@ class Resolver:
         if source is None:
             try:
                 source = ast.unparse(tree) if hasattr(ast, "unparse") else None
-            except Exception:
-                source = None
+            except Exception as exc:
+                raise ScopeResolutionError("could not unparse the source: %s" % exc) from exc
             if source is not None:
                 lines = self._relines(tree, source)
                 if lines is None:
-                    source = None
+                    raise ScopeResolutionError("could not align reparsed scopes with the source")
         try:
             top = symtable.symtable(source, "<scope_resolver>", "exec") if source is not None else None
-        except (SyntaxError, ValueError, TypeError):
-            top = None
+        except (SyntaxError, ValueError, TypeError) as exc:
+            raise ScopeResolutionError("could not build the scope table: %s" % exc) from exc
         if top is None:
-            self._break(self.root)
-            return
+            raise ScopeResolutionError("could not build the scope table")
         self.root.table = top
-        self._pair(self.root, lines or {})
+        try:
+            self._pair(self.root, lines or {})
+        except RecursionError as exc:
+            raise ScopeResolutionError("could not pair the scope tables: %s" % exc) from exc
 
     @staticmethod
     def _relines(tree, source):
@@ -310,9 +323,7 @@ class Resolver:
         for key, mine in groups.items():
             theirs = tables.get(key, [])
             if len(theirs) != len(mine):
-                for s in mine:
-                    self._break(s)
-                continue
+                raise ScopeResolutionError("could not pair scope %s" % (key,))
             for s, t in zip(mine, theirs):
                 s.table = t
                 self._pair(s, lines)
@@ -744,7 +755,10 @@ class Resolver:
                     {b for b in base if b.endswith(".*")}), complete
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
             func, func_complete = self.values(node.func, node.func.id)
+            # A complete set of possible callees is not a settled call result.
+            func_complete = func_complete and len(func) == 1
             if "builtins.getattr" in func and len(node.args) >= 2:
+                func_complete = func_complete and len(node.args) == 2 and not node.keywords
                 bases, base_complete = self.dotted_info(node.args[0])
                 bases = {b for b in bases if not b.endswith(".*")}
                 attr = node.args[1]
@@ -753,5 +767,27 @@ class Resolver:
                 return {"%s.*" % b for b in bases}, func_complete and base_complete
             if ("builtins.__import__" in func and node.args and isinstance(node.args[0], ast.Constant)
                     and isinstance(node.args[0].value, str)):
-                return {node.args[0].value.split(".")[0]}, func_complete
+                module = node.args[0].value
+                names = ("name", "globals", "locals", "fromlist", "level")
+                arguments = dict(zip(names, node.args))
+                valid = len(node.args) <= len(names) and not any(
+                    isinstance(arg, ast.Starred) for arg in node.args)
+                for kw in node.keywords:
+                    if kw.arg not in names or kw.arg in arguments:
+                        valid = False
+                    arguments[kw.arg] = kw.value
+                level = arguments.get("level")
+                absolute = level is None or (isinstance(level, ast.Constant)
+                                             and type(level.value) is int and level.value == 0)
+                if not valid or not absolute:
+                    return {module.split(".")[0], module}, False
+                fromlist = arguments.get("fromlist")
+                if fromlist is None:
+                    return {module.split(".")[0]}, func_complete
+                if isinstance(fromlist, (ast.List, ast.Tuple, ast.Set)) and not fromlist.elts:
+                    return {module.split(".")[0]}, func_complete
+                if isinstance(fromlist, (ast.List, ast.Tuple, ast.Set)) and not any(
+                        isinstance(item, ast.Starred) for item in fromlist.elts):
+                    return {module}, func_complete
+                return {module.split(".")[0], module}, False
         return set(), False
