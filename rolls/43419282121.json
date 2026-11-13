@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43419282121",
+  "recorded_at": "2026-11-13T11:54:15Z",
+  "reason": "cmux-tui b2b7f7eff12d changes the image's cmux-tui (pinned 243388fe905c)",
+  "dry_run": false,
+  "cmux_tui": "b2b7f7eff12d3630be25d148ee660c69d758ea7f",
+  "fixes": [
+    {
+      "sha": "b2b7f7eff12d3630be25d148ee660c69d758ea7f",
+      "mergedAt": "2026-11-13T03:18:41-08:00",
+      "subject": "Agent chat: orphan task ends are dropped or one quiet line; notice groups open to one line each; an unread steer opens its own turn; the loop line opens itself (#42108)"
+    },
+    {
+      "sha": "319b16cfec1e150a93a369dc2c650bcd61c25f70",
+      "mergedAt": "2026-11-13T03:17:58-08:00",
+      "subject": "acpmux stress: the god-chat reader's 5 s idle timeout names its reason (short timeout ratchet red at the tip) (#42555)"
+    },
+    {
+      "sha": "d64121ee098ad286dbbf2b47f38342e59e82f820",
+      "mergedAt": "2026-11-13T03:00:47-08:00",
+      "subject": "iOS chat: an older page carries a huge tool output's start, the rest loads on open (chat_older_page) (#42524)"
+    },
+    {
+      "sha": "fde2e4b3c14509a081fd13419313355b5d35b706",
+      "mergedAt": "2026-11-13T02:49:06-08:00",
+      "subject": "feat: v2 PR 3a book persistence (incomplete actor) (#42222)"
+    },
+    {
+      "sha": "095bfa9b1032ebc77cbe7e9f9e721807de6c883a",
+      "mergedAt": "2026-11-13T02:46:16-08:00",
+      "subject": "acpmux: status never holds every pane's connect on a slow reading or the config lock (#41804)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-13T11:54:15Z",
+    "snapshot_id": "sh-0d580d55b9314caa9d935a136965a650",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43419282121): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "ddb6e1fc249fa911957593a3f5fd51260f53659b",
+    "image": "cloud-native-auto-b2b7f7ef-43419282121-1",
+    "revision": "ci-43419282121-1",
+    "at": "2026-11-13T11:54:15Z"
+  },
+  "rolled_back": false
+}
