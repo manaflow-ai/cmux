@@ -6,6 +6,7 @@ import { cmuxCheckConfig } from "../config/vite-plus/check";
 import { fileURLToPath } from "node:url";
 import { cmuxDevServer, DEV_SERVER_PORT } from "./dev-server/plugins";
 import { viteCacheDir } from "./dev-server/viteCacheDir.mjs";
+import { bundleMetafile } from "./scripts/bundle-metafile.mjs";
 
 const outDir = process.env.CMUX_WEBVIEWS_OUT_DIR ?? "../Resources/markdown-viewer/webviews-app";
 // The code editor's copy of Pierre's extension map (pages/editor/pierre-filetypes.d.ts). The query
@@ -58,7 +59,8 @@ export default defineConfig({
   // `bun run dev`: every surface on one port (dev-server/plugins.ts). Build ignores it.
   server: { host: "127.0.0.1", port: DEV_SERVER_PORT, strictPort: true },
   plugins: [
-    artifactRuntimeVite(),
+    bundleMetafile(process.env.CMUX_WEBVIEWS_METAFILE),
+    artifactRuntimeVite({ metafile: process.env.CMUX_ARTIFACT_RUNTIME_METAFILE }),
     // Serve-only dev hosts (diff sidecar, markdown shell, agent pane pages); never in the build.
     ...cmuxDevServer(),
     // React Compiler: Babel by default, Oxc with CMUX_REACT_COMPILER=oxc (reactCompiler.mjs).

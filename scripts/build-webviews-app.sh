@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SRC_DIR="$ROOT/webviews"
 OUT_DIR="$ROOT/Resources/markdown-viewer/webviews-app"
+REPORT_DIR="${CMUX_BUNDLE_REPORT_DIR:-}"
 MARKED_JS="$ROOT/Resources/markdown-viewer/marked.min.js"
 
 MODE=build
@@ -102,7 +103,13 @@ mkdir -p "$OUT_DIR"
 (
   cd "$SRC_DIR"
   bun install --frozen-lockfile
-  CMUX_WEBVIEWS_OUT_DIR="$OUT_DIR" build_app
+  if [ -n "$REPORT_DIR" ]; then
+    mkdir -p "$REPORT_DIR"
+    CMUX_WEBVIEWS_OUT_DIR="$OUT_DIR" CMUX_WEBVIEWS_METAFILE="$REPORT_DIR/webviews-app.json" \
+      CMUX_ARTIFACT_RUNTIME_METAFILE="$REPORT_DIR/webviews-artifact-runtime.json" build_app
+  else
+    CMUX_WEBVIEWS_OUT_DIR="$OUT_DIR" build_app
+  fi
 )
 write_agent_session_html "$OUT_DIR"
 normalize_webviews_output "$OUT_DIR"

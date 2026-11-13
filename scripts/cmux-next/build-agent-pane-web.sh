@@ -15,6 +15,7 @@ set -eu
 ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
 SRC="$ROOT/webviews/src/agent-session"
 OUT="$ROOT/Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane"
+REPORT_DIR="${CMUX_BUNDLE_REPORT_DIR:-}"
 MODE=build
 # --out DIR writes the page into DIR instead (build-web-bundles.sh --out-root, checks).
 while [ $# -gt 0 ]; do
@@ -37,6 +38,7 @@ trap 'rm -rf "$WORK"' EXIT
 
 cd "$ROOT/webviews"
 [ -d node_modules ] || bun install --frozen-lockfile >/dev/null
+if [ -n "$REPORT_DIR" ]; then mkdir -p "$REPORT_DIR"; fi
 
 # The pane's strings (acpmux/Localizable.xcstrings -> generated/strings.json, build output). The
 # bundle does not inline them: they ship as locales/<code>.js beside index.html, and the <head>
@@ -52,19 +54,35 @@ LOADER="$(bun scripts/pages/split-strings.mjs "$SRC/acpmux/generated/strings.jso
 # --css-inputs lists the stylesheets the pane imports; the bundle drops them, so each must be
 # one of the sheets the page's <style> is written from (checked below).
 # --preload-list names the chunks pane.js imports statically: the page preloads them with it.
-bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/pane/pane.js" --split --css-inputs "$WORK/imported-sheets" --preload-list "$WORK/preload-chunks"
+if [ -n "$REPORT_DIR" ]; then
+  bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/pane/pane.js" --split --css-inputs "$WORK/imported-sheets" --preload-list "$WORK/preload-chunks" --metafile "$REPORT_DIR/agent-pane.json" --artifact-metafile "$REPORT_DIR/agent-pane-artifact-runtime.json"
+else
+  bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/pane/pane.js" --split --css-inputs "$WORK/imported-sheets" --preload-list "$WORK/preload-chunks"
+fi
 # Code highlighting runs in a worker beside the page (conversation/highlightPool.ts): Pierre's
 # worker, bundled with the same trimmed shiki. It is the entry point itself because the package
 # marks the module side-effect free, so an import of it would be dropped. Both hosts serve it
 # with a policy that allows no network.
-bun scripts/agent-pane/bundle.mjs node_modules/@pierre/diffs/dist/worker/worker.js "$SRC/acpmux/shiki" "$WORK/highlight-worker.js"
+if [ -n "$REPORT_DIR" ]; then
+  bun scripts/agent-pane/bundle.mjs node_modules/@pierre/diffs/dist/worker/worker.js "$SRC/acpmux/shiki" "$WORK/highlight-worker.js" --metafile "$REPORT_DIR/agent-pane-highlight-worker.json"
+else
+  bun scripts/agent-pane/bundle.mjs node_modules/@pierre/diffs/dist/worker/worker.js "$SRC/acpmux/shiki" "$WORK/highlight-worker.js"
+fi
 # An attached image's decode, scale and encode run in a worker beside the page too
 # (composer/imagePool.ts), so pasting large screenshots never blocks typing.
-bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/composer/imageWorker.ts" - "$WORK/image-worker.js"
+if [ -n "$REPORT_DIR" ]; then
+  bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/composer/imageWorker.ts" - "$WORK/image-worker.js" --metafile "$REPORT_DIR/agent-pane-image-worker.json"
+else
+  bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/composer/imageWorker.ts" - "$WORK/image-worker.js"
+fi
 # The chat's drawn copy (acpmux/chatSnapshot/boot.ts): a classic script the document runs before
 # pane.js; it draws the chat's last frame once the host's `__snapshot/chat.js` (async: the document
 # never waits on the host) set the chat's snapshot. Small and with no imports of the pane's.
-bun build "$SRC/acpmux/chatSnapshot/boot.ts" --format=iife --target=browser --minify --outfile "$WORK/chat-snapshot.js" >/dev/null
+if [ -n "$REPORT_DIR" ]; then
+  bun build "$SRC/acpmux/chatSnapshot/boot.ts" --format=iife --target=browser --minify --outfile "$WORK/chat-snapshot.js" --metafile="$REPORT_DIR/agent-pane-chat-snapshot.json" >/dev/null
+else
+  bun build "$SRC/acpmux/chatSnapshot/boot.ts" --format=iife --target=browser --minify --outfile "$WORK/chat-snapshot.js" >/dev/null
+fi
 
 # The page's sheets, derived, never a hand-kept list here (a sheet missing from one shipped its
 # component unstyled in the app only, and five times this month failed every app build at the check
