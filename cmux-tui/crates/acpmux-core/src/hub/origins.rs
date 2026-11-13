@@ -56,6 +56,17 @@ struct Held {
 }
 
 impl Held {
+    fn clear_rows(&mut self) {
+        self.rows.clear();
+        self.order.clear();
+        self.source = None;
+    }
+
+    fn allows_release(&self) -> bool {
+        self.source.is_some()
+            || self.record.as_ref().is_some_and(|record| record.state != OriginState::Removed)
+    }
+
     fn insert(&mut self, key: UpdateKey, update: PendingUpdate) -> Result<(), HubError> {
         match (key, update) {
             (UpdateKey::Origin(_), PendingUpdate::Origin { record }) => self.record = Some(record),
@@ -260,9 +271,18 @@ impl HubWriter {
             since,
             extra: None,
         };
+        if state == OriginState::Removed
+            && let Some(held) = self.origins.held.get_mut(id)
+        {
+            held.clear_rows();
+            held.record = None;
+        }
         if self.holds_origin(id) {
             self.hold_update(UpdateKey::Origin(id.into()), PendingUpdate::Origin { record })?;
             return Ok(false);
+        }
+        if state != OriginState::Removed {
+            self.origins.ended.remove(id);
         }
         self.origins.retry.remove(id);
         if current.origin(id).is_some_and(|old| old.state == state)
@@ -318,9 +338,10 @@ impl HubWriter {
             used += removed.max(1);
             if finished {
                 self.origins.leaving.pop_front();
-                if self.origins.held.contains_key(&id) {
+                if self.origins.held.get(&id).is_some_and(Held::allows_release) {
                     self.origins.ready.push_back(id);
                 } else {
+                    self.origins.held.remove(&id);
                     self.retire_finished_source(&id);
                 }
             }
