@@ -798,7 +798,8 @@ final class ComposeSuggestionCell: UITableViewCell {
         symbolCircle.layer.cornerRadius = size / 2
         // The symbol keeps clear of the circle: a wide one ("person.2.badge.plus") scales down
         // into the inner box; a small one ("plus") stays at its own size, centered.
-        let box = symbolCircle.bounds.insetBy(dx: size * 0.24, dy: size * 0.24)
+        // About two thirds of the circle (the wide glyph filled about four fifths of it).
+        let box = symbolCircle.bounds.insetBy(dx: size * 0.17, dy: size * 0.17)
         let natural = symbol.image?.size ?? .zero
         symbol.contentMode = natural.width > box.width || natural.height > box.height ? .scaleAspectFit : .center
         symbol.frame = box
