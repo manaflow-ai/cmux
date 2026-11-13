@@ -15,10 +15,13 @@ import CmuxNextCompat
 ///   (`CreationInputBuffer.awaitsMadeTerminal`), and the store's change wakes it (`holdsForMadeTab(wake:)`). It waits with
 ///   a stand-in too: when the reply settles the create at once, the stand-in leaves the pane before the hold gives its
 ///   keys out, and the keys sent into its view then were lost (NewTerminalTabRefusedKeysTests, afterTheStoreAppliedEachLine).
-/// - Made, and no tab at the hold's limit: with a stand-in whose view sends by the terminal's id (a local daemon with
-///   `terminal-input-while-creating-v1`) the keys go into that view. With no stand-in, or with one whose view cannot send
-///   before its terminal exists (``silentStandIns``), they are lost, and no terminal gets them (``waitsForTab(_:standIn:)``).
-/// - Refused: the keys go with the creation, into no terminal (``resolve(_:landed:madeTab:)``).
+/// - Made, and no tab at the hold's forced end (its limit, a closed window, the focus in a sidebar field): with a stand-in
+///   whose view sends by the terminal's id (a local daemon with `terminal-input-while-creating-v1`) the keys go into that
+///   view. When that view is gone too (the reply settled the create, and the stand-in left the pane), they go to the made
+///   terminal by the id that the create's reply named (``surfaces``, `HeldLane.madeSurface`): the daemon has that terminal,
+///   listed or not. With no stand-in, or with one whose view cannot send before its terminal exists (``silentStandIns``),
+///   they are lost, and no terminal gets them (``waitsForTab(_:standIn:)``).
+/// - Refused: the keys go with the creation, into no terminal (``resolve(_:landed:madeTab:madeSurface:)``).
 /// - Past the reply bound the keys run as typed, as every creation's do (cmux-ad m12): the creation is off this list.
 @MainActor
 struct NewTerminalKeys {
@@ -29,6 +32,9 @@ struct NewTerminalKeys {
     var silentStandIns: Set<Int> = []
     /// What names the daemon's tab of each made terminal: nil until the store lists that tab.
     private var made: [Int: @MainActor () -> String?] = [:]
+    /// The daemon's id of each made terminal (a surface id's raw value), as its create's reply named it: known before the
+    /// store lists the tab. Also kept for a lane that came from another hold with such an id (`CreationInputBuffer.prepend`).
+    var surfaces: [Int: UInt64] = [:]
     /// The hold's one wait for the store to list a made terminal's tab (`CreationInputBuffer.holdsForMadeTab(wake:)`).
     var tabWatch: Task<Void, Never>?
 
@@ -40,10 +46,16 @@ struct NewTerminalKeys {
     }
 
     /// The creation behind `ticket` got its reply. True for a New Terminal Tab the daemon refused: its keys go with it.
-    mutating func resolve(_ ticket: Int, landed: Bool, madeTab: (@MainActor () -> String?)?) -> Bool {
+    /// `madeSurface`: the id of the terminal it made (``surfaces``).
+    mutating func resolve(_ ticket: Int, landed: Bool, madeTab: (@MainActor () -> String?)?, madeSurface: UInt64? = nil) -> Bool {
         guard tickets.contains(ticket) else { return false }
-        if landed { made[ticket] = madeTab } else { tickets.remove(ticket) }
-        return !landed
+        guard landed else {
+            tickets.remove(ticket)
+            return true
+        }
+        made[ticket] = madeTab
+        surfaces[ticket] = madeSurface
+        return false
     }
 
     /// The daemon's tab of the terminal the creation behind `ticket` made, once the store lists it.

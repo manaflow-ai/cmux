@@ -175,6 +175,43 @@ import Testing
         }
     }
 
+    /// The id of the made terminal, as the create's reply named it, goes with the keys of its lane (`HeldLane.madeSurface`).
+    /// The hold's end has it while the store lists no tab (the app sends the keys to that id when the stand-in's view is
+    /// gone: NewTerminalTabRefusedKeysTests shows that on a real daemon), when the store lists the tab, and when another
+    /// hold holds the keys again (a key that ran again opened a creation there). The lane of a split has none.
+    @Test func theLaneOfAMadeTerminalCarriesTheIdThatTheReplyNamed() throws {
+        typealias Lane = CreationInputBuffer.HeldLane
+        let buffer = CreationInputBuffer(began: .now), store = Store()
+        let ticket = buffer.open(generation: 7, tab: "pending_tab_1", machine: "local", newTerminal: true)
+        buffer.capture(try Self.key("l"), focusedTab: "pending_tab_1")
+        buffer.resolve(ticket, awaitsFocus: true, madeTab: { store.tab }, madeSurface: 77)
+        let taken = buffer.take(focused: "other") { _, _ in false }
+        let lanes: [Lane?] = taken.map(\.lane)
+        let notListed: [Lane?] = [Lane(tab: "pending_tab_1", machine: "local", madeSurface: 77)]
+        #expect(lanes == notListed, "no tab in the store: \(lanes)")
+
+        let next = CreationInputBuffer(began: .now)
+        next.prepend(taken.flatMap(\.keys), issuer: nil)
+        let again: [Lane?] = next.take(focused: "other") { _, _ in false }.map(\.lane)
+        #expect(again == notListed, "held again by another hold: \(again)")
+
+        let second = CreationInputBuffer(began: .now)
+        let made = second.open(generation: 8, tab: "pending_tab_2", machine: "local", newTerminal: true)
+        second.capture(try Self.key("s"), focusedTab: "pending_tab_2")
+        second.resolve(made, awaitsFocus: true, madeTab: { "tab_9" }, madeSurface: 78)
+        let named: [Lane?] = second.take(focused: "other") { _, _ in false }.map(\.lane)
+        let listed: [Lane?] = [Lane(tab: "tab_9", machine: "local", madeSurface: 78)]
+        #expect(named == listed, "the store lists the tab: \(named)")
+
+        let third = CreationInputBuffer(began: .now)
+        let split = third.open(generation: 9, tab: "split_tab", machine: "local")
+        third.capture(try Self.key("x"), focusedTab: "split_tab")
+        third.resolve(split, awaitsFocus: true)
+        let plain: [Lane?] = third.take(focused: "other") { _, _ in false }.map(\.lane)
+        let noId: [Lane?] = [Lane(tab: "split_tab", machine: "local")]
+        #expect(plain == noId, "a split's lane: \(plain)")
+    }
+
     /// The wake-up. The hold waits for a made terminal's tab and the flush's gate asked it (`holdsForMadeTab(wake:)`): the
     /// change of the store that lists the tab wakes the hold one time, with no poll and no timer. A second ask while it
     /// waits arms no second observation. Before the create's reply the hold waits for no tab and arms nothing.
@@ -231,8 +268,8 @@ import Testing
 
     /// The hold's count of lost keys (`CreationHoldLog.lostKeys`, the number in the log line of the hold's end): the keys
     /// that no terminal could take (the hold's own count) and the keys that the hold's end gave to a terminal that was
-    /// gone (a New Terminal Tab's whose stand-in left the pane and whose tab the store did not list by the limit). Before
-    /// this, the second kind was in no count. Keys that a gone terminal took before this end began are not this hold's,
+    /// gone (the person closed it; a made New Terminal Tab's with no listed tab are not of this kind: they go to the made
+    /// terminal by its id). Before this, the second kind was in no count. Keys that a gone terminal took before this end began are not this hold's,
     /// and the next hold starts at 0.
     @Test func theHoldsEndCountsTheKeysThatAGoneTerminalTook() {
         var log = CreationHoldLog()

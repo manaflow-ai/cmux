@@ -210,15 +210,15 @@ public final class CreationInputBuffer {
     /// expectation landed or was replaced. A failed creation asked for nothing.
     /// `workspace`: the workspace a new-workspace creation made (nil: it made none). A new-workspace creation that failed
     /// takes the keys typed for its terminal with it: they never go to whatever has the focus instead. So does a New
-    /// Terminal Tab the daemon refused; `madeTab` names the tab of the terminal one made (``NewTerminalKeys``).
-    public func resolve(_ ticket: Ticket, awaitsFocus: Bool, workspace: String? = nil, madeTab: (@MainActor () -> String?)? = nil) {
+    /// Terminal Tab the daemon refused; `madeTab` names the tab of the terminal one made, `madeSurface` that terminal's id (``NewTerminalKeys``).
+    public func resolve(_ ticket: Ticket, awaitsFocus: Bool, workspace: String? = nil, madeTab: (@MainActor () -> String?)? = nil, madeSurface: UInt64? = nil) {
         guard ticket.owner == ObjectIdentifier(self) else { return }
         earlyTabs[ticket.id] = nil
         tabs[ticket.id] = nil
         guard let generation = pending.removeValue(forKey: ticket.id) else { return }
         if pending.isEmpty { repliedAt = ContinuousClock.now }
         if awaitsFocus { awaited.insert(generation) }
-        let refused = newTerminals.resolve(ticket.id, landed: awaitsFocus, madeTab: madeTab) // a refused terminal tab takes its keys with it
+        let refused = newTerminals.resolve(ticket.id, landed: awaitsFocus, madeTab: madeTab, madeSurface: madeSurface) // a refused terminal tab takes its keys with it
         guard refused || workspaceTickets.contains(ticket.id) else { return }
         if awaitsFocus, let workspace {
             madeWorkspaces[ticket.id] = workspace
@@ -340,7 +340,7 @@ public final class CreationInputBuffer {
         adopted += 1
         let id = -adopted
         laneTabs[id] = lane.tab
-        laneMachines[id] = lane.machine
+        (laneMachines[id], newTerminals.surfaces[id]) = (lane.machine, lane.madeSurface) // a made terminal's id goes with its keys
         return id
     }
 
@@ -411,7 +411,7 @@ public final class CreationInputBuffer {
     public func owns(_ ticket: Ticket) -> Bool { ticket.owner == ObjectIdentifier(self) }
 
     /// The terminal lane `id` delivers to; nil for no lane.
-    private func heldLane(_ id: Int?) -> HeldLane? { id.flatMap { id in (newTerminals.tab(id) ?? laneTabs[id]).map { HeldLane(tab: $0, machine: laneMachines[id]) } } }
+    private func heldLane(_ id: Int?) -> HeldLane? { id.flatMap { id in (newTerminals.tab(id) ?? laneTabs[id]).map { HeldLane(tab: $0, machine: laneMachines[id], madeSurface: newTerminals.surfaces[id]) } } }
 
     public func take() -> [NSEvent] { // stranded keys go only into a terminal (``take(focused:keeping:isShortcut:)``)
         defer { events.removeAll(); endMadeTabWatch() }

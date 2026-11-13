@@ -34,9 +34,10 @@ public nonisolated struct CreationHoldLog: Equatable, Sendable {
     /// `window`'s hold ends now: by `forced` (its limit, the focus left the content), else on its own, as
     /// ``CreationHoldEnd/creationFailed`` when a creation of it failed and ``CreationHoldEnd/focusLanded`` otherwise.
     /// `pageTab`: the page a page hold waited for; ended at its limit, no new page hold opens for it (``pageExpired``).
-    /// `count` held keys ran again for a terminal that has no view and no tab now: the person closed it, or it is a New
-    /// Terminal Tab's whose stand-in left the pane and whose tab the store did not list by the hold's limit. They are
-    /// typed into no terminal: lost. The end of the hold that gave them out counts them (``lostKeys``).
+    /// `count` held keys ran again for a terminal that has no view, no tab and no id that a create's reply named: the
+    /// person closed it. (A New Terminal Tab's keys whose stand-in left the pane and whose tab the store does not list yet
+    /// are not here: they go to the made terminal by its id.) They are typed into no terminal: lost. The end of the hold
+    /// that gave them out counts them (``lostKeys``).
     public mutating func wentWithTerminal(_ count: Int) {
         gone += count
         Self.logger.notice("\(count, privacy: .public) held key(s) went with their closed terminal")

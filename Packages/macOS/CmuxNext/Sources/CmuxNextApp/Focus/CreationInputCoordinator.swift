@@ -165,12 +165,12 @@ final class CreationInputCoordinator {
     /// The creation behind `ticket` got its reply (`landed`: its focus was asked for) or failed.
     /// The keys go on in a new main-actor turn: outside the creation's task (its action scope)
     /// and after the focus events the reply queued.
-    /// `workspace`: the workspace a ``beginWorkspace(in:)`` create made (nil: none, and the keys typed for it go with it). `madeTab`: `CreationInputBuffer.resolve`'s.
-    func resolve(_ ticket: CreationInputBuffer.Ticket?, landed: Bool, workspace: String? = nil, in window: NSWindow?, madeTab: (@MainActor () -> String?)? = nil) {
+    /// `workspace`: the workspace a ``beginWorkspace(in:)`` create made (nil: none, and the keys typed for it go with it). `madeTab`, `madeSurface`: `CreationInputBuffer.resolve`'s.
+    func resolve(_ ticket: CreationInputBuffer.Ticket?, landed: Bool, workspace: String? = nil, in window: NSWindow?, madeTab: (@MainActor () -> String?)? = nil, madeSurface: UInt64? = nil) {
         if let window, let workspace, let ticket { claims.made(workspace, by: ticket, in: window); _ = claimHolds(in: window) }
         guard let ticket, let window, let buffer = buffers[window.windowNumber], buffer.owns(ticket) else { return } // a reply after its hold ended
         if !landed { holdEnds.creationFailed(in: window.windowNumber) }
-        buffer.resolve(ticket, awaitsFocus: landed, workspace: workspace, madeTab: madeTab)
+        buffer.resolve(ticket, awaitsFocus: landed, workspace: workspace, madeTab: madeTab, madeSurface: madeSurface)
         scheduleFlush(in: window)
         // The focus it asked for may never land (a split from a page tab shows a New Tab page):
         // the keys go on `holdLimit` after the reply at the latest.
@@ -294,16 +294,16 @@ final class CreationInputCoordinator {
     }
 
     /// Types `events` into `lane`'s terminal with its own key encoding: its view's (also hidden), else, its view gone, the
-    /// daemon's (that terminal's modes; another machine's terminal too). A closed terminal takes its keys with it.
+    /// daemon's (that terminal's modes; another machine's terminal too): to the id a New Terminal Tab's reply named (`made`: the daemon has that terminal before the store lists its tab), else to the listed tab's. A closed terminal takes its keys with it.
     private func type(_ events: [NSEvent], into lane: CreationInputBuffer.HeldLane) {
         guard let services = router?.services else { return }
         if let view = services.cache.existingTerminal(lane.tab)?.session.surfaceView { return events.forEach(view.typeHeldKey) }
-        guard let machine = lane.machine, let (tab, pane) = services.locateTab(lane.tab, onMachine: machine), tab.kind == .pty else {
-            return holdEnds.wentWithTerminal(events.count) // lost: no terminal gets them, and the hold's end counts them
-        }
-        let (inputs, skipped) = HeldKeyInput.inputs(for: events, optionAsAlt: GhosttyRuntime.shared.optionAsAltValue), surface = tab.surface
+        let made = lane.madeSurface.map { SurfaceID(rawValue: $0) }, listed = made == nil ? lane.machine.flatMap { services.locateTab(lane.tab, onMachine: $0) } : nil
+        let daemon = made == nil ? listed.map { services.daemon(for: $0.1) } : lane.machine.flatMap { services.machines.daemon(machine: $0) }
+        guard let daemon, let surface = made ?? (listed?.0.kind == .pty ? listed?.0.surface : nil) else { return holdEnds.wentWithTerminal(events.count) } // lost: no terminal gets them, and the hold's end counts them
+        let (inputs, skipped) = HeldKeyInput.inputs(for: events, optionAsAlt: GhosttyRuntime.shared.optionAsAltValue)
         if skipped > 0 { Self.logger.error("\(skipped, privacy: .public) held key(s) have no daemon key name") }
-        services.daemon(for: pane).sendInOrder("send-key", to: surface) { connection in // after this terminal's earlier held sends
+        daemon.sendInOrder("send-key", to: surface) { connection in // after this terminal's earlier held sends
             for input in inputs {
                 switch input {
                 case .text(let text): try await connection.send(surface, text: text)
@@ -398,10 +398,10 @@ final class CreationInputCoordinator {
         if buffer.dropKeys(ofWorkspacesOtherThan: shown) || controller.focus.state.awaitsOtherTab, let pane = controller.focus.state.pane { controller.focus.send(.contentPresented(pane: pane)) }
         let daemon = controller.content?.daemon
         if buffer.awaitedWorkspace == shown, let daemon { buffer.bindNewWorkspaceKeys(to: shown.flatMap(daemon.store.firstTerminalTab(ofWorkspace:))?.id, machine: daemon.machineID) }
-        let end = holdEnds.end(in: window.windowNumber, forced: force ? forcedEnd : nil, pageTab: buffer.awaitsPage ? buffer.awaitedTab : nil)
+        let end = holdEnds.end(in: window.windowNumber, forced: force ? forcedEnd : nil, pageTab: buffer.awaitsPage ? buffer.awaitedTab : nil), lastAction = router.lastInterception?.action.rawValue // read before the keys run again: each of them sets it anew
         let pending = buffer.take(focused: Self.keyboardTerminal(controller, window)) { self.shortcut($0, tab: $1, in: window) != nil }
         _ = runAgain(pending, from: buffer, in: window)
-        holdEnds.noteEnded(end, window: window.windowNumber, keys: pending.count, lastAction: router.lastInterception?.action.rawValue, untyped: buffer.untypedTerminalKeys) // after the keys ran: it counts those a gone terminal took
+        holdEnds.noteEnded(end, window: window.windowNumber, keys: pending.count, lastAction: lastAction, untyped: buffer.untypedTerminalKeys) // after the keys ran: it counts those a gone terminal took
     }
 }
 

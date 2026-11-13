@@ -18,7 +18,11 @@ extension CreationInputBuffer {
     public struct HeldLane: Hashable, Sendable {
         public let tab: String
         public let machine: String?
-        public init(tab: String, machine: String?) { self.tab = tab; self.machine = machine }
+        /// The daemon's id of the terminal that a New Terminal Tab's create made, as its reply named it (a surface id's
+        /// raw value). The daemon has that terminal from the reply on, also while the store lists no tab of it: keys
+        /// with no view to go to are sent to this id (``NewTerminalKeys``). nil for every other lane.
+        public let madeSurface: UInt64?
+        public init(tab: String, machine: String?, madeSurface: UInt64? = nil) { self.tab = tab; self.machine = machine; self.madeSurface = madeSurface }
     }
 
     /// Held keys at the hold's end, in typing order (``take(focused:)``).
