@@ -1799,3 +1799,201 @@ fn the_updater_looks_again_within_20_s_idle_or_busy() {
     let spread: BTreeSet<_> = (0..64u64).map(|i| role::next_look(&outcomes[1], i * 977)).collect();
     assert!(spread.len() > 8, "the jitter spreads the looks: {spread:?}");
 }
+
+#[test]
+fn parse_response_reads_status_validators_and_body() {
+    let raw = b"HTTP/2 200 \r\netag: \"abc\"\r\nLast-Modified: Fri, 13 Nov 2026 15:03:58 GMT\r\n\r\n{\"x\":1}";
+    assert_eq!(
+        channel::parse_response(raw).unwrap(),
+        channel::Answer::Full {
+            body: b"{\"x\":1}".to_vec(),
+            etag: Some("\"abc\"".to_owned()),
+            last_modified: Some("Fri, 13 Nov 2026 15:03:58 GMT".to_owned()),
+        }
+    );
+    assert_eq!(
+        channel::parse_response(b"HTTP/1.1 304 Not Modified\r\nETag: \"abc\"\r\n\r\n").unwrap(),
+        channel::Answer::NotModified
+    );
+    // An earlier block (a 1xx, a retried 503) is skipped; the last one answers.
+    let retried =
+        b"HTTP/1.1 503 Busy\r\n\r\nHTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 304 Not Modified\r\n\r\n";
+    assert_eq!(channel::parse_response(retried).unwrap(), channel::Answer::NotModified);
+    // No validators: nothing to send back. A value with a control byte is not one.
+    let bare = b"HTTP/1.1 200 OK\r\nETag: \"a\x01b\"\r\n\r\n{}";
+    assert_eq!(
+        channel::parse_response(bare).unwrap(),
+        channel::Answer::Full { body: b"{}".to_vec(), etag: None, last_modified: None }
+    );
+    assert!(channel::parse_response(b"HTTP/1.1 302 Found\r\nLocation: x\r\n\r\n").is_err());
+    assert!(channel::parse_response(b"{\"not\": \"a response\"}").is_err());
+}
+
+fn full(body: Vec<u8>, etag: &str) -> channel::Answer {
+    channel::Answer::Full { body, etag: Some(etag.to_owned()), last_modified: None }
+}
+
+#[test]
+fn a_304_is_trusted_only_with_a_kept_file_that_verifies_now() {
+    let good = envelope(&payload_json(OLD_TUI, OLD_HOOK), "test");
+    // No file kept: a 304 is refused, and nothing is sent conditionally.
+    let mut cache = channel::Cache::new();
+    assert_eq!(cache.validators(), (None, None));
+    assert!(cache.take(channel::Answer::NotModified, &keys(), 5_000).is_err());
+    // A verified 200 is kept with its validator; a 304 then answers its payload.
+    assert_eq!(cache.take(full(good.clone(), "\"v1\""), &keys(), 5_000).unwrap().commit, COMMIT);
+    assert_eq!(cache.validators(), (Some("\"v1\"".to_owned()), None));
+    assert_eq!(cache.take(channel::Answer::NotModified, &keys(), 5_000).unwrap().commit, COMMIT);
+    // The kept file's expiry is checked against now on every 304, and an
+    // expired one is dropped, so the next read is unconditional.
+    assert!(cache.take(channel::Answer::NotModified, &keys(), 10_000).is_err());
+    assert_eq!(cache.validators(), (None, None));
+    // A 200 that does not verify is not kept and drops the kept file.
+    cache.take(full(good.clone(), "\"v1\""), &keys(), 5_000).unwrap();
+    assert!(
+        cache
+            .take(
+                full(envelope(&payload_json(OLD_TUI, OLD_HOOK), "other"), "\"v2\""),
+                &keys(),
+                5_000
+            )
+            .is_err()
+    );
+    assert_eq!(cache.validators(), (None, None));
+    assert!(cache.take(channel::Answer::NotModified, &keys(), 5_000).is_err());
+    // A 200 with no validator verifies but is not kept: nothing to send back.
+    let bare = channel::Answer::Full { body: good, etag: None, last_modified: None };
+    cache.take(bare, &keys(), 5_000).unwrap();
+    assert_eq!(cache.validators(), (None, None));
+}
+
+#[cfg(target_os = "linux")]
+/// A local origin for the channel file over plain HTTP: answers a matching
+/// If-None-Match with 304 and no body, counting whole files and 304s.
+struct Origin {
+    url: String,
+    file: std::sync::Arc<std::sync::Mutex<(String, Vec<u8>)>>,
+    full: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    not_modified: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    body_bytes: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+}
+
+#[cfg(target_os = "linux")]
+impl Origin {
+    fn serve(etag: &str, body: Vec<u8>, always_304: bool) -> Origin {
+        use std::io::{Read as _, Write as _};
+        use std::sync::atomic::Ordering::SeqCst;
+        use std::sync::{Arc, Mutex};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!(
+            "http://{}/cmux-tui/channels/cloud-machine.json",
+            listener.local_addr().unwrap()
+        );
+        let origin = Origin {
+            url,
+            file: Arc::new(Mutex::new((etag.to_owned(), body))),
+            full: Arc::default(),
+            not_modified: Arc::default(),
+            body_bytes: Arc::default(),
+        };
+        let (file, full, not_modified, body_bytes) = (
+            origin.file.clone(),
+            origin.full.clone(),
+            origin.not_modified.clone(),
+            origin.body_bytes.clone(),
+        );
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+                let mut request = Vec::new();
+                let mut buf = [0u8; 1024];
+                while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+                    match stream.read(&mut buf) {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => request.extend_from_slice(&buf[..n]),
+                    }
+                }
+                let request = String::from_utf8_lossy(&request).into_owned();
+                let sent = request.lines().find_map(|line| {
+                    let (key, value) = line.split_once(':')?;
+                    key.eq_ignore_ascii_case("if-none-match").then(|| value.trim().to_owned())
+                });
+                let (etag, body) = file.lock().unwrap().clone();
+                let response = if always_304 || sent.as_deref() == Some(etag.as_str()) {
+                    not_modified.fetch_add(1, SeqCst);
+                    format!(
+                        "HTTP/1.1 304 Not Modified\r\nETag: {etag}\r\nConnection: close\r\n\r\n"
+                    )
+                    .into_bytes()
+                } else {
+                    full.fetch_add(1, SeqCst);
+                    body_bytes.fetch_add(body.len(), SeqCst);
+                    let mut response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\
+                         ETag: {etag}\r\nLast-Modified: Fri, 13 Nov 2026 15:03:58 GMT\r\n\
+                         Connection: close\r\n\r\n",
+                        body.len()
+                    )
+                    .into_bytes();
+                    response.extend_from_slice(&body);
+                    response
+                };
+                let _ = stream.write_all(&response);
+            }
+        });
+        origin
+    }
+
+    fn counts(&self) -> (usize, usize) {
+        use std::sync::atomic::Ordering::SeqCst;
+        (self.full.load(SeqCst), self.not_modified.load(SeqCst))
+    }
+}
+
+#[cfg(target_os = "linux")]
+/// The 15 s poll's origin load: N checks of an unchanged channel read the
+/// whole file once, then are answered 304 with no body, and every check
+/// still returns the verified payload. A changed channel is read whole again.
+#[test]
+fn an_unchanged_channel_is_read_whole_once_then_answered_304() {
+    use std::sync::atomic::Ordering::SeqCst;
+    const POLLS: usize = 20;
+    let origin = Origin::serve("\"v1\"", envelope(&payload_json(OLD_TUI, OLD_HOOK), "test"), false);
+    let cache = std::sync::Mutex::new(channel::Cache::new());
+    for _ in 0..POLLS {
+        let payload =
+            role::read_channel_from(&cache, &origin.url, "=http", &keys(), 5_000).unwrap();
+        assert_eq!(payload.binaries_for(TARGET).unwrap().0.sha256, OLD_TUI);
+    }
+    let one = origin.body_bytes.load(SeqCst);
+    eprintln!(
+        "{POLLS} polls of an unchanged channel: (whole files, 304s) = {:?}, body bytes {one}",
+        origin.counts()
+    );
+    assert_eq!(
+        origin.counts(),
+        (1, POLLS - 1),
+        "an unchanged channel was read whole more than once"
+    );
+
+    // The channel moves: the next check reads the new file whole and returns it.
+    *origin.file.lock().unwrap() =
+        ("\"v2\"".to_owned(), envelope(&payload_json(CLAUDE, OLD_HOOK), "test"));
+    let payload = role::read_channel_from(&cache, &origin.url, "=http", &keys(), 5_000).unwrap();
+    assert_eq!(payload.binaries_for(TARGET).unwrap().0.sha256, CLAUDE);
+    assert_eq!(origin.counts(), (2, POLLS - 1));
+    let payload = role::read_channel_from(&cache, &origin.url, "=http", &keys(), 5_000).unwrap();
+    assert_eq!(payload.binaries_for(TARGET).unwrap().0.sha256, CLAUDE);
+    assert_eq!(origin.counts(), (2, POLLS));
+}
+
+#[cfg(target_os = "linux")]
+/// An origin that answers 304 to a check that kept no file is refused, never
+/// taken as "nothing changed".
+#[test]
+fn a_304_to_an_unconditional_read_is_refused() {
+    let origin = Origin::serve("\"v1\"", envelope(&payload_json(OLD_TUI, OLD_HOOK), "test"), true);
+    let cache = std::sync::Mutex::new(channel::Cache::new());
+    let err = role::read_channel_from(&cache, &origin.url, "=http", &keys(), 5_000).unwrap_err();
+    assert!(err.contains("no verified file is kept"), "{err}");
+}

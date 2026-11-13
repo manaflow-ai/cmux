@@ -187,6 +187,7 @@ fn event_frame(sid: &str, item: ListItem, mode: Mode) -> Result<(Frame, Cursor, 
             (event.seq, DeltaOp::Summary { seq: event.seq, summary: (*event.summary).clone() })
         }
         ListItem::Gone { seq, origin, chat_id } => (seq, DeltaOp::Gone { seq, origin, chat_id }),
+        ListItem::Origin { seq, origin } => (seq, DeltaOp::Origin { seq, origin }),
         ListItem::Lagged { .. } => {
             return Err(ConnError::InvalidRequest("list cursor expired".into()));
         }

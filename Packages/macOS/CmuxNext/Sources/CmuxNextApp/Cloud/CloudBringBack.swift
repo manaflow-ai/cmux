@@ -13,8 +13,8 @@ import Foundation
 /// git project as the seed's diff, a copied folder as `cmux link sync pull`'s three-way merge
 /// against what the move pushed; the CLI picks), moves the chat from the machine's tab to this Mac in that folder
 /// (`cmux link agent move`; this Mac's daemon takes it under its own guard, never with a VM's
-/// control), and opens it here: a workspace whose terminal runs in the folder and whose chat tab
-/// is bound to the session on this Mac. The machine's tab, whose chat closed, closes only then.
+/// control), and opens it here: a workspace whose only tab is the chat, bound to the session on
+/// this Mac, no terminal beside it. The machine's tab, whose chat closed, closes only then.
 ///
 /// It keeps the move's recovery model: it runs on the machine the chat moved to; a conflict stops
 /// before anything moves and names the files; a run that may not have finished (a thrown CLI, an
