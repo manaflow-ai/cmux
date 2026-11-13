@@ -599,6 +599,11 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             channels.append(channel)
             return DaemonClient(channel: channel)
         }
+        // This fake Mac replays its own 80x24 grid and never answers the
+        // phone's 54x42 claim with a resize, so the page holds that grid
+        // until the claim's wait ends (it never draws a grid it did not ask
+        // for while its claim may still bring its own back); shortened here.
+        session.reclaimWait = .milliseconds(20)
         var events: [TerminalSessionEvent] = []
         session.start { events.append($0) }
         session.resize(columns: 54, rows: 42)
@@ -613,6 +618,7 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         session.reconnect()
         try await waitUntil { session.isAttached }
         try await waitUntil { daemon.recorded.filter { $0["cmd"] as? String == "resize-surface" }.count == 2 }
+        try await waitUntil { events[before...].contains(.output(Data("hello\r\n$ ".utf8))) }
         let after = Array(events[before...])
         let reset = after.firstIndex(of: .output(Data("\u{1B}c".utf8)))
         let replay = after.firstIndex(of: .output(Data("hello\r\n$ ".utf8)))
