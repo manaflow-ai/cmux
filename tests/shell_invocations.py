@@ -1510,7 +1510,7 @@ def _expand(invocation: Invocation, defined: set[str], depth: int, found: list[l
             while end < len(args) and args[end] not in (";", "+"):
                 end += 1
             target = args[index + 1:end]
-            if not target or _opaque(_word_token(target[0])):
+            if not target or _opaque(_word_token(target[0])) or any(_unreadable(word) for word in target[1:]):
                 found.append([])
             else:
                 tail = _classify(_Command([_word_token(text) for text in target], False, True), defined)
