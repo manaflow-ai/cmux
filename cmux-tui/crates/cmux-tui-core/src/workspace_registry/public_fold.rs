@@ -19,6 +19,10 @@
 //! a lost fold sent the next create or close to the full projection, which
 //! wrote one journal value for each live resource of the session.)
 //!
+//! A daemon start states the session again in one full projection commit
+//! before its first request (`Mux::restate_session_at_start`), so a daemon
+//! that serves has a complete fold unless that commit failed.
+//!
 //! A full projection makes the fold complete (it then holds every live
 //! resource). Only the debug cross-check reads that: a complete fold can
 //! say that the journal does not state a resource, a partial one cannot.
@@ -41,7 +45,7 @@ pub(super) struct PublicTopologyFold {
 #[cfg(test)]
 thread_local! {
     /// Reads of [`PublicTopologyFold::holds_every_resource`] on this thread.
-    static COMPLETE_READS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static COMPLETE_READS: Cell<u64> = const { Cell::new(0) };
 }
 
 impl PublicTopologyFold {
@@ -252,7 +256,7 @@ impl WorkspaceRegistry {
     /// `PublicTopologyFold::holds_every_resource`).
     #[cfg(test)]
     pub(crate) fn complete_reads_for_test() -> u64 {
-        COMPLETE_READS.with(std::cell::Cell::get)
+        COMPLETE_READS.with(Cell::get)
     }
 
     /// Record a committed resource revision whose journaled changes were

@@ -19,10 +19,12 @@
 //! journal writer thread, as in a daemon. The counts of one create must be equal at 60 and at 826.
 //!
 //! FULL-PATH row (the lead's condition): the same split when the registry has lost its fold of the
-//! journal, which is its state after a daemon start and after a commit whose receipt did not
-//! come (`abandon_effect_commit`). On his Mac this is the candidate for the 2157 ms: without the
-//! fold the create took the FULL projection, which reads the whole stored topology and every
-//! terminal record and writes one journal value for each resource of the session.
+//! journal, which is its state after a commit whose receipt did not come
+//! (`abandon_effect_commit`) and was its state after each daemon start (a start now states the
+//! session again before its first request: `lost_fold_journal`). On his Mac this is the
+//! candidate for the 2157 ms: without the fold the create took the FULL projection, which reads
+//! the whole stored topology and every terminal record and writes one journal value for each
+//! resource of the session.
 //!
 //! FOCUS row (a product defect at the same site, not a cost): an empty workspace made with focus
 //! commits the workspace rows and the active workspace, but its journal record did not state
@@ -53,6 +55,8 @@ use super::workspace_close_cost::session_in;
 use super::*;
 use crate::mux::resource_content::without_crosscheck;
 use crate::walk_counters::walk_counts_for_test;
+
+mod lost_fold_journal;
 
 /// SELECT statements that a create may run more in one session than in the other for a reason
 /// that is not the session's size (the one-slot sidebar document cache of the process: see
@@ -319,14 +323,14 @@ fn arms(workspaces: usize) -> Arms {
     let (workspace, workspace_surface) = counted_create(&mux, || {
         mux.new_workspace(Some("measured".into()), Some((80, 24))).unwrap()
     });
-    // The registry loses its fold of the journal, as after a daemon start or a commit whose
-    // receipt did not come.
+    // With the fold held, as each create above: the first workspace commit after a lost fold
+    // states each workspace one time (`lost_fold_journal`).
+    let empty = empty_workspace_record(&mux);
+    // The registry loses its fold of the journal, as after a commit whose receipt did not come.
     let other_pane = mux.with_state(|state| state.pane_of(workspace_surface.id).unwrap());
     mux.workspace_registry.lock().unwrap().abandon_effect_commit();
     let (no_fold, no_fold_surface) =
         counted_create(&mux, || mux.split(other_pane, SplitDir::Down, None).unwrap());
-    // The fold started again, empty, at the split above; the measure below reads no fold.
-    let empty = empty_workspace_record(&mux);
     let arms = Arms { split, tab, workspace, no_fold, empty };
     eprintln!("empty workspace with focus at {workspaces} workspaces: {:?}", arms.empty);
     for (name, cost) in arms.each().into_iter().chain([("split with no fold", &arms.no_fold)]) {

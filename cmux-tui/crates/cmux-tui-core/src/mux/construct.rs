@@ -575,6 +575,9 @@ impl Mux {
         mux.retry_pending_agent_hooks()?;
         crate::journal_hooks::start(&mux)?;
         timings.lap("agent.hooks");
+        // After each restore step, before the first request (startup_restore.rs).
+        mux.restate_session_at_start();
+        timings.lap("session.restate");
         mux.start_journal_maintenance()?;
         if let Err(error) = mux.start_output_cleanup() {
             eprintln!("cmux-tui: output cleanup: not started: {error:#}");

@@ -219,3 +219,41 @@ impl Mux {
         Ok(())
     }
 }
+
+/// The journal operation of the restatement of a daemon start.
+pub(super) const RESTATE_AT_START: &str = "session.restate-at-start";
+
+impl Mux {
+    /// State the session again at a daemon start: ONE full projection commit, after the restore
+    /// and before the daemon serves a request.
+    ///
+    /// A start has no fold of the values that the journal states, and the restore can leave a
+    /// row or a journal value that is not the live tree: the open of the registry rewrites a row
+    /// with no journal record, a tab row outlives a terminal that ended, a stored row holds a
+    /// value of another session. This commit writes each row that differs and states each live
+    /// value in one journal record. From the first request on, the rows and the journal state
+    /// the live tree and the fold holds every resource, so no create, close or switch of a
+    /// person pays for the restatement. It does not remove that cost: it moves it from the first
+    /// create after a start to the start, one time for each start.
+    ///
+    /// A session with no workspace states nothing. A commit that fails does not stop the start:
+    /// the fold stays empty, and each later commit states what the fold does not hold.
+    pub(super) fn restate_session_at_start(&self) {
+        if let Err(error) = self.restate_session() {
+            eprintln!("cmux-tui: session restate at start: not done: {error:#}");
+        }
+    }
+
+    /// The commit of [`Self::restate_session_at_start`]; `false` when there is no workspace.
+    pub(super) fn restate_session(&self) -> anyhow::Result<bool> {
+        if self.with_state(|state| state.workspaces.is_empty()) {
+            return Ok(false);
+        }
+        self.commit_ordinary_full_resource_projection(
+            &Actor::Daemon,
+            RESTATE_AT_START,
+            serde_json::json!({}),
+        )?;
+        Ok(true)
+    }
+}
