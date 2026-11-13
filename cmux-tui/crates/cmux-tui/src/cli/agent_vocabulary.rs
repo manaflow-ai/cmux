@@ -57,6 +57,7 @@ mod tests {
         assert_eq!(harness_name("open-code"), "opencode");
         assert_eq!(harness_name("gemini-cli"), "gemini");
         assert_eq!(harness_name("ampcode"), "amp");
+        assert_eq!(harness_name("agy"), "antigravity");
         assert_eq!(harness_name("Pi"), "pi");
         assert_eq!(source_name("detected"), "plugin");
         assert_eq!(source_name("plugin"), "plugin");
