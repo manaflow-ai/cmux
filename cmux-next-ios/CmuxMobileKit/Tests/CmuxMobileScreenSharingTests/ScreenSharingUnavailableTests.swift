@@ -28,7 +28,7 @@ import Testing
     }
 
     @Test func plusScreenSharingConnectsOnlyToAMacThatCanBeShared() {
-        let reason: (HubDevice) -> ScreenSharingRefusal? = { Service.unavailability(of: $0, access: .full) }
+        let reason: @Sendable (HubDevice) -> ScreenSharingRefusal? = { Service.unavailability(of: $0, access: .full) }
         let notShared = mac(shared: false)
         #expect(ScreenSharingPage.namedMac("Aziz's MacBook Pro", in: [notShared], unavailable: reason) == nil)
         #expect(ScreenSharingPage.namedMac("Aziz's MacBook Pro", in: [mac(online: false)], unavailable: reason) == nil)
