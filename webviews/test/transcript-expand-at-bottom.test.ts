@@ -188,8 +188,9 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
     /// How long after its frame the read ran (ms).
     lag: number;
   };
-  /// One frame at 60 Hz. A read that ran this long after its frame ran after the next frame's
-  /// callbacks: it shows that next frame's state, so it is no read of its own frame.
+  /// One frame at 60 Hz. A read that ran this long after its frame's time says that the page fell
+  /// behind: on the CI runners every frame that got no read had a late read after it. Its place is
+  /// mostly right for its frame, but a fold with late reads has fewer reads than frames drawn.
   const FRAME_MS = 1000 / 60;
   /// What the reads of one fold say about its glide. `places` counts the in-time reads that drew a
   /// new place strictly between `from` and `to`: more than 1px from both, and more than half a pixel
