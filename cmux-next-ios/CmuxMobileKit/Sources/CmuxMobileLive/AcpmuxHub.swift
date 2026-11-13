@@ -531,7 +531,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// The raw records applied to this chat, newest 500 (the Event Inspector).
     let journal = AgentEventJournal()
     /// Replay is a cache, independent of how the Mac pages history.
-    static let replayEventLimit = 2_000
+    /// Keep enough room for a tail-first reattach's bounded pages and their record metadata.
+    /// A prompt and result each add a sequence marker to the replay, so a 300-turn gap can
+    /// legitimately exceed two thousand events even though it is only three wire pages.
+    /// The cache remains bounded; once this budget is exhausted a later reader resyncs.
+    static let replayEventLimit = 4_096
     /// The most records one history read returns.
     static let pageSize = 400
     /// The open's byte cap, as the Mac's agent pane opens: a long chat draws its newest records
