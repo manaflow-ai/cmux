@@ -1,4 +1,5 @@
 import AppKit
+@testable import CmuxNextApp
 @testable import CmuxNextHomeEngine
 import Foundation
 import Testing
@@ -12,6 +13,16 @@ import Testing
         #expect(HomeChiefProfileView.gate(paid: true, cloudChief: false, hasComputer: false) == .needsCloudChief)
         #expect(HomeChiefProfileView.gate(paid: true, cloudChief: true, hasComputer: false) == .notSetUp)
         #expect(HomeChiefProfileView.gate(paid: true, cloudChief: true, hasComputer: true) == nil)
+    }
+
+    /// A Chief of this Mac whose picked Cloud machine was deleted (or is on another team) is offered Set Up Computer
+    /// again instead of waiting on it; before the first machine list nothing counts as gone.
+    @Test func aPickedMachineTheListNoLongerHasIsGone() {
+        #expect(ChiefComputerPageService.machineGone("vm_gone", listed: true, in: ["vm_other"]))
+        #expect(ChiefComputerPageService.machineGone("machine:vm_gone", listed: true, in: []))
+        #expect(!ChiefComputerPageService.machineGone("vm_here", listed: true, in: ["vm_here"]))
+        #expect(!ChiefComputerPageService.machineGone("vm_gone", listed: false, in: []))
+        #expect(!ChiefComputerPageService.machineGone("chief:agent_1", listed: true, in: []))
     }
 
     @Test func aFreePlanSeesTheUpsellAndReadsNoScreen() async {

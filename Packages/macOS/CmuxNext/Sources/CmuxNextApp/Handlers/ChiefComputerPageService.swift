@@ -105,6 +105,15 @@ final class ChiefComputerPageService: InternalPageProvider {
         return services.machines.cloud.first { $0.machine.title == name && $0.machine.status != .destroyed && $0.machine.status != .deleting }?.machineID
     }
 
+    /// Whether the card's pick (`machine:<id>`, or a bare id) names a Cloud machine the loaded list no longer has.
+    /// Before the first list (`listed` false) nothing is gone, and a pick that is not a Cloud machine never is.
+    static func machineGone(_ picked: String, listed: Bool, in machines: [String]) -> Bool {
+        guard listed else { return false }
+        let id = picked.hasPrefix("machine:") ? String(picked.dropFirst("machine:".count)) : picked
+        guard id.hasPrefix("vm_") else { return false }
+        return !machines.contains(id)
+    }
+
     /// The machine's state from the app's own machine list, in the words ``HomeChiefComputer`` reads.
     private static func machineStatus(_ services: AppServices, _ machine: String) -> HomeChiefComputer.Status? {
         guard let status = services.machines.session(machine)?.machine.status else { return nil }
@@ -300,6 +309,10 @@ final class ChiefComputerPageService: InternalPageProvider {
         view.makeMachine = { [weak services] in  // a Chief of this Mac: a normal Cloud machine, a new one each time
             guard let services else { throw CancellationError() }
             return try await services.cloud.createMachine(name: nil, startedByPerson: true).machineID
+        }
+        view.machineGone = { [weak services] picked in
+            guard let services else { return false }
+            return machineGone(picked, listed: services.machines.cloudLimits != nil, in: services.machines.cloud.map(\.machineID))
         }
         view.name = { [weak service] in service?.chiefName(of: id) ?? HomeStrings.chiefName }
         view.onUpgrade = { [weak services] in
