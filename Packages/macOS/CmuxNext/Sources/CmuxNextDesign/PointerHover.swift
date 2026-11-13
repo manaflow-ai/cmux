@@ -319,7 +319,9 @@ final class KeyWindowObserver {
     /// Where the key goes is not known yet: the become of this change posts after the resign, in
     /// this pass, or no window of the app takes the key.
     private func resign(_ window: NSWindow?) {
-        guard let window else { return }
+        // A window in deallocation is no window here: a weak reference to it aborts the process
+        // (a view that leaves a dying window can post its key notice).
+        guard let window, !window.isBeingDeallocated else { return }
         PointerHover.keyChanged(in: window)
         // A second resign with no become between them: the first window's key left the app's windows.
         if let earlier = resigned, earlier !== window { PointerHover.refresh(in: earlier) }
@@ -329,6 +331,9 @@ final class KeyWindowObserver {
     }
 
     private func become(_ window: NSWindow?) {
+        // A window in deallocation is no window here either, and the resign before it stays a
+        // resign with no become: that window is recomputed when the pass ends.
+        if let window, window.isBeingDeallocated { return }
         let (old, oldHome) = (resigned, resignedHome)
         (resigned, resignedHome) = (nil, nil)
         guard let window else { return }
@@ -372,6 +377,8 @@ final class KeyWindowObserver {
         // A page in a page at most; the bound only stops a cycle.
         for _ in 0..<4 {
             guard current.isKind(of: pageClass) else {
+                // A parent in deallocation takes no weak reference: the page's window is not known.
+                guard !current.isBeingDeallocated else { break }
                 if homes.count > 32 { homes = homes.filter { $0.value.page != nil && $0.value.window != nil } }
                 homes[key] = PageHome(page: window, window: current)
                 return current
