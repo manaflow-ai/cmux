@@ -24,7 +24,7 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
 
     /// The coded fields: everything but ``connection``, which never reaches the page.
     private enum CodingKeys: String, CodingKey {
-        case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, promptAttachments, promptTicket, harness, model, peer, adopt, surface,
+        case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, promptAttachments, promptTicket, harness, model, effort, peer, adopt, surface,
              linkScheme, sessionMustExist, revealTurn, chooseFolder, startKind, folderNeeded, pastTurns, machineName, localMachineName, githubRepository, harnesses, pickCloud, wake,
              workspaceContext, sandboxState, tab, cloudMachineID, cloudAccount, cloudHandoffs, cloudRepositoryAvailable, cloudStartHandoff, cloudTurnRewind
     }
@@ -69,6 +69,8 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     public var harness: String?
     /// The model a new chat starts on before its first prompt.
     public var model: String?
+    /// The effort a new chat starts on with ``model`` (a Cloud start's picker, ``AgentPaneSeed/effort``).
+    public var effort: String?
     /// A validated acpmux peer selected by the New Agent Chat action.
     public var peer: String?
     /// An outside chat the page resumes on connect. Pages that predate it

@@ -60,8 +60,8 @@ pub(in crate::cli) enum ChatCommand {
         after: u64,
         limit: usize,
     },
-    /// Start a GUI agent chat (chat_control.rs).
-    New(super::chat_control::NewChat),
+    /// Start a GUI agent chat (chat_control.rs); boxed, as the largest variant by far.
+    New(Box<super::chat_control::NewChat>),
     /// What a chat is doing.
     State {
         target: String,
@@ -77,7 +77,9 @@ pub(in crate::cli) enum ChatCommand {
 /// <chat>` and `chat continue <chat> [[--] <text>]` (the words after `chat`).
 pub(in crate::cli) fn parse(words: &[&str]) -> Result<ChatCommand, UsageError> {
     match words {
-        ["new", rest @ ..] => super::chat_control::parse_new(rest).map(ChatCommand::New),
+        ["new", rest @ ..] => {
+            super::chat_control::parse_new(rest).map(|chat| ChatCommand::New(Box::new(chat)))
+        }
         ["state", target] => Ok(ChatCommand::State { target: chat_word(target)? }),
         ["interrupt", target] => Ok(ChatCommand::Interrupt { target: chat_word(target)? }),
         // A nudge: a send whose text defaults to "Continue.".
@@ -265,6 +267,12 @@ pub(in crate::cli) fn app_acpmux(global: &GlobalArgs) -> Option<PathBuf> {
     // One daemon can be named two ways (`/tmp` and `/private/tmp`, a relative path).
     let same = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     (same(&acp::own_socket()) != same(&app)).then_some(app)
+}
+
+/// The peers of the acpmux `chat new` starts chats in (the app's own, else the one `cmux acp`
+/// reaches): its `_acpmux/peers` answer, the machines New Agent Chat's Environment picker lists.
+pub(in crate::cli) fn chat_peers(global: &GlobalArgs) -> Result<Value, String> {
+    acp::peers(app_acpmux(global).as_deref())
 }
 
 /// A workspace key in one comparable form: lowercase, without dashes (the
@@ -826,21 +834,24 @@ pub(super) mod acp {
     }
 
     /// Starts a chat in `cwd` with `meta` as its `_meta.acpmux`; the
-    /// `session/new` reply.
+    /// `session/new` reply. No `cwd`: the peer `meta` names picks the folder (`acpmux new --on`).
     pub(in crate::cli) fn new_session(
-        cwd: &str,
+        cwd: Option<&str>,
         meta: Value,
         socket: Option<&Path>,
     ) -> Result<Value, String> {
+        let mut params = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
+        if let Some(cwd) = cwd {
+            params["cwd"] = json!(cwd);
+        }
         block_on(async {
-            client(socket)
-                .await?
-                .request(
-                    acpmux::rpc::method::SESSION_NEW,
-                    json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": meta}}),
-                )
-                .await
+            client(socket).await?.request(acpmux::rpc::method::SESSION_NEW, params).await
         })
+    }
+
+    /// The acpmux's peers (`_acpmux/peers`), as `acpmux host` reads them.
+    pub(super) fn peers(socket: Option<&Path>) -> Result<Value, String> {
+        block_on(async { client(socket).await?.request("_acpmux/peers", json!({})).await })
     }
 
     /// Queues `text` as a prompt of `session` and returns once acpmux accepted it (started, or

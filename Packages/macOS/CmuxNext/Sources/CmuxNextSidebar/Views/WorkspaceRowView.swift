@@ -276,8 +276,12 @@ final class WorkspaceRowView: SidebarRowView {
         // agent brand with it: a row without the user's icon or a favicon stays text only, and
         // its corner badge sits in the trailing slot (`layoutColumnMark`).
         let badgesLead = content.rowBadge != .trailing && !isShowingPlaceholder
-        icon.configure(icon: shown.icon)
-        iconKind = shown.icon
+        // A Cloud row with no icon of its own leads with the cloud, in the icon column Home's glyph sits in
+        // (Austin, 2026-11-12); a row that has its own icon keeps it and shows the cloud after its name.
+        let leadsWithCloud = shown.icon == nil && shown.runsInCloud && !isShowingPlaceholder
+        let leadingIcon = leadsWithCloud ? WorkspaceIcon.symbol("cloud") : shown.icon
+        icon.configure(icon: leadingIcon)
+        iconKind = leadingIcon
         configureColor(shown)
         let priorTitle = lastTitle
         if titleArrivalPending || titleArrivalScheduled || titleArrivalActive {
@@ -330,7 +334,7 @@ final class WorkspaceRowView: SidebarRowView {
         mutedMark.image = ws.muted && !isShowingPlaceholder
             ? NSImage.icon(symbol: "bell.slash", size: .iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1)) : nil
         mutedMark.isHidden = mutedMark.image == nil
-        cloudMark.image = shown.runsInCloud && !isShowingPlaceholder ? NSImage.icon(.cloud, size: SidebarStyle.indicatorSize) : nil
+        cloudMark.image = shown.runsInCloud && !leadsWithCloud && !isShowingPlaceholder ? NSImage.icon(.cloud, size: SidebarStyle.indicatorSize) : nil
         cloudMark.isHidden = cloudMark.image == nil
         // The bell-slash alone does not say what is muted: notifications, not the tabs' sound
         // (the row's accessibility label says it too).

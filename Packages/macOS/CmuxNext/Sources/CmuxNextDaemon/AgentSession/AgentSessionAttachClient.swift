@@ -102,6 +102,8 @@ public actor AgentSessionAttachClient {
         var permissionMode = false
         /// `agent-session-start-mode-v1`.
         var startMode = false
+        /// `agent-session-start-credentials-v1`.
+        var credentials = false
         /// `agent-session-trust-vm-kind-v1`.
         var trustVMKind = false
         /// `agent-session-children-v1`.
@@ -201,7 +203,8 @@ public actor AgentSessionAttachClient {
     /// that same connection, checked before it: if it ended meanwhile the start fails, never
     /// goes out over a new one.
     public func start(cwd: String?, harness: String?, homeConfirmed: Bool = false, personKey: PersonKey? = nil,
-                      ownerLink: OwnerLink? = nil, model: String? = nil, permissionMode: String? = nil, startMode: String? = nil) async throws -> String {
+                      ownerLink: OwnerLink? = nil, model: String? = nil, permissionMode: String? = nil, startMode: String? = nil,
+                      credentials: [String: String]? = nil) async throws -> String {
         guard mode == .attach else {
             throw AgentSessionAttachError(code: Self.startUnsupported, message: "a read-only agent session cannot start a chat")
         }
@@ -216,7 +219,8 @@ public actor AgentSessionAttachClient {
         let params = Self.startParams(cwd: cwd, harness: harness, homeConfirmed: homeConfirmed, personKey: personKey,
                                       servesKeyedReason: served.keyedReason, callerOwnsVM: callerOwnsVM, servesVMKind: served.vmKind,
                                       model: model, servesModel: served.model, servesPermissionMode: served.permissionMode, permissionMode: permissionMode,
-                                      startMode: startMode, servesStartMode: served.startMode)
+                                      startMode: startMode, servesStartMode: served.startMode,
+                                      servesCredentials: served.credentials, credentials: credentials)
         guard !transport.isClosed else {
             throw AgentSessionAttachError(code: "agent_session.closed", message: "the connection ended before the start was sent")
         }
@@ -264,7 +268,8 @@ public actor AgentSessionAttachClient {
     static func startParams(cwd: String?, harness: String?, homeConfirmed: Bool, personKey: PersonKey?,
                             servesKeyedReason: Bool, callerOwnsVM: Bool, servesVMKind: Bool,
                             model: String? = nil, servesModel: Bool = false, servesPermissionMode: Bool = false, permissionMode: String? = nil,
-                            startMode: String? = nil, servesStartMode: Bool = false) -> [String: any Sendable] {
+                            startMode: String? = nil, servesStartMode: Bool = false,
+                            servesCredentials: Bool = false, credentials: [String: String]? = nil) -> [String: any Sendable] {
         var params: [String: any Sendable] = [:]
         if let cwd { params["cwd"] = cwd }
         if let harness { params["harness"] = harness }
@@ -280,6 +285,9 @@ public actor AgentSessionAttachClient {
         // The mode pick goes only with the owner word: the daemon applies it on the caller's own
         // Cloud VM and nowhere else.
         if callerOwnsVM, servesVMKind, servesStartMode, let startMode, !startMode.isEmpty { params["mode"] = startMode }
+        // The owner's model credential, only over the owner answer of the link to their own Cloud VM
+        // (`agent-session-start-credentials-v1`); anything else starts on the machine's own route.
+        if callerOwnsVM, servesCredentials, let credentials, !credentials.isEmpty { params["credentials"] = ["env": credentials] }
         return params
     }
 
@@ -319,6 +327,26 @@ public actor AgentSessionAttachClient {
             throw AgentSessionAttachError(code: "agent_session.closed", message: "the connection ended before the trust call was sent")
         }
         return try await call("agent-session-trust", params, on: transport)
+    }
+
+    /// `agent-session-credentials` (`agent-session-start-credentials-v1`): the owner's refreshed model
+    /// credential for the chat this tab shows, which that machine's acpmux restarts the chat's agent on
+    /// (resuming the chat); answers acpmux's `restart` (`now`, `afterTurn`, `none`). Sent only over the
+    /// owner answer of the link to the owner's own Cloud VM (``ownedConnection(_:check:)``); refused
+    /// here otherwise, never sent.
+    public func updateCredentials(_ env: [String: String], ownerLink: OwnerLink?) async throws -> String? {
+        guard mode == .attach, ownerLink != nil else { throw Self.notOwner }
+        let (transport, _, callerOwnsVM) = try await ownedConnection(ownerLink) { served in
+            guard served.credentials else {
+                throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not take model credentials")
+            }
+        }
+        guard callerOwnsVM else { throw Self.notOwner }
+        guard !transport.isClosed else {
+            throw AgentSessionAttachError(code: "agent_session.closed", message: "the connection ended before the credential was sent")
+        }
+        let data = try await call("agent-session-credentials", ["env": env, "vm_kind": "owner"], on: transport)
+        return ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["restart"] as? String
     }
 
     /// How many times ``ownedConnection(_:check:)`` reads the owner answer around a connection.
@@ -841,6 +869,7 @@ public actor AgentSessionAttachClient {
                             model: identity.supports(DaemonCapability.agentSessionStartModel.rawValue),
                             permissionMode: identity.supports(DaemonCapability.agentSessionStartPermissionMode.rawValue),
                             startMode: identity.supports(DaemonCapability.agentSessionStartMode.rawValue),
+                            credentials: identity.supports(DaemonCapability.agentSessionStartCredentials.rawValue),
                             trustVMKind: identity.supports(DaemonCapability.agentSessionTrustVMKind.rawValue),
                             children: identity.supports(DaemonCapability.agentSessionChildren.rawValue),
                             fork: identity.supports(DaemonCapability.agentSessionFork.rawValue),

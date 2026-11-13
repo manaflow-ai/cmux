@@ -22,6 +22,11 @@ export type CloudStart = {
   model?: string;
   /** The permission mode picked before the first send (cloudModePick.ts); none: the machine's own start mode. */
   mode?: string;
+  /** The picker's effort for `model`: the machine's agent starts on it (AgentPaneCloudStart `effort`). */
+  effort?: string;
+  /** The connection the picker's Account menu chose (a route id); none is the family default. The machine's
+   *  agent names it to the edge as `x-cmux-connection` (cmux-tui/docs/model-connections.md). */
+  account?: string;
   environment?: string;
   reservationKey?: string;
   /** A native gesture ticket reserved before waiting for a Cloud machine lease. */
@@ -259,6 +264,8 @@ export async function startCloudChat(
   // The mode picked for this start (cloudModePick.ts); the host starts the chat in it on the
   // person's own machine (AgentPaneCloudStart `mode`).
   if (start.mode) params.mode = start.mode;
+  if (start.effort) params.effort = start.effort;
+  if (start.account) params.account = start.account;
   if (start.environment) params.environment = start.environment;
   if (start.reservationKey) params.reservationKey = start.reservationKey;
   if (start.gestureTicket) params.gestureTicket = start.gestureTicket;
@@ -330,6 +337,8 @@ export function cloudStartFingerprint(start: CloudStart): string {
     ...(start.team ? [start.team] : []),
     // A start in another mode is another start; one with no pick keeps the key it had.
     ...(start.mode ? [`mode:${start.mode}`] : []),
+    // The same for the picker's effort and account: a start that names neither keeps its key.
+    ...(start.effort || start.account ? [start.effort ?? null, start.account ?? null] : []),
   ]);
   // FNV-1a, two 32-bit lanes: a short stable name for the entry, never the prompt itself.
   let a = 0x811c9dc5;
@@ -442,9 +451,13 @@ export function cloudStartTeam() {
 export function cloudStartSaid(answer: CloudStartAnswer): boolean {
   return (
     !answer.ok &&
-    ["cloud_start_failed", "cloud_plan_required", "cloud_chat_already_started", "cloud_prompt_changed"].includes(
-      answer.code,
-    )
+    [
+      "cloud_start_failed",
+      "cloud_plan_required",
+      "cloud_chat_already_started",
+      "cloud_prompt_changed",
+      "cloud_setup_required",
+    ].includes(answer.code)
   );
 }
 
@@ -452,4 +465,17 @@ export function cloudStartSaid(answer: CloudStartAnswer): boolean {
 /// made, and the page sends the kept prompt to a chat on this Mac instead.
 export function cloudRunsHere(answer: CloudStartAnswer): boolean {
   return !answer.ok && answer.code === "run_on_this_mac";
+}
+
+/// The picker's effort and account for a Cloud start (cmux-tui/docs/model-connections.md, "The picker's
+/// model and account in Cloud"): the effort the composer shows, and the chat's route when the Account
+/// menu bound one. A route that is not a connection id (acpmux `cloud_model_plane::is_connection_id`) is left out.
+export function cloudPickExtras(summary: { effort?: string; route?: string } | undefined): {
+  effort?: string;
+  account?: string;
+} {
+  const effort =
+    summary?.effort && summary.effort !== "default" && summary.effort.length <= 128 ? summary.effort : undefined;
+  const account = summary?.route && /^[A-Za-z0-9._:@-]{1,128}$/.test(summary.route) ? summary.route : undefined;
+  return { ...(effort ? { effort } : {}), ...(account ? { account } : {}) };
 }

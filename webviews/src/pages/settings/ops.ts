@@ -596,6 +596,71 @@ export type TeamAgentKeysState = {
   agents: TeamAgentKeyRow[];
 };
 
+/** Which way of paying for a model a Settings > Models connection is (cmux-tui/docs/model-connections.md). */
+export type ModelConnectionKind =
+  | "codex-login"
+  | "claude-login"
+  | "subscription"
+  | "chatgpt-plan"
+  | "claude-token"
+  | "api-key";
+
+/** A model provider a connection pays (product names, shown as they are). */
+export type ModelProvider = "openai" | "anthropic" | "openrouter" | "google" | "xai";
+
+/** One of the person's connections (acpmux `_acpmux/connections`), in the order threads use them. */
+export type ModelConnection = {
+  /** The acpmux route id. */
+  id: string;
+  kind: ModelConnectionKind;
+  provider: ModelProvider;
+  families: string[];
+  label: string;
+  /** Shown on this local page only. */
+  email: string | null;
+  plan: string | null;
+  signedIn: boolean;
+  /** The routing switch: a disabled connection serves no thread. */
+  enabled: boolean;
+  defaultFor: string[];
+  /** False: only this Mac's own chats can use it (a Mac login Cloud threads cannot reach). */
+  servesCloud: boolean;
+};
+
+/** Settings > Models (`cmux.settings.models.state`): the person's connections, the organization's,
+ * the members policy, and a ChatGPT sign-in in flight. */
+export type ModelsState = {
+  /** `available`: false when this Mac's daemon does not list connections. */
+  personal: { connections: ModelConnection[]; spread: boolean; available: boolean };
+  organization: {
+    team: { id: string; name: string } | null;
+    canEdit: boolean;
+    keys: { agent: "claude" | "codex"; set: boolean; last4: string | null }[];
+  };
+  /** Null without a team. */
+  members: { ownConnections: boolean; chooseRunout: boolean; canEdit: boolean } | null;
+  /** `attempt`: a Continue with ChatGPT sign-in waiting on the browser; `error`: the last one's
+   * failure code (`access_denied`, `no_plan_scope`, ...). */
+  chatgpt: { attempt: string | null; error: string | null };
+};
+
+/** One Settings > Models gesture. `addKey`, `addClaudeToken` and `orgKey` carry a pasted secret once:
+ * the app moves it into the Keychain and passes acpmux or the team only a reference.
+ * `claudeSetupToken` opens a cmux terminal tab running `claude setup-token`. */
+export type ModelsRun =
+  | { action: "order"; ids: string[] }
+  | { action: "spread"; on: boolean }
+  | { action: "enable"; id: string; on: boolean }
+  | { action: "remove"; id: string }
+  | { action: "connectChatGPT"; id?: string }
+  | { action: "cancelChatGPT" }
+  | { action: "connectClaude" }
+  | { action: "claudeSetupToken" }
+  | { action: "addClaudeToken"; token: string; label?: string }
+  | { action: "addKey"; provider: ModelProvider; key: string; label?: string }
+  | { action: "orgKey"; agent: "claude" | "codex"; key: string | null }
+  | { action: "members"; ownConnections?: boolean; chooseRunout?: boolean };
+
 export type AccountsState = {
   github?: GitHubConnectionState;
   /** Older hosts omit it. */
@@ -1252,6 +1317,10 @@ export type SettingsOps = {
   "cmux.settings.agents.state": [Record<string, never>, AgentsState];
   /** Native: one Agents gesture; a daemon refusal rejects with `cmux.agents.<code>` and its text. */
   "cmux.settings.agents.run": [AgentsRun, unknown];
+  /** Native: Settings > Models, the person's and the organization's connections (model-connections.md). */
+  "cmux.settings.models.state": [Record<string, never>, ModelsState];
+  /** Native: one Settings > Models gesture; a refusal rejects with the host's text. */
+  "cmux.settings.models.run": [ModelsRun, unknown];
   /** Native: acpmux's harnesses (Settings > Agents). */
   "cmux.settings.harnesses.state": [Record<string, never>, HarnessesState];
   /** Native: one Harnesses gesture (a terminal tab for sign-in, or a refresh). */
@@ -1365,6 +1434,8 @@ export type SettingsStreams = {
   "cmux.settings.harnesses.changed": HarnessesState;
   /** The Devices part changed (the event carries the new state). */
   "cmux.settings.devices.changed": DevicesState;
+  /** Settings > Models changed (a connection, the order, a ChatGPT sign-in finishing). */
+  "cmux.settings.models.changed": ModelsState;
   /** The host lists changed (the event carries the new lists). */
   "cmux.settings.host.changed": HostLists;
   /** Settings > Updates' row of other machines changed (its new value; null: none to list). */

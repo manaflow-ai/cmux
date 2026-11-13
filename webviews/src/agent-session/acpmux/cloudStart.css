@@ -240,3 +240,8 @@
 .acpmux-cloud-plan-team__team { color: var(--agent-muted); font-size: var(--text-body); line-height: var(--text-body--line-height); }
 .acpmux-cloud-plan-team[data-look="banner"] .acpmux-cloud-plan-team__actions { margin-top: 0; margin-left: auto; }
 .acpmux-cloud-plan-team[data-look="card"] { margin-top: 8px; }
+/* Set up Cloud (conversation/CloudSetupCard.tsx): Cloud first use, under the message. */
+.acpmux-cloud-setup { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.acpmux-cloud-setup__title { font-weight: 600; font-size: var(--text-body); line-height: var(--text-body--line-height); }
+.acpmux-cloud-setup__body { margin: 0; color: var(--agent-muted); font-size: var(--text-body); line-height: var(--text-body--line-height); }
+.acpmux-cloud-setup__actions { flex-wrap: wrap; }

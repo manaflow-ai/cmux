@@ -1,0 +1,42 @@
+{
+  "$comment": "HAND-EDITED source of the Settings > Models settings that live in schema rows (cmux-tui/docs/model-connections.md). The Models card draws its connections, order and sign-ins from acpmux (`_acpmux/connections`); its one switch is this row, so the palette, `cmux settings` and MCP reach it. The app mirrors the value into acpmux's routes/bindings.json (`_acpmux/connections/spread.set`, CmuxNextAccounts SettingsModels) at launch, on every change and on every read of the card. gen-settings-sources.py writes the Swift descriptors and parser constants. Row fields: see schemas/settings/source/updates.json.",
+  "lists": [
+    {
+      "name": "models",
+      "section": "general",
+      "group": {
+        "key": "settings.group.models",
+        "text": "Models"
+      },
+      "note": "Settings > Models (model connections). The Models card draws the row itself from ModelsState.personal.spread, so it is off the page's schema rows and stays in the palette.",
+      "rows": [
+        {
+          "key": "models.spreadUsage",
+          "name": "spreadUsage",
+          "note": "acpmux's `spread` (routes/bindings.json): on, a thread may move to another of the person's connections serving the same model when one is out, staying on one while its cache is warm. The app is the writer; acpmux keeps a copy.",
+          "title": {
+            "key": "settings.models.spreadUsage",
+            "text": "Spread Usage Across My Subscriptions"
+          },
+          "help": {
+            "key": "settings.models.spreadUsage.help",
+            "text": "When one subscription runs out, a thread moves to another of your connections that serves the same model."
+          },
+          "kind": "toggle",
+          "default": true,
+          "page_hidden": "the Models card draws it beside the connections it spreads over",
+          "palette_shown": true,
+          "keywords": [
+            "models",
+            "subscription",
+            "spread",
+            "usage",
+            "limit",
+            "connection",
+            "cloud"
+          ]
+        }
+      ]
+    }
+  ]
+}

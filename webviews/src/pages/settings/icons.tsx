@@ -130,6 +130,8 @@ const paths: Record<string, ReactNode> = {
       <path d="m10.3 10.3 3.6 3.6" />
     </>
   ),
+  // Settings > Cloud: a cloud.
+  cloud: <path d="M4.6 12.6h6.9a2.7 2.7 0 0 0 .4-5.4 4 4 0 0 0-7.7-.9 3.2 3.2 0 0 0 .4 6.3Z" />,
   "icloud.and.arrow.down": (
     <path d="M4.6 12.6h6.9a2.7 2.7 0 0 0 .4-5.4 4 4 0 0 0-7.7-.9 3.2 3.2 0 0 0 .4 6.3ZM8 6.8v4M6.5 9.4 8 10.9l1.5-1.5" />
   ),
@@ -184,6 +186,17 @@ const paths: Record<string, ReactNode> = {
     </>
   ),
   "arrow.up.to.line": <path d="M3.4 2.6h9.2M8 13.4V5.4M4.8 8.4 8 5.2l3.2 3.2" />,
+  // Settings > Models: a chip with its pins.
+  cpu: (
+    <>
+      <rect x="4" y="4" width="8" height="8" rx="1.4" />
+      <rect x="6.4" y="6.4" width="3.2" height="3.2" rx=".5" />
+      <path d="M6.4 1.8V4M9.6 1.8V4M6.4 12v2.2M9.6 12v2.2M1.8 6.4H4M1.8 9.6H4M12 6.4h2.2M12 9.6h2.2" />
+    </>
+  ),
+  // The overflow menu of a row (Settings > Models connections).
+  ellipsis: <path d="M3.6 8h.01M8 8h.01M12.4 8h.01" />,
+  plus: <path d="M8 3v10M3 8h10" />,
   "arrow.down.to.more": <path d="M8 2.6v7.6M4.8 7.2 8 10.4l3.2-3.2M4 13.4h.01M8 13.4h.01M12 13.4h.01" />,
 };
 

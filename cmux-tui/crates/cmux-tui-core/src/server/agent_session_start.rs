@@ -111,6 +111,55 @@ pub const AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY: &str = "agent-session-star
 pub const AGENT_SESSION_START_PERMISSION_MODE_CAPABILITY: &str =
     "agent-session-start-permission-mode-v1";
 
+/// `credentials: {env: {NAME: value}}` on `agent-session-start`, and the `agent-session-credentials
+/// {surface, env, vm_kind}` refresh: the owner's model credential for the chat's agent, from the
+/// owner's own app on the owner's own Cloud VM only ([`credentials_admitted`]), relayed to acpmux
+/// (`_meta.acpmux.credentials`, `agent/credentials.update`), which holds it in memory for that agent
+/// alone (acpmux `agent_credentials.rs`). Advertised only where the owner-Cloud start is.
+pub const AGENT_SESSION_START_CREDENTIALS_CAPABILITY: &str = "agent-session-start-credentials-v1";
+
+/// The names a credential may set (acpmux `agent_credentials::NAMES`).
+const CREDENTIAL_NAMES: [&str; 4] =
+    ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "CMUX_CHATGPT_ACCESS_TOKEN"];
+const MAX_CREDENTIAL_BYTES: usize = 16 * 1024;
+
+/// A launch credential as the caller sends it. Never printed: no `Debug`.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct StartCredentials {
+    pub(super) env: std::collections::BTreeMap<String, String>,
+}
+
+impl StartCredentials {
+    /// One known name, a token-shaped value (acpmux checks the same again).
+    pub(super) fn valid(&self) -> bool {
+        self.env.len() == 1
+            && self.env.iter().all(|(name, value)| {
+                CREDENTIAL_NAMES.contains(&name.as_str())
+                    && (1..=MAX_CREDENTIAL_BYTES).contains(&value.len())
+                    && value.bytes().all(|b| b.is_ascii_alphanumeric() || b"-._~+/=:".contains(&b))
+            })
+    }
+
+    pub(super) fn wire(&self) -> Value {
+        json!({"env": self.env})
+    }
+}
+
+/// Whether a credential may be set by `client`: only on the caller's own Cloud VM (its `vm_kind:
+/// "owner"`, the Cloud API's answer for the machine's creator alone, on a VM that is not a team
+/// VM, where every member's agents run as one Unix user and could read it), never from a phone's
+/// channel, and never through a teammate's or guest's proxied link (the caller checks `author`).
+pub(super) fn credentials_admitted(
+    mux: &Mux,
+    client: u64,
+    vm_kind: &Option<Option<String>>,
+) -> bool {
+    mux.agent_host_gate(client, vm_word(vm_kind)).is_ok()
+        && mux.control_clients.agent_sessions.starts.owner_cloud(vm_word(vm_kind) == Some("owner"))
+        && !mux.control_clients.supports_capability(client, super::CLOUD_MOBILE_CHAT_CAPABILITY)
+}
+
 /// Starts the binary's acpmux daemon (blocking; acpmux bounds its own start).
 pub type AcpmuxStarter = Arc<dyn Fn() -> Result<(), String> + Send + Sync>;
 
@@ -349,6 +398,9 @@ pub(super) struct StartParams {
     /// the caller's own Cloud VM ([`start_policy`]).
     #[serde(default)]
     permission_mode: Option<String>,
+    /// The owner's model credential for the agent ([`AGENT_SESSION_START_CREDENTIALS_CAPABILITY`]).
+    #[serde(default)]
+    credentials: Option<StartCredentials>,
 }
 
 impl StartParams {
@@ -379,7 +431,8 @@ impl StartParams {
                 (1..=64).contains(&mode.len())
                     && mode.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
             });
-        harness_ok && cwd_ok && instance_ok && model_ok && mode_ok
+        let credentials_ok = self.credentials.as_ref().is_none_or(StartCredentials::valid);
+        harness_ok && cwd_ok && instance_ok && model_ok && mode_ok && credentials_ok
     }
 }
 
@@ -406,6 +459,10 @@ pub(super) fn start(
     }
     if let Err(refusal) = startable(mux, params.surface) {
         return refuse(writer, id, refusal);
+    }
+    // A credential only from the owner's own app on the owner's own Cloud VM.
+    if params.credentials.is_some() && !credentials_admitted(mux, client, &params.vm_kind) {
+        return refuse(writer, id, Refusal::OwnerOnly);
     }
     // On the caller's own Cloud VM a new chat with no folder gets a fresh
     // per-chat folder. Non-Cloud hosts retain the required-folder behavior.
@@ -761,6 +818,10 @@ fn start_and_bind(
     }
     if let Some(model) = &params.model {
         meta.insert("model", json!(model));
+    }
+    // Admitted in `start` (the owner's own Cloud VM); acpmux keeps it for this agent in memory.
+    if let Some(credentials) = &params.credentials {
+        meta.insert("credentials", credentials.wire());
     }
     // The workspace of the tab, read here and never taken from the client:
     // acpmux gives the session that workspace's display (none without it).

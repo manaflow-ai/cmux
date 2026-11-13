@@ -26,6 +26,15 @@ struct CmuxAppLinksTests {
         #expect(CmuxAppLinks.settingsAction(for: URL(string: "\(scheme)://settings/background")!, linkScheme: scheme) == "appearance.changeBackground")
         #expect(CmuxAppLinks.settingsAction(for: URL(string: "cmux://settings/other")!, linkScheme: scheme) == nil)
         #expect(CmuxAppLinks.settingsAction(for: URL(string: "https://settings/background")!, linkScheme: scheme) == nil)
+        #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/models/add")!, linkScheme: scheme) == "#/settings/models?focus=models.add")
+        #expect(DeepLink.settingsRoute(for: URL(string: "\(scheme)://settings/models/add")!, linkScheme: scheme) == "#/settings/models?focus=models.add")
+        #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/models")!, linkScheme: scheme) == "#/settings/models")
+        #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/cloud")!, linkScheme: scheme) == "#/settings/cloud")
+        #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/cloud/claude")!, linkScheme: scheme) == "#/settings/cloud?focus=cloud.claude")
+        #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/cloud/chatgpt")!, linkScheme: scheme) == "#/settings/cloud?focus=cloud.chatgpt")
+        #expect(DeepLink.settingsRoute(for: URL(string: "\(scheme)://settings/cloud/api-key")!, linkScheme: scheme) == "#/settings/cloud?focus=cloud.apiKey")
+        #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/background")!, linkScheme: scheme) == nil)
+        #expect(DeepLink.settingsRoute(for: URL(string: "https://settings/models/add")!, linkScheme: scheme) == nil)
     }
 
     @Test func paneTabAndSessionLinksOpenToo() {

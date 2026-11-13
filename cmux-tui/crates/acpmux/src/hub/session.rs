@@ -232,6 +232,9 @@ pub struct Session {
     /// defaults, preset, session env and route included. The read-only shell probe judges a
     /// command in it (`permissions.rs`); None until this daemon starts an agent for it.
     pub(super) launch_env: StdMutex<Option<std::collections::BTreeMap<String, String>>>,
+    /// The owner's Cloud credential its agent launches with (`agent_credentials.rs`): in memory
+    /// only, never in its meta, log, transcript or events; None runs the machine's own route.
+    pub(super) credential: StdMutex<Option<crate::agent_credentials::AgentCredential>>,
     /// The chat's route changed during a turn: restart the harness on it when
     /// the turn ends (`route_switch.rs`).
     pub(super) route_switch: AtomicBool,

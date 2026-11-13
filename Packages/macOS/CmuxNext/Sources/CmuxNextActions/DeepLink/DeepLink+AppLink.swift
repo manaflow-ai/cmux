@@ -93,4 +93,29 @@ extension DeepLink {
               url.host?.lowercased() == "settings" else { return nil }
         return url.path.lowercased() == "/background" ? "appearance.changeBackground" : nil
     }
+
+    /// The Settings page place a settings link opens: `cmux://settings/models` is Settings > Models
+    /// (`#/settings/models`), `cmux://settings/models/add` its Add a Connection
+    /// (`#/settings/models?focus=models.add`). `cmux://settings/cloud` is Settings > Cloud, and
+    /// `cmux://settings/cloud/claude`, `/cloud/chatgpt` and `/cloud/api-key` open it on that row of
+    /// Models for Cloud (``cloudRoute(row:)``). Nil for any other URL.
+    public static func settingsRoute(for url: URL, linkScheme: String) -> String? {
+        guard let scheme = url.scheme?.lowercased(), scheme == chiefScheme || scheme == linkScheme.lowercased(),
+              url.host?.lowercased() == "settings" else { return nil }
+        switch url.path.lowercased() {
+        case "/models", "/models/": return "#/settings/models"
+        case "/models/add", "/models/add/": return "#/settings/models?focus=models.add"
+        case "/cloud", "/cloud/": return cloudRoute(row: nil)
+        case "/cloud/claude", "/cloud/claude/": return cloudRoute(row: "claude")
+        case "/cloud/chatgpt", "/cloud/chatgpt/": return cloudRoute(row: "chatgpt")
+        case "/cloud/api-key", "/cloud/api-key/": return cloudRoute(row: "apiKey")
+        default: return nil
+        }
+    }
+
+    /// Settings > Cloud (`#/settings/cloud`), opened on a row of its Models for Cloud card
+    /// (`claude`, `chatgpt`, `apiKey`: `?focus=cloud.<row>`) when one is named.
+    public static func cloudRoute(row: String?) -> String {
+        row.map { "#/settings/cloud?focus=cloud.\($0)" } ?? "#/settings/cloud"
+    }
 }

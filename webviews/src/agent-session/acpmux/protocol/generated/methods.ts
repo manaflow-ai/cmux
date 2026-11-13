@@ -272,6 +272,17 @@ export interface AcpmuxRequests {
   "_acpmux/accounts": { params: unknown; result: unknown };
   "_acpmux/account/set": { params: unknown; result: unknown };
   "_acpmux/account/usage": { params: unknown; result: unknown };
+  "_acpmux/connections": { params: unknown; result: unknown };
+  "_acpmux/connections/order.set": { params: unknown; result: unknown };
+  "_acpmux/connections/spread.set": { params: unknown; result: unknown };
+  "_acpmux/connections/remove": { params: unknown; result: unknown };
+  "_acpmux/connections/key.add": { params: unknown; result: unknown };
+  "_acpmux/connections/chatgpt.begin": { params: unknown; result: unknown };
+  "_acpmux/connections/chatgpt.wait": { params: unknown; result: unknown };
+  "_acpmux/connections/chatgpt.cancel": { params: unknown; result: unknown };
+  "_acpmux/connections/chatgpt.token": { params: unknown; result: unknown };
+  "_acpmux/connections/claude_token.add": { params: unknown; result: unknown };
+  "_acpmux/connections/credential": { params: unknown; result: unknown };
   "_acpmux/web_modes": { params: unknown; result: unknown };
   "_acpmux/web_token_rotate": { params: unknown; result: unknown };
   "_acpmux/reload_config": { params: unknown; result: unknown };
@@ -331,6 +342,7 @@ export interface AcpmuxNotifications {
   "_acpmux/presence": PresenceNote;
   "_acpmux/peer_state_changed": PeerStateChanged;
   "_acpmux/harnesses_changed": unknown;
+  "_acpmux/connections.changed": unknown;
   "_acpmux/harness_inventory": unknown;
   "_acpmux/start_mode_changed": unknown;
   "_acpmux/prompt_accepted": unknown;
@@ -631,6 +643,17 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/accounts", kind: "request", acp: false, typed: false },
   { name: "_acpmux/account/set", kind: "request", acp: false, typed: false },
   { name: "_acpmux/account/usage", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/connections", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/connections/order.set", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/connections/spread.set", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/connections/remove", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/connections/key.add", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/connections/chatgpt.begin", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/connections/chatgpt.wait", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/connections/chatgpt.cancel", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/connections/chatgpt.token", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/connections/claude_token.add", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/connections/credential", kind: "request", acp: false, typed: false },
   { name: "_acpmux/web_modes", kind: "request", acp: false, typed: false },
   { name: "_acpmux/web_token_rotate", kind: "request", acp: false, typed: false },
   { name: "_acpmux/reload_config", kind: "request", acp: false, typed: false },
@@ -672,6 +695,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/presence", kind: "notification", acp: false, typed: true },
   { name: "_acpmux/peer_state_changed", kind: "notification", acp: false, typed: true },
   { name: "_acpmux/harnesses_changed", kind: "notification", acp: false, typed: false },
+  { name: "_acpmux/connections.changed", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/harness_inventory", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/start_mode_changed", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/prompt_accepted", kind: "notification", acp: false, typed: false },

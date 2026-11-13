@@ -509,6 +509,10 @@ fn serve(
             "_acpmux/agent_login/finish" => Some(json!({"signedIn": true, "restarted": true})),
             "_acpmux/agent_login/api_key" => Some(json!({"saved": true, "restarted": true})),
             "_acpmux/agent_login/cancel" => Some(json!({})),
+            // The owner's refreshed credential (agent_session_credentials_tests.rs).
+            "agent/credentials.update" => {
+                Some(json!({"sessionId": params["sessionId"], "restart": "now"}))
+            }
             // The agent answers its whole option list, the value just set included.
             "session/set_config_option" => Some(json!({"configOptions": [{
                 "id": params["configId"], "currentValue": params["value"]}]})),

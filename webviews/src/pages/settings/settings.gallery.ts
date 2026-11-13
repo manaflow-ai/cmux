@@ -910,7 +910,7 @@ Object.assign(variants, {
       card.scrollIntoView({ block: "center" });
     },
   }),
-  "cloud-environments-row-shape": variant("accounts", {
+  "cloud-environments-row-shape": variant("cloud", {
     environments: rowShapeEnvironments,
     note: "One failed Cloud Environment row with status, repository, error log and actions.",
     play: async (ctx) => {

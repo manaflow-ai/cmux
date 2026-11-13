@@ -34,11 +34,13 @@ export const CATEGORY_CARDS = [
   "notices",
   "server",
   "cloudEnvironments",
+  "cloudModels",
   "worktreeSetup",
   "contextMenus",
   "personalization",
   "sharedLinks",
   "tailnet",
+  "models",
 ] as const;
 
 /** A non-schema part a category draws (host lists, the theme studio, file actions). */

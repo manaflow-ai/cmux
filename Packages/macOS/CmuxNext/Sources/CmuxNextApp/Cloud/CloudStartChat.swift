@@ -1,3 +1,4 @@
+import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
@@ -7,6 +8,7 @@ import CmuxNextCloudCredentials
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextRemote
+import CmuxNextSettings
 import CmuxNextTabs
 import Foundation
 
@@ -52,8 +54,14 @@ struct CloudStartChat {
         do {
             if let team = start.team { try await services.cloud.auth.activeTeam.select(team) } // the plan card's Switch to <team>, then only in it:
             if let refused = CloudStartCore().refusal(cloudDisabled: false, signedIn: true, requestedTeam: start.team, activeTeam: services.cloud.auth.teamID) { return AgentPaneReply.failure(code: refused, message: refused, details: nil, retryable: true, origin: "native") }
+            // Cloud first use, read in the team the start runs in: the connection the chat runs on (its credential goes
+            // with the agent launch, ``open``); nothing serving the picker's model shows Set up Cloud and starts nothing.
+            let choice = await services.cloud.setup.choose(harness: start.harness, model: start.model, account: start.account)
+            if case .setup(let family, let model) = choice {
+                return AgentPaneReply.failure(code: "cloud_setup_required", message: "cloud_setup_required", details: ["family": family, "model": model ?? ""], retryable: false, origin: "native")
+            }
             let account = services.cloud.account
-            let origin = Origin(tab: tab, chat: start.cwd ?? tab.cwd, workspace: services.workspaceID(ofTab: tab.id), account: account) { [services] in
+            let origin = Origin(tab: tab, chat: start.cwd ?? tab.cwd, workspace: services.workspaceID(ofTab: tab.id), account: account, connection: choice.connectionID) { [services] in
                 // This Mac's tab, which never started a chat: the chat is the machine's now.
                 do {
                     try await services.daemon.connection?.closeTabs([tab.surface], endTerminals: false, reason: .sessionEnd)
@@ -95,6 +103,8 @@ struct CloudStartChat {
         let chat: String?
         let workspace: String?
         let account: [String?]
+        /// This Mac's connection the chat's agent launches on (``CloudSetup/Choice/connectionID``); nil: the machine's own route.
+        var connection: String?
         let close: @MainActor () async -> Void
     }
 
@@ -227,6 +237,8 @@ struct CloudStartChat {
         defer { handOff(false) }
         // The chat's own workspace, the chat its only tab: never the machine's first workspace and its starter terminal.
         guard let connection = daemon.connection else { throw failure }
+        // The chat's agent launch reads this choice (AgentTabs+RemoteStart): set before the tab exists, under the tab's key.
+        services.cloud.agentCredentials.use(connection: origin.connection, chat: tabKey, machine: machine.machineID)
         let open = { (workspace: WorkspaceHandle) in try await services.agentTabs.openFirstPage(workspace: workspace, cwd: cwd, on: daemon, source: seed, mutationID: tabKey) }
         let made = try await CloudMachineWorkspace.chat(tabKey: tabKey, in: daemon.store, notConnected: failure, open: open) { key in
             _ = try await services.machines.local.connection?.pinWorkspaceBeforeCreate(session: daemon.store.registryID, key: key, to: services.machines.local.store.profile(services.windows.active?.state.profileID ?? .defaultProfile)?.id)
@@ -235,6 +247,7 @@ struct CloudStartChat {
         guard let surface = made.tab, let anchor = await CloudHandlers.mirroredAnchor(id: made.key.rawValue, on: machine),
               let tab = anchor.pane.tabs.first(where: { $0.surface == surface }) else { throw failure }
         let opened = (key: tab.id, surface: surface)
+        if opened.key != tabKey { services.cloud.agentCredentials.move(chat: tabKey, to: opened.key, machine: machine.machineID) }
         if let copy { services.cloud.movedChats.copied(copy) }; services.cloudStartTitles.hand(from: origin.tab, to: tab) // the chat keeps the start's title
         await AgentSessionAttachClient.trustCopiedFolder(cwd, sourceTrusted: trusted, surface: opened.surface.rawValue, ownerLink: CloudMachineLinks(appLink: machine.appLink).ownerLink, endpoint: AgentTabRemoteHost.endpoint(on: machine.daemon))
         CloudHandlers.show(anchor.id, context)
@@ -268,6 +281,26 @@ struct CloudStartChat {
 /// `cmux cloud start-session --from-folder`: the folder on this Mac a session starts in a copy of, checked before any
 /// machine, copied to an owned machine as the composer's Cloud start copies one, and trusted there when this Mac trusts it.
 extension CloudStartChat {
+    /// Cloud first use's reads and ways in (``CloudSetup``): this Mac's `_acpmux/connections`, the team's
+    /// shared keys, and Settings > Cloud for the card's buttons, opened on the row that sets up what the
+    /// button names (Models for Cloud: Claude, ChatGPT, API key). Lane D's `cmux.settings.models.run` takes
+    /// over ``CloudSetup/run`` for Continue with ChatGPT and Set up Claude (`claudeSetupToken`), and calls
+    /// ``CloudSetup/connectionsChanged()`` on every `cmux.settings.models.changed`.
+    @MainActor static func wireSetup(_ services: AppServices) {
+        services.cloud.setup.read = { [weak services] in
+            guard let services else { return .init(personal: nil, organization: nil) }
+            let personal = await QuitAgents.environment(services)?.cloudConnections()
+            let keys = services.accounts.agentKeys
+            guard !keys.scopeIsSignedOut else { return .init(personal: personal, organization: nil) }
+            if !keys.loaded { await keys.refresh() }
+            let rows = keys.currentAgents.compactMap { row in row["agent"]?.stringValue.map { (agent: $0, set: row["set"]?.boolValue == true) } }
+            return .init(personal: personal, organization: keys.loaded ? CloudSetup.Snapshot.organization(keys: rows) : nil)
+        }
+        services.cloud.setup.run = { [weak services] action in
+            try? services?.settingsWindow.show(section: nil, route: DeepLink.cloudRoute(row: action.settingsRow))
+        }
+    }
+
     /// Warms the person's spare (``CloudSpareWarm``, no login copied), never awaited by the caller.
     @MainActor static func warmSpare(_ services: AppServices) {
         let cloud = services.cloud

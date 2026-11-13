@@ -42,6 +42,7 @@ final class AgentPageChats {
     /// The app's Cloud account sign-in, awaited by an inline first-send recovery card, and whether it is signed in now.
     var cloudSignIn: (@MainActor () async -> Bool)?
     var cloudSignedIn: (@MainActor () -> Bool)?
+    var cloudSetUp: (@MainActor (CloudSetup.Action, String) async -> Bool)?
     /// Another machine picked for a Cloud chat whose first send has not run (``CloudStartChat``'s repick), given the pane.
     var cloudRepick: (@MainActor (AgentPaneView?, AgentPaneCloudRepick) async -> [String: Any])?
     /// The chats Cloud starts opened, by their tab's key, for this run of the App: a repick moves only one
@@ -128,6 +129,7 @@ final class AgentPageChats {
         }
         view.model.onCloudSignIn = cloudSignIn
         view.model.onCloudSignedIn = cloudSignedIn
+        view.model.onCloudSetUp = cloudSetUp
         if let run = cloudRepick {
             view.model.onCloudRepickChat = { @MainActor [weak view] (repick: AgentPaneCloudRepick) async -> [String: Any] in
                 await run(view, repick)
@@ -148,6 +150,8 @@ final class AgentPageChats {
         tabs.pageChats.cloudStart = CloudStartChat.runner(tabs, services: services)
         tabs.pageChats.cloudSignIn = { [weak services] in await services?.cloud.auth.signInEndedOnCancel() ?? false }
         tabs.pageChats.cloudSignedIn = { [weak services] in services?.cloud.auth.isSignedIn ?? false }
+        CloudStartChat.wireSetup(services)
+        tabs.pageChats.cloudSetUp = { [weak services] action, family in await services?.cloud.setup.setUp(action, family: family) ?? false }
         tabs.pageChats.cloudRepick = CloudStartChat.repickRunner(tabs, services: services)
         tabs.pageChats.cloudReservation = { [weak services] request in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }

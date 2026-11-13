@@ -2425,6 +2425,7 @@ pub(crate) mod remote_guard;
 mod requests;
 pub use requests::{DURABLE_DISPATCH_FEATURE, SESSION_RESUME_FEATURE};
 mod accounts;
+mod connections;
 mod mcp_connect;
 mod routes;
 mod secrets;
