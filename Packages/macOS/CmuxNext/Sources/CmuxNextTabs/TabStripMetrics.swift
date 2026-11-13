@@ -182,7 +182,8 @@ public struct TabStripMetrics: Equatable, Sendable {
         // The first and last pills keep the gap above them to the strip's ends (the chrome line).
         stripHorizontalPadding = Metrics.paneChromeInset
         stripTopOutset = Metrics.stripTopOutset
-        newTabButtonWidth = Metrics.controlHeight
+        // The chrome's one button size (`TitlebarBandButton.side`), as the pane's tools beside it.
+        newTabButtonWidth = TitlebarBandButton.side
         scrollFadeWidth = TabTunables.scrollFadeWidth.value
         tabBackgroundInset = Metrics.tabBackgroundInset
         tearOffDistance = TabTunables.tearOffDistance.value

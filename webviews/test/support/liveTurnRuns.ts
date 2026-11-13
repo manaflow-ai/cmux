@@ -1,10 +1,8 @@
 // The `runs` arm of live-turn-work, for a browser test whose subject is a finished run in a running turn.
 //
-// Since 8a37e5fcf650 the shipped arm is `line` (liveTurnWork.experiment.ts): a running turn draws its
-// replies and one live line, and no finished run of the stretch still running (turns.ts `codexRuns`).
-// A test that clicks, measures or waits for such a run (a "Ran 2 commands" line, a tool row, a thought)
-// while its turn runs tests the `runs` look, the earlier one (cmux#38339), and it must say so: it calls
-// this before the page loads. If the `runs` arm is deleted, these tests go with it.
+// A test that clicks, measures or waits for a finished run while its turn runs pins this arm.
+// `line` keeps finished runs hidden until the turn ends. `runs` is the default again and draws
+// finished runs as closed lines; tests must open a run before inspecting the calls inside it.
 //
 // The arm goes in the debug key that `experimentArm` reads after the host's override
 // (experiments/experiment.ts), so it also reaches a page whose harness or gallery frame installs its own

@@ -48,6 +48,16 @@ def lines_of(log: str) -> list[str]:
 # <script's first line>` for a run: step, `Run owner/action@ref` for a uses: step (and a job hook's `Run '/setup.sh'`),
 # `Post job cleanup.` for a post step. "Complete job" opens with no such line.
 STEP_START = re.compile(r"^(?:##\[group\]Run |Post job cleanup\.$)")
+# The line a self-hosted runner prints, outside any step's group, right before a job hook's own header (`Run
+# '/setup.sh'`, `Run '/job_completed.sh'`): the CI runners' "Set up runner" and "Complete runner" steps.
+# GitHub's own log view puts it in the hook's step, but it sits before that step's header, so _aligned_starts read it
+# as the end of the step before. On feat-cmux-next run 43196103785 (job 131107474882, "cmux-next checks"), the
+# checkout's post step ended at 10:04:41 and the notice was stamped 10:04:42.0000405, so no choice of headers fit, the
+# base log went unplaced and every PR's red of that job was refused with "does not map one to one onto its steps".
+# The runner's own fixed text, never a test, an error or a header: _aligned_starts does not time a section by it.
+# Only these exact lines; any other line out of its step's times still places nothing.
+RUNNER_HOOK_NOTICE = re.compile(r"^A job (?:started|completed) hook has been configured by the self-hosted runner "
+                                r"administrator$")
 
 
 def _stamp_time(value) -> datetime | None:
@@ -245,7 +255,8 @@ def _aligned_starts(steps: list[dict], lines: list[str], texts: list[str], windo
     low: list[datetime | None] = []
     high: list[datetime | None] = []
     for s in range(len(starts)):
-        found = [at for n in range(bounds[s], bounds[s + 1]) if (at := _line_time(lines[n])) is not None]
+        found = [at for n in range(bounds[s], bounds[s + 1])
+                 if (at := _line_time(lines[n])) is not None and not RUNNER_HOOK_NOTICE.match(texts[n])]
         low.append(min(found) if found else None)
         high.append(max(found) if found else None)
     if low[0] is None:

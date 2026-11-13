@@ -10,9 +10,15 @@
 //! - `retracted`: its turn runs. A notice that the message was withdrawn goes to the agent:
 //!   steered into the running turn when the agent steers (`via: "steer"`), else queued at the
 //!   head of the queue (`via: "queued"`). Once the notice is recorded, a `prompt_retracted`
-//!   record {promptId, msgId, turnId, via, noticePromptId} is written; a notice that is not
-//!   recorded within `NOTICE_WAIT` (refused, or the chat began a move) writes nothing and answers
-//!   `withdraw.notice_failed`, so the sender may withdraw again.
+//!   record {promptId, msgId, turnId, via, noticePromptId} is written. A notice an agent pair's
+//!   pause holds (`agent_pairs.rs`) goes in when the person resumes the pair: `via: "held"`. A
+//!   notice refused (the chat closes or began a move) writes nothing and answers
+//!   `withdraw.notice_failed`, so the sender may withdraw again. The answer waits for the
+//!   notice's own accept or refusal, never a fixed time: on a loaded Mac an accept takes seconds
+//!   (a spawn or a mode change holds the agent slot), and a withdraw that answered "failed"
+//!   then saw its notice go in. A second withdraw while the notice is on its way answers as the
+//!   first (`already: true`), with no second notice; one cut by a shutdown answers
+//!   `withdraw.interrupted`.
 //! - An inbox item (`inbox.rs`, a plain send from another agent): `unsent` while no notice carried
 //!   it (an `inbox_removed` record, `reason: "withdrawn"`); once one did, `retracted` with
 //!   `via: "inbox"`: the notice goes into its thread in the chat's inbox.
@@ -32,12 +38,19 @@ use cmux_json::JsonSet as _;
 use std::sync::OnceLock;
 use std::time::Duration;
 
-/// One withdraw at a time, from the decision until its outcome is recorded: two at once send
-/// one notice.
+/// One withdraw at a time, from the decision until its notice is on its way (`Hub::withdraws`):
+/// two at once send one notice.
 static DECIDING: OnceLock<Mutex<()>> = OnceLock::new();
 
-/// How long the answer waits for the notice to be recorded (queued or steered).
-const NOTICE_WAIT: Duration = Duration::from_secs(5);
+/// What became of a retraction notice.
+enum Notice {
+    /// Recorded: queued, steered in, or in the inbox thread.
+    Sent,
+    /// Held by an agent pair's pause; it goes in when the person resumes the pair.
+    Held,
+    /// Refused before it was recorded.
+    Refused,
+}
 /// How long a withdraw waits for a notice that carries its inbox message and is not written yet.
 const INBOX_SETTLE: Duration = Duration::from_secs(10);
 
@@ -276,11 +289,23 @@ impl Hub {
             true => self.find_withdrawn(session, true, id).map(|f| f.prompt_id),
             false => Some(id.to_owned()),
         };
-        if let Some(prompt_id) = prompt_id {
-            let settle = self.inbox_settled(session, &prompt_id);
+        if let Some(prompt_id) = &prompt_id {
+            let settle = self.inbox_settled(session, prompt_id);
             let _ = tokio::time::timeout(INBOX_SETTLE, settle).await;
         }
-        let _deciding = DECIDING.get_or_init(|| Mutex::new(())).lock().await;
+        let deciding = DECIDING.get_or_init(|| Mutex::new(())).lock().await;
+        // A withdraw of this message whose notice is still on its way: its answer is this one's.
+        let first = prompt_id.as_ref().and_then(|prompt_id| {
+            let key = (session.id.clone(), prompt_id.clone());
+            self.withdraws.lock().unwrap_or_else(|e| e.into_inner()).get(&key).cloned()
+        });
+        if let Some(first) = first {
+            drop(deciding);
+            return settled(first).await.map(|mut reply| {
+                reply.set("already", json!(true));
+                reply
+            });
+        }
         let found = match self.decide(session, by_msg, id)? {
             Decision::Reply(reply) => return Ok(reply),
             Decision::Retract(found) => found,
@@ -293,12 +318,39 @@ impl Hub {
             (None, true) => "steer",
             (None, false) => "queued",
         };
+        // On its way from here: a second withdraw waits for this one's answer. The hub's task
+        // records the outcome whether or not this caller still waits for it.
+        let key = (session.id.clone(), found.prompt_id.clone());
+        let (answer, first) = tokio::sync::watch::channel(None);
+        self.withdraws.lock().unwrap_or_else(|e| e.into_inner()).insert(key.clone(), first.clone());
+        drop(deciding);
+        let (hub, s) = (self.clone(), session.clone());
+        self.scope.spawn_named("withdraw-notice", async move {
+            let result = hub.retract(&s, found, steer, via).await;
+            let _ = answer.send(Some(result));
+            hub.withdraws.lock().unwrap_or_else(|e| e.into_inner()).remove(&key);
+        });
+        settled(first).await
+    }
+
+    /// Sends the retraction notice of `found` and records what became of it.
+    async fn retract(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        found: Found,
+        steer: bool,
+        via: &'static str,
+    ) -> Result<Value, RpcError> {
         // One id per attempt: a notice that failed leaves its id in the prompt ledger.
         let notice_id = format!("{}.withdrawn.{}", found.prompt_id, uuid::Uuid::now_v7());
-        if !self.send_notice(session, &found, steer, &notice_id).await {
-            let message = "the retraction notice did not reach the agent; withdraw again";
-            return Err(refusal(-32000, "withdraw.notice_failed", message));
-        }
+        let via = match self.send_notice(session, &found, steer, &notice_id).await {
+            Notice::Sent => via,
+            Notice::Held => "held",
+            Notice::Refused => {
+                let message = "the retraction notice did not reach the agent; withdraw again";
+                return Err(refusal(-32000, "withdraw.notice_failed", message));
+            }
+        };
         self.append(
             session,
             "mux",
@@ -400,15 +452,16 @@ impl Hub {
     }
 
     /// Sends the retraction notice (as the sender's message): steered into the running turn, or
-    /// queued and moved to the head of the queue. True once it is recorded (a resend of a notice
-    /// counts when the log holds it); false when it is refused or not recorded in time.
+    /// queued and moved to the head of the queue. Sent once it is recorded (a resend of a notice
+    /// counts when the log holds it), held when a pair's pause holds it, refused otherwise. It
+    /// ends with the notice's own accept or refusal, which every path of `prompt_with` comes to.
     async fn send_notice(
         self: &Arc<Self>,
         session: &Arc<Session>,
         found: &Found,
         steer: bool,
         notice_id: &str,
-    ) -> bool {
+    ) -> Notice {
         let msg_id = found.msg_id();
         let from = found.provenance.as_ref().and_then(|p| p.get("from")).and_then(Value::as_str);
         let text = format!(
@@ -443,21 +496,130 @@ impl Hub {
             ..PromptOptions::default()
         };
         let (hub, chat) = (self.clone(), session.clone());
-        tokio::spawn(async move {
+        // Runs on past the accept: a queued notice's run lasts until its turn ends.
+        let run = tokio::spawn(async move {
             let blocks = vec![json!({"type": "text", "text": text})];
-            if let Err(e) = hub.prompt_with(&chat, blocks, "acpmux", steer, opts).await {
+            let result = hub.prompt_with(&chat, blocks, "acpmux", steer, opts).await;
+            if let Err(e) = &result {
                 tracing::warn!(session = %chat.id, "withdraw notice: {}", e.message);
             }
+            result
         });
-        match tokio::time::timeout(NOTICE_WAIT, rx).await {
-            Ok(Ok(true)) => true,
+        match rx.await {
+            Ok(true) => Notice::Sent,
             // A resend of the notice's id: it counts only if it was recorded the first time.
-            Ok(Ok(false)) => self.find_withdrawn(session, false, notice_id).is_some(),
-            // Refused before it was recorded (the sender dropped), or not recorded in time.
-            Ok(Err(_)) | Err(_) => {
-                tracing::warn!(session = %session.id, "withdraw notice not recorded");
-                false
-            }
+            Ok(false) if self.find_withdrawn(session, false, notice_id).is_some() => Notice::Sent,
+            Ok(false) => Notice::Refused,
+            // Not accepted (the acceptance was dropped): its run says why.
+            Err(_) => match run.await {
+                Ok(Err(e)) if e.data.as_ref().is_some_and(|d| d["held"] == true) => Notice::Held,
+                _ => {
+                    tracing::warn!(session = %session.id, "withdraw notice not recorded");
+                    Notice::Refused
+                }
+            },
         }
+    }
+}
+
+/// The answer of the withdraw whose notice `first` waits for.
+async fn settled(
+    mut first: tokio::sync::watch::Receiver<Option<Result<Value, RpcError>>>,
+) -> Result<Value, RpcError> {
+    match first.wait_for(Option::is_some).await {
+        Ok(answer) => answer.clone().unwrap_or_else(|| Err(RpcError::internal("no answer"))),
+        Err(_) => {
+            let message = "acpmux stopped before the retraction notice was settled; withdraw again";
+            Err(refusal(-32000, "withdraw.interrupted", message))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A hub (store in memory, the queue path before the inbox) with one chat whose turn `t-1`
+    /// runs another agent's message `m-1`; its agent does not steer, so a retraction queues.
+    fn chat_running_a_message() -> (Arc<Hub>, Arc<Session>) {
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let cfg =
+            json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake"});
+        let mut cfg: crate::config::Config = serde_json::from_value(cfg).unwrap();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        cfg.agent_inbox = Some(false);
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(cfg, store);
+        let meta = json!({"schema": crate::store::META_SCHEMA, "id": "s-1", "name": "s-1",
+            "harness": "fake", "family": "codex", "cwd": std::env::temp_dir(), "status": "running",
+            "createdAt": 1, "updatedAt": 1});
+        let session = hub.insert_test_session(serde_json::from_value(meta).unwrap());
+        hub.save_meta(&session);
+        let provenance = json!({"kind": "agent_message", "from": "acp:sender-1", "to": "acp:s-1",
+                                "msgId": "msg-1", "threadId": "thread-1"});
+        let msg = json!({"text": "do x", "client": "acpmux", "promptId": "m-1", "turnId": "t-1"});
+        let msg = crate::prompt_provenance::marked(msg, Some(&provenance));
+        hub.append(&session, "mux", "user_message", msg);
+        let turn = TurnInfo::prompted("acpmux", "do x", "t-1", "m-1", Control::Local);
+        *session.turn.lock().unwrap() = Some(turn);
+        (hub, session)
+    }
+
+    fn withdraw(
+        hub: &Arc<Hub>,
+        session: &Arc<Session>,
+    ) -> tokio::task::JoinHandle<Result<Value, RpcError>> {
+        let (hub, session) = (hub.clone(), session.clone());
+        tokio::spawn(
+            async move { hub.prompt_withdraw(&session, &json!({"promptId": "m-1"})).await },
+        )
+    }
+
+    /// The `queued` records of retraction notices.
+    fn notices(hub: &Hub) -> usize {
+        let records = hub.events("s-1", 0, 100_000).unwrap();
+        let notice = |r: &&EventRecord| {
+            r.kind == "queued"
+                && r.msg["promptId"].as_str().is_some_and(|id| id.starts_with("m-1.withdrawn."))
+        };
+        records.iter().filter(notice).count()
+    }
+
+    /// The notice's accept waits behind the chat's agent slot, which a spawn, a respawn or a mode
+    /// change holds (on the owner's Mac, at load 150 to 430, for longer than any fixed wait). The
+    /// withdraw answered `withdraw.notice_failed` after 5 s, and the notice then went in: the
+    /// sender was told to withdraw again for a retraction the agent got. It waits for the
+    /// notice's own accept, and a second withdraw meanwhile answers as the first, with no second
+    /// notice.
+    #[tokio::test(start_paused = true)]
+    async fn a_notice_slower_than_any_fixed_wait_is_retracted_once_not_failed() {
+        let (hub, session) = chat_running_a_message();
+        let slot = session.child.lock().await;
+        let first = withdraw(&hub, &session);
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let second = withdraw(&hub, &session);
+        tokio::time::sleep(Duration::from_secs(60)).await;
+        if first.is_finished() {
+            let answer = first.await.unwrap();
+            panic!("the withdraw answered while its notice was still on its way: {answer:?}");
+        }
+        assert!(!second.is_finished(), "the second withdraw answered before the first");
+        drop(slot);
+        let reply = first.await.unwrap().expect("the withdraw failed");
+        assert_eq!(
+            (&reply["outcome"], &reply["via"]),
+            (&json!("retracted"), &json!("queued")),
+            "{reply}"
+        );
+        let again = second.await.unwrap().expect("the second withdraw failed");
+        assert_eq!(
+            (&again["outcome"], &again["already"]),
+            (&json!("retracted"), &json!(true)),
+            "{again}"
+        );
+        assert_eq!(notices(&hub), 1, "one retraction notice");
+        let records = hub.events("s-1", 0, 100_000).unwrap();
+        let retracted = records.iter().filter(|r| r.kind == "prompt_retracted").count();
+        assert_eq!(retracted, 1, "one prompt_retracted record");
     }
 }

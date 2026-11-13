@@ -289,6 +289,9 @@ export function playTurnFold(
       ]),
     );
     const place = index.get(row.id);
+    // A live clock is replaced by Worked for or the activity line, rather than folded work.
+    // Keeping its old words as a fading copy draws two clocks while the replacement is present.
+    if (place === undefined && node.classList.contains("acpmux-working")) continue;
     // Still a row, past the mounted ones: the copy slides on to its place. Gone (the close hid it):
     // it fades out where it was, under the rows sliding over it, over the whole fold (a shorter fade
     // left a blank band behind).
