@@ -233,12 +233,14 @@ if grep -Eq 'current_head_(prebuild|postbuild)|still_current' "$WORKFLOW_FILE"; 
 fi
 
 # Per job: publish-nightly and nightly-next-one (#42267) each record the marker and move the tag, and
-# each only after its own R2 appcast upload.
+# each only after its own R2 appcast uploads: none follows the marker, and publish-nightly's classic
+# upload (the one a classic run takes) comes before it.
 if ! awk '
   function end_job() { if (marker && !tag) bad=1 }
-  /^  [a-zA-Z0-9_-]+:$/ { end_job(); r2=0; marker=0; tag=0; next }
-  /^      - name: Upload nightly(-next)? appcasts to R2$/ { r2=1 }
-  /^      - name: Record verified nightly publication$/ { if (!r2) bad=1; marker=1; jobs++ }
+  /^  [a-zA-Z0-9_-]+:$/ { end_job(); job=$1; r2=0; classic=0; marker=0; tag=0; next }
+  /^      - name: Upload nightly(-next)? appcasts to R2$/ { if (marker) bad=1; r2=1 }
+  /^      - name: Upload nightly appcasts to R2$/ { classic=1 }
+  /^      - name: Record verified nightly publication$/ { if (!r2 || (job == "publish-nightly:" && !classic)) bad=1; marker=1; jobs++ }
   /^      - name: Move channel release tag to built commit$/ { if (!marker) bad=1; tag=1 }
   END { end_job(); exit !(jobs > 0 && !bad) }
 ' "$WORKFLOW_FILE"; then
