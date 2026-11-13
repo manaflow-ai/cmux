@@ -11,12 +11,12 @@ final class OfflineWorkspaceAlertUITests: XCTestCase {
         app.launch()
         defer { app.terminate() }
 
-        XCTAssertTrue(app.buttons["workspace.row.ws-cmux"].waitForExistence(timeout: 30), "The list loaded.")
-        let fold = app.descendants(matching: .any)["workspaces.fold.mbp"]
+        XCTAssertTrue(app.buttons.matching(identifier: "workspace.row.ws-cmux").firstMatch.waitForExistence(timeout: 30), "The list loaded.")
+        let fold = app.descendants(matching: .any).matching(identifier: "workspaces.fold.mbp").firstMatch
         for _ in 0..<4 where !(fold.exists && fold.isHittable) { app.swipeUp() }
         XCTAssertTrue(fold.waitForExistence(timeout: 10), "The offline Mac's fold line is listed.")
         fold.tap()
-        let row = app.buttons["workspace.row.ws-zed"]
+        let row = app.buttons.matching(identifier: "workspace.row.ws-zed").firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 10), "The fold opens the offline Mac's rows.")
         for _ in 0..<4 where !row.isHittable { app.swipeUp() }
         row.tap()
