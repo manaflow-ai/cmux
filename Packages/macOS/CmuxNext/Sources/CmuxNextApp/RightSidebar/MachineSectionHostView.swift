@@ -21,10 +21,7 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
             rows: { MachineSectionRow.rows(machines, health: health, joined: joined) },
             style: { ServerTunables.machinesStyle.value }, joined: { joined },
             newWorkspace: { registry.perform("workspace.newOnMachine", invocation: ActionInvocation(arguments: ["machine": .string($0)])) },
-            viewScreen: { machine in
-                services.openMacScreen(for: machine, in: services.windows.active?.focusedPane)
-                return true
-            },
+            viewScreen: { _ in registry.perform("macScreen.open") },
             shareScreen: { _ in
                 registry.perform("macScreen.shareThisMac") != nil
             },

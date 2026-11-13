@@ -192,17 +192,6 @@ extension AppServices {
         macScreenTabs.open(MacScreenRecord(macID: nil), in: pane, focus: true, byPerson: true)
     }
 
-    /// Opens a device directly from a Machines row. The row id is a daemon id, so resolve it against
-    /// the hub's device ids first; a stale or not-yet-registered row falls back to the Mac Screen home.
-    func openMacScreen(for machine: String, in target: PaneController?) {
-        guard let pane = target ?? windows.active?.focusedPane else { return registry.refuse(RefusalStrings.noWindowOpen) }
-        guard let device = macScreenPages.hub?.devices.first(where: { $0.id == machine || $0.name == machine }) else {
-            macScreenTabs.open(MacScreenRecord(macID: nil), in: pane, focus: true, byPerson: true)
-            return
-        }
-        macScreenTabs.open(MacScreenRecord(deviceID: device.id), in: pane, focus: true, byPerson: true)
-    }
-
     /// The pane whose strip lists tab `key` (any kind of tab).
     func paneController(listing key: String) -> PaneController? {
         windows.controllers.lazy.compactMap { $0.content?.panes.values.first { $0.tab(StripTabID(key)) != nil } }.first
