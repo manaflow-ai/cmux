@@ -115,7 +115,7 @@ pub(super) struct WriterOrigins {
     held: HashMap<String, Held>,
     ready: VecDeque<String>,
     pub retry: HashMap<String, OriginRecord>,
-    releasing: bool,
+    pub(super) releasing: bool,
     pub ended: HashMap<String, u64>,
 }
 
