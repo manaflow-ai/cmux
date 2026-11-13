@@ -251,6 +251,13 @@ pub(super) fn summary_from_session(hub: &Hub, session: &Session) -> io::Result<S
     });
     summary.folder =
         row.get("cwd").and_then(Value::as_str).map(|path| path.trim_end_matches('/').to_owned());
+    // Keep the typed archive bit beside the row. The tag remains in `extra` for
+    // older readers, but callers must not parse opaque bytes on every parent fold.
+    let now = crate::store::now_ms();
+    summary.archived = meta
+        .tags
+        .get("archived")
+        .is_some_and(|tag| tag.expires_at.is_none_or(|expires_at| expires_at > now));
     // Apply typed field bounds once, while extra is empty. Subsequent fitting
     // never uses the index's empty-extra fallback.
     summary = summary.prepare()?;
@@ -417,6 +424,7 @@ mod tests {
         assert!(!peer.title.contains("ghp_"));
         assert!(peer.title.contains("GitHub"));
         assert_eq!(peer.chat_id, row.chat_id);
+        assert_eq!(peer.archived, row.archived);
         assert!(peer.peer_form.is_none());
     }
 
@@ -497,6 +505,7 @@ mod tests {
             });
             let child_row = summary_from_session(&hub, &child).unwrap();
             let parent_row = summary_from_session(&hub, &parent).unwrap();
+            assert_eq!(parent_row.archived, case == "archived");
             assert!(child_row.same_content(&original), "parent case {case} changed the child");
             assert_eq!(
                 Summary::listed_under(&child_row, Some(&parent_row)),
@@ -505,5 +514,20 @@ mod tests {
             );
         }
         assert!(!Summary::listed_under(&original, None));
+    }
+
+    #[tokio::test]
+    async fn expired_archived_tag_is_not_copied_to_the_typed_row() {
+        let (hub, parent) = fixture(false).await;
+        hub.edit_test_meta(&parent, |meta| {
+            meta.tags.insert(
+                "archived".into(),
+                crate::store::Tag {
+                    value: "true".into(),
+                    expires_at: Some(crate::store::now_ms().saturating_sub(1)),
+                },
+            );
+        });
+        assert!(!summary_from_session(&hub, &parent).unwrap().archived);
     }
 }

@@ -189,6 +189,8 @@ pub struct Sub {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub view: Option<ListView>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rows: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub filter: Option<ListFilter>,
 }
 
@@ -209,6 +211,7 @@ impl Sub {
             anchor: None,
             window: default_window(),
             view: None,
+            rows: None,
             filter: None,
         }
     }
@@ -434,6 +437,8 @@ pub struct PageResult<T> {
     pub has_after: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub cold_unread: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub deeper: Vec<ListKey>,
     #[serde(default)]
     pub before_key: Option<ListKey>,
     #[serde(default)]

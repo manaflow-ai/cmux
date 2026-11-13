@@ -430,6 +430,7 @@ const RowFrame = React.memo(function RowFrame({
   expanded,
   observer,
   queueDrawn,
+  sendThinking,
   enter,
   onEntered,
   loadFade,
@@ -486,6 +487,9 @@ const RowFrame = React.memo(function RowFrame({
   expanded: boolean;
   observer: ResizeObserver | undefined;
   queueDrawn: QueueDrawn;
+  /// This thinking row belongs to a prompt that entered on the current send. It may be separated
+  /// from that prompt by finished activity rows, so the style cannot rely on adjacent siblings.
+  sendThinking: boolean;
   /// The row arrived live: it enters with the shared motion on this, its first mount.
   enter: boolean;
   onEntered: (id: string) => void;
@@ -616,6 +620,7 @@ const RowFrame = React.memo(function RowFrame({
       data-row-id={row.id}
       data-row-card={row.ended ? "true" : undefined}
       data-opens-turn={opensTurn ? "true" : undefined}
+      data-send-thinking={sendThinking ? "true" : undefined}
       className={`acpmux-row acpmux-${kind}${isLineRow(row) ? " acpmux-row--line" : ""}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${beforeIndicator ? " acpmux-row--before-indicator" : ""}${replyActions ? " acpmux-row--reply-room" : ""}${status ? ` acpmux-row--${status}` : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${finalFooter ? " acpmux-row--final-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${messageEntering ? " acpmux-row--message-enter" : entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}${loadFading ? ` ${LOAD_FADE_CLASS}` : ""}`}
       data-transcript-active={active ? "true" : undefined}
       data-transcript-selected={selected ? "true" : undefined}
@@ -659,6 +664,19 @@ const RowFrame = React.memo(function RowFrame({
 /// row other than a reply and the live line changed (a call finished, a thought grew, a steer
 /// landed). O(1): the last ARRIVAL_TAIL rows, by id and version.
 const ARRIVAL_TAIL = 6;
+/// Sent thinking markers live only for the recent sends that can still be in their landing window.
+/// This keeps the identity side table constant-size even when a long transcript is retained.
+const SENT_PROMPT_ID_LIMIT = 32;
+
+function rememberSentPromptId(ids: Set<string>, id: string): void {
+  ids.delete(id);
+  ids.add(id);
+  while (ids.size > SENT_PROMPT_ID_LIMIT) {
+    const oldest = ids.values().next().value as string | undefined;
+    if (oldest === undefined) break;
+    ids.delete(oldest);
+  }
+}
 /// How long after a row arrived its room still counts as the arrival: the passes that measure it.
 const ARRIVAL_PASS_MS = 100;
 function arrivedAtTail(before: readonly AcpmuxRow[], after: readonly AcpmuxRow[]): boolean {
@@ -669,6 +687,44 @@ function arrivedAtTail(before: readonly AcpmuxRow[], after: readonly AcpmuxRow[]
     if (row.id !== was.id) return true;
     if (row === was || row.version === was.version) continue;
     if (row.id !== LIVE_THINKING && row.kind !== "assistant") return true;
+  }
+  return false;
+}
+
+/// Whether a pass brought a sent prompt (a new user row that is no line). It lands at once with what
+/// came in the same pass (its live line, a reply already there); tool rows and the reply that land in
+/// the send's window after it are the turn's and chase. O(1): inspect bounded windows at the append
+/// boundary and tail, so a prompt followed by a burst of rows is still recognized without scanning history.
+export function broughtSentPrompt(before: readonly AcpmuxRow[], after: readonly AcpmuxRow[]): boolean {
+  const promptRow = (row: AcpmuxRow | undefined): row is AcpmuxRow => row?.kind === "user" && !isLineRow(row);
+  const becameCanonical = (was: AcpmuxRow | undefined, row: AcpmuxRow | undefined) => {
+    if (!promptRow(was) || !promptRow(row)) return false;
+    // The normal path keeps the optimistic `local-*` row, but a rebuild can replace it in place.
+    // Treat that identity hand-off as the send landing even when the snapshot length is unchanged.
+    const optimistic =
+      was.id.startsWith("local-") ||
+      was.pending === true ||
+      was.delivery?.state === "sending" ||
+      was.delivery?.state === "delivered";
+    const settled = row.pending !== true && row.delivery?.state !== "sending" && row.delivery?.state !== "delivered";
+    return optimistic && settled && (was.id !== row.id || was.version !== row.version);
+  };
+  if (after.length === before.length) {
+    const first = Math.max(0, before.length - ARRIVAL_TAIL);
+    for (let index = first; index < after.length; index += 1)
+      if (becameCanonical(before[index], after[index])) return true;
+    return false;
+  }
+  if (after.length < before.length) return false;
+  const seen = new Set<number>();
+  const first = Math.max(0, before.length - ARRIVAL_TAIL);
+  const last = Math.min(after.length, before.length + ARRIVAL_TAIL);
+  for (let index = first; index < last; index += 1) seen.add(index);
+  for (let index = Math.max(0, after.length - ARRIVAL_TAIL); index < after.length; index += 1) seen.add(index);
+  for (const index of seen) {
+    const row = after[index]!;
+    const was = before[index];
+    if (row.kind === "user" && !isLineRow(row) && row.id !== was?.id) return true;
   }
   return false;
 }
@@ -933,6 +989,13 @@ const FLOOR_HOLD_MS = 1000;
 /// How long after a send from the latest row the rows that come still rise on its glide: the prompt's
 /// own row and its reply's first rows (acpmux's echo, the live line) land within it.
 const SEND_RISE_MS = 1000;
+
+/// A send's clock on `node` (`--agent-motion-send`, the scale's send step scaled by the host's speed).
+/// The product's is 0 (Leo, 2026-11-11: "that slow settle animation is just so bad. Like, just do
+/// it."): then the send's rows and the room the composer gives back move at once, never on the chase.
+const sendClockMs = (node: HTMLElement) =>
+  cssTimeMs(node.ownerDocument.defaultView?.getComputedStyle(node).getPropertyValue("--agent-motion-send") ?? "") ??
+  MOTION_SEND_MS;
 
 /// How far (px, under a line) a followed reply's new text may lie under the bottom stack while the
 /// follow motion catches up with it (followChase.ts), past the room the live line keeps.
@@ -2934,6 +2997,18 @@ function TranscriptView({
   const didOpenAtLatest = useRef(false);
   /// The sends this chat's view has taken in (`sends`): a new one puts the view at the latest message.
   const seenSends = useRef(sends);
+  /// Prompt identities captured on the send's first snapshot. Kept separately from enteringRows:
+  /// a burst can exceed the live-entry threshold, while its thinking row still belongs to the send.
+  const [sentPromptIds, setSentPromptIds] = useState(() => new Set<string>());
+  /// Sends are counted before the async client registers its optimistic prompt. Keep a bounded number
+  /// of sends waiting for that prompt to arrive so a later thinking row still gets the send marker.
+  /// This is render-phase state, alongside `sendsAt`, so the counter does not add a mutable ref read
+  /// to the render path (React Doctor's no-ref-current-in-render rule).
+  const [pendingSentPromptCount, setPendingSentPromptCount] = useState(0);
+  /// The last committed row snapshot used to distinguish an async prompt registration from history
+  /// already in the tail. State keeps this render comparison out of the ref-backed placement cache.
+  const [sendRowsSnapshot, setSendRowsSnapshot] = useState(() => ({ current: rows, previous: rows }));
+  if (sendRowsSnapshot.current !== rows) setSendRowsSnapshot({ current: rows, previous: sendRowsSnapshot.current });
   /// A prompt was sent before the chat opened (while its tail still fits): it opens at the latest
   /// message, not at the reader's old place.
   const sentBeforeOpen = useRef(false);
@@ -3107,6 +3182,48 @@ function TranscriptView({
   }, [noteQueue, startFlow, endFlow]);
   const previousLayout = useRef<PlacedLayout | null>(null);
   const previousRows = useRef<readonly AcpmuxRow[]>(rows);
+  let sentPromptIdsForRender = sentPromptIds;
+  if (sessionChanged) {
+    if (sentPromptIds.size !== 0) {
+      sentPromptIdsForRender = new Set();
+      setSentPromptIds(sentPromptIdsForRender);
+    }
+    if (pendingSentPromptCount !== 0) setPendingSentPromptCount(0);
+  } else {
+    let pending = pendingSentPromptCount;
+    let promptIds = sentPromptIds;
+    const observedSends = sendsAt;
+    if (sends > observedSends) {
+      pending = Math.min(SENT_PROMPT_ID_LIMIT, pending + sends - observedSends);
+    } else if (sends < observedSends) {
+      pending = 0;
+    }
+    const previous = sendRowsSnapshot.previous;
+    const first = Math.max(0, previous.length - ARRIVAL_TAIL);
+    const last = Math.min(rows.length, previous.length + ARRIVAL_TAIL);
+    const indexes = new Set<number>();
+    for (let index = first; index < last; index += 1) indexes.add(index);
+    for (let index = Math.max(0, rows.length - ARRIVAL_TAIL); index < rows.length; index += 1) indexes.add(index);
+    for (const index of indexes) {
+      const row = rows[index];
+      // A later send can arrive before the row snapshot changes. A prompt already matched to
+      // an earlier send must not consume that later send's pending slot again.
+      if (
+        pending > 0 &&
+        row?.kind === "user" &&
+        !isLineRow(row) &&
+        row.id !== previous[index]?.id &&
+        !promptIds.has(row.id)
+      ) {
+        if (promptIds === sentPromptIds) promptIds = new Set(sentPromptIds);
+        rememberSentPromptId(promptIds, row.id);
+        pending -= 1;
+      }
+    }
+    sentPromptIdsForRender = promptIds;
+    if (promptIds !== sentPromptIds) setSentPromptIds(promptIds);
+    if (pending !== pendingSentPromptCount) setPendingSentPromptCount(pending);
+  }
   const previousViewport = useRef({ height, width, dockSpace, dockCard });
   /// The room kept under the last row (`room` below) as of the last placement pass.
   const heldRoom = useRef(dockRoom);
@@ -4121,6 +4238,7 @@ function TranscriptView({
       didOpenAtLatest.current = false;
       // Another chat's count (the subagent view takes none) is not a send in this one.
       seenSends.current = sends;
+      setSentPromptIds((current) => (current.size === 0 ? current : new Set()));
       sentBeforeOpen.current = false;
       sendRiseUntil.current = Number.NEGATIVE_INFINITY;
       sendClockUntil.current = Number.NEGATIVE_INFINITY;
@@ -4361,6 +4479,8 @@ function TranscriptView({
         // brings as one chase too; only the stack growing and the rest of it shrinking (a queue
         // card leaving) move at once.
         const sendWindow = sends !== seenSends.current || performance.now() < sendRiseUntil.current;
+        // Read only in a send's window: one style read per pass for at most SEND_RISE_MS.
+        const sendLands = sendWindow && !(sendClockMs(node) > 0);
         const cardCleared = dockCard < box.dockCard && box.dockSpace - dockSpace <= box.dockCard - dockCard + 0.5;
         const dockMoved = box.dockSpace !== dockSpace && !((sendWindow || cardCleared) && dockSpace < box.dockSpace);
         const now = performance.now();
@@ -4454,6 +4574,20 @@ function TranscriptView({
             // lie now (none noted, the first move after an idle resize, a prompt landing, moved at
             // once). A ride, a fold and a jump move the rows on their own frames: nothing noted.
             if (!riding) chaseFollow(node, layout, rows, Number.POSITIVE_INFINITY, true);
+          } else if (
+            sendLands &&
+            (broughtSentPrompt(oldRows, rows) ||
+              (dockSpace < box.dockSpace &&
+                rows.length === oldRows.length &&
+                rows.at(-1)?.id === oldRows.at(-1)?.id &&
+                rows.at(-1)?.version === oldRows.at(-1)?.version))
+          ) {
+            // A send on a 0 clock (the product's): its own rows (the prompt, its live line) and the
+            // room the composer gives back are in place in this pass, and a chase still drawing the
+            // thread back ends where it lands. Anything else in the send's window (the reply
+            // streaming, a tool row, the dock growing) moves on the chase as ever.
+            stopFollowMotion();
+            chaseFollow(node, layout, rows, Number.POSITIVE_INFINITY, true);
           } else if (lineLeft) {
             // What the pass also brought (the reply's next revealed line) joins the trail first, and
             // the landing takes it home with the rest at no more than a line a frame.
@@ -4608,8 +4742,10 @@ function TranscriptView({
         // thread is drawn back by the rise and slides up on the send's glide, the prompt rising out
         // from behind the composer, instead of the whole chat moving up a row in one frame.
         // The send's own effect runs after this pass, so a send in this commit counts here too.
+        // On a 0 send clock (the product's) the thread is in place at once, whichever commit the
+        // prompt came in (review of #41550): no glide and no chase.
         const sentHere = sentBeforeOpen.current || sends !== seenSends.current;
-        if (sentHere && at < 0 && node.scrollTop - before > 0.5) {
+        if (sentHere && at < 0 && node.scrollTop - before > 0.5 && sendClockMs(node) > 0) {
           // On the send motion, one clock with the bubble's entrance, while that motion plays.
           const sentClock = sends !== seenSends.current || performance.now() < sendClockUntil.current;
           if (chasing)
@@ -5264,12 +5400,11 @@ function TranscriptView({
     // The prompt's rows that land in the next commits glide in too (placement pass, `sendRows`).
     sendRiseUntil.current = performance.now() + SEND_RISE_MS;
     sendClockUntil.current = performance.now() + sendMotionMs(node);
-    // Sent while scrolled up: the view glides down to the latest message on Jump to latest's ride
-    // (one viewport at most, its curve and duration) instead of cutting there in one frame, and the
-    // prompt's row and reply land on the moving end. Reduce Motion and motion off still cut.
-    // Under the slim arm the ride runs the capped send step (composerStates.css SEND-SLIM, 120 ms at
-    // most), and the prompt still tucks under the composer as it goes (sendTuck.ts).
-    if (!fromLatest && !reduce) {
+    // Sent while scrolled up: on a page's own send clock the view glides down to the latest message
+    // on Jump to latest's ride (one viewport at most), and the prompt's row and reply land on the
+    // moving end. On the product's 0 clock (Leo, 2026-11-11: "that slow settle animation is just so
+    // bad. Like, just do it."), Reduce Motion and motion off, it cuts there in this pass.
+    if (!fromLatest && !reduce && sendClockMs(node) > 0) {
       rideToLatest(node, latest, false, false, true);
       followRequest.current = userScrollIntent(node).request();
       follow(true, "send");
@@ -5289,8 +5424,14 @@ function TranscriptView({
       follow(true, "send");
       // Rows this commit added that the placement pass left unfollowed (a held follow): they rise on
       // the send's glide too.
+      // On the product's 0 send clock the move to the new end is the send's own and lands in this
+      // pass with its rows: chasing it drew the thread back by the whole rise (176 px) and brought it
+      // home over 10 frames after the rows had landed (motion contract (c), `latest send`).
       if (chasing) {
-        if (fromLatest) chaseFollow(node, layout, rows, Number.POSITIVE_INFINITY, slimFollow, false, false, !steered);
+        if (fromLatest && !(sendClockMs(node) > 0)) {
+          stopFollowMotion();
+          chaseFollow(node, layout, rows, Number.POSITIVE_INFINITY, true);
+        } else if (fromLatest) chaseFollow(node, layout, rows, Number.POSITIVE_INFINITY, false, false, false, !steered);
       } else if (fromLatest && top - before > 0.5) followGlide.current?.sent(thread.current, top - before);
     }
     // The kept place is the latest message again: a relaunch opens there.
@@ -6456,6 +6597,9 @@ function TranscriptView({
                         expanded={isExpanded}
                         observer={observer}
                         queueDrawn={queueDrawn}
+                        sendThinking={
+                          row.kind === THINKING && row.verbKey !== undefined && sentPromptIdsForRender.has(row.verbKey)
+                        }
                         // A session switch is a load, not a live arrival. The reset effect runs after
                         // this render, so gate it here as well to avoid a reused row id animating once.
                         enter={(!sessionChanged || tookSession) && enteringRows.current.has(rowFrameKey(row))}
