@@ -73,12 +73,14 @@ pub mod folder_instructions;
 pub mod forum;
 pub mod forum_mcp;
 pub mod frame_compress;
+pub mod gauges;
 pub mod generic_goal;
 pub mod git_state;
 pub mod github_app_token;
 pub mod github_broker;
 #[cfg(unix)]
 pub mod github_mcp;
+pub mod god_fixture;
 /// GitHub's MCP server needs the Cloud agent's unix socket (`github_mcp.rs`): elsewhere it is
 /// never offered, and the command says so.
 #[cfg(not(unix))]
@@ -104,6 +106,7 @@ pub mod harness_icon_set;
 pub mod harness_install;
 pub mod harness_limits;
 pub(crate) mod heap_future;
+pub mod heap_profile;
 pub(crate) mod home_fs;
 #[cfg(test)]
 mod home_writers_by_path_tests;
@@ -141,6 +144,8 @@ pub mod mesh_control;
 pub mod mesh_http;
 pub mod model_copies;
 pub mod name_match;
+#[cfg(target_os = "macos")]
+mod named_files_watch;
 pub mod native;
 pub mod no_panic;
 pub mod offer_mcp;
@@ -151,8 +156,10 @@ pub(crate) mod opencode_ask;
 mod owner_only;
 pub mod pairing;
 pub mod parent_watch;
+pub mod parse_budget;
 pub mod path_canon;
 pub mod peer;
+pub mod peer_kept_tokens;
 pub mod peer_last_good;
 pub mod peer_link;
 pub mod peer_paths;
@@ -209,6 +216,10 @@ pub mod shadow_admission;
 pub mod shell_words;
 #[cfg(feature = "sim")]
 pub mod sim_agent;
+#[cfg(test)]
+mod single_shot_list_tests;
+#[cfg(test)]
+mod source_scan_smoke;
 pub mod sr2_cost_labels;
 pub(crate) mod ssh_forward;
 pub mod stats;
@@ -228,6 +239,8 @@ pub mod tailnet;
 #[cfg(test)]
 mod test_exec;
 #[cfg(test)]
+mod test_hooks_tree;
+#[cfg(test)]
 mod test_stack;
 pub mod tools_mcp;
 pub mod touched_files;
@@ -239,7 +252,6 @@ pub mod turn_attestation;
 pub mod usage_stats;
 pub mod user_settings;
 pub mod vault;
-pub mod watch_delta;
 pub mod web_modes;
 pub mod wire_size;
 pub mod wireguard;

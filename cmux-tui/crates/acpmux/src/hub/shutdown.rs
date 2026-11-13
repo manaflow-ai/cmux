@@ -342,11 +342,14 @@ impl Hub {
         self.append(s, "mux", "turn_result", result);
     }
 
-    /// Save every session's meta and sync the event log to disk.
+    /// Save changed metadata and sync the event log to disk.
     pub fn flush(&self) {
         // Each chat's last change is on disk before this returns, also while another save of it
         // runs: the seal that follows refuses every later write.
         for s in self.sessions() {
+            if !s.meta_writer.needs_flush(&s) {
+                continue;
+            }
             if let Err(e) = self.write_meta(&s) {
                 tracing::error!(session = %s.id, "save meta at shutdown failed: {e}");
             }

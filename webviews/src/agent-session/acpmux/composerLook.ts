@@ -1,6 +1,6 @@
 // The composer's look (Leo 2026-10-22: "first dot claude, second dot codex. since it's just all looks
 // anyways"): one composer, two looks of the same controls. Both lay +, the prompt, the mic and Send
-// out as Claude's, the default: + left of the prompt, the send slot and the mic right of it on the
+// out as Claude's compact layout: + left of the prompt, the send slot and the mic right of it on the
 // prompt's row (Leo 2026-11-01: "the placement of the buttons are just really bad compared to our
 // claude code version", then "we already have a good version"). `claude` draws the mode, the model
 // and effort and the context ring in the quiet row under the box; `codex` draws that row inside the
@@ -27,12 +27,12 @@ export const COMPOSER_LOOK_NAMES: Readonly<Record<ComposerLook, string>> = {
   codex: "Codex",
 };
 
-/// The default: Claude's look, the composer as it was before the dots.
-export const DEFAULT_COMPOSER_LOOK: ComposerLook = "claude";
+/// New viewers use Codex's look across agent families; explicit choices remain saved.
+export const DEFAULT_COMPOSER_LOOK: ComposerLook = "codex";
 const KEY = "cmux.composer.look";
 
 function parse(value: unknown): ComposerLook {
-  return value === "codex" ? "codex" : DEFAULT_COMPOSER_LOOK;
+  return value === "claude" || value === "codex" ? value : DEFAULT_COMPOSER_LOOK;
 }
 
 /// The page's copy, for a page with no storage; storage's when there is one.

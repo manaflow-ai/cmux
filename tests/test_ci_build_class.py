@@ -41,6 +41,11 @@ class BuildClassTests(unittest.TestCase):
         self.assertEqual(rust_workspaces(ROOT, crate), ["cmux-tui", crate])
         self.assertIn(crate + ")", classify_path(ROOT, crate + "/src/main.rs")[1])
 
+    def test_a_member_names_the_workspace_it_joins(self):
+        # cmux-sdk-ffi has no [workspace] and sits inside cmux-tui's tree, but its manifest joins
+        # ../cmux-app-ffi's workspace (package.workspace), which builds it with one lock.
+        self.assertEqual(rust_workspaces(ROOT, "cmux-tui/crates/cmux-sdk-ffi"), ["cmux-tui/crates/cmux-app-ffi"])
+
     def test_external_rust_user_is_named(self):
         # optchat-chief path-depends on cmux-chief: its blaze build runs too.
         workspaces = rust_workspaces(ROOT, "cmux-tui/crates/cmux-chief")
