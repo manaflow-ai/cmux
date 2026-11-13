@@ -427,6 +427,37 @@ class NoVerdictNeverSubtracts(unittest.TestCase):
         # is none; that is "no rustfmt here", which warns, not a launch failure.
         self.assertEqual(self.rustfmt_from_path(".", in_scope=False, in_gate_cwd=True), "")
 
+    def test_relative_repo_makes_rustfmt_launch_paths_absolute(self) -> None:
+        from unittest import mock  # noqa: PLC0415
+        tree = Path(self.tmp.name) / "tree"
+        source = tree / "cmux-tui/src/lib.rs"
+        source.parent.mkdir(parents=True)
+        source.write_text("fn a() {}\n", encoding="utf-8")
+        (self.repo / "cmux-tui").mkdir()
+        config = self.repo / "cmux-tui/rustfmt.toml"
+        config.write_text("", encoding="utf-8")
+        fake = self.repo / "cmux-tui/rustfmt"
+        fake.write_text("fixture\n", encoding="utf-8")
+        caller = Path(self.tmp.name) / "caller"
+        caller.mkdir()
+        saved = Path.cwd()
+        try:
+            os.chdir(caller)
+            relative_repo = Path(os.path.relpath(self.repo, caller))
+            relative_config = Path(os.path.relpath(config, caller))
+            done = subprocess.CompletedProcess([], 0, stdout=b"fn a() {}\n", stderr=b"")
+            with mock.patch.dict(os.environ, {"PATH": "."}), mock.patch.object(
+                    self.gate.subprocess, "run", return_value=done) as launched:
+                result = self.quiet(self.gate.rustfmt, relative_repo, relative_config, tree,
+                                    ["cmux-tui/src/lib.rs"])
+        finally:
+            os.chdir(saved)
+        self.assertEqual(result, "")
+        command = launched.call_args.args[0]
+        self.assertTrue(Path(command[0]).is_absolute(), command)
+        self.assertTrue(Path(command[command.index("--config-path") + 1]).is_absolute(), command)
+        self.assertTrue(Path(launched.call_args.kwargs["cwd"]).is_absolute(), launched.call_args)
+
     def test_a_cargo_locks_exit_1_with_no_stale_line_refuses(self) -> None:
         from unittest import mock  # noqa: PLC0415
         self.install(self.gate.CARGO_LOCKS_SCRIPT, "print('checking 30 workspaces')\nraise SystemExit(1)\n")
@@ -458,6 +489,16 @@ class NoVerdictNeverSubtracts(unittest.TestCase):
         head = self.commit("head")
         found = self.quiet(self.gate.ui_font, self.repo, base, head, self.installed)
         self.assertRefusedWithNoVerdict(found, "ui font exit 1, only its summary")
+
+    def test_a_ui_font_exit_0_with_a_nonzero_summary_refuses(self) -> None:
+        self.install(self.gate.UI_FONT_SCRIPT, "import sys\nif '--inputs' in sys.argv:\n    print('webviews/')\n"
+                                               "    raise SystemExit(0)\nprint('ui font: 1 finding(s).')\n")
+        self.write("webviews/a.css", "a {}\n")
+        base = self.commit("base")
+        self.write("webviews/a.css", "b {}\n")
+        head = self.commit("head")
+        found = self.quiet(self.gate.ui_font, self.repo, base, head, self.installed)
+        self.assertRefusedWithNoVerdict(found, "ui font exit 0 with a nonzero summary")
 
     # #41888 review (F2): the reserved-key and UI-font layers took any nonempty output as findings, so a checker that
     # printed "could not read checker input" on both revisions subtracted to [] and the push passed.
