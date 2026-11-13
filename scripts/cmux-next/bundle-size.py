@@ -15,7 +15,10 @@ not followed, so the CEF framework's top-level links count once) and, with
 each component, each Mach-O binary split into code, unwind tables, symbols and
 signature, the bytes by kind (binaries, JS, CSS, HTML, fonts, images, wasm,
 localizations, licenses), identical files shipped more than once, and the
-largest files. Its DMG column compresses every file on its own in 1 MiB LZMA
+largest files, and the app executable's code by language (Swift, Rust, C++,
+Zig, C), read from the function map the app ships for in-app symbolication
+(Contents/Resources/cmux-symbols.bin, written by scripts/write-app-symbol-map.py).
+Its DMG column compresses every file on its own in 1 MiB LZMA
 blocks, as a UDIF DMG does (its chunks are 1 MiB, so two copies of a file cost
 twice in the DMG, unlike in `report --compressed`). It runs on Linux: get the
 nightly's app with scripts/cmux-next/fetch-nightly-dmg.py.
@@ -44,8 +47,11 @@ import hashlib
 import json
 import lzma
 import os
+import plistlib
+import re
 import struct
 import sys
+import zlib
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
@@ -364,6 +370,81 @@ def file_facts(job: tuple[str, str]) -> dict:
     return facts
 
 
+SYMBOL_MAP = "Contents/Resources/cmux-symbols.bin"
+# Unmangled names that are not C: Ghostty's C API is Zig, the app's Rust crates export C-ABI
+# entry points, and Swift emits a few helpers without its mangling.
+ZIG_PREFIXES = ("ghostty_",)
+RUST_PREFIXES = ("cmux_", "uniffi_", "ffi_", "rust_")
+SWIFT_PREFIXES = ("objectdestroy", "__swift_", "swift_")
+RUST_LEGACY = re.compile(r"17h[0-9a-f]{16}E$")
+
+
+def symbol_language(name: str) -> str:
+    """The language a symbol map name was compiled from, by its mangling.
+
+    The map drops Mach-O's leading underscore, as dladdr does: Swift's `_$s` reads `$s`, and the
+    `__ZN` / `__RN` of C++ and Rust read `_ZN` / `_RN`.
+    """
+    if name.startswith(("$s", "_$s", "$S")) or name.startswith(SWIFT_PREFIXES):
+        return "Swift"
+    if name.startswith("_R") or (name.startswith("_ZN") and RUST_LEGACY.search(name)) or name.startswith(RUST_PREFIXES):
+        return "Rust"
+    if name.startswith("_Z"):
+        return "C++"
+    if name.startswith(("-[", "+[")):
+        return "Objective-C"
+    if name.startswith(ZIG_PREFIXES):
+        return "Zig"
+    return "C and other"
+
+
+def code_by_language(data: bytes) -> dict[str, int] | None:
+    """__TEXT,__text bytes by language from a cmux-symbols.bin (its first slice), or None.
+
+    The map names every function the linker kept a symbol for. A function with none (a static
+    Zig or C function) counts toward the named one before it, so the Zig and C rows are close,
+    not exact; Swift and Rust keep their names.
+    """
+    if data[:8] != b"CMXSYM1\0" or len(data) < 32:
+        return None
+    try:
+        size, = struct.unpack_from("<I", data, 28)
+        payload = zlib.decompress(data[32:32 + size], -15)
+        count, = struct.unpack_from("<I", payload, 0)
+        at, offsets, current = 4, [], 0
+        for _ in range(count):
+            value = shift = 0
+            while True:
+                byte = payload[at]
+                at += 1
+                value |= (byte & 0x7F) << shift
+                shift += 7
+                if not byte & 0x80:
+                    break
+            current += value
+            offsets.append(current)
+    except (struct.error, zlib.error, IndexError):
+        return None
+    names = payload[at:].split(b"\0")
+    if len(names) < count:
+        return None
+    out: dict[str, int] = {}
+    for i in range(count - 1):
+        language = symbol_language(names[i].decode("latin-1"))
+        out[language] = out.get(language, 0) + offsets[i + 1] - offsets[i]
+    return dict(sorted(out.items(), key=lambda kv: -kv[1]))
+
+
+def app_executable(app: Path) -> str:
+    """Contents/MacOS/<CFBundleExecutable>, or the app's name when Info.plist does not say."""
+    try:
+        with open(app / "Contents/Info.plist", "rb") as f:
+            name = plistlib.load(f).get("CFBundleExecutable")
+    except (OSError, plistlib.InvalidFileException, ValueError):
+        name = None
+    return f"Contents/MacOS/{name if isinstance(name, str) and name else app.stem}"
+
+
 def tree(app: Path, dmg: Path | None, top: int, jobs: int | None = None) -> dict:
     """The full attribution of the app (see `tree` in the module doc)."""
     if not (app / "Contents").is_dir():
@@ -428,6 +509,10 @@ def tree(app: Path, dmg: Path | None, top: int, jobs: int | None = None) -> dict
         "largest_files": [{"path": f["rel"], "bytes": f["bytes"], "dmg_bytes": f["dmg"]}
                           for f in sorted(facts, key=lambda f: -f["bytes"])[:top]],
     }
+    symbol_map = app / SYMBOL_MAP
+    languages = code_by_language(symbol_map.read_bytes()) if symbol_map.is_file() else None
+    if languages:
+        out["code_by_language"] = {"binary": app_executable(app), "source": SYMBOL_MAP, "bytes": languages}
     if dmg is not None:
         out["dmg"] = dmg.name
         out["dmg_bytes"] = dmg.stat().st_size
@@ -453,6 +538,13 @@ def print_tree(t: dict, top: int) -> None:
         p = b["parts"]
         print(f"| `{b['path']}` | {mb(b['bytes'])} | {mb(b['dmg_bytes'])} | {mb(p.get('code and data', 0))} | "
               f"{mb(p.get('unwind tables', 0))} | {mb(p.get('symbols', 0))} | {mb(p.get('code signature', 0))} |")
+    lang = t.get("code_by_language")
+    if lang:
+        total = sum(lang["bytes"].values()) or 1
+        print(f"\n`{lang['binary']}` code (`__text`) by language, from `{lang['source']}`:")
+        print("\n| Language | MB | Share |\n|---|---:|---:|")
+        for name, n in lang["bytes"].items():
+            print(f"| {name} | {mb(n)} | {100 * n / total:.1f}% |")
     d = t["duplicates"]
     print(f"\nIdentical files shipped more than once: {mb(d['extra_bytes'])} MB extra on disk, "
           f"{mb(d['extra_dmg_bytes'])} MB in the DMG.")

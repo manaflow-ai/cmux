@@ -1,13 +1,14 @@
 // cmux-web-test-timeout: 240
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
 // History stays still when a turn ends. Inside the ending turn, Worked for always closes
-// (Lucas, 2026-11-11), hiding earlier replies and calls even when the reader is scrolled up.
+// (Lucas, 2026-11-11), hiding work even when the reader is scrolled up. Substantive findings
+// remain visible (Leo, 2026-11-13: "a message was folded i think erroneously").
 // The history-only no-shift rule came from Leo, 2026-11-03:
 // "sometimes when an agent completes a message while im scrolled up the entire chat kinda
 // hitches/shifts a bit? or the tool calls collpase then expand some messages? idk but it shouldnt
 // realy move i think"). The "no layout shift" budget: away from the bottom, the turn's end (its
 // "Worked for" fold, its footer, its rows turning final) keeps historical rows on their pixels.
-// Rows inside the ending turn deliberately leave the view; the final reply stays outside its fold.
+// Work rows inside the ending turn leave the view; findings and the final reply stay outside its fold.
 //
 // Every visible row's box is read on every painted frame from just before the turn ends until the
 // view settles, and scored with the shared box-shift measure (src/gallery/shift.ts, CLS-style: the
@@ -490,13 +491,14 @@ await requireBrowserLane("agent-pane-turn-end-keeps-place.test.ts", async () => 
           expect(result.flickers).toEqual([]);
           expect(result.score).toBe(0);
         } else {
-          // The reader was inside the turn that must close. Its former rows disappear on purpose;
-          // the surviving final reply and closed Worked for replace them, rather than an open fold.
+          // The work closes even when the reader was inside the ending turn. These paragraphs
+          // contain findings about retry behavior, so they survive alongside the final reply.
           const fold = page.locator(".acpmux-worked button.cv-worked").last();
           await fold.waitFor();
           expect(await fold.getAttribute("aria-expanded")).toBe("false");
           await page.getByText("Final reply marker.").waitFor();
-          expect(await page.getByText(/^Checking call site \d+:/).count()).toBe(0);
+          expect(await page.getByText(/^Checking call site \d+:/).count()).toBe(14);
+          expect(await page.locator("[data-step-call]").count()).toBe(0);
           expect(
             await page.locator(".acpmux-scroll").evaluate((node) => {
               const view = node.getBoundingClientRect();
