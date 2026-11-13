@@ -159,6 +159,12 @@ public protocol TerminalSession: AnyObject {
     /// reports). A session that holds keys through an outage drops these
     /// instead, and never reports them as ``TerminalSessionEvent/inputNotSent(bytes:)``.
     func sendReply(_ bytes: Data)
+    /// The composer's Send: `payload` (the draft as Ghostty encoded its
+    /// paste), then Return. A session that can write both in one request
+    /// (the Mac's daemon, `send` with `submit`) does, so the text never
+    /// arrives without its Return, and returns true. Otherwise it sends
+    /// `payload` alone and returns false, and the caller sends Return.
+    func submit(_ payload: Data) -> Bool
     /// The screen's grid in cells: what a TUI should draw (rows between the
     /// toolbar and the composer with the keyboard down).
     func resize(columns: Int, rows: Int)
@@ -210,6 +216,12 @@ public protocol TerminalSession: AnyObject {
 extension TerminalSession {
     /// Sessions that never hold keys send a reply as they send keys.
     public func sendReply(_ bytes: Data) { send(bytes) }
+
+    /// Sessions with no one-request submit send the text; the caller sends Return.
+    public func submit(_ payload: Data) -> Bool {
+        send(payload)
+        return false
+    }
 
     /// Rows of the remote screen this session mirrors, when it mirrors one
     /// (a terminal on the Mac). The screen then maps the remote primary

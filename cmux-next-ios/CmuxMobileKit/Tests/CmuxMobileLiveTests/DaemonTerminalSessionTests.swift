@@ -50,6 +50,16 @@ final class FakeTerminalDaemon: @unchecked Sendable {
     var historyRows = 0
     /// The lane refuses `replay_history_rows` (a Mac app older than its daemon).
     var laneRefusesHistoryRows = false
+    /// `identify` advertises send-expect-agent-v1 (`send` takes `submit`).
+    var sendSubmit = false
+    /// A stalled lane: the next `send` is recorded and never answered, and
+    /// every line after it is left unprocessed (never recorded, never answered).
+    var stallAfterNextSend: Bool {
+        get { lock.withLock { stall != .off } }
+        set { lock.withLock { stall = newValue ? .armed : .off } }
+    }
+    private enum Stall { case off, armed, stalled }
+    private var stall = Stall.off
 
     var recorded: [[String: Any]] { lock.withLock { commands } }
 
@@ -61,17 +71,30 @@ final class FakeTerminalDaemon: @unchecked Sendable {
     private func respondLine(_ service: String, _ line: Data) -> [Data] {
         guard service == "daemon", let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
               let id = object["id"] as? String, let cmd = object["cmd"] as? String else { return [] }
-        lock.withLock { commands.append(object) }
+        let stalled: Bool = lock.withLock {
+            switch stall {
+            case .stalled: return true
+            case .armed where cmd == "send":
+                stall = .stalled
+                commands.append(object)
+                return true
+            case .armed, .off:
+                commands.append(object)
+                return false
+            }
+        }
+        if stalled { return [] }
         func reply(_ data: [String: Any] = [:]) -> Data {
             Self.line(["id": id, "ok": true, "data": data])
         }
         switch cmd {
         case "send" where lock.withLock({ unansweredSends }):
             return []
-        case "identify" where initialSize || sizeLease || sharedSizing || tailReplay:
+        case "identify" where initialSize || sizeLease || sharedSizing || tailReplay || sendSubmit:
             return [reply(["capabilities": (initialSize ? ["attach-initial-size"] : []) + (sizeLease ? ["size-lease-v1"] : [])
                     + (sharedSizing ? ["shared-sizing-v1", "host-size-policy-v1"] : [])
-                    + (tailReplay ? ["attach-replay-history-rows-v1"] : [])])]
+                    + (tailReplay ? ["attach-replay-history-rows-v1"] : [])
+                    + (sendSubmit ? ["send-expect-agent-v1"] : [])])]
         case "attach-surface" where object["replay_history_rows"] != nil && lock.withLock({ laneRefusesHistoryRows }):
             return [Self.line(["id": id, "ok": false, "error": "attach-surface does not take replay_history_rows from a phone"])]
         case "get-host-size-policy":
@@ -376,6 +399,109 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         try await waitUntil {
             daemon.recorded.last { $0["cmd"] as? String == "send" }?["bytes"] as? String == Data("c".utf8).base64EncodedString()
         }
+    }
+
+    /// What the composer's Send does with a session: the text and its
+    /// Return in one request when the session takes it, else the text, then
+    /// Return as its own send a moment later (`TerminalSurfaceView.perform`).
+    static func composerSend(_ session: DaemonTerminalSession, _ text: String) async throws {
+        guard !session.submit(Data(text.utf8)) else { return }
+        try await Task.sleep(for: ComposerSubmit.enterDelay) // test: the screen's wait before Return
+        session.send(Data("\r".utf8))
+    }
+
+    /// The `send`s a daemon recorded: their bytes and whether Return came with them.
+    static func sends(_ daemon: FakeTerminalDaemon) -> [(bytes: String, submit: Bool)] {
+        daemon.recorded.filter { $0["cmd"] as? String == "send" }.map {
+            (($0["bytes"] as? String).flatMap { Data(base64Encoded: $0) }.map { String(decoding: $0, as: UTF8.self) } ?? "",
+             $0["submit"] as? Bool ?? false)
+        }
+    }
+
+    /// Live logs (2026-11-13, "41 typed bytes not sent again"): Send split a
+    /// command into its text and a Return 60 ms later, two `send`s. The input
+    /// lane stalled between them; the daemon had typed the text, the Return
+    /// never came, and the never-send-twice rule dropped it. The shell kept
+    /// the text and glued it onto the next command. Against a daemon that
+    /// takes `submit` (send-expect-agent-v1), text and Return are one request:
+    /// they arrive together or not at all.
+    @Test func aComposerSendIsOneRequestThatNeverLosesItsReturn() async throws {
+        let main = FakeTerminalDaemon()
+        main.sendSubmit = true
+        let lane = FakeTerminalDaemon()
+        let mainLink = MockMacLink { service, line in main.respond(service, line) }
+        let laneLink = MockMacLink { service, line in lane.respond(service, line) }
+        let lanes = ChannelLog()
+        let session = DaemonTerminalSession(surface: 7, open: {
+            DaemonClient(channel: try await mainLink.openChannel(service: "daemon", args: [:]))
+        }, openInput: {
+            let channel = try await laneLink.openInputChannel(service: "daemon", args: [:])
+            lanes.append(channel)
+            return DaemonClient(channel: channel)
+        })
+        var events: [TerminalSessionEvent] = []
+        // A frozen clock: a slow host must not age these sends past `inputStallLimit`.
+        session.now = { 1000 }
+        session.start { events.append($0) }
+        try await waitUntil { session.isAttached }
+        // The lane opens just after the attach; wait until it carries a send.
+        for _ in 0..<50 where Self.sends(lane).isEmpty {
+            session.sendReply(Data("x".utf8))
+            try await Task.sleep(for: .milliseconds(20)) // test: the lane opening
+        }
+        try #require(!Self.sends(lane).isEmpty, "the input lane never opened")
+        try await waitUntil { session.inputsInFlight == 0 }
+        let before = Self.sends(lane).count
+        lane.stallAfterNextSend = true
+
+        try await Self.composerSend(session, "echo hi")
+        try await waitUntil { Self.sends(lane).count == before + 1 }
+        await lanes.last?.close(code: "link_closed", reason: "lane dropped")
+        try await waitUntil { events.contains { if case .inputNotSent = $0 { true } else { false } } }
+
+        // Everything but the replies that opened the lane.
+        let typed = (Self.sends(main) + Self.sends(lane)).filter { !$0.bytes.allSatisfy { $0 == "x" } }
+        #expect(typed.count == 1, "one request for the text and its Return: \(typed)")
+        #expect(typed.first?.bytes == "echo hi")
+        #expect(typed.first?.submit == true, "the text reached the daemon without its Return")
+        // Nothing of it is sent again on the attach channel.
+        try await Task.sleep(for: .milliseconds(200)) // test: a resend would have gone by now
+        #expect(!Self.sends(main).contains { !$0.bytes.allSatisfy { $0 == "x" } })
+    }
+
+    /// A daemon without send-expect-agent-v1 ignores `submit`: the text and
+    /// Return go as today, two plain `send`s, so Send still runs the command.
+    @Test func withoutSubmitTheReturnIsItsOwnSend() async throws {
+        let daemon = FakeTerminalDaemon()
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let session = DaemonTerminalSession(surface: 7) {
+            DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
+        }
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+        try await Self.composerSend(session, "echo hi")
+        try await waitUntil { Self.sends(daemon).map(\.bytes).joined() == "echo hi\r" }
+        #expect(Self.sends(daemon).allSatisfy { !$0.submit })
+    }
+
+    /// A submit ends its batch: keys typed right after it (same main-queue
+    /// turn) go in the next `send`, never ahead of its Return.
+    @Test func keysAfterASubmitGoInTheNextSend() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.sendSubmit = true
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let session = DaemonTerminalSession(surface: 7) {
+            DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
+        }
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+        session.send(Data("a".utf8))
+        #expect(session.submit(Data("ls".utf8)))
+        session.send(Data("b".utf8))
+        try await waitUntil { Self.sends(daemon).count == 2 }
+        let sends = Self.sends(daemon)
+        #expect(sends.map(\.bytes) == ["als", "b"])
+        #expect(sends.map(\.submit) == [true, false])
     }
 
     /// TUI scroll tail: a `send` with no answer well past the link's round

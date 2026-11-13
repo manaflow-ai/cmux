@@ -66,3 +66,120 @@ import Testing
         #expect(ComposerSubmit.shellQuoted("/tmp/it's.png") == "'/tmp/it'\\''s.png'")
     }
 }
+
+#if os(iOS) && DEBUG
+import CmuxMobileArtifacts
+import Foundation
+import UIKit
+
+/// Live logs (2026-11-13, "41 typed bytes not sent again"): Send went as two
+/// requests, the paste and a Return 60 ms later. When the link stalled
+/// between them the Return was dropped (never sent twice) after the text had
+/// been typed, and the shell glued it onto the next command. Through the real
+/// screen and Ghostty surface: on a session that takes text and Return in one
+/// request (`TerminalSession.submit`), the paste and its Return are never two
+/// separate sends.
+@MainActor
+@Suite(.serialized) struct ComposerSubmitScreenTests {
+    @MainActor
+    final class SubmitSession: TerminalSession {
+        let programName = "zsh"
+        let isAlternateScreen = false
+        private(set) var handler: (@MainActor (TerminalSessionEvent) -> Void)?
+        /// Takes text and Return in one request (a daemon with send-expect-agent-v1).
+        var takesSubmit = true
+        /// Each write, in order: `submit` marks a payload whose Return went with it.
+        private(set) var writes: [(bytes: Data, submit: Bool)] = []
+
+        func start(_ handler: @escaping @MainActor (TerminalSessionEvent) -> Void) { self.handler = handler }
+        func send(_ bytes: Data) { writes.append((bytes, false)) }
+        func submit(_ payload: Data) -> Bool {
+            guard takesSubmit else {
+                send(payload)
+                return false
+            }
+            writes.append((payload, true))
+            return true
+        }
+        func resize(columns: Int, rows: Int) {}
+        func stop() {}
+        func write(_ bytes: Data) { handler?(.output(bytes)) }
+    }
+
+    struct Screen {
+        let model: TerminalModel
+        let session: SubmitSession
+        let window: UIWindow
+
+        func close() {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+    }
+
+    static func makeScreen(_ session: SubmitSession, setup: String = "") async throws -> Screen {
+        let model = TerminalModel(session: session, artifactSource: MockArtifactSource(), title: "submit")
+        let screen = TerminalViewController(model: model)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.rootViewController = screen
+        window.makeKeyAndVisible()
+        try await TerminalPredictionInputTests.waitUntil(5) { session.handler != nil && screen.surface.prediction != nil }
+        try #require(session.handler != nil, "the screen never started its session")
+        session.write(Data((setup + "$ ").utf8))
+        try await Task.sleep(for: .milliseconds(300)) // test: the prompt's frames land
+        return Screen(model: model, session: session, window: window)
+    }
+
+    /// Past every wait a Return may follow its text with (`ComposerSubmit`).
+    static let pastTheReturn = ComposerSubmit.typedEnterDelay + .milliseconds(250)
+
+    @Test func aPasteAndItsReturnAreOneRequest() async throws {
+        await TerminalScreenTestLock.acquire()
+        defer { TerminalScreenTestLock.release() }
+        let screen = try await Self.makeScreen(SubmitSession())
+        defer { screen.close() }
+        screen.model.composerText = "echo hi"
+        screen.model.send()
+        try await Task.sleep(for: Self.pastTheReturn) // test: a separate Return would have gone by now
+        let writes = screen.session.writes
+        #expect(writes.count == 1, "the paste and its Return went as \(writes.count) requests")
+        #expect(writes.first.map { String(decoding: $0.bytes, as: UTF8.self) } == "echo hi")
+        #expect(writes.first?.submit == true)
+    }
+
+    /// A session that cannot take both in one request: the paste, then
+    /// Return as its own write, as before.
+    @Test func withoutSubmitReturnFollowsAsItsOwnWrite() async throws {
+        await TerminalScreenTestLock.acquire()
+        defer { TerminalScreenTestLock.release() }
+        let session = SubmitSession()
+        session.takesSubmit = false
+        let screen = try await Self.makeScreen(session)
+        defer { screen.close() }
+        screen.model.composerText = "echo hi"
+        screen.model.send()
+        try await TerminalPredictionInputTests.waitUntil(2) { session.writes.count == 2 }
+        #expect(session.writes.map { String(decoding: $0.bytes, as: UTF8.self) } == ["echo hi", "\r"])
+        #expect(session.writes.allSatisfy { !$0.submit })
+    }
+
+    /// vim and other full-screen apps: a one-line draft is typed and Return
+    /// waits past an agent's paste-burst window (Codex QA F1), unchanged.
+    @Test func aFullScreenAppKeepsTypedTextAndItsDelayedReturn() async throws {
+        await TerminalScreenTestLock.acquire()
+        defer { TerminalScreenTestLock.release() }
+        let session = SubmitSession()
+        let screen = try await Self.makeScreen(session, setup: "\u{1B}[?1049h")
+        defer { screen.close() }
+        session.handler?(.alternateScreen(true))
+        try #require(screen.model.isTUI, "the alternate screen did not register")
+        screen.model.composerText = ":q"
+        screen.model.send()
+        let typed = { session.writes.map { String(decoding: $0.bytes, as: UTF8.self) } }
+        try await TerminalPredictionInputTests.waitUntil(2) { typed().joined() == ":q\r" }
+        #expect(typed().joined() == ":q\r")
+        #expect(typed().last == "\r", "Return is its own write")
+        #expect(session.writes.allSatisfy { !$0.submit })
+    }
+}
+#endif
