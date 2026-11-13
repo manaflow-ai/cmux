@@ -70,4 +70,19 @@ import Testing
         #expect(counted[2] == ["commit_ms": 9], "a row with no at_ms gets no count")
         #expect(SwitchKeyChanges(marks: marks).counted([]).isEmpty)
     }
+
+    @Test func aTimerPlacesItsRowsOnlyInTheRecordingThatAskedForIt() {
+        let timer = SwitchFrameTimer(owner: "test.switch-key-changes")
+        timer.placeRows()
+        #expect(!timer.placesRows, "no recording: nothing to place")
+        timer.start()
+        #expect(!timer.placesRows, "a recording places its rows only when it is asked to")
+        timer.placeRows()
+        #expect(timer.placesRows)
+        timer.start()
+        #expect(!timer.placesRows, "the next recording did not ask")
+        timer.placeRows()
+        timer.stop()
+        #expect(!timer.placesRows, "the place ends with its recording")
+    }
 }

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """`parity_appclock.py run --keep-movies` keeps the movie of the first and of the worst run of each entry, so a
-person can open what the numbers measured. Without the flag each movie is removed after its scan, as before.
+person can open what the numbers measured; a movie that is neither goes when its round ends. Without the flag
+each movie is removed after its scan, as before.
 On the tool before the flag each test ends in an error (no such function or attribute; `stop_recording` removed
 each movie).
 Run: python3 -I scripts/perf-bench/tests/test_keep_movies.py"""
-import os, sys, tempfile, types, unittest
+import json, os, sys, tempfile, types, unittest
 from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -67,6 +68,103 @@ class Files(unittest.TestCase):
         self.assertEqual(pa.row_movie({"row": "tab-switch"}, [a, b]), {"row": "tab-switch", "movie": b})
         self.assertEqual(os.listdir(self.folder.name), ["b.mov"])
         self.assertEqual(pa.row_movie({"row": "tab-switch"}, []), {"row": "tab-switch"})
+
+
+class Rounds(unittest.TestCase):
+    """`run` gives each round of a (row, load) to `filmed_round` when the round ends."""
+
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+
+    def round(self, takes, name, samples, status="measured"):
+        path = os.path.join(self.folder.name, name)
+        with open(path, "w") as f:
+            f.write("movie")
+        return pa.filmed_round(takes, {"status": status, "movie": path, "samples": samples})
+
+    def movies(self):
+        return sorted(name for name in os.listdir(self.folder.name) if name.endswith(".mov"))
+
+    def test_after_each_round_the_disk_holds_the_first_and_the_worst_only(self):
+        takes = []
+        on_disk = []
+        for name, worst in (("a.mov", 30.0), ("b.mov", 40.0), ("c.mov", 35.0), ("d.mov", 90.0), ("e.mov", 90.0)):
+            self.round(takes, name, [worst])
+            on_disk.append(self.movies())
+        self.assertEqual(on_disk, [["a.mov"], ["a.mov", "b.mov"], ["a.mov", "b.mov"], ["a.mov", "d.mov"], ["a.mov", "d.mov"]])
+
+    def test_the_rounds_keep_what_one_prune_of_all_rounds_keeps(self):
+        rounds = [("a.mov", [30.0]), ("b.mov", [70.0]), ("c.mov", [31.0]), ("d.mov", [70.0]), ("e.mov", [12.0])]
+        takes = []
+        for name, samples in rounds:
+            kept = self.round(takes, name, samples)
+        at_once = pa.first_and_worst([(os.path.join(self.folder.name, name), samples) for name, samples in rounds])
+        self.assertEqual(kept, at_once)
+        self.assertEqual(self.movies(), ["a.mov", "b.mov"])
+
+    def test_a_round_that_is_not_measured_is_not_the_worst(self):
+        takes = []
+        self.round(takes, "a.mov", [30.0])
+        self.round(takes, "b.mov", [45.0])
+        self.round(takes, "c.mov", [400.0], status="invalid")
+        self.round(takes, "d.mov", [], status="not run")
+        self.assertEqual(self.movies(), ["a.mov", "b.mov"])
+
+    def test_a_first_round_that_is_not_measured_stays_as_the_first(self):
+        takes = []
+        self.round(takes, "a.mov", [400.0], status="invalid")
+        kept = self.round(takes, "b.mov", [45.0])
+        self.assertEqual(sorted(kept.values()), ["first", "worst"])
+        self.assertEqual(self.movies(), ["a.mov", "b.mov"])
+
+    def test_the_list_on_disk_names_the_kept_movies_after_each_round(self):
+        filmed = {}
+        for row, name, worst in (("tab-switch", "a.mov", 30.0), ("tab-switch", "b.mov", 20.0), ("typing", "c.mov", 9.0)):
+            self.round(filmed.setdefault((row, "light"), []), name, [worst])
+            listed = pa.list_movies(self.folder.name, filmed)
+            with open(os.path.join(self.folder.name, "movies.json")) as f:
+                self.assertEqual(json.load(f), listed)
+        path = lambda name: os.path.join(self.folder.name, name)  # noqa: E731
+        self.assertEqual(listed, [{"row": "tab-switch", "load": "light", "which": "first and worst", "movie": path("a.mov")},
+                                  {"row": "typing", "load": "light", "which": "first and worst", "movie": path("c.mov")}])
+        self.assertEqual(self.movies(), ["a.mov", "c.mov"])
+
+
+class App:
+    """What `cmux_row` reads of a launched bench app whose recordings kept `movies`."""
+
+    def __init__(self, movies):
+        self.movies = movies
+        self.app = types.SimpleNamespace(gui_session=True)
+
+    def launch(self):
+        return self
+
+    def quit(self):
+        pass
+
+
+class RowMovie(unittest.TestCase):
+    """`cmux_row` gives each entry the movie of its run, whatever the run's status."""
+
+    def entry(self, runner, fault=None):
+        app = App(["/work/cmux-tab-switch-take1.mov"])
+        with mock.patch.object(pa, "Cmux", lambda *args: app), mock.patch.object(pa, "pause", lambda *args: None), \
+                mock.patch.dict(pa.RUNNERS, {"tab-switch": runner}), \
+                mock.patch.object(pa, "screen_fault", lambda *args: fault), \
+                mock.patch.object(pa.chrome_arm, "load1", lambda: 1.0):
+            return pa.cmux_row("x.app", "/out", None, 1, 120, "tab-switch", "light", 0)
+
+    def test_a_measured_an_invalid_and_a_not_run_entry_each_name_the_movie(self):
+        def fails(*args):
+            raise pa.NotRun("no frame")
+
+        measured = self.entry(lambda *args: {"samples": [12.0]})
+        invalid = self.entry(lambda *args: {"samples": [12.0]}, fault="60 Hz")
+        not_run = self.entry(fails)
+        self.assertEqual([e["status"] for e in (measured, invalid, not_run)], ["measured", "invalid", "not run"])
+        self.assertEqual({e["movie"] for e in (measured, invalid, not_run)}, {"/work/cmux-tab-switch-take1.mov"})
 
 
 class Recorder:

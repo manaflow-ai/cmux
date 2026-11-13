@@ -1408,7 +1408,7 @@ class AppDriver:
         before = self.last_sequence()
         self.soft("debug.hangs", {"clear": True})
         if timer:
-            # The workspace timer then counts the key window changes of each switch; another timer does not read it.
+            # Each row of the timer then has the key window changes of its switch (`timer_key_changes`).
             self.soft(timer, {"action": "start", "key_changes": True})
         self.soft("debug.frames", {"action": "start"})
         time.sleep(0.1)  # a few frames at rest before the action

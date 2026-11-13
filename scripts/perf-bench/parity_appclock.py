@@ -728,6 +728,28 @@ def prune_movies(takes):
     return keep
 
 
+def filmed_round(takes, entry):
+    """One more round of a (row, load) with `--keep-movies`: its movie joins `takes`, and each movie that is now
+    neither the first nor the worst goes at once, so a run holds at most 2 movies for each (row, load). Only a
+    "measured" round can be the worst: the samples of an "invalid" or a "not run" round are not numbers.
+    Returns the kept {path: which}."""
+    samples = entry.get("samples") if entry.get("status") == "measured" else None
+    takes.append((entry.get("movie"), samples or []))
+    keep = prune_movies(takes)
+    takes[:] = [(movie if movie in keep else None, samples) for movie, samples in takes]
+    return keep
+
+
+def list_movies(out, filmed):
+    """Writes `out`/movies.json, the kept movies of each (row, load) of `filmed` so far, and returns its items.
+    `run` writes it after each round: a run that is killed leaves the list of the movies on disk."""
+    kept = [{"row": row, "load": load, "which": which, "movie": movie}
+            for (row, load), takes in filmed.items() for movie, which in first_and_worst(takes).items()]
+    with open(os.path.join(out, "movies.json"), "w") as f:
+        json.dump(kept, f, indent=1)
+    return kept
+
+
 def cmux_row(bundle, out, server, screen, hz, row, load, run_index, note="", display_wanted=None):
     """One (row, load) run of the cmux arm: a clean launch, the measure, the quit. Never raises: a failure is that
     run's "not run" with its reason; numbers from a screen that fails honesty rule 1 are "invalid"."""
@@ -835,7 +857,7 @@ def run(args):
     log(f"console {machine['console']}; displays {machine['displays']}")
     results = open(os.path.join(out, "results.jsonl"), "a")
     Cmux.keep_movies = bool(getattr(args, "keep_movies", False))
-    filmed = {}  # (row, load) -> [(movie, samples)] of the cmux arm, one item for each round
+    filmed = {}  # (row, load) -> [(movie or None, samples)] of the cmux arm, one item for each round (`filmed_round`)
 
     def record(entry):
         entry.setdefault("at", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
@@ -885,7 +907,9 @@ def run(args):
                                     continue
                                 if arm == "cmux":
                                     entry = cmux_row(args.cmux, out, server, args.screen, args.hz, row, load, rnd, args.note, wanted)
-                                    filmed.setdefault((row, load), []).append((entry.get("movie"), entry.get("samples") or []))
+                                    if Cmux.keep_movies:
+                                        filmed_round(filmed.setdefault((row, load), []), entry)
+                                        list_movies(out, filmed)
                                     record(entry)
                                 else:
                                     record(chrome_row(ctx, row, load, rnd, args.note))
@@ -896,11 +920,7 @@ def run(args):
         if ctx:
             ctx.close()
         if Cmux.keep_movies:
-            kept = [{"row": row, "load": load, "which": which, "movie": movie}
-                    for (row, load), takes in filmed.items() for movie, which in prune_movies(takes).items()]
-            with open(os.path.join(out, "movies.json"), "w") as f:
-                json.dump(kept, f, indent=1)
-            for item in kept:
+            for item in list_movies(out, filmed):
                 log(f"movie kept ({item['which']}) {item['row']} {item['load']}: {item['movie']}")
     return 0
 
