@@ -598,6 +598,13 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertEqual(report["arms"]["empty"]["host"], first)
         self.assertEqual(report["host"], first)
         self.assertEqual(report["arms"]["seeded"]["host"], {"cpus": cpus, "load_at_launch": 3.0, "load_at_home": 4.0})
+        self.assertEqual(report["arms"]["seeded"]["verdict"], "pass", output)
+        # A seeded launch that ran and gave no verdict (the app never read the store): as one that passed.
+        status, output, report = self.run_smoke("no-sync", *args, setup=ticks)
+        self.assertEqual(status, smoke.PASS, output)
+        self.assertEqual(report["arms"]["seeded"]["verdict"], "not-run", output)
+        self.assertEqual((report["arm"], report["host"]), ("empty", first))
+        self.assertEqual(report["arms"]["seeded"]["host"], {"cpus": cpus, "load_at_launch": 3.0, "load_at_home": 4.0})
         status, output, report = self.run_smoke("sync-crash", *args, setup=ticks)
         self.assertEqual(status, smoke.FAIL, output)
         # A seeded launch that failed with no Home: the report describes it, and the first arm keeps its own.
@@ -606,6 +613,10 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertEqual(report["arms"]["seeded"]["host"], died)
         self.assertEqual((report["arm"], report["host"]), ("seeded", died))
         self.assertEqual(report["arms"]["seeded"]["marks"], report["marks"])
+
+    def test_the_hosts_load_is_the_one_minute_number_with_two_decimals(self):
+        with mock.patch.object(os, "getloadavg", return_value=(1.234, 9.0, 9.0)):
+            self.assertEqual(smoke.host_load(), 1.23)
 
     def test_a_host_that_cannot_say_its_load_leaves_it_empty(self):
         with mock.patch.object(os, "getloadavg", side_effect=OSError("no load here")):
