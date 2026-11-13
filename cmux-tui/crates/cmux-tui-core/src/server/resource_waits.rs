@@ -233,6 +233,11 @@ pub(super) fn start_resource_wait(
             );
         }
     };
+    // A detached wait outlives its request (`server/message_writer/long_connection.rs`).
+    if let Err(full) = writer.long.hold() {
+        let error = super::message_writer::long_connection::long_connections_full_error(name, full);
+        return send_resource_response(&writer, id, operation, Err(error));
+    }
     let (canceled, worker_permit) = match mux.control_clients.install_resource_wait(client, &id) {
         Ok(installed) => installed,
         Err(error) => {
