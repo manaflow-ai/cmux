@@ -22,7 +22,7 @@
 
 const FRAME_MS = 1000 / 120;
 
-type Timer = { id: number; due: number; run: () => void };
+type Timer = { id: number; due: number; run: () => void; src?: string };
 
 export function installFrameClock(): void {
   const realNow = performance.now.bind(performance);
@@ -48,8 +48,14 @@ export function installFrameClock(): void {
         first = timer;
     return first;
   };
+  let fired = 0;
+  const firedBy = new Map<string, number>();
   fire.port1.onmessage = () => {
     const timer = due();
+    if (timer) {
+      fired += 1;
+      firedBy.set(timer.src ?? "?", (firedBy.get(timer.src ?? "?") ?? 0) + 1);
+    }
     if (!timer) {
       firing = false;
       return;
@@ -84,7 +90,7 @@ export function installFrameClock(): void {
   const setTimeoutOnClock = (handler: TimerHandler, ms?: number, ...args: unknown[]) => {
     const id = nextId++;
     const run = typeof handler === "function" ? () => handler(...args) : () => {};
-    timers.set(id, { id, due: now + Math.max(0, Number(ms) || 0), run });
+    timers.set(id, { id, due: now + Math.max(0, Number(ms) || 0), run, src: (new Error().stack ?? "").split("\n").slice(2, 5).join(" | ") });
     startFiring();
     return id;
   };
@@ -107,6 +113,18 @@ export function installFrameClock(): void {
   window.requestAnimationFrame = (callback) => realRaf(() => callback(frameNow));
   Object.defineProperty(document.timeline, "currentTime", { get: () => frameNow, configurable: true });
 
+  (window as unknown as { __frameClockDebug: () => unknown }).__frameClockDebug = () => ({
+    frames,
+    now,
+    horizon,
+    firing,
+    hops,
+    idleWaiting: idle.length,
+    timers: timers.size,
+    fired,
+    top: [...firedBy].sort((a, b) => b[1] - a[1]).slice(0, 4),
+    dueSoon: [...timers.values()].filter((t) => t.due < horizon).slice(0, 4).map((t) => [t.due - now, t.src]),
+  });
   (window as unknown as { __frameIdle: () => Promise<void> }).__frameIdle = () =>
     new Promise<void>((resolve) => {
       idle.push(resolve);
