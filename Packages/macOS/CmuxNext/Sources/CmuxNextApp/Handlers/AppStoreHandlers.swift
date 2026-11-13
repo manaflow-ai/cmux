@@ -78,8 +78,7 @@ enum AppStoreHandlers {
             }
             registry.track(AppCommandPalette.run(entry, services: services, origin: invocation.origin))
         })
-        bindHidden("app.hide", true)
-        bindHidden("app.unhide", false)
+        for (id, hidden) in [("app.hide", true), ("app.unhide", false)] as [(ActionID, Bool)] { bindHidden(id, hidden) }
         registry.bindEffect("app.reloadCustomViews", requires: nil, effect: { _ in // the error card's Reload, for every local app
             if let reason = services.apps.client.unavailableReason { throw Self.unavailable(reason) }
             services.apps.client.reloadLocalApps(); return .done
@@ -114,10 +113,7 @@ enum AppStoreHandlers {
 
     /// Why an app action cannot run while the supervisor is unreachable.
     static func unavailable(_ reason: AppsUnavailableReason) -> ActionFailure {
-        switch reason {
-        case .needsNewerDaemon: ActionFailure.needsDaemonCapability(DaemonAppsTransport.capability)
-        case .notConnected, .notReady, .turnedOff: ActionFailure(message: reason.text)
-        }
+        ActionFailure(message: reason.text)
     }
 
     /// `app.open`'s refusal: the unavailable reason, else why this app did not open.

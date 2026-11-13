@@ -22,6 +22,7 @@ test("status is available before harness commands and stays cmux-owned", () => {
     "cd",
     "resume",
     "login",
+    "customize",
     "compact",
     // Not advertised by this harness: cmux's passthrough fallback, after the harness's own.
     "clear",
@@ -48,6 +49,15 @@ test("/cd reads an absolute path as typed and a relative one against the chat's 
   expect(cdFolder("../../../..", "/work")).toBe("/");
   // The host's home is not the pane's to spell; a relative path needs a chat folder.
   expect(cdFolder("~/src", "/work")).toBeUndefined();
+  // A folderless Cloud chat runs in its machine's fresh folder (`<home>/chats/<chat>`), which names
+  // the machine's home: `~` goes there, as `cmux chat cd SESSION ~/PATH` does (folderlessCloud.ts).
+  expect(cdFolder("~/work/api", "/home/cmux/chats/peer-12", true)).toBe("/home/cmux/work/api");
+  expect(cdFolder("~", "/home/cmux/chats/peer-12", true)).toBe("/home/cmux");
+  expect(cdFolder("api", "/home/cmux/chats/peer-12", true)).toBe("/home/cmux/chats/peer-12/api");
+  expect(cdFolder("~other/x", "/home/cmux/chats/peer-12", true)).toBeUndefined();
+  // Off Cloud (an SSH machine's `~/chats/api` project), `~` is still not the pane's to spell.
+  expect(cdFolder("~/work/api", "/home/alice/chats/api")).toBeUndefined();
+  expect(cdFolder("~/work/api", "/home/alice/chats/api", false)).toBeUndefined();
   expect(cdFolder("src", undefined)).toBeUndefined();
   expect(cdFolder("", "/work")).toBeUndefined();
 });
@@ -136,4 +146,31 @@ test("a Claude skill named like a cmux command stays in the list, and mid-prompt
   expect(
     slashMatches(commands, { query: "pla", length: 4, leading: false }).map((match) => match.command.source),
   ).toEqual(["skill"]);
+});
+
+test("/customize is cmux's own everywhere but a Cloud chat, whose machine is not this one", () => {
+  const command = composerCommand("/customize make the sidebar compact", "claude");
+  expect(command).toMatchObject({ kind: "cmux", command: { action: "customize" }, args: "make the sidebar compact" });
+  if (command?.kind !== "cmux") throw new Error("not cmux's");
+  const state = {
+    summary: true,
+    forkable: false,
+    sideAvailable: false,
+    canContinue: false,
+    sideSessions: false,
+    session: true,
+    isSideSession: false,
+    targets: [],
+  };
+  expect(cmuxCommandRefusal(command.command, command.args, state)).toBeUndefined();
+  expect(cmuxCommandRefusal(command.command, command.args, { ...state, inCloud: true })).toBe(
+    "composer.cmuxCustomizeHere",
+  );
+  // New Tab with Cloud picked: no chat exists yet, so there is no host to read (`inCloud` is
+  // false), and the chat this starts is not on this machine.
+  const newTab = { ...state, summary: false, session: false, newTab: true, inCloud: false };
+  expect(cmuxCommandRefusal(command.command, command.args, newTab)).toBeUndefined();
+  expect(cmuxCommandRefusal(command.command, command.args, { ...newTab, startsElsewhere: true })).toBe(
+    "composer.cmuxCustomizeHere",
+  );
 });

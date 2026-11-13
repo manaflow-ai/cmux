@@ -279,6 +279,38 @@ export default agentPaneEntry({
         );
       },
     },
+    "rail-shadow-subtle": {
+      note: "Rail shadow comparison: a restrained muted-token gradient at the foot, deepening with distance from the latest message. Kept as the lightest gallery arm for review.",
+      snapshot: chat(long, { title: "Thread minimap rail shadow, subtle" }),
+      play: async (ctx) => {
+        if (!ctx.document.querySelector('[data-tick="40"]')) return;
+        await ctx.scroll({ selector: ".acpmux-scroll" }, 4000);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__rail"));
+        ctx.document.querySelector<HTMLElement>(".acpmux-minimap__rail")?.setAttribute("data-shadow-variant", "subtle");
+      },
+    },
+    "rail-shadow-elevation": {
+      note: "Selected rail shadow: the shared low elevation token plus a short text-token gradient gives the bottom a clear depth cue while preserving tick contrast as the reader leaves the latest-message start point.",
+      snapshot: chat(long, { title: "Thread minimap rail shadow, selected elevation" }),
+      play: async (ctx) => {
+        if (!ctx.document.querySelector('[data-tick="40"]')) return;
+        await ctx.scroll({ selector: ".acpmux-scroll" }, 4000);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__rail"));
+        ctx.document
+          .querySelector<HTMLElement>(".acpmux-minimap__rail")
+          ?.setAttribute("data-shadow-variant", "elevation");
+      },
+    },
+    "rail-shadow-inset": {
+      note: "Rail shadow comparison: a compact inset hairline and muted-token gradient keep the cue entirely inside the rail edge; it remains available beside the selected elevation arm.",
+      snapshot: chat(long, { title: "Thread minimap rail shadow, inset" }),
+      play: async (ctx) => {
+        if (!ctx.document.querySelector('[data-tick="40"]')) return;
+        await ctx.scroll({ selector: ".acpmux-scroll" }, 4000);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__rail"));
+        ctx.document.querySelector<HTMLElement>(".acpmux-minimap__rail")?.setAttribute("data-shadow-variant", "inset");
+      },
+    },
     "long-chat": {
       note: "Eighteen prompts as the Codex rail: 10 px rows 16 px from the left edge, the prompts on screen brighter. Hovering row 8 magnifies it and its neighbors (26, 20, 14, 10 px) and opens the preview card 250 ms later, flush right of the row.",
       snapshot: chat(rows, { title: "Thread minimap review" }),

@@ -19,6 +19,15 @@
 // answered for by HOST_GLASS_DEADLINE_MS shows with the page's own glass (`data-host-glass-drawn="0"`,
 // the old look), so a slow or older App never leaves a menu on no glass.
 //
+// Content first, then its glass (Leo, 2026-11-09, on the empty glass box before the This Mac, Cloud and
+// permission menus). The App's glass is in the App's layer tree and shows at its next commit, but the
+// page's frame reaches the screen through Chromium's remote layer one or two frames after the frame
+// that drew it, so a report sent in the frame that first paints a surface put the App's glass on
+// screen before the surface's content: an empty glass box for a frame or two on every open. A new
+// surface is reported once its content has been on screen for HOST_GLASS_HOLD_FRAMES frames (on the
+// page's in-place blur, `cover`), so its glass lands under content already there, and its deadline
+// starts with that first report. A surface that moves or fades after it was reported is not held.
+//
 // A surface that starts to close (Base UI's `data-ending-style`, the 80 ms fade of popupSurface.css)
 // leaves the App's glass and its in-place blur in the task its close starts in, and fades out on the
 // page's own glass (Leo, 2026-11-09, of the This Mac/Cloud/Remote and Bypass permissions menus: "What
@@ -32,8 +41,11 @@
 // Cost: one MutationObserver (added nodes and the marker attribute only), and while a marked surface
 // moves (an open, a fade, a resize, a scroll), one rect and opacity read per surface per frame. The loop
 // stops after STABLE_FRAMES unchanged frames; a resize, a style write, a transition or a scroll starts it
-// again. Nothing runs while no marked surface is mounted, and the App's answer is the only other work.
+// again, and so does a trackpad pinch (the visual viewport's resize and scroll), since each box is sent
+// where it shows on the zoomed screen (ui/visualViewportBox.ts). Nothing runs while no marked surface is
+// mounted, and the App's answer is the only other work.
 import { LENS_ATTRIBUTE, LIVE_BACKGROUND_ATTRIBUTE } from "./glassState";
+import { onVisualViewport, visualViewportScale } from "../visualViewportBox";
 import { attachSeeThroughBlur, type CoveredCandidates, type SeeThroughOptions } from "./seeThroughBlur";
 
 /** pages/shared/desktop.ts SEE_THROUGH_ATTRIBUTE: the page sits on the window glass. */
@@ -55,7 +67,8 @@ export const HOST_GLASS_ENDING_ATTRIBUTE = "data-ending-style";
 export type HostGlassLevel = "popover" | "menu" | "chip";
 const LEVELS: ReadonlySet<string> = new Set<HostGlassLevel>(["popover", "menu", "chip"]);
 
-/** One surface's box in the page's viewport (CSS px), its corner radius and its own opacity (a fade). */
+/** One surface's box in the page's viewport (CSS px, where it shows under a pinch zoom), its corner
+ * radius and its own opacity (a fade). */
 export type HostGlassSurface = {
   id: string;
   level: HostGlassLevel;
@@ -69,8 +82,11 @@ export type HostGlassSurface = {
 
 /** The most surfaces one report carries (the App refuses more). */
 export const HOST_GLASS_MAX = 16;
-/** How long a new surface waits for the App before it draws the page's own glass. */
+/** How long a reported surface waits for the App before it draws the page's own glass. */
 export const HOST_GLASS_DEADLINE_MS = 50;
+/** Frames a new surface's content shows before its box goes to the App: Chromium's frames reach the
+ * screen this many frames after the App's own commits. */
+export const HOST_GLASS_HOLD_FRAMES = 2;
 /** Unchanged frames before the follow loop stops. */
 const STABLE_FRAMES = 3;
 
@@ -96,9 +112,13 @@ export function hostGlassSurface(element: Element, id: string): HostGlassSurface
   if (!LEVELS.has(level) || !element.isConnected || element.closest("[hidden],[data-escaped]")) return undefined;
   const style = element.ownerDocument.defaultView?.getComputedStyle(element);
   if (style && (style.display === "none" || style.visibility === "hidden")) return undefined;
-  const box = element.getBoundingClientRect();
-  if (!(box.width > 0 && box.height > 0)) return undefined;
-  const radius = Number.parseFloat(style?.borderTopLeftRadius ?? "") || 0;
+  const layout = element.getBoundingClientRect();
+  if (!(layout.width > 0 && layout.height > 0)) return undefined;
+  // Where it shows under a trackpad pinch, so the App's glass zooms and pans with its content.
+  const view = element.ownerDocument.defaultView;
+  const box = onVisualViewport(layout, view);
+  const scale = visualViewportScale(view);
+  const radius = (Number.parseFloat(style?.borderTopLeftRadius ?? "") || 0) * scale;
   const opacity = Number.parseFloat(style?.opacity ?? "1");
   return {
     id,
@@ -107,7 +127,7 @@ export function hostGlassSurface(element: Element, id: string): HostGlassSurface
     top: round(box.top),
     right: round(box.right),
     bottom: round(box.bottom),
-    radius: round(Math.min(radius, box.width / 2, box.height / 2)),
+    radius: round(Math.min(radius, (box.right - box.left) / 2, (box.bottom - box.top) / 2)),
     opacity: Number.isFinite(opacity) ? round(Math.min(1, Math.max(0, opacity))) : 1,
   };
 }
@@ -152,6 +172,11 @@ export function reportHostGlass(
   };
   let nextId = 0;
   let frame = 0;
+  // Frames measured so far, and the one each shown surface was first measured in (the hold).
+  let paints = 0;
+  const firstShown = new Map<Element, number>();
+  // Surfaces reported to the App at least once: their deadline is armed.
+  const reported = new WeakSet<Element>();
   let stable = 0;
   let sent = "[]";
   let live = true;
@@ -181,6 +206,8 @@ export function reportHostGlass(
   const forget = (element: Element) => {
     timedOut.delete(element);
     answered.delete(element);
+    reported.delete(element);
+    firstShown.delete(element);
     leaving.delete(element);
     const timer = deadlines.get(element);
     if (timer !== undefined) clearTimeout(timer);
@@ -222,9 +249,16 @@ export function reportHostGlass(
       // Its glass is withdrawn: an earlier answer no longer says the App draws it if it opens again.
       leaving.add(element);
       answered.delete(element);
-    } else if (leaving.delete(element) && live && !answered.has(element) && !timedOut.has(element)) {
+    } else if (
+      leaving.delete(element) &&
+      live &&
+      reported.has(element) &&
+      !answered.has(element) &&
+      !timedOut.has(element)
+    ) {
       // Opened again before the App answered: a deadline that passed while it closed skipped it, so
-      // it gets a new one (a slow App still never leaves it on no glass).
+      // it gets a new one (a slow App still never leaves it on no glass). One never reported yet gets
+      // its deadline with its first report, after the hold.
       const timer = deadlines.get(element);
       if (timer !== undefined) clearTimeout(timer);
       arm(element, view.performance.now(), false);
@@ -243,29 +277,47 @@ export function reportHostGlass(
       }
       // A closing surface fades out on the page's glass, and is not reported: its App glass is gone.
       if (closing(element)) {
+        // Not held either: one that opens again holds again, content first.
+        firstShown.delete(element);
         if (live) mark(element, "0");
         continue;
       }
       // A fallen-back surface is not reported: the App draws no glass under the page's own.
-      const surface =
-        applies && surfaces.length < HOST_GLASS_MAX && !fellBack(element) ? hostGlassSurface(element, id) : undefined;
-      if (surface) {
+      const surface = applies && !fellBack(element) ? hostGlassSurface(element, id) : undefined;
+      if (surface && surfaces.length >= HOST_GLASS_MAX) {
+        // Past what one report carries: the page's own glass, at once, never content on no glass.
+        firstShown.delete(element);
+        mark(element, "0");
+      } else if (surface) {
+        // Its content shows from its first frame (marked at adopt); the App hears of it once that
+        // content has been on screen for the hold, and its deadline starts then.
+        mark(element, "1");
+        if (!firstShown.has(element)) firstShown.set(element, paints);
+        if (!reported.has(element) && paints - firstShown.get(element)! < HOST_GLASS_HOLD_FRAMES) continue;
         surfaces.push(surface);
         elements.push(element);
-        // On the App's glass from this report on: the App draws it as the report reaches it.
-        mark(element, "1");
-      } else if (!applies && live) mark(element, "0");
+        if (!reported.has(element)) {
+          reported.add(element);
+          arm(element, view.performance.now(), false);
+        }
+      } else {
+        // Hidden again: it holds again when it next shows.
+        firstShown.delete(element);
+        if (!applies && live) mark(element, "0");
+      }
     }
     if (live) send(surfaces, elements);
     return sent;
   };
   let last = "";
+  const holding = () => [...ids.keys()].some((element) => firstShown.has(element) && !reported.has(element));
   const tick = () => {
     frame = 0;
+    paints += 1;
     const key = measure();
     stable = key === last ? stable + 1 : 0;
     last = key;
-    if (ids.size > 0 && stable < STABLE_FRAMES) frame = view.requestAnimationFrame(tick);
+    if (ids.size > 0 && (stable < STABLE_FRAMES || holding())) frame = view.requestAnimationFrame(tick);
   };
   function kick() {
     stable = 0;
@@ -285,11 +337,9 @@ export function reportHostGlass(
       mark(element, "0");
       return;
     }
-    // Its content shows in the frame that first paints it, on the glass its report asks for; the
-    // report goes out this frame (kick). While host glass does not apply, measure gives it the page's.
+    // Its content shows in the frame that first paints it, on the page's in-place blur; its report
+    // goes out after the hold (measure). While host glass does not apply, measure gives it the page's.
     if (hostGlassApplies(doc)) mark(element, "1");
-    // A slow App never leaves a surface on no glass: past the deadline it draws the page's own.
-    arm(element, view.performance.now(), false);
   };
   const arm = (element: Element, start: number, late: boolean) => {
     deadlines.set(
@@ -370,6 +420,9 @@ export function reportHostGlass(
   };
   view.addEventListener("scroll", follow, { capture: true, passive: true });
   view.addEventListener("resize", follow);
+  // A trackpad pinch zooms and pans the visual viewport with no layout change: the boxes move on screen.
+  view.visualViewport?.addEventListener("resize", follow);
+  view.visualViewport?.addEventListener("scroll", follow);
   doc.addEventListener("transitionrun", follow, true);
   doc.addEventListener("transitionend", follow, true);
   doc.addEventListener("animationstart", follow, true);
@@ -382,6 +435,8 @@ export function reportHostGlass(
     restyled.disconnect();
     view.removeEventListener("scroll", follow, { capture: true });
     view.removeEventListener("resize", follow);
+    view.visualViewport?.removeEventListener("resize", follow);
+    view.visualViewport?.removeEventListener("scroll", follow);
     doc.removeEventListener("transitionrun", follow, true);
     doc.removeEventListener("transitionend", follow, true);
     doc.removeEventListener("animationstart", follow, true);

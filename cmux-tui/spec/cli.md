@@ -1289,6 +1289,11 @@ cmux agents events --until agent.state --match state=idle --match terminal_id=te
   `null`). Every condition must hold. Either flag alone starts a wait.
 - `--timeout DURATION` takes `30s`, `5m`, `2h`, `1500ms` or plain seconds.
 
+A change to one tab's record (`tab.update`: an unread mark, an attention
+mark, a zoom, an icon; `browser.tab.emulate`) is one `tab.changed` event for
+that tab and no `workspace.changed` event, so a wait for `workspace.changed`
+does not end on it; wait for `tab.changed` with `--match id=TAB`.
+
 A wait prints only the matching event and exits 0. When the time runs out it
 exits 124: `cmux events` prints a last line `{"type": "timeout", "timed_out":
 true, "waited_ms": "30000", "until": {...}}` with `--json` or `--jsonl` (a
@@ -1327,8 +1332,12 @@ deprecated alias of `status`. The daemon's wire does not change: `agent.list` an
 `session.snapshot` still say `state: done` for an ended session, and the CLI
 maps that `done` to `ended` in every output (`agent list`, `agent report`,
 `terminal list --agents`, the `send` receipt). In the CLI, `done` means only a
-finished turn that nobody viewed yet. The CLI leaves out the ended agents of
-terminals that closed (the snapshot has no such terminal); `--state ended`
+finished turn that nobody viewed yet. A terminal that closed has no agent: the
+daemon deletes the agent record with the terminal (`resource-api-v2.md`,
+"Agent"), so no output lists it, `--state ended` included; the ended chat, with
+its provider and session id, stays in `cmux history list --kind agent`. The CLI still
+leaves out an ended agent whose terminal the snapshot does not have (a daemon
+of an older build kept the records of closed terminals); `--state ended`
 shows them. `hidden_ended` (in `--json --counts`) counts the rows it left out,
 and the text output ends with a line that says how many (localized).
 `--state` takes
@@ -1449,10 +1458,12 @@ the terminal itself: an agent that quit leaves the roster, and the daemon keeps
 its last harness session id and harness on the terminal's snapshot value
 (`extra.agent_session_id`, `extra.agent`; memory only, a daemon restart forgets
 it). With neither, the error is `agent.no_session`. They take the launcher
-from `terminal <t> process show`, drop a resume tail an earlier resume added, and append the harness's own resume
-arguments as separate argv words: `claude --resume <id>`, `codex resume <id>`,
-`gemini --resume <id>`, `opencode --session <id>`, `amp threads continue
-<id>`. `--cmd` replaces the recorded launcher; `--harness` names the harness
+from `terminal <t> process show`, but not the extra arguments the start
+passed (`-- ARGS` may hold the first prompt, which a resume must not send
+again; put launcher flags in `--cmd`), add this command's own `-- ARGS`, and
+append the harness's own resume arguments as separate argv words: `claude
+--resume <id>`, `codex resume <id>`, `gemini --resume <id>`, `opencode
+--session <id>`, `amp threads continue <id>`. `--cmd` replaces the recorded launcher; `--harness` names the harness
 when no record does. The agent reopens in the exited tab's pane unless `--pane`
 or `--split` say otherwise, with the old tab's name and folder; the exited tab
 is closed. The output adds `resumed: {terminal_id, tab_id, agent_session_id,

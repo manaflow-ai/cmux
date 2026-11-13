@@ -28,15 +28,18 @@ public import os
     /// that exact machine unless one onto it is in flight or given, and a start onto it waits on that copy.
     /// On unless `cmux.cloud.copyLoginOnClaim` is NO (``CloudMoveCLI/copiesLoginOnClaim(_:)``). A claim's registration
     /// with Rust is pending in `claims` until Rust answers, so a start onto that machine never asks `wait-copy` first.
-    public func start(claimed: String? = nil) {
-        guard let userID = auth.user?.id, claimed == nil || CloudMoveCLI.copiesLoginOnClaim(.standard) else { return }
+    /// `ready`: the platform said this spare became ready (``CloudMachineWire/onSpareReady``): the same as `claimed`
+    /// (same switch, same registration), but Rust marks nothing claimed. The copy stays behind ``CloudLoginCopyGate``.
+    public func start(claimed: String? = nil, ready: String? = nil) {
+        guard let userID = auth.user?.id, (claimed ?? ready) == nil || CloudMoveCLI.copiesLoginOnClaim(.standard) else { return }
         let teamID = auth.teamID
         let ask: @MainActor @Sendable () async -> Asked? = { [self] in
-            guard let token = try? await auth.tokens().access, let install = try? await installIdentity.installToken(),
-                  let copy = await cli.startChatWarmSpare(platform: platform, account: userID, access: token, install: install, claimed: claimed) else { return nil }
-            return Asked(copy: copy, token: token, install: install)
+            guard let token = try? await auth.tokens().access, let install = try? await installIdentity.installToken() else { return nil }
+            let scope = await warmReceiptScope(platform: platform, teamID: teamID, install: install, userID: userID, otherTeams: auth.loginScopes)
+            guard let copy = await cli.startChatWarmSpare(platform: platform, account: userID, access: token, install: install, claimed: claimed, ready: ready, scope: scope) else { return nil }
+            return Asked(copy: copy, token: token, install: install, scope: scope)
         }
-        let answer = claimed.map { claims.register($0, ask) }
+        let answer = (claimed ?? ready).map { claims.register($0, ask) }
         // task-owner: none; one bounded warm, its calls' own timeouts end it, and Rust's lock and throttle answer repeats.
         Task { @MainActor [self] in
             let asked: Asked?
@@ -44,45 +47,47 @@ public import os
             guard let asked else { return }
             let (copy, token, install) = (asked.copy, asked.token, asked.install)
             let still: @MainActor @Sendable () async throws -> Bool = { [auth] in auth.user?.id == userID && auth.teamID == teamID }
-            let installed = await copyLogin(onto: copy.machineID, userID: userID, teamID: teamID, still: still)
-            let kept = installed ? true : (try? await still()) == true
-            let end: CloudMoveCLI.SpareWarmEnd = kept ? .finished(copy.machineID) : .abandoned(copy.machineID)
-            _ = await cli.startChatWarmSpare(platform: platform, account: userID, access: token, install: install, end: end)
+            let result = await copyLogin(onto: copy.machineID, userID: userID, teamID: teamID, still: still)
+            let currentScope = await warmReceiptScope(platform: platform, teamID: teamID, install: install, userID: userID, otherTeams: auth.loginScopes)
+            let end: CloudMoveCLI.SpareWarmEnd = (try? await still()) == true ? result : .abandoned(copy.machineID)
+            _ = await cli.startChatWarmSpare(platform: platform, account: userID, access: token, install: install, end: end,
+                                            generation: copy.generation, scope: asked.scope, currentScope: currentScope)
         }
     }
 
     /// Rust's answer to a warm or a claim that hands the App a copy, and the tokens that report its end.
-    struct Asked: Sendable { var copy: CloudMoveCLI.SpareWarm, token: String, install: String }
+    struct Asked: Sendable { var copy: CloudMoveCLI.SpareWarm, token: String, install: String; var scope: [String: String]? }
 
     /// The start's Claude copy with no prompt: only a verdict that installs as is (a cached login, consent given) copies;
-    /// never as a team guest. Answers whether a login was installed; never throws.
-    func copyLogin(onto machineID: String, userID: String, teamID: String?, still: @escaping @MainActor @Sendable () async throws -> Bool) async -> Bool {
+    /// never as a team guest. Rust also recognizes a verified existing login; never throws.
+    func copyLogin(onto machineID: String, userID: String, teamID: String?, still: @escaping @MainActor @Sendable () async throws -> Bool) async -> CloudMoveCLI.SpareWarmEnd {
         let otherTeams = auth.loginScopes, pinned = api.pinningTeam(teamID)
         var decision = CloudHarnessLoginDecision(dogfood: dogfood, setting: CloudCredentialTransfer.passHarnessLoginSetting(.standard), harness: "claude", signedIn: true)
         await gate.read(into: &decision)
         CloudHarnessLoginAsk(headless: true).apply(to: &decision, userID: userID)
         defer { logger.info("\(Self.step, privacy: .public): harness login \(decision.summary, privacy: .public)") }
         do {
-            guard decision.verdict.gate, decision.verdict.transferProvider == .claude else { return false }
+            guard decision.verdict.gate, decision.verdict.transferProvider == .claude else { return .finished(machineID) }
             decision.callerOwns = try await still()
             try await decision.readMachine(on: pinned, machineID: machineID, teamID: teamID, userID: userID, otherTeams: otherTeams)
-            guard decision.verdict.transferProvider == .claude, decision.verdict.step == .install else { return false }
+            if decision.verdict.warmVerified == true { return .verified(machineID) }
+            guard decision.verdict.transferProvider == .claude, decision.verdict.step == .install else { return .finished(machineID) }
             if let outcome = try await CloudCredentialTransfer.CachedLogin.startOutcome({
                 await CloudCredentialTransfer.cachedLogin(provider: .claude, teamID: teamID, userID: userID, otherTeams: otherTeams)
             }) {
                 decision.outcome = outcome
-                return false
+                return .finished(machineID)
             }
-            guard auth.user?.id == userID, auth.teamID == teamID else { return false }
+            guard auth.user?.id == userID, auth.teamID == teamID else { return .finished(machineID) }
             let transfer = CloudCredentialTransfer(provider: .claude, machineID: machineID, teamID: teamID, userID: userID, otherTeams: otherTeams,
                                                    guestCheckedAt: decision.guestCheckedAt, openTerminal: { _ in false })
             try await transfer.run(api: api, currentTeamID: { [auth] in auth.teamID }, currentUserID: { [auth] in auth.user?.id },
                                    confirmed: true, callerOwnsVM: still, stillAllowed: gate.stillAllowed)
             decision.outcome = "installed"
-            return true
+            return .installed(machineID)
         } catch {
             decision.outcome = CloudHarnessLoginDecision.loginOutcome(error, cancelled: Task.isCancelled)
-            return false
+            return .finished(machineID)
         }
     }
 }
@@ -93,6 +98,37 @@ public extension CloudAuth {
 }
 
 public extension CloudHarnessLoginDecision {
+    /// The start record's outcome when a spare warm's installed copy on the start's machine stood in for the login check.
+    nonisolated static let warmReceipt = "warm receipt"
+
+    /// Whether a spare warm already installed `userID`'s login on `machine` before Send (Rust's `loginReceipt`, kept when
+    /// ``CloudSpareWarm`` reports its copy installed); then the start records ``warmReceipt`` and reads and passes no login
+    /// of its own (Leo, 2026-11-10: "if they're logged in why do we need to re-check their login after the critical path").
+    /// Never for a `--login` word, which decides for itself; no harness named is Claude, as the rules read it.
+    @MainActor mutating func takeWarmReceipt(cli binary: URL?, machine: String, ask: CloudHarnessLoginAsk, auth: CloudAuth,
+                                             platform: URL?, identity: MacInstallIdentity, claims: CloudClaimedCopyRegistrations) async -> Bool {
+        guard let platform, let userID = auth.user?.id, let install = try? await identity.installToken() else { return false }
+        let teamID = auth.teamID
+        let ready = await takeWarmReceipt(cli: binary, machine: machine, userID: userID, ask: ask, claims: claims) {
+            await warmReceiptScope(platform: platform, teamID: teamID, install: install, userID: userID, otherTeams: auth.loginScopes)
+        }
+        return ready && auth.user?.id == userID && auth.teamID == teamID
+    }
+
+    /// The same receipt lookup with the opaque local fingerprint supplied by the caller.
+    mutating func takeWarmReceipt(cli binary: URL?, machine: String, userID: String?, ask: CloudHarnessLoginAsk,
+                                  claims: CloudClaimedCopyRegistrations,
+                                  readScope: @MainActor @Sendable () async -> [String: String]?) async -> Bool {
+        guard ask.requested == nil, let binary, let userID, let provider = verdict.transferProvider else { return false }
+        let cli = CloudMoveCLI(binary: binary)
+        await claims.registered(machine)
+        await cli.startChatWaitCopy(machine: machine, provider: provider.rawValue)
+        let scope = await readScope()
+        guard await cli.startChatLoginReceipt(machine: machine, account: userID, provider: provider.rawValue, scope: scope) else { return false }
+        outcome = Self.warmReceipt
+        return true
+    }
+
     /// A login cancelled with its start (its copy failed before `run` awaited it) is `cancelled`, never "failed: CancellationError" (run 42157718918).
     nonisolated static let loginCancelled = "cancelled"
     /// The start record's outcome when the copy failed, before its fixed text.
@@ -106,4 +142,14 @@ public extension CloudHarnessLoginDecision {
     nonisolated static func loginOutcome(_ error: any Error, cancelled: Bool) -> String {
         cancelled || error is CancellationError ? loginCancelled : loginFailed + ((error as? LocalizedError)?.errorDescription ?? String(describing: type(of: error)))
     }
+}
+
+/// The daemon owns validation and binding. Swift can only supply the opaque Keychain fingerprint;
+/// Rust reads the install token and rejects a scope whose team does not match it.
+@MainActor private func warmReceiptScope(platform: URL, teamID: String?, install: String, userID: String,
+                                         otherTeams: [String?]) async -> [String: String]? {
+    guard let teamID,
+          let credential = try? await CloudCredentialLogin.loadAny(provider: .claude, teamID: teamID, otherTeams: otherTeams, userID: userID),
+          let fingerprint = CloudMachineLogin.fingerprint(credential) else { return nil }
+    return ["platform": platform.absoluteString, "team": teamID, "install": install, "credential": fingerprint]
 }
