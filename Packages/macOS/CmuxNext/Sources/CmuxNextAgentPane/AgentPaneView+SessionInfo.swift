@@ -16,6 +16,7 @@ extension AgentPaneView {
     func installSessionInfo() {
         model.sessionInfo.onChange = { [weak self] in self?.applySessionInfo() }
         model.sessionInfo.onOverlays = { [weak self] in self?.applySessionInfoOverlays() }
+        model.sessionInfo.onPinch = { [weak self] in self?.layoutSessionInfo() }
         // task-owner: lives as long as the view, cancelled in close(); event-driven (Observation)
         model.sessionInfo.hostObservation = Task { [weak self] in
             for await on in ObservationStream({ AgentPaneTunables.nativeSessionInfo.value }) {
@@ -67,9 +68,11 @@ extension AgentPaneView {
             let pageRect: CGRect?
             if let paneRect {
                 let target: NSView = self.page ?? self.webView
-                pageRect = Self.sessionInfoPageRect(target.convert(paneRect, from: self),
-                                                    bounds: target.bounds, flipped: target.isFlipped,
-                                                    zoom: CGFloat(self.uiPointerPageZoom))
+                let shown = Self.sessionInfoPageRect(target.convert(paneRect, from: self),
+                                                     bounds: target.bounds, flipped: target.isFlipped,
+                                                     zoom: CGFloat(self.uiPointerPageZoom))
+                // The row shows on the pinch-zoomed screen; the page places its menus in its layout.
+                pageRect = Self.sessionInfoLayoutRect(shown, pinch: self.model.sessionInfo.pinch)
             } else {
                 pageRect = nil
             }
@@ -102,16 +105,70 @@ extension AgentPaneView {
 
     /// Lays the panel out in the page's frame: the page's width from its right edge (less a side
     /// panel's width and the 8 px float margin), from `top` under the header, as tall as its content
-    /// up to the page's foot.
+    /// up to the page's foot; then where and as large as that shows under the page's trackpad pinch.
     func layoutSessionInfo() {
         guard let panel = model.sessionInfo.panel, let info = panel.store.info else { return }
         let zoom = max(0.25, CGFloat(uiPointerPageZoom))
-        panel.store.zoom = zoom
-        let frame = Self.sessionInfoFrame(page: page?.frame ?? webView.frame, info: info,
-                                          width: panel.store.width, zoom: zoom, flipped: isFlipped,
-                                          content: { [weak panel] width in panel?.fittingHeight(forWidth: width) ?? .greatestFiniteMagnitude })
-        if panel.frame != frame { panel.frame = frame }
+        let pinch = model.sessionInfo.pinch
+        panel.store.zoom = zoom * pinch.scale
+        let pageFrame = page?.frame ?? webView.frame
+        let laid = Self.sessionInfoFrame(page: pageFrame, info: info,
+                                         width: panel.store.width, zoom: zoom, flipped: isFlipped,
+                                         content: { [weak panel] width in panel?.fittingHeight(forWidth: width) ?? .greatestFiniteMagnitude })
+        let full = Self.sessionInfoPinchedFrame(laid, page: pageFrame, zoom: zoom, pinch: pinch, flipped: isFlipped)
+        panel.magnification = pinch.scale
+        // Zoomed in, the panel can lie partly or wholly past the page's edges, off its screen: it shows
+        // the part on the page, and none at all when none is.
+        if pinch == .none {
+            panel.isHidden = false
+            panel.contentOffset = .zero
+            panel.wholeSize = nil
+            if panel.frame != full { panel.frame = full }
+        } else if let shown = Self.sessionInfoShownPart(full, page: pageFrame, flipped: isFlipped) {
+            panel.isHidden = false
+            panel.contentOffset = shown.offset
+            panel.wholeSize = shown.frame == full ? nil : full.size
+            if panel.frame != shown.frame { panel.frame = shown.frame }
+        } else {
+            panel.isHidden = true
+        }
         applySessionInfoOverlays()
+    }
+
+    /// `frame` (pane coordinates, laid out from the page's layout numbers) where it shows under the
+    /// page's trackpad pinch: moved and scaled as the page's content is (``AgentPaneSessionInfoPinch``).
+    /// With no pinch it is `frame`.
+    static func sessionInfoPinchedFrame(_ frame: CGRect, page: CGRect, zoom: CGFloat,
+                                        pinch: AgentPaneSessionInfoPinch, flipped: Bool) -> CGRect {
+        guard pinch != .none else { return frame }
+        let scale = max(0.25, zoom)
+        let css = CGPoint(x: (frame.minX - page.minX) / scale,
+                          y: flipped ? (frame.minY - page.minY) / scale : (page.maxY - frame.maxY) / scale)
+        let shown = pinch.shown(css)
+        let width = frame.width * pinch.scale
+        let height = frame.height * pinch.scale
+        let x = page.minX + shown.x * scale
+        let y = flipped ? page.minY + shown.y * scale : page.maxY - shown.y * scale - height
+        return CGRect(x: x, y: y, width: width, height: height).integral
+    }
+
+    /// The part of the pinched panel `full` on the page (pane coordinates), and where that part
+    /// starts in the whole panel (points from its left and bottom edges, the panel's own unflipped
+    /// coordinates); nil when no part is on the page.
+    static func sessionInfoShownPart(_ full: CGRect, page: CGRect, flipped: Bool) -> (frame: CGRect, offset: CGPoint)? {
+        let shown = full.intersection(page).integral.intersection(full)
+        guard !shown.isNull, shown.width >= 1, shown.height >= 1 else { return nil }
+        let offset = CGPoint(x: shown.minX - full.minX,
+                             y: flipped ? full.maxY - shown.maxY : shown.minY - full.minY)
+        return (shown, offset)
+    }
+
+    /// A rect on the pinch-zoomed screen (top-left CSS pixels) in the page's layout, where the page
+    /// places what it anchors there.
+    static func sessionInfoLayoutRect(_ rect: CGRect, pinch: AgentPaneSessionInfoPinch) -> CGRect {
+        guard pinch != .none else { return rect }
+        let origin = pinch.layout(rect.origin)
+        return CGRect(x: origin.x, y: origin.y, width: rect.width / pinch.scale, height: rect.height / pinch.scale)
     }
 
     /// Cuts the page's open popups out of the panel (``AgentPaneSessionInfoOverlay``): the panel steps
@@ -170,7 +227,7 @@ extension AgentPaneView {
         if let badge = actAsMePill.badge, !badge.isHidden, !badge.bounds.isEmpty {
             rects.append(page.convert(badge.bounds, from: badge))
         }
-        if let panel = model.sessionInfo.panel {
+        if let panel = model.sessionInfo.panel, !panel.isHidden {
             // The panel less the page's popups over it, so Chromium draws those whole.
             rects += panel.uncoveredRects().map { page.convert($0, from: panel) }
         }

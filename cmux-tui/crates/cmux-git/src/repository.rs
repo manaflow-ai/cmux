@@ -53,6 +53,18 @@ impl Repository {
     }
 
     fn open_until(directory: &Path, deadline: Option<Instant>) -> Result<Self, OpenError> {
+        Self::open_unfiltered(directory, deadline)?.filtered().map_err(OpenError::Git)
+    }
+
+    /// The repository `directory` is in, with no filter driver blanked: for
+    /// the runs that read no file content (a ref, a config value, a path of
+    /// the repository). Crate-private, so that only such a run gets one
+    /// ([`crate::head::Checkout`]); a run that can read content takes
+    /// [`Repository::filtered`] first.
+    pub(crate) fn open_unfiltered(
+        directory: &Path,
+        deadline: Option<Instant>,
+    ) -> Result<Self, OpenError> {
         let arguments = ["rev-parse", "--show-toplevel"];
         let left = remaining(deadline);
         let output = match run_git_within(directory, &[], &arguments, MAX_SMALL_OUTPUT_BYTES, left)
@@ -67,10 +79,14 @@ impl Repository {
         if root.is_empty() {
             return Err(OpenError::NotARepository);
         }
-        let root = PathBuf::from(root);
-        let overrides =
-            filter_overrides_within(&root, remaining(deadline)).map_err(OpenError::Git)?;
-        Ok(Self { root, overrides, deadline })
+        Ok(Self { root: PathBuf::from(root), overrides: Vec::new(), deadline })
+    }
+
+    /// This repository with every configured filter driver blanked, as
+    /// [`Repository::open`] gives it.
+    pub(crate) fn filtered(&self) -> Result<Self, GitFailure> {
+        let overrides = filter_overrides_within(&self.root, remaining(self.deadline))?;
+        Ok(Self { root: self.root.clone(), overrides, deadline: self.deadline })
     }
 
     /// This repository with its runs stopped at `deadline` too (the earlier

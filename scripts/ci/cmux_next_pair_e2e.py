@@ -105,12 +105,22 @@ def takes_pair_url_env():
 
 
 def dev_credential():
-    """(email, password) of the DEBUG dev account (AuthCoordinator's "42" shortcut), as mac.py reads it."""
-    src = os.path.join(ROOT, "Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthCoordinator.swift")
-    m = re.search(r'CMUXAuthAutoLoginCredentials\(email:\s*"([^"]+)",\s*password:\s*"([^"]+)"\)', open(src).read())
-    if not m:
-        raise SystemExit("DEBUG dev credential not found in CmuxAuthRuntime")
-    return m.group(1), m.group(2)
+    """(email, password) of the DEBUG dev account, from the environment (`CMUX_UITEST_STACK_EMAIL` /
+    `CMUX_UITEST_STACK_PASSWORD`, the names the app reads), else from the CI auth profile
+    (`~/.secrets/cmuxterm-dev.env`, which ios-e2e.yml materializes from the existing dogfood secrets
+    under those same names); the source holds no credential."""
+    keys = ("CMUX_UITEST_STACK_EMAIL", "CMUX_UITEST_STACK_PASSWORD")
+    found = {k: os.environ.get(k, "") for k in keys}
+    profile = os.path.expanduser("~/.secrets/cmuxterm-dev.env")
+    if not all(found.values()) and os.path.isfile(profile):
+        for line in open(profile):
+            k, sep, v = line.rstrip("\n").partition("=")
+            if sep and k in keys and not found[k]:
+                found[k] = v
+    if not all(found.values()):
+        raise SystemExit("DEBUG dev credential: set CMUX_UITEST_STACK_EMAIL and CMUX_UITEST_STACK_PASSWORD "
+                         "(or provide ~/.secrets/cmuxterm-dev.env)")
+    return found[keys[0]], found[keys[1]]
 
 
 def machine_id(bundle_id):

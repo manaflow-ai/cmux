@@ -6,6 +6,7 @@ import { setChatDisplay } from "../chatDisplay";
 import type { HeaderPullRequest } from "../header/headerState";
 import { endFinishMoment, finishMoment } from "./finishMoments";
 import { FINISH_SOUND_KEY, useFinishMoments } from "./useFinishMoments";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM;
 let root: Root | undefined;
@@ -34,11 +35,12 @@ beforeEach(() => {
     };
 });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
   endFinishMoment();
   setChatDisplay({});
+  await settleReact();
   dom.window.close();
   for (const key of KEYS) {
     const before = saved.get(key);

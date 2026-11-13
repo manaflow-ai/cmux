@@ -1,6 +1,6 @@
 // l10n-allow-file: test fixture prompts, commands and replies, not shipped UI.
-// Finished runs fold while a turn runs. At its end the whole turn folds under "Worked for",
-// leaving only the final answer. Closing the turn resets every disclosure inside it.
+// Finished runs fold while a turn runs. At its end the work folds under "Worked for", leaving
+// substantive replies visible. Closing the turn resets every disclosure inside it.
 // The real agent pane talks to a stand-in acpmux daemon and measures each painted frame.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
@@ -340,17 +340,24 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
       console.log(
         `TURN_END_FOLD ${JSON.stringify(folding.map((sample) => [sample.prompt, sample.answer, sample.gap, sample.work]))}`,
       );
-      // The prompt comes down to the folded line over several frames, not in one step.
-      expect(after.prompt - before.prompt).toBeGreaterThan(40);
+      // The prompt comes down to the folded line over several frames, not in one step. The asides
+      // between the runs stay outside the fold as the agent's own paragraphs (#42279, #42247) and
+      // the turn's footer and edits card come in under the answer, so the fold's height shows as
+      // the prompt coming down and the answer going up together.
+      expect(after.prompt - before.prompt).toBeGreaterThan(8);
+      expect(after.prompt - before.prompt + (after.answer - before.answer)).toBeGreaterThan(40);
       const between = folding.filter(
         (sample) => sample.prompt > before.prompt + 2 && sample.prompt < after.prompt - 2,
       ).length;
       expect(between).toBeGreaterThanOrEqual(3);
       const steps = folding.slice(1).map((sample, index) => sample.prompt - folding[index]!.prompt);
       expect(Math.max(...steps)).toBeLessThan((after.prompt - before.prompt) * 0.75);
-      // The work the fold takes away fades over several frames where it was, never gone in one.
+      // The work the fold takes away fades over several frames where it was, never gone in one. A
+      // copy is gone by COPY_GONE_AT (0.6) of the fold's progress on the settle curve
+      // (turnEndFold.ts; cubic-bezier(0.16, 1, 0.3, 1) over 180 ms), which reaches it in the
+      // fold's first three frames at 60 Hz: two frames draw it part-faded (0.52, then 0.17).
       expect(samples[from]!.work).toBeGreaterThan(0.5);
-      expect(folding.filter((sample) => sample.work > 0.05 && sample.work < 0.95).length).toBeGreaterThanOrEqual(3);
+      expect(folding.filter((sample) => sample.work > 0.05 && sample.work < 0.95).length).toBeGreaterThanOrEqual(2);
       expect(after.work).toBe(0);
       // The bottom stays pinned on every frame of the fold: the view stays at its end.
       for (const sample of folding) expect(sample.gap).toBeLessThanOrEqual(2);

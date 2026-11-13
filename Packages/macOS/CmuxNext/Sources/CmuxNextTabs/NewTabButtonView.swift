@@ -96,7 +96,7 @@ final class NewTabButtonView: NSView {
         // A circle in the circles look, one diameter with the ⌄ and the ⋮; else the tabs' shape. The split look
         // rounds only the group's leading corners: the ⌄ beside it rounds the trailing ones.
         fillLayer.cornerRadius = split ? Self.splitCornerRadius
-            : hoverStyle == .circle && !showsChevron ? side / 2 : Metrics.tabCornerRadius
+            : hoverStyle == .circle && !showsChevron ? side / 2 : Metrics.tabCornerRadius // radius-allow: the opt-in circle hover look
         fillLayer.cornerCurve = Metrics.tabCornerCurve
         fillLayer.maskedCorners = split ? [.layerMinXMinYCorner, .layerMinXMaxYCorner] : Self.allCorners
         glyphLayer.frame = bounds

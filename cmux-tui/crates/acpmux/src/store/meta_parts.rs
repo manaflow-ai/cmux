@@ -175,9 +175,12 @@ struct Stamp {
 }
 
 fn stamp(path: &Path) -> Option<Stamp> {
-    let meta = crate::home_fs::symlink_metadata(path).ok()?;
+    Some(stamp_metadata(&crate::home_fs::symlink_metadata(path).ok()?))
+}
+
+fn stamp_metadata(meta: &std::fs::Metadata) -> Stamp {
     #[cfg(unix)]
-    let ino = std::os::unix::fs::MetadataExt::ino(&meta);
+    let ino = std::os::unix::fs::MetadataExt::ino(meta);
     #[cfg(not(unix))]
     let ino = 0;
     let modified_ns = meta
@@ -185,7 +188,7 @@ fn stamp(path: &Path) -> Option<Stamp> {
         .ok()
         .and_then(|at| at.duration_since(std::time::UNIX_EPOCH).ok())
         .map_or(0, |d| d.as_nanos());
-    Some(Stamp { ino, len: meta.len(), modified_ns })
+    Stamp { ino, len: meta.len(), modified_ns }
 }
 
 /// What the store last wrote or read of each chat's parts file: its fingerprint and the file's
@@ -253,6 +256,29 @@ impl PartsMemo {
     /// `meta` as read from `text` (a `session.json` or journal image) in `dir`: a split one gets
     /// its parts from the parts file, and the memo learns them. One that is not split is as read.
     pub fn merge(&self, dir: &Path, text: &[u8], meta: &mut SessionMeta) {
+        self.merge_with(dir, text, meta, || {
+            crate::config::private_state_file(&dir.join(PARTS_FILE))
+        });
+    }
+
+    pub(super) fn merge_held(
+        &self,
+        dir: &crate::home_fs::PrivateDir,
+        text: &[u8],
+        meta: &mut SessionMeta,
+    ) {
+        self.merge_with(dir.path(), text, meta, || {
+            dir.private_file(std::ffi::OsStr::new(PARTS_FILE))
+        });
+    }
+
+    fn merge_with(
+        &self,
+        dir: &Path,
+        text: &[u8],
+        meta: &mut SessionMeta,
+        open: impl FnOnce() -> Result<std::fs::File>,
+    ) {
         #[derive(Deserialize)]
         struct Mark {
             #[serde(default, rename = "metaParts")]
@@ -264,18 +290,15 @@ impl PartsMemo {
             return;
         };
         let path = dir.join(PARTS_FILE);
-        let at = stamp(&path);
-        // Read as `session.json` is: owner-only, never through a link.
-        let read = || -> Option<Vec<u8>> {
+        // The stamp and bytes belong to the same open file, even if its name is replaced.
+        let read = || -> Option<(Vec<u8>, Option<Stamp>)> {
+            let mut file = open().ok()?;
+            let at = Some(stamp_metadata(&file.metadata().ok()?));
             let mut bytes = Vec::new();
-            std::io::Read::read_to_end(
-                &mut crate::config::private_state_file(&path).ok()?,
-                &mut bytes,
-            )
-            .ok()?;
-            Some(bytes)
+            std::io::Read::read_to_end(&mut file, &mut bytes).ok()?;
+            Some((bytes, at))
         };
-        let Some(bytes) = at.and_then(|_| read()) else {
+        let Some((bytes, at)) = read() else {
             self.forget(&meta.id);
             return;
         };
