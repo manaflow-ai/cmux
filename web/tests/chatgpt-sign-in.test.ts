@@ -64,7 +64,7 @@ async function token(claims: Record<string, unknown>, options: { key?: CryptoKey
 }
 
 class FakeAccounts implements ChatGPTAccounts {
-  users: (ChatGPTAccountUser & { name?: string | null })[] = [];
+  users: ({ -readonly [K in keyof ChatGPTAccountUser]: ChatGPTAccountUser[K] } & { name?: string | null })[] = [];
   current: string | null = null;
   signedIn: string[] = [];
   takenEmails = new Set<string>();
