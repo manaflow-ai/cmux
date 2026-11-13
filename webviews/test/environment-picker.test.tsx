@@ -622,13 +622,18 @@ test("a move the app would refuse is greyed with its reason and a pick runs noth
   expect(doc().querySelector(".acpmux-env-popover")).not.toBeNull();
 });
 
-test("a started Cloud chat: the picker shows its machine and Bring Back Local", async () => {
+test("a started Cloud chat: the picker opens on its machine card, then Bring Back Local under Continue on", async () => {
   const { calls } = await mountStarted("cloud");
   await openPicker();
-  expect(machineRows().map(rowText)).toEqual([expect.stringContaining("build-cloud")]);
+  // The machine card names the machine (MachineCard.tsx); its own row is no longer listed.
+  expect(doc().querySelector(".acpmux-env-popover .acpmux-machine-card-name")?.textContent).toBe("build-cloud");
+  expect(machineRows()).toEqual([]);
   expect(newRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
     t("composer.bringBackLocal"),
   ]);
+  expect(newRows()[0]!.querySelector(".acpmux-env-row")?.getAttribute("data-card-section")).toBe(
+    t("machineCard.continueOn"),
+  );
   await act(async () => newRows()[0]!.click());
   expect(calls).toEqual([["offload", "bringBack"]]);
 });
@@ -673,7 +678,7 @@ test("Move to…: a Cloud chat lists This Mac and the other machines", async () 
     onMoveTo: (id: string) => moved.push(id),
   });
   await openPicker();
-  await act(async () => newRows()[0]!.click());
+  // Under the machine card, the targets are the list itself (Continue on), with no Move to… step.
   expect(newRows().map(rowText)).toEqual([t("composer.thisMac"), "gpu-box"]);
   await act(async () => newRows()[0]!.click());
   expect(moved).toEqual(["local"]);
@@ -704,8 +709,8 @@ test("Move to…: a chat that started on a Cloud machine gets the row with no ot
     onMoveTo: (id: string) => moved.push(id),
   });
   await openPicker();
-  expect(newRows().map(rowText)).toEqual([t("composer.moveToMenu")]);
-  await act(async () => newRows()[0]!.click());
+  // Under the machine card, the targets are the list itself (Continue on).
+  expect(newRows().map(rowText)).toEqual(["gpu-box", expect.stringContaining("old-box")]);
   const refused = newRows()[1]!;
   expect(refused.querySelector(".acpmux-menu-description")?.textContent).toBe("Update this machine first");
   await act(async () => refused.click());
@@ -714,19 +719,24 @@ test("Move to…: a chat that started on a Cloud machine gets the row with no ot
   expect(moved).toEqual(["vm-gpu"]);
 });
 
-test("a started Cloud chat's picker keeps its machine's load warning", async () => {
+test("a started Cloud chat's machine card shows its machine's load", async () => {
   const { setComposerSettings, DEFAULT_COMPOSER } = await import("../src/agent-session/acpmux/composerSettings");
   setComposerSettings(DEFAULT_COMPOSER);
   await mount(true, {
     ...startedOn("cloud"),
     onOffload: () => {},
     peerResources: { "build-cloud": { ramFreeGB: 8, coresBusy: 14, cores: 10, busy: true, lowMemory: false } },
+    // acpmux's link to the machine is up: the card reads it as awake.
+    peers: ["build-cloud"],
+    peerKinds: { "build-cloud": "cloud" },
+    peerConnected: { "build-cloud": true },
   });
   await openPicker();
-  expect(machineRows()).toHaveLength(1);
-  expect(machineRows()[0]!.querySelector('.acpmux-env-state[data-warning="true"]')?.textContent).toBe(
-    t("composer.machineHighLoad", { busy: 14, cores: 10 }),
+  // The card says the load where the machine row's warning was (MachineCard.tsx).
+  const values = [...doc().querySelectorAll(".acpmux-machine-card .acpmux-plan-usage-value")].map(
+    (value) => value.textContent,
   );
+  expect(values[0]).toBe(t("machineCard.loadValue", { load: "14", cores: "10" }));
 });
 
 test("Return on a search never moves a chat by itself", async () => {

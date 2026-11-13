@@ -6,7 +6,7 @@ public import Foundation
 /// state, and the person can resume or open it from there. Fixed param keys (any other is
 /// refused); a machine id is checked here and again by the App against the machines it loaded.
 ///
-/// - `cloudMachine.list {}` -> `{signedIn, loaded, machines: [{id, name, stage, evictAt?}]}`, read-only.
+/// - `cloudMachine.list {}` -> `{signedIn, loaded, machines: [{id, name, stage, evictAt?, size?: {cpu?, memoryMb?, diskMb?}}]}`, read-only.
 ///   `stage` is the machine's `CloudMachineStage` name (`ready`, `paused`, `connecting`, …);
 ///   `loaded` is false until the App holds a list the server answered for the account signed in.
 /// - `cloudMachine.recoveryList {}` -> the same inventory, refreshed for a disconnected chat.
@@ -102,8 +102,36 @@ public final class AgentPaneCloudMachines {
         /// When the server deletes the machine if it stays paused (cmux-platform `evict_at`); nil
         /// when the record does not say.
         public var evictAt: Date?
-        public init(id: String, name: String, stage: String, evictAt: Date? = nil) {
-            (self.id, self.name, self.stage, self.evictAt) = (id, name, stage, evictAt)
+        /// The machine's size as its record says it (``CloudMachine/Size``); nil when it says none.
+        /// The composer's machine card names it (webviews MachineCard.tsx).
+        public var size: Size?
+        public init(id: String, name: String, stage: String, evictAt: Date? = nil, size: Size? = nil) {
+            (self.id, self.name, self.stage, self.evictAt, self.size) = (id, name, stage, evictAt, size)
+        }
+
+        /// vCPUs, memory and disk; each nil when the record does not say.
+        public struct Size: Equatable, Sendable {
+            public var cpu: Int?
+            public var memoryMb: Int?
+            public var diskMb: Int?
+            public init(cpu: Int? = nil, memoryMb: Int? = nil, diskMb: Int? = nil) {
+                (self.cpu, self.memoryMb, self.diskMb) = (cpu, memoryMb, diskMb)
+            }
+
+            /// From a record's size; nil when it names none of the three.
+            public init?(_ size: CloudMachine.Size?) {
+                guard let size, size.cpu != nil || size.memoryMb != nil || size.storageMb != nil else { return nil }
+                self.init(cpu: size.cpu, memoryMb: size.memoryMb, diskMb: size.storageMb)
+            }
+
+            /// The reply's `size` object: only the positive numbers the record gave.
+            var reply: [String: Any] {
+                var row: [String: Any] = [:]
+                for (key, value) in [("cpu", cpu), ("memoryMb", memoryMb), ("diskMb", diskMb)] {
+                    if let value, value > 0 { row[key] = value }
+                }
+                return row
+            }
         }
     }
 
@@ -240,6 +268,8 @@ extension AgentPaneCloudMachineRequest {
                 var row: [String: Any] = ["id": machine.id, "name": machine.name, "stage": machine.stage]
                 // Epoch ms, as the page reads it (cloudMachines.ts `evictAt`).
                 if let evictAt = machine.evictAt { row["evictAt"] = (evictAt.timeIntervalSince1970 * 1000).rounded() }
+                // vCPUs, memory and disk (cloudMachines.ts `size`), for the composer's machine card.
+                if let size = machine.size?.reply, !size.isEmpty { row["size"] = size }
                 return row
             }
             var value: [String: Any] = ["signedIn": inventory.signedIn, "loaded": inventory.loaded, "machines": rows, "complete": inventory.complete && inventory.machines.count <= Self.maximumListed]

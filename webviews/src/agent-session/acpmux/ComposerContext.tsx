@@ -83,6 +83,7 @@ import {
   type FolderChipState,
 } from "./folderlessCloud";
 import { chatComputerId, ownMachineName, type ChatPlace } from "./chatMachine";
+import { useMachineCard } from "./MachineCard";
 /// How a new chat's strip asks where it runs (gallery seam; `where-machine` ships). Leo, 2026-11-03,
 /// on Codex desktop's strip: "chatgpt codex has nicer ways to deal with stuff".
 /// - `where-machine` (Codex desktop): Project | Where (This Mac, Cloud, Other devices) | Machine,
@@ -810,6 +811,10 @@ export function ComposerContext({
   const extraCount = extraShown && extraShown.length > 0 ? ` +${extraShown.length}` : "";
   // The strip's layout: a started chat (or one that cannot change) keeps the one combined control.
   const layout: StripLayout = readOnly || moves ? "combined" : stripLayout;
+  // A started chat on a Cloud machine: the chip's popover opens on its machine card, and the chip
+  // carries the machine's dot (MachineCard.tsx).
+  const machineCardShown = started && environmentsShown && layout === "combined" && !waiting && !savedPick;
+  const { card: machineCardRows, dot: machineDot } = useMachineCard(currentPickerComputer, Boolean(machineCardShown));
   // What every environment control shares: the list, the pick, setup and Cloud's run mode.
   const pickerProps = {
     ...(unavailableGroup ? { unavailableGroup } : {}),
@@ -956,6 +961,8 @@ export function ComposerContext({
         }
         value={placeName}
         chevron
+        {...(machineDot ? { live: machineDot.live, liveWords: machineDot.words } : {})}
+        {...(machineDot?.sleep ? { sleep: machineDot.sleep } : {})}
       />
     );
   return (
@@ -1091,6 +1098,7 @@ export function ComposerContext({
                 {...(offload && onOffload ? { offload, onOffload } : {})}
                 {...(offload && offloadReasons?.[offload] ? { offloadReason: offloadReasons[offload] } : {})}
                 {...(moving && onMoveTo ? { moveTargets: moving, onMoveTo } : {})}
+                {...(machineCardRows ? { card: machineCardRows } : {})}
               />
             ) : layout === "cloud-toggle" ? (
               <EnvironmentPicker
@@ -1369,6 +1377,7 @@ function LocationFace({
   middle = false,
   live,
   sleep,
+  liveWords,
   state,
   detail,
   team,
@@ -1382,6 +1391,9 @@ function LocationFace({
   /// A machine that is not live because its Cloud machine sleeps: paused keeps the ring and says
   /// Paused, resuming draws a spinner in the dot's place and says Resuming (never a pulsing dot).
   sleep?: "paused" | "resuming";
+  /// The live dot's words for screen readers in place of Connected / Paused (the machine card's
+  /// Awake / Asleep).
+  liveWords?: string;
   /// The folder chip's state (folderlessCloud.ts), for tests.
   state?: FolderChipState;
   /// One line on what the state means (a folderless Cloud chat's fresh folder): the label's
@@ -1414,13 +1426,16 @@ function LocationFace({
       {live !== undefined && sleep === "resuming" && (
         <span className="acpmux-env-live" data-sleep="resuming">
           <Spinner size={12} loading className="acpmux-env-live-spinner" />
-          <span className="acpmux-env-status-text">{t("composer.envResuming")}</span>
+          <span className="acpmux-env-status-text">{liveWords ?? t("composer.envResuming")}</span>
         </span>
       )}
       {live !== undefined && sleep !== "resuming" && (
         <span className="acpmux-env-live" data-connected={String(live)} data-sleep={sleep}>
           <span className="acpmux-env-status-text">
-            {t(live ? "composer.envConnected" : sleep === "paused" ? "composer.envPaused" : "composer.envNotConnected")}
+            {liveWords ??
+              t(
+                live ? "composer.envConnected" : sleep === "paused" ? "composer.envPaused" : "composer.envNotConnected",
+              )}
           </span>
         </span>
       )}

@@ -21,7 +21,8 @@ extension AgentPaneCloudMachines {
                 return Inventory(signedIn: services.cloud.isSignedIn, loaded: false, machines: [], team: TeamRowText.paneTeam(services.cloud.auth))
             }
             let machines = services.machines.cloud.compactMap { session in
-                session.effectiveStatus == .destroyed ? nil : Machine(id: session.machineID, name: session.machine.title, stage: session.stage.name, evictAt: session.machine.evictAt)
+                session.effectiveStatus == .destroyed ? nil : Machine(id: session.machineID, name: session.machine.title, stage: session.stage.name, evictAt: session.machine.evictAt,
+                                                                       size: Machine.Size(session.machine.size))
             }
             return Inventory(signedIn: true, loaded: true, machines: machines, account: services.cloud.account, complete: complete, team: TeamRowText.paneTeam(services.cloud.auth))
         }

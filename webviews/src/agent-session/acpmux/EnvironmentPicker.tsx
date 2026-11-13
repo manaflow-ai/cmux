@@ -24,6 +24,7 @@ import { TeamTag, type ActiveTeamTag } from "./TeamTag";
 import { isCloudMachineRow } from "./cloudMachines";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { machineColor } from "./machineColor";
+import type { PickerCard } from "./machineCardModel";
 import { useRowPresence } from "./rowPresence";
 import type { RunModeRows } from "./sandboxRun";
 import {
@@ -123,6 +124,7 @@ export function EnvironmentPicker({
   runDetails,
   unavailableGroup = "collapsed",
   unavailableExpanded = false,
+  card,
   otherDevices = false,
 }: {
   label: string;
@@ -160,6 +162,10 @@ export function EnvironmentPicker({
   /// is Move to…, which opens them as a list of their own; a pick runs `onMoveTo` with its id.
   moveTargets?: readonly MoveTarget[];
   onMoveTo?(id: string): void;
+  /// A started Cloud chat's machine card (MachineCard.tsx): the popover opens on it, then its rows
+  /// (Wake machine), then every place the chat can go under Continue on, in place of the machine's
+  /// own row and Move to….
+  card?: PickerCard;
   /// A new chat's Run as (hq#3367): Persistent (a chat, as before) or Sandboxed (the
   /// first message runs once on a throwaway Cloud VM).
   runMode?: RunModeRows;
@@ -370,6 +376,8 @@ export function EnvironmentPicker({
     signsIn?: true;
     /// Why the row runs nothing now: greyed, with this under its name.
     reason?: string;
+    /// A machine card row's own icon.
+    icon?: React.ReactNode;
   };
   // Move to…: the targets as rows of their own list. One target the single move row already covers
   // (Bring Back Local's This Mac, Move to Cloud's only machine) stays that row.
@@ -438,12 +446,22 @@ export function EnvironmentPicker({
           run: () => onConnect("addMachine"),
         }
       : undefined;
+  // The machine card's rows (Wake machine), then Continue on: the move targets, or the one move.
+  const cardActions: Action[] = (card?.actions ?? []).map((action) => ({
+    value: CARD + action.id,
+    text: action.text,
+    kind: "cloud",
+    run: action.run,
+    icon: action.icon,
+  }));
+  const continueOn: Action[] = card ? (opensMoves ? targetActions : move ? [move] : []) : [];
   // Other devices: shown whenever a new chat can add a machine, none listed yet included, so the
   // person finds where their machines go; it opens their list in place, as Move to… does.
   const devicesMenu: Action | undefined = offersDevices
     ? { value: DEVICES_MENU, text: t("composer.otherDevices"), kind: "local", run: () => undefined }
     : undefined;
   const actions: Action[] = [
+    ...cardActions,
     ...(move ? [move] : []),
     ...targetActions,
     ...(cloud ? [cloud] : []),
@@ -492,13 +510,15 @@ export function EnvironmentPicker({
     checkedRow !== undefined && !isLocalId(checkedRow) && (positions.has(checkedRow) || checkedRow.startsWith(SAVED))
       ? checkedRow
       : undefined;
-  const main = [
-    ...ordered.filter(isLocal).map((environment) => environment.id),
-    ...(pickedOther ? [pickedOther] : []),
-    ...(move ? [move.value] : []),
-    ...(cloudRow ? [cloudRow] : []),
-    ...(devicesMenu ? [devicesMenu.value] : []),
-  ];
+  const main = card
+    ? [...cardActions, ...continueOn].map((action) => action.value)
+    : [
+        ...ordered.filter(isLocal).map((environment) => environment.id),
+        ...(pickedOther ? [pickedOther] : []),
+        ...(move ? [move.value] : []),
+        ...(cloudRow ? [cloudRow] : []),
+        ...(devicesMenu ? [devicesMenu.value] : []),
+      ];
   // The machines acpmux cannot reach for long, behind the lists' Unavailable row (Leo, 2026-11-09:
   // "drop retired and unreachable machines from the list, or group them at the bottom").
   const unavailableRow = (value: string) => {
@@ -772,6 +792,7 @@ export function EnvironmentPicker({
         <span
           className="acpmux-location-row acpmux-env-row acpmux-env-new"
           data-kind={action.kind}
+          {...(card && action === continueOn[0] ? { "data-divider": "", "data-card-section": card.continueOn } : {})}
           data-action={
             action === addMachine
               ? "addMachine"
@@ -788,7 +809,9 @@ export function EnvironmentPicker({
           aria-disabled={action.reason ? true : undefined}
           title={action.reason}
         >
-          {value === MOVE_MENU ? (
+          {action.icon ? (
+            action.icon
+          ) : value === MOVE_MENU ? (
             <MoveIcon />
           ) : value === DEVICES_MENU ? (
             <DevicesIcon />
@@ -921,6 +944,7 @@ export function EnvironmentPicker({
       data-kind="computer"
       data-face={faceStyle}
       data-rows={listRows}
+      data-machine-card={card ? "" : undefined}
       title={label + ": " + value}
     >
       {moreActions.length > 0 ? (
@@ -945,12 +969,14 @@ export function EnvironmentPicker({
           ` acpmux-env-rows-${listRows}` +
           (list === "moves" ? " acpmux-env-moves" : "") +
           (list === "devices" ? " acpmux-env-devices" : "") +
-          (highlightAuto && query.trim() === "" ? " acpmux-env-highlight-auto" : "")
+          (highlightAuto && query.trim() === "" ? " acpmux-env-highlight-auto" : "") +
+          (card ? " acpmux-env-card" : "")
         }
         side={side}
         flip={flip}
         finalFocus={false}
       >
+        {card?.header}
         {listRows === "run" && <div className="acpmux-env-heading">{t("composer.whereRun")}</div>}
         {list === "moves" && <div className="acpmux-env-heading">{t("composer.moveToMenu")}</div>}
         {list === "devices" && <div className="acpmux-env-heading">{t("composer.otherDevices")}</div>}
@@ -998,6 +1024,8 @@ export function EnvironmentPicker({
 
 /// An action row's value: never a machine's id.
 const ACTION = "\u0000action:";
+/// A machine card row's value (MachineCard.tsx): its id after this.
+const CARD = ACTION + "card:";
 /// A started chat's Move to… row, which opens its targets.
 const MOVE_MENU = ACTION + "moveTo";
 /// One Move to… target's row: its id after this.
