@@ -61,12 +61,14 @@ test("a daemon that drops the pane right after every connect is not asked again 
     return socket as unknown as WebSocket;
   });
   try {
+    // fixed-wait: the window is the measurement: connections are counted over WINDOW_MS of real time.
     await new Promise((resolve) => setTimeout(resolve, WINDOW_MS));
   } finally {
     client.close?.();
   }
   const gaps = connectedAt.slice(1).map((at, i) => Math.round(at - connectedAt[i]!));
-  if (sockets.length > MOST_CONNECTIONS) console.error(`connections ${sockets.length}, waits between them ${gaps}`);
+  if (sockets.length > MOST_CONNECTIONS)
+    console.error(`connections ${sockets.length}, waits between them ${gaps.join(", ")}`);
   expect(sockets.length).toBeLessThanOrEqual(MOST_CONNECTIONS);
 });
 
