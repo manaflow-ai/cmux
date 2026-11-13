@@ -64,11 +64,10 @@ await requireBrowserLane("chat-scroll-back-still.test.ts", async () => {
 
   // 60 px: the rows under the landing call stay in view while the reader reads. 600 px: they leave it,
   // so their held glides end unseen (tailGlide.ts dropUnseen) and nothing of them plays on the return.
-  // Each follow-motion arm: `send` (the product's) holds the motion under the input and hands it to the
-  // scroll offset once the input goes quiet; `blocks` does too, while the view is not followed.
+  // The blocks follow arm: the wheel lands while a chase is in flight, which only it draws. The slim
+  // `send` arm (the product's) moves the rows at once, so nothing is in flight at the wheel (lag 0
+  // there, cmux-ci run 43466149228); its held motion under input is agent-pane-composer-dock-motion's.
   test.each([
-    [60, "send"],
-    [600, "send"],
     [60, "blocks"],
     [600, "blocks"],
   ] as const)(
