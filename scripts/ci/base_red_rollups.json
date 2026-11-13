@@ -147,6 +147,23 @@
           ],
           "prefixes": []
         },
+        "react-apps-base-early": {
+          "exact": [
+            "web / react-apps-base-early (1)",
+            "web / react-apps-base-early (2)",
+            "web / react-apps-base-early (3)",
+            "web / react-apps-base-early (4)",
+            "web / react-apps-base-early (5)",
+            "web / react-apps-base-early (6)",
+            "web / react-apps-base-early (7)",
+            "web / react-apps-base-early (8)",
+            "web / react-apps-base-early (9)",
+            "web / react-apps-base-early (10)",
+            "web / react-apps-base-early (11)",
+            "web / react-apps-base-early (12)"
+          ],
+          "prefixes": []
+        },
         "react-apps-check": {
           "exact": [
             "web / react-apps-check"

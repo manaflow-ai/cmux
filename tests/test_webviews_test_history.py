@@ -192,6 +192,92 @@ class KnownReds(unittest.TestCase):
                 self.assertEqual(done.stdout, "", bad)
 
 
+class EarlyBase(unittest.TestCase):
+    """react-apps-base-early runs the base's recorded red files on the merge parent while the head shards run, so
+    react-apps-base-check need not replay them after: run 43384458711's base check replayed up to 10 such files a
+    shard (12.8 min, one a 600 s timeout) after the head shards' 17.9 min, for a 30.8 min verdict."""
+
+    SHA = "b" * 40
+
+    def test_the_base_reds_split_longest_first_and_keep_to_the_affected_files_the_base_has(self):
+        reds = ["test/hang.test.ts", "test/a.test.ts > x", "test/a.test.ts > y", "test/b.test.ts > x",
+                "test/c.test.ts > x", "test/gone.test.ts > x"]
+        durations = {"test/hang.test.ts": 600, "test/a.test.ts": 90, "test/b.test.ts": 80}
+        split = [history.early_files(reds, i, 2, durations) for i in (1, 2)]
+        # The 600 s file alone; the rest (c unknown: 60 s) on the other shard; every file once.
+        self.assertEqual(split, [["test/hang.test.ts"], ["test/a.test.ts", "test/b.test.ts", "test/c.test.ts",
+                                                          "test/gone.test.ts"]])
+        self.assertEqual(sorted(sum((history.early_files(reds, i, 5, durations) for i in range(1, 6)), [])),
+                         ["test/a.test.ts", "test/b.test.ts", "test/c.test.ts", "test/gone.test.ts", "test/hang.test.ts"])
+        only = {"test/a.test.ts", "test/gone.test.ts", "test/hang.test.ts"}
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ("test/a.test.ts", "test/hang.test.ts", "test/b.test.ts"):
+                Path(tmp, name).parent.mkdir(parents=True, exist_ok=True)
+                Path(tmp, name).write_text("", encoding="utf-8")
+            self.assertEqual(history.early_files(reds, 1, 1, durations, only, Path(tmp)), ["test/a.test.ts", "test/hang.test.ts"])
+
+    def early(self, files, results, sha=SHA):
+        return {"sha": sha, "files": files, "results": results}
+
+    def test_a_file_the_early_run_ran_on_this_base_takes_its_verdicts_red_or_green(self):
+        other, hang = "test/other.test.ts", "test/hang.test.ts"
+        early = [self.early([FILE, other], {TEST: False, f"{FILE} > green": True, f"{other} > x": True}),
+                 self.early([hang], {hang: False})]
+        known, left = history.early_known(early, self.SHA, [FILE, other, hang, "test/not-early.test.ts"], {"k": True})
+        self.assertEqual(left, ["test/not-early.test.ts"])
+        # The base's red stays red (it excuses only that name), and a base green charges the head's red to the change.
+        self.assertEqual(known, {"k": True, TEST: False, f"{FILE} > green": True, f"{other} > x": True, hang: False})
+
+    def test_anything_the_early_run_cannot_vouch_for_replays(self):
+        replay = [FILE]
+        for early in ([], [self.early([FILE], {TEST: False}, sha="c" * 40)],  # another merge parent
+                      [self.early([FILE], {TEST: False}, sha="")],
+                      [self.early([], {TEST: False})],  # a result for a file it was not given
+                      [self.early([FILE], {})],  # given, never reached
+                      [self.early([FILE], {"test/x.test.ts > y": False})],
+                      [{"sha": self.SHA, "files": "x", "results": {TEST: False}}], ["junk"]):
+            self.assertEqual(history.early_known(early, self.SHA, replay, {}), ({}, [FILE]), early)
+        self.assertEqual(history.early_known([self.early([FILE], {TEST: False})], "short", replay, {}), ({}, [FILE]))
+
+    def test_the_commands_pick_a_shard_and_fold_its_results_in_and_fail_safe(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            reds = tmp / "base-reds.json"
+            reds.write_text(json.dumps({"sha": "s", "inputs": "k", "red": [TEST, "test/hang.test.ts"]}))
+            manifest = tmp / "manifest.json"
+            manifest.write_text(json.dumps({"test/hang.test.ts": 600, FILE: 30, "bad": "x"}))
+
+            def pick(shard, *extra, path=reds):
+                return subprocess.run([sys.executable, str(SCRIPT), "early-files", str(path), "--shard", str(shard),
+                                       "--shard-count", "2", "--durations", str(manifest), *extra],
+                                      capture_output=True, text=True, check=True).stdout
+
+            self.assertEqual((pick(1), pick(2)), ("test/hang.test.ts\n", f"{FILE}\n"))
+            (tmp / "affected").write_text(f"{FILE}\n")
+            self.assertEqual(pick(1, "--only", str(tmp / "affected")), f"{FILE}\n")
+            for bad in ["{not json", json.dumps({"red": [TEST]}), ""]:
+                (tmp / "bad.json").write_text(bad)
+                self.assertEqual(pick(1, path=tmp / "bad.json"), "", bad)
+            self.assertEqual(pick(1, path=tmp / "missing.json"), "")
+            early = tmp / "early"
+            early.mkdir()
+            (early / "early-1.json").write_text(json.dumps(self.early([FILE], {TEST: False})))
+            (early / "early-2.json").write_text("{not json")
+            replay, known = tmp / "replay", tmp / "known.json"
+            replay.write_text(f"{FILE}\ntest/other.test.ts\n")
+            known.write_text("{}")
+
+            def fold(directory, sha=self.SHA):
+                return subprocess.run([sys.executable, str(SCRIPT), "early-known", str(directory), "--sha", sha,
+                                       "--replay", str(replay), "--known", str(known)], capture_output=True, text=True)
+
+            done = fold(tmp / "missing")
+            self.assertEqual((done.returncode, replay.read_text(), known.read_text()), (0, f"{FILE}\ntest/other.test.ts\n", "{}\n"))
+            done = fold(early)
+            self.assertIn("answers for 1 of 2 files", done.stdout)
+            self.assertEqual((replay.read_text(), json.loads(known.read_text())), ("test/other.test.ts\n", {TEST: False}))
+
+
 class Inputs(unittest.TestCase):
     def git(self, repo, *args):
         return subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", *args],
@@ -544,6 +630,97 @@ class Workflow(unittest.TestCase):
             self.assertEqual(output.read_text(encoding="utf-8"), "replay=1\n")
             self.assertEqual(Path(temp, "base-replay-files").read_text(encoding="utf-8"), f"{other}\n")
             self.assertEqual(json.loads(Path(temp, "base-known.json").read_text(encoding="utf-8")), {TEST: True})
+
+    def test_the_replay_takes_the_early_base_runs_verdicts_and_replays_only_the_rest(self):
+        """Run 43384458711: the base check replayed after the head shards what the base's push already had red, at
+        its 17.9 min, to 30.8. With react-apps-base-early's results for this merge parent, those files need no
+        replay; a red the early run did not reach still replays."""
+        base = self.job("react-apps-base-check")
+        step = base[base.index("      - name: Restore the base's webview test history"):]
+        step = step[:step.index("\n      - name:", 10)]
+        body = step[step.index("        run: |\n") + len("        run: |\n"):].splitlines()
+        script = "\n".join(line[10:] for line in itertools.takewhile(lambda line: line.startswith(" " * 10), body))
+        other, late = "test/other.test.ts", "test/late.test.ts"
+        with tempfile.TemporaryDirectory() as temp:
+            runner = Path(temp, "head-results/runner")
+            runner.mkdir(parents=True)
+            (runner / "webviews_test_results.py").write_text(
+                (ROOT / "scripts/ci/webviews_test_results.py").read_text(encoding="utf-8"), encoding="utf-8")
+            (runner / "real_history.py").write_text(SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
+            # The history holds no push at the merge parent's inputs: alone, it answers for nothing.
+            (runner / "webviews_test_history.py").write_text(
+                "import json, pathlib, runpy, sys\n"
+                "if sys.argv[1] == 'fetch':\n"
+                "    pathlib.Path(sys.argv[2]).parent.mkdir(parents=True, exist_ok=True)\n"
+                "    pathlib.Path(sys.argv[2]).write_text(json.dumps({'runs': []}))\n"
+                "    sys.exit(0)\n"
+                "sys.argv[0] = str(pathlib.Path(__file__).with_name('real_history.py'))\n"
+                "runpy.run_path(sys.argv[0], run_name='__main__')\n", encoding="utf-8")
+            Path(temp, "scripts/ci").mkdir(parents=True)
+            Path(temp, "scripts/ci/webviews_test_history.py").write_text("print('new-key')\n", encoding="utf-8")
+            env = git_fixture_env.fixture_env({"PATH": f"{Path(sys.executable).parent}:/usr/bin:/bin"})
+            subprocess.run(["git", "init", "-q"], cwd=temp, check=True, env=env)
+            subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "base"],
+                           cwd=temp, check=True, env=env)
+            sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=temp, check=True, capture_output=True, text=True,
+                                 env=env).stdout.strip()
+            Path(temp, "base-early").mkdir()
+            Path(temp, "base-early/early-3.json").write_text(json.dumps({
+                "sha": sha, "files": [FILE, other], "results": {TEST: False, f"{other} > x": True}}), encoding="utf-8")
+            head = Path(temp, "head-results/webviews-head-results.json")
+            head.write_text(json.dumps({TEST: False, f"{other} > x": False, f"{late} > y": False}), encoding="utf-8")
+            output = Path(temp, "output")
+            subprocess.run(["bash", "-e", "-c", script], check=True, capture_output=True, cwd=temp, env={**env,
+                "RUNNER_TEMP": temp, "HEAD_RESULTS": str(head), "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                "BASE_REF": "feat-cmux-next", "GITHUB_OUTPUT": str(output)})
+            self.assertEqual(output.read_text(encoding="utf-8"), "replay=1\n")
+            self.assertEqual(Path(temp, "base-replay-files").read_text(encoding="utf-8"), f"{late}\n")
+            # The base's red excuses its name; the base's green leaves other's red the change's.
+            self.assertEqual(json.loads(Path(temp, "base-known.json").read_text(encoding="utf-8")),
+                             {TEST: False, f"{other} > x": True})
+            # Early results from another merge parent answer for nothing.
+            Path(temp, "base-early/early-3.json").write_text(json.dumps({
+                "sha": "c" * 40, "files": [FILE, other], "results": {TEST: False, f"{other} > x": True}}), encoding="utf-8")
+            subprocess.run(["bash", "-e", "-c", script], check=True, capture_output=True, cwd=temp, env={**env,
+                "RUNNER_TEMP": temp, "HEAD_RESULTS": str(head), "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                "BASE_REF": "feat-cmux-next", "GITHUB_OUTPUT": str(output)})
+            self.assertEqual(output.read_text(encoding="utf-8"), "replay=1\nreplay=3\n")
+            self.assertEqual(json.loads(Path(temp, "base-known.json").read_text(encoding="utf-8")), {})
+
+    def test_the_early_base_job_runs_the_replay_its_way_and_never_blocks_the_check(self):
+        import yaml
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        early, check = jobs["react-apps-base-early"], jobs["react-apps-base-check"]
+        self.assertEqual(early["needs"], "web-subarea-scope")  # alongside the head shards, not after them
+        self.assertIn("react-apps-base-early", check["needs"])
+        self.assertIn("react-apps-check-shard", check["needs"])
+        self.assertIs(early["continue-on-error"], True)
+        self.assertEqual(early["if"], check["if"])
+        self.assertEqual(early["runs-on"], check["runs-on"])
+        self.assertLess(early["timeout-minutes"], jobs["react-apps-check-shard"]["timeout-minutes"])
+        self.assertEqual(len(early["strategy"]["matrix"]["include"]), 12)
+        steps = {s["name"]: s for s in early["steps"]}
+        replay = next(s for s in check["steps"] if s["name"] == "Run base reds and compare")
+        run = steps["Run the base reds"]
+        for key in ("CMUX_NEXT_STYLE_GUARDS", "CMUX_WEB_TEST_JOBS", "CMUX_WEB_TEST_RETRIES"):
+            self.assertEqual(run["env"][key], replay["env"][key], key)
+        self.assertIn('env -u CMUX_WEB_TEST_SHARD -u CMUX_WEB_TEST_SHARD_COUNT -u CMUX_PR_CHANGED_FILES', run["run"])
+        self.assertIn('bash "$early/runner/run-webviews-tests.sh"', run["run"])
+        pick = steps["Pick this shard's base reds"]["run"]
+        # The head's runner, then the merge parent, as the base check does.
+        self.assertLess(pick.index("cp scripts/ci/run-webviews-tests.sh"), pick.index("git checkout -q --detach HEAD^1"))
+        self.assertLess(pick.index("webviews_affected.py --base HEAD^1 --head HEAD"), pick.index("git checkout -q --detach HEAD^1"))
+        self.assertIn("early-files", pick)
+        self.assertEqual(steps["Upload the early base results"]["with"]["name"], "react-apps-base-early-shard${{ matrix.shard }}")
+        download = next(s for s in check["steps"] if s["name"] == "Download the early base results")
+        self.assertEqual(download["with"]["pattern"], "react-apps-base-early-shard*")
+        self.assertIs(download["continue-on-error"], True)
+        names = [s["name"] for s in check["steps"]]
+        self.assertLess(names.index("Download the early base results"), names.index("Restore the base's webview test history"))
+        # Every early shard waits on the install only when it has files to run.
+        for name in ("Setup Bun", "Install webview dependencies", "Build base web bundles", "Install headless engines",
+                     "Run the base reds", "Upload the early base results"):
+            self.assertEqual(steps[name]["if"], "${{ steps.pick.outputs.files != '0' }}", name)
 
     def test_only_the_install_build_and_browsers_wait_on_the_replay(self):
         import yaml

@@ -23,6 +23,13 @@
     webviews_test_history.py base-red-files BASE_REDS.json --names NAMES.json
         print, one a line, NAMES' red files (a shard's first run) whose every red name BASE_REDS holds; an
         unreadable BASE_REDS prints none, so every red file is retried
+    webviews_test_history.py early-files BASE_REDS.json --shard I --shard-count K --durations MANIFEST.json
+                                         [--only FILES] [--root DIR]
+        print, one a line, shard I's share (of K) of the files BASE_REDS names, kept to the FILES list (the
+        change's affected files) and to files under DIR; react-apps-base-early runs them on the merge parent
+    webviews_test_history.py early-known EARLY_DIR --sha BASE_SHA --replay FILES --known BASE.json
+        take into BASE (known's output) the verdicts react-apps-base-early's artifacts in EARLY_DIR hold for the
+        FILES list (known's replay list) at BASE_SHA, and rewrite FILES with the files still to replay
     webviews_test_history.py fetch OUT --repo OWNER/REPO --branch BRANCH
         write to OUT the newest history a push on BRANCH uploaded (the ARTIFACT artifact), or an empty
         one when there is none or it cannot be read; GITHUB_TOKEN reads it (actions: read)
@@ -262,6 +269,60 @@ def base_red_files(reds: set[str], head: dict[str, bool]) -> list[str]:
     return sorted(file for file, names in by_file.items() if all(name in reds for name in names))
 
 
+EARLY_DEFAULT_S = 60.0  # a base red file the duration manifest has no seconds for
+
+
+def early_files(reds: list[str], shard: int, count: int, durations: dict[str, float], only: set[str] | None = None,
+                root: Path | None = None) -> list[str]:
+    """Shard SHARD's (one-based, of COUNT) share of the files REDS names (known_reds: red on the base's newest recorded
+    push), for react-apps-base-early to run on the merge parent while the head shards run.
+
+    ONLY (the change's affected files) keeps the files a head shard will run; ROOT (webviews/ at the merge parent) keeps
+    the files the base has. Longest first onto the least loaded shard, ties by name, so every shard computes the same
+    split; the 600 s base timeout of run 43384458711 gets a shard to itself."""
+    files = sorted({str(name).split(" > ", 1)[0] for name in reds})
+    files = [f for f in files if (only is None or f in only) and (root is None or (root / f).is_file())]
+    loads = [0.0] * count
+    mine = []
+    for file in sorted(files, key=lambda f: (-durations.get(f, EARLY_DEFAULT_S), f)):
+        target = min(range(count), key=lambda i: (loads[i], i))
+        loads[target] += durations.get(file, EARLY_DEFAULT_S)
+        if target == shard - 1:
+            mine.append(file)
+    return sorted(mine)
+
+
+def early_known(early: list[dict], base_sha: str, replay: list[str],
+                known: dict[str, bool]) -> tuple[dict[str, bool], list[str]]:
+    """(KNOWN with the early base runs' verdicts for REPLAY's files, the files still to replay).
+
+    react-apps-base-early ran the base's recorded red files once each, alone, on this merge parent, with the head's
+    runner, while the head shards ran: the run react-apps-base-check's replay would make after them (run 43384458711:
+    up to 10 such files, 12.8 min, after the head shards' 17.9). A file takes those verdicts only when an early run on
+    BASE_SHA listed it and wrote a result for it; anything else (no artifact, another sha, a file it did not reach)
+    replays as before."""
+    results: dict[str, bool] = {}
+    ran: set[str] = set()
+    for item in early:
+        if not isinstance(item, dict) or item.get("sha") != base_sha or len(base_sha) != 40:
+            continue
+        files, found = item.get("files"), item.get("results")
+        if not isinstance(files, list) or not isinstance(found, dict):
+            continue
+        ran.update(str(f) for f in files)
+        results.update({str(name): bool(ok) for name, ok in found.items() if isinstance(ok, bool)})
+    by_file: dict[str, dict[str, bool]] = {}
+    for name, ok in results.items():
+        by_file.setdefault(name.split(" > ", 1)[0], {})[name] = ok
+    out, left = dict(known), []
+    for file in replay:
+        if file in ran and by_file.get(file):
+            out.update(by_file[file])
+        else:
+            left.append(file)
+    return out, left
+
+
 def flaky(runs: list[dict], names: list[str] | None = None) -> list[str]:
     if names is None:
         names = sorted({name for run in runs for name in run["red"]})
@@ -367,6 +428,18 @@ def main(argv: list[str]) -> int:
     br = sub.add_parser("base-red-files")
     br.add_argument("base_reds")
     br.add_argument("--names", required=True)
+    ef = sub.add_parser("early-files")
+    ef.add_argument("base_reds")
+    ef.add_argument("--shard", type=int, required=True)
+    ef.add_argument("--shard-count", type=int, required=True)
+    ef.add_argument("--durations", required=True)
+    ef.add_argument("--only")
+    ef.add_argument("--root")
+    ek = sub.add_parser("early-known")
+    ek.add_argument("early_dir")
+    ek.add_argument("--sha", required=True)
+    ek.add_argument("--replay", required=True)
+    ek.add_argument("--known", required=True)
     fe = sub.add_parser("fetch")
     fe.add_argument("out")
     fe.add_argument("--repo", required=True)
@@ -405,6 +478,44 @@ def main(argv: list[str]) -> int:
             return 0
         for file in base_red_files({str(name) for name in reds}, results([args.names])):
             print(file)
+        return 0
+    if args.command == "early-files":
+        try:
+            data = json.loads(Path(args.base_reds).read_text(encoding="utf-8"))
+            reds = data["red"] if isinstance(data, dict) and isinstance(data.get("inputs"), str) and data["inputs"] else None
+        except (OSError, ValueError, KeyError):
+            reds = None
+        if not isinstance(reds, list) or not 1 <= args.shard <= args.shard_count:
+            return 0
+        try:
+            durations = json.loads(Path(args.durations).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            durations = {}
+        durations = {str(k): float(v) for k, v in durations.items() if isinstance(v, (int, float)) and not isinstance(v, bool)
+                     and 0 <= v < 86400} if isinstance(durations, dict) else {}
+        only = None
+        if args.only:
+            only = {line.strip() for line in Path(args.only).read_text(encoding="utf-8").splitlines() if line.strip()}
+        for file in early_files(reds, args.shard, args.shard_count, durations, only, Path(args.root) if args.root else None):
+            print(file)
+        return 0
+    if args.command == "early-known":
+        # Any failure leaves BASE and FILES as they were: every file in FILES still replays.
+        early = []
+        for path in sorted(Path(args.early_dir).glob("early-*.json")) if Path(args.early_dir).is_dir() else []:
+            try:
+                early.append(json.loads(path.read_text(encoding="utf-8")))
+            except (OSError, ValueError):
+                continue
+        replay_path, known_path = Path(args.replay), Path(args.known)
+        replay = [line for line in replay_path.read_text(encoding="utf-8").splitlines() if line]
+        known_now = json.loads(known_path.read_text(encoding="utf-8"))
+        if not isinstance(known_now, dict):
+            return 1
+        merged, left = early_known(early, args.sha, replay, known_now)
+        print(f"react-apps-base-early answers for {len(replay) - len(left)} of {len(replay)} files to replay")
+        known_path.write_text(json.dumps(merged, sort_keys=True) + "\n", encoding="utf-8")
+        replay_path.write_text("".join(f"{file}\n" for file in left), encoding="utf-8")
         return 0
     if args.command == "known":
         base, replay = known(load(args.history), args.inputs, results([args.names]))
