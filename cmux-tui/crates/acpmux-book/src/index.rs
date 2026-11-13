@@ -564,7 +564,7 @@ impl SummaryIndex {
         next
     }
 
-    pub(crate) fn remove_ephemeral(&self, key: &RowKey) -> Self {
+    pub fn remove_ephemeral(&self, key: &RowKey) -> Self {
         let mut next = self.clone();
         if let Some(old) = next.by_id.remove(key) {
             next.ordered.remove(&SortKey::of(&old));

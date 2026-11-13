@@ -270,7 +270,7 @@ pub enum HubError {
     #[error("published summary {0:?} is missing after apply")]
     MissingSummary(String),
     #[error("source {source:?} does not own origin {origin:?} (owner {owner:?})")]
-    SourceRefused { origin: String, source: String, owner: String },
+    SourceRefused { origin: String, incoming: String, owner: String },
     #[error("origin limit exceeded")]
     OriginLimit,
 }
@@ -699,7 +699,7 @@ impl HubWriter {
         if origin.is_empty() || source.is_empty() {
             return Err(HubError::SourceRefused {
                 origin: origin.to_owned(),
-                source: source.to_owned(),
+                incoming: source.to_owned(),
                 owner: String::new(),
             });
         }
@@ -715,7 +715,7 @@ impl HubWriter {
         REFUSED_SOURCE_SUBMITS.fetch_add(1, Ordering::Relaxed);
         Err(HubError::SourceRefused {
             origin: origin.to_owned(),
-            source: source.to_owned(),
+            incoming: source.to_owned(),
             owner: owner.clone(),
         })
     }
@@ -762,7 +762,7 @@ impl HubWriter {
         }
     }
 
-    fn publish_origin(&self, seq: u64, origin: Origin) {
+    fn publish_origin(&self, seq: u64, _origin: Origin) {
         let Ok(subscribers) = self.subscribers.lock() else { return };
         for subscriber in subscribers.iter() {
             let Ok(state) = subscriber.state.lock() else { continue };
