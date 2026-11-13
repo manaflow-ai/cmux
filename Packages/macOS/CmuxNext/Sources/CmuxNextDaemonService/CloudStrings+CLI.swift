@@ -2,7 +2,7 @@ import Foundation
 
 /// What a CLI or agent run of a Cloud action hears back. Keys live in
 /// Resources/Cloud.xcstrings with every app locale.
-extension CloudStrings {
+public extension CloudStrings {
     /// `cloud new-machine` from a CLI or agent: the person said no in the confirmation, or
     /// dismissed the creation, so no machine was made.
     static var createDeclined: String {
@@ -199,7 +199,7 @@ extension CloudStrings {
 
 /// The cmux Pro offer when a create is refused because the plan has no Cloud
 /// machine. Keys live in Resources/Cloud.xcstrings with every app locale.
-extension CloudStrings {
+public extension CloudStrings {
     static var proRequiredTitle: String {
         String(localized: "cloud.pro.required.title", defaultValue: "Cloud machines need cmux Pro", table: "Cloud", bundle: .module)
     }
@@ -216,7 +216,7 @@ extension CloudStrings {
 }
 
 /// Open Desktop (``CloudDesktop``). Keys live in Resources/Cloud.xcstrings with every app locale.
-extension CloudStrings {
+public extension CloudStrings {
     /// The desktop workspace's name: the machine's title, then "Desktop".
     static func desktopWorkspaceName(_ machine: String) -> String {
         String(format: String(localized: "cloud.desktop.workspaceName", defaultValue: "%@ Desktop", table: "Cloud", bundle: .module), machine)

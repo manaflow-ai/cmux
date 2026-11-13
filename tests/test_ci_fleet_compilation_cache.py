@@ -111,6 +111,8 @@ class FleetCacheTests(unittest.TestCase):
         # Writes the job summary after a build; the real one, so its cache label is checked too.
         shutil.copyfile(ROOT / "scripts/ci/nightly-steps/release-build-summary.sh",
                         scripts / "nightly-steps/release-build-summary.sh")
+        # The SourcePackages preflight; with no .spm-cache here it resolves nothing.
+        shutil.copyfile(ROOT / "scripts/ci/spm_artifact_preflight.py", scripts / "spm_artifact_preflight.py")
         (scripts / "run-with-helper-prebuild.py").write_text(
             "import os,sys\na=sys.argv[sys.argv.index('--')+1:]\nos.execvp(a[0],a)\n")
         wrapper = scripts / "run-xcodebuild-with-diagnostics.sh"
@@ -161,6 +163,8 @@ class FleetCacheTests(unittest.TestCase):
         # Writes the job summary after a build; the real one, so its cache label is checked too.
         shutil.copyfile(ROOT / "scripts/ci/nightly-steps/release-build-summary.sh",
                         scripts / "nightly-steps/release-build-summary.sh")
+        # The SourcePackages preflight; with no .spm-cache here it resolves nothing.
+        shutil.copyfile(ROOT / "scripts/ci/spm_artifact_preflight.py", scripts / "spm_artifact_preflight.py")
         (scripts / "run-with-helper-prebuild.py").write_text(
             "import os,sys\na=sys.argv[sys.argv.index('--')+1:]\nos.execvp(a[0],a)\n")
         wrapper = scripts / "run-xcodebuild-with-diagnostics.sh"

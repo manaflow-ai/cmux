@@ -161,6 +161,9 @@ def compile_commands(outputs):
         (root / "scripts/ci/nightly-steps").mkdir(parents=True)
         (root / "scripts/ci/nightly-steps/app-host-build-root.sh").write_text(
             (ROOT / "scripts/ci/nightly-steps/app-host-build-root.sh").read_text())
+        # And the SourcePackages preflight; with no .spm-cache in this root it resolves nothing.
+        (root / "scripts/ci/spm_artifact_preflight.py").write_text(
+            (ROOT / "scripts/ci/spm_artifact_preflight.py").read_text())
         capture = root / "capture"
         capture.mkdir()
         steps = (
