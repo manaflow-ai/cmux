@@ -411,6 +411,7 @@ fn a_second_rebuild_at_a_higher_floor_swaps_a_registry_that_a_swap_made() {
     seal_all(&mux, "second_above");
     hook(&mux, terminal, "UserPromptSubmit");
     assert!(mux.settle_agent_roster_for_test());
+    assert_the_log_stayed_small(&mux, "the newer run");
     // As the maintenance tick does before a retention pass: the saved agent
     // history fold is at the head, above the second floor.
     assert!(crate::history_ops::fold_for_retention(&mux, Duration::from_secs(30), 1).unwrap());
