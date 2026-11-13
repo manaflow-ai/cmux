@@ -602,6 +602,13 @@ extension LiveCoordinator {
             return DaemonClient(channel: channel)
         })
         terminal.macName = owner.name
+        // Its channel ended while a newer session already serves its machine (Retry, a team switch):
+        // that session reattached its terminals before this one dropped, so reattach this one now.
+        terminal.onChannelEnded = { [weak self, weak terminal] in
+            guard let self, let terminal, let current = self.sessions[machineID], current.servedLink != nil,
+                  current.terminals.contains(where: { $0.session === terminal }) else { return }
+            terminal.reconnect()
+        }
         terminal.setMacOffline(owner.link.target == nil || owner.terminalsOffline)
         owner.terminals.removeAll { $0.session == nil }
         owner.terminals.append(MacSession.WeakTerminal(session: terminal))

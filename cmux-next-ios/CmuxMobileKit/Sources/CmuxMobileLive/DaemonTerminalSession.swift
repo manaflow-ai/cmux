@@ -811,7 +811,13 @@ public final class DaemonTerminalSession: TerminalSession {
         guard handler != nil, !ended else { return }
         handler?(.connection(connectionState))
         log.info("surface \(self.surface): link dropped, waiting to reattach")
+        onChannelEnded?()
     }
+
+    /// The terminal's channel ended (its link dropped). The coordinator reattaches it at once when
+    /// another link already serves its machine (the session it opened on was replaced), since that
+    /// link's own reattach pass ran while this terminal still looked attached.
+    public var onChannelEnded: (@MainActor () -> Void)?
 
     /// One event line from the daemon channel, decoded on the main actor
     /// (tests; the attach stream decodes off the main actor).
