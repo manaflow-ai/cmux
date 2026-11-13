@@ -161,6 +161,10 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `send {terminal_id}` to a terminal still being created: the daemon queues the input and
     /// writes it after the commit (cx-wb5.78, ``SendTerminalInputRequest``).
     case terminalInputWhileCreating = "terminal-input-while-creating-v1"
+    /// `cancel-creating-input {terminal_id}`: the connection that asked for a terminal drops the input
+    /// the daemon queued for it and has it refuse the rest, while the creation goes on (the person
+    /// closed its pane before it started, ``CancelCreatingInputRequest``).
+    case creatingInputCancel = "creating-input-cancel-v1"
     /// The owner ends a terminal with no tab after a grace period unless it
     /// is kept: `keep` on creation, `set-terminal-keep`, and
     /// `shutdown-daemon end_terminals` (cmux-tui PR 15600).
@@ -567,6 +571,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// reports already-gone ids as `gone_ids` and skips a tab that left before the commit
     /// (`WorkspaceClose.close` sends every workspace of a daemon in one request then).
     case layoutBulkBare = "layout-bulk-bare-v1"
+    /// `diff.comments.send`: the session host hands a diff tab's review comments to an acpmux
+    /// session of its own machine as one prompt and clears them (DiffPageProvider+Comments.swift).
+    case diffCommentsSend = "diff-comments-send-v1"
 
     /// Which list a capability is in.
     public enum Tier: Sendable {
@@ -592,7 +599,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .workspaceChecklist, .notificationMarkUnread, .tabMarkUnread, .tabAttention, .tabAttentionRequestID, .workspaceDescription, .workspaceStatus,
              .screenMetadata, .screenGroups, .stateResources, .windowRecords, .terminalEnv, .terminalPlacementEnv,
              .splitClientKeys, .splitClientSplitID, .splitAround, .splitDividerVisibility, .splitBefore, .rowClientKeys, .conversationTabSplit, .frontendBrowserTabSplit, .workspaceFirstTab, .frontendBrowserTabWorkspace,
-             .terminalInputWhileCreating, .terminalReap, .resumeCommand, .terminalLastCommand, .terminalReaperActive,
+             .terminalInputWhileCreating, .creatingInputCancel, .terminalReap, .resumeCommand, .terminalLastCommand, .terminalReaperActive,
              .endTerminalsKeepLayout, .batchClose, .sendExpectForeground, .closeReason, .closeWorkspaceIfEmpty,
              .browserHostProvider, .remoteHost, .frontendBrowserActivate, .frontendBrowserInsertAfter, .loopbackForward,
              .browserRuntime, .notificationSource, .terminalShellArgs, .terminalFrontendShellIntegration,
@@ -616,7 +623,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .terminalColorOverrides, .terminalSnapshotHistory, .terminalSnapshotLocalHistory,
              .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
              .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation, .appProviderChanged,
-             .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .layoutBulkBare:
+             .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .layoutBulkBare,
+             .diffCommentsSend:
             return .optional
         }
     }

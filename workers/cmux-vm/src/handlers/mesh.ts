@@ -18,7 +18,7 @@ import { TeamAdmin } from "../auth/team-admin.ts";
 import { MeshStore, type MeshDeviceRow } from "../db/mesh.ts";
 import { absenceIsFinal, authorizes, intentState, reconcileLive, type IntentAttemptRow, type IntentCaller } from "../db/mesh-intents.ts";
 import type { OverlayServerRow } from "../db/overlay-servers.ts";
-import { AuditStore, OwnershipStore } from "../db/stores.ts";
+import { type AuditEntry, AuditStore, OwnershipStore } from "../db/stores.ts";
 import { actorRef, carriesRequiredLabels, CurrentPrincipal, type Principal } from "../domain/principal.ts";
 import type { Scope } from "../domain/scopes.ts";
 import {
@@ -95,6 +95,24 @@ const phase = <A, E, R>(into: Phases | undefined, key: string, effect: Effect.Ef
         const started = yield* Clock.currentTimeMillis;
         return yield* effect.pipe(Effect.ensuring(Effect.flatMap(Clock.currentTimeMillis, (at) => Effect.sync(() => { into[key] = String(at - started); }))));
       });
+
+/**
+ * Runs an attach and logs its mesh_vm_attach line after the attach's audit write, which is a serial database step
+ * that queues under load: auditMs times AuditStore.append, and totalMs runs from where the attach calls `begin`
+ * through that write. An attach refused before `begin` (the caller gate, rate limit or mesh ownership) logs nothing.
+ */
+export const timedAttach = <A, E, R>(phases: Phases, run: (begin: Effect.Effect<number>) => Effect.Effect<A, E, R>) =>
+  Effect.suspend(() => {
+    let started: number | null = null;
+    const begin = Effect.tap(Clock.currentTimeMillis, (at) => Effect.sync(() => { started = at; }));
+    return run(begin).pipe(
+      Effect.provideServiceEffect(AuditStore, Effect.map(AuditStore, (store) => ({ ...store, append: (entry: AuditEntry) => phase(phases, "auditMs", store.append(entry)) }))),
+      Effect.ensuring(Effect.suspend(() => {
+        const from = started;
+        return from === null ? Effect.void : Effect.flatMap(Clock.currentTimeMillis, (at) => logEvent("mesh_vm_attach", { ...phases, totalMs: String(at - from) }));
+      })),
+    );
+  });
 
 const now = Effect.map(Clock.currentTimeMillis, (ms) => new Date(ms));
 
@@ -1677,11 +1695,12 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
     )
     .handle("attachMeshVm", ({ path }) =>
       Effect.gen(function* () {
-      // The handler's entry, before the caller gate, the rate limit, the mesh ownership read and the audit: the
-      // mesh_vm_attach line's entered_at, with each of those timed (gateMs, rateMs, ownsMeshMs) and pre_ms in all.
+      // The handler's entry, before the caller gate, the rate limit and the mesh ownership read: the mesh_vm_attach
+      // line's entered_at, with each of those timed (gateMs, rateMs, ownsMeshMs) and preMs in all. The audit write
+      // runs after the attach, so timedAttach times it (auditMs) inside totalMs.
       const entered = yield* Clock.currentTimeMillis;
-      const pre: Phases = {};
-      return yield* withOwnedMesh(path.meshId, "mesh:write", "write", (caller, mesh, proofs) =>
+      const phases: Phases = {};
+      return yield* timedAttach(phases, (begin) => withOwnedMesh(path.meshId, "mesh:write", "write", (caller, mesh, proofs) =>
         audited(
           "mesh.vm.attach",
           mesh.value,
@@ -1693,10 +1712,10 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
             const store = yield* MeshStore;
             const upstream = yield* UpstreamMesh;
             const tenantId = caller.value.tenantId;
-            // Where an attach's time goes (ownership reads, the provider attach, the writer lock, the rule creates),
-            // logged once as mesh_vm_attach for wrangler tail.
-            const started = yield* Clock.currentTimeMillis;
-            const phases: Phases = { meshId: mesh.value, vmId: path.vmId, enteredAt: String(entered), preMs: String(started - entered), ...pre };
+            // Where an attach's time goes (ownership reads, the provider attach, the writer lock, the rule creates, the
+            // audit write), logged once as mesh_vm_attach for wrangler tail.
+            const started = yield* begin;
+            Object.assign(phases, { meshId: mesh.value, vmId: path.vmId, enteredAt: String(entered), preMs: String(started - entered) });
             return yield* name(parsed.value, (vm) =>
               Effect.gen(function* () {
                 const ownsVm = yield* phase(phases, "ownsVmMs", tenantOwnsVm(caller, vm).pipe(Effect.catchAll(dependencyDown("ownership.find"))));
@@ -1736,14 +1755,10 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
                   attachedAt: member.attachedAt.toISOString(),
                 });
               }),
-            ).pipe(
-              Effect.ensuring(
-                Effect.flatMap(Clock.currentTimeMillis, (at) => logEvent("mesh_vm_attach", { ...phases, totalMs: String(at - started) })),
-              ),
             );
           }),
         ),
-      pre);
+      phases));
       }),
     )
     .handle("detachMeshVm", ({ path }) =>

@@ -362,7 +362,7 @@ class GeneratedFoldTest(unittest.TestCase):
     def test_the_verdict_job_fails_a_stale_file_or_a_missing_verdict(self):
         self.assertEqual(self.verdict["needs"], ["path_route", "swift-test", "daemon-test"])
         self.assertTrue(self.verdict["name"].startswith("cmux-next generated files"))
-        self.assertNotIn("macos", self.verdict["runs-on"])
+        self.assertNotIn("macos", workflow_jobs.single_runs_on(self.verdict))
         run = self.verdict["steps"][0]["run"]
         self.assertIn("fresh)", run)
         self.assertEqual(run.count("exit 1"), 3)

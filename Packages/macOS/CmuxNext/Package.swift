@@ -192,7 +192,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: 684a96e8ce32b26efd5d951f01d6236f015f77fa81d18cb513023a5afe12fb1c
+// app-ffi-pin-checksum: 53dd21c8bb36ce9050696fdd0b85de2fd2206b9c6ff5a8ffb17c42b24f7eb910
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -298,7 +298,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextAgentLanes",
                 "CmuxNextAgentPane",
                 "CmuxNextAgentPermissions",
-                "CmuxNextAgentQuestion",
                 "CmuxNextAgentUpdates",
                 "CmuxNextAppCore",
                 "CmuxNextAppHealth",
@@ -424,7 +423,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextNotifications",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextActions",
                 "CmuxNextAgentPane",
+                "CmuxNextCompat",
                 "CmuxNextControl",
                 "CmuxNextDaemon",
                 "CmuxNextDaemonService",
@@ -491,6 +492,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDesign",
                 "CmuxNextDesignTokens",
                 "CmuxNextSettings",
+                "CmuxNextSettingsWindow",
                 "CmuxNextSidebar",
             ],
             resources: [.process("Resources")],
@@ -834,18 +836,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: uiSwiftSettings
         ),
-        .target(
-            name: "CmuxNextAgentQuestion",
-            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
-                "CmuxNextDesign",
-                "CmuxNextIcons",
-                .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
-            ],
-            resources: [
-                .process("Resources"),
-            ],
-            swiftSettings: uiSwiftSettings
-        ),
         // Chromium's EarlyMallocZoneRegistration, run first thing in main.
         .target(name: "CmuxNextMallocZone"),
         // QuartzCore's CALayerHost, declared for a typed call (layer-hosted Chromium pages).
@@ -1003,6 +993,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextFocusUI",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextActions",
+                "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextSignposts",
             ],
@@ -1891,6 +1882,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextPages",
+                "CmuxNextPalette",
                 "CmuxNextSettings",
             ],
             resources: [.process("Resources")],
@@ -2150,6 +2142,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextDaemon",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                // CCmuxAppFFI: the connection heartbeat's counting (cmux-daemon-conn-core)
+                // and the launch rules (cmux-daemon-launch-core).
+                "CCmuxAppFFI",
                 "CmuxNextCompat",
                 "CmuxNextWakeups",
             ],
@@ -2248,10 +2243,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextSidebar",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CCmuxAppFFI",
+                "CmuxNextActions",
                 "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextIcons",
                 "CmuxNextPages",
+                "CmuxNextPalette",
                 "CmuxNextResources",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",

@@ -1674,7 +1674,7 @@ export function ContextRing({
     ? t("planUsage.ringLabel", { percent })
     : known
       ? t(PICKER_LABELS.context, { percent })
-      : t("context.title");
+      : `${t("context.title")} · ${t("status.notReported")}`;
   const breakdown = contextKnown && !planShown ? contextBreakdown(reported) : undefined;
   const shown = known && (pinned || hover.open);
   const dismissHover = hover.dismiss;
@@ -1777,6 +1777,8 @@ export function ContextRing({
         className="acpmux-context-ring"
         data-menu={t("context.title")}
         aria-label={label}
+        // tooltip-allow: unknown usage has no hover card; explain the empty ring without inventing a percentage.
+        title={known ? undefined : label}
         aria-haspopup="dialog"
         aria-expanded={shown}
         // Before the first usage report there is nothing to show: the ring keeps its place, off.
