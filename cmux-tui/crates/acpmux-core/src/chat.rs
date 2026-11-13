@@ -8,7 +8,7 @@
 use acpmux_book::blobs::{Blobs, Body};
 use acpmux_book::checkpoint::{Checkpoint, Cursor, OpenBody, next_edition};
 use acpmux_book::folds::Folds;
-use acpmux_book::log::{self, CheckpointHead, Error as BookError, Log, Options, RawRange};
+use acpmux_book::log::{self, Error as BookError, Log, Options, RawRange};
 use acpmux_book::row::{Outline, RowKind};
 use acpmux_book::translate::{self, BodyField, BodySource, Change, Harness, OwnedRow, State};
 use std::cell::RefCell;
@@ -441,17 +441,6 @@ fn apply_line(
     let file = state.raw_file;
     state.raw_place = base_offset.saturating_add(bytes.len() as u64).saturating_add(1);
     apply_ops(state, bytes, file, base_offset, span, true)
-}
-
-fn apply_replayed_line(
-    state: &mut ActorState,
-    bytes: &[u8],
-    file: u32,
-    base_offset: u64,
-) -> Result<(), ChatError> {
-    state.raw_file = file;
-    state.raw_place = base_offset.saturating_add(bytes.len() as u64).saturating_add(1);
-    apply_ops(state, bytes, file, base_offset, bytes.len() as u64 + 1, false)
 }
 
 fn apply_ops(
