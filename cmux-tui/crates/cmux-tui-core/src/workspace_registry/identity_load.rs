@@ -29,11 +29,13 @@ fn pepper_under_lock(
     lock: File,
     lock_path: &Path,
 ) -> anyhow::Result<ResourceEffectPepper> {
-    FileExt::lock(&lock)
+    // Unlocked when `_held` drops, on every return: a child another daemon thread forked
+    // meanwhile shares the open file until it execs, and a close alone leaves the lock held.
+    let _held = cmux_file_lock::FileLock::take(lock, cmux_file_lock::Kind::Exclusive)
         .with_context(|| format!("lock resource receipt pepper {}", lock_path.display()))?;
 
     let path = platform::normalize_filesystem_path(root.join(RESOURCE_EFFECT_PEPPER_FILE));
-    let result = match fs::symlink_metadata(&path) {
+    match fs::symlink_metadata(&path) {
         Ok(metadata) => {
             anyhow::ensure!(
                 metadata.file_type().is_file(),
@@ -56,9 +58,7 @@ fn pepper_under_lock(
         Err(error) => {
             Err(error).with_context(|| format!("read resource receipt pepper {}", path.display()))
         }
-    };
-    let _ = FileExt::unlock(&lock);
-    result
+    }
 }
 
 fn ensure_missing_pepper_can_migrate(root: &Path, pepper_path: &Path) -> anyhow::Result<()> {
@@ -88,11 +88,12 @@ fn machine_id_under_lock(
     lock: File,
     lock_path: &Path,
 ) -> anyhow::Result<MachinePublicId> {
-    FileExt::lock(&lock)
+    // Unlocked when `_held` drops, on every return (as in `pepper_under_lock`).
+    let _held = cmux_file_lock::FileLock::take(lock, cmux_file_lock::Kind::Exclusive)
         .with_context(|| format!("lock machine identity {}", lock_path.display()))?;
 
     let path = platform::normalize_filesystem_path(root.join(MACHINE_ID_FILE));
-    let result = match fs::read(&path) {
+    match fs::read(&path) {
         // Cut by a full disk in an earlier build's in-place write: never
         // handed out (returned only after its fsync), so a new id replaces it.
         Ok(bytes) if root_identity::is_cut_machine_id(&bytes) => {
@@ -111,9 +112,7 @@ fn machine_id_under_lock(
         Err(error) => {
             Err(error).with_context(|| format!("read machine identity {}", path.display()))
         }
-    };
-    let _ = FileExt::unlock(&lock);
-    result
+    }
 }
 
 fn parse_machine_id_file(path: &Path, bytes: &[u8]) -> anyhow::Result<MachinePublicId> {
