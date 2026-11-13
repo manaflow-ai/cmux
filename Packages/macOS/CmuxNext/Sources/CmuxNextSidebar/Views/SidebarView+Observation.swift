@@ -55,10 +55,10 @@ extension SidebarViewComponents {
         var noColorBlocks: Bool
         /// Where leading glyphs sit in the icon column (`sidebar.leadingColumn`): every row lays out again.
         var leadingColumn: SidebarLeadingColumnLook
-        /// One list's "Workspaces" heading (`sidebar.listHeading`): the list lays out again with or without it.
-        var listHeading: Bool
         /// What a pinned row with its own icon leads with (`sidebar.pinnedRowLeading`): every row lays out again.
         var pinnedRowLeading: SidebarPinnedRowLeading
+        /// The Sidebar Row Tuner's overrides (`SidebarRowTuning`): a change lays every row out again, live.
+        var rowTuning: [String]
         /// Every token the titlebar row's width reads past the view's own inputs (the reserve, the accessory, the
         /// Priority bell, which refresh it themselves): the button, the +'s trailing inset (the trailing column at
         /// the app and sidebar density), the toolbar band's button (the reserve's source), the traffic lights'
@@ -104,8 +104,8 @@ extension SidebarViewComponents {
             groupLineJoinsBar = SidebarGroupLine.joinsBar
             noColorBlocks = SidebarNoColorGroupLook.tunable.value != .plain
             leadingColumn = SidebarLeadingColumnLook.tunable.value
-            listHeading = SidebarTunables.listHeading.value
             pinnedRowLeading = SidebarPinnedRowLeading.tunable.value
+            rowTuning = SidebarRowTuning.signature
             titlebarRow = [SidebarStyle.toolbarButtonSize, SidebarStyle.titlebarPlusTrailingInset, TitlebarBandButton.side,
                            Metrics.trafficLightInset, Metrics.space1, Metrics.space2, Metrics.space3]
             switcherTokens = [Metrics.roomDotSlot, Metrics.roomDotDiameter, Metrics.smallIconSize]
@@ -149,6 +149,7 @@ extension SidebarViewComponents {
         let chromeChanged = lastState?.metrics != state.metrics || lastState?.fontSize != state.fontSize
             || lastState?.titlebarHeight != state.titlebarHeight || lastState?.leadingColumn != state.leadingColumn
             || lastState?.pinnedRowLeading != state.pinnedRowLeading
+            || lastState?.rowTuning != state.rowTuning
         if lastState?.titlebarRow != state.titlebarRow {
             // The window root sets the reserve from the toolbar band, whose width follows the same tokens.
             window?.contentView?.needsLayout = true

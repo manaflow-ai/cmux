@@ -1198,7 +1198,7 @@ impl Spawner {
             "subagent.start",
             json!({"id": id, "spawn": spawn, "session": session, "peer": peer, "prompt_id": prompt_id, "harness": s.harness, "harness_profile": admitted.profile, "harness_kind": admitted.kind, "harness_argv0": admitted.argv0, "goal": goal, "ms": began.elapsed().as_millis() as u64}),
         );
-        let hold_id = goal.then(|| format!("{PROMPT_PREFIX}sub:{id}:task:{}", now_ms()));
+        let hold_id = goal.then(|| crate::goal::hold_prompt_id(id, now_ms()));
         if let Some(hold_id) = &hold_id {
             let mut blocks = crate::prompt::subagent_blocks(view, task);
             blocks.push(crate::goal::hold_block());
@@ -1367,9 +1367,9 @@ impl Spawner {
     /// The person's settings document (cmux-next.json), read now.
     fn user_document(&self) -> Option<serde_json::Value> {
         match &self.user_settings {
-            Some(path) => std::fs::read_to_string(path).ok().and_then(|t| {
-                serde_json::from_str(&crate::agent_memory::settings::strip_jsonc(&t)).ok()
-            }),
+            Some(path) => std::fs::read_to_string(path)
+                .ok()
+                .and_then(|t| crate::agent_memory::settings::parse(&t).ok()),
             None => std::env::var_os("HOME").and_then(|home| {
                 crate::agent_memory::settings::document(std::path::Path::new(&home))
             }),

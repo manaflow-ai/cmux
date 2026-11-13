@@ -255,10 +255,21 @@ impl Hub {
         warm.kick.notify_one();
     }
 
-    /// The rows peer `peer` lists now.
+    /// The rows peer `peer` lists now that [`plan`] may read: only those are parsed, judged on
+    /// what each keeps hot (`peer_row.rs`).
     fn peer_rows(&self, peer: &str) -> Vec<Value> {
         let rows = self.remote_sessions.read();
-        rows.of_peer(peer).map(|(_, r)| r.summary.clone()).collect()
+        let now = now_ms();
+        rows.of_peer(peer)
+            .map(|(_, r)| &r.summary)
+            .filter(|s| {
+                !matches!(s.status(), Some("closed" | "unreachable"))
+                    && !s.stale()
+                    && s.created_at().is_some()
+                    && s.updated_ms().saturating_add(WARM_WITHIN_MS) >= now
+            })
+            .map(PeerRow::value)
+            .collect()
     }
 
     /// One round of peer `peer`: reads what `plan` asks, one at a time, until the link refuses one.

@@ -30,12 +30,14 @@ import hashlib
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 import importlib.util as _git_fixture_importlib  # noqa: E402
 from os import path as _git_fixture_path  # noqa: E402
 # The scratch repositories below are git writes: the helper drops an inherited GIT_DIR and turns maintenance off.
@@ -161,8 +163,13 @@ def code(line: str) -> str:
 # shell_tree.corpus() is the detector's own check: every unsafe write in it is flagged and no safe template is.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import shell_tree  # noqa: E402
+# tests/process_gone.py by path, as each other test file loads it: `import process_gone` here made a second module
+# object of that file beside theirs (tests/test_script_module_loads.py names it).
+_process_gone_spec = _git_fixture_importlib.spec_from_file_location("process_gone", ROOT / "tests" / "process_gone.py")
+process_gone = _git_fixture_importlib.module_from_spec(_process_gone_spec)
+_process_gone_spec.loader.exec_module(process_gone)
 
-SHELL_TREE_SHA256 = "b0db4ad88027c6be1b156619a585eda27a88f02721b1833a8566e4fd1a3aa9f1"
+SHELL_TREE_SHA256 = "aa41e3640d1b4995c343676c9ad1bc493202afc5c05ea4252aa92b49ce7cf61d"
 
 
 def without_templates(line: str) -> str:
@@ -190,9 +197,9 @@ def skipped(path: str) -> bool:
             or path.endswith(SKIP_SUFFIXES))
 
 
-def hits(root: Path = ROOT) -> list[tuple[str, int, str, str]]:
-    """(path, line number, the line, what was found): one hit per set -C or guessable name, each with its own text, so
-    an allowance approves that hit and no other on its line."""
+def hits(root: Path = ROOT) -> list[tuple[str, int, str, str, int]]:
+    """(path, line number, the line, what was found, its offset in the line): one hit per set -C or guessable name,
+    each with its own text and place, so an allowance approves that hit and no other on its line."""
     files = subprocess.run(["git", "-C", str(root), "ls-files", "--", *DIRS], capture_output=True, text=True,
                            check=True).stdout.splitlines()
     out = []
@@ -206,29 +213,31 @@ def hits(root: Path = ROOT) -> list[tuple[str, int, str, str]]:
         # A #! line shell_tree cannot resolve is a hit of its own: what reads the file is unknown.
         if shell_tree.shebang(text) == "unresolved":
             first = text.split("\n", 1)[0]
-            out.append((path, 1, first, first))
+            out.append((path, 1, first, first, 0))
         # A shell block shell_tree cannot parse is a hit of its own, its first line: what it runs is unknown, and its
         # raw text is scanned besides, never read line by line (shell_tree.unparsed).
         text_lines = text.split("\n")
         for n in shell_tree.unparsed(path, text):
-            out.append((path, n, text_lines[n - 1].strip(), text_lines[n - 1].strip()))
+            first = text_lines[n - 1]
+            out.append((path, n, first, first.strip(), len(first) - len(first.lstrip())))
         # The file is read whole where it is shell (shell_tree.scan_file), so a here-document, a continued line or
         # a quote across lines keeps its context; the hit keeps the line's own text.
         scans = shell_tree.scan_file(path, text, root=str(root))  # a source in the repository is followed
         for n, (line, scan) in enumerate(zip(text.split("\n"), scans), 1):
             for m in [*NOCLOBBER.finditer(scan), *SHARED_TMP.finditer(scan)]:
-                out.append((path, n, code(line).strip() or line.strip(), m.group(0)))
+                out.append((path, n, line, m.group(0), m.start()))
     return out
 
 
-def holds(entry: tuple, hit: tuple[str, int, str, str]) -> bool:
-    """Whether the allowance ENTRY's piece is on HIT's line in its path and holds what the hit found, never only
-    another name beside it."""
-    (path, piece), (p, _, line, found) = entry[:2], hit
-    return p == path and piece in line and found in piece
+def holds(entry: tuple, hit: tuple[str, int, str, str, int]) -> bool:
+    """Whether the allowance ENTRY's piece is on HIT's line in its path at a place that covers the hit's span, never
+    only beside it (review of manaflow-ai/cmux#41336 at c1c62c86, F1)."""
+    (path, piece), (p, _, line, found, at) = entry[:2], hit
+    starts = [i for i in range(len(line)) if line.startswith(piece, i)]
+    return p == path and any(i <= at and at + len(found) <= i + len(piece) for i in starts)
 
 
-def approves(entry: tuple, found) -> tuple[str, int, str, str] | None:
+def approves(entry: tuple, found) -> tuple[str, int, str, str, int] | None:
     """The one hit of FOUND that the allowance ENTRY ((path, piece[, occurrence])) approves: the occurrence-th, in
     file order, of the hits it holds (manaflow-ai/cmux#41336 review at 911fed64, F2: matched by text alone, one entry
     approved every line and every name with the same piece). None when there is no such hit: the entry is stale."""
@@ -237,7 +246,7 @@ def approves(entry: tuple, found) -> tuple[str, int, str, str] | None:
     return held[n - 1] if 0 < n <= len(held) else None
 
 
-def app_name(hit: tuple[str, int, str, str]) -> bool:
+def app_name(hit: tuple[str, int, str, str, int]) -> bool:
     """What HIT found is a name the app picks (APP_NAMES), never a set -C."""
     return not NOCLOBBER.match(hit[3]) and any(hit[3].startswith(p) for p in APP_NAMES)
 
@@ -245,7 +254,7 @@ def app_name(hit: tuple[str, int, str, str]) -> bool:
 def unapproved(found, allowlist=ALLOWED) -> list[str]:
     """The hits in FOUND that no entry of ALLOWLIST (each approving one hit) or an app name approves."""
     ok = {id(h) for h in (approves(e, found) for e in allowlist) if h is not None}
-    return [f"{h[0]}:{h[1]}: {h[3]} in {h[2][:160]}" for h in found if id(h) not in ok and not app_name(h)]
+    return [f"{h[0]}:{h[1]}: {h[3]} in {h[2].strip()[:160]}" for h in found if id(h) not in ok and not app_name(h)]
 
 
 def scratch_hits(files) -> set[str]:
@@ -258,6 +267,19 @@ def scratch_hits(files) -> set[str]:
             (Path(tmp) / path).write_text(text)
         subprocess.run(["git", "-C", tmp, "add", "-A"], check=True, env=env)
         return {h[0] for h in hits(Path(tmp))}
+
+
+def mktemp_names() -> set[str]:
+    """The names in /tmp (and $TMPDIR) owned by this user that mktemp's default template (tmp.XXXXXXXXXX) makes."""
+    out = set()
+    for folder in {"/tmp", os.environ.get("TMPDIR") or "/tmp"}:
+        try:
+            with os.scandir(folder) as entries:
+                out |= {e.path for e in entries if re.fullmatch(r"tmp\.[A-Za-z0-9]{10}", e.name)
+                        and e.stat(follow_symlinks=False).st_uid == os.getuid()}
+        except OSError:
+            continue
+    return out
 
 
 class NoclobberSweep(unittest.TestCase):
@@ -393,6 +415,7 @@ class NoclobberSweep(unittest.TestCase):
         and called unsafe by the corpus. The other way round is the sweep's design: it flags a guessable name outside a
         template even where bash never writes it (an echo, an array's words, a function never called)."""
         corpus = [c for c in shell_tree.corpus() if c[0] not in shell_tree.TREE_ONLY]
+        before = mktemp_names()
         verdicts = shell_tree.bash_verdicts([line for line, _ in corpus])
         shell = [f for f in shell_tree.FILES if not f[0].endswith(".yml")]
         file_verdicts = shell_tree.bash_verdicts([text for _, text, _ in shell])
@@ -408,21 +431,38 @@ class NoclobberSweep(unittest.TestCase):
         self.assertEqual([p for p, _, unsafe in files if not (unsafe and p in found)], [],
                          "files bash writes a guessable name with, which hits() passes or FILES calls safe")
         self.assertGreater(len(lines), 300)
+        # teamleaderleo/leo-workspace#4368 review at cfd7897e, F4: env -i mktemp found the real mktemp on the default
+        # PATH and made its name in the real temp folder. No fixture may reach it.
+        self.assertEqual(sorted(mktemp_names() - before), [], "a fixture's mktemp made a name in the real temp folder")
 
     def test_an_allowance_approves_only_its_own_hit(self):
         """A downstream review, F2: an allowance approved its whole line, so an unsafe name on the
         line of an approved one passed. Each hit is matched with its own entry, by its own text."""
         line = 'ssh host "mktemp -d /tmp/$NAME-XXXXXX" && printf s > /tmp/out.$$'
+        # manaflow-ai/cmux#41336 review at c1c62c86, F1: matched by text, the template's allowance also approved a
+        # second hit with the same text; an allowance approves only the hit at an offset inside its piece.
+        same = 'ssh host "mktemp -d /tmp/$NAME-XXXXXX" && printf secret > /tmp/$NAME-unsafe'
         allowlist = {("scripts/a.sh", '"mktemp -d /tmp/$NAME-XXXXXX"'): "made on the host by mktemp"}
         with tempfile.TemporaryDirectory() as tmp:
             env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
             subprocess.run(["git", "init", "-q", tmp], check=True, env=env)
             (Path(tmp) / "scripts").mkdir()
-            (Path(tmp) / "scripts/a.sh").write_text(line + "\n")
+            (Path(tmp) / "scripts/a.sh").write_text(line + "\n" + same + "\n")
             subprocess.run(["git", "-C", tmp, "add", "-A"], check=True, env=env)
             found = hits(Path(tmp))
-        self.assertEqual(len(unapproved(found, allowlist)), 1, found)
-        self.assertEqual(len(unapproved(found, {})), 2, found)
+        left = unapproved(found, allowlist)
+        # manaflow-ai/cmux#41336 review at 911fed64, F2: line 2's copy of the piece is another occurrence, which the
+        # one entry (occurrence 1) does not approve.
+        self.assertEqual([h.split(":")[1] for h in left], ["1", "2", "2"], found)
+        self.assertEqual(len(unapproved(found, {})), 4, found)
+
+    def test_a_quoted_env_split_shebang_is_shell(self):
+        """Review of manaflow-ai/cmux#41336 at c1c62c86, F2: `#!/usr/bin/env -S 'bash' -e` read as another program,
+        so the here-document's substitution was missed. env's -S string is split as env splits it, quotes included."""
+        body = "\ncat <<EOF\n# $(printf s > /tmp/out.$$)\nEOF\n"
+        files = [("scripts/q", "#!/usr/bin/env -S 'bash' -e" + body, True),
+                 ("scripts/qq", '#!/usr/bin/env -S "bash" -e' + body, True)]
+        self.assertEqual(scratch_hits(files), {"scripts/q", "scripts/qq"})
 
     def test_an_allowance_approves_one_occurrence(self):
         """manaflow-ai/cmux#41336 review at 911fed64, F2: an allowance matched by text approved every hit with the same
@@ -445,6 +485,93 @@ class NoclobberSweep(unittest.TestCase):
         self.assertEqual([u.split(":")[1] for u in unapproved(found, both)], ["2"], found)
         self.assertIsNone(approves(("scripts/a.sh", '"/tmp/x-$tag"', 4), found))
 
+    def own_runs(self) -> list[str]:
+        """The scratch folders bash_writes() makes from here on, each the HOME of every process its run starts; at
+        cleanup each process whose environment names one (made by mkdtemp, so this test's alone) is killed."""
+        roots: list[str] = []
+        real = tempfile.mkdtemp
+
+        def mkdtemp(*args, **kwargs):
+            got = real(*args, **kwargs)
+            if kwargs.get("prefix") == "shell-tree-":
+                roots.append(got)
+            return got
+
+        def kill_left():
+            try:
+                self.assertEqual(left(roots), [], "processes of the run outlived it")
+            finally:
+                # Cleanup must not make the assertion pass by killing its evidence first.
+                for pid in live_in_roots(roots):
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                self.assertEqual(left(roots), [], "processes survived test cleanup")
+
+        patcher = mock.patch.object(shell_tree.tempfile, "mkdtemp", mkdtemp)
+        patcher.start()
+        self.addCleanup(kill_left)
+        self.addCleanup(patcher.stop)
+        return roots
+
+    def test_a_reaper_that_fails_is_no_answer(self):
+        """A review of this copy, F2 (the detector for its class): a reaper that crashed exited 1, and bash_writes()
+        read the scratch folder as bash's answer, False, while bash ran on. A reaper that fails, whatever the reason,
+        is OracleUnavailable, never True or False, and what it left running is stopped."""
+        roots = self.own_runs()
+        crash = shell_tree.REAPER.replace("\nwhile reap(False):", "\nraise RuntimeError('injected')\nwhile reap(False):")
+        self.assertNotEqual(crash, shell_tree.REAPER)
+        with mock.patch.object(shell_tree, "REAPER", crash):
+            for text in ("SECONDS=0; while ((SECONDS < 20)); do :; done", ": > /tmp/out.$$; SECONDS=0; "
+                         "while ((SECONDS < 20)); do :; done"):
+                with self.subTest(text=text):
+                    with self.assertRaises(shell_tree.OracleUnavailable) as raised:
+                        shell_tree.bash_writes(text, timeout=5)
+                    self.assertIn("reaper exited 1", raised.exception.reason)
+                    self.assertFalse(raised.exception.skipped)
+        self.assertEqual(len(roots), 2)
+        self.assertEqual(left(roots), [], "processes of the run outlived it")
+
+    def test_a_reaper_with_no_sigtimedwait_still_answers(self):
+        """A review of this copy, F2: macOS has no signal.sigtimedwait, so the reaper crashed on every row there. With
+        it taken away, the reaper still waits for every process the run leaves and answers as it does with it."""
+        self.own_runs()
+        portable = "import signal\ndel signal.sigtimedwait\n" + shell_tree.REAPER
+        rows = [(": > /tmp/out.$$", True), ("d=$(mktemp -d /tmp/x.XXXXXX)", False)]
+        if os.path.isdir("/proc/self"):  # the child subreaper waits for an orphan (Linux)
+            rows.append(("{ x=0; while ((x < 20000)); do ((x++)); done; : > /tmp/late.$$; } & exit 0", True))
+        with mock.patch.object(shell_tree, "REAPER", portable):
+            for text, wrote in rows:
+                with self.subTest(text=text):
+                    self.assertIs(shell_tree.bash_writes(text, timeout=10), wrote)
+
+    def test_bash_source_in_a_sourced_file_is_that_file(self):
+        """A review of this copy, F1: a test for "0" in the argument took ${BASH_SOURCE[0]} for $0, so a source inside
+        a sourced file resolved against the script's folder. $0 is the script's in every file; each BASH_SOURCE form
+        is the file being read. lib/b.sh defines mktemp(), b.sh (beside the script) does not: the template is a hit
+        only when the source is read as lib/b.sh."""
+        use = 'd=$(mktemp -d /tmp/x.$$.XXXXXX)\n'
+        here = 'here=$(cd "$(dirname "$0")" && pwd)\n'
+        rows = []
+        for form in ('"${BASH_SOURCE[0]}"', '"${BASH_SOURCE}"', '"$BASH_SOURCE"'):
+            rows.append((f'h2=$(cd "$(dirname {form})" && pwd)\n. "$h2/b.sh"\n', True))
+            rows.append((f'. "$(dirname {form})/b.sh"\n', True))
+        for form in ('"$0"', "$0", '"${0}"'):
+            rows.append((f'h2=$(cd "$(dirname {form})" && pwd)\n. "$h2/b.sh"\n', False))
+            rows.append((f'. "$(dirname {form})/b.sh"\n', False))
+        with tempfile.TemporaryDirectory() as tmp:
+            for n, (lib, hit) in enumerate(rows):
+                root = Path(tmp) / str(n)
+                files = {"s.sh": here + '. "$here/lib/a.sh"\n' + use, "lib/a.sh": lib, "b.sh": "",
+                         "lib/b.sh": "mktemp() { :; }\n"}
+                for path, text in files.items():
+                    (root / path).parent.mkdir(parents=True, exist_ok=True)
+                    (root / path).write_text(text)
+                with self.subTest(row=n, lib=lib):
+                    scan = "\n".join(shell_tree.scan_file("s.sh", files["s.sh"], root=str(root)))
+                    self.assertEqual(bool(SHARED_TMP.search(scan)), hit, scan)
+
     def test_shell_tree_is_the_shared_copy(self):
         """shell_tree.py is vendored byte for byte from a pinned upstream blob (its docstring); this pin is its
         SHA-256."""
@@ -456,6 +583,42 @@ class NoclobberSweep(unittest.TestCase):
         self.assertTrue(app_named('sock="/tmp/cmux-debug-$tag.sock"'))
         self.assertFalse(app_named('cp "/tmp/cmux-debug-$tag.log" "/tmp/mine-$$.log"'))
         self.assertFalse(app_named('f=/tmp/out.$$'))
+
+
+def left(roots: list[str]) -> list[int]:
+    """Wait for the run's process groups to exit, then report any live owned processes.
+
+    A reaper's exit and SIGKILL delivery do not mean its children have finished exiting. Share one deadline
+    across the groups, using the zombie-aware wait also used by the other process tests. The 20-second fixture
+    still fails if its kill never happened; this wait is bounded to process_gone.WITHIN (10 seconds).
+    """
+    deadline = time.monotonic() + process_gone.WITHIN
+    groups = set()
+    for pid in live_in_roots(roots):
+        try:
+            groups.add(os.getpgid(pid))
+        except ProcessLookupError:
+            pass
+    for pgid in groups:
+        process_gone.group_died(pgid, within=max(0, deadline - time.monotonic()))
+    return live_in_roots(roots)
+
+
+def live_in_roots(roots: list[str]) -> list[int]:
+    """The pids of live (not zombie) processes whose environment has HOME set to one of ROOTS (Linux: /proc)."""
+    marks = [b"HOME=" + r.encode() + b"\0" for r in roots]
+    out = []
+    for d in os.listdir("/proc") if marks and os.path.isdir("/proc/self") else ():
+        try:
+            with open(f"/proc/{d}/environ", "rb") as f:
+                env = f.read()
+            with open(f"/proc/{d}/stat") as f:
+                state = f.read().rsplit(")", 1)[1].split()[0]
+        except (OSError, IndexError):
+            continue
+        if state != "Z" and any(m in env for m in marks):
+            out.append(int(d))
+    return out
 
 
 if __name__ == "__main__":
