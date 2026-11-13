@@ -48,15 +48,19 @@ public nonisolated struct NotificationSoundPreferences: Hashable, Sendable {
     /// ends on its own.
     ///
     /// An entry names a sound the way the person writes it: an entry with a path (`~/…`, `/…`) matches
-    /// that file first; otherwise a sound matches by name, ignoring case and an audio extension, so
+    /// only that file, and wins; an entry with a name matches by name, ignoring case and an audio extension, so
     /// `"glass"`, `"Glass.aiff"` and `"/System/Library/Sounds/Glass.aiff"` all name Glass.
     public func length(for sound: String) -> Double? {
         let wanted = SoundKey(sound)
         var byName: Double?
         for (key, seconds) in lengths.sorted(by: { $0.key < $1.key }) {
             let entry = SoundKey(key)
-            if let path = entry.path, path == wanted.path { return seconds > 0 ? seconds : nil }
-            if byName == nil, entry.stem == wanted.stem { byName = seconds }
+            if let path = entry.path {
+                // A path entry names that one file, never another file of the same name.
+                if path == wanted.path { return seconds > 0 ? seconds : nil }
+            } else if byName == nil, entry.stem == wanted.stem {
+                byName = seconds
+            }
         }
         if let own = byName { return own > 0 ? own : nil }
         return maxSeconds > 0 ? maxSeconds : nil
