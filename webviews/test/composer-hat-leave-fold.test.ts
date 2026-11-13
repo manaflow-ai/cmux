@@ -193,12 +193,20 @@ await requireBrowserLane("composer-hat-leave-fold.test.ts", async () => {
     const firstFinal = tail.findIndex((sample) => sample.dock <= final + 0.05);
     const spanMs = tail[firstFinal]!.at - tail[lastFull]!.at;
     const between = tail.filter((sample) => sample.dock < full - 0.05 && sample.dock > final + 0.05).length;
+    // How many frames the engine painted during the leave itself (from the copy's first frame, for
+    // the leave's length). Headless WebKit on a loaded runner can stall through most of it: frames at
+    // +16, +59 and +199 ms, one painted height in a 180 ms fold (run 43397481010, seven browser files
+    // at once), where two heights cannot be drawn at all.
+    const ghostAt = tail.find((sample) => sample.ghost)?.at;
+    const leaveLength = samples.find((sample) => sample.leaveMs !== null)?.leaveMs ?? 0;
+    const leaveFrames =
+      ghostAt === undefined ? 0 : tail.filter((sample) => sample.at >= ghostAt && sample.at < ghostAt + leaveLength).length;
     const composerMoves = Math.max(...samples.map((sample) => Math.abs(sample.composerTop - samples[0]!.composerTop)));
     const read = samples.find((sample) => sample.leaveMs !== null);
     const leaveMs = read?.leaveMs ?? null;
     const leaveName = read?.leaveName ?? null;
     console.log(
-      `composer-hat-leave-fold ${engine}${reduce ? " (Reduce Motion)" : ""}: hat ${hat.toFixed(1)} px, total drop ${total.toFixed(1)} px, largest step ${largest.toFixed(1)} px, largest rise ${rise.toFixed(1)} px, ${moving} frames moving, ${between} heights between, ${spanMs.toFixed(0)} ms full to final${leaveMs === null ? "" : ` of a ${leaveMs.toFixed(0)} ms leave`}, composer moved ${composerMoves.toFixed(1)} px`,
+      `composer-hat-leave-fold ${engine}${reduce ? " (Reduce Motion)" : ""}: hat ${hat.toFixed(1)} px, total drop ${total.toFixed(1)} px, largest step ${largest.toFixed(1)} px, largest rise ${rise.toFixed(1)} px, ${moving} frames moving, ${between} heights between in ${leaveFrames} frames painted during the leave, ${spanMs.toFixed(0)} ms full to final${leaveMs === null ? "" : ` of a ${leaveMs.toFixed(0)} ms leave`}, composer moved ${composerMoves.toFixed(1)} px`,
     );
     console.log(
       `  per frame (ms, dock height, dock top, ghost): ${tail.map((sample) => `+${(sample.at - before.at).toFixed(0)}:${sample.dock.toFixed(1)}/${sample.dockTop.toFixed(1)}${sample.ghost ? "g" : ""}`).join(" ")}`,
@@ -211,6 +219,7 @@ await requireBrowserLane("composer-hat-leave-fold.test.ts", async () => {
       rise,
       moving,
       between,
+      leaveFrames,
       spanMs,
       leaveMs,
       leaveName,
@@ -234,7 +243,15 @@ await requireBrowserLane("composer-hat-leave-fold.test.ts", async () => {
         run.spanMs,
         `the stack takes at least ${least} ms (${FOLD_SHARE} of its ${run.leaveMs} ms leave) from full to final`,
       ).toBeGreaterThanOrEqual(least - CLOCK_SLACK_MS);
-      expect(run.between, "at least two painted heights between full and final").toBeGreaterThanOrEqual(2);
+      // Two painted heights between full and final wherever the engine painted four or more frames
+      // during the leave; one where it painted fewer, which is all it drew. Never none: a jump held
+      // back and then taken in one frame reads no height between, and the span above holds the fold
+      // to its length.
+      const heights = run.leaveFrames >= 4 ? 2 : 1;
+      expect(
+        run.between,
+        `at least ${heights} painted heights between full and final (${run.leaveFrames} frames painted during the leave)`,
+      ).toBeGreaterThanOrEqual(heights);
       expect(run.rise, "the stack never grows again while the hat folds away").toBeLessThanOrEqual(0.5);
       expect(run.composerMoves, "the composer never moves").toBeLessThanOrEqual(0.5);
     });
