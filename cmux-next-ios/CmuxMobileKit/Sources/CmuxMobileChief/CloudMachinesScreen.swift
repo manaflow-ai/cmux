@@ -67,8 +67,8 @@ public struct CloudMachinesScreen: View {
             if let plan = model.plan {
                 Section {
                     LabeledContent("Plan", value: plan.planID.capitalized)
-                    LabeledContent("Running", value: "\(plan.active) of \(plan.maxActive)")
-                    LabeledContent("Saved", value: "\(plan.saved) of \(plan.maxSaved)")
+                    LabeledContent("Running", value: CloudMachinePlan.count(plan.active, of: plan.maxActive))
+                    LabeledContent("Saved", value: CloudMachinePlan.count(plan.saved, of: plan.maxSaved))
                     if let used = plan.hoursUsed {
                         LabeledContent("Machine hours", value: plan.hoursIncluded.map { "\(used.formatted(.number.precision(.fractionLength(0...1)))) of \($0.formatted())" }
                             ?? used.formatted(.number.precision(.fractionLength(0...1))))

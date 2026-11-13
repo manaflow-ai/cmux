@@ -379,7 +379,10 @@ final class ShellModel {
             create: { creator.create(start: .terminal, macID: $0) },
             page: { [weak self] workspace in
                 AnyView(WorkspaceScreen(store: store, workspaceID: workspace.id, terminal: terminalTabs, creator: creator,
-                                        openWorkspace: { self?.show(workspace: $0) }, screenSharing: self?.screenSharing))
+                                        openWorkspace: { self?.show(workspace: $0) }, screenSharing: self?.screenSharing)
+                    // On the Settings stack: the tab bar hides while it is on screen, as on Workspaces.
+                    .onAppear { self?.workspacesInSettings += 1 }
+                    .onDisappear { self.map { $0.workspacesInSettings = max(0, $0.workspacesInSettings - 1) } })
             },
             shown: { [weak live] machineID in live?.touch(machineID) }
         )
@@ -573,8 +576,13 @@ final class ShellModel {
     /// showed over the bar, and a screen that hid it in some branches only
     /// (a conversation still loading) showed it in the others.
     func showsTabBar(on tab: RootTab) -> Bool {
-        tab == .settings || depth(of: tab) == 0
+        if tab == .settings { return workspacesInSettings == 0 }
+        return depth(of: tab) == 0
     }
+
+    /// Workspaces open on the Settings stack (a Cloud machine's page opens its workspaces there,
+    /// so swipe-back returns to it): like a workspace on any other tab they own the bottom edge.
+    var workspacesInSettings = 0
 
     /// The drawer pan only opens from a tab root (stack depth 1).
     private func updateInteractiveOpen() {

@@ -58,8 +58,15 @@ extension LiveCoordinator {
             store.macData[gone] = nil
             lastShown[gone] = nil
         }
-        for machine in machines where !machine.isOnline && sessions[machine.id] != nil {
-            closeSession(machine.id)
+        // A machine that stopped running (paused, pausing, failed) keeps its session, as a Mac that
+        // went offline does: its link closes (the cap leaves it out, as it is not online), its open
+        // terminals say it is offline instead of "Reattaching…" for ever, and once it runs again
+        // they reattach on the same session. Only a machine that left the list forgets it.
+        for machine in machines where !machine.isOnline {
+            guard let session = sessions[machine.id] else { continue }
+            session.terminalsOffline = true
+            session.terminals.removeAll { $0.session == nil }
+            for terminal in session.terminals { terminal.session?.setMacOffline(true) }
         }
         applyLinks()
     }

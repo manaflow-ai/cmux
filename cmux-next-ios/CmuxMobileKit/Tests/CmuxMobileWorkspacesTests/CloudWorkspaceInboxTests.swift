@@ -41,6 +41,21 @@ import Testing
         #expect(!inbox.recent.contains { $0.id == "kept" })
     }
 
+    /// Just started: the machine says running, but this phone has not dialed it or its daemon has
+    /// not listed anything yet. Its line keeps saying it is waking, never vanishing in between
+    /// (live capture at 9e7c5fc6: no Cloud line for 4-7 s after "Waking up…").
+    @Test func aRunningMachineWithNothingListedYetIsStillWaking() {
+        for phase in [MacDataMachine.Phase.idle, .loading] {
+            let inbox = WorkspaceInbox(scope: .all, macs: [mac, cloud("vm_r", .running)], workspaces: [ws("a", on: "m", age: 0)],
+                                       context: .init(phases: ["m": .live, "vm_r": phase]))
+            #expect(inbox.folds.first { $0.mac.id == "vm_r" }?.reason == .cloudWaking, "\(phase)")
+        }
+        // Once its daemon answers with nothing, it is the empty machine (New Workspace).
+        let empty = WorkspaceInbox(scope: .all, macs: [mac, cloud("vm_r", .running)], workspaces: [],
+                                   context: .init(phases: ["m": .live, "vm_r": .empty]))
+        #expect(empty.folds.first { $0.mac.id == "vm_r" }?.reason == .cloudEmpty)
+    }
+
     /// Asleep speaks of Macs: paused Cloud machines don't make "Your Macs are asleep" when a Mac is up,
     /// and a running one keeps it from showing.
     @Test func asleepCountsMacsOnly() {

@@ -122,6 +122,14 @@ extension AccountCloudTests {
         #expect(!model.canAct)
     }
 
+    /// A limit the plan doesn't enforce comes as a huge number (Number.MAX_SAFE_INTEGER on the
+    /// staging team plan): the page says the count alone, never "2 of 9007199254740991".
+    @Test func anUnlimitedPlanLimitIsNotShownAsANumber() {
+        #expect(CloudMachinePlan.count(2, of: 3) == "2 of 3")
+        #expect(CloudMachinePlan.count(2, of: 9_007_199_254_740_991) == "2")
+        #expect(CloudMachinePlan.count(0, of: 0) == "0")
+    }
+
     @Test func cloudMachineGrowOnlyGoesUp() async throws {
         Service.reset(Machines.reads)
         let model = Machines.model()

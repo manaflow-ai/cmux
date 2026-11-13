@@ -296,6 +296,12 @@ public struct WorkspaceInbox: Hashable, Sendable {
                     if !searching, scope.macID == nil, rows.isEmpty, context.listState(mac.id) == .live {
                         return Fold(mac: mac, reason: .cloudEmpty, workspaces: [], isForcedOpen: false)
                     }
+                    // Running, but its daemon has not listed anything yet (the carrier is dialing just
+                    // after a Start): it is still waking to the person, never a line that vanishes.
+                    if !searching, scope.macID == nil, rows.isEmpty,
+                       [.loading, .notConnected].contains(context.listState(mac.id)) {
+                        return Fold(mac: mac, reason: .cloudWaking, workspaces: [], isForcedOpen: false)
+                    }
                 }
             }
             if !mac.isOnline {
