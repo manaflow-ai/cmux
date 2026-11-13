@@ -152,11 +152,7 @@ fn terminal_tab(
 /// to its own session (beside.rs). An agent's chat and a Chief turn: the app
 /// places the tab beside the chat. A terminal, with an app that places
 /// terminals: beside it or in its own pane, as the app decides.
-fn caller_target(
-    reader: &mut Reader,
-    app: &mut UnixStream,
-    route: &Map<String, Value>,
-) -> Result<Target, Failure> {
+fn caller_target(reader: &mut Reader, app: &mut UnixStream, route: &Map<String, Value>) -> Target {
     let caller = super::beside::Caller::of_process();
     let mut identity = || {
         super::app::request(app, "system.identify", json!({}), super::app::READ_TIMEOUT).ok()?.ok()
@@ -170,18 +166,19 @@ fn caller_target(
             && let Some(tab) = super::resolve::workspace_key_path(reader, route, key)
                 .and_then(|path| path.get("tab").and_then(Value::as_str).map(str::to_owned))
         {
-            return Ok(Target { tab: Some(tab), caller: Some(Value::Null), own_terminal: None });
+            return Target { tab: Some(tab), caller: Some(Value::Null), own_terminal: None };
         }
-        return Ok(Target::default());
+        return Target::default();
     }
-    let Some(terminal) = caller.terminal else { return Ok(Target::default()) };
+    let Some(terminal) = caller.terminal else { return Target::default() };
     if identity().is_some_and(|identity| super::beside::app_places_terminals(&identity)) {
-        return Ok(Target { own_terminal: Some(terminal), ..Target::default() });
+        return Target { own_terminal: Some(terminal), ..Target::default() };
     }
     // An older app opens a run with no target in the focused pane: name the
-    // terminal's own tab, so the new tab opens in the terminal's pane.
-    let tab = terminal_tab(reader, route, &terminal)?;
-    Ok(Target { tab: Some(tab), ..Target::default() })
+    // terminal's own tab, so the new tab opens in the terminal's pane. A
+    // terminal the daemon no longer shows names no place: the default, as
+    // for every creation (resolve.rs `place_creation`).
+    Target { tab: terminal_tab(reader, route, &terminal).ok(), ..Target::default() }
 }
 
 /// The `caller` of the app run for a request that names another session
@@ -244,7 +241,7 @@ pub(super) fn open(
             let tab = read(reader, ResourceOperation::TabGet, selector)?;
             Target { tab: Some(string_field(&tab, "id", "tab")?), ..Target::default() }
         }
-        None if caller_route => caller_target(reader, app, &route)?,
+        None if caller_route => caller_target(reader, app, &route),
         None => Target::default(),
     };
     // A request for another session never names the caller's terminal.
