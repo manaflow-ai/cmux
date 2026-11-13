@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Before and after numbers for the send's motion from one harness (Leo, 2026-11-09: "i hate the way when i send off
 # a message it seems to move up and under your current running tool call or whatever"; "the prompt sending animation
-# feels sluggish ... everything's just a bit slow rn"). Runs the send bench (send-status-shift.bench.ts) in four
+# feels sluggish ... everything's just a bit slow rn"). Runs the send bench (send-motion-pass.bench.ts) in four
 # modes: open (an idle chat), mid-turn (a steer while a tool call runs), and each under 12 ms of main-thread load a
 # frame; then the scroll readjust bench (transcript-scroll-readjust.bench.ts). First on this checkout's src ("after"),
 # then on BASE's src with this checkout's benches ("before"); src is put back on exit.
@@ -28,7 +28,7 @@ run() {
     case "$mode" in mid-turn*) flags+=(--mid-turn) ;; esac
     case "$mode" in *-load12) flags+=(--load 12) ;; esac
     echo "=== $label $mode"
-    if ! bun bench/send-status-shift.bench.ts "$rounds" --engines chromium,webkit --think-ms 1500 \
+    if ! bun bench/send-motion-pass.bench.ts "$rounds" --engines chromium,webkit --think-ms 1500 \
       ${flags[@]+"${flags[@]}"} --json "$out/$label-$mode.json" 2>&1 | tee "$out/$label-$mode.log"; then
       echo "=== $label $mode FAILED"
     fi

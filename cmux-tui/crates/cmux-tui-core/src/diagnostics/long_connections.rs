@@ -17,6 +17,14 @@
 //!
 //! Connections from outside the terminals (the app, a relay, a remote link)
 //! are in neither lane and do not change.
+//!
+//! A connection that came before its terminal had its seat was admitted as
+//! an outside one. If it started such work, it takes its place here at the
+//! moment the terminal takes its seat (`ConnectionLease::join_terminal`),
+//! with no limit: it is open already and cannot be refused then. The lane
+//! can thus hold more than its limit while such connections live; each
+//! later claim counts them and is refused until the lane is under the limit
+//! again.
 
 use super::terminal_lane::TerminalLane;
 
@@ -30,6 +38,13 @@ impl LongConnections {
     /// within the terminal's fair share (`TerminalLane::claim`).
     pub(super) fn claim(&self, limit: u64, client: Option<u32>) -> Result<(), LongConnectionsFull> {
         if self.lane.claim(limit, client) { Ok(()) } else { Err(LongConnectionsFull { limit }) }
+    }
+
+    /// A long place for a connection that holds its long work already
+    /// (`ConnectionLease::join_terminal`): no bound applies, see
+    /// `TerminalLane::enter`.
+    pub(super) fn enter(&self, client: Option<u32>) {
+        self.lane.enter(client);
     }
 
     pub(super) fn release(&self, client: Option<u32>) {
