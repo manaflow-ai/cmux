@@ -890,6 +890,22 @@ const UNSEEN_READER_MOVE_PX = FOLLOW_BOTTOM_DEADBAND_PX;
 
 /// How long a followed view keeps the room a queued prompt's card left, for the prompt to arrive.
 const FLOOR_HOLD_MS = 1000;
+/// How long the slim arm's turn end waits for its reply's last lines (`endReveal`): the reveal's
+/// drain (StreamReveal.finishMs) from the frame after the end, and a few frames.
+const END_REVEAL_MS = StreamReveal.finishMs + 60;
+/// Whether the turn `after` ends still reveals its reply: the reply streamed in `before`, and the
+/// update brings it more text to show. O(1): a few rows from the end.
+function replyRevealing(before: readonly AcpmuxRow[], after: readonly AcpmuxRow[]): boolean {
+  for (let index = before.length - 1; index >= Math.max(0, before.length - 8); index -= 1) {
+    const row = before[index]!;
+    if (row.kind !== "assistant") continue;
+    if (!row.streaming) return false;
+    for (let at = after.length - 1; at >= Math.max(0, after.length - 12); at -= 1)
+      if (after[at]!.id === row.id) return true;
+    return false;
+  }
+  return false;
+}
 
 /// How long after a send from the latest row the rows that come still rise on its glide: the prompt's
 /// own row and its reply's first rows (acpmux's echo, the live line) land within it.
@@ -1445,7 +1461,7 @@ function TranscriptView({
   // The streaming reply's newer text, when the pane has not redrawn for it (streamingRow.ts): that
   // row only, in place, with its version moved on by the chunks it is ahead.
   const live = useStreamingRow(streams);
-  const rows = useMemo(() => {
+  const arrivedRows = useMemo(() => {
     if (!streams || !live) return paneRows;
     for (let index = paneRows.length - 1; index >= 0; index -= 1) {
       const row = paneRows[index]!;
@@ -1466,6 +1482,58 @@ function TranscriptView({
     }
     return paneRows;
   }, [paneRows, live, streams]);
+  // `scroll` events also fire for layout-driven writes to scrollTop. Keep the user's intent in a
+  // ref so those events cannot turn a pinned transcript into a one-frame jump when the composer
+  // stack changes height.
+  const followingRef = useRef(true);
+  /// The slim follow arm's turn end waits for its reply (`endReveal` below).
+  const [slimEndWaits] = useState(() => experimentArm(followMotion) === "send");
+  /// A turn that ends while its reply still reveals, on the slim arm with the view followed: the rows
+  /// keep the running turn's shape (its live line, the calls still in sight), each row that goes on
+  /// drawn as it is now, so the reply gets its last text and reveals it at its own pace (StreamReveal
+  /// drains what is left in `finishMs`). Then the turn's end lands, and its fold (turnEndFold.ts)
+  /// plays once, on the reply's final height. Folding first brought the rows above down to meet the
+  /// folded line and the reply's last lines took them back up (agent-pane-settled-load: the asked
+  /// reply's bottom from 3 px over the view's top to 25 px in it, then out again, 7272 to 7489 ms).
+  /// The blocks arm's lagging chase took that rise. The wait ends at `until`, when the update no
+  /// longer ends that turn (a new one runs), the reader leaves the latest row, or another chat shows.
+  const endReveal = useRef<{ before: readonly AcpmuxRow[]; until: number; sessionId?: string } | undefined>(undefined);
+  const [endRevealTick, endRevealed] = useReducer((count: number) => count + 1, 0);
+  const shownBefore = useRef(arrivedRows);
+  const rows = useMemo(() => {
+    let wait = endReveal.current;
+    if (
+      wait &&
+      (performance.now() >= wait.until ||
+        wait.sessionId !== sessionId ||
+        !followingRef.current ||
+        !endsTurn(wait.before, arrivedRows))
+    )
+      wait = endReveal.current = undefined;
+    const before = shownBefore.current;
+    if (
+      !wait &&
+      slimEndWaits &&
+      followingRef.current &&
+      endsTurn(before, arrivedRows) &&
+      replyRevealing(before, arrivedRows)
+    )
+      wait = endReveal.current = { before, until: performance.now() + END_REVEAL_MS, sessionId };
+    if (!wait) return arrivedRows;
+    const now = new Map(arrivedRows.map((row) => [row.id, row]));
+    return wait.before.map((row) => {
+      const next = now.get(row.id);
+      return next && next.kind === row.kind ? next : row;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the wait's own clock re-runs it (`endRevealed`)
+  }, [arrivedRows, sessionId, slimEndWaits, endRevealTick]);
+  shownBefore.current = rows;
+  const endRevealUntil = endReveal.current?.until;
+  useEffect(() => {
+    if (endRevealUntil === undefined) return;
+    const timer = setTimeout(endRevealed, Math.max(0, endRevealUntil - performance.now()) + 1);
+    return () => clearTimeout(timer);
+  }, [endRevealUntil]);
   // What this transcript drew of the pane's streaming reply: the pane takes the fast path only
   // while that row is drawn as the client holds it.
   useLayoutEffect(() => {
@@ -1575,10 +1643,6 @@ function TranscriptView({
   followChase.current ??= createFollowChase(slimFollow ? "blocks" : followArm);
   /// Freezes the composer growth's rise of the rows where it is painted (the dock's effect sets it).
   const freezeGrowthRise = useRef<() => void>(() => {});
-  // `scroll` events also fire for layout-driven writes to scrollTop. Keep the user's intent in a
-  // ref so those events cannot turn a pinned transcript into a one-frame jump when the composer
-  // stack changes height.
-  const followingRef = useRef(true);
   const followDeferred = useRef(false);
   /// A send or a move toward the latest row asks to follow now, through the input hold that defers
   /// follow-bottom. It lasts until the reader's next input (userScroll.ts `request`).
