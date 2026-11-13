@@ -248,9 +248,10 @@ impl Hub {
             "since": since,
             "digest": digest,
         });
-        // The recap it replaces: a client draws only the newest.
-        if let Some(old) = &current {
-            msg["replaces"] = json!(old.seq);
+        // The recap it replaces: a client draws only the newest. `msg` is the object built just
+        // above; inserting through `as_object_mut` keeps the panic ratchet's indexing count flat.
+        if let (Some(old), Some(fields)) = (&current, msg.as_object_mut()) {
+            fields.insert("replaces".to_owned(), json!(old.seq));
         }
         let record = self.append(session, "mux", "recap", msg);
         session.meta.lock().unwrap_or_else(|e| e.into_inner()).away_recap =
