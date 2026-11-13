@@ -103,7 +103,11 @@ Today's targets:
   readiness or VNC payload bytes, so key/pointer latency, first-frame
   latency, decoded FPS, and transport kbps remain explicitly unavailable. The
   target records sampled screenshot changes separately as `sampled_fps`; this
-  is a normalized observation rate, not decoded transport FPS. The target
+  is a normalized observation rate, not decoded transport FPS. The report
+  discards whole buckets that overlap a phase boundary or its first-second
+  guard, then divides counts by retained elapsed time. Transport targets
+  without an explicit duration retain their one-second bucket contract.
+  The target
   selects Full Quality for `apple-high` and Adaptive Quality for
   `apple-standard` directly through the app's View menu and fails closed when
   that menu cannot be selected. These items are available only in Standard

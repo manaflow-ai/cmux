@@ -27,6 +27,7 @@ New fields may be added; a field is never renamed or given another meaning witho
 from __future__ import annotations
 
 import json
+import math
 import statistics
 import sys
 from pathlib import Path
@@ -50,15 +51,27 @@ def phase_numbers(series: list[dict], phases: dict[str, dict]) -> tuple[dict, di
     kbps, fps, sampled_fps, encode, decode = {}, {}, {}, {}, {}
     for name in WINDOW_PHASES:
         span = phases.get(name)
-        rows = [] if not span else [s for s in series if span["start_unix_ms"] + PHASE_GUARD_MS < s["unix_ms"] <= span["end_unix_ms"]]
+        rows = []
+        if span:
+            for sample in series:
+                # Fixed-second transport buckets may omit duration. Explicit durations
+                # describe the whole bucket ending at unix_ms. Discard overlaps rather
+                # than inventing when the counted frames or bytes arrived.
+                duration = sample.get("duration_ms", 1000)
+                if type(duration) not in (int, float) or not math.isfinite(duration) or duration <= 0:
+                    continue
+                if (span["start_unix_ms"] + PHASE_GUARD_MS <= sample["unix_ms"] - duration
+                        and sample["unix_ms"] <= span["end_unix_ms"]):
+                    rows.append(sample)
         if not rows:
             kbps[name] = fps[name] = sampled_fps[name] = encode[name] = decode[name] = None
             continue
         byte_rows = [s.get("bytes") for s in rows]
-        kbps[name] = (round(sum(byte_rows) * 8 / 1000 / len(rows), 1)
+        elapsed_s = sum(s.get("duration_ms", 1000) for s in rows) / 1000
+        kbps[name] = (round(sum(byte_rows) * 8 / 1000 / elapsed_s, 1)
                       if all(isinstance(value, (int, float)) for value in byte_rows) else None)
         frame_rows = [s.get("frames") for s in rows]
-        fps[name] = (round(sum(frame_rows) / len(frame_rows), 1)
+        fps[name] = (round(sum(frame_rows) / elapsed_s, 1)
                      if all(isinstance(value, (int, float)) for value in frame_rows) else None)
         sampled_rows = [s.get("sampled_changes") for s in rows]
         durations = [s.get("duration_ms") for s in rows]
