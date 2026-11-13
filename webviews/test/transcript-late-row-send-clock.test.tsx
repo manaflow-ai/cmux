@@ -272,10 +272,10 @@ test("a sent thinking row keeps its instant marker across finished activity rows
       await nextFrame();
     });
   try {
-    await render(history, 0);
+    await render(history.slice(0, 3), 0);
     const prompt = row("marker-prompt", "user", "A new question");
     const rows = [
-      ...history,
+      ...history.slice(0, 3),
       prompt,
       row("working-marker", "working", "Working for"),
       row("finished-marker-1", "activity", "Ran a command"),
