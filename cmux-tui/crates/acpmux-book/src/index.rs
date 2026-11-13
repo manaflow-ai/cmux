@@ -63,7 +63,7 @@ impl RowKey {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ForkOf {
     #[serde(flatten)]
     pub key: RowKey,
@@ -338,6 +338,19 @@ pub struct OriginRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extra: Option<Box<RawValue>>,
 }
+
+impl PartialEq for OriginRecord {
+    fn eq(&self, other: &Self) -> bool {
+        self.seq == other.seq
+            && self.id == other.id
+            && self.state == other.state
+            && self.since == other.since
+            && self.extra.as_ref().map(|extra| extra.get())
+                == other.extra.as_ref().map(|extra| extra.get())
+    }
+}
+
+impl Eq for OriginRecord {}
 
 fn local_origin() -> String {
     "local".to_owned()
